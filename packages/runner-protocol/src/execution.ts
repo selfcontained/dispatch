@@ -89,12 +89,19 @@ export type RemoteLaunch = {
    * answers a repeat of the same ID from that record. Older runners ignore it.
    */
   launchId?: string;
+  /** Controller that owns this launch, sent to peers with sessionObservation. */
+  owner?: string;
 };
 
 export type SessionLifecycleOperation = { agentId: string } & (
   | { kind: "launch"; launch: RemoteLaunch }
   | { kind: "attach" | "alive" | "discard" | "log" }
-  | { kind: "stop"; force: boolean; expectedLaunchId?: string }
+  | {
+      kind: "stop";
+      force: boolean;
+      expectedLaunchId?: string;
+      expectedOwner?: string;
+    }
 );
 
 export type GitQueryName = "git.defaultBranch" | "git.branches" | "git.base";
@@ -142,6 +149,10 @@ export type SessionOperation =
   | { agentId: string; kind: "checkoutRelease"; operation: CheckoutRelease }
   | { agentId: string; kind: "repo" };
 
+export type SessionObservation = {
+  [K in "session.list" | "session.sample"]: { op: K; request: Req<K> };
+}["session.list" | "session.sample"];
+
 export type RunnerOperation =
   | { kind: "engine"; operation: EngineOperation }
   | { kind: "github"; operation: GitHubOperation };
@@ -150,6 +161,11 @@ export type RunnerOperation =
 export type Command = { workspace: string } & (
   | SessionOperation
   | (RunnerOperation & { agentId: string })
+  | {
+      kind: "sessionObservation";
+      operation: SessionObservation;
+      agentId: string;
+    }
 );
 export type ReadyFrame = {
   type: "ready";
@@ -181,6 +197,8 @@ export type ReadyFrame = {
   /** A launch starts directly from a workspace preparation receipt. */
   preparedLaunch?: true;
   gitQueries?: true;
+  /** This v1 peer serves session inventory and process samples. */
+  sessionObservation?: true;
   workspaceRelease?: true;
   sessionCheckout?: true;
   checkoutRelease?: true;
@@ -221,6 +239,7 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     version: RUNNER_WIRE_VERSION,
     workspaces: frame.workspaces,
     ...(frame.preparedLaunch === true && { preparedLaunch: true }),
+    ...(frame.sessionObservation === true && { sessionObservation: true }),
     ...(frame.gitQueries === true && { gitQueries: true }),
     ...(frame.workspacePrepare === true && { workspacePrepare: true }),
     ...(frame.workspaceRelease === true && { workspaceRelease: true }),
@@ -429,6 +448,7 @@ function isRemoteLaunch(value: unknown): value is RemoteLaunch {
       isNullableString(value.personaContext)) &&
     (value.prepareWorkspace === undefined || value.prepareWorkspace === true) &&
     (value.launchId === undefined || isUpdateAttemptId(value.launchId)) &&
+    (value.owner === undefined || isOpaqueId(value.owner)) &&
     (value.mcp === undefined || isServiceMcp(value.mcp)) &&
     (value.useWorktreeOf === undefined ||
       (isOpaqueId(value.useWorktreeOf) &&
@@ -452,6 +472,14 @@ function isCommand(value: unknown): value is Command {
         (value.launch.useWorktreeOf === undefined ||
           value.agentId === value.launch.agentId)
       );
+    case "sessionObservation": {
+      const op = value.operation;
+      return (
+        isRecord(op) &&
+        (op.op === "session.list" || op.op === "session.sample") &&
+        operations[op.op].request.check(op.request)
+      );
+    }
     case "gitQuery": {
       const op = value.operation;
       return (
@@ -526,7 +554,10 @@ function isCommand(value: unknown): value is Command {
       return (
         typeof value.force === "boolean" &&
         (value.expectedLaunchId === undefined ||
-          isUpdateAttemptId(value.expectedLaunchId))
+          isUpdateAttemptId(value.expectedLaunchId)) &&
+        (value.expectedOwner === undefined ||
+          (isOpaqueId(value.expectedOwner) &&
+            isUpdateAttemptId(value.expectedLaunchId)))
       );
     case "engine":
       return isEngineOperation(value.operation);

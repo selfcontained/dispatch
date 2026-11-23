@@ -1,3 +1,4 @@
+import { sessionFromWire } from "@dispatch/runner-protocol/contract";
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:net";
@@ -2249,6 +2250,76 @@ describe("runner session supervision", () => {
         (await stat(path.join(state, "bindings", agentId + ".launch"))).mode &
         0o777;
       expect(mode).toBe(0o600);
+    });
+
+    it("lists a bound launch and samples nonzero CPU for its busy host", async () => {
+      const runner = await start(["main", "another-owner"]);
+      const child = spawn(
+        process.execPath,
+        ["-e", "console.log('ready'); for (;;) {}"],
+        { stdio: ["ignore", "pipe", "ignore"] }
+      );
+      const exited = once(child, "exit");
+      try {
+        await once(child.stdout!, "data");
+        processes.spawn.mockImplementationOnce(
+          async (_command, _cwd, _env, _log, save) => {
+            const busyHost = { ...identity, pid: child.pid! };
+            await save(busyHost);
+            kernelHost = busyHost;
+          }
+        );
+        const command = withId("main", LAUNCH);
+        await runner.launch(
+          { ...command, launch: { ...command.launch, owner: "controller-a" } },
+          root
+        );
+        const session = sessionFromWire(agentId);
+        expect(await runner.listSessions("main", "controller-a")).toMatchObject(
+          {
+            sessions: [
+              {
+                session,
+                state: "live",
+                launchId: LAUNCH,
+                instanceId: expect.any(String),
+                build,
+              },
+            ],
+          }
+        );
+        expect(await runner.listSessions("another-owner")).toEqual({
+          sessions: [],
+        });
+        expect(await runner.sampleSessions("another-owner", [session])).toEqual(
+          { samples: [] }
+        );
+        await expect
+          .poll(
+            async () =>
+              (await runner.sampleSessions("main", [session])).samples[0]
+                ?.cpuPercent
+          )
+          .toBeGreaterThan(0);
+        const { samples } = await runner.sampleSessions("main", [session]);
+        expect(samples[0]?.rssBytes).toBeGreaterThan(0);
+        expect(await runner.listSessions("main", "controller-b")).toEqual({
+          sessions: [],
+        });
+        expect(
+          await runner.stop(agentId, "main", true, LAUNCH, "controller-b")
+        ).toBe(false);
+        expect(processes.stop).not.toHaveBeenCalled();
+        await runner.stop(agentId, "main", true, LAUNCH, "controller-a");
+        expect(processes.stop).toHaveBeenCalledWith(
+          expect.objectContaining({ pid: child.pid }),
+          true
+        );
+        expect((await runner.listSessions("main")).sessions).toEqual([]);
+      } finally {
+        child.kill();
+        await exited;
+      }
     });
 
     it("ignores a stop for an older launch and stops the requested launch once", async () => {

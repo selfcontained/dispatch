@@ -15,6 +15,8 @@ type HostMessage = Infer<typeof hostMessage>;
 type JournalEvent = Extract<HostMessage, { type: "event" }>;
 type SessionChannel = CallerChannel<"session.attach">;
 
+export const CONFORMANCE_OWNER = "conformance-controller";
+
 export function launchRequest(
   session: SessionHandle,
   config: Partial<Pick<Req<"session.launch">, "env" | "mcp">> = {}
@@ -32,7 +34,7 @@ export function launchRequest(
     overflowNotice: null,
     env: {},
     mcp: [],
-    owner: null,
+    owner: CONFORMANCE_OWNER,
     ...config,
   };
 }

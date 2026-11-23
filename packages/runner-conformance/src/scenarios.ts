@@ -18,7 +18,13 @@ import {
   type Runner,
   type SessionHandle,
 } from "@dispatch/runner-protocol/contract";
-import { launchRequest, promptSession, replay, turnText } from "./session.js";
+import {
+  CONFORMANCE_OWNER,
+  launchRequest,
+  promptSession,
+  replay,
+  turnText,
+} from "./session.js";
 import { OPERATION_TASK, SCENARIO_TASK } from "./tasks.js";
 
 export type LaneFixture = {
@@ -353,6 +359,62 @@ const written: Scenario[] = [
         ),
         "The list omitted the live session."
       );
+    },
+  },
+  {
+    id: "session.list/owner",
+    op: "session.list",
+    async run({ runner, session }) {
+      const owned = await runner.call("session.list", {
+        owner: CONFORMANCE_OWNER,
+      });
+      expect(
+        owned.sessions.some(
+          (entry) =>
+            entry.session === session &&
+            entry.state === "live" &&
+            entry.launchId
+        ),
+        "The list omitted the controller's launch."
+      );
+      const foreign = await runner.call("session.list", {
+        owner: "another-controller",
+      });
+      expect(
+        foreign.sessions.every((entry) => entry.session !== session),
+        "The list included a session belonging to another controller."
+      );
+    },
+  },
+  {
+    id: "session.sample/live",
+    op: "session.sample",
+    async run({ runner, session }) {
+      const { samples } = await runner.call("session.sample", {
+        sessions: [session, session, UNKNOWN_SESSION],
+      });
+      expect(
+        samples.length === 1 && samples[0]?.session === session,
+        "Expected one sample for the live session."
+      );
+      const sample = samples[0]!;
+      expect(
+        sample.supported &&
+          sample.error === null &&
+          sample.cpuPercent !== null &&
+          sample.cpuPercent >= 0 &&
+          (sample.rssBytes ?? 0) > 0 &&
+          (sample.processCount ?? 0) > 0,
+        "Expected CPU and memory for the live host process tree."
+      );
+    },
+  },
+  {
+    id: "session.sample/empty",
+    op: "session.sample",
+    async run({ runner }) {
+      const { samples } = await runner.call("session.sample", { sessions: [] });
+      expect(samples.length === 0, "An empty request returned samples.");
     },
   },
   {

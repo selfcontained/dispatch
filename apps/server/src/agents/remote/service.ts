@@ -234,6 +234,7 @@ type Peer = {
   /** Reconciles a repeated `launch.launchId` instead of running it again. */
   launchReconcile: boolean;
   scopedStop: boolean;
+  sessionObservation: boolean;
   /** Last pushed, validated engine inventory; absent until the runner first reports one. */
   engines?: EngineInventoryEntry[];
 };
@@ -1001,6 +1002,7 @@ export class RemoteRunnerService {
           workspaceRelease: ready.workspaceRelease === true,
           launchReconcile: ready.launchReconcile === true,
           scopedStop: ready.scopedStop === true,
+          sessionObservation: ready.sessionObservation === true,
           connection: new RunnerConnection(send),
           ...(ready.streamCredit && { streams: new FlowStreams(socket, send) }),
           send,
@@ -2345,6 +2347,36 @@ export class RemoteRunnerService {
     return undefined;
   }
 
+  sessionObservationTargets(runnerId: string): Placement[] | undefined {
+    const peer = this.peers.get(runnerId);
+    if (!peer?.gate.approved() || !peer.sessionObservation) return undefined;
+    return [...peer.workspaces]
+      .filter((workspace) => peer.gate.allows(workspace))
+      .map((workspace) => ({ runner: runnerId, workspace }));
+  }
+
+  async observeSessions(
+    placement: Placement,
+    operation: Extract<Command, { kind: "sessionObservation" }>["operation"]
+  ): Promise<unknown> {
+    const peer = this.workspacePeer(placement);
+    if (!peer?.sessionObservation) return undefined;
+    const { value } = await this.request(
+      placement,
+      {
+        kind: "sessionObservation",
+        workspace: placement.workspace,
+        agentId: "runner",
+        operation,
+      },
+      false,
+      undefined,
+      undefined,
+      peer
+    );
+    return typeof value === "string" ? JSON.parse(value) : null;
+  }
+
   available(placement: Placement) {
     return Boolean(this.workspacePeer(placement));
   }
@@ -2463,12 +2495,20 @@ export class RemoteRunnerService {
       };
     if (
       command.kind === "stop" &&
-      command.expectedLaunchId !== undefined &&
-      !peer.scopedStop
+      ((command.expectedLaunchId !== undefined && !peer.scopedStop) ||
+        (command.expectedOwner !== undefined && !peer.sessionObservation))
     )
       throw new RunnerCapabilityUnavailable(
         "This runner cannot stop a specific launch."
       );
+    if (
+      command.kind === "launch" &&
+      command.launch.owner !== undefined &&
+      !peer.sessionObservation
+    ) {
+      const { owner: _owner, ...launch } = command.launch;
+      command = { ...command, launch };
+    }
     if (
       command.kind === "launch" &&
       command.launch.launchId !== undefined &&

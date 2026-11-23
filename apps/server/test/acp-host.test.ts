@@ -865,7 +865,12 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
     const session = await first.runtime.launch(launchFor(agentId, cwd));
     expect(session.sessionId).toMatch(/^fake_claude_/);
     expect(await first.runtime.isAlive(agentId)).toBe(true);
-    expect(await first.runtime.hostPid(agentId)).toBeGreaterThan(0);
+    expect(await first.runtime.sampleSessions!(null, [agentId])).toEqual([
+      expect.objectContaining({
+        session: agentId,
+        rssBytes: expect.any(Number),
+      }),
+    ]);
     expect(await first.runtime.listHosted()).toEqual([agentId]);
     await until(() => first.runtime.getCommands(agentId)?.length === 2);
     expect(first.runtime.getCommands(agentId)?.map((c) => c.name)).toEqual([
@@ -982,7 +987,7 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
       const input = ${JSON.stringify(input)};
       await runtime.launch({...input, agentId: ${JSON.stringify(parentId)}});
       const {sessionId}=await runtime.launch(input);
-      const pid=await runtime.hostPid(input.agentId);
+      const pid=Number(await Bun.file(${JSON.stringify(path.join(stateRoot, id, "host.pid"))}).text());
       let cursor = 0;
       runtime.onEvent((id, _, seq) => {
         if (id === input.agentId) cursor = Math.max(cursor, seq);
@@ -1031,7 +1036,9 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
         activity: "busy",
         cursor: { journalId },
       });
-      expect(await runtime.hostPid(id)).toBe(checkpoint.pid);
+      expect(
+        Number(readFileSync(path.join(stateRoot, id, "host.pid"), "utf8"))
+      ).toBe(checkpoint.pid);
       expect(runtime.getPermissions(id).requests[0]?.id).toBe(
         checkpoint.permissionId
       );

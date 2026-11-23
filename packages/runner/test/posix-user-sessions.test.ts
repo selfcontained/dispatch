@@ -474,5 +474,79 @@ describe("the local runner's session family", () => {
       join(live, "ownership"),
     ])
       expect(existsSync(file)).toBe(true);
+
+    const session = sessionFromWire("agt_live");
+    const sample = await call["session.sample"]!(
+      { sessions: [session, sessionFromWire("agt_stale")] },
+      context
+    );
+    expect(sample).toEqual({
+      samples: [
+        expect.objectContaining({
+          session,
+          supported: true,
+          rssBytes: expect.any(Number),
+          processCount: 1,
+          error: null,
+        }),
+      ],
+    });
+
+    const launchId = "recorded-launch";
+    const owner = "controller-a";
+    const launchFile = posixUserLayout(dir).launchFile("agt_live");
+    const record = (hostInstanceId: string) =>
+      posixUserState.write(
+        launchFile,
+        JSON.stringify({
+          launchId,
+          owner,
+          stage: "spawning",
+          hostInstanceId,
+        })
+      );
+    const list = () => call["session.list"]!({ owner: null }, context);
+    await record("TEST_OWNED_foreign=1");
+    expect(await list()).toMatchObject({
+      sessions: [{ session, state: "live" }, { state: "stale" }],
+    });
+    expect(await list()).not.toMatchObject({
+      sessions: [expect.objectContaining({ launchId }), expect.anything()],
+    });
+    await call["session.stop"]!(
+      { session, force: true, expectedLaunchId: launchId },
+      context
+    );
+    expect(alive(host.pid!)).toBe(true);
+    await record("TEST_OWNED_live=1");
+    expect(
+      await call["session.list"]!({ owner: "controller-b" }, context)
+    ).toEqual({ sessions: [] });
+    expect(await call["session.list"]!({ owner }, context)).toEqual({
+      sessions: [{ session, state: "live", launchId }],
+    });
+    await call["session.stop"]!(
+      {
+        session,
+        force: true,
+        expectedLaunchId: launchId,
+        expectedOwner: "controller-b",
+      },
+      context
+    );
+    expect(alive(host.pid!)).toBe(true);
+    expect(await list()).toMatchObject({
+      sessions: [{ session, state: "live", launchId }, { state: "stale" }],
+    });
+    await call["session.stop"]!(
+      {
+        session,
+        force: true,
+        expectedLaunchId: launchId,
+        expectedOwner: owner,
+      },
+      context
+    );
+    expect(alive(host.pid!)).toBe(false);
   });
 });

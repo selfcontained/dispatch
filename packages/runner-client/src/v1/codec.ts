@@ -71,7 +71,6 @@ export const IMPLIED = {
   "session.launch": {
     overflowNotice: "T24: the v1 host composes the overflow text itself",
     env: "T24: the v1 supervisor builds the session environment",
-    owner: "v1 has no owner",
     directory: "v1 starts in its workspace's directory",
     programs: "v1 resolves its own programs",
     pathPrefix: "v1 builds its own PATH",
@@ -151,7 +150,14 @@ function decoded<K extends OpName>(
 function decodeLaunch(command: Command & { kind: "launch" }, frameId: string) {
   const launch = command.launch;
   const absent: string[] = (
-    ["fullAccess", "effort", "personaContext", "mcp", "launchId"] as const
+    [
+      "fullAccess",
+      "effort",
+      "personaContext",
+      "mcp",
+      "launchId",
+      "owner",
+    ] as const
   ).filter((field) => launch[field] === undefined);
   if (launch.mcp && launch.mcp.name === undefined) absent.push("mcp.name");
   const extras: AnyRecord = {};
@@ -187,7 +193,7 @@ function decodeLaunch(command: Command & { kind: "launch" }, frameId: string) {
             },
           ]
         : [],
-      owner: null,
+      owner: launch.owner ?? null,
     },
     extras,
     absent
@@ -230,6 +236,7 @@ function encodeLaunch(
       prepareWorkspace: true as const,
     }),
     ...(keep("launchId") && { launchId: request.launchId }),
+    ...(keep("owner") && request.owner !== null && { owner: request.owner }),
   };
 }
 
@@ -569,6 +576,7 @@ export function decodeCommand(
   switch (command.kind) {
     case "launch":
       return withWorkspace(decodeLaunch(command, frameId));
+    case "sessionObservation":
     case "gitQuery":
       return runnerWide(
         decoded(command.operation.op, command.operation.request)
@@ -591,7 +599,16 @@ export function decodeCommand(
       return withWorkspace(decoded("session.discard", { session }));
     case "stop":
       return withWorkspace(
-        decoded("session.stop", { session, force: command.force })
+        decoded("session.stop", {
+          session,
+          force: command.force,
+          ...(command.expectedLaunchId !== undefined && {
+            expectedLaunchId: command.expectedLaunchId,
+          }),
+          ...(command.expectedOwner !== undefined && {
+            expectedOwner: command.expectedOwner,
+          }),
+        })
       );
     case "log":
       return withWorkspace(decoded("session.logs", { session, lines: 20 }));
@@ -733,6 +750,15 @@ export function encodeCommand(input: Decoded | LegacyCommand): Command {
       >["operation"],
     };
   }
+  if (op === "session.list" || op === "session.sample")
+    return {
+      ...base((extras.agentId ?? "runner") as string),
+      kind: "sessionObservation",
+      operation: { op, request: input.request } as Extract<
+        Command,
+        { kind: "sessionObservation" }
+      >["operation"],
+    };
   const agentId = sessionOf(r);
   const session = base(agentId);
   switch (op) {
@@ -749,7 +775,17 @@ export function encodeCommand(input: Decoded | LegacyCommand): Command {
     case "session.discard":
       return { ...session, kind: "discard" };
     case "session.stop":
-      return { ...session, kind: "stop", force: r.force as boolean };
+      return {
+        ...session,
+        kind: "stop",
+        force: r.force as boolean,
+        ...(typeof r.expectedLaunchId === "string" && {
+          expectedLaunchId: r.expectedLaunchId,
+        }),
+        ...(typeof r.expectedOwner === "string" && {
+          expectedOwner: r.expectedOwner,
+        }),
+      };
     case "session.logs":
       return { ...session, kind: "log" };
     case "terminal.open":
@@ -983,6 +1019,9 @@ export function decodeResult<K extends OpName>(
     case "session.discard":
     case "checkout.watch":
       return out({});
+    case "session.list":
+    case "session.sample":
+      return out(parse(value));
     case "session.alive":
       return out({ state: value === true ? "live" : "gone" });
     case "session.logs":
@@ -1144,6 +1183,9 @@ export function encodeResult<K extends OpName>(
     case "session.discard":
     case "checkout.watch":
       return true;
+    case "session.list":
+    case "session.sample":
+      return JSON.stringify(response);
     case "session.alive":
       return res.state === "live";
     case "session.logs":
@@ -1340,8 +1382,6 @@ export function encodeUpdateStatus(
 export const NOT_ON_V1 = {
   "runner.describe": "derived from the v1 ready frame plus registry fields",
   "runner.health": "v1 pushes health frames after accept_health",
-  "session.list": "local-only today (listHosted, inspectHost)",
-  "session.sample": "local-only today (process-tree sampling)",
   "path.resolve": "controller-machine probe today (D7)",
   "path.complete": "controller-machine probe today (D7)",
   "checkout.write": "local-only today (persona authoring)",

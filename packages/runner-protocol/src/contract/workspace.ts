@@ -99,6 +99,8 @@ export const branchList = object({
 export const sessionSummary = object({
   session: sessionHandle,
   state: hostState,
+  /** Present when the runner can tie the host identity to this launch. */
+  launchId: optional(string),
   instanceId: optional(string),
   build: optional(build),
 });

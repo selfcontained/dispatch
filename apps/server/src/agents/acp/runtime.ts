@@ -12,6 +12,8 @@ import {
   sessionFromWire,
   sessionToWire,
   type Req,
+  type Res,
+  operations,
 } from "@dispatch/runner-protocol/contract";
 import {
   localHostChannel,
@@ -23,7 +25,6 @@ import {
   controllerPlacement,
   runnerIdForPlacement,
 } from "../../runners/placement.js";
-import { createLocalRunner } from "../local-runner.js";
 export { selfCommand, hostCommand, loginShellCommand } from "./host-command.js";
 
 import type { FastifyBaseLogger } from "fastify";
@@ -415,7 +416,11 @@ export type AcpRuntimeDeps = {
     Partial<
       Pick<
         RemoteRunnerService,
-        "connectionEpoch" | "reconcilesLaunches" | "supportsScopedStop"
+        | "connectionEpoch"
+        | "reconcilesLaunches"
+        | "supportsScopedStop"
+        | "observeSessions"
+        | "sessionObservationTargets"
       >
     >;
   /**
@@ -434,6 +439,7 @@ export type AcpRuntimeDeps = {
   recoverRemoteEvent?: (agentId: string) => Promise<void>;
   placement?: (agentId: string) => Promise<Placement | null>;
   recordLaunch?: (agentId: string, launchId: string | null) => Promise<void>;
+  sessionOwner?: () => Promise<string>;
   classifySteering?: ClassifySteering;
   config: Pick<
     AppConfig,
@@ -583,8 +589,6 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     }
   }
 
-  // Reads the recorded host pid for resource sampling; it signals nothing.
-  const local = createLocalRunner(config.agentStateRoot, logger);
   function requestSession(
     placement: Placement | null | undefined,
     operation: SessionLifecycleOperation,
@@ -659,6 +663,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
               force: operation.force,
               ...(operation.expectedLaunchId !== undefined && {
                 expectedLaunchId: operation.expectedLaunchId,
+              }),
+              ...(operation.expectedOwner !== undefined && {
+                expectedOwner: operation.expectedOwner,
               }),
             },
             { wait: false, timeoutMs: 30_000 }
@@ -1805,6 +1812,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         programs:
           bins && binsToPrograms({ ...bins, adapter: config.acpAdapter }),
       });
+      request.owner = (await deps.sessionOwner?.()) ?? null;
       await deps.recordLaunch?.(
         input.agentId,
         !placement
@@ -1818,7 +1826,10 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         {
           kind: "launch",
           agentId: input.agentId,
-          launch,
+          launch: {
+            ...launch,
+            ...(request.owner !== null && { owner: request.owner }),
+          },
         },
         request,
         onWorkspaceProgress,
@@ -2149,7 +2160,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       if (recycle?.restarting) await recycle.entry.events;
     },
 
-    async retryStop(agentId, force, placement, expectedLaunchId) {
+    async retryStop(agentId, force, placement, expectedLaunchId, ownerOnly) {
+      const expectedOwner = ownerOnly ? await deps.sessionOwner?.() : undefined;
+      if (ownerOnly && (!expectedOwner || !expectedLaunchId)) return;
       // A background attempt must not hold up a later Start while waiting
       // for an update. The runner can refuse admission until it thaws.
       await requestSession(placement, {
@@ -2157,6 +2170,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         agentId,
         force,
         expectedLaunchId,
+        ...(expectedOwner !== undefined && { expectedOwner }),
       });
     },
 
@@ -2256,18 +2270,90 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       }
     },
 
-    async listHosted() {
-      const { sessions } = await readLocalSession(
-        localChild(),
-        "session.list",
-        { owner: null }
+    async listSessions(placement, ownerOnly) {
+      const owner = ownerOnly ? await deps.sessionOwner?.() : null;
+      if (owner === undefined) return undefined;
+      if (!placement)
+        return readLocalSession(localChild(), "session.list", { owner });
+      const result = await deps.remote?.observeSessions?.(placement, {
+        op: "session.list",
+        request: { owner },
+      });
+      if (result === undefined) return undefined;
+      if (!operations["session.list"].response.check(result))
+        throw new Error("Invalid runner session list");
+      return result;
+    },
+
+    async listRunnerSessions(runnerId) {
+      const targets = deps.remote?.sessionObservationTargets?.(runnerId);
+      if (!targets) return undefined;
+      const lists = await Promise.all(
+        targets.map((target) => runtime.listSessions!(target))
       );
-      return sessions
+      if (lists.some((list) => list === undefined))
+        throw new RunnerUnavailable(
+          "Runner session inventory became unavailable."
+        );
+      return { sessions: lists.flatMap((list) => list?.sessions ?? []) };
+    },
+
+    inventoryLiveness() {
+      const lists = new Map<string, Promise<Res<"session.list"> | undefined>>();
+      return async (agentId) => {
+        if (
+          live.get(agentId)?.client.isConnected() ||
+          recycleHolds.get(agentId)?.restarting
+        )
+          return true;
+        const placement = await placementOf(agentId);
+        const key = JSON.stringify(placement);
+        let list = lists.get(key);
+        if (!list) {
+          list = runtime.listSessions!(placement).catch((error) => {
+            if (
+              placement &&
+              (isSessionUnavailable(error) || error instanceof RunnerRevoked)
+            )
+              return undefined;
+            throw error;
+          });
+          lists.set(key, list);
+        }
+        const inventory = await list;
+        return inventory
+          ? inventory.sessions.some(
+              (session) =>
+                sessionToWire(session.session) === agentId &&
+                session.state === "live"
+            )
+          : runtime.isAlive(agentId);
+      };
+    },
+
+    async listHosted() {
+      const inventory = await runtime.listSessions!(null);
+      return (inventory?.sessions ?? [])
         .filter((entry) => entry.state === "live")
         .map((entry) => sessionToWire(entry.session))
         .filter((id) => id.startsWith("agt_"));
     },
-    hostPid: local.hostPid,
+
+    async sampleSessions(placement, agentIds) {
+      if (!agentIds.length) return [];
+      const request = { sessions: agentIds.map(sessionFromWire) };
+      if (!placement)
+        return (await readLocalSession(localChild(), "session.sample", request))
+          .samples;
+      const result = await deps.remote?.observeSessions?.(placement, {
+        op: "session.sample",
+        request,
+      });
+      if (result === undefined) return [];
+      if (!operations["session.sample"].response.check(result))
+        throw new Error("Invalid runner session samples");
+      return result.samples;
+    },
 
     onEvent(listener) {
       listeners.add(listener);

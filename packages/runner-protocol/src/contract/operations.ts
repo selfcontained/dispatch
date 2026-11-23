@@ -196,6 +196,8 @@ export const operations = {
       idleOnly: optional(boolean),
       /** A delayed stop applies only to this launch. */
       expectedLaunchId: optional(string),
+      /** A sweep can only stop a launch belonging to this controller. */
+      expectedOwner: optional(string),
     }),
     response: empty,
     errors: ["busy"],

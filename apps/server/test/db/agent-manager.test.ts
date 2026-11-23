@@ -1,3 +1,4 @@
+import { sessionFromWire } from "@dispatch/runner-protocol/contract";
 import { withTestWorkspaceRunner } from "../helpers/test-workspace-runner.js";
 import * as checkoutIntent from "../../src/agents/checkout-intent.js";
 import { createMcpHandlers } from "../../src/server/mcp-handlers.js";
@@ -4203,19 +4204,70 @@ describe("AgentManager", () => {
       expect((await manager.getAgent(agent.id))!.status).toBe("running");
     });
 
+    it("uses the enrolled runner inventory for update drain", async () => {
+      const winner = {
+        agentId: "agt_live",
+        instanceId: "live-instance",
+        quiesceSupported: true,
+        attachedEpoch: 2,
+      };
+      runtime.runnerHosts = vi.fn(() => [
+        winner,
+        { ...winner, agentId: "agt_newer", instanceId: "older-instance" },
+      ]);
+      runtime.listRunnerSessions = vi.fn(async () => ({
+        sessions: [
+          {
+            session: sessionFromWire("agt_live"),
+            state: "live",
+            instanceId: "live-instance",
+          },
+          {
+            session: sessionFromWire("agt_newer"),
+            state: "live",
+            instanceId: "new-instance",
+          },
+          { session: sessionFromWire("agt_unknown"), state: "live" },
+          { session: sessionFromWire("agt_exited"), state: "gone" },
+        ],
+      }));
+      runtime.runnerHostAlive = vi.fn(async () => true);
+      expect(
+        await manager.runnerDrainHosts("runner-1", ["agt_exited"])
+      ).toEqual([
+        { id: "agt_live", host: winner },
+        { id: "agt_newer", host: undefined },
+        { id: "agt_unknown", host: undefined },
+      ]);
+      expect(runtime.runnerHostAlive).not.toHaveBeenCalled();
+    });
+
     it("should stop hosts left behind by stopped agents", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
         useWorktree: false,
       });
-      await pool.query(`UPDATE agents SET status = 'stopped' WHERE id = $1`, [
-        agent.id,
-      ]);
-      runtime.listHosted.mockResolvedValue([agent.id]);
+      const launchId = "6f1c2d3e-4a5b-4c6d-8e7f-8091a2b3c4d5";
+      await pool.query(
+        `UPDATE agents SET status = 'stopped', host_launch_id = $2 WHERE id = $1`,
+        [agent.id, launchId]
+      );
+      runtime.listSessions = vi.fn(async () => ({
+        sessions: [
+          { session: sessionFromWire(agent.id), state: "live", launchId },
+        ],
+      }));
+      runtime.retryStop = vi.fn(async () => {});
 
       await manager.reconcileAgents();
 
-      expect(runtime.stop).toHaveBeenCalledWith(agent.id, true);
+      expect(runtime.retryStop).toHaveBeenCalledExactlyOnceWith(
+        agent.id,
+        true,
+        null,
+        launchId,
+        true
+      );
     });
   });
 

@@ -368,7 +368,12 @@ async function verifyExecutionIdentity(
 }
 
 /** Host attach and inspection stay available behind the update fence. */
-const FENCE_EXEMPT = new Set<Command["kind"]>(["attach", "alive", "log"]);
+const FENCE_EXEMPT = new Set<Command["kind"]>([
+  "attach",
+  "alive",
+  "log",
+  "sessionObservation",
+]);
 
 /** Test seams. Production uses the installed root updater layout. */
 type WorkspaceOp =
@@ -1026,6 +1031,15 @@ export async function runRemoteRunner(
           throw new Error("Unknown runner workspace or agent");
         const result = (value?: string | boolean) =>
           safeSend({ type: "result", id, value });
+        if (command.kind === "sessionObservation") {
+          const { op, request } = command.operation;
+          const value =
+            op === "session.list"
+              ? await supervisor.listSessions(workspace, request.owner)
+              : await supervisor.sampleSessions(workspace, request.sessions);
+          result(JSON.stringify(value));
+          return;
+        }
         if (command.kind === "launch") {
           await supervisor.launch(
             command,
@@ -1827,7 +1841,8 @@ export async function runRemoteRunner(
               agentId,
               workspace,
               command.force,
-              command.expectedLaunchId
+              command.expectedLaunchId,
+              command.expectedOwner
             );
             if (stopped !== false) closeSessionTerminals(agentId, workspace);
             result(true);
@@ -1993,6 +2008,7 @@ export async function runRemoteRunner(
           sharedWorktree: true,
           launchReconcile: true,
           scopedStop: true,
+          sessionObservation: true,
           ...(advert ? { selfUpdate: advert } : {}),
         });
         updateConnection = updates.connect((frame) => {

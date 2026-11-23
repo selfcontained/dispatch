@@ -637,17 +637,7 @@ const serviceResources = new ServiceResources({
   probePool: serviceResourcesProbePool,
   artifactProbePool: createServiceResourcesProbePool(config),
   artifactRoots: [config.filesRoot, config.agentStateRoot],
-  listAgentProcesses: async () => {
-    const agents = await agentManager.listAgents();
-    const running = agents.filter((agent) =>
-      ["creating", "running", "stopping"].includes(agent.status)
-    );
-    return Promise.all(
-      running.map(async (agent) => ({
-        hostPid: await agentManager.hostPid(agent.id),
-      }))
-    );
-  },
+  sampleAgentSessions: () => agentManager.sampleAgentSessions(),
   getWorkloads: () => {
     const streamMetrics = streamManager.getMetrics();
     const jobMetrics = jobService.getRuntimeMetrics();
