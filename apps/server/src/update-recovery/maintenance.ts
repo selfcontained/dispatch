@@ -23,7 +23,8 @@ export type BusyReason = {
     | "host-busy"
     | "host-unattached"
     | "host-still-running"
-    | "resume-receipt";
+    | "resume-receipt"
+    | "local-runner";
   agentId?: string;
   detail?: string;
 };
@@ -53,6 +54,12 @@ export type MaintenanceDeps = {
    * keep writing during the backup. Returns hosts that are still running.
    */
   quiesceHosts: (transactionId: string) => Promise<BusyReason[]>;
+  /**
+   * The local runner's write fence, when this process runs one. `freeze`
+   * resolves only once the runner confirmed it; a rejection leaves its state
+   * unknown, so the fence fails. `thaw` is best effort on the way out.
+   */
+  runnerFence?: { freeze(): Promise<void>; thaw(): Promise<void> };
   /** Bounded DB identity and write probe inside a rolled-back transaction. */
   probeDatabase: () => Promise<DatabaseProbe>;
   /**
@@ -96,6 +103,8 @@ export class RecoveryMaintenance {
   private drainWaiters: Array<() => void> = [];
   private probationConfig: ProbationConfig | null;
   private probationReady = false;
+  /** A freeze was sent to the local runner and has not been released. */
+  private runnerFrozen = false;
 
   constructor(
     private readonly deps: MaintenanceDeps,
@@ -285,6 +294,26 @@ export class RecoveryMaintenance {
           reasons: hosts,
         };
       }
+      if (this.deps.runnerFence) {
+        // After the receipt: from here the runner refuses writes, and the
+        // boundary is read from it frozen.
+        this.runnerFrozen = true;
+        try {
+          await this.deps.runnerFence.freeze();
+        } catch (error) {
+          this.deps.log.warn(
+            { err: error },
+            "The local runner did not confirm its freeze"
+          );
+          this.restart("local runner not frozen");
+          return {
+            ok: false,
+            status: 409,
+            code: "RUNNER_NOT_FROZEN",
+            reasons: [{ kind: "local-runner", detail: "not frozen" }],
+          };
+        }
+      }
       this.state = "fenced";
       this.fencedAt = this.now();
       this.leaseExpiresAt = this.fencedAt + leaseMs;
@@ -323,6 +352,15 @@ export class RecoveryMaintenance {
     if (this.exiting) return;
     this.exiting = true;
     if (this.leaseTimer) clearTimeout(this.leaseTimer);
+    if (this.runnerFrozen && this.deps.runnerFence) {
+      // An aborted or failed fence thaws; the lifeline ends the runner after.
+      this.runnerFrozen = false;
+      void this.deps.runnerFence
+        .thaw()
+        .catch((error: unknown) =>
+          this.deps.log.warn({ err: error }, "Could not thaw the local runner")
+        );
+    }
     this.deps.log.warn(
       { transactionId: this.transactionId, reason },
       "Update recovery restarting server"

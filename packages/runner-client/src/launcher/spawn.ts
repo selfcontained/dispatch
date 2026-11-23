@@ -5,6 +5,7 @@ import { StringDecoder } from "node:string_decoder";
 import {
   LAUNCHER_PROTOCOL,
   launcherExit,
+  launcherFence,
   launcherReady,
   type LauncherCommand,
   type LauncherReady,
@@ -53,6 +54,12 @@ export interface LaunchedRunner {
   readonly ready: LauncherReady;
   readonly exited: Promise<ExitInfo>;
   send(command: LauncherCommand): void;
+  /**
+   * Freeze (`true`) or thaw (`false`) the runner's writes and wait for its
+   * `fence` answer. Rejects when no answer arrives within `timeoutMs` or the
+   * runner exits first: the caller then cannot know the runner's state.
+   */
+  fence(frozen: boolean, timeoutMs: number): Promise<void>;
   /** Close the lifeline; SIGKILL after `graceMs` if the runner has not exited. */
   close(graceMs: number): Promise<ExitInfo>;
 }
@@ -98,6 +105,31 @@ export function launchRunner(spec: LaunchSpec): Promise<LaunchedRunner> {
     spec.onStderr?.(line);
   });
   child.stdin!.on("error", () => {}); // EPIPE when the runner has exited.
+  // `fence` answers after the handshake, by sequence number.
+  let fenceSeq = 0;
+  const fences = new Map<
+    number,
+    { frozen: boolean; resolve(): void; reject(error: Error): void }
+  >();
+  const fenceAnswer = (line: string) => {
+    let message: unknown;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      return;
+    }
+    if (!launcherFence.check(message)) return;
+    const pending = fences.get(message.seq);
+    if (!pending) return;
+    fences.delete(message.seq);
+    if (message.frozen === pending.frozen) pending.resolve();
+    else pending.reject(new Error("The runner answered the other fence state"));
+  };
+  void exited.then(() => {
+    for (const pending of fences.values())
+      pending.reject(new Error("The runner exited before answering"));
+    fences.clear();
+  });
   child.stdin!.write(JSON.stringify(start) + "\n");
 
   const handshake = new Promise<LauncherReady>((resolve, reject) => {
@@ -119,7 +151,7 @@ export function launchRunner(spec: LaunchSpec): Promise<LaunchedRunner> {
       spec.readyTimeoutMs ?? 10_000
     );
     lines(child.stdout!, (line) => {
-      if (settled) return;
+      if (settled) return fenceAnswer(line);
       let message: unknown;
       try {
         message = JSON.parse(line);
@@ -135,6 +167,13 @@ export function launchRunner(spec: LaunchSpec): Promise<LaunchedRunner> {
       if (message.nonce !== nonce || message.protocol !== LAUNCHER_PROTOCOL)
         return fail(
           new LauncherError("mismatch", "Runner answered another handshake")
+        );
+      if (message.frozen !== (start.frozen === true))
+        return fail(
+          new LauncherError(
+            "invalid",
+            "Runner did not start in the asked fence state"
+          )
         );
       if (!sameBuild(message.build, start.build))
         return fail(
@@ -184,6 +223,35 @@ export function launchRunner(spec: LaunchSpec): Promise<LaunchedRunner> {
         if (child.stdin!.writable)
           child.stdin!.write(JSON.stringify(command) + "\n");
       },
+      fence(frozen, timeoutMs) {
+        if (child.exitCode !== null || child.signalCode !== null)
+          return Promise.reject(new Error("The runner has exited"));
+        const seq = ++fenceSeq;
+        return new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            fences.delete(seq);
+            reject(
+              new Error(
+                `The runner did not answer the fence in ${timeoutMs} ms`
+              )
+            );
+          }, timeoutMs);
+          const settle =
+            <A extends unknown[]>(next: (...args: A) => void) =>
+            (...args: A) => {
+              clearTimeout(timer);
+              next(...args);
+            };
+          fences.set(seq, {
+            frozen,
+            resolve: settle(resolve),
+            reject: settle(reject),
+          });
+          child.stdin!.write(
+            JSON.stringify({ type: frozen ? "freeze" : "thaw", seq }) + "\n"
+          );
+        });
+      },
       close,
     }),
     async (error) => {
@@ -201,6 +269,11 @@ export type SupervisorState =
   | { state: "stopped" };
 
 export type SupervisorOptions = LaunchSpec & {
+  /**
+   * Read at each (re)start: a runner started while this is true starts frozen,
+   * so a restart during an update fence or probation never serves writes.
+   */
+  frozen?: () => boolean;
   backoff?: { initialMs?: number; maxMs?: number; stableMs?: number };
   onState?: (state: SupervisorState) => void;
 };
@@ -243,7 +316,11 @@ export function superviseRunner(options: SupervisorOptions): RunnerSupervisor {
     timer = undefined;
     if (stopping) return;
     set({ state: "starting" });
-    launching = launchRunner(options).then(
+    const frozen = options.frozen?.() === true;
+    launching = launchRunner({
+      ...options,
+      start: { ...options.start, ...(frozen && { frozen }) },
+    }).then(
       (runner) => {
         if (stopping) return runner.close(2_000);
         const readyAt = Date.now();

@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 import type { AgentManager } from "../agents/manager.js";
 import type { StreamService } from "../chat/service.js";
 import type { loadConfig } from "../config.js";
+import type { LocalRunnerFence } from "../runners/local.js";
 import { resolveConfiguredPath } from "../shared/lib/resolve-tilde.js";
 import { stateDir, statePath } from "../state-dir.js";
 import {
@@ -33,6 +34,8 @@ export function createUpdateRecoveryRuntime(deps: {
   log: FastifyBaseLogger;
   stopWriters(): Promise<void>;
   shutdown(code: number): Promise<void>;
+  /** The local runner child, once started (none in processes that run none). */
+  localRunner?: () => LocalRunnerFence | undefined;
   env?: NodeJS.ProcessEnv;
 }) {
   const {
@@ -127,6 +130,14 @@ export function createUpdateRecoveryRuntime(deps: {
     if (releaseRuntime.hasActiveCreateJob()) {
       reasons.push({ kind: "release-job" });
     }
+    // Busy checks read through the child: one that is unavailable or does
+    // not answer could be writing, so it defers like a busy one.
+    const runner = deps.localRunner?.();
+    if (runner) {
+      const activity = await runner.activity();
+      if (activity !== "idle")
+        reasons.push({ kind: "local-runner", detail: activity });
+    }
     return reasons;
   }
 
@@ -177,9 +188,30 @@ export function createUpdateRecoveryRuntime(deps: {
         agentId,
       }));
     },
+    runnerFence: deps.localRunner && {
+      freeze: async () => {
+        const runner = deps.localRunner?.();
+        if (!runner) throw new Error("The local runner is not running");
+        await runner.freeze();
+      },
+      thaw: async () => deps.localRunner?.()?.thaw(),
+    },
     probeDatabase: () => probeDatabase(pool),
     boundary: async () => {
       const liveHosts = await agentManager.listHostedAgentIds();
+      // A fresh answer from the frozen child; anything else is not an empty
+      // list, so the boundary reports a live writer.
+      if (deps.localRunner) {
+        const runner = deps.localRunner();
+        try {
+          if (!runner) throw new Error("The local runner is not running");
+          const sessions = await runner.frozenSessions();
+          if (sessions > 0) liveHosts.push(`local-runner:${sessions}`);
+        } catch (err) {
+          log.warn({ err }, "No boundary answer from the frozen local runner");
+          liveHosts.push("local-runner");
+        }
+      }
       return {
         hostsStopped: liveHosts.length === 0,
         liveHosts,
@@ -240,6 +272,10 @@ export function createUpdateRecoveryRuntime(deps: {
           "Starting in update recovery probation: reconciliation, schedulers and writes are suppressed"
         );
       }
+    },
+    /** The local runner starts frozen in probation, until the commit's restart. */
+    localRunnerStartsFrozen(): boolean {
+      return maintenance.mode === "probation";
     },
     async restoreAgents() {
       const updateResumes = await takeUpdateResumes();

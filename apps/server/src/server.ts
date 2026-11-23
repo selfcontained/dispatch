@@ -904,6 +904,7 @@ const updateRecoveryRuntime = createUpdateRecoveryRuntime({
   version: packageVersion,
   log: app.log,
   shutdown,
+  localRunner: () => localRunnerProcess,
   stopWriters: async () => {
     jobService.stopAllSchedulers();
     agentLifecycleRuntime.stopReconcileLoop();
@@ -1621,6 +1622,9 @@ let stopLocalTlsWatch: (() => void) | undefined;
 let localRunnerProcess: LocalRunnerProcess | undefined;
 
 export async function start() {
+  // Probation is known before the child starts, so a probation child starts
+  // frozen and never serves a write before the update commits.
+  await updateRecoveryRuntime.loadProbation();
   // Before agents are restored, probation included. Never awaited: the app
   // starts and works as before whether or not the child comes up.
   localRunnerProcess = startLocalRunnerProcess({
@@ -1628,6 +1632,7 @@ export async function start() {
     filesRoot: config.filesRoot,
     build: embeddedBuild,
     log: app.log,
+    frozen: updateRecoveryRuntime.localRunnerStartsFrozen(),
   });
   await remoteRunner?.start();
   await initializeApp();

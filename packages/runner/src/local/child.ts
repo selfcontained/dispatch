@@ -12,11 +12,13 @@ import {
   launcherCommand,
   launcherExit,
   launcherStart,
+  type LauncherFence,
   type LauncherReady,
   type LauncherRefusal,
   type LauncherStart,
 } from "@dispatch/runner-client/launcher";
 import { jsonLines } from "@dispatch/runner-client/transport/local-socket";
+import { WriteFence } from "./fence.js";
 import { healthSampler } from "./health.js";
 import {
   inspectProcess,
@@ -75,7 +77,7 @@ export async function runLocalRunner(
   own: Build,
   options: {
     /** Operations served beside describe and health, as families move in. */
-    handlers?: (start: LauncherStart) => Handlers;
+    handlers?: (start: LauncherStart, fence: WriteFence) => Handlers;
   } = {}
 ): Promise<void> {
   let start: LauncherStart | undefined;
@@ -88,18 +90,36 @@ export async function runLocalRunner(
   for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const)
     process.on(signal, () => stop());
 
+  // Created from `start`, before the socket serves anything.
+  let fence: WriteFence | undefined;
+  // Fence commands apply in order: a `thaw` never overtakes a `freeze`
+  // still waiting for earlier writes to finish.
+  let fencing = Promise.resolve();
+  const answerFence = (seq: number) => {
+    const answer: LauncherFence = { type: "fence", seq, frozen: fence!.frozen };
+    process.stdout.write(JSON.stringify(answer) + "\n");
+  };
   const started = new Promise<LauncherStart>((resolve) => {
     jsonLines(process.stdin, (message) => {
       if (!start) {
         if (!launcherStart.check(message))
           refuse("invalid", "The first launcher message must be start");
         start = message;
+        fence = new WriteFence(message.frozen === true);
         return resolve(message);
       }
       if (!launcherCommand.check(message))
         return log("Ignored an unknown launcher message");
-      // Accepted and not yet acted on: `freeze`/`thaw` have nothing to fence
-      // until a family writes state here (L3), `import` until bindings (L4).
+      if (message.type === "freeze" || message.type === "thaw") {
+        const { seq } = message;
+        fencing = fencing.then(async () => {
+          if (message.type === "freeze") await fence!.freeze();
+          else fence!.thaw();
+          answerFence(seq);
+        });
+        return;
+      }
+      // `import` is accepted and not yet acted on until bindings (L4).
     });
   });
   const timer = setTimeout(
@@ -136,15 +156,20 @@ export async function runLocalRunner(
     engines: message.config.engines,
     capabilities: {},
   };
-  const extra = options.handlers?.(message);
-  const socket = await serveSocket(socketPath, message.nonce, {
-    calls: {
-      ...extra?.calls,
-      "runner.describe": () => description,
-      "runner.health": () => health(),
+  const extra = options.handlers?.(message, fence!);
+  const socket = await serveSocket(
+    socketPath,
+    message.nonce,
+    {
+      calls: {
+        ...extra?.calls,
+        "runner.describe": () => description,
+        "runner.health": () => health(),
+      },
+      opens: extra?.opens,
     },
-    opens: extra?.opens,
-  });
+    fence
+  );
 
   stop = () => {
     socket.close();
@@ -160,6 +185,7 @@ export async function runLocalRunner(
     protocol: LAUNCHER_PROTOCOL,
     nonce: message.nonce,
     socket: socketPath,
+    frozen: fence!.frozen,
   };
   process.stdout.write(JSON.stringify(ready) + "\n");
 }

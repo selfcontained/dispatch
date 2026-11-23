@@ -14,7 +14,7 @@ describe("launcher channel (E8)", () => {
     expect(launcherSurface()).toEqual(committed);
   });
 
-  it("has exactly start/ready, freeze, thaw, import and the EOF lifeline", () => {
+  it("has exactly start/ready, freeze/thaw with their fence answer, import and the EOF lifeline", () => {
     const surface = launcherSurface();
     expect(Object.keys(surface.toRunner).sort()).toEqual([
       "freeze",
@@ -22,7 +22,7 @@ describe("launcher channel (E8)", () => {
       "start",
       "thaw",
     ]);
-    expect(Object.keys(surface.fromRunner)).toEqual(["ready"]);
+    expect(Object.keys(surface.fromRunner).sort()).toEqual(["fence", "ready"]);
     expect(surface.lifeline).toBe("eof");
   });
 
