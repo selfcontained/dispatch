@@ -1628,7 +1628,7 @@
     "kind": "R1 placement read",
     "detail": "placement.runner",
     "task": "T07",
-    "count": 18
+    "count": 17
   },
   {
     "file": "apps/server/src/agents/remote/service.ts",
@@ -1719,13 +1719,6 @@
     "kind": "R5 runner to Dispatch",
     "detail": "apps/server/src/agents/remote/update-handoff",
     "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/session-supervisor.ts",
-    "kind": "R7 restriction",
-    "detail": "N10 Attach by path has runner-only bounds",
-    "task": "T11",
     "count": 1
   },
   {
@@ -2243,13 +2236,6 @@
     "file": "apps/server/src/main.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/terminal/runner-worker",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/notifications/slack-images.ts",
-    "kind": "R2 host access",
-    "detail": "fs/promises",
     "task": "T04",
     "count": 1
   },
@@ -2789,13 +2775,6 @@
     "file": "apps/server/src/server/mcp-handlers.ts",
     "kind": "R1 placement call",
     "detail": "remotePlacement(a.cwd)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/server/mcp-handlers.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(agent.cwd)",
     "task": "T07",
     "count": 1
   },

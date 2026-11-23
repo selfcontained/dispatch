@@ -1,6 +1,9 @@
 import { checkoutCommandTimeoutMs } from "@dispatch/runner-protocol";
 import type { Timeout } from "@dispatch/runner-protocol/contract";
-import type { Duplex } from "node:stream";
+import { randomUUID } from "node:crypto";
+import { Writable, type Duplex } from "node:stream";
+import { isSessionFileData } from "@dispatch/runner-protocol";
+import type { FlowStreams } from "./streams.js";
 import type {
   ChannelFrame,
   Command,
@@ -43,6 +46,7 @@ export function runnerReplyTimeoutMs(command: Command): number {
     );
   return command.kind === "sessionCheckout" ||
     command.kind === "checkoutRelease" ||
+    isStreamedCollection(command) ||
     command.kind === "inspectCheckout" ||
     command.kind === "viewCheckout" ||
     command.kind === "engine" ||
@@ -50,6 +54,61 @@ export function runnerReplyTimeoutMs(command: Command): number {
       (command.launch.repository || command.launch.prepareWorkspace))
     ? runnerDeadlineMs("long", null, 0)
     : runnerDeadlineMs("default", null, 0);
+}
+
+function isStreamedCollection(command: Command) {
+  return (
+    command.kind === "sessionFile" &&
+    command.operation.kind === "collect" &&
+    command.operation.streamId !== undefined
+  );
+}
+
+type CollectCommand = Extract<Command, { kind: "sessionFile" }> & {
+  operation: { kind: "collect"; path: string; streamId?: string };
+};
+
+/** Receive raw bytes when supported. The v1 fallback keeps its original frame. */
+export async function receiveFile(
+  command: CollectCommand,
+  request: (
+    command: CollectCommand,
+    signal?: AbortSignal
+  ) => Promise<{ value: unknown }>,
+  streams?: FlowStreams
+): Promise<Buffer> {
+  if (!streams) {
+    const { value } = await request(command);
+    if (!isSessionFileData(value))
+      throw new Error("Invalid runner file response.");
+    return Buffer.from(value, "base64");
+  }
+  const id = randomUUID();
+  const controller = new AbortController();
+  const chunks: Buffer[] = [];
+  const stream = streams.receive(
+    id,
+    new Writable({
+      write(chunk: Buffer, _encoding, callback) {
+        chunks.push(chunk);
+        callback();
+      },
+    }),
+    controller.signal
+  );
+  try {
+    const [, { value }] = await Promise.all([
+      stream,
+      request(
+        { ...command, operation: { ...command.operation, streamId: id } },
+        controller.signal
+      ),
+    ]);
+    if (value !== true) throw new Error("Invalid runner file stream response.");
+    return Buffer.concat(chunks);
+  } finally {
+    controller.abort();
+  }
 }
 
 /** Service side of one authenticated runner connection. Request IDs and channels are local to it. */
@@ -102,7 +161,8 @@ export class RunnerConnection {
   ) {
     if (this.closed)
       throw new RunnerUnavailable("The runner connection is closed.");
-    if (command.kind === "checkoutCommand") signal?.throwIfAborted();
+    if (command.kind === "checkoutCommand" || isStreamedCollection(command))
+      signal?.throwIfAborted();
     const id = crypto.randomUUID();
     const channel = openChannel
       ? hostChannel(id, this.send, () => this.channels.delete(id))
@@ -120,7 +180,9 @@ export class RunnerConnection {
       const value = await this.sendRequest(
         id,
         command,
-        command.kind === "checkoutCommand" ? signal : undefined
+        command.kind === "checkoutCommand" || isStreamedCollection(command)
+          ? signal
+          : undefined
       );
       return { value, channel };
     } catch (error) {
@@ -162,12 +224,15 @@ export class RunnerConnection {
         }
       };
       const cancel = () => {
-        requestCancel();
-        finish({
-          type: "result",
-          id,
-          error: "Checkout command cancelled.",
-        });
+        if (command.kind === "checkoutCommand") requestCancel();
+        finish(
+          undefined,
+          new Error(
+            command.kind === "checkoutCommand"
+              ? "Checkout command cancelled."
+              : "File stream cancelled."
+          )
+        );
       };
       const timer = setTimeout(() => {
         if (command.kind === "checkoutCommand") requestCancel();

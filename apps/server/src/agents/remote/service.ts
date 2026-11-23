@@ -17,6 +17,7 @@ import os from "node:os";
 import { Writable } from "node:stream";
 import { createServer, type Server, type TLSSocket } from "node:tls";
 import {
+  receiveFile,
   RunnerConnection,
   RunnerUnavailable,
 } from "../../runners/enrolled/v1-framing.js";
@@ -193,6 +194,7 @@ type Peer = {
   socket: TLSSocket;
   connection: RunnerConnection;
   streams?: FlowStreams;
+  filesGetStream: boolean;
   /** The raw frame sender for this connection. */
   send: (frame: ServiceFrame) => void;
   epoch: number;
@@ -1013,6 +1015,7 @@ export class RemoteRunnerService {
           sessionCheckout: ready.sessionCheckout === true,
           checkoutRelease: ready.checkoutRelease === true,
           sessionFiles: ready.sessionFiles === true,
+          filesGetStream: ready.filesGetStream === true,
           defaultBranchFiles: ready.defaultBranchFiles === true,
           checkoutMetadata: ready.checkoutMetadata === true,
           checkoutCommands: ready.checkoutCommands === true,
@@ -1741,6 +1744,21 @@ export class RemoteRunnerService {
     return seen?.gate.approved() ? seen.engines : undefined;
   }
 
+  getFile(placement: Placement, agentId: string, path: string) {
+    const peer = this.workspacePeer(placement);
+    return receiveFile(
+      {
+        agentId,
+        workspace: placement.workspace,
+        kind: "sessionFile",
+        operation: { kind: "collect", path },
+      },
+      (command, signal) =>
+        this.request(placement, command, false, undefined, signal, peer),
+      peer?.filesGetStream ? peer.streams : undefined
+    );
+  }
+
   requestSession(
     placement: Placement,
     operation: SessionOperation,
@@ -2277,14 +2295,19 @@ export class RemoteRunnerService {
     };
   }
 
-  available(placement: Placement) {
+  private workspacePeer(placement: Placement) {
     const peer = this.peers.get(placement.runner);
-    return Boolean(
-      peer &&
-      peer.gate.approved() &&
+    if (
+      peer?.gate.approved() &&
       peer.gate.allows(placement.workspace) &&
       peer.workspaces.has(placement.workspace)
-    );
+    )
+      return peer;
+    return undefined;
+  }
+
+  available(placement: Placement) {
+    return Boolean(this.workspacePeer(placement));
   }
 
   async request(
@@ -2292,9 +2315,9 @@ export class RemoteRunnerService {
     command: Command,
     open = false,
     onProgress?: (progress: LaunchProgress) => void,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    expectedPeer?: Peer
   ) {
-    const peer = this.peers.get(placement.runner);
     if (
       !this.registrationById(placement.runner) &&
       placement.runner !== this.legacy?.id &&
@@ -2302,9 +2325,10 @@ export class RemoteRunnerService {
     ) {
       throw new RunnerRevoked();
     }
+    const peer = this.workspacePeer(placement);
     if (
       !peer ||
-      !this.available(placement) ||
+      (expectedPeer && expectedPeer !== peer) ||
       command.workspace !== placement.workspace
     ) {
       throw new RunnerUnavailable(
@@ -2397,7 +2421,11 @@ export class RemoteRunnerService {
       throw new RunnerCapabilityUnavailable(
         "Update the runner to prepare session workspaces."
       );
-    if (command.kind === "sessionFile") {
+    if (
+      command.kind === "sessionFile" &&
+      (command.operation.kind !== "collect" ||
+        command.operation.streamId === undefined)
+    ) {
       // A single file can occupy most of the transport's write buffer.
       const transfer = (peer.sessionFileTail ?? Promise.resolve())
         .catch(() => {})

@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   SlackApp,
@@ -444,10 +445,14 @@ describe("Slack app boundary", () => {
       try {
         let settled = false;
         const sending = notifier
-          .sendNotification({ id: "agt_1", name: "builder-7" } as never, {
-            message: "See chart",
-            images: [png],
-          })
+          .sendNotification(
+            { id: "agt_1", name: "builder-7" } as never,
+            {
+              message: "See chart",
+              images: [png],
+            },
+            readFile
+          )
           .finally(() => (settled = true));
         // Fake time moves only when a timer is due; real I/O (reading the
         // image) runs between steps on the unfaked setImmediate.
@@ -533,7 +538,8 @@ describe("Slack app boundary", () => {
     (notifier as any).app = f.app;
     const result = await notifier.sendNotification(
       { id: "agt_1", name: "builder-7" } as never,
-      { message: "See chart", images: [png] }
+      { message: "See chart", images: [png] },
+      readFile
     );
     f.app.stop();
     expect(result).toEqual({ sent: true, reason: "Sent to Slack." });

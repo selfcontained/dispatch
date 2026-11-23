@@ -1669,7 +1669,7 @@ it.each([true, false])(
   }
 );
 
-it("bounds decoded session files and rejects unsafe paths at the wire boundary", () => {
+it("bounds legacy payloads and leaves collection path resolution to the OS", () => {
   expect(
     isSessionFileData(Buffer.alloc(MAX_SESSION_FILE_BYTES).toString("base64"))
   ).toBe(true);
@@ -1683,7 +1683,6 @@ it("bounds decoded session files and rejects unsafe paths at the wire boundary",
   for (const operation of [
     { kind: "deliver", name: "../file", data: "" },
     { kind: "deliver", name: "slash/file", data: "" },
-    { kind: "collect", path: "/root/../other/file" },
     { kind: "collect", path: "path\0name" },
   ]) {
     expect(
@@ -1699,6 +1698,23 @@ it("bounds decoded session files and rejects unsafe paths at the wire boundary",
       })
     ).toBeNull();
   }
+  const operation = {
+    kind: "collect",
+    path: "/root/../other/file",
+    streamId: "blob",
+  };
+  expect(
+    parseServiceFrame({
+      type: "request",
+      id: "file/43",
+      command: {
+        workspace: "my/space",
+        agentId: "my/session",
+        kind: "sessionFile",
+        operation,
+      },
+    })
+  ).toMatchObject({ command: { operation } });
 });
 
 it.each([true, false])(

@@ -7,7 +7,7 @@ export const MAX_SESSION_FILE_BASE64 =
 
 export type SessionFileOperation =
   | { kind: "deliver"; name: string; data: string }
-  | { kind: "collect"; path: string };
+  | { kind: "collect"; path: string; streamId?: string };
 
 export function isSessionFileData(value: unknown): value is string {
   if (
@@ -52,7 +52,15 @@ export function isSessionFileOperation(
     case "deliver":
       return isSessionFileName(value.name) && isSessionFileData(value.data);
     case "collect":
-      return isSessionFilePath(value.path);
+      return (
+        typeof value.path === "string" &&
+        value.path.length > 0 &&
+        !value.path.includes("\0") &&
+        (value.streamId === undefined ||
+          (typeof value.streamId === "string" &&
+            value.streamId.length > 0 &&
+            value.streamId.length <= 256))
+      );
     default:
       return false;
   }

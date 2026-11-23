@@ -3,6 +3,7 @@ import { childProcessEnv } from "../../shared/process/child-environment.js";
 import { executionArgs, setpriv } from "./workload-identity.js";
 import { runnerHealthSampler } from "./health.js";
 import { SharedCheckoutWatches, childWatch } from "../checkout-watch.js";
+import { sessionFileCommand } from "./session-files.js";
 import { execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -850,45 +851,84 @@ export async function runRemoteRunner(
             }
             break;
           }
-          case "sessionFile":
-            result(
-              await supervisor.sessionFile(
-                agentId,
-                workspace,
-                command.operation,
-                async (kind, root, name, data) => {
-                  const child = execute(
-                    setpriv,
-                    [
-                      ...childArgs,
-                      ...self("runner-session-file"),
-                      kind,
-                      root,
-                      name,
-                    ],
-                    {
-                      env,
-                      timeout: 15_000,
-                      signal: connection.signal,
-                      maxBuffer: MAX_SESSION_FILE_BASE64 + 1024,
-                    }
-                  );
-                  child.child.stdin?.on("error", () => {});
-                  child.child.stdin?.end(data);
+          case "sessionFile": {
+            const streamId =
+              command.operation.kind === "collect"
+                ? command.operation.streamId
+                : undefined;
+            const value = await supervisor.sessionFile(
+              agentId,
+              workspace,
+              command.operation,
+              async (kind, root, name, data) => {
+                const [bin, args] = sessionFileCommand(
+                  config.uid,
+                  config.gid,
+                  self("runner-session-file"),
+                  kind,
+                  root,
+                  name
+                );
+                if (kind === "stream") {
+                  if (streamId === undefined)
+                    throw new Error("Missing file stream ID.");
+                  const child = spawn(bin, args, {
+                    env,
+                    signal: connection.signal,
+                    stdio: ["ignore", "pipe", "pipe"],
+                  });
+                  let stderr = "";
+                  child.stderr
+                    .setEncoding("utf8")
+                    .on("data", (chunk: string) => {
+                      stderr = (stderr + chunk).slice(0, 256);
+                    });
+                  const exited = new Promise<void>((resolve, reject) => {
+                    child.once("error", reject);
+                    child.once("close", (status) => {
+                      if (status === 0) resolve();
+                      else
+                        reject(
+                          new Error(
+                            stderr.trim() || "Runner file transfer failed."
+                          )
+                        );
+                    });
+                  });
                   try {
-                    return (await child).stdout;
-                  } catch (error) {
-                    throw new Error(
-                      (error as { stderr?: string }).stderr
-                        ?.trim()
-                        .slice(0, 256) || "Runner file transfer failed."
-                    );
+                    await Promise.all([
+                      streams.send(streamId, child.stdout, connection.signal),
+                      exited,
+                    ]);
+                  } finally {
+                    if (child.exitCode === null && child.signalCode === null)
+                      child.kill();
                   }
-                },
-                target?.cwd
-              )
+                  return "";
+                }
+                const child = execute(bin, args, {
+                  env,
+                  timeout: 15_000,
+                  signal: connection.signal,
+                  maxBuffer: MAX_SESSION_FILE_BASE64 + 1024,
+                });
+                child.child.stdin?.on("error", () => {});
+                child.child.stdin?.end(data);
+                try {
+                  return (await child).stdout;
+                } catch (error) {
+                  throw new Error(
+                    (error as { stderr?: string }).stderr
+                      ?.trim()
+                      .slice(0, 256) || "Runner file transfer failed."
+                  );
+                }
+              },
+              target?.cwd
             );
+            result(streamId === undefined ? value : true);
             break;
+          }
           case "checkoutRelease": {
             const observation = await supervisor.checkoutRelease(
               agentId,
@@ -1279,6 +1319,7 @@ export async function runRemoteRunner(
           sessionCheckout: true,
           checkoutRelease: true,
           sessionFiles: true,
+          filesGetStream: true,
           checkoutViews: true,
           sharedWorktree: true,
           launchReconcile: true,
