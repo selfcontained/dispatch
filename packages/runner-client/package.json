@@ -7,7 +7,9 @@
     "./v1": "./src/v1/codec.ts",
     "./v1/host": "./src/v1/host.ts",
     "./v1/connection": "./src/v1/connection.ts",
-    "./v1/node": "./src/v1/node.ts"
+    "./v1/node": "./src/v1/node.ts",
+    "./launcher": "./src/launcher/index.ts",
+    "./transport/local-socket": "./src/transport/local-socket.ts"
   },
   "files": [
     "src"
@@ -17,6 +19,7 @@
   },
   "scripts": {
     "check": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
-    "test": "vitest run --root ."
+    "test": "vitest run --root .",
+    "surface": "tsx scripts/write-launcher-surface.ts"
   }
 }
