@@ -79,7 +79,6 @@ function CompactMetaRow({
 }
 
 export type AgentCardDetailsProps = {
-  remoteLocation?: string;
   agent: Agent;
   personaParentName?: React.ReactNode;
   diffStats: DiffStats | null | undefined;
@@ -100,7 +99,6 @@ export type AgentCardDetailsProps = {
  * indicator.
  */
 export function AgentCardDetails({
-  remoteLocation,
   agent,
   personaParentName,
   diffStats,
@@ -125,9 +123,7 @@ export function AgentCardDetails({
       <div className="absolute right-[3px] top-[3px]">
         <DiffStatBadge diffStats={diffStats} onRefresh={refreshDiffStats} />
       </div>
-      {remoteLocation ? (
-        <CompactMetaRow label="Runs on" value={remoteLocation} />
-      ) : agent.gitContext?.isWorktree ? (
+      {agent.gitContext?.isWorktree ? (
         <div className="flex items-start justify-between gap-3">
           <Hint label="Branch">
             <span
@@ -219,14 +215,10 @@ export function AgentCardDetails({
       <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
         <div className="flex flex-wrap items-center gap-2">
           {workspaceDir ? (
-            <IdeLaunchButton
-              path={workspaceDir}
-              enabledIdes={enabledIdes}
-              runnerCheckout={agent.cwd?.startsWith("runner://")}
-            />
+            <IdeLaunchButton path={workspaceDir} enabledIdes={enabledIdes} />
           ) : null}
-          {!remoteLocation && <ChangeWorkspaceButton agent={agent} />}
-          {!remoteLocation && agent.gitContext?.isWorktree && workspaceDir ? (
+          <ChangeWorkspaceButton agent={agent} />
+          {agent.gitContext?.isWorktree && workspaceDir ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

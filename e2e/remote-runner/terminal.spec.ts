@@ -137,14 +137,11 @@ for (const lane of ["native", "runner", "managed"] as const) {
       });
       if (await openSidebar.isVisible()) await openSidebar.click();
       await expect(expand).toHaveAttribute("aria-expanded", "true");
+      const action = session.getByTestId("ide-launch-button");
+      await action.scrollIntoViewIfNeeded();
+      await expect(action).toBeInViewport({ ratio: 0.8 });
+      await expect(action).toHaveAttribute("href", `vscode://file${target}`);
       if (remote) {
-        const action = session.getByRole("button", {
-          name: "Open in IDE is unavailable for runner checkouts",
-        });
-        await expect(action).toBeDisabled();
-        await action.scrollIntoViewIfNeeded();
-        await expect(action).toBeInViewport({ ratio: 0.8 });
-        await expect(session.locator('a[href^="vscode:"]')).toHaveCount(0);
         const stream = await request.post(`/api/v1/agents/${agent.id}/stream`, {
           headers,
           data: { type: "playwright", port: 9222 },
@@ -153,11 +150,6 @@ for (const lane of ["native", "runner", "managed"] as const) {
         expect((await stream.json()).error).toContain(
           "unavailable for runner sessions"
         );
-      } else {
-        const action = session.getByTestId("ide-launch-button");
-        await action.scrollIntoViewIfNeeded();
-        await expect(action).toBeInViewport({ ratio: 0.8 });
-        await expect(action).toHaveAttribute("href", `vscode://file${target}`);
       }
       await screenshot("ide");
       if (remote)

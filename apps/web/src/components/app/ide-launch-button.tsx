@@ -61,11 +61,9 @@ function buildIdeUrl(ide: IdeType, path: string): string {
 export function IdeLaunchButton({
   path,
   enabledIdes = [],
-  runnerCheckout = false,
 }: {
   path: string;
   enabledIdes?: IdeType[];
-  runnerCheckout?: boolean;
 }): JSX.Element {
   const [preferredIde, setPreferredIde] = useAtom(preferredIdeAtom);
   const onLoopback = isLoopbackHost();
@@ -73,7 +71,7 @@ export function IdeLaunchButton({
 
   // Empty-state CTA: when on loopback with no IDEs enabled, show a discoverable
   // button that links into Settings → Workspace so users find the toggle.
-  if (!runnerCheckout && onLoopback && orderedEnabled.length === 0) {
+  if (onLoopback && orderedEnabled.length === 0) {
     return (
       <IconButton
         asChild
@@ -90,11 +88,10 @@ export function IdeLaunchButton({
     );
   }
 
-  // The browser invokes a URL handler on its own desktop.
-  if (runnerCheckout || !onLoopback) {
-    const reason = runnerCheckout
-      ? "Open in IDE is unavailable for runner checkouts"
-      : "Open in IDE does not work when accessing Dispatch remotely";
+  // Remote (non-loopback): render a disabled button so the feature is
+  // discoverable but the URL handler isn't fired against a path that doesn't
+  // exist on the user's machine.
+  if (!onLoopback) {
     const fallbackIde =
       orderedEnabled[0] ??
       (IDE_TYPES.includes(preferredIde) ? preferredIde : "vscode");
@@ -103,10 +100,8 @@ export function IdeLaunchButton({
         variant="secondary"
         size="icon-sm"
         disabled
-        label={
-          runnerCheckout ? reason : "Open in IDE (unavailable on remote access)"
-        }
-        tooltip={reason}
+        label="Open in IDE (unavailable on remote access)"
+        tooltip="Open in IDE does not work when accessing Dispatch remotely"
         data-testid="ide-launch-disabled"
         className="disabled:pointer-events-auto"
       >

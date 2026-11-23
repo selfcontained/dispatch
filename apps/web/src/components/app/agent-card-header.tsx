@@ -23,7 +23,6 @@ function hasDefaultSessionName(agent: Agent): boolean {
 }
 
 export type AgentCardHeaderProps = {
-  remoteLocation?: string;
   agent: Agent;
   childAgents: Agent[];
   isExpanded: boolean;
@@ -43,7 +42,6 @@ export type AgentCardHeaderProps = {
  * badges, resume control for stopped agents, and the expand toggle.
  */
 export function AgentCardHeader({
-  remoteLocation,
   agent,
   childAgents,
   isExpanded,
@@ -119,9 +117,7 @@ export function AgentCardHeader({
                 />
               </span>
             </TooltipTrigger>
-            <TooltipContent>
-              {remoteLocation ?? agent.workspacePath ?? agent.cwd}
-            </TooltipContent>
+            <TooltipContent>{agent.workspacePath ?? agent.cwd}</TooltipContent>
           </Tooltip>
           <span
             data-testid={`agent-session-name-${agent.id}`}

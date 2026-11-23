@@ -2681,48 +2681,6 @@
     "count": 1
   },
   {
-    "file": "apps/web/src/components/app/agent-card-details.tsx",
-    "kind": "R6 locator",
-    "detail": "runner://",
-    "task": "T38",
-    "count": 1
-  },
-  {
-    "file": "apps/web/src/components/app/agent-card-details.tsx",
-    "kind": "R7 restriction",
-    "detail": "N25 Workspace and copy actions hidden",
-    "task": "T37",
-    "count": 1
-  },
-  {
-    "file": "apps/web/src/components/app/agent-card.tsx",
-    "kind": "R6 placement call",
-    "detail": "remotePlacement(agent.cwd)",
-    "task": "T38",
-    "count": 1
-  },
-  {
-    "file": "apps/web/src/components/app/agent-card.tsx",
-    "kind": "R6 placement read",
-    "detail": "agent.runnerManaged",
-    "task": "T38",
-    "count": 1
-  },
-  {
-    "file": "apps/web/src/components/app/agent-card.tsx",
-    "kind": "R6 placement read",
-    "detail": "placement?.runner",
-    "task": "T38",
-    "count": 1
-  },
-  {
-    "file": "apps/web/src/components/app/agent-card.tsx",
-    "kind": "R6 protocol value import",
-    "detail": "@dispatch/runner-protocol",
-    "task": "T38",
-    "count": 1
-  },
-  {
     "file": "apps/web/src/components/app/agent-history-detail.tsx",
     "kind": "R6 placement call",
     "detail": "remotePlacement(data.agent.cwd)",
@@ -2804,13 +2762,6 @@
     "kind": "R6 protocol value import",
     "detail": "@dispatch/runner-protocol",
     "task": "T38",
-    "count": 1
-  },
-  {
-    "file": "apps/web/src/components/app/ide-launch-button.tsx",
-    "kind": "R7 restriction",
-    "detail": "N32 Runner IDE refusal",
-    "task": "T37",
     "count": 1
   },
   {
