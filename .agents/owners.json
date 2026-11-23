@@ -41,6 +41,7 @@
         "apps/server/test/launch-model-scope.test.ts",
         "apps/server/test/local-bindings.test.ts",
         "apps/server/test/__snapshots__/acp-host-env.test.ts.snap",
+        "apps/server/test/launch-env-listen-hosts.test.ts",
         "apps/server/test/local-terminal-pty.test.ts",
         "apps/server/test/db/local-bindings.test.ts",
         "apps/server/test/db/runner-host-recycle.test.ts",
