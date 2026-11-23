@@ -20,7 +20,13 @@ import type { WorkloadCommand } from "./session-storage.js";
 import { createSessionSupervisor } from "./session-supervisor.js";
 export { runnerStorageKey } from "./session-supervisor.js";
 import { hostCommand, selfCommand } from "../acp/host-command.js";
-import { RunnerCallError } from "@dispatch/runner-protocol/contract";
+import {
+  RunnerCallError,
+  runnerError,
+  sessionFromWire,
+  type Req,
+  type Res,
+} from "@dispatch/runner-protocol/contract";
 import {
   runnerReplyTimeoutMs,
   scheduleDeadline,
@@ -59,6 +65,7 @@ import {
   type CheckoutExecution,
   MAX_CHECKOUT_COMMAND_REPLY_BYTES,
   parseServiceFrame,
+  parseLaunchProgress,
   runnerRequestId,
   UPDATE_SERVICE_FRAME_TYPES,
   type Command,
@@ -363,6 +370,22 @@ async function verifyExecutionIdentity(
 const FENCE_EXEMPT = new Set<Command["kind"]>(["attach", "alive", "log"]);
 
 /** Test seams. Production uses the installed root updater layout. */
+type WorkspaceOp = "workspace.prepare" | "workspace.resume";
+type WorkspacePreparationFactory = (options: {
+  state: string;
+  ids: { supervisor: number; uid: number; gid: number };
+  asWorkload: WorkloadCommand;
+  step: (op: string, args: unknown[]) => Promise<unknown>;
+}) => Promise<{
+  legacy(session: string): Promise<boolean>;
+  remove(session: string): Promise<boolean>;
+  call<K extends WorkspaceOp>(
+    op: K,
+    request: Req<K>,
+    emit: (event: unknown) => void
+  ): Promise<Res<K>>;
+}>;
+
 export type RunnerUpdateOptions = {
   updateLayout?: RunnerUpdateLayout;
   fenceStore?: FenceStore;
@@ -370,6 +393,7 @@ export type RunnerUpdateOptions = {
   /** Undefined detects the installed identity; null disables the capability. */
   updateIdentity?: UpdateIdentity | null;
   terminalGraceMs?: number;
+  createWorkspacePreparation?: WorkspacePreparationFactory;
 };
 
 type RunnerOutput = RunnerFrame | StreamFrame;
@@ -640,6 +664,9 @@ export async function runRemoteRunner(
     });
     return stdout;
   };
+  let workspacePreparation:
+    | Awaited<ReturnType<WorkspacePreparationFactory>>
+    | undefined;
   const supervisor = await createSessionSupervisor({
     ...config,
     build: embeddedBuild,
@@ -688,7 +715,37 @@ export async function runRemoteRunner(
       return [setpriv, ...workloadLogin([...hostCommand(), "--state", dir])];
     },
     mayStartProcess: () => admission.mayStartProcess(),
+    removePreparedCheckout: (session) =>
+      workspacePreparation?.remove(session) ?? Promise.resolve(false),
   });
+  workspacePreparation = managedWorkspace
+    ? await updateOptions.createWorkspacePreparation?.({
+        state: supervisor.stateDirectory,
+        ids: {
+          supervisor: process.getuid!(),
+          uid: config.uid,
+          gid: config.gid,
+        },
+        asWorkload,
+        async step(op, args) {
+          const worker = workloadLogin([...self("runner-worker"), op]);
+          const output = await runCheckoutWorker(
+            worker,
+            { ...env, GIT_TERMINAL_PROMPT: "0", GH_PROMPT_DISABLED: "1" },
+            JSON.stringify(args),
+            AbortSignal.timeout(
+              op === "workspace.installDependencies" ? 135_000 : 90_000
+            )
+          );
+          const reply = JSON.parse(output);
+          if (runnerError.check(reply?.error))
+            throw new RunnerCallError(reply.error);
+          if (!reply || !Object.hasOwn(reply, "data"))
+            throw new Error("Invalid workspace worker reply.");
+          return reply.data;
+        },
+      })
+    : undefined;
   const updates = createRunnerUpdateAgent({
     identity:
       updateOptions.updateIdentity === undefined
@@ -994,6 +1051,66 @@ export async function runRemoteRunner(
         }
         if (socket.destroyed) return;
         switch (command.kind) {
+          case "workspacePrepare":
+          case "workspaceResume": {
+            const emit = (event: unknown) => {
+              const progress = parseLaunchProgress({
+                type: "launch_progress",
+                id,
+                progress: event,
+              });
+              if (progress) safeSend(progress);
+            };
+            try {
+              if (!managed || !workspacePreparation)
+                throw new RunnerCallError({
+                  code: "unsupported",
+                  message: "This runner does not serve workspace preparation.",
+                });
+              const session = sessionFromWire(agentId);
+              const prepare =
+                command.kind === "workspacePrepare"
+                  ? { ...command.operation, session }
+                  : undefined;
+              const preparation = workspacePreparation;
+              const data = await supervisor.withWorkspacePreparation(
+                agentId,
+                prepare !== undefined,
+                async (readLegacy) => {
+                  if (await preparation.legacy(agentId)) {
+                    const binding = await readLegacy(prepare);
+                    emit({ phase: "ready" });
+                    return binding;
+                  }
+                  return prepare
+                    ? preparation.call("workspace.prepare", prepare, emit)
+                    : preparation.call("workspace.resume", { session }, emit);
+                }
+              );
+              result(JSON.stringify({ data }));
+            } catch (error) {
+              result(
+                JSON.stringify({
+                  error:
+                    error instanceof RunnerCallError
+                      ? {
+                          code:
+                            command.kind === "workspaceResume" &&
+                            error.code === "forbidden"
+                              ? "conflict"
+                              : error.code,
+                          message: error.message,
+                          details: error.details,
+                        }
+                      : {
+                          code: "failed",
+                          message: "Workspace preparation failed.",
+                        },
+                })
+              );
+            }
+            break;
+          }
           case "checkoutCommand": {
             const operation = command.operation;
             const execution =
@@ -1787,6 +1904,7 @@ export async function runRemoteRunner(
             : {}),
           defaultBranchFiles: true,
           workspacePreparation: true,
+          ...(workspacePreparation && { workspacePrepare: true }),
           sessionCheckout: true,
           checkoutRelease: true,
           sessionFiles: true,

@@ -10,6 +10,7 @@ import {
   isCheckoutReadName,
   isCheckoutCommandFile,
   type ReadyFrame,
+  type LaunchProgress,
 } from "@dispatch/runner-protocol";
 import {
   RunnerCallError,
@@ -169,6 +170,14 @@ export function v1Runner({
       request: Req<K>,
       opts?: CallOptions<K>
     ): Promise<Res<K>> {
+      if (
+        (op === "workspace.prepare" || op === "workspace.resume") &&
+        !ready.workspacePrepare
+      )
+        throw fail(
+          "unsupported",
+          "This runner does not serve workspace preparation."
+        );
       if (op in NOT_ON_V1)
         throw fail(
           "unsupported",
@@ -260,6 +269,9 @@ export function v1Runner({
         }
         const { value } = await connection.request(command, {
           signal: opts?.signal,
+          onProgress: opts?.onEvent as
+            | ((progress: LaunchProgress) => void)
+            | undefined,
         });
         return decodeResult(frame, value);
       } catch (error) {

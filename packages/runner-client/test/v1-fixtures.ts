@@ -101,6 +101,32 @@ export const results: ResultFixture[] = [
     }),
     value: true,
   },
+  {
+    command: s("workspacePrepare", {
+      operation: {
+        source: {
+          repository: "https://github.com/acme/app",
+          checkout: { kind: "new", branch: "feature", base: "main" },
+        },
+        copyIgnored: [".env"],
+        installDependencies: true,
+      },
+    }),
+    value: json({
+      data: {
+        path: "/srv/work",
+        moved: false,
+        origin: "https://github.com/acme/app",
+      },
+    }),
+  },
+  { command: s("workspaceResume"), value: json({ data: null }) },
+  {
+    command: s("workspaceResume"),
+    value: json({
+      error: { code: "conflict", message: "The checkout changed." },
+    }),
+  },
   { command: s("attach"), value: true },
   { command: s("alive"), value: true },
   { command: s("alive"), value: false },

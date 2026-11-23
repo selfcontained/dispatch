@@ -16,7 +16,7 @@
  * A session with a `.repository` or a plan and no core receipt was prepared
  * by an older build and finishes on that path (`legacy`).
  */
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 import type { LauncherBinding } from "@dispatch/runner-client/launcher";
 import type { BindingStore, StoredBinding } from "../../local/bindings.js";
@@ -50,10 +50,8 @@ export class PrivsepBindings implements Pick<
   }
 
   private async receipt(session: string): Promise<Receipt | null> {
-    if (!session || basename(session) !== session || session.startsWith("."))
-      return null;
     const raw = await this.fs.read(
-      join(this.paths.receipts, session, RECEIPT_FILE)
+      join(this.paths.receipts, storageKey(session), RECEIPT_FILE)
     );
     return raw === null ? null : (JSON.parse(raw) as Receipt);
   }

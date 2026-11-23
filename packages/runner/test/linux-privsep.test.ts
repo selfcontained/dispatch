@@ -215,6 +215,18 @@ describe("linux-privsep location", () => {
     expect(checkoutParentIsProtected(await fs.lstat(parent), ids)).toBe(true);
   });
 
+  it("finishes a checkout interrupted between mkdir and handover", async () => {
+    fs.dir(parent, ROOT, ids.gid, 0o751);
+    fs.dir(checkout, ROOT, ROOT, 0o700);
+    const { port } = await platform();
+    expect(await port.location!(session)).toBe(checkout);
+    expect(await fs.lstat(checkout)).toMatchObject({
+      uid: ids.uid,
+      gid: ids.gid,
+      mode: 0o755,
+    });
+  });
+
   it("refuses a link swapped in for the session's parent, touching nothing", async () => {
     fs.dir("/home/w", ids.uid, ids.gid, 0o755);
     fs.link(parent, "/home/w");

@@ -11,6 +11,7 @@ import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 import type { PrivsepFs } from "./fs.js";
 import {
   ANCESTOR_MODE,
+  PRIVATE_MODE,
   assertProtected,
   checkoutParentIsProtected,
   ownedDirectory,
@@ -76,8 +77,15 @@ export function sessionLocation(
       await assertProtected(fs, ids, paths.state, parent);
       const checkout = join(parent, "checkout");
       const entry = await fs.lstat(checkout);
-      if (!entry) {
-        await fs.mkdir(checkout, 0o700);
+      if (!entry) await fs.mkdir(checkout, PRIVATE_MODE);
+      // Restart can occur after mkdir but before the supervisor gives the
+      // workload its checkout. A root-private directory is safe to finish.
+      if (
+        !entry ||
+        (entry.kind === "directory" &&
+          entry.uid === ids.supervisor &&
+          entry.mode === PRIVATE_MODE)
+      ) {
         await fs.lchown(checkout, ids.uid, ids.gid);
         await fs.chmod(checkout, CHECKOUT_MODE);
       } else if (entry.kind !== "directory" || entry.uid !== ids.uid)

@@ -5,6 +5,7 @@ import {
   isCheckoutCommandResult,
   type Placement as V1Placement,
   type ResultFrame,
+  type LaunchProgress,
 } from "@dispatch/runner-protocol";
 import {
   RunnerCallError,
@@ -19,6 +20,7 @@ import {
 import {
   decodeResult,
   encodeCommand,
+  ResultError,
   type Decoded,
 } from "@dispatch/runner-client/v1";
 import type { RemoteRunnerService } from "../../agents/remote/service.js";
@@ -98,7 +100,9 @@ export function createEnrolledCheckoutRunner(
       if (
         op !== "checkout.exec" &&
         op !== "git.context" &&
-        op !== "workspace.select"
+        op !== "workspace.select" &&
+        op !== "workspace.prepare" &&
+        op !== "workspace.resume"
       )
         throw new RunnerCallError({
           code: "unsupported",
@@ -110,6 +114,41 @@ export function createEnrolledCheckoutRunner(
           code: "invalid",
           message: "Invalid checkout command binding.",
         });
+
+      if (op === "workspace.prepare" || op === "workspace.resume") {
+        const request = input as Req<"workspace.prepare" | "workspace.resume">;
+        if (sessionToWire(request.session) !== agent.id)
+          throw new RunnerCallError({
+            code: "invalid",
+            message: "Invalid workspace preparation binding.",
+          });
+        options?.signal?.throwIfAborted();
+        const frame: Decoded<"workspace.prepare" | "workspace.resume"> = {
+          op,
+          request,
+          extras: { workspace: placement.workspace },
+          absent: [],
+        };
+        const command = encodeCommand(frame);
+        if (
+          command.kind !== "workspacePrepare" &&
+          command.kind !== "workspaceResume"
+        )
+          throw new Error("Invalid v1 workspace preparation command.");
+        const { value } = await service.requestSession(
+          placement,
+          command,
+          options?.onEvent as ((progress: LaunchProgress) => void) | undefined,
+          options?.signal
+        );
+        try {
+          return decodeResult(frame, value) as Res<K>;
+        } catch (error) {
+          if (error instanceof ResultError)
+            throw new RunnerCallError(error.error);
+          throw error;
+        }
+      }
 
       if (op === "workspace.select") {
         const request = input as Req<"workspace.select">;

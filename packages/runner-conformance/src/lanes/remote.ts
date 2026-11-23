@@ -11,6 +11,7 @@
  * ~/.cache/runner-conformance), which the Docker VM must share: Colima does
  * not share the system temporary directory.
  */
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
@@ -25,8 +26,10 @@ import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   RunnerCallError,
+  sessionToWire,
   sessionFromWire,
 } from "@dispatch/runner-protocol/contract";
+import { checked } from "../checked.js";
 import { acceptRemoteRunner } from "../reference-client.js";
 import { LaneUnavailable, type Lane } from "../run.js";
 import { launchRequest } from "../session.js";
@@ -36,6 +39,8 @@ const IMAGE = process.env.RUNNER_CONFORMANCE_IMAGE ?? "node:22-bookworm";
 const WORKSPACE = "conformance";
 const WORKSPACE_DIR = "/opt/conformance-checkout";
 const UID = 1500;
+const MANAGED_STATE = "/var/lib/runner-managed";
+const BARE_REMOTE = "/opt/conformance-origin.git";
 const SESSION = sessionFromWire("conformance-session");
 
 const run = (command: string, args: string[], input?: string) =>
@@ -159,6 +164,7 @@ install -m 600 /etc/runner/runner.json /run/cfg/runner.json
 install -d /opt/profile-tools
 cat > /etc/profile.d/conformance.sh <<'PROFILE'
 export PATH="/opt/profile-tools:$PATH"
+export NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false NPM_CONFIG_UPDATE_NOTIFIER=false
 PROFILE
 cat > /opt/profile-tools/fixture-checkout <<'TOOL'
 #!/bin/sh
@@ -166,6 +172,13 @@ printf '%s:%s' "$(id -u)" "$FIXTURE_VALUE"
 TOOL
 chmod 755 /opt/profile-tools/fixture-checkout
 setpriv --reuid=${UID} --regid=${UID} --clear-groups git -C ${WORKSPACE_DIR} init -b main
+cat > ${WORKSPACE_DIR}/package.json <<'PACKAGE'
+{"name":"runner-fixture","version":"1.0.0","scripts":{"postinstall":"id -u > .install-uid"}}
+PACKAGE
+cat > ${WORKSPACE_DIR}/package-lock.json <<'LOCK'
+{"name":"runner-fixture","version":"1.0.0","lockfileVersion":3,"requires":true,"packages":{"":{"name":"runner-fixture","version":"1.0.0","hasInstallScript":true}}}
+LOCK
+setpriv --reuid=${UID} --regid=${UID} --clear-groups git -C ${WORKSPACE_DIR} add package.json package-lock.json
 setpriv --reuid=${UID} --regid=${UID} --clear-groups git -C ${WORKSPACE_DIR} -c user.name=Fixture -c user.email=fixture@example.invalid commit --allow-empty -m base
 printf "/file-list/\\n" >> ${WORKSPACE_DIR}/.git/info/exclude
 mkdir ${WORKSPACE_DIR}/file-list
@@ -177,6 +190,10 @@ done
 printf private > ${WORKSPACE_DIR}/.root-only
 chmod 600 ${WORKSPACE_DIR}/.root-only
 printf guard > ${WORKSPACE_DIR}/.exec-probe
+install -d -o ${UID} -g ${UID} -m 755 ${BARE_REMOTE}
+setpriv --reuid=${UID} --regid=${UID} --clear-groups git clone --bare ${WORKSPACE_DIR} ${BARE_REMOTE}
+install -m 600 /etc/runner/managed.json /run/cfg/managed.json
+/opt/bin/runner remote-runner /run/cfg/managed.json &
 exec /opt/bin/runner remote-runner /run/cfg/runner.json
 `;
 
@@ -194,6 +211,7 @@ export async function startRemoteLane(): Promise<Lane> {
   const config = join(dir, "config");
   mkdirSync(config);
   let listener: ReturnType<typeof acceptRemoteRunner> | undefined;
+  let managedListener: ReturnType<typeof acceptRemoteRunner> | undefined;
   const cleanup = () => {
     try {
       run("docker", ["rm", "-f", container]);
@@ -201,6 +219,7 @@ export async function startRemoteLane(): Promise<Lane> {
       // Never started.
     }
     listener?.close();
+    managedListener?.close();
     rmSync(dir, { recursive: true, force: true });
   };
   try {
@@ -210,22 +229,36 @@ export async function startRemoteLane(): Promise<Lane> {
       runnerId: id,
       workspace: WORKSPACE,
     });
-    const port = await listener.port;
+    managedListener = acceptRemoteRunner(credentials, {
+      runnerId: id + "-managed",
+    });
+    const baseConfig = {
+      ca: "/etc/runner/ca.pem",
+      cert: "/etc/runner/runner.pem",
+      key: "/etc/runner/runner.key",
+      uid: UID,
+      gid: UID,
+      home: "/home/workload",
+      path: "/usr/local/bin:/usr/bin:/bin",
+      bins: { claudeBin: "/usr/local/bin/fixture-engine", codexBin: null },
+      adapter: ["/opt/bin/acp-fixture"],
+    };
+    const endpoint = (port: number) => `https://host.docker.internal:${port}`;
     writeFileSync(
       join(config, "runner.json"),
       JSON.stringify({
-        endpoint: `https://host.docker.internal:${port}`,
-        ca: "/etc/runner/ca.pem",
-        cert: "/etc/runner/runner.pem",
-        key: "/etc/runner/runner.key",
+        ...baseConfig,
+        endpoint: endpoint(await listener.port),
         state: "/var/lib/runner",
-        uid: UID,
-        gid: UID,
-        home: "/home/workload",
-        path: "/usr/local/bin:/usr/bin:/bin",
-        bins: { claudeBin: "/usr/local/bin/fixture-engine", codexBin: null },
-        adapter: ["/opt/bin/acp-fixture"],
         workspaces: { [WORKSPACE]: { cwd: WORKSPACE_DIR } },
+      })
+    );
+    writeFileSync(
+      join(config, "managed.json"),
+      JSON.stringify({
+        ...baseConfig,
+        endpoint: endpoint(await managedListener.port),
+        state: MANAGED_STATE,
       })
     );
     writeFileSync(join(config, "fixture-engine"), FIXTURE_ENGINE);
@@ -262,9 +295,29 @@ export async function startRemoteLane(): Promise<Lane> {
         reject(new Error(`The runner did not connect within 60 s.\n${logs}`));
       }, 60_000);
     });
-    const accepted = await Promise.race([listener.accepted, timeout]).finally(
-      () => clearTimeout(timer)
-    );
+    const [accepted, managed] = await Promise.race([
+      Promise.all([listener.accepted, managedListener.accepted]),
+      timeout,
+    ]).finally(() => clearTimeout(timer));
+    if (!managed.ready.workspacePrepare || accepted.ready.workspacePrepare)
+      throw new Error(
+        "Workspace preparation was advertised on the wrong runner."
+      );
+    const rootExec = (...args: string[]) =>
+      run("docker", ["exec", container, ...args]);
+    const workload = (...args: string[]) =>
+      rootExec(
+        "setpriv",
+        `--reuid=${UID}`,
+        `--regid=${UID}`,
+        "--clear-groups",
+        ...args
+      );
+    const key = (session: Parameters<typeof sessionToWire>[0]) =>
+      "opaque-" +
+      createHash("sha256").update(sessionToWire(session)).digest("base64url");
+    const checkout = (session: Parameters<typeof sessionToWire>[0]) =>
+      `${MANAGED_STATE}/sessions/${key(session)}/checkout`;
     await accepted.runner.call("session.launch", launchRequest(SESSION));
     if (accepted.ready.checkoutExecStream) {
       const target = { session: SESSION, checkout: "current" } as const;
@@ -336,6 +389,128 @@ export async function startRemoteLane(): Promise<Lane> {
       runner: accepted.runner,
       session: SESSION,
       readGuard: accepted.readGuard,
+      workspace: {
+        runner: checked(managed.runner),
+        repository: `file://${BARE_REMOTE}`,
+        async interrupt(session) {
+          const receipt = `${MANAGED_STATE}/bindings/workspace/${key(session)}/workspace-preparation`;
+          rootExec(
+            "node",
+            "-e",
+            `
+            const fs = require('node:fs');
+            const [receipt, binding] = process.argv.slice(1);
+            const state = JSON.parse(fs.readFileSync(receipt, 'utf8'));
+            state.pending = { path: state.worktree.path, branch: state.worktree.branch };
+            delete state.worktree;
+            fs.writeFileSync(receipt, JSON.stringify(state));
+            fs.unlinkSync(binding);
+            fs.unlinkSync(binding + '.repository');
+          `,
+            receipt,
+            `${MANAGED_STATE}/bindings/${key(session)}`
+          );
+        },
+        async proveIsolation(session, path) {
+          const expected = checkout(session);
+          if (path !== expected)
+            throw new Error(
+              "The checkout moved outside its protected location."
+            );
+          const parent = expected.slice(0, -"/checkout".length);
+          const modes = rootExec(
+            "stat",
+            "-c",
+            "%u:%g:%a",
+            MANAGED_STATE,
+            `${MANAGED_STATE}/sessions`,
+            parent,
+            expected,
+            `${MANAGED_STATE}/bindings/workspace`,
+            `${MANAGED_STATE}/repositories`
+          )
+            .trim()
+            .split("\n");
+          if (
+            modes.slice(0, 3).some((mode) => mode !== `0:${UID}:751`) ||
+            !modes[3]?.startsWith(`${UID}:${UID}:`) ||
+            modes[4] !== "0:0:700" ||
+            modes[5] !== "0:0:711"
+          )
+            throw new Error(
+              "Wrong checkout ownership or ancestor permissions: " +
+                modes.join(", ")
+            );
+          const cacheKey = createHash("sha256")
+            .update("file/" + BARE_REMOTE.slice(1, -".git".length))
+            .digest("hex");
+          if (
+            rootExec(
+              "stat",
+              "-c",
+              "%u:%g:%a",
+              `${MANAGED_STATE}/repositories/${cacheKey}`
+            ).trim() !== `${UID}:${UID}:700`
+          )
+            throw new Error("The clone cache is not private to the workload.");
+          if (
+            workload("cat", expected + "/.install-uid").trim() !== String(UID)
+          )
+            throw new Error(
+              "The dependency install did not run as the workload."
+            );
+          const denied = (args: string[], expectedCode = "EACCES") => {
+            const result = workload(
+              "node",
+              "-e",
+              `
+              const fs = require('node:fs');
+              const [operation, a, b] = process.argv.slice(1);
+              try { fs[operation](a, b); process.stdout.write('succeeded'); }
+              catch (error) { process.stdout.write(error.code); }
+            `,
+              ...args
+            );
+            if (result !== expectedCode)
+              throw new Error(args[0] + " returned " + result);
+          };
+          denied(["renameSync", parent, parent + "-moved"]);
+          denied(["symlinkSync", "/", parent + "/replacement"], "EACCES");
+          denied(["renameSync", expected, parent + "/checkout-old"]);
+          denied(["accessSync", `${MANAGED_STATE}/bindings/workspace/.`]);
+          // A root-only subtree inside the checkout forces the workload's find
+          // to fail. A root find could delete it and incorrectly succeed.
+          const hold = expected + "/root-only";
+          rootExec("mkdir", "-m", "700", hold);
+          rootExec("touch", hold + "/file");
+          try {
+            await managed.runner.call("session.discard", { session });
+            throw new Error(
+              "Removal deleted a directory only root could traverse."
+            );
+          } catch (error) {
+            if (
+              !(error instanceof RunnerCallError) ||
+              !error.message.includes("Permission denied")
+            )
+              throw error;
+          } finally {
+            rootExec("rm", "-f", hold + "/file");
+            rootExec("rmdir", hold);
+          }
+          await managed.runner.call("session.discard", { session });
+          if (
+            rootExec(
+              "sh",
+              "-c",
+              'test ! -e "$1" && printf removed',
+              "sh",
+              parent
+            ) !== "removed"
+          )
+            throw new Error("The checkout parent survived removal.");
+        },
+      },
       async seed(path, content) {
         run(
           "docker",
@@ -358,6 +533,7 @@ export async function startRemoteLane(): Promise<Lane> {
       },
       async close() {
         accepted.close();
+        managed.close();
         cleanup();
       },
     };

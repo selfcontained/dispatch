@@ -21,3 +21,5 @@ export async function runCli(
   process.stderr.write(`Unknown runner mode: ${mode ?? "(none)"}\n`);
   process.exitCode = 2;
 }
+
+export { createRemoteWorkspacePreparation } from "./platform/linux-privsep/index.js";

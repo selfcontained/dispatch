@@ -81,7 +81,9 @@ export function runnerReplyTimeoutMs(command: Command): number {
       checkoutCommandTimeoutMs(command.operation.checkout);
     return runnerDeadlineMs("request", Math.min(timeoutMs, 2_147_470_000), 0);
   }
-  return command.kind === "sessionCheckout" ||
+  return command.kind === "workspacePrepare" ||
+    command.kind === "workspaceResume" ||
+    command.kind === "sessionCheckout" ||
     command.kind === "checkoutRelease" ||
     isStreamedFile(command) ||
     command.kind === "checkoutRead" ||
@@ -420,9 +422,10 @@ export class RunnerConnection {
     channel?.on("error", () => {});
     if (channel) this.channels.set(id, channel);
     if (
-      command.kind === "launch" &&
-      command.launch.prepareWorkspace &&
-      onProgress
+      onProgress &&
+      (command.kind === "workspacePrepare" ||
+        command.kind === "workspaceResume" ||
+        (command.kind === "launch" && command.launch.prepareWorkspace))
     )
       this.progress.set(id, onProgress);
     try {

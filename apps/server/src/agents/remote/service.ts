@@ -1,6 +1,7 @@
 import type { CheckoutReadName } from "@dispatch/runner-protocol";
 import {
   runnerIdFromWire,
+  RunnerCallError,
   type RunnerDescription,
   type Req,
 } from "@dispatch/runner-protocol/contract";
@@ -231,6 +232,7 @@ type Peer = {
   checkoutViews: boolean;
   sharedWorktree: boolean;
   workspacePreparation: boolean;
+  workspacePrepare: boolean;
   /** Reconciles a repeated `launch.launchId` instead of running it again. */
   launchReconcile: boolean;
   /** Last pushed, validated engine inventory; absent until the runner first reports one. */
@@ -993,6 +995,7 @@ export class RemoteRunnerService {
           checkoutInspection: ready.checkoutInspection === true,
           sharedWorktree: ready.sharedWorktree === true,
           workspacePreparation: ready.workspacePreparation === true,
+          workspacePrepare: ready.workspacePrepare === true,
           launchReconcile: ready.launchReconcile === true,
           connection: new RunnerConnection(send),
           ...(ready.streamCredit && { streams: new FlowStreams(socket, send) }),
@@ -1078,7 +1081,7 @@ export class RemoteRunnerService {
         this.lastSeen.get(gate.key)!.engines = entries;
       } else if (
         frame.type === "launch_progress" &&
-        peer.workspacePreparation
+        (peer.workspacePreparation || peer.workspacePrepare)
       ) {
         const progress = parseLaunchProgress(frame);
         if (!progress) return socket.destroy();
@@ -2453,6 +2456,15 @@ export class RemoteRunnerService {
       throw new RunnerCapabilityUnavailable(
         "Update the runner to launch a reviewer in an existing checkout."
       );
+    if (
+      (command.kind === "workspacePrepare" ||
+        command.kind === "workspaceResume") &&
+      !peer.workspacePrepare
+    )
+      throw new RunnerCallError({
+        code: "unsupported",
+        message: "This runner does not serve workspace preparation.",
+      });
     if (command.kind === "launch" && peer.workspacePreparation && onProgress)
       command = {
         ...command,

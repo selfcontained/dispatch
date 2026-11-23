@@ -19,6 +19,7 @@ import {
 import {
   operationNames,
   operations,
+  runnerError,
   type OperationSpec,
 } from "@dispatch/runner-protocol/contract";
 import { describe, expect, it } from "vitest";
@@ -59,6 +60,18 @@ function validV1Result(command: Command, value: unknown): boolean {
       return command.operation.kind === "context"
         ? operations["git.context"].response.check(parsed)
         : isSessionCheckout(parsed);
+    case "workspacePrepare":
+    case "workspaceResume": {
+      const reply = parsed as { data?: unknown; error?: unknown };
+      const op =
+        command.kind === "workspacePrepare"
+          ? "workspace.prepare"
+          : "workspace.resume";
+      return (
+        operations[op].response.check(reply.data) ||
+        runnerError.check(reply.error)
+      );
+    }
     case "checkoutRelease":
       return command.operation.kind === "observe"
         ? isCheckoutObservation(parsed)
@@ -220,6 +233,8 @@ describe("codec coverage", () => {
         "viewCheckout",
         "inspectCheckout",
         "sessionCheckout",
+        "workspacePrepare",
+        "workspaceResume",
         "checkoutCommand",
         "checkoutRelease",
         "repo",
