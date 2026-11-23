@@ -54,10 +54,12 @@ import { copyLocalConfigFiles } from "./worktree-local-config.js";
 
 import {
   buildGitContextForWorktree,
+  normalizePath,
   probeGitContext,
 } from "../shared/git/git-context.js";
+import { detectDefaultBranch } from "../shared/git/default-branch.js";
 
-type WorkerOp = CheckoutReadName | "git.context";
+type WorkerOp = CheckoutReadName | "git.context" | "git.defaultBranch";
 type Selector = "current" | "launch" | "moved";
 type Input<K extends WorkerOp | "checkout.exec"> = {
   directory: string;
@@ -410,6 +412,10 @@ export const checkoutWorkload = {
           input.directory,
           (input as Input<"git.context">).checkoutBranch
         )) as Res<K>;
+      if (op === "git.defaultBranch")
+        return {
+          branch: await detectDefaultBranch(input.directory),
+        } as Res<K>;
       if (op === "checkout.exec")
         return (await execCheckoutCommand(
           input as unknown as Input<"checkout.exec">,
@@ -547,6 +553,17 @@ export const workspaceWorkload = {
   canonical: async (directory: string) => {
     const found = await stat(directory).catch(() => null);
     return found?.isDirectory() ? realpath(directory) : null;
+  },
+  /** Main's `set_workspace` check: any stat failure is missing. */
+  async locate(directory: string) {
+    const found = await stat(directory).catch(() => null);
+    if (!found) return "missing" as const;
+    if (!found.isDirectory()) return "not_directory" as const;
+    try {
+      return { directory: normalizePath(await realpath(directory)) };
+    } catch {
+      return "missing" as const;
+    }
   },
   async identity(directory: string) {
     const evidence = await stat(directory, { bigint: true }).catch(() => null);

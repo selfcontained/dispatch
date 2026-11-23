@@ -266,12 +266,26 @@ describe("set_workspace parity", () => {
         ...body,
       }),
     });
-    const requestSession = vi.fn(async () =>
-      runnerReply({
-        repositoryRoot: otherRepo,
-        checkoutRoot: otherRepo,
-        branch: "fix/wrong-repo",
-      })
+    // Git context is probed after a move, as for a local session.
+    const context = {
+      repoRoot: otherRepo,
+      branch: "fix/wrong-repo",
+      worktreePath: otherRepo,
+      worktreeName: "other",
+      isWorktree: false,
+    };
+    const requestSession = vi.fn(
+      async (
+        _placement: unknown,
+        command: { operation?: { kind?: string } }
+      ) =>
+        command.operation?.kind === "context"
+          ? { value: JSON.stringify(context) }
+          : runnerReply({
+              repositoryRoot: otherRepo,
+              checkoutRoot: otherRepo,
+              branch: "fix/wrong-repo",
+            })
     );
     const remote = {
       requestSession,
@@ -281,7 +295,7 @@ describe("set_workspace parity", () => {
     });
     await insertWorktreeAgent("agt_local", launchWorktree, "agt/launch");
     await pool.query(
-      `INSERT INTO agents (id, name, status, cwd) VALUES ($1, $1, 'stopped', $2)`,
+      `INSERT INTO agents (id, name, status, cwd, runner_id) VALUES ($1, $1, 'stopped', $2, 'runner-test')`,
       ["agt_runner", "runner://runner-test/@session"]
     );
     const handlers = (agentManager: InstanceType<typeof AgentManager>) =>
@@ -349,14 +363,18 @@ describe("set_workspace parity", () => {
       isWorktree: false,
     });
 
-    // An older runner omits the git fields and the result keeps its shape.
+    // An older runner omits the git fields from its selection; the result
+    // keeps its shape, and the Git facts come from the context probe.
     requestSession.mockResolvedValueOnce(runnerReply({}));
     const legacy = await handlers(runnerManager).setWorkspace(
       "agt_runner",
       move
     );
     expect(Object.keys(legacy).sort()).toEqual(Object.keys(local).sort());
-    expect(legacy).toMatchObject({ repoRoot: null, branch: null });
+    expect(legacy).toMatchObject({
+      repoRoot: otherRepo,
+      branch: "fix/wrong-repo",
+    });
   });
 });
 

@@ -531,26 +531,16 @@ export async function createSessionSupervisor(
       : await configuredDirectory(key, configuredCwd);
     const borrowed = await readOptional(borrowedFile(key));
     return borrowed && borrowed !== launch
-      ? authorizedDirectory(borrowed, launch, managed, owner ?? key)
+      ? authorizedDirectory(borrowed)
       : launch;
   }
 
-  /** Whether `dir` is inside a session's protected `checkout` subtree. */
-  async function isSessionCheckout(dir: string) {
-    const [key, name] = path.relative(sessions, dir).split(path.sep);
-    if (name !== "checkout" || !key || !storageKeyPattern.test(key))
-      return false;
-    // A workload-writable parent could swap the checkout for a symlink.
-    const parent = await lstat(path.join(sessions, key)).catch(missingPath);
-    return checkoutParentIsProtected(parent);
-  }
-
-  async function authorizedDirectory(
-    requested: string,
-    launch: string,
-    managed: boolean,
-    owner: string
-  ) {
+  /**
+   * A folder the session selected (or a borrower inherited): any directory
+   * the workload account can use, as on the controller (T16). The runner
+   * checks it as that account and records the resolved path.
+   */
+  async function authorizedDirectory(requested: string) {
     if (!isCheckoutPath(requested))
       throw new Error("Invalid checkout directory.");
     let dir: string;
@@ -567,16 +557,6 @@ export async function createSessionSupervisor(
         "The checkout directory is unavailable to the runner workload."
       );
     }
-    // Configured workspaces are allowlisted. Managed sessions may select
-    // their owner's checkout, another session's checkout (local allows any
-    // directory), or an external root disjoint from runner state.
-    const allowed = managed
-      ? containsDirectory(path.join(sessions, owner), dir) ||
-        (await isSessionCheckout(dir)) ||
-        (!containsDirectory(storage, dir) && !containsDirectory(dir, storage))
-      : containsDirectory(launch, dir);
-    if (!allowed)
-      throw new Error("Directory is outside the bound runner checkout.");
     await checkedDirectory(dir);
     return dir;
   }
@@ -588,12 +568,7 @@ export async function createSessionSupervisor(
   ) {
     const selected = await readOptional(selectedFile(key));
     if (!selected) return initial;
-    return authorizedDirectory(
-      selected,
-      managedTarget(workspace) ? initial : await configuredDirectory(key),
-      managedTarget(workspace),
-      checkoutOwner(await readBinding(key)) ?? key
-    );
+    return authorizedDirectory(selected);
   }
 
   async function checkoutGitContext(dir: string): Promise<Res<"git.context">> {
@@ -1356,29 +1331,13 @@ export async function createSessionSupervisor(
           );
         let dir = initial;
         if (operation.path !== null) {
-          const managed = managedTarget(workspace);
-          const owner = checkoutOwner(await readBinding(key)) ?? key;
-          const launch = managed
-            ? initial
-            : await configuredDirectory(key, configuredCwd);
-          dir = await authorizedDirectory(
-            operation.path,
-            launch,
-            managed,
-            owner
-          );
+          dir = await authorizedDirectory(operation.path);
           const root = await asWorkload(
             "git",
             ["-C", dir, "rev-parse", "--show-toplevel"],
             { git: true }
           ).catch(() => "");
-          if (root)
-            dir = await authorizedDirectory(
-              root.trimEnd(),
-              launch,
-              managed,
-              owner
-            );
+          if (root) dir = await authorizedDirectory(root.trimEnd());
         }
         const result = await describeCheckout(dir, initial);
         await writePrivateState(selectedFile(key), result.moved ? dir : "");

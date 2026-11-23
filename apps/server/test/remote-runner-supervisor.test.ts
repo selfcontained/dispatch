@@ -1580,28 +1580,22 @@ describe("runner session supervision", () => {
       path: owningSubdir,
     });
 
+    // Any folder the workload account can use, as on the controller (T16).
     const ancestor = path.dirname(state);
     const alias = path.join(owningDir, "ancestor-link");
     await symlink(ancestor, alias);
-    for (const forbidden of [
-      "/",
-      ancestor,
-      alias,
-      state,
-      path.join(state, "sessions"),
-    ])
-      await expect(select(forbidden)).rejects.toThrow(
-        "outside the bound runner checkout"
-      );
-
-    // A harmless-looking sibling of the storage can resolve to a Git root
-    // that contains it. Confirm authorization is repeated on that root.
+    for (const folder of ["/", ancestor, alias, state])
+      await expect(select(folder)).resolves.toMatchObject({ moved: true });
+    // A subdirectory moves to its Git root, checked again as the workload.
     const sibling = path.join(ancestor, "sibling");
     await mkdir(sibling);
     await asWorkload("git", ["-C", ancestor, "init"]);
-    await expect(select(sibling)).rejects.toThrow(
-      "outside the bound runner checkout"
+    await expect(select(sibling)).resolves.toMatchObject({ path: ancestor });
+    await expect(select(path.join(ancestor, "missing"))).rejects.toThrow(
+      "unavailable to the runner workload"
     );
+    await rm(path.join(ancestor, ".git"), { recursive: true, force: true });
+    await select(owningSubdir);
     await expect(runner.checkoutDirectory(agentId, workspace)).resolves.toBe(
       owningSubdir
     );
@@ -1640,7 +1634,8 @@ describe("runner session supervision", () => {
         kind: "select",
         path: independentDir,
       })
-    ).rejects.toThrow("outside the bound runner checkout");
+    ).resolves.toMatchObject({ path: independentDir, moved: true });
+    await select(subdir);
 
     await runner.stop(agentId, workspace, false);
     runner.close();
@@ -1669,7 +1664,7 @@ describe("runner session supervision", () => {
     expect(processes.spawn.mock.calls.at(-1)?.[1]).toBe(checkout);
   });
 
-  it("lets a managed session select another session's checkout like local", async () => {
+  it("lets a managed session select any folder its account can use, like local", async () => {
     const workspace = MANAGED_WORKSPACE;
     const asWorkload = async (bin: string, args: string[]) =>
       bin === "realpath"
@@ -1708,19 +1703,17 @@ describe("runner session supervision", () => {
       branch: null,
     });
     await expect(select(nested)).resolves.toMatchObject({ path: nested });
-    for (const forbidden of [
-      parent,
-      privateDir,
-      path.join(checkout, "escape"),
-      loose,
-      badKey,
-      path.join(state, "bindings"),
-      sessions,
-      state,
-    ])
-      await expect(select(forbidden)).rejects.toThrow(
-        "outside the bound runner checkout"
-      );
+    // No confinement (T16): what the workload account can use is accepted,
+    // and what it cannot is refused.
+    for (const folder of [parent, privateDir, loose, badKey, sessions, state])
+      await expect(select(folder)).resolves.toMatchObject({ path: folder });
+    await expect(select(path.join(checkout, "escape"))).resolves.toMatchObject({
+      path: path.join(state, "bindings"),
+    });
+    await expect(select(path.join(parent, "missing"))).rejects.toThrow(
+      "unavailable to the runner workload"
+    );
+    await select(nested);
     await expect(runner.checkoutDirectory(agentId, workspace)).resolves.toBe(
       nested
     );

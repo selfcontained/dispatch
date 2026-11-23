@@ -222,7 +222,7 @@ function wireGit(value: CheckoutGit) {
 
 export function workspaceHandlers(
   stateRoot: string,
-  store: Pick<BindingStore, "get" | "origin" | "bindPrepared">,
+  store: Pick<BindingStore, "get" | "origin" | "bindPrepared" | "select">,
   port: WorkspacePort
 ): CallHandlers {
   const pending = new Map<string, Promise<unknown>>();
@@ -320,6 +320,23 @@ export function workspaceHandlers(
           }
         : null,
       ...(probed !== "error" && { git: probed ? wireGit(probed) : null }),
+    };
+  }
+
+  /** A selection's answer: the folder the session now works in and its Git facts. */
+  async function selection(
+    stored: StoredBinding,
+    path: string,
+    probed: CheckoutGit | null
+  ): Promise<Res<"workspace.select">> {
+    return {
+      path: pathFromWire(path),
+      moved: stored.currentPath !== null,
+      origin: await store.origin(path),
+      repositoryRoot: probed ? pathFromWire(probed.repoRoot) : null,
+      checkoutRoot: pathFromWire(stored.checkout.path),
+      branch: probed?.branch ?? null,
+      git: probed ? wireGit(probed) : null,
     };
   }
 
@@ -457,6 +474,55 @@ export function workspaceHandlers(
           input.installDependencies
         );
         return finish(session, dir, receipt, emit);
+      });
+    },
+
+    /**
+     * Move the session into another folder its account can use, or back
+     * to its checkout with `null`. Main's rule: the folder must be a
+     * directory; inside Git the session moves to that checkout's root; the
+     * checkout itself (canonically) is no move. Only `currentPath` is
+     * recorded; the checkout and its ownership stay as they are.
+     */
+    async "workspace.select"(input: Req<"workspace.select">) {
+      const session = sessionToWire(input.session);
+      return serialize(session, async () => {
+        const held = await store.get(session);
+        if (!held)
+          throw new RunnerCallError({
+            code: "not_found",
+            message: "No checkout is bound to this session",
+          });
+        let path = held.checkout.path;
+        let current: string | null = null;
+        let probed: CheckoutGit | null;
+        if (input.path === null) {
+          const git = await port.git(path);
+          probed = git === "error" ? null : git;
+        } else {
+          const requested = displayPath(input.path);
+          if (!isAbsolute(requested))
+            throw refused("Workspace path must be absolute.", 400);
+          const found = await port.locate(requested);
+          if (found === "not_directory")
+            throw refused(`${requested} is not a directory.`, 400);
+          if (found === "missing")
+            throw refused(`${requested} does not exist.`, 400);
+          const git = await port.git(found.directory);
+          if (git === "error")
+            throw refused(
+              `Could not read git state in ${found.directory}.`,
+              400
+            );
+          probed = git;
+          path = git?.worktreePath ?? found.directory;
+          const home =
+            (await port.canonical(held.checkout.path)) ??
+            resolve(held.checkout.path);
+          if (path !== home) current = path;
+        }
+        const stored = await store.select(session, current);
+        return selection(stored ?? held, path, probed);
       });
     },
 

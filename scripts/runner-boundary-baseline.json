@@ -1065,13 +1065,6 @@
   },
   {
     "file": "apps/server/src/agents/local-runner.ts",
-    "kind": "R3 local method",
-    "detail": "resolveWorkspace",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner.ts",
     "kind": "R3 local side channel",
     "detail": "LocalLaunchSettings",
     "task": "T04",
@@ -1110,7 +1103,7 @@
     "kind": "R1 placement call",
     "detail": "remotePlacement(agent.cwd)",
     "task": "T07",
-    "count": 8
+    "count": 7
   },
   {
     "file": "apps/server/src/agents/manager.ts",
@@ -1614,13 +1607,6 @@
     "kind": "R7 restriction",
     "detail": "N35 Runner archive conditionally releases and defers to borrowers",
     "task": "T20",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/session-supervisor.ts",
-    "kind": "R7 restriction",
-    "detail": "N9 Selected workspace is confined",
-    "task": "T16",
     "count": 1
   },
   {
