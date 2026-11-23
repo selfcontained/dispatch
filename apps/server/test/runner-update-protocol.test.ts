@@ -15,7 +15,7 @@ import {
   RunnerUnavailable,
   RunnerUpdateFenced,
   runnerReplyTimeoutMs,
-} from "@dispatch/runner-protocol/connection";
+} from "@dispatch/runner-client/v1/connection";
 import { describe, expect, it, vi } from "vitest";
 
 const attemptId = "6f1c1d1e-2a3b-4c5d-8e9f-0a1b2c3d4e5f";

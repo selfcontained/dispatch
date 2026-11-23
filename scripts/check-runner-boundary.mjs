@@ -269,7 +269,8 @@ export function scanSource(file, source, declared = new Set()) {
       if (
         !target.startsWith(server) ||
         (!legacyRunner.test(target.slice(server.length) + ".ts") &&
-          !hostModule.test(target.slice(server.length)))
+          !hostModule.test(target.slice(server.length)) &&
+          target !== server + "runners/enrolled/v1-framing")
       )
         hit("R5 runner to Dispatch", target);
     }

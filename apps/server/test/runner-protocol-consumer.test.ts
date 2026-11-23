@@ -42,12 +42,12 @@ import {
   type EngineInventoryEntry,
   type EngineOperationAck,
 } from "@dispatch/runner-protocol/engine-management";
-import { hostChannel, wireFrames } from "@dispatch/runner-protocol/node";
+import { hostChannel, wireFrames } from "@dispatch/runner-client/v1/node";
 import {
   RunnerConnection,
   RunnerHostGone,
   RunnerUnavailable,
-} from "@dispatch/runner-protocol/connection";
+} from "@dispatch/runner-client/v1/connection";
 import { expect, it, vi } from "vitest";
 
 it("round-trips opaque locator components without URL normalization", () => {

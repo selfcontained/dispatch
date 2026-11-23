@@ -18,7 +18,7 @@ import type { WorkloadCommand } from "./session-storage.js";
 import { createSessionSupervisor } from "./session-supervisor.js";
 export { runnerStorageKey } from "./session-supervisor.js";
 import { hostCommand, selfCommand } from "../acp/host-command.js";
-import { runnerReplyTimeoutMs } from "@dispatch/runner-protocol/connection";
+import { runnerReplyTimeoutMs } from "../../runners/enrolled/v1-framing.js";
 import {
   TERMINAL_UPDATE_MESSAGE,
   UPDATE_FENCED_MESSAGE,
@@ -63,7 +63,7 @@ import {
   type EngineCapabilityOperation,
   type EngineOperationAck,
 } from "@dispatch/runner-protocol/engine-management";
-import { wireFrames } from "@dispatch/runner-protocol/node";
+import { wireFrames } from "../../runners/enrolled/v1-framing.js";
 import { GitHubPullRequestWatches } from "./github-pull-request-watches.js";
 import { GitHubRunnerExecutor } from "./github-runner-executor.js";
 import {

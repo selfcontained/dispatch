@@ -1,4 +1,4 @@
-import { checkoutCommandTimeoutMs } from "./checkout-command.js";
+import { checkoutCommandTimeoutMs } from "@dispatch/runner-protocol";
 import type { Duplex } from "node:stream";
 import type {
   ChannelFrame,
@@ -7,7 +7,7 @@ import type {
   LaunchProgress,
   LaunchProgressFrame,
   ServiceFrame,
-} from "./index.js";
+} from "@dispatch/runner-protocol";
 import { hostChannel } from "./node.js";
 
 export class RunnerUnavailable extends Error {}

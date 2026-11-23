@@ -7,7 +7,7 @@ import {
   type TerminalEvent,
   type TerminalInfo,
 } from "@dispatch/runner-protocol";
-import { wireFrames } from "@dispatch/runner-protocol/node";
+import { wireFrames } from "../runners/enrolled/v1-framing.js";
 import { spawnTerminal, type PtyProcess } from "./pty.js";
 
 type TerminalWorkerEvent =

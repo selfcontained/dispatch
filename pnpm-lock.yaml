@@ -74,6 +74,9 @@ importers:
       '@agentclientprotocol/sdk':
         specifier: 1.8.0
         version: 1.8.0(zod@4.3.6)
+      '@dispatch/runner-client':
+        specifier: workspace:*
+        version: link:../../packages/runner-client
       '@dispatch/runner-protocol':
         specifier: workspace:*
         version: link:../../packages/runner-protocol

@@ -15,13 +15,13 @@ import { createServer, type Server, type TLSSocket } from "node:tls";
 import {
   RunnerConnection,
   RunnerUnavailable,
-} from "@dispatch/runner-protocol/connection";
+} from "../../runners/enrolled/v1-framing.js";
 export {
   RunnerUnavailable,
   RunnerHostGone,
   RunnerUpdateFenced,
   RunnerAcknowledgementLost,
-} from "@dispatch/runner-protocol/connection";
+} from "../../runners/enrolled/v1-framing.js";
 import type { Pool } from "pg";
 import type { FastifyBaseLogger } from "fastify";
 import {

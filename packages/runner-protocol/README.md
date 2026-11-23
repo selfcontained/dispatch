@@ -2,7 +2,7 @@
 
 `@dispatch/runner-protocol` exports transport frame types, host replay and
 receipt types, and workspace locator helpers. It has no dependencies outside
-the package. The separate `@dispatch/runner-protocol/node` entry point provides
+the package. The separate `@dispatch/runner-client/v1/node` entry point provides
 NDJSON framing and a `Duplex` channel for Node-compatible runtimes. The package
 ships TypeScript source for Bun or a TypeScript-aware bundler.
 
@@ -15,7 +15,7 @@ ships TypeScript source for Bun or a TypeScript-aware bundler.
 | Session    | Service attaches to a host          | Exchange hello/welcome, replay journal entries, and deliver prompts inside the attached byte stream.                                                               | `session.ts` defines journal positions and receipts. See **Receipts and replay** below. |
 
 For a Node-compatible service, create one `RunnerConnection` from
-`@dispatch/runner-protocol/connection` per authenticated, ready peer. Its
+`@dispatch/runner-client/v1/connection` per authenticated, ready peer. Its
 constructor takes a frame sender. Route incoming `result`, `data`, and
 `close` to `receive`. Call `close()` when the transport disconnects and
 create a fresh connection when the runner returns. Call

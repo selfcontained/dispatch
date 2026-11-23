@@ -3836,31 +3836,10 @@
     "count": 1
   },
   {
-    "file": "packages/runner-protocol/src/connection.ts",
-    "kind": "R5 package import",
-    "detail": "node:stream",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "packages/runner-protocol/src/execution.ts",
     "kind": "R5 protocol leak",
     "detail": "personaContext",
     "task": "T24",
-    "count": 1
-  },
-  {
-    "file": "packages/runner-protocol/src/node.ts",
-    "kind": "R5 package import",
-    "detail": "node:stream",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "packages/runner-protocol/src/node.ts",
-    "kind": "R5 package import",
-    "detail": "node:string_decoder",
-    "task": "T04",
     "count": 1
   },
   {
