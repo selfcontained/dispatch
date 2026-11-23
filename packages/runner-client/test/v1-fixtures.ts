@@ -263,6 +263,23 @@ export const results: ResultFixture[] = [
     }),
   },
   {
+    command: s("sessionCheckout", {
+      operation: { kind: "context", checkout: "current" },
+    }),
+    value: json({
+      repoRoot: "/srv/work/app",
+      worktreePath: "/srv/work/app",
+      worktreeName: "app",
+      branch: "feature",
+      isWorktree: false,
+      repoIconPath: "favicon.svg",
+    }),
+  },
+  {
+    command: s("sessionCheckout", { operation: { kind: "context" } }),
+    value: json(null),
+  },
+  {
     command: s("sessionCheckout", { operation: { kind: "describe" } }),
     value: json({
       path: "/srv/work/app",

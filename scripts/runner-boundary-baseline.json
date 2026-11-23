@@ -1164,23 +1164,9 @@
   {
     "file": "apps/server/src/agents/manager.ts",
     "kind": "R1 placement call",
-    "detail": "agentWorkspaceDir(agent)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/manager.ts",
-    "kind": "R1 placement call",
-    "detail": "agentWorkspaceDir(updated)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/manager.ts",
-    "kind": "R1 placement call",
     "detail": "remotePlacement(agent.cwd)",
     "task": "T07",
-    "count": 13
+    "count": 12
   },
   {
     "file": "apps/server/src/agents/manager.ts",
@@ -1208,7 +1194,7 @@
     "kind": "R1 placement call",
     "detail": "remotePlacement(row.cwd)",
     "task": "T07",
-    "count": 2
+    "count": 1
   },
   {
     "file": "apps/server/src/agents/manager.ts",
@@ -1269,13 +1255,6 @@
   {
     "file": "apps/server/src/agents/manager.ts",
     "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/git-context",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/manager.ts",
-    "kind": "R2 host import",
     "detail": "apps/server/src/shared/git/worktree",
     "task": "T04",
     "count": 1
@@ -1292,13 +1271,6 @@
     "kind": "R7 restriction",
     "detail": "N21 Missing runner attachment fails prompt",
     "task": "T12",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/manager.ts",
-    "kind": "R7 restriction",
-    "detail": "N22 Runner checkout skips Git refresh",
-    "task": "T15",
     "count": 1
   },
   {
@@ -1705,13 +1677,6 @@
     "kind": "R7 restriction",
     "detail": "N27 Helper commands absent from runner PATH",
     "task": "T24, T39",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/session-supervisor.ts",
-    "kind": "R7 restriction",
-    "detail": "N31 Runner repository icons disabled",
-    "task": "T15",
     "count": 1
   },
   {

@@ -492,6 +492,14 @@ export async function runRemoteRunner(
     asWorkload,
     githubCredentialHelper: async () =>
       githubCredentialHelper(await tools.resolve("gh")),
+    async probeCheckoutGit(cwd) {
+      const { stdout } = await execute(
+        setpriv,
+        [...childArgs, ...self("runner-worker"), "git-context", cwd],
+        { env, timeout: 20_000, maxBuffer: 512 * 1024 }
+      );
+      return JSON.parse(stdout);
+    },
     async observeCheckout(cwd, scratch) {
       const { stdout } = await execute(
         setpriv,
@@ -945,12 +953,19 @@ export async function runRemoteRunner(
           case "sessionCheckout":
             result(
               JSON.stringify(
-                await supervisor.sessionCheckout(
-                  agentId,
-                  workspace,
-                  command.operation,
-                  target?.cwd
-                )
+                command.operation.kind === "context"
+                  ? await supervisor.gitContext(
+                      agentId,
+                      workspace,
+                      command.operation,
+                      target?.cwd
+                    )
+                  : await supervisor.sessionCheckout(
+                      agentId,
+                      workspace,
+                      command.operation,
+                      target?.cwd
+                    )
               )
             );
             break;

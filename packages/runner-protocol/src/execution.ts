@@ -96,7 +96,10 @@ export type SessionOperation =
   | {
       agentId: string;
       kind: "sessionCheckout";
-      operation: { kind: "describe" } | { kind: "select"; path: string | null };
+      operation:
+        | { kind: "describe" }
+        | { kind: "select"; path: string | null }
+        | { kind: "context"; checkout?: "current" | "launch" | "moved" };
     }
   | { agentId: string; kind: "checkoutCommand"; operation: CheckoutCommand }
   | { agentId: string; kind: "checkoutRelease"; operation: CheckoutRelease }
@@ -390,6 +393,11 @@ function isCommand(value: unknown): value is Command {
       return (
         isRecord(value.operation) &&
         (value.operation.kind === "describe" ||
+          (value.operation.kind === "context" &&
+            (value.operation.checkout === undefined ||
+              value.operation.checkout === "current" ||
+              value.operation.checkout === "launch" ||
+              value.operation.checkout === "moved")) ||
           (value.operation.kind === "select" &&
             (value.operation.path === null ||
               isCheckoutPath(value.operation.path))))

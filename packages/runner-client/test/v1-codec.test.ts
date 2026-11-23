@@ -56,7 +56,9 @@ function validV1Result(command: Command, value: unknown): boolean {
     case "inspectCheckout":
       return isCheckoutReply(parsed, command.query);
     case "sessionCheckout":
-      return isSessionCheckout(parsed);
+      return command.operation.kind === "context"
+        ? operations["git.context"].response.check(parsed)
+        : isSessionCheckout(parsed);
     case "checkoutRelease":
       return command.operation.kind === "observe"
         ? isCheckoutObservation(parsed)

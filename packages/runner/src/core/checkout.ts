@@ -85,7 +85,38 @@ export function checkoutHandlers(
       return described;
     },
   };
-  for (const op of [...WORKER_OPS, ...EXEC_OPS]) {
+  handlers["git.context"] = async ({ target }) => {
+    if (!("session" in target))
+      return platform.workload.run(
+        "git.context",
+        {
+          directory: await directory(target),
+          request: {},
+        },
+        {}
+      );
+    const binding = await store.get(sessionToWire(target.session));
+    if (!binding) throw notBound();
+    const dir = selected(binding, target.checkout);
+    const checkoutBranch =
+      target.checkout !== "moved" &&
+      (target.checkout === "launch" || binding.currentPath === null)
+        ? (binding.checkout.branch ?? undefined)
+        : undefined;
+    return platform.workload.run(
+      "git.context",
+      {
+        directory: dir,
+        request: {},
+        checkoutBranch,
+      },
+      {}
+    );
+  };
+  for (const op of [
+    ...WORKER_OPS.filter((op) => op !== "git.context"),
+    ...EXEC_OPS,
+  ]) {
     const run = async (input: { target: Target }) => {
       const { target, ...request } = input;
       const dir = await directory(target);

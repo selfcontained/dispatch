@@ -23,6 +23,11 @@ import { setTimeout as delay } from "node:timers/promises";
 import type { BuildIdentity } from "../build-identity.js";
 import { HOST_FILES, hostFile, type HostLaunch } from "../acp/host-protocol.js";
 import { observeBoundCheckout } from "../checkout-observation.js";
+import {
+  displayPath,
+  type Res,
+  pathFromWire,
+} from "@dispatch/runner-protocol/contract";
 import { probeGitContext } from "../../shared/git/git-context.js";
 import type { CommandRunner } from "../../shared/lib/run-command.js";
 import {
@@ -83,6 +88,7 @@ type CheckoutOperation = Extract<
   SessionOperation,
   { kind: "sessionCheckout" }
 >["operation"];
+type ContextOperation = Extract<CheckoutOperation, { kind: "context" }>;
 
 type SupervisorOptions = {
   build: BuildIdentity;
@@ -96,6 +102,7 @@ type SupervisorOptions = {
   workspaces: ReadonlySet<string>;
   hostCommand: (dir: string) => string[];
   asWorkload: WorkloadCommand;
+  probeCheckoutGit?: (cwd: string) => Promise<Res<"git.context">>;
   githubCredentialHelper?: () => Promise<string>;
   observeCheckout?: (cwd: string, scratch: boolean) => Promise<CheckoutState>;
   prepareDependencies?: (cwd: string) => Promise<boolean>;
@@ -588,6 +595,18 @@ export async function createSessionSupervisor(
     );
   }
 
+  async function checkoutGitContext(dir: string): Promise<Res<"git.context">> {
+    if (config.probeCheckoutGit) return config.probeCheckoutGit(dir);
+    const git = await probeGitContext(dir, { commandRunner: workloadRunner });
+    if (git.status === "error") throw new Error("Git context probe failed.");
+    if (!git.value) return null;
+    return {
+      ...git.value,
+      repoRoot: pathFromWire(git.value.repoRoot),
+      worktreePath: pathFromWire(git.value.worktreePath),
+    };
+  }
+
   async function describeCheckout(
     dir: string,
     initial: string
@@ -615,18 +634,13 @@ export async function createSessionSupervisor(
         // Only return a recognized, credential-free repository URL.
       }
     }
-    // Probe like local, as the workload; icons stay on the runner.
-    const git = await probeGitContext(dir, {
-      commandRunner: workloadRunner,
-      repoIcon: false,
-    });
-    const context = git.status === "ok" ? git.value : null;
+    const context = await checkoutGitContext(dir).catch(() => null);
     return {
       path: dir,
       moved: dir !== initial,
       origin,
-      repositoryRoot: context?.repoRoot ?? null,
-      checkoutRoot: context?.worktreePath ?? null,
+      repositoryRoot: context ? displayPath(context.repoRoot) : null,
+      checkoutRoot: context ? displayPath(context.worktreePath) : null,
       branch: context?.branch || null,
     };
   }
@@ -1302,10 +1316,26 @@ export async function createSessionSupervisor(
         )
       );
     },
+    gitContext(
+      agentId: string,
+      workspace: string,
+      operation: ContextOperation,
+      configuredCwd?: string
+    ): Promise<Res<"git.context">> {
+      const key = runnerStorageKey(agentId);
+      return serialize(key, async () => {
+        const initial = await initialDirectory(key, workspace, configuredCwd);
+        if (operation.checkout === "launch") return checkoutGitContext(initial);
+        const selected = await selectedDirectory(key, workspace, initial);
+        if (operation.checkout === "moved" && selected === initial)
+          throw new Error("The moved checkout is no longer selected.");
+        return checkoutGitContext(selected);
+      });
+    },
     sessionCheckout(
       agentId: string,
       workspace: string,
-      operation: CheckoutOperation,
+      operation: Exclude<CheckoutOperation, ContextOperation>,
       configuredCwd?: string
     ): Promise<SessionCheckout> {
       const key = runnerStorageKey(agentId);

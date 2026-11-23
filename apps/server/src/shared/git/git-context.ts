@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import { gitContextFrom } from "../../agents/git-context-value.js";
 import type { AgentGitContext } from "../../agents/types.js";
 import {
   runCommand as defaultRunCommand,
@@ -144,23 +145,6 @@ export async function resolveCurrentBranch(
   return result.exitCode === 0 && result.stdout ? result.stdout : null;
 }
 
-/** Compose a gitContext from a checkout's probed roots and branch. */
-export function gitContextFrom(input: {
-  repoRoot: string;
-  branch: string;
-  worktreePath: string;
-  repoIconPath: string | null;
-}): AgentGitContext {
-  return {
-    repoRoot: input.repoRoot,
-    branch: input.branch,
-    worktreePath: input.worktreePath,
-    worktreeName: path.basename(input.worktreePath),
-    isWorktree: input.worktreePath !== input.repoRoot,
-    repoIconPath: input.repoIconPath,
-  };
-}
-
 /**
  * Single source of truth for "what does git think this directory is?".
  * Returns `{ status: "ok", value: null }` when the path isn't inside a git
@@ -171,7 +155,7 @@ export function gitContextFrom(input: {
  */
 export async function probeGitContext(
   cwd: string,
-  opts: ProbeOptions & { repoIcon?: boolean } = {}
+  opts: ProbeOptions = {}
 ): Promise<ProbeResult> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
   const runCommand = opts.commandRunner ?? defaultRunCommand;
@@ -204,8 +188,7 @@ export async function probeGitContext(
       ).stdout;
     }
 
-    const repoIconPath =
-      opts.repoIcon === false ? null : await detectRepoIcon(checkoutRoot);
+    const repoIconPath = await detectRepoIcon(checkoutRoot);
 
     return {
       status: "ok",

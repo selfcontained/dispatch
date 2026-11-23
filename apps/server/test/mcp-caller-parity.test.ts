@@ -120,11 +120,17 @@ const ctx = useInjectApp({
           );
         case "sessionCheckout":
           return JSON.stringify(
-            await supervisor.sessionCheckout(
-              command.agentId,
-              command.workspace,
-              command.operation
-            )
+            command.operation.kind === "context"
+              ? await supervisor.gitContext(
+                  command.agentId,
+                  command.workspace,
+                  command.operation
+                )
+              : await supervisor.sessionCheckout(
+                  command.agentId,
+                  command.workspace,
+                  command.operation
+                )
           );
         case "sessionFile":
           return supervisor.sessionFile(

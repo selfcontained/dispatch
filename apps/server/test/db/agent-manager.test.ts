@@ -571,6 +571,76 @@ describe("AgentManager", () => {
       ]);
     });
 
+    it("refreshes a runner branch after a turn and keeps the last context if the probe fails", async () => {
+      const root = "/runner/checkout";
+      const requestSession = vi.fn(
+        async (_placement: unknown, request: SessionOperation) => {
+          if (
+            request.kind !== "sessionCheckout" ||
+            request.operation.kind !== "context"
+          )
+            throw new Error("Unexpected request");
+          return {
+            value: JSON.stringify({
+              repoRoot: root,
+              worktreePath: root,
+              worktreeName: "checkout",
+              isWorktree: false,
+              branch,
+              repoIconPath: "favicon.svg",
+            }),
+          };
+        }
+      );
+      let branch = "main";
+      const remote = {
+        available: () => true,
+        isManagedWorkspace: () => true,
+        requestSession,
+        originFor: () => "https://example.test",
+      } as unknown as RemoteRunnerService;
+      const first = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      const agent = await first.createAgent({
+        cwd: "runner://runner-test/@session",
+      });
+      expect(agent.gitContext).toMatchObject({
+        branch,
+        repoIconPath: "favicon.svg",
+      });
+
+      const settle = () =>
+        runtime.emit(
+          agent.id,
+          {
+            type: "turn",
+            agentId: agent.id,
+            state: "settled",
+          },
+          0
+        );
+
+      branch = "after-turn";
+      await settle();
+      await vi.waitFor(async () => {
+        expect(await first.getAgent(agent.id)).toMatchObject({
+          gitContext: { branch },
+          gitContextStale: false,
+        });
+      });
+
+      requestSession.mockRejectedValueOnce(new Error("runner offline"));
+      await settle();
+      await vi.waitFor(async () => {
+        expect(await first.getAgent(agent.id)).toMatchObject({
+          gitContext: { branch },
+          gitContextStale: true,
+        });
+      });
+    });
+
     it("records a runner selection only after acknowledgement and binds independent children to the selected origin", async () => {
       const cwd = "runner://runner-test/@session";
       const projectId = "managed-runner-project";
@@ -597,6 +667,7 @@ describe("AgentManager", () => {
       });
       const parent = await first.createAgent({ cwd, projectId });
       expect(parent).toMatchObject({ cwd, projectId, workspacePath: null });
+      requestSession.mockClear();
       const move = { path: "/workload/moved/src", baseBranch: "develop" };
       requestSession.mockRejectedValueOnce(new Error("runner offline"));
       await expect(first.setWorkspace(parent.id, move)).rejects.toThrow(

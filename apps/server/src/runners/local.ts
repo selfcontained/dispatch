@@ -235,6 +235,46 @@ export function createLocalCheckoutRunner(
     );
   }
 
+  async function gitContext(
+    input: Req<"git.context">,
+    options?: CallOptions<"git.context">
+  ): Promise<Res<"git.context">> {
+    const { target } = input;
+    if (!("session" in target) || sessionToWire(target.session) !== agent?.id)
+      throw new RunnerCallError({
+        code: "invalid",
+        message: "Invalid native checkout binding.",
+      });
+    const selector = target.checkout ?? "current";
+    const directory =
+      selector === "current" && !agent.workspacePath && !agent.worktreeBranch
+        ? agent.cwd
+        : commandDirectory(agent, selector);
+    if (!directory)
+      throw new RunnerCallError({
+        code: "not_found",
+        message: "The moved checkout is no longer selected.",
+      });
+    if (
+      child?.connection.state === "ready" &&
+      (await childHolds(target.session, selector, directory, options))
+    )
+      return child.call("git.context", input, options);
+    const checkoutBranch =
+      agent.worktreePath === directory &&
+      (selector === "launch" ||
+        (selector === "current" && !agent.workspacePath))
+        ? (agent.worktreeBranch ?? undefined)
+        : undefined;
+    return checkoutWorkload.run(
+      "git.context",
+      { directory, request: {}, checkoutBranch },
+      {
+        signal: options?.signal,
+      }
+    );
+  }
+
   return {
     describe: () => description,
     connection: { state: "ready", epoch: 0, onChange: () => () => {} },
@@ -269,6 +309,10 @@ export function createLocalCheckoutRunner(
           input as Req<ChildRead>,
           options as CallOptions<ChildRead>
         ) as Promise<Res<K>>;
+      if (op === "git.context")
+        return gitContext(input as Req<"git.context">, options) as Promise<
+          Res<K>
+        >;
       if (op === "checkout.exec")
         return exec(
           input as Req<"checkout.exec">,
