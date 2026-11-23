@@ -1,10 +1,12 @@
 import { writeFile } from "node:fs/promises";
 import { parse, type ParseError } from "jsonc-parser";
-import { hostFile } from "./host-protocol.js";
 
-/** Add per-agent guidance to OpenCode's native system instructions. */
+/**
+ * Add per-agent guidance to OpenCode's native system instructions. The
+ * caller names the private file the guidance is written to.
+ */
 export async function openCodeInstructionsEnv(
-  stateDir: string,
+  file: string,
   instructions: string | null,
   env: NodeJS.ProcessEnv
 ): Promise<NodeJS.ProcessEnv> {
@@ -33,7 +35,6 @@ export async function openCodeInstructionsEnv(
       "OPENCODE_CONFIG_CONTENT instructions must be an array of paths."
     );
   }
-  const file = hostFile(stateDir, "instructions");
   await writeFile(file, instructions, { mode: 0o600 });
   return {
     ...env,

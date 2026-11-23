@@ -708,7 +708,7 @@ async function main(argv: string[], options: AgentHostOptions): Promise<void> {
       env:
         spec.personaDelivery === "instructions_file"
           ? await openCodeInstructionsEnv(
-              stateDir,
+              hostFile(stateDir, "instructions"),
               launch.systemPrompt,
               childEnv
             )

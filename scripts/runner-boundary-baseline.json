@@ -63,13 +63,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/acp/opencode-instructions.ts",
-    "kind": "R5 runner to Dispatch",
-    "detail": "apps/server/src/agents/acp/host-protocol",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/acp/runtime.ts",
     "kind": "R1 placement read",
     "detail": "current.remote",
