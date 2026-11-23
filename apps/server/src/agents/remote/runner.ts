@@ -12,6 +12,7 @@ import path from "node:path";
 import process from "node:process";
 import { connect } from "node:tls";
 import { Duplex, Readable } from "node:stream";
+import { finished } from "node:stream/promises";
 import { terminalEnvironment } from "../../terminal/pty.js";
 import { promisify } from "node:util";
 import type { HostLaunch } from "../acp/host-protocol.js";
@@ -232,10 +233,9 @@ async function streamCheckoutWorker(
   control.setEncoding("utf8").on("data", (chunk: string) => {
     status = (status + chunk).slice(0, 8192);
   });
-  const exited = new Promise<void>((resolve, reject) => {
+  const exited = new Promise<string>((resolve, reject) => {
     child.once("error", reject);
-    control.once("error", reject);
-    child.once("close", () => resolve());
+    child.once("close", (code, signal) => resolve(String(code ?? signal)));
   });
   child.stdin.on("error", () => {});
   child.stdin.end(input);
@@ -250,17 +250,20 @@ async function streamCheckoutWorker(
     );
   let completed = false;
   try {
-    await Promise.all([
+    const [workerStatus] = await Promise.all([
+      exited,
+      finished(control, { cleanup: true }),
       send(execution.stdout, child.stdout),
       send(execution.stderr, child.stderr),
-      exited,
     ]);
     completed = true;
     const value = JSON.parse(status || "null");
     if (value?.code === "stale")
       throw new RunnerCallError({ code: "stale", message: value.error });
     if (!isCheckoutCommandStatus(value))
-      throw new Error(value?.error || "Checkout worker failed.");
+      throw new Error(
+        value?.error || `Checkout worker failed (status ${workerStatus}).`
+      );
     return JSON.stringify({ exitCode: value.exitCode, truncated });
   } finally {
     controller.abort();

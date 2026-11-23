@@ -292,7 +292,16 @@ export async function startRemoteLane(): Promise<Lane> {
         stderr !== "tail" ||
         truncated !== undefined
       )
-        throw new Error("Checkout exec lost output above the v1 frame limit.");
+        throw new Error(
+          "Checkout exec returned unexpected large-output status " +
+            JSON.stringify({
+              exitCode,
+              stdoutLength: stdout.length,
+              stderr,
+              truncated,
+              expectedLength: bytes,
+            })
+        );
       const bounded = await accepted.runner.call("checkout.exec", {
         ...exec,
         argv: ["/bin/sh", "-c", "printf 12345; printf abcde >&2"],

@@ -8,7 +8,8 @@ import {
   type CheckoutCommandResult,
   type CheckoutExecution,
 } from "@dispatch/runner-protocol";
-import type { Readable } from "node:stream";
+import { Writable, type Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { repoCommandEnvironment } from "../shared/lib/tool-environment.js";
 
 /** A child's output, trimmed, and cut at `limit` bytes when one is given. */
@@ -167,10 +168,27 @@ export async function executeStreamedCheckoutCommand(
   const child = spawn(launch.bin, launch.args, {
     cwd: root,
     env,
-    stdio: ["ignore", "inherit", "inherit"],
+    // Inherited Bun descriptors can be nonblocking. Give the program its own
+    // blocking pipe ends and forward bytes from the worker with backpressure.
+    stdio: ["ignore", "pipe", "pipe"],
   });
-  return new Promise<number>((resolve, reject) => {
+  const exited = new Promise<number>((resolve, reject) => {
     child.once("error", reject);
     child.once("close", (code) => resolve(code ?? 1));
   });
+  const forward = (input: Readable, output: Writable) =>
+    pipeline(
+      input,
+      new Writable({
+        write(chunk: Buffer, _encoding, done) {
+          output.write(chunk, done);
+        },
+      })
+    );
+  const [code] = await Promise.all([
+    exited,
+    forward(child.stdout, process.stdout),
+    forward(child.stderr, process.stderr),
+  ]);
+  return code;
 }
