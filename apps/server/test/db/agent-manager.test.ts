@@ -835,7 +835,7 @@ describe("AgentManager", () => {
       });
     });
 
-    it("prepares a capable runner launch from the project and resumes it on restart", async () => {
+    it("records the branch from a runner's prepared worktree and resumes it on restart", async () => {
       const cwd = "runner://runner-test/@session";
       const projectId = "capable-runner-project";
       const repository = "https://example.test/project";
@@ -850,6 +850,11 @@ describe("AgentManager", () => {
               path: "/workload/prepared",
               moved: false,
               origin: repository,
+              worktree: {
+                path: "/workload/prepared",
+                branch: "prepared-feature",
+                base: "trunk",
+              },
             },
           }),
         })
@@ -875,6 +880,7 @@ describe("AgentManager", () => {
         baseBranch: "trunk",
         worktreeBranch: "feature",
       });
+      expect(agent.worktreeBranch).toBe("prepared-feature");
       expect(requestSession).toHaveBeenCalledWith(
         { runner: "runner-test", workspace: "@session" },
         expect.objectContaining({
@@ -893,7 +899,9 @@ describe("AgentManager", () => {
       expect(runtime.launch.mock.calls.at(-1)?.[0].repository).toBeUndefined();
       await manager.stopAgent(agent.id);
       requestSession.mockClear();
-      await manager.startAgent(agent.id);
+      expect(await manager.startAgent(agent.id)).toMatchObject({
+        worktreeBranch: "prepared-feature",
+      });
       expect(requestSession).toHaveBeenCalledWith(
         { runner: "runner-test", workspace: "@session" },
         expect.objectContaining({ kind: "workspaceResume", agentId: agent.id }),
