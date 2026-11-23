@@ -2,7 +2,6 @@ import { githubPullRequestUrl } from "../pull-request-reader.js";
 import { mergeRiskScope, type MergeRiskGitHubSource } from "./github-source.js";
 import { retainedEvidence } from "./explanation-evidence.js";
 import { mergeRiskCapacity } from "./budget.js";
-import { readAssessedDiff } from "./explanation-diff.js";
 import type { Pool } from "pg";
 import type { RoutingSettings } from "../../chat/routing-settings.js";
 import {
@@ -57,25 +56,23 @@ export class RiskExplanations {
       pool: Pool;
       settings: RoutingSettings;
       transport?: typeof fetch;
-      github?: Pick<MergeRiskGitHubSource, "details" | "diff">;
-      /** Hunks for the assessed commit; injectable so tests never call gh. */
-      readDiff?: typeof readAssessedDiff;
+      /** PR reads as the requesting agent's runner makes them. */
+      github: Pick<MergeRiskGitHubSource, "details" | "diff">;
     }
   ) {}
 
   private async find(
     id: string,
     url: string | null,
-    scope: string,
-    includeHistorical: boolean
+    scope: string
   ): Promise<Assessment | undefined> {
     const { rows } = await this.deps.pool.query<Assessment>(
       `SELECT r.url,r.head_sha,r.base_sha,r.created_at,r.result,s.evidence
        FROM merge_risk_decision_records r
        LEFT JOIN merge_risk_evidence_snapshots s ON s.assessment_id=r.id
        WHERE r.id=$1 AND r.status='ok' AND ($2::text IS NULL OR r.url=$2)
-         AND (r.evidence_scope=$3 OR ($4 AND r.evidence_scope=''))`,
-      [id, url, scope, includeHistorical]
+         AND r.evidence_scope=$3`,
+      [id, url, scope]
     );
     return rows[0];
   }
@@ -89,26 +86,23 @@ export class RiskExplanations {
     const config = await this.deps.settings.configuration();
     if (!config.mergeRiskEnabled || !config.apiKey)
       return { state: "unavailable", reason: "disabled" };
-    const github = this.deps.github;
+    const { github } = this.deps;
     const runnerId = input.runnerId ?? null;
-    const url = input.url ? githubPullRequestUrl(input.url) : null;
-    const details = github && url ? await github.details(runnerId, url) : null;
-    if ((github && !details) || (!github && runnerId !== null))
-      return { state: "unavailable", reason: "not_found" };
-    const scope = details
-      ? mergeRiskScope(runnerId, details.credentialContext)
-      : "";
-    const authorized = async () =>
-      !details ||
-      (!!url &&
-        (await github?.details(runnerId, url))?.credentialContext ===
-          details.credentialContext);
-    const assessment = await this.find(
-      input.assessmentId,
-      url,
-      scope,
-      runnerId === null
-    );
+    // A placement whose reads are scoped to a credential must still read
+    // this PR with the credential that supplied the assessment; one that is
+    // not (local, as on main) needs no read.
+    const scoped = mergeRiskScope(runnerId, undefined) === null;
+    const url = scoped && input.url ? githubPullRequestUrl(input.url) : null;
+    const credential = async () =>
+      url
+        ? (await github.details(runnerId, url).catch(() => null))
+            ?.credentialContext
+        : undefined;
+    const context = scoped ? await credential() : undefined;
+    const scope = mergeRiskScope(runnerId, context);
+    if (scope === null) return { state: "unavailable", reason: "not_found" };
+    const authorized = async () => !scoped || (await credential()) === context;
+    const assessment = await this.find(input.assessmentId, url, scope);
     if (!assessment) return { state: "unavailable", reason: "not_found" };
     const limitedEvidence = assessment.evidence == null;
     // Settings are re-read after every await; a change aborts before spend.
@@ -121,25 +115,17 @@ export class RiskExplanations {
       if (existing.state === "limited" || (await authorized())) return existing;
       return { state: "unavailable", reason: "not_found" };
     }
-    // Hunks require saved evidence and both commits from the assessment.
-    const diff =
-      limitedEvidence || !assessment.base_sha
-        ? null
-        : github && details
-          ? await github.diff(
-              runnerId,
-              assessment.url,
-              assessment.base_sha,
-              assessment.head_sha,
-              details.credentialContext,
-              assessment.evidence
-            )
-          : await (this.deps.readDiff ?? readAssessedDiff)(
-              assessment.url,
-              assessment.base_sha,
-              assessment.head_sha,
-              assessment.evidence
-            ).catch(() => null);
+    // Without saved evidence the model may not name files, so no hunks.
+    const diff = limitedEvidence
+      ? null
+      : await github.diff(
+          runnerId,
+          assessment.url,
+          assessment.base_sha,
+          assessment.head_sha,
+          context,
+          assessment.evidence
+        );
     if (!(await authorized())) {
       await this.finish(input.assessmentId, "stale", { reason: "not_found" });
       return { state: "unavailable", reason: "not_found" };

@@ -3452,13 +3452,17 @@
       "response": {
         "nullable": {
           "object": {
-            "credentialContext": "string",
+            "credentialContext": {
+              "optional": "string"
+            },
             "number": "integer",
             "title": "string",
             "body": "string",
             "baseRefName": "string",
             "headRefName": "string",
-            "baseRefOid": "string",
+            "baseRefOid": {
+              "optional": "string"
+            },
             "headRefOid": "string",
             "additions": "integer",
             "deletions": "integer",
@@ -3492,14 +3496,21 @@
           "owner": "string",
           "repo": "string",
           "number": "integer",
-          "base": "string",
+          "base": {
+            "optional": "string"
+          },
           "head": "string",
-          "context": "string"
+          "context": {
+            "optional": "string"
+          }
         }
       },
       "response": {
         "nullable": {
           "object": {
+            "base": {
+              "optional": "string"
+            },
             "files": {
               "array": {
                 "object": {

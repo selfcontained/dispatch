@@ -47,6 +47,14 @@ function parseResult(value: ResultFrame["value"]) {
   }
 }
 
+/** A read the runner did not answer: its connection, or a peer too old for it. */
+function unreachable(error: unknown): never {
+  throw new RunnerCallError({
+    code: "unavailable",
+    message: error instanceof Error ? error.message : "Runner unavailable.",
+  });
+}
+
 export function usesBoundArchiveRelease(
   service: RemoteRunnerService,
   cwd: string
@@ -172,6 +180,24 @@ export function createEnrolledCheckoutRunner(
           runnerId,
           input as Req<"github.pr.status">
         ) as Promise<Res<K>>;
+      }
+      if (op === "github.pr.details") {
+        if (!service) throw new Error("The session runner is unavailable.");
+        options?.signal?.throwIfAborted();
+        return service
+          .readPullRequestDetails(runnerId, input as Req<"github.pr.details">)
+          .catch(unreachable) as Promise<Res<K>>;
+      }
+      if (op === "github.pr.diff") {
+        if (!service) throw new Error("The session runner is unavailable.");
+        options?.signal?.throwIfAborted();
+        const { base, context, ...rest } = input as Req<"github.pr.diff">;
+        // A runner scopes its reads to a credential: a diff names both
+        // commits and the credential its details came from.
+        if (base === undefined || context === undefined) return null as Res<K>;
+        return service
+          .readPullRequestDiff(runnerId, { ...rest, base, context })
+          .catch(unreachable) as Promise<Res<K>>;
       }
       if (
         op !== "checkout.exec" &&

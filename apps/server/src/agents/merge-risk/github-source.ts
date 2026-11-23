@@ -1,90 +1,75 @@
-import type { GitHubPullRequestDetails } from "@dispatch/runner-protocol";
-import { nativeGitHubEvidence } from "../github-pull-request-evidence.js";
-import {
-  createPullRequestReader,
-  githubPullRequestTarget,
-  projectPullRequest,
-} from "../pull-request-reader.js";
-import type { RemoteRunnerService } from "../remote/service.js";
+import type { Runner } from "@dispatch/runner-protocol/contract";
 import { mentionedText, selectHunks } from "./explanation-diff.js";
 
-type Runners = Pick<
-  RemoteRunnerService,
-  "readPullRequestDetails" | "readPullRequestDiff"
->;
-
+/**
+ * Which saved assessments a placement may reuse. Local reads use the user's
+ * own `gh` unscoped, as on main, so local records keep main's empty scope.
+ * A runner's reads are scoped to its credential.
+ */
 export function mergeRiskScope(
   runnerId: string | null,
-  credentialContext: string
-) {
-  return JSON.stringify([runnerId, credentialContext]);
+  credentialContext: string | undefined
+): string | null {
+  if (runnerId === null) return "";
+  return credentialContext
+    ? JSON.stringify([runnerId, credentialContext])
+    : null;
 }
 
-export function createMergeRiskGitHubSource(remote: Runners | undefined) {
-  const native = nativeGitHubEvidence();
-  const oldStatus = createPullRequestReader();
+/** owner/repo/number as written in the URL, as main passed them to `gh`. */
+function target(url: string) {
+  try {
+    const match = new URL(url).pathname.match(
+      /^\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)\/?$/
+    );
+    return match
+      ? { owner: match[1]!, repo: match[2]!, number: Number(match[3]) }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Merge-risk evidence as the tracking agent's runner reads it: one call for
+ * every placement.
+ */
+export function createMergeRiskGitHubSource(
+  runnerFor: (runnerId: string | null) => Pick<Runner, "call">
+) {
   return {
-    async nativeStatus(url: string, title: string) {
-      const target = githubPullRequestTarget(url);
-      if (target) {
-        const observation = await native
-          .status(target, AbortSignal.timeout(12000))
-          .catch(() => null);
-        if (observation) return projectPullRequest(url, title, observation);
-      }
-      return oldStatus(url, title);
+    /** Null when the URL is not a pull request or GitHub cannot read it. */
+    async details(runnerId: string | null, url: string) {
+      const pr = target(url);
+      if (!pr) return null;
+      return runnerFor(runnerId).call("github.pr.details", pr);
     },
-    async details(
-      runnerId: string | null,
-      url: string
-    ): Promise<GitHubPullRequestDetails | null> {
-      const target = githubPullRequestTarget(url);
-      if (!target) return null;
-      try {
-        return runnerId === null
-          ? await native.details(target, AbortSignal.timeout(12000))
-          : ((await remote?.readPullRequestDetails(runnerId, url)) ?? null);
-      } catch {
-        return null;
-      }
-    },
+    /**
+     * Hunks for an explanation. Without `base`, the pull request's current
+     * base; `context` is the credential the assessment was read with.
+     */
     async diff(
       runnerId: string | null,
       url: string,
-      base: string,
+      base: string | null,
       head: string,
-      credentialContext: string,
+      context: string | undefined,
       evidence: unknown
     ) {
-      const target = githubPullRequestTarget(url);
-      if (
-        !target ||
-        !/^[0-9a-f]{40}$/i.test(base) ||
-        !/^[0-9a-f]{40}$/i.test(head)
-      )
-        return null;
+      const pr = target(url);
+      if (!pr) return null;
       try {
-        const result =
-          runnerId === null
-            ? await native.diff(
-                {
-                  ...target,
-                  type: "pullRequestDiff",
-                  base,
-                  head,
-                  credentialContext,
-                },
-                AbortSignal.timeout(20000)
-              )
-            : await remote?.readPullRequestDiff(
-                runnerId,
-                url,
-                base,
-                head,
-                credentialContext
-              );
+        const result = await runnerFor(runnerId).call("github.pr.diff", {
+          ...pr,
+          ...(base !== null && { base }),
+          head,
+          ...(context !== undefined && { context }),
+        });
         return result?.files.length
-          ? { base, ...selectHunks(result.files, mentionedText(evidence)) }
+          ? {
+              base: base ?? result.base ?? "",
+              ...selectHunks(result.files, mentionedText(evidence)),
+            }
           : null;
       } catch {
         return null;

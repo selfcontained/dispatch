@@ -707,13 +707,18 @@ export const operations = {
   "github.pr.diff": op({
     scope: "runner",
     kind: "call",
+    // Without `base`, the PR's current base. `context` is the credential
+    // the details named; a platform that scopes reads refuses without it.
     request: object({
       ...pullRequest,
-      base: string,
+      base: optional(string),
       head: string,
-      context: string,
+      context: optional(string),
     }),
-    response: nullable(object({ files: array(githubChangedFile) })),
+    // `base` names the commit compared from when the request left it out.
+    response: nullable(
+      object({ base: optional(string), files: array(githubChangedFile) })
+    ),
     errors: ["unauthenticated", "stale"],
     retry: read,
     timeout: "default",

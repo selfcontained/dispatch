@@ -20,7 +20,10 @@ import {
   githubRepositoryResults,
   validGitHubLogin,
   validBranch,
+  type GitHubChangedFile,
   type GitHubOperation,
+  type GitHubPullRequestDetails,
+  type GitHubPullRequestDiff,
   type GitHubPullRequestObservation,
   type GitHubPullRequestTarget,
   type GitHubStatus,
@@ -117,6 +120,159 @@ export function localPullRequestStatus(
         })
       ).stdout
   );
+}
+
+/** A pull request as main's merge-risk read it with `gh pr view`. */
+export type PullRequestDetails = {
+  number: number;
+  title: string;
+  body: string;
+  state: string;
+  isDraft: boolean;
+  mergedAt: string | null;
+  additions: number;
+  deletions: number;
+  baseRefName: string;
+  headRefName: string;
+  headRefOid: string;
+  files: { path: string; additions: number; deletions: number }[];
+  statusCheckRollup: unknown;
+};
+
+/** `gh pr view` for one pull request; null when gh cannot read it. */
+export async function readPullRequestDetails(
+  { owner, repo, number }: { owner: string; repo: string; number: number },
+  run: CommandRunner = runCommand
+): Promise<PullRequestDetails | null> {
+  const result = await run(
+    "gh",
+    [
+      "pr",
+      "view",
+      String(number),
+      "--repo",
+      `${owner}/${repo}`,
+      "--json",
+      "number,title,body,state,isDraft,mergedAt,additions,deletions,baseRefName,headRefName,headRefOid,files,statusCheckRollup",
+    ],
+    { timeoutMs: 30_000, allowedExitCodes: [0, 1] }
+  );
+  if (result.exitCode !== 0) return null;
+  const parsed = JSON.parse(result.stdout) as Record<string, unknown>;
+  const num = (v: unknown) => (typeof v === "number" ? v : 0);
+  const str = (v: unknown) => (typeof v === "string" ? v : "");
+  return {
+    number: num(parsed.number),
+    title: str(parsed.title),
+    body: str(parsed.body),
+    state: str(parsed.state),
+    isDraft: parsed.isDraft === true,
+    mergedAt: typeof parsed.mergedAt === "string" ? parsed.mergedAt : null,
+    additions: num(parsed.additions),
+    deletions: num(parsed.deletions),
+    baseRefName: str(parsed.baseRefName),
+    headRefName: str(parsed.headRefName),
+    headRefOid: str(parsed.headRefOid),
+    files: Array.isArray(parsed.files)
+      ? parsed.files.flatMap((f: unknown) => {
+          const file = f as Record<string, unknown>;
+          return typeof file?.path === "string"
+            ? [
+                {
+                  path: file.path,
+                  additions: num(file.additions),
+                  deletions: num(file.deletions),
+                },
+              ]
+            : [];
+        })
+      : [],
+    statusCheckRollup: parsed.statusCheckRollup,
+  };
+}
+
+/**
+ * The local runner's merge-risk evidence: the user's own `gh`, with main's
+ * commands. Reads are not scoped to a credential, so details name none and
+ * a diff without a base compares from the pull request's current base.
+ */
+export function localPullRequestEvidence(run: CommandRunner = runCommand) {
+  return {
+    async details(
+      target: GitHubPullRequestTarget
+    ): Promise<Omit<
+      GitHubPullRequestDetails,
+      "credentialContext" | "baseRefOid"
+    > | null> {
+      const details = await readPullRequestDetails(target, run);
+      if (!details) return null;
+      return {
+        number: details.number,
+        title: details.title,
+        body: details.body,
+        baseRefName: details.baseRefName,
+        headRefName: details.headRefName,
+        headRefOid: details.headRefOid,
+        additions: details.additions,
+        deletions: details.deletions,
+        files: details.files,
+      };
+    },
+    async diff({
+      owner,
+      repo,
+      number,
+      base,
+      head,
+    }: GitHubPullRequestTarget & {
+      base?: string;
+      head: string;
+    }): Promise<(GitHubPullRequestDiff & { base?: string }) | null> {
+      try {
+        const repository = `${owner}/${repo}`;
+        if (!/^[0-9a-f]{7,40}$/i.test(head)) return null;
+        if (base === undefined) {
+          const pull = await run(
+            "gh",
+            ["api", `repos/${repository}/pulls/${number}`, "--jq", ".base.sha"],
+            { timeoutMs: 15_000, allowedExitCodes: [0, 1] }
+          );
+          base = pull.stdout.trim();
+          if (pull.exitCode !== 0) return null;
+        }
+        if (!/^[0-9a-f]{40}$/i.test(base)) return null;
+        const compare = await run(
+          "gh",
+          [
+            "api",
+            `repos/${repository}/compare/${base}...${head}`,
+            "--jq",
+            "[.files[] | {path: .filename, additions, deletions, patch}]",
+          ],
+          { timeoutMs: 20_000, allowedExitCodes: [0, 1] }
+        );
+        if (compare.exitCode !== 0) return null;
+        const parsed: unknown = JSON.parse(compare.stdout);
+        if (!Array.isArray(parsed)) return null;
+        const files: GitHubChangedFile[] = parsed.flatMap((raw) => {
+          const f = raw as Record<string, unknown>;
+          return typeof f?.path === "string"
+            ? [
+                {
+                  path: f.path,
+                  additions: Number(f.additions) || 0,
+                  deletions: Number(f.deletions) || 0,
+                  ...(typeof f.patch === "string" ? { patch: f.patch } : {}),
+                },
+              ]
+            : [];
+        });
+        return { base, files };
+      } catch {
+        return null;
+      }
+    },
+  };
 }
 
 type Login = {

@@ -6,7 +6,6 @@ import {
   type Req,
 } from "@dispatch/runner-protocol/contract";
 import { isEngineCapabilityOperation } from "@dispatch/runner-protocol/engine-management";
-import { githubPullRequestTarget } from "../pull-request-reader.js";
 import { X509Certificate } from "node:crypto";
 import { readFileSync, watchFile, unwatchFile } from "node:fs";
 import http from "node:http";
@@ -2226,11 +2225,15 @@ export class RemoteRunnerService {
     return response;
   }
 
-  async readPullRequestDetails(runnerId: string, url: string) {
-    const target = githubPullRequestTarget(url);
-    if (!target) return null;
+  /** `github.pr.details` on a connected runner, scoped to its credential. */
+  async readPullRequestDetails(
+    runnerId: string,
+    target: GitHubPullRequestTarget
+  ) {
     const value = await this.requestGitHub(runnerId, {
-      ...target,
+      owner: target.owner,
+      repo: target.repo,
+      number: target.number,
       type: "pullRequestDetails",
     });
     return isGitHubPullRequestDetails(value) && value.number === target.number
@@ -2238,21 +2241,23 @@ export class RemoteRunnerService {
       : null;
   }
 
+  /** `github.pr.diff` on a connected runner, for the credential its details named. */
   async readPullRequestDiff(
     runnerId: string,
-    url: string,
-    base: string,
-    head: string,
-    credentialContext: string
+    target: GitHubPullRequestTarget & {
+      base: string;
+      head: string;
+      context: string;
+    }
   ) {
-    const target = githubPullRequestTarget(url);
-    if (!target) return null;
     const value = await this.requestGitHub(runnerId, {
-      ...target,
+      owner: target.owner,
+      repo: target.repo,
+      number: target.number,
       type: "pullRequestDiff",
-      base,
-      head,
-      credentialContext,
+      base: target.base,
+      head: target.head,
+      credentialContext: target.context,
     });
     return isGitHubPullRequestDiff(value) ? value : null;
   }

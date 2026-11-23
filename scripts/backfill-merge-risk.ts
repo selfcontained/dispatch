@@ -23,9 +23,12 @@ import {
 import {
   loadBriefing,
   loadReviewEvidence,
-  readPullRequestDetails,
 } from "../apps/server/src/agents/merge-risk/sources.js";
-import { mapPullRequestChecks } from "../apps/server/src/agents/pull-request-reader.js";
+import {
+  githubPullRequestTarget,
+  mapPullRequestChecks,
+} from "../apps/server/src/agents/pull-request-reader.js";
+import { readPullRequestDetails } from "../apps/server/src/agents/remote/github-runner-executor.js";
 import {
   loadCodeowners,
   type CodeownersConfig,
@@ -141,7 +144,8 @@ let cursor = 0;
 async function worker() {
   while (cursor < prs.length) {
     const pr = prs[cursor++]!;
-    const gh = await readPullRequestDetails(pr.url);
+    const target = githubPullRequestTarget(pr.url);
+    const gh = target && (await readPullRequestDetails(target));
     if (!gh) {
       skipped.push({ number: pr.number, reason: "gh pr view failed" });
       continue;

@@ -263,25 +263,20 @@ describe("runner enrollment service", () => {
     await waitFor(() =>
       service.available({ runner: runnerId, workspace: "work" })
     );
-    const url = "https://github.com/example/repo/pull/1";
-    expect(
-      await service.readPullRequestStatus(runnerId, {
-        owner: "example",
-        repo: "repo",
-        number: 1,
-      })
-    ).toMatchObject({ state: "OPEN" });
-    await expect(service.readPullRequestDetails(runnerId, url)).rejects.toThrow(
+    const pr = { owner: "example", repo: "repo", number: 1 };
+    expect(await service.readPullRequestStatus(runnerId, pr)).toMatchObject({
+      state: "OPEN",
+    });
+    await expect(service.readPullRequestDetails(runnerId, pr)).rejects.toThrow(
       /update.*evidence/i
     );
     await expect(
-      service.readPullRequestDiff(
-        runnerId,
-        url,
-        "a".repeat(40),
-        "b".repeat(40),
-        "a".repeat(64)
-      )
+      service.readPullRequestDiff(runnerId, {
+        ...pr,
+        base: "a".repeat(40),
+        head: "b".repeat(40),
+        context: "a".repeat(64),
+      })
     ).rejects.toThrow(/update.*evidence/i);
     expect(
       peer.requests.filter((frame) => frame.type === "request")

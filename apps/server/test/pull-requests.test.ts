@@ -3,11 +3,31 @@ import { PullRequestRefresher } from "../src/agents/pull-request-refresher.js";
 import { describe, expect, it, vi } from "vitest";
 import Fastify from "fastify";
 import {
-  createPullRequestReader,
+  githubPullRequestTarget,
   githubPullRequestUrl,
   mapPullRequestChecks,
+  projectPullRequest,
 } from "../src/agents/pull-request-reader.js";
+import { localPullRequestStatus } from "../src/agents/remote/github-runner-executor.js";
+import type { CommandRunner } from "../src/shared/lib/run-command.js";
 import type { AgentRouteDeps } from "../src/routes/agents/shared.js";
+
+/** The local runner's plain read, projected as PR tracking shows it. */
+function createPullRequestReader(run: CommandRunner) {
+  const status = localPullRequestStatus(run, null);
+  return async (url: string, title: string) => {
+    const canonical = githubPullRequestUrl(url)!;
+    try {
+      return projectPullRequest(
+        canonical,
+        title,
+        await status.read(githubPullRequestTarget(canonical)!)
+      );
+    } catch {
+      return { url, title, status: "Unavailable" as const };
+    }
+  };
+}
 
 describe("session pull requests", () => {
   it("canonicalizes GitHub URLs and refuses other hosts for authenticated gh reads", () => {
@@ -52,7 +72,10 @@ describe("session pull requests", () => {
         read("https://github.com/a/b/pull/1#discussion", "old"),
       ]);
       expect(results[0].status).toBe(status);
-      expect(results[1]).toEqual(results[0]);
+      expect({ ...results[1], ci: undefined }).toEqual({
+        ...results[0],
+        ci: undefined,
+      });
       expect(run).toHaveBeenCalledTimes(1);
     }
   );

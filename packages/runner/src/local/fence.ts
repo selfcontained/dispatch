@@ -25,6 +25,8 @@ export const SERVED_WHILE_FROZEN: ReadonlySet<string> = new Set([
   "checkout.watch",
   // GitHub reads write nothing of the runner's or the checkout's.
   "github.pr.status",
+  "github.pr.details",
+  "github.pr.diff",
 ]);
 
 /**

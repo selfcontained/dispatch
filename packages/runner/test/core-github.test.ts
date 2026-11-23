@@ -17,7 +17,11 @@ describe("the core's GitHub reads", () => {
     const pullRequestStatus = vi.fn(async () => observation);
     const handlers = githubHandlers({
       workload,
-      github: { pullRequestStatus },
+      github: {
+        pullRequestStatus,
+        pullRequestDetails: vi.fn(),
+        pullRequestDiff: vi.fn(),
+      },
     });
     const request = { owner: "a", repo: "b", number: 1 };
     expect(await handlers["github.pr.status"]!(request, {} as never)).toEqual(
@@ -26,8 +30,44 @@ describe("the core's GitHub reads", () => {
     expect(pullRequestStatus).toHaveBeenCalledWith(request, {});
   });
 
+  it("serves merge-risk details and diff from the same port", async () => {
+    const details = {
+      number: 1,
+      title: "Fix",
+      body: "",
+      baseRefName: "main",
+      headRefName: "fix",
+      headRefOid: "a".repeat(40),
+      additions: 1,
+      deletions: 0,
+      files: [{ path: "a.ts", additions: 1, deletions: 0 }],
+    };
+    const diff = { base: "b".repeat(40), files: [] };
+    const github = {
+      pullRequestStatus: vi.fn(),
+      pullRequestDetails: vi.fn(async () => details),
+      pullRequestDiff: vi.fn(async () => diff),
+    };
+    const handlers = githubHandlers({ workload, github });
+    const pr = { owner: "a", repo: "b", number: 1 };
+    expect(await handlers["github.pr.details"]!(pr, {} as never)).toEqual(
+      details
+    );
+    expect(github.pullRequestDetails).toHaveBeenCalledWith(pr, {});
+    const request = { ...pr, head: "a".repeat(40) };
+    expect(await handlers["github.pr.diff"]!(request, {} as never)).toEqual(
+      diff
+    );
+    expect(github.pullRequestDiff).toHaveBeenCalledWith(request, {});
+  });
+
   it("leaves GitHub unsupported without a port, and serves it while frozen", () => {
     expect(githubHandlers({ workload })).toEqual({});
-    expect(SERVED_WHILE_FROZEN.has("github.pr.status")).toBe(true);
+    for (const op of [
+      "github.pr.status",
+      "github.pr.details",
+      "github.pr.diff",
+    ])
+      expect(SERVED_WHILE_FROZEN.has(op as never)).toBe(true);
   });
 });

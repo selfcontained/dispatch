@@ -1,7 +1,6 @@
 import type { GitHubPullRequestObservation } from "@dispatch/runner-protocol";
 import type { Runner } from "@dispatch/runner-protocol/contract";
 import type { AgentPullRequest } from "@dispatch/shared";
-import { runCommand, type CommandRunner } from "../shared/lib/run-command.js";
 
 const credentialContexts = new WeakMap<AgentPullRequest, string>();
 
@@ -51,48 +50,6 @@ export function createRunnerPullRequestReader(
       target
     );
     return projectPullRequest(canonical, title, observation);
-  };
-}
-
-/**
- * The app's own plain read, kept for merge-risk's GitHub source until T33.
- * PR tracking reads through the runner (`createRunnerPullRequestReader`).
- * TTL and in-flight coalescing collapse duplicate scheduler requests.
- */
-export function createPullRequestReader(run: CommandRunner = runCommand) {
-  const cache = new Map<
-    string,
-    { expires: number; value: Promise<AgentPullRequest> }
-  >();
-  return (url: string, title: string): Promise<AgentPullRequest> => {
-    const canonical = githubPullRequestUrl(url);
-    const fallback: AgentPullRequest = { url, title, status: "Unavailable" };
-    if (!canonical) return Promise.resolve(fallback);
-    const cached = cache.get(canonical);
-    if (cached && cached.expires > Date.now()) return cached.value;
-    for (const [key, entry] of cache)
-      if (entry.expires <= Date.now()) cache.delete(key);
-    const value = (async (): Promise<AgentPullRequest> => {
-      try {
-        const [, owner, repo, , number] = new URL(canonical).pathname.split(
-          "/"
-        );
-        const result = await run(
-          "gh",
-          pullRequestQueryArgs(owner, repo, number),
-          { timeoutMs: 10_000, allowedExitCodes: [0, 1] }
-        );
-        return projectPullRequest(
-          canonical,
-          title,
-          pullRequestObservation(JSON.parse(result.stdout))
-        );
-      } catch {
-        return fallback;
-      }
-    })();
-    cache.set(canonical, { expires: Date.now() + 60_000, value });
-    return value;
   };
 }
 

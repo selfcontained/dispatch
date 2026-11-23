@@ -11,5 +11,7 @@ export function githubHandlers(platform: Platform): CallHandlers {
   if (!github) return {};
   return {
     "github.pr.status": (request) => github.pullRequestStatus(request, {}),
+    "github.pr.details": (request) => github.pullRequestDetails(request, {}),
+    "github.pr.diff": (request) => github.pullRequestDiff(request, {}),
   };
 }

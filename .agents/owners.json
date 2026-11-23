@@ -634,6 +634,8 @@
       "paths": [
         "apps/server/src/agents/merge-risk/**",
         "apps/server/test/merge-risk.test.ts",
+        "apps/server/test/merge-risk-evidence-parity.test.ts",
+        "apps/server/test/merge-risk-local-fixture.ts",
         "docs/ai-merge-risk.md",
         "scripts/backfill-merge-risk.ts",
         "scripts/evaluate-merge-risk.ts",

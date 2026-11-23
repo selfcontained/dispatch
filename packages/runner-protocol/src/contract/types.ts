@@ -133,14 +133,19 @@ export const pullRequestObservation = object({
   rollup: nullable(array(json)),
   credentialContext: optional(string),
 });
+/**
+ * A pull request's evidence as the workload account reads it. A platform
+ * that scopes reads to a credential names it (`credentialContext`) and pins
+ * the base commit (`baseRefOid`); one that does not leaves both out.
+ */
 export const pullRequestDetails = object({
-  credentialContext: string,
+  credentialContext: optional(string),
   number: integer,
   title: string,
   body: string,
   baseRefName: string,
   headRefName: string,
-  baseRefOid: string,
+  baseRefOid: optional(string),
   headRefOid: string,
   additions: integer,
   deletions: integer,
