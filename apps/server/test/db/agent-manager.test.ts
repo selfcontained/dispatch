@@ -2796,6 +2796,58 @@ describe("AgentManager", () => {
       );
       expect((await manager.getAgent(agent.id))!.status).toBe("running");
     });
+
+    it("keeps tool locations absolute after an exit, even when the Git context refreshes, like main", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      const file = path.join(agent.cwd, "README.md");
+      const readTool = (toolCallId: string) =>
+        runtime.emit(
+          agent.id,
+          {
+            type: "update",
+            agentId: agent.id,
+            update: {
+              sessionUpdate: "tool_call",
+              toolCallId,
+              title: "Read README.md",
+              kind: "read",
+              status: "completed",
+              locations: [{ path: file }],
+            },
+          } as never,
+          0
+        );
+      const located = async (toolCallId: string) =>
+        (
+          await pool.query<{ payload: { locations: { path: string }[] } }>(
+            `SELECT payload FROM agent_stream_events
+              WHERE agent_id = $1 AND kind = 'tool_call' AND key = $2`,
+            [agent.id, toolCallId]
+          )
+        ).rows[0]?.payload.locations;
+
+      await readTool("before-exit");
+      expect(await located("before-exit")).toEqual([{ path: "README.md" }]);
+
+      await runtime.emit(
+        agent.id,
+        {
+          type: "exit",
+          agentId: agent.id,
+          code: 0,
+          signal: null,
+          stderrTail: "",
+          expected: true,
+        },
+        0
+      );
+      await manager.populateGitContext(agent.id);
+      await readTool("after-exit");
+      expect(await located("after-exit")).toEqual([{ path: file }]);
+    });
   });
 
   describe("activity", () => {

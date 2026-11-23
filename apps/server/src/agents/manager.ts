@@ -1745,7 +1745,7 @@ export class AgentManager {
     if ((written.rowCount ?? 0) > 0) {
       const updated = await this.getAgent(id);
       if (updated) {
-        this.streamRecorder.setCwd(id, agentStreamDirectory(updated));
+        this.streamRecorder.updateCwd(id, agentStreamDirectory(updated));
         if (opts.publishIfChanged) this.eventBus.publish(updated);
       }
     }

@@ -57,12 +57,13 @@ export function agentStreamDirectory(
     "worktreePath" | "workspacePath" | "gitContext"
   > & { cwd: string }
 ): string {
+  // A host path is where the engine runs; a runner address is not a path,
+  // so the checkout the runner reported stands in for it.
   return (
     agent.workspacePath ??
-    agent.worktreePath ??
     (path.isAbsolute(agent.cwd)
       ? agent.cwd
-      : (agent.gitContext?.worktreePath ?? agent.cwd))
+      : (agent.worktreePath ?? agent.gitContext?.worktreePath ?? agent.cwd))
   );
 }
 
