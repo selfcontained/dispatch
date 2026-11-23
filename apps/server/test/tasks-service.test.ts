@@ -1088,7 +1088,6 @@ describe("columns", () => {
       trigger: { templateId: TEMPLATE_ID },
     });
     expect(column.trigger).toEqual({
-      location: { runner: "local", path: REPO },
       templateId: TEMPLATE_ID,
       agentType: null,
       model: null,
@@ -1388,23 +1387,32 @@ describe("triggers", () => {
     }
   );
 
-  it("defaults a new trigger to the creator's machine and preserves its target on edit", async () => {
-    agents.set("agt_creator", {
-      id: "agt_creator",
-      name: "Creator",
-      status: "running",
-      cwd: "runner://creator-fixture/@session",
-      projectId,
+  it("a new untargeted trigger follows its template after the template directory changes", async () => {
+    let directory = "/template-before-trigger-save";
+    service = build(filesRoot, {
+      getTemplate: async (id) => template({ id, directory }),
     });
     const ready = await columnId("ready");
-    const saved = await service.updateColumn(
-      ready,
-      { trigger: { templateId: TEMPLATE_ID } },
-      { kind: "agent", agentId: "agt_creator" }
+    const saved = await service.updateColumn(ready, {
+      trigger: { templateId: TEMPLATE_ID, assign: false },
+    });
+    expect(saved.trigger).not.toHaveProperty("location");
+    directory = "/template-moved-after-trigger-save";
+    const task = await service.createTask(
+      { projectId, title: "Follow the template" },
+      USER
     );
-    expect(saved.trigger?.location).toMatchObject({
-      runner: "creator-fixture",
-      projectId,
+    await service.updateTask(task.id, { columnId: ready }, USER);
+    expect(launches[0]!.resolvedTemplate?.directory).toBe(directory);
+    expect((await service.requireColumn(ready)).trigger).not.toHaveProperty(
+      "location"
+    );
+  });
+
+  it("an explicit trigger target survives an edit without target fields", async () => {
+    const ready = await columnId("ready");
+    const saved = await service.updateColumn(ready, {
+      trigger: { templateId: TEMPLATE_ID, runner: "offline-fixture" },
     });
     const edited = await service.updateColumn(ready, {
       trigger: { templateId: TEMPLATE_ID, assign: false },
@@ -1990,7 +1998,6 @@ describe("task tools", () => {
           trigger: {
             templateId: TEMPLATE_ID,
             templateName: "Builder",
-            location: { runner: "local", path: REPO },
             agentType: null,
             model: null,
             effort: null,
@@ -2004,7 +2011,6 @@ describe("task tools", () => {
           trigger: {
             templateId: TEMPLATE_ID,
             templateName: "Builder",
-            location: { runner: "local", path: REPO },
             agentType: "claude",
             model: "sonnet",
             effort: null,
@@ -2125,7 +2131,6 @@ describe("task tools", () => {
       trigger: {
         templateId: TEMPLATE_ID,
         templateName: "Builder",
-        location: { runner: "local", path: REPO },
         agentType: "claude",
         model: "sonnet",
         effort: null,
@@ -2145,7 +2150,6 @@ describe("task tools", () => {
     expect(replaced.structuredContent!.trigger).toEqual({
       templateId: TEMPLATE_ID,
       templateName: "Builder",
-      location: { runner: "local", path: REPO },
       agentType: null,
       model: null,
       effort: null,

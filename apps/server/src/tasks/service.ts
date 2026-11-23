@@ -1,7 +1,6 @@
 import { sameRunner } from "@dispatch/runner-protocol/contract";
 import { controllerPlacement } from "../runners/placement.js";
 import {
-  defaultSavedTarget,
   resolveSavedTarget,
   storedLocation,
   type Location,
@@ -117,7 +116,6 @@ const WORKING_STATUSES = new Set(["running", "creating"]);
 export const TASK_EVENTS_DETAIL_LIMIT = 200;
 
 export type TaskAgentInfo = {
-  placement?: AgentRecord["placement"];
   id: string;
   name: string;
   status: string;
@@ -584,8 +582,7 @@ export class TaskService {
     project: ProjectRecord,
     trigger: TaskColumnTriggerInput,
     /** The trigger being edited, whose model may be saved again. */
-    previous?: TaskColumnTrigger | null,
-    caller?: TaskCaller
+    previous?: TaskColumnTrigger | null
   ): Promise<TaskColumnTrigger> {
     const template = await this.deps.getTemplate(trigger.templateId);
     if (!template) throw invalid(`Template ${trigger.templateId} not found.`);
@@ -595,42 +592,25 @@ export class TaskService {
     ) {
       throw invalid(`Template "${template.name}" belongs to another project.`);
     }
-    // Existing triggers retain template inheritance when edited without a target.
-    // New saves default through the same resolver as jobs and templates.
-    const agent =
-      caller?.kind === "agent"
-        ? await this.deps.getAgent(caller.agentId)
-        : null;
-    const targetInput = defaultSavedTarget(
-      {
-        ...trigger,
-        directory: trigger.directory ?? agent?.cwd ?? project.repoRoot ?? "",
-        projectId: project.id,
-      },
-      {
-        ...agent,
-        cwd: agent?.cwd ?? project.repoRoot ?? "",
-        projectId: agent?.projectId ?? project.id,
-      },
-      trigger.directory === undefined
-    );
+    // An implicit target follows the template, including after later edits.
+    // Explicit targets use the same save rules as jobs and templates.
     const explicitTarget =
       trigger.directory !== undefined || "runner" in trigger;
-    const target =
-      !explicitTarget && (previous || !caller)
-        ? previous?.location
-          ? {
-              directory:
-                "path" in previous.location
-                  ? previous.location.path
-                  : template.directory,
-              [storedLocation]: previous.location,
-            }
-          : null
-        : resolveSavedTarget(targetInput.directory, {
-            ...targetInput,
-            projectRoot: project.repoRoot ?? undefined,
-          });
+    const target = explicitTarget
+      ? resolveSavedTarget(trigger.directory ?? project.repoRoot ?? "", {
+          ...trigger,
+          projectId: project.id,
+          projectRoot: project.repoRoot ?? undefined,
+        })
+      : previous?.location
+        ? {
+            directory:
+              "path" in previous.location
+                ? previous.location.path
+                : template.directory,
+            [storedLocation]: previous.location,
+          }
+        : null;
     const locatedTemplate = target ? { ...template, ...target } : template;
     const agentType = trigger.agentType ?? null;
     if (agentType !== null && !AGENT_TYPES.includes(agentType)) {
@@ -989,8 +969,7 @@ export class TaskService {
 
   async createColumn(
     projectId: string,
-    input: ColumnInput,
-    caller: TaskCaller = { kind: "user" }
+    input: ColumnInput
   ): Promise<TaskColumn> {
     const project = await this.requireProject(projectId);
     const name = input.name.trim();
@@ -1013,7 +992,7 @@ export class TaskService {
       key = await this.uniqueKey(projectId, slugifyColumnKey(name) || "column");
     }
     const trigger = input.trigger
-      ? await this.validateTrigger(project, input.trigger, undefined, caller)
+      ? await this.validateTrigger(project, input.trigger)
       : null;
     const position =
       input.position ??
@@ -1044,8 +1023,7 @@ export class TaskService {
 
   async updateColumn(
     id: string,
-    input: Partial<ColumnInput>,
-    caller: TaskCaller = { kind: "user" }
+    input: Partial<ColumnInput>
   ): Promise<TaskColumn> {
     const column = await this.requireColumn(id);
     const project = await this.requireProject(column.projectId);
@@ -1078,12 +1056,7 @@ export class TaskService {
       patch.trigger =
         input.trigger === null
           ? null
-          : await this.validateTrigger(
-              project,
-              input.trigger,
-              column.trigger,
-              caller
-            );
+          : await this.validateTrigger(project, input.trigger, column.trigger);
     const updated = await this.store.transaction(async (db) => {
       if (input.isDone)
         await this.store.lockProjectColumns(column.projectId, db);

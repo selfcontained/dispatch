@@ -301,11 +301,7 @@ export function registerTaskTools(
           const projectId = await projectFor(args.projectId);
           const column = await service.resolveColumnKey(projectId, args.column);
           if (args.trigger !== undefined) {
-            await service.updateColumn(
-              column.id,
-              { trigger: args.trigger },
-              caller
-            );
+            await service.updateColumn(column.id, { trigger: args.trigger });
           }
           const board = await service.getBoard(projectId);
           const persisted = board.columns.find((c) => c.id === column.id);

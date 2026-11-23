@@ -84,13 +84,9 @@ describe("task column MCP boundary", () => {
           },
         });
         expect(result.isError).not.toBe(true);
-        expect(update).toHaveBeenCalledExactlyOnceWith(
-          "col_own",
-          {
-            trigger: null,
-          },
-          { kind: "agent", agentId: "caller", fullAccess: false }
-        );
+        expect(update).toHaveBeenCalledExactlyOnceWith("col_own", {
+          trigger: null,
+        });
         expect(result.structuredContent).toMatchObject({
           projectId: "own",
           id: "col_own",
@@ -316,13 +312,9 @@ it("accepts effort in column trigger MCP input and rejects unknown levels", asyn
       },
     });
     expect(result.isError).not.toBe(true);
-    expect(update).toHaveBeenCalledWith(
-      "col_own",
-      {
-        trigger: { templateId: "template", effort: "high" },
-      },
-      { kind: "agent", agentId: "caller", fullAccess: false }
-    );
+    expect(update).toHaveBeenCalledWith("col_own", {
+      trigger: { templateId: "template", effort: "high" },
+    });
     update.mockClear();
     const invalid = await client.callTool({
       name: "task_column_update",

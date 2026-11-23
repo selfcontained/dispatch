@@ -190,7 +190,7 @@ const callers: Record<string, { run: Caller }> = {
     run: (directory, model) =>
       taskService().createColumn(projectId, {
         name: `Scope ${++seq}`,
-        trigger: { templateId: template(directory).id, model, directory },
+        trigger: { templateId: template(directory).id, model },
       }),
   },
   "task model override": {
