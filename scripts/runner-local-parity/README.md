@@ -16,6 +16,9 @@ It needs Bun, pnpm, Git and a scratch Postgres on loopback. A full run takes
 about six minutes, five of which are one scenario waiting for a real timeout.
 It is not part of `pnpm run check`.
 
+This is a branch-only tool that retires when the runner work merges; it is not in CI.
+Run it in full once per milestone, and not alongside other heavy checks.
+
 ## What it isolates
 
 Each side of each scenario gets a database, home, state root and loopback
