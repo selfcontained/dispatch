@@ -1198,13 +1198,6 @@
   },
   {
     "file": "apps/server/src/agents/manager.ts",
-    "kind": "R1 locator",
-    "detail": "runner://",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/manager.ts",
     "kind": "R1 placement call",
     "detail": "agentWorkspaceDir(agent)",
     "task": "T07",
@@ -1222,14 +1215,14 @@
     "kind": "R1 placement call",
     "detail": "remotePlacement(agent.cwd)",
     "task": "T07",
-    "count": 24
+    "count": 13
   },
   {
     "file": "apps/server/src/agents/manager.ts",
     "kind": "R1 placement call",
     "detail": "remotePlacement(cwd)",
     "task": "T07",
-    "count": 2
+    "count": 1
   },
   {
     "file": "apps/server/src/agents/manager.ts",
@@ -1250,13 +1243,6 @@
     "kind": "R1 placement call",
     "detail": "remotePlacement(row.cwd)",
     "task": "T07",
-    "count": 3
-  },
-  {
-    "file": "apps/server/src/agents/manager.ts",
-    "kind": "R1 placement read",
-    "detail": "placement?.runner",
-    "task": "T07",
     "count": 2
   },
   {
@@ -1264,21 +1250,7 @@
     "kind": "R1 placement read",
     "detail": "placement.runner",
     "task": "T07",
-    "count": 13
-  },
-  {
-    "file": "apps/server/src/agents/manager.ts",
-    "kind": "R1 placement read",
-    "detail": "remotePlacement(agent.cwd)?.runner",
-    "task": "T07",
-    "count": 4
-  },
-  {
-    "file": "apps/server/src/agents/manager.ts",
-    "kind": "R1 placement read",
-    "detail": "remotePlacement(cwd)?.runner",
-    "task": "T07",
-    "count": 1
+    "count": 3
   },
   {
     "file": "apps/server/src/agents/manager.ts",
@@ -1561,20 +1533,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/remote/force-sessions.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(agent.cwd)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/force-sessions.ts",
-    "kind": "R1 placement read",
-    "detail": "remotePlacement(agent.cwd)?.runner",
-    "task": "T07",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/remote/github-pull-request-watches.ts",
     "kind": "R5 protocol leak",
     "detail": "setTimeout",
@@ -1607,13 +1565,6 @@
     "kind": "R2 host access",
     "detail": "os",
     "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/registry.ts",
-    "kind": "R1 locator",
-    "detail": "runner://",
-    "task": "T07",
     "count": 1
   },
   {
@@ -2854,20 +2805,6 @@
     "detail": "apps/server/src/agents/acp/driver",
     "task": "T04",
     "count": 1
-  },
-  {
-    "file": "apps/server/src/server.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(agent.cwd)",
-    "task": "T07",
-    "count": 2
-  },
-  {
-    "file": "apps/server/src/server.ts",
-    "kind": "R1 placement read",
-    "detail": "remotePlacement(agent.cwd)?.runner",
-    "task": "T07",
-    "count": 2
   },
   {
     "file": "apps/server/src/server.ts",

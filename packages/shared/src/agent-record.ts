@@ -1,3 +1,4 @@
+import type { Placement } from "@dispatch/runner-protocol/contract";
 import type { Effort } from "./agent-types.js";
 import type { AgentInputState } from "./conversation-delivery.js";
 /**
@@ -68,6 +69,7 @@ export type AgentRecord = {
   type: AgentType;
   role: AgentRole;
   status: AgentStatus;
+  placement: Placement;
   cwd: string;
   /** Directory requested at creation, before any managed worktree changed cwd. */
   launchCwd?: string | null;

@@ -339,9 +339,15 @@ async function fixture({ periodicRescan = false } = {}) {
       }
       if (!options.legacy) offeredSupport.add(id);
       await pool.query(
-        `INSERT INTO agents (id, name, type, status, cwd, parent_agent_id, worktree_path)
-         VALUES ($1, $1, 'claude', 'stopped', $2, $3, $4)`,
-        [id, cwd, options.parent ?? null, options.local ? cwd : null]
+        `INSERT INTO agents (id, name, type, status, cwd, parent_agent_id, worktree_path, runner_id)
+         VALUES ($1, $1, 'claude', 'stopped', $2, $3, $4, $5)`,
+        [
+          id,
+          cwd,
+          options.parent ?? null,
+          options.local ? cwd : null,
+          options.local ? "local" : "r1",
+        ]
       );
       expect((await manager.startAgent(id)).status).toBe("running");
       if (options.local)

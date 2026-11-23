@@ -9,6 +9,9 @@
       "default": "./src/index.ts"
     }
   },
+  "dependencies": {
+    "@dispatch/runner-protocol": "workspace:*"
+  },
   "scripts": {
     "check": "tsc --noEmit"
   }

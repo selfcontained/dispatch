@@ -1,3 +1,13 @@
+import type { Placement } from "@dispatch/runner-protocol/contract";
+import {
+  controllerPlacement,
+  enrolledRunnerId,
+  isOnEnrolledRunner,
+  legacySessionLocation,
+  placementForRunner,
+  placementFromRow,
+  runnerIdForPlacement,
+} from "../runners/placement.js";
 import { requestCheckoutCommand } from "./checkout-commands.js";
 import { REPO_TOOL_MANIFEST_PATH } from "../shared/mcp/repo-tools.js";
 import { isPromptImageMimeType } from "./acp/prompt-source.js";
@@ -389,6 +399,8 @@ export const UPDATE_RESUME_MESSAGE =
 const RUNNER_RESUME_FAILED =
   "Dispatch couldn't resume this agent after the runner update. Start it to continue.";
 
+type AgentRow = Omit<AgentRecord, "placement"> & { runner_id: string };
+
 export class AgentManager {
   /** A forced runner update's steps on this manager's sessions. */
   readonly runnerForce: RunnerForceSessions;
@@ -550,12 +562,17 @@ export class AgentManager {
           ),
         placement: async (id) => {
           const row = (
-            await pool.query<{ cwd: string }>(
-              "SELECT cwd FROM agents WHERE id = $1",
+            await pool.query<Pick<AgentRow, "cwd" | "runner_id">>(
+              "SELECT cwd, runner_id FROM agents WHERE id = $1",
               [id]
             )
           ).rows[0];
-          return row ? remotePlacement(row.cwd) : null;
+          return row
+            ? legacySessionLocation({
+                cwd: row.cwd,
+                placement: placementFromRow(row),
+              })
+            : null;
         },
         hostSeq: async (agentId) => {
           const result = await pool.query<{
@@ -688,7 +705,7 @@ export class AgentManager {
   /** Bounded wait for a recovered launch's runner to reconnect. */
   private async waitForRunner(agentId: string): Promise<void> {
     const agent = await this.getAgent(agentId);
-    const placement = agent ? remotePlacement(agent.cwd) : null;
+    const placement = agent ? legacySessionLocation(agent) : null;
     if (!placement || !this.remote) return;
     const deadline = Date.now() + this.recoveredLaunchWaitMs;
     while (!this.remote.available(placement) && Date.now() < deadline)
@@ -701,8 +718,7 @@ export class AgentManager {
   async isUpdateHeld(id: string): Promise<boolean> {
     if (!this.holds) return false;
     const agent = await this.getAgent(id);
-    const placement = agent ? remotePlacement(agent.cwd) : null;
-    return this.holds.isHeld(placement?.runner);
+    return this.holds.isHeld(agent && enrolledRunnerId(agent.placement));
   }
 
   /** Register a callback told, coalesced, whenever an agent's stream changed. */
@@ -1515,12 +1531,10 @@ export class AgentManager {
   }
 
   async listAgents(): Promise<AgentRecord[]> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<AgentRow>(
       `${this.baseAgentSelectSql()} ORDER BY created_at DESC`
     );
-    return (result.rows as AgentRecord[]).map((row) =>
-      this.withLiveActivity(row)
-    );
+    return result.rows.map((row) => this.agentFromRow(row));
   }
 
   async terminalBackend(id: string): Promise<TerminalBackend | null> {
@@ -1533,12 +1547,19 @@ export class AgentManager {
   }
 
   async getAgent(id: string): Promise<AgentRecord | null> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<AgentRow>(
       `${this.baseAgentSelectSql()} AND id = $1`,
       [id]
     );
-    const row = result.rows[0] as AgentRecord | undefined;
-    return row ? this.withLiveActivity(row) : null;
+    const [row] = result.rows;
+    return row ? this.agentFromRow(row) : null;
+  }
+
+  private agentFromRow({ runner_id, ...agent }: AgentRow): AgentRecord {
+    return this.withLiveActivity({
+      ...agent,
+      placement: placementFromRow({ runner_id }),
+    });
   }
 
   /**
@@ -1921,13 +1942,14 @@ export class AgentManager {
       input.projectId = owner.projectId;
     }
     const placement = remotePlacement(input.cwd);
+    const runner = placement ? placement.runner : undefined;
     // A runner held for an update may be between supervisors. Admit with
     // what it last advertised: the launch is held, and checked against the
     // reconnected runner when it is released. Without a hold, an offline
     // runner refuses as before.
     const heldOffline =
       placement &&
-      this.holds?.isHeld(placement.runner) &&
+      this.holds?.isHeld(runner) &&
       !this.remote?.available(placement)
         ? this.remote?.lastSeenCapabilities(placement)
         : undefined;
@@ -2184,6 +2206,7 @@ export class AgentManager {
     await this.insertAgentRecord(
       p,
       input,
+      runner === undefined ? controllerPlacement : placementForRunner(runner),
       runnerRepository,
       managed,
       placement ? useWorktreeOf : undefined
@@ -2504,14 +2527,15 @@ export class AgentManager {
   private async insertAgentRecord(
     p: PreparedCreateInputs,
     input: CreateAgentInput,
+    placement: Placement,
     repository: RunnerRepository | null,
     runnerManaged: boolean,
     useWorktreeOf?: string
   ): Promise<void> {
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, role, status, cwd, launch_cwd, files_dir, agent_args, model, full_access, setup_phase, persona, parent_agent_id, launched_by_agent_id, persona_context, review_agent_type, cli_session_id, base_branch, template_id, project_id, effort, runner_repository, runner_managed, runner_worktree_owner, updated_at)
-      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22::jsonb, $23, $24, NOW())
+      INSERT INTO agents (id, name, type, role, status, cwd, launch_cwd, files_dir, agent_args, model, full_access, setup_phase, persona, parent_agent_id, launched_by_agent_id, persona_context, review_agent_type, cli_session_id, base_branch, template_id, project_id, effort, runner_repository, runner_managed, runner_worktree_owner, runner_id, updated_at)
+      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22::jsonb, $23, $24, $25, NOW())
       `,
       [
         p.id,
@@ -2538,6 +2562,7 @@ export class AgentManager {
         repository ? JSON.stringify(repository) : null,
         runnerManaged,
         useWorktreeOf ?? null,
+        runnerIdForPlacement(placement),
       ]
     );
   }
@@ -2749,9 +2774,9 @@ export class AgentManager {
       jobRunId: string | undefined;
     }
   ): Promise<boolean> {
-    const placement = remotePlacement(agent.cwd);
-    if (!placement || !this.holds?.isHeld(placement.runner)) return false;
-    const held = await this.holds.holdLaunch(placement.runner, {
+    const runnerId = enrolledRunnerId(agent.placement);
+    if (!runnerId || !this.holds?.isHeld(runnerId)) return false;
+    const held = await this.holds.holdLaunch(runnerId, {
       agentId: agent.id,
       kind,
       launchId,
@@ -2772,7 +2797,7 @@ export class AgentManager {
     });
     if (held)
       this.logger.info(
-        { agentId: agent.id, runnerId: placement.runner, kind },
+        { agentId: agent.id, runnerId, kind },
         "launch held for a runner update"
       );
     return held;
@@ -2802,20 +2827,20 @@ export class AgentManager {
     step: () => Promise<T>,
     kind: "stop" | "other" = "other"
   ): Promise<T> {
-    const placement = remotePlacement(agent.cwd);
+    const runnerId = enrolledRunnerId(agent.placement);
     for (;;) {
       try {
         return await step();
       } catch (error) {
         if (
           !(error instanceof RunnerUpdateFenced) ||
-          !placement ||
-          !this.holds?.isHeld(placement.runner)
+          !runnerId ||
+          !this.holds?.isHeld(runnerId)
         )
           throw error;
         await this.holds.wait(
-          placement.runner,
-          this.holds.isResuming(placement.runner) ? "other" : kind
+          runnerId,
+          this.holds.isResuming(runnerId) ? "other" : kind
         );
         await this.assertLifecycleCurrent(agent);
       }
@@ -3291,7 +3316,7 @@ export class AgentManager {
       const result = await this.serializeLifecycle(id, async () => {
         const agent = await this.getRequiredAgent(id);
         if (agent.status === "running") {
-          const runner = remotePlacement(agent.cwd)?.runner;
+          const runner = enrolledRunnerId(agent.placement);
           if (runner && this.holds?.isHeld(runner)) {
             heldRunner = runner;
             return agent;
@@ -3375,7 +3400,7 @@ export class AgentManager {
   /** Reattach a session a runner retains; only an agent placed on it. */
   async attachRunnerSession(runnerId: string, agentId: string): Promise<void> {
     const agent = await this.getAgent(agentId);
-    if (!agent || remotePlacement(agent.cwd)?.runner !== runnerId) return;
+    if (!agent || !isOnEnrolledRunner(agent.placement, runnerId)) return;
     this.streamRecorder.setCwd(agentId, agent.cwd);
     await this.runtime.attach(agentId);
   }
@@ -3432,20 +3457,18 @@ export class AgentManager {
         host,
       ])
     );
-    const { rows } = await this.pool.query<{ id: string; cwd: string }>(
-      `SELECT id, cwd FROM agents
+    const selectedRunner = enrolledRunnerId(placementForRunner(runnerId));
+    const { rows } = await this.pool.query<{ id: string }>(
+      `SELECT id FROM agents
         WHERE status IN ('running', 'creating', 'stopping', 'archiving')
-          AND cwd LIKE 'runner://%' AND deleted_at IS NULL`
+          AND runner_id = $1 AND deleted_at IS NULL`,
+      [selectedRunner ?? null]
     );
     const ids = new Set([
       ...retainedIds,
       ...hosts.keys(),
       ...rows
-        .filter(
-          ({ id, cwd }) =>
-            remotePlacement(cwd)?.runner === runnerId &&
-            !this.holds?.hasLaunch(id)
-        )
+        .filter(({ id }) => !this.holds?.hasLaunch(id))
         .map(({ id }) => id),
     ]);
     const inventory = await Promise.all(
@@ -3487,7 +3510,7 @@ export class AgentManager {
       if (
         agent?.status !== "running" ||
         !agent.cliSessionId ||
-        remotePlacement(agent.cwd)?.runner !== runnerId ||
+        !isOnEnrolledRunner(agent.placement, runnerId) ||
         this.stoppingOrArchiving.has(id)
       )
         return;
@@ -3599,7 +3622,7 @@ export class AgentManager {
     return (
       agent?.status === "running" &&
       !this.stoppingOrArchiving.has(entry.id) &&
-      remotePlacement(agent.cwd)?.runner === runnerId &&
+      isOnEnrolledRunner(agent.placement, runnerId) &&
       Boolean(agent.cliSessionId) &&
       // A resume never moves the row's ID, so the receipt's stays good. Claude
       // and Codex can open a new session when a resume fails, but this launch
@@ -3662,14 +3685,14 @@ export class AgentManager {
       if (!(await hold.quiesce()) || !eligible() || !active()) return false;
       return await this.serializeLifecycle(id, async () => {
         const agent = await this.getAgent(id);
-        const placement = agent && remotePlacement(agent.cwd);
         if (
           agent?.status !== "running" ||
           !agent.cliSessionId ||
-          placement?.runner !== update.runnerId ||
-          !this.remote?.available(placement)
+          !isOnEnrolledRunner(agent.placement, update.runnerId)
         )
           return false;
+        const location = legacySessionLocation(agent);
+        if (!location || !this.remote?.available(location)) return false;
 
         // There is no engine-side wait token for Dispatch children. A live
         // child (including a reviewer) can still owe this session a reply.
@@ -3731,8 +3754,9 @@ export class AgentManager {
     stoppingDuringResume: boolean
   ): Promise<AgentRecord> {
     let agent = await this.getRequiredAgent(id);
-    const placement = remotePlacement(agent.cwd);
-    const guard = placement && this.holds ? agent.status : undefined;
+    const location = stoppingDuringResume ? legacySessionLocation(agent) : null;
+    const runnerId = enrolledRunnerId(agent.placement);
+    const guard = runnerId && this.holds ? agent.status : undefined;
     await this.cancelSchedules?.(id).catch((err) =>
       this.logger.warn(
         { err, agentId: id },
@@ -3759,12 +3783,11 @@ export class AgentManager {
       return this.getRequiredAgent(id);
     }
 
-    const hasResume = placement && this.hasRunnerDrainReceipt(id);
+    const hasResume = runnerId && this.hasRunnerDrainReceipt(id);
     if (
       hasResume &&
-      (await this.runtime
-        .runnerHostAlive?.(placement.runner, id)
-        .catch(() => true)) === false
+      (await this.runtime.runnerHostAlive?.(runnerId, id).catch(() => true)) ===
+        false
     ) {
       await this.setAgentStatus(id, "stopped", null, undefined, guard);
       return this.getRequiredAgent(id);
@@ -3773,8 +3796,8 @@ export class AgentManager {
     // The stop hook and the stop run on the runner; its update fence would
     // refuse both. Wait for it first, with the agent untouched. A drain that
     // is waiting or resuming lets both through.
-    if (placement && this.holds) {
-      await this.holds.wait(placement.runner, "stop");
+    if (runnerId && this.holds) {
+      await this.holds.wait(runnerId, "stop");
       agent = await this.getRequiredAgent(id);
       if (agent.status === "archiving" || agent.status === "stopped")
         return agent;
@@ -3815,9 +3838,8 @@ export class AgentManager {
         // the resume receipt and reconciliation can stop any surviving host.
         if (
           !(error instanceof RunnerUnavailable) ||
-          !stoppingDuringResume ||
-          !placement ||
-          this.remote?.available(placement)
+          !location ||
+          this.remote?.available(location)
         )
           throw error;
       });
@@ -4159,6 +4181,7 @@ export class AgentManager {
         role,
         status,
         cwd,
+        runner_id,
         launch_cwd AS "launchCwd",
         worktree_path AS "worktreePath",
         worktree_branch AS "worktreeBranch",
@@ -4257,9 +4280,9 @@ export class AgentManager {
         ),
       ...(this.holds && {
         waitForRunner: async (agent: AgentRecord) => {
-          const placement = remotePlacement(agent.cwd);
-          if (!placement || !this.holds!.isHeld(placement.runner)) return true;
-          await this.holds!.wait(placement.runner, "stop");
+          const runnerId = enrolledRunnerId(agent.placement);
+          if (!runnerId || !this.holds!.isHeld(runnerId)) return true;
+          await this.holds!.wait(runnerId, "stop");
           const current = await this.getAgent(agent.id);
           return current?.status === "archiving" && current.cwd === agent.cwd;
         },

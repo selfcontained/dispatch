@@ -1,5 +1,4 @@
 import {
-  remotePlacement,
   RUNNER_WIRE_VERSION,
   type CheckoutCommand,
   type CheckoutCommandFile,
@@ -7,7 +6,6 @@ import {
 import {
   placementOf,
   placementRunner,
-  runnerIdFromWire,
   runnerIdToWire,
   samePlacement,
   type Placement,
@@ -17,12 +15,17 @@ import {
 } from "@dispatch/runner-protocol/contract";
 import type { RemoteRunnerService } from "../agents/remote/service.js";
 import type { AgentRecord } from "../agents/types.js";
+import {
+  controllerPlacement,
+  LOCAL_RUNNER_ID,
+  legacySessionLocation,
+} from "./placement.js";
 import { createLocalCheckoutRunner } from "./local.js";
 import { createEnrolledCheckoutRunner } from "./enrolled/checkout.js";
 
 export type CheckoutSession = Pick<
   AgentRecord,
-  "id" | "cwd" | "worktreePath" | "workspacePath"
+  "id" | "cwd" | "worktreePath" | "workspacePath" | "placement"
 >;
 export type LocalCheckoutRunner = {
   requestSession(
@@ -51,10 +54,8 @@ interface CheckoutDirectory extends Runners {
   for(placement: Placement): CheckoutRunner;
 }
 
-const localId = runnerIdFromWire("local");
-const defaultPlacement = placementOf(localId);
 const localDescription: RunnerDescription = {
-  runnerId: localId,
+  runnerId: LOCAL_RUNNER_ID,
   displayName: "Local",
   build: { version: "" },
   protocol: RUNNER_WIRE_VERSION,
@@ -62,7 +63,6 @@ const localDescription: RunnerDescription = {
   capabilities: {},
 };
 
-/** Until T40, translate the stored locator at the boundary for each session. */
 export function checkoutRunners(
   { local, remote }: CheckoutCommandRunners,
   agent: CheckoutSession
@@ -70,21 +70,19 @@ export function checkoutRunners(
   directory: CheckoutDirectory;
   placement: Placement;
 } {
-  const locator = remotePlacement(agent.cwd);
-  const placement = locator
-    ? placementOf(runnerIdFromWire(locator.runner))
-    : defaultPlacement;
+  const { placement } = agent;
+  const location = legacySessionLocation(agent);
   const directory = {
     for(selected: Placement): CheckoutRunner {
       const boundAgent = samePlacement(selected, placement) ? agent : undefined;
-      if (samePlacement(selected, defaultPlacement) && !(locator && boundAgent))
+      if (samePlacement(selected, controllerPlacement))
         return createLocalCheckoutRunner(local, boundAgent, localDescription);
 
       const id = placementRunner(selected);
       return createEnrolledCheckoutRunner(
         remote,
         runnerIdToWire(id),
-        boundAgent ? locator : null,
+        boundAgent ? location : null,
         boundAgent,
         () => {
           return (
@@ -110,7 +108,7 @@ export function checkoutRunners(
         })
       );
     },
-    defaultPlacement: () => defaultPlacement,
+    defaultPlacement: () => controllerPlacement,
   } satisfies CheckoutDirectory;
   return { directory, placement };
 }

@@ -1,3 +1,4 @@
+import { localAgentPlacement } from "@/test-utils/__fixtures__/agent-placement";
 vi.mock("./chat/pending-inputs-button", () => ({
   PendingInputsButton: () => null,
 }));
@@ -318,6 +319,7 @@ function makeAgent(overrides: Partial<Agent> & { id: string }): Agent {
   return {
     name: `agent ${overrides.id}`,
     status: "running",
+    placement: localAgentPlacement,
     cwd: `/repos/${overrides.id}`,
     worktreePath: null,
     worktreeBranch: null,
