@@ -287,10 +287,7 @@ test("T09's worker entry replaces main's checkout subcommand imports only as the
   });
   const before = [entry("checkout-inspection", 2), entry("checkout-watch", 1)];
   assert.deepEqual(compareHistory(before, [entry("checkout-worker", 2)]), []);
-  assert.equal(
-    compareHistory(before, [entry("checkout-worker", 3)]).length,
-    1
-  );
+  assert.equal(compareHistory(before, [entry("checkout-worker", 3)]).length, 1);
   assert.equal(
     compareHistory(before, [
       entry("checkout-inspection", 2),
