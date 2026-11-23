@@ -725,7 +725,7 @@ const childMissed = (error: unknown) =>
 
 /** The posix-user engine port, as this process runs it while the child is away. */
 export type InProcessEngines = {
-  list(): Promise<Res<"engine.list">>;
+  list(request: Req<"engine.list">): Promise<Res<"engine.list">>;
   loginStart(
     request: Req<"engine.login.start">,
     onUpdate: (login: Res<"engine.login.start">) => void
@@ -766,7 +766,7 @@ export function localEngineCalls(
   ): Promise<Res<K>> {
     switch (op) {
       case "engine.list":
-        return (await inProcess.list()) as Res<K>;
+        return (await inProcess.list(input as Req<"engine.list">)) as Res<K>;
       case "engine.login.start":
         return (await inProcess.loginStart(
           input as Req<"engine.login.start">,

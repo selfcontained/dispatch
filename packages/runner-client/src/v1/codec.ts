@@ -97,7 +97,10 @@ export const IMPLIED = {
     size: "derived from the bytes",
     digest: "derived from the bytes",
   },
-  "engine.list": { refresh: "v1 always probes" },
+  "engine.list": {
+    refresh: "v1 always probes",
+    include: "v1 always lists everything",
+  },
   "engine.quota.reset": { engine: "v1 resets only Codex" },
 } as const satisfies Partial<Record<OpName, AnyRecord>>;
 

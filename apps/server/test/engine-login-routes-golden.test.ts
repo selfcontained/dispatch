@@ -2,6 +2,7 @@ import {
   chmodSync,
   mkdirSync,
   readFileSync,
+  utimesSync,
   mkdtempSync,
   rmSync,
   writeFileSync,
@@ -56,6 +57,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const mode = process.env.FAKE_LOGIN_MODE ?? "";
 const args = process.argv.slice(2).join(" ");
+require("node:fs").appendFileSync(${JSON.stringify(path.join(dir, "calls.log"))}, args + "\\n");
 if (args === "--version") {
   console.log("1.2.3");
 } else if (args === "auth status --json") {
@@ -183,6 +185,21 @@ describe.each(["child", "in-process"] as const)(
         status: 200,
         body: '{"engines":[{"engine":"claude","installed":true,"signedIn":true,"detail":"me@example.com"},{"engine":"codex","installed":true,"signedIn":true,"detail":"ChatGPT"}]}',
       });
+    });
+
+    it("runs only main's sign-in checks for each engine's sign-in", async () => {
+      await build();
+      const log = path.join(dir, "calls.log");
+      // A fresh file to the version cache, so a probe would run again.
+      const later = new Date(Date.now() + 60_000);
+      for (const bin of [claude, codex]) utimesSync(bin, later, later);
+      rmSync(log, { force: true });
+      await call("GET", "/api/v1/system/engines/auth");
+      // main runs each CLI's own status check and nothing else: no version
+      // or update probe (the settings page polls this route).
+      expect(
+        readFileSync(log, "utf8").split("\n").filter(Boolean).sort()
+      ).toEqual(["auth status --json", "login status"]);
     });
 
     it("reports signed-out and missing engines", async () => {

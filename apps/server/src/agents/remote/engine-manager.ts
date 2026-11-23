@@ -207,7 +207,17 @@ export class EngineManager {
 
   /** Whether each signed-in engine's CLI is signed in on this placement, and as whom. */
   async signInStatus(scope: EngineScope): Promise<EngineAuthStatus[]> {
-    const entries = (await this.inventory(scope)) ?? [];
+    // Locally, only the sign-in is asked for: no version or update probes,
+    // so this costs what main's sign-in check did.
+    const entries =
+      scope.kind === "local"
+        ? ((
+            await this.deps.local.engines.call("engine.list", {
+              refresh: true,
+              include: ["signIn"],
+            })
+          ).entries as EngineInventoryEntry[])
+        : ((await this.inventory(scope)) ?? []);
     return LOGIN_ENGINES.map((engine) => {
       const entry = entries.find((candidate) => candidate.id === engine);
       const installed = entry?.installed ?? false;

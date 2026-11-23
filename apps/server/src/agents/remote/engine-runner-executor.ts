@@ -46,8 +46,16 @@ export type EngineInstallation = {
   issue?: string;
 };
 
+/** What an `engine.list` asked for; each part costs probes of its own. */
+export type EngineListParts = {
+  version: boolean;
+  actions: boolean;
+  signIn: boolean;
+};
+
 export type EngineWorkloadPlatform = {
-  installations(): Promise<EngineInstallation[]>;
+  /** Every engine's installation, with only the parts asked for. */
+  installations(parts: EngineListParts): Promise<EngineInstallation[]>;
   /** How this platform finds and runs an engine's CLI for a sign-in. */
   logins: EngineLoginDeps;
 };
@@ -68,27 +76,40 @@ export class EngineWorkload {
     this.logins = new EngineLogins(platform.logins);
   }
 
-  async list(): Promise<{ entries: EngineInventoryEntry[] }> {
-    const installations = await this.platform.installations();
+  /**
+   * Every engine's row. `include` asks for less (absent: everything); what
+   * is left out reads as unknown and is never probed for.
+   */
+  async list(
+    request: { include?: readonly string[] } = {}
+  ): Promise<{ entries: EngineInventoryEntry[] }> {
+    const parts: EngineListParts = request.include
+      ? {
+          version: request.include.includes("version"),
+          actions: request.include.includes("actions"),
+          signIn: request.include.includes("signIn"),
+        }
+      : { version: true, actions: true, signIn: true };
+    const installations = await this.platform.installations(parts);
     const entries = await Promise.all(
       installations.map(async (installation) => {
-        const { id, installed, version } = installation;
+        const { id, installed } = installation;
         let signedIn: boolean | null = null;
         let detail = installation.detail;
-        if (installed && isLoginEngine(id)) {
+        if (parts.signIn && installed && isLoginEngine(id)) {
           const status = await this.logins.status(id);
           signedIn = status.signedIn;
           detail = status.detail;
         }
-        const actions = [...installation.actions];
-        if (installed && isLoginEngine(id))
+        const actions = parts.actions ? [...installation.actions] : [];
+        if (parts.actions && installed && isLoginEngine(id))
           actions.push("login", "login_cancel");
         return {
           id,
           label: LABELS[id],
           installed,
           signedIn,
-          version,
+          version: parts.version ? installation.version : null,
           ...(detail ? { detail } : {}),
           ...(installation.issue ? { issue: installation.issue } : {}),
           actions,
@@ -157,11 +178,21 @@ export function localEngineWorkload(
 ): EngineWorkload {
   const statuses = () => engineStatuses(bins, seams.env ?? process.env);
   return new EngineWorkload({
-    async installations() {
-      const found = await withEngineUpdates(
-        await withEngineVersions(await statuses())
-      );
-      return found.map((status) => ({
+    async installations(parts) {
+      const found = await statuses();
+      const versioned =
+        parts.version || parts.actions
+          ? await withEngineVersions(found)
+          : found;
+      if (!parts.actions)
+        return versioned.map((status) => ({
+          id: status.id,
+          installed: status.installed,
+          version: status.version,
+          actions: [],
+        }));
+      const updates = await withEngineUpdates(versioned);
+      return updates.map((status) => ({
         id: status.id,
         installed: status.installed,
         version: status.version,
@@ -267,8 +298,10 @@ export class EngineRunnerExecutor {
   constructor(private readonly config: EngineRunnerExecutorConfig) {
     this.wrap = config.wrap ?? setprivWrap(config.uid, config.gid);
     this.workload = new EngineWorkload({
-      installations: () =>
-        Promise.all(RUNNER_ENGINES.map((engine) => this.installation(engine))),
+      installations: (parts) =>
+        Promise.all(
+          RUNNER_ENGINES.map((engine) => this.installation(engine, parts))
+        ),
       logins: {
         resolveBin: async (engine) => (await this.resolveEngine(engine)).bin,
         // loginScript's own argv already starts with "/bin/sh"; wrap that
@@ -454,13 +487,16 @@ export class EngineRunnerExecutor {
 
   /** One engine's installation and the configured install or update it offers. */
   private async installation(
-    engine: RunnerEngine
+    engine: RunnerEngine,
+    parts: EngineListParts
   ): Promise<EngineInstallation> {
     const cfg = this.config.engines[engine];
+    // Whether it runs at all is its version probe, so that always runs here.
     const { bin, installed, version } = await this.resolveEngine(engine);
     const actions: EngineSupportedAction[] = [];
     let detail: string | undefined;
     let issue: string | undefined;
+    if (!parts.actions) return { id: engine, installed, version, actions };
     if (!installed && cfg?.install) {
       detail = await this.installerFailure(
         this.bundledCommand(engine, cfg.install) ?? cfg.install
