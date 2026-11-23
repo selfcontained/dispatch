@@ -128,7 +128,8 @@ describe("crud tools model parameter", () => {
 
     await call("create_job", { name: "nightly", model: "opus" });
     expect(callbacks.createJob).toHaveBeenCalledWith(
-      expect.objectContaining({ directory: "/repo", model: "opus" })
+      expect.objectContaining({ directory: "/repo", model: "opus" }),
+      true
     );
 
     await call("update_job", { jobId: "job_1", model: null });
@@ -138,7 +139,8 @@ describe("crud tools model parameter", () => {
 
     await call("create_template", { name: "review", model: "sonnet" });
     expect(callbacks.createTemplate).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "sonnet" })
+      expect.objectContaining({ model: "sonnet" }),
+      true
     );
 
     await call("update_template", { templateId: "tpl_1", model: null });

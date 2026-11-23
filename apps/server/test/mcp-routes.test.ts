@@ -10,6 +10,7 @@ import {
 import Fastify, { type FastifyInstance } from "fastify";
 
 import { RunnerCapabilityUnavailable } from "../src/agents/remote/service.js";
+import { personaScopeFor } from "../src/personas/persona-scope.js";
 import { registerMcpRoutes } from "../src/routes/mcp.js";
 import { handleMcpRequest } from "../src/shared/mcp/server.js";
 import {
@@ -521,16 +522,17 @@ describe("job access ceiling wiring", () => {
       await callbacks!.runJob("job_1");
       await callbacks!.createTemplate(input);
       await callbacks!.updateTemplate("tpl_1", input);
-      // Local agents: no persona scope, so the services keep their default.
+      // Saved targets record the caller's runner (local here).
+      const saved = { ...input, runner: "local" };
       expect(deps.jobService.addJob).toHaveBeenCalledWith(
-        input,
+        saved,
         callerAccess,
-        undefined
+        expect.any(Function)
       );
       expect(deps.jobService.updateJob).toHaveBeenCalledWith(
         { jobId: "job_1", prompt: "updated" },
         callerAccess,
-        undefined
+        expect.any(Function)
       );
       expect(deps.jobService.runJob).toHaveBeenCalledWith({
         jobId: "job_1",
@@ -538,16 +540,20 @@ describe("job access ceiling wiring", () => {
         callerFullAccess: callerAccess,
       });
       expect(deps.templateService.addTemplate).toHaveBeenCalledWith(
-        input,
+        saved,
         callerAccess,
-        undefined
+        expect.any(Function)
       );
       expect(deps.templateService.updateTemplate).toHaveBeenCalledWith(
         "tpl_1",
         input,
         callerAccess,
-        undefined
+        expect.any(Function)
       );
+      // Local agents: the scope resolves exactly as the services' default.
+      const scope = vi.mocked(deps.jobService.addJob).mock.calls.at(-1)![2]!;
+      const target = { cwd: "/tmp", projectRoot: "/tmp" };
+      expect(scope(target)).toEqual(personaScopeFor(target));
     }
   );
 });

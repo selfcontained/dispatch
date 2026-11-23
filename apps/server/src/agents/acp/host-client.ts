@@ -39,6 +39,22 @@ export type HostQuiesceLease = {
 
 export type HostWelcome = Extract<HostMessage, { type: "welcome" }>;
 
+/**
+ * Whether the host answers `hello {replayComplete}` with `replay_complete`.
+ * Every host built from this branch does, but those built before the
+ * `replayCompleteSupported` flag existed (including hosts still running on
+ * enrolled runners) do not advertise it. They do send welcome fields that
+ * origin/main and v1.7.28 hosts never send, so any of those also counts.
+ */
+function speaksReplayComplete(welcome: HostWelcome): boolean {
+  return (
+    welcome.replayCompleteSupported === true ||
+    welcome.hostInstanceId !== undefined ||
+    welcome.promptReceiptSupported === true ||
+    welcome.quiesceSupported === true
+  );
+}
+
 const UNKNOWN_EXECUTION =
   "Runner connection dropped before acknowledgement; execution is unknown.";
 
@@ -269,7 +285,7 @@ export class HostClient {
    * (the host's own rule), else after `fromSeq`.
    */
   private replayReached(welcome: HostWelcome): boolean {
-    if (welcome.replayCompleteSupported === true) return false;
+    if (speaksReplayComplete(welcome)) return false;
     const rotated =
       !!this.sentJournalId &&
       !!welcome.journalId &&

@@ -801,13 +801,17 @@ it("provides a credential-free project repository origin and null for a plain fo
     ]);
     for (const [repoRoot, url] of [
       [plain, null],
-      [repo, "https://example.test/repo.git"],
+      // The recorded identity: no credentials, no ".git".
+      [repo, "https://example.test/repo"],
     ] as const) {
-      const project = await projects.create({
+      // Created as the app does: the repository is recorded on create.
+      const created = await authedInject("POST", "/api/v1/projects", {
         name: "Origin",
         repoRoot,
         color: "#123456",
       });
+      expect(created.statusCode).toBe(200);
+      const project = created.json() as { id: string };
       const response = await authedInject(
         "GET",
         `/api/v1/projects/${project.id}/repository`

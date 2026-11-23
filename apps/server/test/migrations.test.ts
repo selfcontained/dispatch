@@ -78,6 +78,13 @@ async function dropTasks(): Promise<void> {
   await pool.query(
     "DROP FUNCTION IF EXISTS invalidate_legacy_saved_location() CASCADE"
   );
+  await pool.query("DROP INDEX IF EXISTS projects_repository_key");
+  await pool.query(
+    "ALTER TABLE projects DROP COLUMN IF EXISTS repository, DROP COLUMN IF EXISTS extra_roots, ALTER COLUMN repo_root SET NOT NULL"
+  );
+  await pool.query(
+    "DELETE FROM pgmigrations WHERE name = '0066_project_repositories'"
+  );
   for (const table of ["templates", "jobs", "job_runs"])
     await pool.query(`ALTER TABLE ${table} DROP COLUMN IF EXISTS location`);
   await pool.query(

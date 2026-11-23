@@ -3,7 +3,10 @@
  * from placement. Fixture hosts on real Unix sockets speak the two feature
  * sets: origin/main and v1.7.28 hosts (no `replay_complete`, receipts,
  * quiesce lease or build identity; every connection evicts the previous one)
- * and this branch's hosts (advertise `replayCompleteSupported`).
+ * and this branch's hosts (advertise `replayCompleteSupported`). Hosts built
+ * from this branch before that flag existed send `replay_complete` without
+ * advertising it, and are told apart from main-era hosts by the welcome
+ * fields only this branch's hosts send.
  */
 import { mkdtempSync, rmSync } from "node:fs";
 import net from "node:net";
@@ -30,13 +33,17 @@ afterEach(() => {
   for (const run of cleanups.splice(0).reverse()) run();
 });
 
-type Era = "main" | "current";
+type Era = "main" | "branch" | "current";
+
+/** Welcome fields of a pre-flag branch host (`replay_complete`, no flag). */
+type BranchFields = Record<string, unknown>;
 
 /** A host's welcome for its era, as the real hosts write it. */
 function welcome(
   era: Era,
   journal: { id: string; seq: number },
-  running = true
+  running = true,
+  branchFields: BranchFields = {}
 ): HostMessage {
   return {
     type: "welcome",
@@ -57,7 +64,9 @@ function welcome(
           hostBuild: { version: "0.0.0", revision: null },
           hostInstanceId: "instance",
         }
-      : {}),
+      : era === "branch"
+        ? branchFields
+        : {}),
     turn: null,
     journalSeq: journal.seq,
     journalId: journal.id,
@@ -73,7 +82,12 @@ function welcome(
  */
 async function fixtureHost(
   era: Era,
-  options: { journalId?: string; seq?: number; markerDelayMs?: number } = {}
+  options: {
+    journalId?: string;
+    seq?: number;
+    markerDelayMs?: number;
+    branchFields?: BranchFields;
+  } = {}
 ) {
   const dir = mkdtempSync(path.join(os.tmpdir(), "host-mode-"));
   const socketPath = path.join(dir, "host.sock");
@@ -113,7 +127,9 @@ async function fixtureHost(
       for (const message of decode(chunk)) {
         if (message.type === "hello") {
           stats.hellos.push(message);
-          socket.write(encodeMessage(welcome(era, journal)));
+          socket.write(
+            encodeMessage(welcome(era, journal, true, options.branchFields))
+          );
           const from =
             (message.journalId && message.journalId !== journal.id) ||
             message.fromSeq > journal.seq
@@ -122,7 +138,7 @@ async function fixtureHost(
           for (const entry of entries)
             if ((entry as { seq: number }).seq > from)
               socket.write(encodeMessage(entry));
-          if (era === "current" && message.replayComplete) {
+          if (era !== "main" && message.replayComplete) {
             const marker = () =>
               socket.write(encodeMessage({ type: "replay_complete" }));
             if (options.markerDelayMs)
@@ -284,6 +300,48 @@ describe("host client mode, negotiated from the host", () => {
     await c.host.connect(2_000, undefined, true);
     expect(c.host.isReady()).toBe(true);
   });
+
+  // Hosts started by earlier builds of this branch, e.g. those still running
+  // on an enrolled runner when this build attaches them after an update.
+  it.each([
+    [
+      "host identity, receipts and quiesce",
+      {
+        hostInstanceId: "instance",
+        hostBuild: { version: "0.0.0", revision: null },
+        promptReceiptSupported: true,
+        quiesceSupported: true,
+      },
+    ],
+    [
+      "host identity only",
+      {
+        hostInstanceId: "instance",
+        hostBuild: { version: "0.0.0", revision: null },
+      },
+    ],
+    ["prompt receipts only", { promptReceiptSupported: true }],
+  ] as const)(
+    "an earlier branch host without the flag (%s) still waits for replay_complete",
+    async (_case, branchFields) => {
+      for (const remote of [true, false]) {
+        const host = await fixtureHost("branch", {
+          seq: 0,
+          markerDelayMs: 150,
+          branchFields,
+        });
+        const c = client(dial(host.socketPath), undefined, { remote });
+        const w = await c.host.connect(2_000);
+        expect(w.replayCompleteSupported).toBeUndefined();
+        // Nothing to replay, but the host speaks the marker: not ready yet.
+        expect(c.host.isReady()).toBe(false);
+        expect(c.onReady).not.toHaveBeenCalled();
+        await c.host.connect(2_000, undefined, true);
+        expect(c.host.isReady()).toBe(true);
+        expect(c.onReady).toHaveBeenCalledTimes(1);
+      }
+    }
+  );
 
   it("opens one connection per attach and never probes: reconnects replace, never overlap", async () => {
     const host = await fixtureHost("main", { seq: 1 });

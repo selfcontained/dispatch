@@ -81,7 +81,8 @@ describe("job CRUD loop schema", () => {
         maxIterations: 12,
         completionCriteria: ["All planned work is shipped", "Tests pass"],
         recoveryInstructions: null,
-      })
+      }),
+      false
     );
   });
 
