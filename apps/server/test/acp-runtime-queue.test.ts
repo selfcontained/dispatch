@@ -4,7 +4,7 @@
  */
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { createLocalRunner } from "../src/agents/local-runner.js";
+import { sessionFilesWorkload } from "../src/agents/checkout-worker.js";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -1355,14 +1355,14 @@ describe("AcpRuntime delivery during a turn", () => {
     "delivers a native composer text attachment through the runner with %s routing",
     async (delivery) => {
       const host = await heldTurnHost("injected");
-      const local = createLocalRunner(host.stateRoot, logger);
-      const deliver = vi.spyOn(local, "deliverSessionFile");
+      const deliver = vi.spyOn(sessionFilesWorkload, "put");
+      deliver.mockClear();
       const runtime = await attached(
         host.stateRoot,
         undefined,
-        async (id, inputs, text) => {
+        async (_id, inputs, text) => {
           for (const input of inputs)
-            await local.deliverSessionFile(id, input.path);
+            await sessionFilesWorkload.put(input.path, "prompt");
           return { images: [], text };
         }
       );
@@ -1383,7 +1383,7 @@ describe("AcpRuntime delivery during a turn", () => {
         host.settle();
       }
       await withinSeconds(attachedText.accepted, "native text attachment");
-      expect(deliver).toHaveBeenCalledExactlyOnceWith(agentId, file);
+      expect(deliver).toHaveBeenCalledExactlyOnceWith(file, "prompt");
       if (delivery === "auto") {
         expect(host.steers).toEqual([text]);
         expect(host.prompts).toHaveLength(1);

@@ -25,7 +25,7 @@ import {
 import { requestCheckoutCommand } from "./checkout-commands.js";
 import { REPO_TOOL_MANIFEST_PATH } from "../shared/mcp/repo-tools.js";
 import { isPromptImageMimeType } from "./acp/prompt-source.js";
-import { digestSessionFile, sessionFileSource } from "../files/session-file.js";
+import { getSessionFile, putSessionFile } from "../files/session-file.js";
 import { readAgentView } from "./checkout-runner.js";
 import {
   agentComparisonBase,
@@ -1027,23 +1027,21 @@ export class AgentManager {
     this.cancelSchedules = cancel;
   }
 
+  /** `files.get`: a file in the agent's session, read through its runner. */
   async collectSessionFile(
     agent: AgentRecord,
     filePath: string
   ): Promise<Buffer> {
-    const placement = remotePlacement(agent.cwd);
-    if (!placement) {
-      return this.localRunner.collectSessionFile(agent.id, filePath);
-    }
-    if (!this.remote) throw new Error("Runner session is unavailable.");
-    return this.remote.getFile(placement, agent.id, filePath);
+    return getSessionFile(
+      this.sessionRunner(agent),
+      sessionFromWire(agent.id),
+      filePath
+    );
   }
 
-  private readonly deliveredReferences = new Map<string, Promise<string>>();
-
   /**
-   * `files.put`: hand one file to the agent and return the path it opens.
-   * Local agents open the file where it is, so nothing is copied.
+   * `files.put`: hand one file to the agent through its runner and return
+   * the path it opens. A local runner hands it over where it is.
    */
   async deliverSessionFile(
     agent: AgentRecord,
@@ -1051,38 +1049,22 @@ export class AgentManager {
     name: string,
     purpose: "prompt" | "reference" = "prompt"
   ) {
-    const placement = remotePlacement(agent.cwd);
-    if (!placement)
-      return purpose === "reference"
-        ? this.localRunner.deliverSessionFile(agent.id, source, purpose)
-        : this.localRunner.deliverSessionFile(agent.id, source);
-    const remote = this.remote;
-    if (!remote) throw new Error("Runner session is unavailable.");
-    if (purpose === "prompt")
-      return remote.putFile(
-        placement,
-        agent.id,
-        name,
-        await sessionFileSource(source)
-      );
+    return putSessionFile(
+      this.sessionRunner(agent),
+      sessionFromWire(agent.id),
+      source,
+      name,
+      purpose
+    );
+  }
 
-    const digest = await digestSessionFile(source);
-    const extension = path.extname(name).slice(0, 32);
-    const storedName = `reference-${digest}${extension}`;
-    const key = JSON.stringify([agent.id, agent.cwd, storedName]);
-    const existing = this.deliveredReferences.get(key);
-    if (existing) return existing;
-
-    // Share in-flight puts too. An updated file gets a new path, so it
-    // cannot overwrite an earlier reference or a same-named family file.
-    const delivery = sessionFileSource(source, digest)
-      .then((file) => remote.putFile(placement, agent.id, storedName, file))
-      .catch((error: unknown) => {
-        this.deliveredReferences.delete(key);
-        throw error;
-      });
-    this.deliveredReferences.set(key, delivery);
-    return delivery;
+  /** The runner an agent's session is on, bound to that session. */
+  private sessionRunner(agent: AgentRecord) {
+    const { directory, placement } = checkoutRunners(
+      this.checkoutReadRunners(),
+      agent
+    );
+    return directory.for(placement);
   }
 
   /**

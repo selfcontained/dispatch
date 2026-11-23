@@ -29,6 +29,8 @@ import {
   mapIncomingFrames,
   type HostMessage,
 } from "@dispatch/runner-client/v1/host";
+import { createHash } from "node:crypto";
+import path from "node:path";
 import type { Duplex } from "node:stream";
 import { childProcessEnv } from "../shared/process/child-environment.js";
 import { hostCommand } from "../agents/acp/host-command.js";
@@ -38,7 +40,9 @@ import {
   githubWorkload,
   localEnginePort,
   readCommandGuard,
+  sessionFilesWorkload,
 } from "../agents/checkout-worker.js";
+import { sessionFileBlob } from "../files/session-file-blob.js";
 import {
   agentDiffPath,
   agentWorkspaceDir,
@@ -482,6 +486,38 @@ export function createLocalCheckoutRunner(
     return { info: {}, channel: pulses(directory) };
   }
 
+  /**
+   * Session files for the bound session, in process with the same workload
+   * (R3, as for reads): the child does not serve `files.*` yet. A put hands
+   * the file over where it is, so its path is the one the agent opens.
+   */
+  async function files<K extends "files.put" | "files.get">(
+    op: K,
+    input: Req<K>
+  ): Promise<Res<K>> {
+    if (sessionToWire(input.session) !== agent?.id)
+      throw new RunnerCallError({
+        code: "invalid",
+        message: "Invalid session file binding.",
+      });
+    if (op === "files.put") {
+      const file = sessionFileBlob((input as Req<"files.put">).blob);
+      return {
+        path: pathFromWire(
+          await sessionFilesWorkload.put(file.path, file.purpose)
+        ),
+      } as Res<K>;
+    }
+    const source = (input as Req<"files.get">).path;
+    const bytes = await sessionFilesWorkload.get(source);
+    return {
+      name: path.basename(source),
+      size: bytes.length,
+      digest: createHash("sha256").update(bytes).digest("hex"),
+      blob: bytes.toString("base64"),
+    } as Res<K>;
+  }
+
   return {
     describe: () => description,
     connection: { state: "ready", epoch: 0, onChange: () => () => {} },
@@ -530,6 +566,10 @@ export function createLocalCheckoutRunner(
           input as Req<"git.defaultBranch">,
           options as CallOptions<"git.defaultBranch">
         ) as Promise<Res<K>>;
+      if (op === "files.put" || op === "files.get")
+        return files(op as "files.put", input as Req<"files.put">) as Promise<
+          Res<K>
+        >;
       if (op === "checkout.exec")
         return exec(
           input as Req<"checkout.exec">,

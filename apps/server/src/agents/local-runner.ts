@@ -1,4 +1,4 @@
-import { readFile, realpath, stat } from "node:fs/promises";
+import { realpath } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyBaseLogger } from "fastify";
 
@@ -25,27 +25,8 @@ export function createLocalRunner(
       throw new Error("Invalid agent state directory");
     return path.join(agentStateRoot, agentId);
   }
-  async function deliverSessionFile(
-    agentId: string,
-    source: string,
-    purpose: "prompt" | "reference" = "prompt"
-  ) {
-    stateDir(agentId);
-    // Already visible to the workload. A missing file drops out of the prompt.
-    // Listings historically include registry rows even if the file vanished.
-    if (purpose === "prompt") await stat(source);
-    return source;
-  }
-
-  async function collectSessionFile(agentId: string, source: string) {
-    stateDir(agentId);
-    return readFile(source);
-  }
-
   const workspace = createWorkspacePreparation();
   return {
-    deliverSessionFile,
-    collectSessionFile,
     checkoutRelease: localCheckoutRelease,
     resolveLaunchDirectory,
     canonicalPath: (directory: string) => realpath(directory).catch(() => null),

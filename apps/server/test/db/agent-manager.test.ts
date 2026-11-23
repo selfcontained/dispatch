@@ -2,6 +2,7 @@ import { sessionFromWire } from "@dispatch/runner-protocol/contract";
 import { withTestWorkspaceRunner } from "../helpers/test-workspace-runner.js";
 import * as checkoutIntent from "../../src/agents/checkout-intent.js";
 import { createMcpHandlers } from "../../src/server/mcp-handlers.js";
+import { sessionFilesWorkload } from "../../src/agents/checkout-worker.js";
 import { TemplateService } from "../../src/templates/service.js";
 import { personaCatalog } from "../../src/personas/catalog.js";
 import * as gitContext from "../../src/shared/git/git-context.js";
@@ -319,7 +320,8 @@ describe("AgentManager", () => {
       useWorktree: false,
     });
     const file = path.join(agent.filesDir!, "composer.txt");
-    const deliver = vi.spyOn(manager["localRunner"], "deliverSessionFile");
+    const deliver = vi.spyOn(sessionFilesWorkload, "put");
+    deliver.mockClear();
     const submitted = vi.fn();
     const chat = new StreamService({
       pool,
@@ -355,7 +357,7 @@ describe("AgentManager", () => {
         attachments: [{ type: "file", fileId: attachment.id }],
       });
       await chat.waitForInFlightDeliveries(2_000);
-      expect(deliver).toHaveBeenCalledExactlyOnceWith(agent.id, file);
+      expect(deliver).toHaveBeenCalledExactlyOnceWith(file, "prompt");
       expect(submitted).toHaveBeenCalledExactlyOnceWith(
         expect.stringContaining(`- file: ${file} (text/plain,`),
         []
