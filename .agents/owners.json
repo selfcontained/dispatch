@@ -6,7 +6,8 @@
         "apps/server/src/routes/system.ts",
         "apps/server/test/system-routes.test.ts",
         "e2e/engine-updates.spec.ts",
-        "apps/server/test/launch-persona-config.test.ts"
+        "apps/server/test/launch-persona-config.test.ts",
+        "apps/server/test/api-validation.test.ts"
       ],
       "personas": ["code-review"]
     },
@@ -33,6 +34,7 @@
         "apps/server/src/agents/acp/**",
         "docs/opencode-acp.md",
         "scripts/opencode-v2-smoke.mjs",
+        "scripts/prune-builder-caches*.mjs",
         "scripts/stream-stress/**",
         "apps/server/src/agents/engine-*.ts",
         "apps/server/src/shared/mcp/agent-*.ts",
