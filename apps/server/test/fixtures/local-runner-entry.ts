@@ -14,7 +14,7 @@ import {
   workspaceWorkload,
 } from "../../src/agents/checkout-worker.js";
 import { localTerminalHandlers } from "../../src/terminal/runner-worker.js";
-import { localHostEntry } from "../../src/agents/acp/host-command.js";
+import { localHostEntry } from "../../src/agents/acp/local-host-entry.js";
 
 const dieOnce = (marker: string | undefined) => {
   if (marker && existsSync(marker)) {

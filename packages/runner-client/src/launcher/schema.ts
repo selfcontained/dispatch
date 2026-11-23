@@ -55,6 +55,8 @@ export const launcherStart = object({
     runnerId: string,
     displayName: string,
     engines: array(string),
+    /** The session host's argv, before its state argument; the runner's own when absent. */
+    hostCommand: optional(array(string)),
   }),
   /** Start frozen (an update's probation start): refuse writes until `thaw`. */
   frozen: optional(boolean),

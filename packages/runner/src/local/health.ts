@@ -18,7 +18,8 @@ function cpuTimes() {
 /**
  * Machine health. CPU is the busy share since the previous sample (or since
  * the runner started). The child runs no sessions until a session family
- * moves into it, so `sessions` and `working` are its own: zero.
+ * moves into it, so `sessions` and `working` start at zero; the child
+ * fills `sessions` with the live hosts it tracks.
  */
 export function healthSampler(build: Build): () => HealthSample {
   let previous = cpuTimes();

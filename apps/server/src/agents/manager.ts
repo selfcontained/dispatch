@@ -1424,7 +1424,22 @@ export class AgentManager {
       // Its launch is held for a runner update and runs when that opens.
       if (this.holds?.hasLaunch(row.id) || this.hasRunnerDrainReceipt(row.id))
         continue;
-      const attachedToHost = await this.runtime.attach(row.id);
+      // One agent's runner answering with an error must not stop the rest
+      // from being restored. Its state is unknown, not exited: the
+      // reconciler checks it again, as for an agent still pending.
+      let attachedToHost: boolean;
+      let alive: boolean;
+      try {
+        attachedToHost = await this.runtime.attach(row.id);
+        alive = attachedToHost || (await this.runtime.isAlive(row.id));
+      } catch (err) {
+        this.logger.warn(
+          { err, agentId: row.id },
+          "Could not read the agent host during recovery; checking it again later"
+        );
+        pending.push(row.id);
+        continue;
+      }
       if (!remotePlacement(row.cwd) && this.runtime.inspectNativeHost) {
         try {
           const host = await this.runtime.inspectNativeHost(row.id);
@@ -1440,7 +1455,7 @@ export class AgentManager {
         attached.push(row.id);
         continue;
       }
-      if (await this.runtime.isAlive(row.id)) {
+      if (alive) {
         pending.push(row.id);
         continue;
       }

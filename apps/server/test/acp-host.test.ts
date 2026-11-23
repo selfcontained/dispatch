@@ -42,13 +42,14 @@ import type { DriverEvent } from "../src/agents/acp/driver.js";
 import { createAcpRuntime } from "../src/agents/acp/runtime.js";
 import { preparePersonaContext } from "../src/agents/acp/persona-context.js";
 import { HostClient } from "../src/agents/acp/host-client.js";
-import { createLocalRunner } from "../src/agents/local-runner.js";
+import { mainLocalHosts } from "./helpers/main-local-hosts.js";
 import { RunnerUnavailable } from "../src/agents/remote/service.js";
 import { RunnerUpdateHolds } from "../src/agents/remote/update-hold.js";
 import { buildSystemPrompt } from "../src/agents/acp/system-prompt.js";
 import type { AgentRuntime, RuntimeLaunch } from "../src/agents/runtime.js";
 import {
   localRunnerFor,
+  startTestLocalRunner,
   stopLocalRunners,
 } from "./helpers/local-runner-child.js";
 
@@ -416,7 +417,7 @@ describe("agent host", () => {
   it("never falls back to a plain stop when a turn opens after probation's welcome", async () => {
     const id = "agt_recovery_race";
     // No runtime attached: its reconnect would displace probation's client.
-    const host = createLocalRunner(stateRoot, logger);
+    const host = mainLocalHosts(stateRoot);
     const {
       cwd: folder,
       bins,
@@ -563,7 +564,25 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
   );
 
   it("reports unavailable enumeration without claiming another session", async () => {
-    const { runtime, seen } = runtimeWith(stateRoot, () => 0);
+    // The child enumerates owned processes: its `ps` fails while the flag
+    // file exists (a shim ahead of the real one on its PATH).
+    const scanRoot = mkdtempSync("/tmp/dispatch-scan-");
+    const shims = path.join(scanRoot, "bin");
+    const broken = path.join(scanRoot, "ps-broken");
+    mkdirSync(shims);
+    writeFileSync(
+      path.join(shims, "ps"),
+      `#!/bin/sh\n[ -f ${JSON.stringify(broken)} ] && exit 2\nexec /bin/ps "$@"\n`,
+      { mode: 0o755 }
+    );
+    const scanState = path.join(scanRoot, "state");
+    mkdirSync(scanState);
+    const scanChild = startTestLocalRunner(scanState, {
+      env: { PATH: `${shims}:${process.env.PATH}` },
+    });
+    const { runtime, seen } = runtimeWith(scanState, () => 0, null, undefined, {
+      localRunner: () => scanChild.session,
+    });
     const target = "agt_scan";
     const peer = "agt_peer";
     const originalPath = process.env.PATH;
@@ -574,13 +593,13 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
     try {
       await runtime.launch(launchFor(target, cwd));
       await runtime.launch(launchFor(peer, cwd));
-      process.env.PATH = "/nonexistent-owned-test";
+      writeFileSync(broken, "");
       try {
         await expect(runtime.stop(target, true)).rejects.toThrow(
           "Unable to enumerate owned processes"
         );
       } finally {
-        process.env.PATH = originalPath;
+        rmSync(broken, { force: true });
       }
       expect(await runtime.isAlive(target)).toBe(false);
       expect(await runtime.isAlive(peer)).toBe(true);
@@ -605,6 +624,8 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
         await runtime.stop(target, true);
       } finally {
         await runtime.stop(peer, true);
+        await scanChild.stop();
+        rmSync(scanRoot, { recursive: true, force: true });
       }
     }
   });
@@ -1519,9 +1540,9 @@ mock.module("node:fs/promises", () => ({
       bin: "bun",
       args: [path.join(here, "helpers/remote-acp-fixture.ts")],
     };
-    const hosts: ReturnType<typeof createLocalRunner>[] = [];
+    const hosts: ReturnType<typeof mainLocalHosts>[] = [];
     async function launchHost(dir: string) {
-      const host = createLocalRunner(dir, logger);
+      const host = mainLocalHosts(dir);
       const { cwd, bins, env, pathPrefix, ...launch } = input;
       await host.requestSession(
         { kind: "launch", agentId: id, launch },

@@ -22,6 +22,12 @@ export interface SessionProcessPort<I extends HostRecord> {
   /** Whether the recorded host is still the same live process. */
   alive(identity: I): boolean;
   /**
+   * Whether a host carrying this identity runs though it is not (yet)
+   * recorded as live, by a scan of its marker. Cleanup never runs while it
+   * does: a starting host may not have written its pid.
+   */
+  starting?(identity: I): boolean;
+  /**
    * Start a detached host. `record` runs once the process is identified and
    * before it may run; `onExit` fires if this process sees it exit.
    */
@@ -243,7 +249,8 @@ export function createSessionCore<I extends HostRecord>(
 
   async function cleanExited(key: string) {
     const current = await readIdentity(key);
-    if (current && !processes.alive(current)) await clean(key, current);
+    if (current && !processes.alive(current) && !processes.starting?.(current))
+      await clean(key, current);
   }
 
   /**
@@ -348,7 +355,9 @@ export function createSessionCore<I extends HostRecord>(
       hostCommand: () => string[],
       cwd: string,
       env: NodeJS.ProcessEnv,
-      extra: Record<string, unknown>
+      extra: Record<string, unknown>,
+      /** Called when this process sees the host exit. */
+      exited?: () => void
     ) {
       const log = openSync(layout.logFile(key), "a", 0o600);
       try {
@@ -366,6 +375,7 @@ export function createSessionCore<I extends HostRecord>(
                 JSON.stringify({ ...identity, ...extra })
             ),
           (identity) => {
+            exited?.();
             void lock(key, async () => {
               const current = await readIdentity(key);
               if (

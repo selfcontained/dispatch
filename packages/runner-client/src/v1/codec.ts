@@ -68,6 +68,12 @@ export const IMPLIED = {
     overflowNotice: "T24: the v1 host composes the overflow text itself",
     env: "T24: the v1 supervisor builds the session environment",
     owner: "v1 has no owner",
+    directory: "v1 starts in its workspace's directory",
+    programs: "v1 resolves its own programs",
+    pathPrefix: "v1 builds its own PATH",
+  },
+  "session.stop": {
+    idleOnly: "v1 hosts are asked over the session channel",
   },
   "session.logs": { lines: "the v1 tail is fixed at 20 lines" },
   "terminal.open": { cols: "v1 starts at 80", rows: "v1 starts at 24" },

@@ -28,6 +28,11 @@
             "displayName": "string",
             "engines": {
               "array": "string"
+            },
+            "hostCommand": {
+              "optional": {
+                "array": "string"
+              }
             }
           }
         },

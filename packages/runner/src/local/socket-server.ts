@@ -230,7 +230,7 @@ export async function serveSocket(
         })();
         void streams.send(stream, Readable.from(chunks)).catch(() => {});
       };
-      const release = fence ? fence.enter(op) : () => {};
+      const release = fence ? fence.enter(op, input) : () => {};
       if (!release) return reply({ error: errorOf(fencedError()) });
       if (spec?.kind === "open")
         return void open(op, spec, input, opens, {

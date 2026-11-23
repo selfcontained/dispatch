@@ -85,6 +85,8 @@ const launchProgress = object({
   status: optional(literal("done", "failed")),
   detail: optional(string),
 });
+/** A program and its leading arguments. */
+const program = object({ path: string, args: optional(array(string)) });
 const engineEvent = union(engineProgress, engineComplete);
 const loginOp = (
   request: Parameters<typeof object>[0],
@@ -143,6 +145,15 @@ export const operations = {
       env: record(envValue),
       mcp: array(mcpServer),
       owner: nullable(string),
+      /** Where the session starts; a runner that places sessions itself ignores it. */
+      directory: optional(runnerPath),
+      /**
+       * Programs the host runs, by name (null: none configured). A runner
+       * that resolves its own ignores them.
+       */
+      programs: optional(record(nullable(program))),
+      /** Directories put ahead of the session's PATH. */
+      pathPrefix: optional(array(runnerPath)),
     }),
     response: empty,
     errors: ["conflict", "not_found", "unauthenticated", "unsupported"],
@@ -174,9 +185,18 @@ export const operations = {
   "session.stop": op({
     scope: "session",
     kind: "call",
-    request: object({ ...session, force: boolean }),
+    request: object({
+      ...session,
+      force: boolean,
+      /**
+       * Stop only a host that exits by itself once asked to while idle: the
+       * runner waits the grace period and never signals it. A host still
+       * running answers `busy`.
+       */
+      idleOnly: optional(boolean),
+    }),
     response: empty,
-    errors: [],
+    errors: ["busy"],
     retry: read,
     timeout: "default",
     capability: "baseline",

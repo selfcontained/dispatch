@@ -29,6 +29,7 @@ import {
 } from "@dispatch/runner-client/v1/host";
 import type { Duplex } from "node:stream";
 import { childProcessEnv } from "../shared/process/child-environment.js";
+import { hostCommand } from "../agents/acp/host-command.js";
 import { LOCAL_RUNNER_ID } from "./placement.js";
 import {
   checkoutWorkload,
@@ -496,6 +497,31 @@ export function readLocalSession<
   );
 }
 
+/**
+ * How long a launch, stop or discard waits, in all, for a child that is
+ * down or restarting before it fails with `unavailable`. A launch includes
+ * its host's start; a stop its grace periods.
+ */
+const SESSION_WRITE_WAIT_MS = {
+  "session.launch": 90_000,
+  "session.stop": 30_000,
+  "session.discard": 30_000,
+} as const;
+
+/**
+ * A launch, stop or discard through the child. A call lost with the child
+ * is sent again to its replacement (a launch by its ID, which the child
+ * answers for the host it already started); a child that does not come
+ * back in time is `unavailable`, an ordinary error.
+ */
+export function requestLocalSession<
+  K extends keyof typeof SESSION_WRITE_WAIT_MS,
+>(child: LocalSessionRunner, op: K, input: Req<K>): Promise<Res<K>> {
+  return unavailableAfter(SESSION_WRITE_WAIT_MS[op], (signal) =>
+    child.call(op, input, { signal, timeoutMs: null })
+  );
+}
+
 async function unavailableAfter<T>(
   ms: number,
   run: (signal: AbortSignal) => Promise<T>
@@ -622,6 +648,7 @@ export function createLocalRunnerFence(input: {
       const child = current();
       if (!frozen || !child || confirmed !== child)
         throw new Error("The local runner is not confirmed frozen");
+      // The child counts its live hosts as `session.list` reads them.
       const sample = await health();
       // The answer must come from the child that confirmed the fence.
       if (current() !== child || confirmed !== child)
@@ -714,6 +741,8 @@ export function startLocalRunnerProcess(options: {
         runnerId,
         displayName: "Local",
         engines: [],
+        // The child's environment is scrubbed; the host's argv is the app's.
+        hostCommand: hostCommand(),
       },
     },
     frozen: () => fence.wanted,

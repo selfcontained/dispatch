@@ -21,7 +21,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { DriverEvent } from "../src/agents/acp/driver.js";
 import { createAcpRuntime } from "../src/agents/acp/runtime.js";
-import { createLocalRunner } from "../src/agents/local-runner.js";
+import { mainLocalHosts } from "./helpers/main-local-hosts.js";
 import type { AgentRuntime, RuntimeLaunch } from "../src/agents/runtime.js";
 import { readLocalSession } from "../src/runners/local.js";
 import { sessionFromWire } from "@dispatch/runner-protocol/contract";
@@ -117,7 +117,7 @@ function launchFor(agentId: string): RuntimeLaunch {
 
 /** Start a host with main's in-app launch code, as an earlier app did. */
 async function launchInApp(agentId: string) {
-  const local = createLocalRunner(stateRoot, logger);
+  const local = mainLocalHosts(stateRoot);
   const { bins, cwd: dir, env, pathPrefix, ...launch } = launchFor(agentId);
   await local.requestSession(
     { kind: "launch", agentId, launch: { ...launch, agentId } as never },
@@ -274,7 +274,7 @@ describe("local hosts tracked by the runner child", () => {
     console.info(`child down ${down} ms; no exit recorded; prompt delivered`);
   }, 90_000);
 
-  it("a stale pid record is reported, never attached to as live, and nothing is killed or removed", async () => {
+  it("a stale pid record is reported, never attached to as live, and swept without signalling the process it names", async () => {
     const agentId = "agt_stale_pid";
     const dir = path.join(stateRoot, agentId);
     mkdirSync(dir, { recursive: true });
@@ -298,11 +298,13 @@ describe("local hosts tracked by the runner child", () => {
     expect(await runtime.listHosted()).not.toContain(agentId);
     expect(await runtime.isAlive(agentId)).toBe(false);
     expect(await runtime.attach(agentId)).toBe(false);
-    // Longer than the core's sweep interval: the child sweeps nothing yet.
+    // Longer than the core's sweep interval: the child, the only spawner,
+    // cleans the records of a host that is not running (as main's stop
+    // removes them), and the process they named is never signalled.
     await new Promise((resolve) => setTimeout(resolve, 6_000));
     expect(pidAlive(foreign.pid!)).toBe(true);
-    expect(existsSync(path.join(dir, "host.pid"))).toBe(true);
-    expect(existsSync(path.join(dir, "ownership"))).toBe(true);
+    expect(existsSync(path.join(dir, "host.pid"))).toBe(false);
+    expect(existsSync(path.join(dir, "ownership"))).toBe(false);
   }, 30_000);
 
   it("app killed with hosts running: the host survives, the child exits by its lifeline, the next app's child adopts it", async () => {
@@ -347,7 +349,7 @@ describe("local hosts tracked by the runner child", () => {
     const [pid] = hostProcesses(dir);
     expect(pid).toBeGreaterThan(0);
     cleanups.push(async () => {
-      await createLocalRunner(stateRoot, logger).requestSession({
+      await mainLocalHosts(stateRoot).requestSession({
         kind: "stop",
         agentId,
         force: true,
