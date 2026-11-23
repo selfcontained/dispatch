@@ -11,7 +11,6 @@ import {
   writeFile,
 } from "node:fs/promises";
 import net from "node:net";
-import { hostname, userInfo } from "node:os";
 import path from "node:path";
 import type { Duplex } from "node:stream";
 import { promisify } from "node:util";
@@ -33,10 +32,7 @@ import {
 import { resolveWorkspace } from "./workspace-target.js";
 import { resolveProjectRoot } from "../projects/resolve-root.js";
 import { localCheckoutRelease } from "./local-runner-checkout.js";
-import type { AgentRecord } from "./types.js";
 import { inferRepositoryUrl } from "./remote/repository.js";
-import type { TerminalBackend } from "../terminal/manager.js";
-import { spawnTerminal, type SpawnTerminal } from "../terminal/pty.js";
 
 export type LocalLaunchSettings = Pick<
   HostLaunch,
@@ -125,8 +121,7 @@ function signalGroup(pid: number, signal: NodeJS.Signals): void {
  */
 export function createLocalRunner(
   agentStateRoot: string,
-  logger: FastifyBaseLogger,
-  spawnPty: SpawnTerminal = spawnTerminal
+  logger: FastifyBaseLogger
 ) {
   function stateDir(agentId: string) {
     if (
@@ -138,27 +133,6 @@ export function createLocalRunner(
       throw new Error("Invalid agent state directory");
     return path.join(agentStateRoot, agentId);
   }
-  function terminalBackend(
-    checkout: Pick<AgentRecord, "id" | "cwd" | "worktreePath" | "workspacePath">
-  ): TerminalBackend {
-    return async (output) => {
-      stateDir(checkout.id);
-      if (checkout.cwd.startsWith("runner://"))
-        throw new Error("Invalid native terminal binding.");
-      const cwd = await realpath(
-        checkout.workspacePath ?? checkout.worktreePath ?? checkout.cwd
-      );
-      if (!(await stat(cwd)).isDirectory())
-        throw new Error("Workspace directory is unavailable.");
-      return {
-        ...spawnPty(cwd, output),
-        cwd,
-        host: hostname(),
-        user: userInfo().username,
-      };
-    };
-  }
-
   async function deliverSessionFile(agentId: string, source: string) {
     stateDir(agentId);
     // Already visible to the workload. A missing file drops out of the prompt.
@@ -328,7 +302,6 @@ export function createLocalRunner(
   }
   return {
     requestSession,
-    terminalBackend,
     deliverSessionFile,
     collectSessionFile,
     checkoutRelease: localCheckoutRelease,

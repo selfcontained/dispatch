@@ -1,5 +1,6 @@
+import { realpath, stat } from "node:fs/promises";
 import { hostname, userInfo } from "node:os";
-import { Duplex } from "node:stream";
+import { Duplex, PassThrough } from "node:stream";
 import {
   isTerminalControl,
   MAX_TERMINAL_FRAME_LENGTH,
@@ -7,6 +8,11 @@ import {
   type TerminalEvent,
   type TerminalInfo,
 } from "@dispatch/runner-protocol";
+import {
+  displayPath,
+  RunnerCallError,
+  type Req,
+} from "@dispatch/runner-protocol/contract";
 import { wireFrames } from "../runners/enrolled/v1-framing.js";
 import { spawnTerminal, type PtyProcess } from "./pty.js";
 
@@ -105,4 +111,105 @@ export async function runTerminalWorker(cwd: string) {
       io.destroy();
     }
   }
+}
+
+/** The local runner owns the shell and its process session for this channel. */
+export function localTerminalHandlers() {
+  let stopping = false;
+  const active = new Map<Duplex, Promise<number>>();
+
+  async function open({ target, cols, rows }: Req<"terminal.open">) {
+    if (
+      !("path" in target) ||
+      !isTerminalControl({ type: "resize", cols, rows })
+    )
+      throw new RunnerCallError({
+        code: "invalid",
+        message: "Invalid native terminal binding.",
+      });
+    const cwd = await realpath(displayPath(target.path));
+    if (!(await stat(cwd)).isDirectory())
+      throw new Error("Workspace directory is unavailable.");
+    if (stopping) throw new Error("The local runner is unavailable");
+
+    const info = { cwd, host: hostname(), user: userInfo().username };
+    let pty: PtyProcess | undefined;
+    const channel = new Duplex({
+      allowHalfOpen: false,
+      read() {},
+      write(chunk, _encoding, callback) {
+        controls.write(chunk, callback);
+      },
+      final(callback) {
+        channel.destroy();
+        callback();
+      },
+      destroy(error, callback) {
+        controls.destroy();
+        try {
+          pty?.kill();
+        } catch {
+          // The shell may already have exited.
+        }
+        callback(error);
+      },
+    });
+    const send = (event: TerminalEvent) => {
+      if (!channel.destroyed) channel.push(JSON.stringify(event) + "\n");
+    };
+    const controls = new PassThrough();
+    controls.once("close", () => channel.destroy());
+    wireFrames<unknown>(
+      controls,
+      (message) => {
+        if (!isTerminalControl(message) || !pty)
+          throw new Error("Invalid terminal control.");
+        if (message.type === "resize") {
+          pty.terminal.resize(message.cols, message.rows);
+        } else if (message.type === "input") {
+          if (
+            pty.terminal.write(message.data) < Buffer.byteLength(message.data)
+          )
+            send({ type: "error", message: "Terminal input buffer full." });
+        }
+      },
+      MAX_TERMINAL_FRAME_LENGTH
+    );
+
+    try {
+      pty = spawnTerminal(
+        cwd,
+        (data) =>
+          send({ type: "output", data: Buffer.from(data).toString("base64") }),
+        undefined,
+        { cols, rows }
+      );
+    } catch (error) {
+      channel.destroy();
+      throw error;
+    }
+    const exited = pty.exited.then((code) => {
+      try {
+        pty.kill();
+      } finally {
+        send({ type: "exit", code });
+        if (!channel.destroyed) channel.push(null);
+        active.delete(channel);
+      }
+      return code;
+    });
+    active.set(channel, exited);
+    void exited.catch(() => channel.destroy());
+    return { info, channel };
+  }
+
+  return {
+    calls: {},
+    opens: { "terminal.open": open },
+    async stop() {
+      stopping = true;
+      for (const channel of active.keys()) channel.destroy();
+      await Promise.allSettled(active.values());
+    },
+  };
 }

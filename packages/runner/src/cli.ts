@@ -1,5 +1,4 @@
 import { runLocalRunner, type Build } from "./local/child.js";
-import type { Platform } from "./platform/types.js";
 
 export type {
   Platform,
@@ -15,11 +14,10 @@ export { WORKER_OPS } from "./platform/types.js";
  */
 export async function runCli(
   argv: string[],
-  options: { build: Build; platform?: Platform }
+  options: { build: Build } & NonNullable<Parameters<typeof runLocalRunner>[1]>
 ): Promise<void> {
   const [mode] = argv;
-  if (mode === "local-runner")
-    return runLocalRunner(options.build, { platform: options.platform });
+  if (mode === "local-runner") return runLocalRunner(options.build, options);
   process.stderr.write(`Unknown runner mode: ${mode ?? "(none)"}\n`);
   process.exitCode = 2;
 }

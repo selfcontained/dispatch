@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { PtyProcess } from "./pty.js";
 import type { WebSocket } from "ws";
 import {
   isTerminalControl,
@@ -16,7 +15,13 @@ export function terminalOwner(session: string): string {
 }
 
 type TerminalProcess = TerminalInfo & {
-  terminal: PtyProcess["terminal"] & { detach?(): void; resume?(): void };
+  terminal: {
+    write(data: string): number;
+    resize(cols: number, rows: number): void;
+    close(): void;
+    detach?(): void;
+    resume?(): void;
+  };
   exited: Promise<number | null>;
   /**
    * Why it ended without an exit code. The panel drops its screen on close,
@@ -27,7 +32,8 @@ type TerminalProcess = TerminalInfo & {
 };
 
 export type TerminalBackend = (
-  output: (data: Uint8Array) => void
+  output: (data: Uint8Array) => void,
+  inputFull: () => void
 ) => Promise<TerminalProcess>;
 
 type TerminalSession = {
@@ -89,7 +95,9 @@ export class HumanTerminalManager {
         else socket.send(bytes);
       }
     };
-    return { session, output };
+    const inputFull = () =>
+      session.socket?.close(1013, "Terminal input buffer full.");
+    return { session, output, inputFull };
   }
 
   async open(
@@ -103,8 +111,12 @@ export class HumanTerminalManager {
     const key = JSON.stringify([owner, clientId, agentId]);
     const pending = this.pending.get(key);
     if (pending) return pending.opened;
-    const { session, output } = this.reserve(owner, clientId, agentId);
-    const opened = open(output)
+    const { session, output, inputFull } = this.reserve(
+      owner,
+      clientId,
+      agentId
+    );
+    const opened = open(output, inputFull)
       .then((process) => {
         if (this.pending.get(key)?.opened !== opened) {
           process.kill();

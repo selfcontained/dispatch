@@ -1,5 +1,6 @@
 import {
   displayPath,
+  pathFromWire,
   RunnerCallError,
   runnerIdToWire,
   sessionToWire,
@@ -11,6 +12,7 @@ import {
   type RunnerDescription,
 } from "@dispatch/runner-protocol/contract";
 import { RUNNER_WIRE_VERSION } from "@dispatch/runner-protocol";
+import { typedTerminal } from "../terminal/typed.js";
 import type { CheckoutRunner, CheckoutSession } from "./directory.js";
 import {
   selfCommand,
@@ -547,4 +549,23 @@ export function startLocalRunnerProcess(options: {
       await supervisor.stop(graceMs);
     },
   };
+}
+
+export function localTerminal(
+  child: (() => Runner | undefined) | undefined,
+  agent: CheckoutSession
+) {
+  return typedTerminal(async () => {
+    const runner = child?.();
+    if (!runner) throw new Error("The session runner is unavailable.");
+    return runner.open("terminal.open", {
+      target: {
+        path: pathFromWire(
+          agent.workspacePath ?? agent.worktreePath ?? agent.cwd
+        ),
+      },
+      cols: 80,
+      rows: 24,
+    });
+  });
 }
