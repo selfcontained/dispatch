@@ -19,6 +19,13 @@
  * that Git made for this branch from this repository is taken over, never
  * made a second time, and a path that was already there before is never
  * claimed. Preparation of one session runs one at a time.
+ *
+ * A repository source is the same preparation from a directory the runner
+ * makes itself: a clone cached per repository (keyed by its identity, so
+ * every spelling of its URL shares one), fetched on each use, and the
+ * session's worktree made from it beside it by the directory steps above,
+ * with main's branch rules. The receipt records the repository too, so a
+ * repeat or `resume` finishes the same checkout.
  */
 import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -31,6 +38,7 @@ import {
   type Infer,
   type Req,
   type Res,
+  repositoryCheckout,
   worktreeRequest,
 } from "@dispatch/runner-protocol/contract";
 import type {
@@ -48,8 +56,15 @@ import type {
   WorkspacePort,
   WorktreeSpec,
 } from "../platform/types.js";
+import {
+  repositoryIdentity,
+  repositoryKey,
+  repositoryName,
+  storableUrl,
+} from "./repository.js";
 
 type WorktreeRequest = Infer<typeof worktreeRequest>;
+type RepositoryCheckout = Infer<typeof repositoryCheckout>;
 type Progress = {
   phase: "workspace" | "copy" | "dependencies" | "ready";
   status?: "done" | "failed";
@@ -66,6 +81,8 @@ export type Receipt = {
   copy?: string[];
   /** Whether dependencies are installed; absent means yes. */
   install?: boolean;
+  /** For a repository source: its identity and the checkout asked for. */
+  repository?: { identity: string; checkout: RepositoryCheckout };
   /** The path about to be made, recorded before Git runs. */
   pending?: { path: string; branch: string };
   worktree?: {
@@ -223,7 +240,9 @@ function wireGit(value: CheckoutGit) {
 export function workspaceHandlers(
   stateRoot: string,
   store: Pick<BindingStore, "get" | "origin" | "bindPrepared" | "select">,
-  port: WorkspacePort
+  port: WorkspacePort,
+  /** Where cached clones live; the workload account must be able to write it. */
+  repositories = join(stateRoot, "repositories")
 ): CallHandlers {
   const pending = new Map<string, Promise<unknown>>();
 
@@ -393,7 +412,8 @@ export function workspaceHandlers(
     cwd: string,
     request: WorktreeRequest,
     copy: string[],
-    install: boolean
+    install: boolean,
+    repository?: Receipt["repository"]
   ): Promise<Receipt> {
     const source = await port.canonical(cwd);
     if (!source)
@@ -423,10 +443,119 @@ export function workspaceHandlers(
       request,
       copy,
       install,
+      ...(repository && { repository }),
     };
     await writeReceipt(dir, recorded);
     await syncDirectory(stateRoot);
     return recorded;
+  }
+
+  const caches = new Map<string, Promise<unknown>>();
+  /** One use of a cached clone at a time. */
+  async function inCache<T>(key: string, action: () => Promise<T>) {
+    const current = (caches.get(key) ?? Promise.resolve())
+      .catch(() => {})
+      .then(action);
+    caches.set(key, current);
+    try {
+      return await current;
+    } finally {
+      if (caches.get(key) === current) caches.delete(key);
+    }
+  }
+
+  /** The worktree a repository checkout asks for, by main's branch rules. */
+  function repositoryRequest(
+    checkout: RepositoryCheckout,
+    defaultBranch: string | null,
+    name: string | undefined
+  ): WorktreeRequest {
+    const fallback = () => {
+      if (!defaultBranch)
+        throw refused("The remote repository has no default branch.");
+      return defaultBranch;
+    };
+    switch (checkout.kind) {
+      case "new":
+        return {
+          name: name ?? checkout.branch,
+          branch: checkout.branch,
+          base: checkout.base ?? fallback(),
+          create: true,
+        };
+      case "default": {
+        const branch = fallback();
+        return { name: name ?? branch, branch, base: branch, create: false };
+      }
+      case "branch":
+      case "pr":
+        return {
+          name: name ?? checkout.branch,
+          branch: checkout.branch,
+          base: checkout.branch,
+          create: false,
+        };
+    }
+  }
+
+  /** Prepare from a repository: the cached clone, then its worktree. */
+  async function fromRepository(
+    session: string,
+    dir: string,
+    input: Req<"workspace.prepare">,
+    source: { repository: string; checkout: RepositoryCheckout },
+    emit: (p: Progress) => void
+  ) {
+    const repository = port.repository;
+    if (!repository)
+      throw new RunnerCallError({
+        code: "unsupported",
+        message: "This runner does not prepare checkouts from a repository",
+      });
+    const identity = repositoryIdentity(source.repository);
+    if (!identity)
+      throw new RunnerCallError({
+        code: "invalid",
+        message: "Not a repository URL.",
+      });
+    const sameCheckout = (r: Receipt) =>
+      r.repository?.identity === identity &&
+      JSON.stringify(r.repository.checkout) === JSON.stringify(source.checkout);
+    const recorded = await readReceipt(dir);
+    if (recorded) {
+      if (!sameCheckout(recorded))
+        throw refused("This launch already owns a different worktree.");
+      return finish(session, dir, recorded, emit);
+    }
+    const key = repositoryKey(identity);
+    const cache = join(repositories, key);
+    const clone = join(cache, repositoryName(identity));
+    const url = storableUrl(source.repository);
+    emit({ phase: "workspace" });
+    const request = await inCache(key, async () => {
+      const { defaultBranch } = await repository.cache(url, cache, clone);
+      const wanted = repositoryRequest(
+        source.checkout,
+        defaultBranch,
+        input.worktree?.name
+      );
+      if (source.checkout.kind === "pr")
+        await repository.pullRequest(
+          clone,
+          source.checkout.number,
+          source.checkout.branch
+        );
+      return wanted;
+    });
+    const receipt = await intent(
+      dir,
+      clone,
+      request,
+      [...copyNames(input.copyIgnored)],
+      input.installDependencies,
+      { identity, checkout: source.checkout }
+    );
+    return finish(session, dir, receipt, emit);
   }
 
   const emitter =
@@ -438,13 +567,21 @@ export function workspaceHandlers(
     async "workspace.prepare"(input: Req<"workspace.prepare">, context) {
       const session = sessionToWire(input.session);
       const dir = sessionDir(stateRoot, session);
+      const emit = emitter(context);
+      if ("repository" in input.source) {
+        const source = input.source;
+        copyNames(input.copyIgnored);
+        return serialize(session, () =>
+          fromRepository(session, dir, input, source, emit)
+        );
+      }
       if (!("directory" in input.source))
         throw new RunnerCallError({
           code: "unsupported",
-          message: "This runner prepares checkouts from a directory only",
+          message:
+            "This runner prepares checkouts from a directory or a repository only",
         });
       const cwd = displayPath(input.source.directory);
-      const emit = emitter(context);
       const copy = [...copyNames(input.copyIgnored)];
       // Checked before anything is recorded.
       if (input.worktree) nestedDir(input.worktree);
