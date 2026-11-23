@@ -24,6 +24,7 @@
       "paths": [
         "apps/server/src/agents/**",
         "apps/server/src/shared/icon-scan.ts",
+        "apps/server/src/shared/directory-icon-cache.ts",
         "apps/server/src/shared/repo-icon.ts",
         "apps/server/test/checkout-icon.test.ts",
         "apps/server/src/runners/**",
