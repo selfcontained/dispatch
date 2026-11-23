@@ -23,6 +23,8 @@
     {
       "paths": [
         "apps/server/src/agents/**",
+        "apps/server/src/shared/icon-scan.ts",
+        "apps/server/test/checkout-icon.test.ts",
         "apps/server/src/runners/**",
         "apps/server/src/db/seed/agents.ts",
         "apps/server/src/main.ts",

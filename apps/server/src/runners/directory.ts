@@ -31,7 +31,13 @@ export type CheckoutSession = Pick<
 > & {
   /** Older rows found their worktree through Git; Changes reads it. */
   worktreeBranch?: string | null;
-  gitContext?: { worktreePath: string; isWorktree: boolean } | null;
+  gitContext?: {
+    worktreePath: string;
+    isWorktree: boolean;
+    repoRoot?: string;
+  } | null;
+  /** Where the session was launched, as the row records it. */
+  launchCwd?: string | null;
 };
 export type CheckoutCommandRunners = {
   /**

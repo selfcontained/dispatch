@@ -15,8 +15,6 @@ import {
 } from "../../agents/remote/protocol.js";
 import { validateAgentEffort } from "../../shared/agent-effort.js";
 import type { Effort } from "@dispatch/shared";
-import { createReadStream } from "node:fs";
-import { access, constants, realpath } from "node:fs/promises";
 import path from "node:path";
 
 import type { FastifyInstance } from "fastify";
@@ -49,6 +47,12 @@ import {
   validateAgentModelChoice,
 } from "../../shared/agent-models.js";
 import { getDirectoryIconPath } from "../../shared/directory-icon-cache.js";
+import {
+  detectAgentIcon,
+  iconTarget,
+  readAgentIcon,
+} from "../../agents/checkout-icon.js";
+import { sessionRunner } from "../../agents/checkout-runner.js";
 
 export async function registerAgentCrudRoutes(
   app: FastifyInstance,
@@ -163,7 +167,14 @@ export async function registerAgentCrudRoutes(
     }
 
     const baseDir = agent.launchCwd ?? agent.gitContext?.repoRoot ?? agent.cwd;
-    const iconRelPath = await getDirectoryIconPath(deps.pool, baseDir);
+    const runner = sessionRunner(
+      deps.agentManager.checkoutReadRunners(),
+      agent
+    );
+    const target = iconTarget(agent);
+    const iconRelPath = await getDirectoryIconPath(deps.pool, baseDir, () =>
+      detectAgentIcon(runner, target)
+    );
     if (!iconRelPath) {
       return reply.code(404).send({ error: "No repo icon." });
     }
@@ -173,28 +184,22 @@ export async function registerAgentCrudRoutes(
       return reply.code(400).send({ error: "Invalid icon extension." });
     }
 
-    const iconAbsPath = path.join(baseDir, iconRelPath);
-
-    let realIconPath: string;
-    let realBaseDir: string;
-    try {
-      realBaseDir = await realpath(baseDir);
-      realIconPath = await realpath(iconAbsPath);
-    } catch {
-      return reply.code(404).send({ error: "Icon file not found." });
-    }
-
     if (
-      !realIconPath.startsWith(realBaseDir + path.sep) &&
-      realIconPath !== realBaseDir
+      path.isAbsolute(iconRelPath) ||
+      iconRelPath.split(/[\\/]/).includes("..")
     ) {
       return reply.code(400).send({ error: "Invalid icon path." });
     }
 
-    try {
-      await access(realIconPath, constants.R_OK);
-    } catch {
+    const bytes = await readAgentIcon(runner, target, iconRelPath);
+    if (bytes === "outside") {
+      return reply.code(400).send({ error: "Invalid icon path." });
+    }
+    if (bytes === "unreadable") {
       return reply.code(404).send({ error: "Icon file not readable." });
+    }
+    if (!bytes) {
+      return reply.code(404).send({ error: "Icon file not found." });
     }
 
     const contentType =
@@ -212,7 +217,7 @@ export async function registerAgentCrudRoutes(
         "default-src 'none'; style-src 'unsafe-inline'"
       )
       .header("X-Content-Type-Options", "nosniff")
-      .send(createReadStream(realIconPath));
+      .send(bytes);
   });
 
   app.post("/api/v1/agents", async (request, reply) => {

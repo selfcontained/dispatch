@@ -462,6 +462,39 @@ const checkoutReads: Scenario[] = [
     },
   },
   {
+    op: "checkout.read",
+    id: "checkout.read/bytes",
+    async run({ runner, session }) {
+      const input = {
+        target: { session },
+        path: readPath,
+        encoding: "base64",
+        maxBytes: null,
+      } as const;
+      const bytes = Buffer.from(readText);
+      const result = await runner.call("checkout.read", input);
+      expect(
+        result?.data === bytes.toString("base64"),
+        "The raw bytes were cut short or changed."
+      );
+      expect(
+        result.digest === createHash("sha256").update(bytes).digest("hex"),
+        "Wrong file digest."
+      );
+      await rejectsWith(
+        runner.call("checkout.read", { ...input, maxBytes: 0 }),
+        "too_large"
+      );
+      expect(
+        (await runner.call("checkout.read", {
+          ...input,
+          path: "checkout-reads/missing.bin",
+        })) === null,
+        "A missing file read as present."
+      );
+    },
+  },
+  {
     op: "checkout.list",
     id: "checkout.list/entries",
     async run({ runner, session }) {

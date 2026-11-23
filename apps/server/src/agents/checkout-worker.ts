@@ -24,6 +24,7 @@ import {
  * only inside a runner process, never in the app.
  */
 import { createHash, randomUUID } from "node:crypto";
+import { constants } from "node:fs";
 import {
   RunnerCallError,
   pathFromWire,
@@ -50,6 +51,7 @@ import {
   access,
   lstat,
   mkdir,
+  open,
   realpath,
   readdir,
   rename,
@@ -162,7 +164,8 @@ async function work<K extends WorkerOp>(
 ): Promise<unknown> {
   switch (op) {
     case "checkout.list": {
-      const { path, filesOnly } = request as Input<"checkout.list">["request"];
+      const { path, filesOnly, unfiltered } =
+        request as Input<"checkout.list">["request"];
       if (filesOnly) {
         const reply = await inspectCheckout(directory, {
           kind: "listFiles",
@@ -179,7 +182,11 @@ async function work<K extends WorkerOp>(
           truncated: false,
         };
       }
-      return readWorkspaceView(directory, { kind: "directory", path });
+      return readWorkspaceView(
+        directory,
+        { kind: "directory", path },
+        { unfiltered: unfiltered === true }
+      );
     }
     case "checkout.preview": {
       const { path } = request as Input<"checkout.preview">["request"];
@@ -190,7 +197,13 @@ async function work<K extends WorkerOp>(
       return readWorkspaceView(directory, { kind: "index", generation });
     }
     case "checkout.read": {
-      const { path, maxBytes } = request as Input<"checkout.read">["request"];
+      const {
+        path: file,
+        maxBytes,
+        encoding,
+      } = request as Input<"checkout.read">["request"];
+      if (encoding === "base64") return readRawBytes(directory, file, maxBytes);
+      const path = file;
       // The local executor's rules: the caller's base, no recorded one.
       const reply = await inspectCheckout(
         directory,
@@ -1149,3 +1162,63 @@ const workspaceSteps = {
 
 /** The `posix-user` host entry the local runner child starts hosts with. */
 export { localHostEntry } from "./acp/local-host-entry.js";
+
+/**
+ * A regular file's raw bytes, base64 encoded. A link is followed only to a
+ * file inside the checkout; a missing, non-regular or escaping path reads as
+ * absent, and a file over `maxBytes` is refused before it is read.
+ */
+async function readRawBytes(
+  directory: string,
+  file: string,
+  maxBytes: number | null
+): Promise<Res<"checkout.read">> {
+  if (!file || path.isAbsolute(file) || file.includes("\0")) return null;
+  try {
+    const root = await realpath(directory);
+    const resolved = await realpath(path.join(root, file));
+    const inside = path.relative(root, resolved);
+    if (
+      !inside ||
+      inside.startsWith(".." + path.sep) ||
+      inside === ".." ||
+      path.isAbsolute(inside)
+    )
+      throw new RunnerCallError({
+        code: "forbidden",
+        message: "Invalid icon path.",
+        details: { reason: "outside" },
+      });
+    const handle = await open(
+      resolved,
+      constants.O_RDONLY | constants.O_NONBLOCK
+    ).catch((error: NodeJS.ErrnoException) => {
+      throw error.code === "EACCES" || error.code === "EPERM"
+        ? new RunnerCallError({
+            code: "forbidden",
+            message: "Icon file not readable.",
+            details: { reason: "unreadable" },
+          })
+        : error;
+    });
+    try {
+      const info = await handle.stat();
+      if (!info.isFile()) return null;
+      if (maxBytes !== null && info.size > maxBytes)
+        throw new RunnerCallError({
+          code: "too_large",
+          message: `The file is larger than ${maxBytes} bytes`,
+        });
+      const bytes = await handle.readFile();
+      return {
+        data: bytes.toString("base64"),
+        digest: createHash("sha256").update(bytes).digest("hex"),
+      };
+    } finally {
+      await handle.close();
+    }
+  } catch (error) {
+    if (error instanceof RunnerCallError) throw error;
+    return null;
+  }
+}

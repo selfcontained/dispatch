@@ -363,6 +363,8 @@ export const operations = {
       path: string,
       /** List regular files at the checkout root, following file and directory symlinks. */
       filesOnly: optional(literal(true)),
+      /** List every entry, as the directory holds them: Git-ignored ones and `.git` included. */
+      unfiltered: optional(literal(true)),
     }),
     response: directoryListing,
     errors: ["not_found", "forbidden"],
@@ -376,7 +378,8 @@ export const operations = {
     request: object({
       target,
       path: string,
-      encoding: literal("utf8"),
+      /** `base64` returns the file's raw bytes, base64 encoded, inside the checkout. */
+      encoding: literal("utf8", "base64"),
       maxBytes: nullable(integer),
     }),
     response: nullable(object({ data: string, digest: optional(string) })),

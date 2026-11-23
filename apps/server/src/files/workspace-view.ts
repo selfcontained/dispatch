@@ -57,7 +57,8 @@ async function resolveEntry(root: string, relative: string): Promise<string> {
 const fileIndex = createWorkspaceFileIndexer();
 export async function readWorkspaceView(
   workspace: string,
-  query: WorkspaceView
+  query: WorkspaceView,
+  options: { unfiltered?: boolean } = {}
 ) {
   try {
     const root = await realpath(workspace);
@@ -82,15 +83,18 @@ export async function readWorkspaceView(
       let scanned = 0;
       const deadline = Date.now() + 2000;
       const flush = async () => {
-        const ignored = await ignoredWorkspacePaths(
-          target,
-          entries.map((entry) => entry.name)
-        );
+        const ignored = options.unfiltered
+          ? new Set<string>()
+          : await ignoredWorkspacePaths(
+              target,
+              entries.map((entry) => entry.name)
+            );
         visible.push(...entries.filter((entry) => !ignored.has(entry.name)));
         entries.length = 0;
       };
       for await (const entry of directory) {
-        if (entry.name.toLowerCase() === ".git") continue;
+        if (!options.unfiltered && entry.name.toLowerCase() === ".git")
+          continue;
         if (++scanned > 20_000 || Date.now() > deadline) {
           truncated = true;
           break;

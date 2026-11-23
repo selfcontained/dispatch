@@ -212,10 +212,13 @@ export function createLocalCheckoutRunner(
       op !== "checkout.changes" &&
       op !== "checkout.defaultFiles";
     const row = { baseBranch: null, ...agent };
-    const directory =
-      op === "checkout.stats" ||
-      op === "checkout.diff" ||
-      op === "checkout.image"
+    // The folder the agent was launched in: where main looks for its icon.
+    const launched = target.checkout === "launch";
+    const directory = launched
+      ? (row.launchCwd ?? row.gitContext?.repoRoot ?? row.cwd)
+      : op === "checkout.stats" ||
+          op === "checkout.diff" ||
+          op === "checkout.image"
         ? agentDiffPath(row)
         : agentWorkspaceDir(row);
     if (!directory) {
@@ -230,13 +233,21 @@ export function createLocalCheckoutRunner(
     }
     if (
       child &&
-      (await childHolds(target.session, "current", directory, options))
+      (await childHolds(
+        target.session,
+        launched ? "launch" : "current",
+        directory,
+        options
+      ))
     )
       return child.call(
         op,
         {
           ...input,
-          target: { session: target.session, checkout: "current" },
+          target: {
+            session: target.session,
+            checkout: launched ? "launch" : "current",
+          },
         },
         options
       );

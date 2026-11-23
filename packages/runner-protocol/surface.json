@@ -2010,6 +2010,11 @@
             "optional": {
               "literal": [true]
             }
+          },
+          "unfiltered": {
+            "optional": {
+              "literal": [true]
+            }
           }
         }
       },
@@ -2071,7 +2076,7 @@
           },
           "path": "string",
           "encoding": {
-            "literal": ["utf8"]
+            "literal": ["utf8", "base64"]
           },
           "maxBytes": {
             "nullable": "integer"

@@ -31,7 +31,11 @@ import type {
   EngineOperation,
   EngineOperationAck,
 } from "@dispatch/runner-protocol/engine-management";
-import { operations, runnerError } from "@dispatch/runner-protocol/contract";
+import {
+  operations,
+  runnerError,
+  RunnerCallError,
+} from "@dispatch/runner-protocol/contract";
 import type {
   ErrorCode,
   OpName,
@@ -273,6 +277,11 @@ function encodeView(op: OpName, r: AnyRecord): CheckoutView {
   };
   switch (op) {
     case "checkout.list":
+      if (r.unfiltered)
+        throw new RunnerCallError({
+          code: "unsupported",
+          message: "This runner lists filtered directories only.",
+        });
       return { kind: "directory", path: r.path as string };
     case "checkout.preview":
       return { kind: "preview", path: r.path as string };
@@ -819,6 +828,12 @@ export function encodeCommand(input: Decoded | LegacyCommand): Command {
         },
       };
     case "checkout.read": {
+      // v1 frames carry UTF-8 text only.
+      if (r.encoding === "base64")
+        throw new RunnerCallError({
+          code: "unsupported",
+          message: "This runner reads files as text only.",
+        });
       const target = r.target as { checkout?: "current" | "launch" | "moved" };
       if (extras.checkoutCommand)
         return {
