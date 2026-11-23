@@ -1526,6 +1526,10 @@ async function waitForDatabase(maxAttempts = 15, delayMs = 2000) {
 
 let routesRegistered = false;
 
+// Spawn/attach the child early, but its database callbacks need this build's
+// schema. A failed initialization leaves them parked; startup itself fails.
+const localRunnerDatabaseReady = Promise.withResolvers<void>();
+
 export async function initializeApp(options?: {
   runMigrations?: boolean;
   reconcileState?: boolean;
@@ -1552,6 +1556,7 @@ export async function initializeApp(options?: {
       uiEventBroker.publish({ type: "project.changed" })
     );
   }
+  localRunnerDatabaseReady.resolve();
   config.authToken = await getOrCreateAuthToken(pool);
   // Enrolled runners reconnect before agents are restored and reconciled.
   try {
@@ -1646,8 +1651,15 @@ function startLocalRunnerChild(command?: string[]) {
     build: embeddedBuild,
     log: app.log,
     frozen: updateRecoveryRuntime.localRunnerStartsFrozen(),
-    bindings: () => readLocalBindings(pool),
-    onReady: () => agentManager.retryStopsOnReconnect(),
+    bindings: async () => {
+      await localRunnerDatabaseReady.promise;
+      return readLocalBindings(pool);
+    },
+    onReady: () => {
+      void localRunnerDatabaseReady.promise.then(() =>
+        agentManager.retryStopsOnReconnect()
+      );
+    },
     ...(command && { command }),
   });
   agentManager.attachLocalRunner(() => localRunnerOf(localRunnerProcess));
