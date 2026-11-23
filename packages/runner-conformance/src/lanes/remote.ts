@@ -299,7 +299,12 @@ export async function startRemoteLane(): Promise<Lane> {
       Promise.all([listener.accepted, managedListener.accepted]),
       timeout,
     ]).finally(() => clearTimeout(timer));
-    if (!managed.ready.workspacePrepare || accepted.ready.workspacePrepare)
+    if (
+      !managed.ready.workspacePrepare ||
+      !managed.ready.preparedLaunch ||
+      accepted.ready.workspacePrepare ||
+      accepted.ready.preparedLaunch
+    )
       throw new Error(
         "Workspace preparation was advertised on the wrong runner."
       );

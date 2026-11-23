@@ -554,6 +554,10 @@ export function decodeCommand(
   switch (command.kind) {
     case "launch":
       return withWorkspace(decodeLaunch(command, frameId));
+    case "gitQuery":
+      return runnerWide(
+        decoded(command.operation.op, command.operation.request)
+      );
     case "workspacePrepare":
       return withWorkspace(
         decoded("workspace.prepare", { ...command.operation, session })
@@ -699,6 +703,21 @@ export function encodeCommand(input: Decoded | LegacyCommand): Command {
       kind: "github",
       operation: encodeGitHub(op, r, extras),
     };
+  if (
+    op === "git.defaultBranch" ||
+    op === "git.branches" ||
+    op === "git.base"
+  ) {
+    const target = r.target as AnyRecord;
+    return {
+      ...base((target.session ?? extras.agentId ?? "@git") as string),
+      kind: "gitQuery",
+      operation: { op, request: input.request } as Extract<
+        Command,
+        { kind: "gitQuery" }
+      >["operation"],
+    };
+  }
   const agentId = sessionOf(r);
   const session = base(agentId);
   switch (op) {
@@ -949,12 +968,15 @@ export function decodeResult<K extends OpName>(
       return out({ text: value as string });
     case "terminal.open":
       return out(parse(value));
+    case "git.defaultBranch":
+    case "git.branches":
+    case "git.base":
     case "workspace.prepare":
     case "workspace.resume": {
       const reply = parse(value);
       if (runnerError.check(reply?.error)) throw new ResultError(reply.error);
       if (!operations[op].response.check(reply?.data))
-        throw new CodecError("Invalid workspace preparation result.");
+        throw new CodecError("Invalid runner operation result.");
       return out(reply.data);
     }
     case "workspace.describe":
@@ -1105,6 +1127,9 @@ export function encodeResult<K extends OpName>(
       return res.state === "live";
     case "session.logs":
       return res.text as string;
+    case "git.defaultBranch":
+    case "git.branches":
+    case "git.base":
     case "workspace.prepare":
     case "workspace.resume":
       return JSON.stringify({ data: response });
@@ -1299,9 +1324,6 @@ export const NOT_ON_V1 = {
   "path.resolve": "controller-machine probe today (D7)",
   "path.complete": "controller-machine probe today (D7)",
   "checkout.write": "local-only today (persona authoring)",
-  "git.defaultBranch": "local-only today",
-  "git.branches": "local-only today; v1 has github.branches",
-  "git.base": "decided inside Dispatch today",
   "engine.operation": "no lookup by operation ID on either side",
   "port.connect": "missing from both (D6)",
 } as const satisfies Partial<Record<OpName, string>>;

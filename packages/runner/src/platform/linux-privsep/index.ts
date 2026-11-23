@@ -200,6 +200,13 @@ export async function createRemoteWorkspacePreparation(
   );
   return {
     legacy: (session: string) => bindings.legacy(session),
+    async hasReceipt(session: string) {
+      return (
+        (await fs.read(
+          join(paths.receipts, storageKey(session), RECEIPT_FILE)
+        )) !== null
+      );
+    },
     releaseLegacy: release,
     async remove(session: string) {
       const dir = join(paths.receipts, storageKey(session));
@@ -225,14 +232,21 @@ export async function createRemoteWorkspacePreparation(
         });
       if (op === "workspace.prepare") {
         const { source } = request as Req<"workspace.prepare">;
-        if (!("repository" in source))
+        if (
+          !("repository" in source) &&
+          !(
+            "directory" in source &&
+            (request as Req<"workspace.prepare">).worktree
+          )
+        )
           throw new RunnerCallError({
             code: "unsupported",
-            message: "This runner prepares workspaces from a repository.",
+            message: "A directory source requires an independent worktree.",
           });
         if (
-          typeof source.repository !== "string" ||
-          !repositoryCheckout.check(source.checkout)
+          "repository" in source &&
+          (typeof source.repository !== "string" ||
+            !repositoryCheckout.check(source.checkout))
         )
           throw new RunnerCallError({
             code: "invalid",

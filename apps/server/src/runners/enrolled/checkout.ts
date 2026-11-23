@@ -3,6 +3,8 @@ import {
   remotePlacement,
   isCheckoutReadName,
   type CheckoutView,
+  type GitQuery,
+  type GitQueryName,
   type CheckoutRelease,
   type CheckoutReleaseResult,
   isCheckoutCommandResult,
@@ -163,6 +165,9 @@ export function createEnrolledCheckoutRunner(
       if (
         op !== "checkout.exec" &&
         op !== "git.context" &&
+        op !== "git.branches" &&
+        op !== "git.defaultBranch" &&
+        op !== "git.base" &&
         op !== "workspace.select" &&
         op !== "workspace.prepare" &&
         op !== "workspace.resume"
@@ -205,6 +210,44 @@ export function createEnrolledCheckoutRunner(
           options?.signal
         );
         try {
+          return decodeResult(frame, value) as Res<K>;
+        } catch (error) {
+          if (error instanceof ResultError)
+            throw new RunnerCallError(error.error);
+          throw error;
+        }
+      }
+
+      if (
+        op === "git.branches" ||
+        op === "git.defaultBranch" ||
+        op === "git.base"
+      ) {
+        if (!service.supportsGitQueries?.(placement))
+          throw new RunnerCallError({
+            code: "unsupported",
+            message: `Unsupported operation: ${op}`,
+          });
+        const query = { op, request: input } as GitQuery;
+        const { target } = query.request;
+        if ("session" in target && sessionToWire(target.session) !== agent.id)
+          throw new RunnerCallError({
+            code: "invalid",
+            message: "Invalid Git query binding.",
+          });
+        const frame: Decoded<GitQueryName> = {
+          op,
+          request: query.request,
+          absent: [],
+          extras: { workspace: placement.workspace, agentId: agent.id },
+        };
+        try {
+          const { value } = await service.requestSession(
+            placement,
+            { agentId: agent.id, kind: "gitQuery", operation: query },
+            undefined,
+            options?.signal
+          );
           return decodeResult(frame, value) as Res<K>;
         } catch (error) {
           if (error instanceof ResultError)

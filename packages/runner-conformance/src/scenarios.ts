@@ -10,6 +10,7 @@ import {
   RunnerCallError,
   displayPath,
   operationNames,
+  pathFromWire,
   sessionFromWire,
   type ErrorCode,
   type OpName,
@@ -666,6 +667,57 @@ const putFile: Scenario = {
   },
 };
 
+const runnerGitQueries: Scenario[] = [
+  {
+    op: "git.defaultBranch",
+    id: "git.defaultBranch/checkout-path",
+    async run({ runner, session }) {
+      const binding = await runner.call("workspace.describe", { session });
+      const { branch } = await runner.call("git.defaultBranch", {
+        target: { path: binding.path },
+      });
+      expect(branch === "main", "The path's default branch was not found.");
+    },
+  },
+  {
+    op: "git.branches",
+    id: "git.branches/session-origin",
+    async run({ workspace }) {
+      expect(workspace, "Missing managed runner fixture.");
+      const { runner, repository } = workspace;
+      const session = sessionFromWire("branch-query");
+      await runner.call("workspace.prepare", {
+        session,
+        source: {
+          repository,
+          checkout: { kind: "new", branch: "branch-query" },
+        },
+        copyIgnored: [],
+        installDependencies: false,
+      });
+      const { branches } = await runner.call("git.branches", {
+        target: { session },
+      });
+      expect(
+        branches.includes("main") && !branches.includes("branch-query"),
+        "The branch picker did not read the origin."
+      );
+    },
+  },
+  {
+    op: "git.base",
+    id: "git.base/fallback",
+    async run({ runner, session }) {
+      const { base } = await runner.call("git.base", {
+        target: { session },
+        requested: "branch-does-not-exist",
+        fallback: ["main"],
+      });
+      expect(base === "main", "The Git base did not resolve the fallback.");
+    },
+  },
+];
+
 const workspacePreparation: Scenario[] = [
   {
     op: "workspace.prepare",
@@ -732,6 +784,44 @@ const workspacePreparation: Scenario[] = [
     },
   },
   {
+    op: "workspace.prepare",
+    id: "workspace.prepare/directory-and-relaunch",
+    async run({ runner: configured, session: configuredSession, workspace }) {
+      expect(workspace, "Missing managed runner fixture.");
+      const source = await configured.call("workspace.describe", {
+        session: configuredSession,
+      });
+      const { runner } = workspace;
+      const session = sessionFromWire("directory-worktree");
+      const prepared = await runner.call("workspace.prepare", {
+        session,
+        source: { directory: pathFromWire(displayPath(source.path)) },
+        worktree: {
+          name: "directory-worktree",
+          create: true,
+          branch: "directory-worktree",
+          base: "main",
+        },
+        copyIgnored: [],
+        installDependencies: false,
+      });
+      expect(
+        prepared.origin === null && prepared.path !== source.path,
+        "Preparing from the current directory required an origin."
+      );
+      try {
+        await runner.call("session.launch", launchRequest(session));
+        await runner.call("session.stop", { session, force: true });
+        await runner.call("session.launch", launchRequest(session));
+        const attached = await runner.call("workspace.describe", { session });
+        expect(attached.path === prepared.path, "Relaunch switched checkouts.");
+      } finally {
+        await runner.call("session.stop", { session, force: true });
+        await runner.call("session.discard", { session });
+      }
+    },
+  },
+  {
     op: "workspace.resume",
     id: "workspace.resume/interrupted",
     async run({ workspace }) {
@@ -785,6 +875,17 @@ const workspacePreparation: Scenario[] = [
             "live",
           "Legacy host stopped during resume."
         );
+        await runner.call("session.stop", { session: legacy, force: true });
+        await runner.call("session.launch", launchRequest(legacy));
+        expect(
+          (await runner.call("workspace.describe", { session: legacy }))
+            .path === legacyBinding.path,
+          "Restart changed the legacy checkout."
+        );
+        const current = await runner.call("git.defaultBranch", {
+          target: { session: legacy },
+        });
+        expect(current.branch === null, "Legacy scratch checkout read failed.");
       } finally {
         await runner.call("session.stop", { session: legacy, force: true });
         await runner.call("session.discard", { session: legacy });
@@ -805,6 +906,7 @@ const workspaceRelease: Scenario = {
 export const remoteScenarios: readonly Scenario[] = [
   workspaceRelease,
   ...checkoutReads,
+  ...runnerGitQueries,
   ...workspacePreparation,
   interactiveTerminal,
   putFile,
@@ -813,6 +915,7 @@ export const remoteScenarios: readonly Scenario[] = [
       op !== interactiveTerminal.op &&
       op !== putFile.op &&
       op !== workspaceRelease.op &&
+      !runnerGitQueries.some((scenario) => scenario.op === op) &&
       !checkoutReads.some((scenario) => scenario.op === op) &&
       !workspacePreparation.some((scenario) => scenario.op === op)
   ),

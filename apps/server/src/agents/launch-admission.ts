@@ -97,7 +97,6 @@ const reasons = {
   sharedBinding: "Invalid shared checkout binding.",
   reviewerPersona: "Missing reviewer persona.",
   childBinding: "Invalid child checkout binding.",
-  repositoryPlacement: "Repository checkout requires a managed runner session.",
   invalidRepository: "Invalid runner repository.",
   runnerUnavailable: "The enrolled runner workspace is unavailable.",
   runnerStorage:
@@ -259,7 +258,6 @@ export function admitLaunch(
       const managed = workspace === "managedRepository";
       let repository: RepositoryTarget | undefined;
       if (input.repository !== undefined) {
-        if (!managed) return reject("repositoryPlacement");
         try {
           repository = parseRepositoryTarget(input.repository);
         } catch (error) {

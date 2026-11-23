@@ -91,6 +91,8 @@ export type WorktreeSpec = {
    * layout do not apply.
    */
   at?: string;
+  /** The directory source may have refs without an origin. */
+  fromDirectory?: true;
 };
 
 /**

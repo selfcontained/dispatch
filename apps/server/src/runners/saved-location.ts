@@ -1,5 +1,6 @@
 import {
   MANAGED_WORKSPACE,
+  isOpaqueId,
   remotePlacement,
   workspaceLocator,
 } from "@dispatch/runner-protocol";
@@ -168,4 +169,13 @@ export function normalizeSavedDirectory(directory: string): string {
 export function mapSavedLocation<T>(row: Record<string, unknown>): T {
   const { location, ...record } = row;
   return (location ? { ...record, [storedLocation]: location } : record) as T;
+}
+
+export function requestedRunnerPlacement(body: {
+  runner?: unknown;
+}): Placement | undefined {
+  const { runner } = body;
+  if (runner === undefined) return undefined;
+  if (!isOpaqueId(runner)) throw new Error("Invalid runner.");
+  return placementForRunner(runner);
 }

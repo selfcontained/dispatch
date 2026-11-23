@@ -1,4 +1,13 @@
+import {
+  requestedRunnerPlacement,
+  resolveSavedTarget,
+} from "../../runners/saved-location.js";
 import { admitLaunch } from "../../agents/launch-admission.js";
+import { sameRunner } from "@dispatch/runner-protocol/contract";
+import {
+  controllerPlacement,
+  runnerIdForPlacement,
+} from "../../runners/placement.js";
 import { isCheckoutStateId } from "@dispatch/runner-protocol";
 import {
   MANAGED_WORKSPACE,
@@ -225,8 +234,28 @@ export async function registerAgentCrudRoutes(
       (typeof body.projectId !== "string" || !body.projectId)
     )
       return reply.code(400).send({ error: "Invalid project." });
+    let requestedPlacement;
+    try {
+      requestedPlacement = requestedRunnerPlacement(body);
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+    const projectTarget =
+      requestedPlacement &&
+      !sameRunner(requestedPlacement, controllerPlacement);
+    if (projectTarget) {
+      if (body.cwd)
+        return reply
+          .code(400)
+          .send({ error: "Choose a project or a folder, not both." });
+      body.cwd = resolveSavedTarget("", {
+        runner: runnerIdForPlacement(requestedPlacement!),
+      }).directory;
+    }
     const placement =
       typeof body.cwd === "string" ? remotePlacement(body.cwd) : null;
+    if (requestedPlacement && !projectTarget && placement)
+      return reply.code(400).send({ error: "Invalid folder." });
     const managed = placement?.workspace === MANAGED_WORKSPACE;
     // Created for a task: briefed on it in its prompt, placed in its
     // project unless a location was chosen, and assigned once it exists.
@@ -260,6 +289,10 @@ export async function registerAgentCrudRoutes(
       return reply
         .code(admission.statusCode)
         .send({ error: admission.message });
+    if (projectTarget && !admission.projectId)
+      return reply
+        .code(400)
+        .send({ error: "Choose a project to launch on this runner." });
     body.projectId = admission.projectId;
 
     let repository: unknown;

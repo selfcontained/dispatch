@@ -139,21 +139,23 @@ export class PrivsepBindings implements Pick<
     if (held) return held;
     const key = storageKey(input.session);
     const checkout = this.checkoutOf(input.session);
-    const recorded = (await this.receipt(input.session))?.repository;
+    const receipt = await this.receipt(input.session);
+    const recorded = receipt?.repository;
     if (
       input.worktree?.path !== checkout ||
       input.path !== checkout ||
-      !recorded?.url
+      receipt?.worktree?.complete !== true
     )
       throw new RunnerCallError({
         code: "unsupported",
-        message:
-          "This runner binds checkouts it prepared from a repository only",
+        message: "The prepared checkout does not match the runner workspace",
       });
     await this.fs.writePrivate(
       this.paths.bindings,
       `${key}.repository`,
-      JSON.stringify({ url: recorded.url, checkout: recorded.checkout })
+      JSON.stringify(
+        recorded ? { url: recorded.url, checkout: recorded.checkout } : {}
+      )
     );
     await this.fs.writePrivate(this.paths.bindings, key, MANAGED_BINDING);
     const bound = await this.get(input.session);

@@ -1,6 +1,8 @@
 import { json } from "node:stream/consumers";
 import {
   isCheckoutReadRequest,
+  parseRunnerRepositoryUrl,
+  type GitQueryName,
   type CheckoutReadName,
   validBranch,
 } from "@dispatch/runner-protocol";
@@ -70,9 +72,10 @@ import {
   normalizePath,
   probeGitContext,
 } from "../shared/git/git-context.js";
+import { resolveBaseRef } from "../shared/git/base-ref.js";
 import { detectDefaultBranch } from "../shared/git/default-branch.js";
 
-type WorkerOp = CheckoutReadName | "git.context" | "git.defaultBranch";
+type WorkerOp = CheckoutReadName | "git.context" | GitQueryName;
 type Selector = "current" | "launch" | "moved";
 type Input<K extends WorkerOp | "checkout.exec"> = {
   directory: string;
@@ -413,6 +416,49 @@ export async function readGitContext(
   };
 }
 
+async function readGitQuery<K extends GitQueryName>(
+  op: K,
+  directory: string,
+  request: Omit<Req<K>, "target">,
+  repository?: string
+): Promise<Res<K>> {
+  const url =
+    repository === undefined ? undefined : parseRunnerRepositoryUrl(repository);
+  if (repository !== undefined && (!url || op === "git.base"))
+    throw new RunnerCallError({
+      code: "invalid",
+      message: "Invalid repository target.",
+    });
+  if (op === "git.branches" || (op === "git.defaultBranch" && url)) {
+    const { stdout } = await runCommand(
+      "git",
+      [
+        ...(url ? [] : ["-C", directory]),
+        "ls-remote",
+        "--symref",
+        "--",
+        url?.href ?? "origin",
+        "HEAD",
+        "refs/heads/*",
+      ],
+      { timeoutMs: 15_000 }
+    );
+    const defaultBranch = /^ref: refs\/heads\/(.+)\tHEAD$/m.exec(stdout)?.[1];
+    if (op === "git.defaultBranch")
+      return { branch: defaultBranch ?? null } as Res<K>;
+    const branches = [...stdout.matchAll(/^[a-f0-9]+\trefs\/heads\/(.+)$/gm)]
+      .map((match) => match[1]!)
+      .sort();
+    return { branches, ...(defaultBranch && { defaultBranch }) } as Res<K>;
+  }
+  if (op === "git.defaultBranch")
+    return { branch: await detectDefaultBranch(directory) } as Res<K>;
+  const { requested, fallback } = request as Omit<Req<"git.base">, "target">;
+  return {
+    base: await resolveBaseRef(directory, requested, { fallback }),
+  } as Res<K>;
+}
+
 export const checkoutWorkload = {
   async run<K extends WorkerOp | "checkout.exec">(
     op: K,
@@ -425,10 +471,16 @@ export const checkoutWorkload = {
           input.directory,
           (input as Input<"git.context">).checkoutBranch
         )) as Res<K>;
-      if (op === "git.defaultBranch")
-        return {
-          branch: await detectDefaultBranch(input.directory),
-        } as Res<K>;
+      if (
+        op === "git.defaultBranch" ||
+        op === "git.branches" ||
+        op === "git.base"
+      )
+        return (await readGitQuery(
+          op,
+          input.directory,
+          input.request
+        )) as Res<K>;
       if (op === "checkout.exec")
         return (await execCheckoutCommand(
           input as unknown as Input<"checkout.exec">,
@@ -480,6 +532,27 @@ export async function runCheckoutWorker(argv: string[]): Promise<void> {
       };
     }
     process.stdout.write(JSON.stringify(reply));
+    return;
+  }
+  if (
+    op === "git.defaultBranch" ||
+    op === "git.branches" ||
+    op === "git.base"
+  ) {
+    const request = await json(process.stdin);
+    if (!operations[op].request.check(request))
+      throw new Error("Invalid Git query.");
+    const repository =
+      "repository" in request.target ? request.target.repository : undefined;
+    try {
+      const data = await readGitQuery(op, cwd ?? "/", request, repository);
+      process.stdout.write(JSON.stringify({ data }));
+    } catch (error) {
+      const { code, message, details } = workerError(op, error);
+      process.stdout.write(
+        JSON.stringify({ error: { code, message, details } })
+      );
+    }
     return;
   }
   if (op === "read") {
@@ -560,6 +633,7 @@ type WorktreeSpec = {
   base: string;
   create: boolean;
   nested?: string;
+  fromDirectory?: true;
 };
 
 /** `createGitWorktree`'s input for a spec, as main's launch built it. */
@@ -898,7 +972,11 @@ async function createManagedWorktree(spec: WorktreeSpec & { at: string }) {
     );
     if (remoteBranch.exitCode === 0)
       throw cacheConflict("The new session branch already exists.");
-    const base = `refs/remotes/origin/${spec.base}`;
+    const base = spec.fromDirectory
+      ? await resolveBaseRef(spec.directory, spec.base, { fallback: [] })
+      : `refs/remotes/origin/${spec.base}`;
+    if (!base)
+      throw cacheConflict("Could not resolve the requested session base.");
     await git(
       "worktree",
       "add",

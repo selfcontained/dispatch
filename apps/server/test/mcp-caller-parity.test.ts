@@ -94,11 +94,27 @@ const ctx = useInjectApp({
       checkoutCommands: true,
       defaultBranchFiles: true,
       sessionCheckout: true,
+      workspacePrepare: true,
+      preparedLaunch: true,
+      gitQueries: true,
       sessionFiles: true,
       sharedWorktree: true,
     },
     async answer(command) {
       switch (command.kind) {
+        case "gitQuery":
+          expect(command.operation.op).toBe("git.defaultBranch");
+          return JSON.stringify({ data: { branch: null } });
+        case "workspacePrepare": {
+          const { source, worktree } = command.operation;
+          if ("directory" in source) {
+            expect(source.directory).toBe(checkout);
+            expect(worktree?.branch).toMatch(/^parity-(child|independent)$/);
+          }
+          return JSON.stringify({
+            data: { path: checkout, moved: false, origin: null },
+          });
+        }
         case "inspectCheckout":
           return JSON.stringify(
             await inspectCheckout(checkout, command.query, {
