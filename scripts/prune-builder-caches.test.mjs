@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
+  symlinkSync,
   mkdtempSync,
   rmSync,
   utimesSync,
@@ -97,7 +98,7 @@ function fixture() {
 test("dry run lists only unreferenced, unused, stale data", () => {
   const f = fixture();
   try {
-    const result = f.run();
+    const result = f.run("--include-mcp-profiles");
     assert.equal(result.apply, false);
     assert.deepEqual(
       result.candidates.map((c) => path.basename(c.path)).sort(),
@@ -110,10 +111,23 @@ test("dry run lists only unreferenced, unused, stale data", () => {
   }
 });
 
+test("apply keeps MCP profiles unless they are opted in", () => {
+  const f = fixture();
+  try {
+    const result = f.run("--apply");
+    assert.ok(existsSync(path.join(f.mcp, "mcp-chrome-0000000")));
+    assert.ok(
+      result.kept.some((k) => k.reason.includes("pass --include-mcp-profiles"))
+    );
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
 test("apply removes candidates and keeps required revisions and live profiles", () => {
   const f = fixture();
   try {
-    f.run("--apply");
+    f.run("--apply", "--include-mcp-profiles");
     assert.equal(existsSync(path.join(f.pw, "chromium-1100")), false);
     assert.ok(existsSync(path.join(f.pw, "chromium_headless_shell-1208")));
     assert.ok(
@@ -156,6 +170,48 @@ test("revisions are all kept when no live install is found", () => {
     f.run("--apply");
     assert.ok(existsSync(path.join(f.pw, "chromium-1100")));
     assert.ok(existsSync(path.join(f.pw, "chromium_headless_shell-1208")));
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("a second install's revision is kept too", () => {
+  const f = fixture();
+  try {
+    const other = path.join(f.root, "other", "playwright-core");
+    mkdirSync(other, { recursive: true });
+    writeFileSync(
+      path.join(other, "browsers.json"),
+      JSON.stringify({ browsers: [{ name: "chromium", revision: "1100" }] })
+    );
+    writeFileSync(path.join(f.pw, ".links", "other"), other);
+    f.run("--apply");
+    assert.ok(existsSync(path.join(f.pw, "chromium-1100")));
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("symlinked entries are never followed or deleted through", () => {
+  const f = fixture();
+  try {
+    const outside = path.join(f.root, "outside");
+    mkdirSync(path.join(outside, "dir"), { recursive: true });
+    writeFileSync(path.join(outside, "dir", "keep"), "x");
+    writeFileSync(path.join(outside, "old.pile"), "x");
+    utimesSync(path.join(outside, "old.pile"), old, old);
+    utimesSync(path.join(outside, "dir"), old, old);
+    symlinkSync(path.join(outside, "dir"), path.join(f.pw, "chromium-1000"));
+    symlinkSync(
+      path.join(outside, "dir"),
+      path.join(f.mcp, "mcp-chrome-1111111")
+    );
+    symlinkSync(path.join(outside, "old.pile"), path.join(f.bun, "link.pile"));
+    f.run("--apply", "--include-mcp-profiles");
+    assert.ok(existsSync(path.join(outside, "dir", "keep")));
+    assert.ok(existsSync(path.join(outside, "old.pile")));
+    assert.ok(existsSync(path.join(f.pw, "chromium-1000")));
+    assert.ok(existsSync(path.join(f.mcp, "mcp-chrome-1111111")));
   } finally {
     rmSync(f.root, { recursive: true, force: true });
   }

@@ -7,12 +7,17 @@
 // anything outside the three cache roots below, and it keeps:
 //   - every browser revision a live Playwright install still references
 //     (the same rule `playwright install` uses for its own cleanup);
-//   - every MCP profile whose workspace still exists, is locked by a
-//     running browser, or was used within --mcp-days;
+//   - every MCP profile, unless --include-mcp-profiles is passed (profiles
+//     can hold signed-in session state, so age alone never removes one);
+//     with it, profiles whose workspace still exists, that are locked by a
+//     running browser, or were used within --mcp-days are still kept;
 //   - every Bun transpiler entry read or written within --bun-days.
 //
+// Symlinked entries are never followed or deleted through.
+//
 // Usage: node scripts/prune-builder-caches.mjs [--apply] [--json]
-//          [--mcp-days 30] [--bun-days 14] [--keep-path <dir>]...
+//          [--include-mcp-profiles] [--mcp-days 30] [--bun-days 14]
+//          [--keep-path <dir>]...
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
@@ -35,6 +40,7 @@ const { values: args } = parseArgs({
   options: {
     apply: { type: "boolean", default: false },
     json: { type: "boolean", default: false },
+    "include-mcp-profiles": { type: "boolean", default: false },
     "mcp-days": { type: "string", default: "30" },
     "bun-days": { type: "string", default: "14" },
     "keep-path": { type: "string", multiple: true, default: [] },
@@ -221,6 +227,7 @@ function mcpProfiles(root) {
     const match = /^mcp-.+-([0-9a-f]{7})$/.exec(entry);
     if (!match) continue;
     const target = path.join(root, entry);
+    if (!lstatSync(target).isDirectory()) continue;
     const workspace = liveHashes.get(match[1]);
     const ageDays =
       (now - lastWrite(target, ["Local State", "Default/Preferences"])) /
@@ -242,6 +249,12 @@ function mcpProfiles(root) {
         kind: "mcp-profile",
         path: target,
         reason: `used ${ageDays.toFixed(0)}d ago`,
+      });
+    } else if (!args["include-mcp-profiles"]) {
+      kept.push({
+        kind: "mcp-profile",
+        path: target,
+        reason: `unused ${ageDays.toFixed(0)}d, workspace gone; pass --include-mcp-profiles to remove`,
       });
     } else {
       candidates.push({
