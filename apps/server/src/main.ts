@@ -113,10 +113,11 @@ if (process.argv[2]?.startsWith("recovery-")) {
   await runRunnerUpdateStage(process.argv.slice(3));
 } else if (process.argv[2] === "remote-runner") {
   const { runRemoteRunner } = await import("./agents/remote/runner.js");
-  const { createRemoteWorkspacePreparation } =
+  const { createRemoteWorkspacePreparation, createSessionCore } =
     await import("@dispatch/runner/cli");
   await runRemoteRunner(process.argv[3]!, {
     createWorkspacePreparation: createRemoteWorkspacePreparation,
+    createSessions: createSessionCore,
   });
 } else if (process.argv[2] === "local-runner") {
   // This app's local runner child: same binary, same build.

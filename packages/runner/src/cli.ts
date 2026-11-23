@@ -23,3 +23,4 @@ export async function runCli(
 }
 
 export { createRemoteWorkspacePreparation } from "./platform/linux-privsep/index.js";
+export { createSessionCore } from "./core/sessions.js";

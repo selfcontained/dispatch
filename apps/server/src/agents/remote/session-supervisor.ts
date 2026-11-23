@@ -1,6 +1,6 @@
 import type { CheckoutCommand } from "@dispatch/runner-protocol";
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, constants, openSync, type Stats } from "node:fs";
+import { closeSync, constants, type Stats } from "node:fs";
 import {
   chmod,
   chown,
@@ -17,9 +17,8 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
-import { createConnection } from "node:net";
+import type { Socket } from "node:net";
 import path from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import { isDeepStrictEqual } from "node:util";
 import type { BuildIdentity } from "../build-identity.js";
 import { HOST_FILES, hostFile, type HostLaunch } from "../acp/host-protocol.js";
@@ -58,6 +57,7 @@ import {
   createSessionProcesses,
   openHostSocket,
   parseSessionIdentity,
+  type RecordedSessionIdentity,
   type CurrentSessionIdentity,
   type SessionIdentity,
   type SessionProcesses,
@@ -94,8 +94,101 @@ type CheckoutOperation = Extract<
 >["operation"];
 type ContextOperation = Extract<CheckoutOperation, { kind: "context" }>;
 
+/** One launch attempt's durable identity, kept by the session core. */
+type LaunchRecord = {
+  launchId: string;
+  stage: "preparing" | "spawning";
+  hostInstanceId?: string;
+  dependencies?: "started" | "done" | "failed";
+};
+
+/** A file the core reads from private state for verification. */
+type PrivateRecord = {
+  trusted(): Promise<boolean>;
+  read(): Promise<string>;
+  close(): Promise<void>;
+};
+
+/**
+ * The runner's session core (`@dispatch/runner`'s `createSessionCore`),
+ * injected by the `remote-runner` entry. It owns host records, the session
+ * lock, spawn, attach, alive, stop and logs; bindings and checkouts stay here.
+ */
+export type SessionCoreFactory = (options: {
+  processes: {
+    alive(identity: RecordedSessionIdentity): boolean;
+    spawn(
+      command: string[],
+      cwd: string,
+      env: NodeJS.ProcessEnv,
+      log: number,
+      record: (identity: RecordedSessionIdentity) => Promise<void>,
+      onExit: (identity: RecordedSessionIdentity) => void
+    ): Promise<void>;
+    stop(identity: RecordedSessionIdentity, force: boolean): Promise<void>;
+    cleanup(identity: RecordedSessionIdentity): Promise<void>;
+    cleanupLegacy(marker: string): Promise<void>;
+    socketMatchesHost(
+      socket: string,
+      identity: RecordedSessionIdentity
+    ): boolean;
+    socketInUse(socket: string): boolean;
+    pinSocket(socket: string): { address: string; release(): void };
+    parseIdentity(raw: string): RecordedSessionIdentity;
+  };
+  layout: {
+    hostDir(key: string): string;
+    socket(key: string): string;
+    sockets(key: string): string[];
+    identityFile(key: string): string;
+    markerFile(key: string): string;
+    launchFile(key: string): string;
+    logFile(key: string): string;
+    trackedKeys(): Promise<string[]>;
+  };
+  state: {
+    read(file: string): Promise<string | null>;
+    write(file: string, contents: string): Promise<void>;
+    remove(file: string): Promise<void>;
+    exists(file: string): Promise<boolean>;
+    openPrivate(file: string): Promise<PrivateRecord | null>;
+  };
+  mayRun?: () => boolean;
+}) => {
+  lock<T>(key: string, operation: () => Promise<T>): Promise<T>;
+  locks<T>(keys: string[], operation: () => Promise<T>): Promise<T>;
+  readIdentity(key: string): Promise<RecordedSessionIdentity | null>;
+  readLaunch(key: string): Promise<LaunchRecord | null>;
+  saveLaunch(key: string, record: LaunchRecord): Promise<void>;
+  removeLaunch(key: string): Promise<void>;
+  alive(key: string): Promise<boolean>;
+  isAlive(identity: RecordedSessionIdentity): boolean;
+  clean(key: string, identity: RecordedSessionIdentity | null): Promise<void>;
+  cleanLegacy(key: string): Promise<void>;
+  checkUntrackedSocket(key: string): void;
+  spawn(
+    key: string,
+    hostCommand: () => string[],
+    cwd: string,
+    env: NodeJS.ProcessEnv,
+    extra: Record<string, unknown>
+  ): Promise<void>;
+  attach(key: string): Promise<Socket | null>;
+  stop(key: string, force: boolean): Promise<void>;
+  logs(key: string): Promise<{ live: boolean; text: string }>;
+  removeLog(key: string): Promise<void>;
+  trackedKeys(): Promise<string[]>;
+  inspect(
+    key: string,
+    verify: (identity: RecordedSessionIdentity) => Promise<boolean>
+  ): Promise<RecordedSessionIdentity | null | undefined>;
+  close(): void;
+};
+
 type SupervisorOptions = {
   build: BuildIdentity;
+  /** The session core, injected by the runner entry. */
+  sessions: SessionCoreFactory;
   state: string;
   uid: number;
   gid: number;
@@ -122,47 +215,6 @@ type SupervisorOptions = {
   mayStartProcess?: () => boolean;
 };
 
-/**
- * Dispatch's durable identity for one launch attempt, saved before the
- * launch starts any process. A repeat of the same ID (its reply was lost)
- * resumes from the stage recorded here instead of running again.
- */
-type LaunchRecord = {
-  launchId: string;
-  stage: "preparing" | "spawning";
-  /** The host this attempt spawned, once it reached `spawning`. */
-  hostInstanceId?: string;
-  /** Dependency preparation for this attempt. `started` alone is unknown. */
-  dependencies?: "started" | "done" | "failed";
-};
-
-/** A record that does not parse is no record: the launch runs as new. Its
- * ID is only ever compared with the validated ID on the wire. */
-function parseLaunchRecord(raw: string | null): LaunchRecord | null {
-  if (raw === null) return null;
-  try {
-    const value = JSON.parse(raw) as Record<string, unknown>;
-    if (
-      (value.stage !== "preparing" && value.stage !== "spawning") ||
-      (value.hostInstanceId !== undefined &&
-        typeof value.hostInstanceId !== "string")
-    )
-      return null;
-    return {
-      launchId: value.launchId as string,
-      stage: value.stage,
-      ...(value.hostInstanceId !== undefined && {
-        hostInstanceId: value.hostInstanceId as string,
-      }),
-      ...(value.dependencies !== undefined && {
-        dependencies: value.dependencies as LaunchRecord["dependencies"],
-      }),
-    };
-  } catch {
-    return null;
-  }
-}
-
 export const UNRECONCILED_DEPENDENCIES =
   "The runner restarted while preparing dependencies for this launch, so " +
   "their result is unknown. They were not run again. Start the agent to retry.";
@@ -183,26 +235,6 @@ function checkoutOwner(binding: string | null) {
 
 function containsDirectory(root: string, dir: string) {
   return dir === root || dir.startsWith(root === "/" ? root : root + "/");
-}
-
-const logTailBytes = 2 * 1024;
-
-async function readLogTail(file: string) {
-  const handle = await open(file, "r").catch(missingPath);
-  if (!handle) return "";
-  try {
-    const { size } = await handle.stat();
-    const start = Math.max(0, size - logTailBytes);
-    const tail = Buffer.alloc(size - start);
-    const { bytesRead } = await handle.read(tail, 0, tail.length, start);
-    let first = 0;
-    // The window may start inside a UTF-8 code point.
-    while (start > 0 && first < bytesRead && (tail[first]! & 0xc0) === 0x80)
-      first++;
-    return tail.toString("utf8", first, bytesRead);
-  } finally {
-    await handle.close();
-  }
 }
 
 async function ownedDirectory(dir: string, mode: number, gid?: number) {
@@ -287,7 +319,6 @@ export async function createSessionSupervisor(
     asWorkload,
     config.githubCredentialHelper
   );
-  const operations = new Map<string, Promise<unknown>>();
   // Workload commands throw on failure; report an allowed non-zero exit
   // instead so shared git probes can take their fallback paths.
   const workloadRunner: CommandRunner = async (command, args, options) => {
@@ -305,28 +336,6 @@ export async function createSessionSupervisor(
       return { exitCode, stdout: "", stderr: "" };
     }
   };
-
-  function serialize<T>(key: string, operation: () => Promise<T>): Promise<T> {
-    const pending = (operations.get(key) ?? Promise.resolve())
-      .catch(() => {})
-      .then(operation);
-    operations.set(key, pending);
-    return pending.finally(() => {
-      if (operations.get(key) === pending) operations.delete(key);
-    });
-  }
-
-  function withLaunchLocks<T>(keys: string[], operation: () => Promise<T>) {
-    // Acquire the launch, author, and checkout keys in a stable order.
-    const ordered = [...new Set(keys)].sort();
-    const acquire = (index: number): Promise<T> => {
-      const key = ordered[index];
-      return key === undefined
-        ? operation()
-        : serialize(key, () => acquire(index + 1));
-    };
-    return acquire(0);
-  }
 
   async function syncBindings() {
     const directory = await open(
@@ -373,6 +382,73 @@ export async function createSessionSupervisor(
   const markerFile = (key: string) => path.join(bindings, `${key}.owner`);
   const identityFile = (key: string) => path.join(bindings, `${key}.host`);
   const launchFile = (key: string) => path.join(bindings, `${key}.launch`);
+  const socketPath = (key: string) =>
+    hostFile(path.join(hostRoot, key), "socket");
+  const core = config.sessions({
+    processes: {
+      alive: (identity) => processes.alive(identity),
+      spawn: (...args) => processes.spawn(...args),
+      stop: (identity, force) => processes.stop(identity, force),
+      cleanup: (identity) => processes.cleanup(identity),
+      cleanupLegacy: (marker) => processes.cleanupLegacy(marker),
+      socketMatchesHost: (socket, identity) =>
+        processes.socketMatchesHost(socket, identity),
+      socketInUse: (socket) => processes.socketInUse(socket),
+      pinSocket(socket) {
+        const fd = openHostSocket(socket, config.uid);
+        return {
+          address: `/proc/self/fd/${fd}`,
+          release: () => closeSync(fd),
+        };
+      },
+      parseIdentity: parseSessionIdentity,
+    },
+    layout: {
+      hostDir: (key) => path.join(hostRoot, key),
+      socket: socketPath,
+      sockets(key) {
+        const dir = path.join(hostRoot, key);
+        const originalPath = path.join(config.state, "hosts", key);
+        return originalPath === dir
+          ? [hostFile(dir, "socket")]
+          : [hostFile(dir, "socket"), hostFile(originalPath, "socket")];
+      },
+      identityFile,
+      markerFile,
+      launchFile,
+      logFile: (key) => path.join(logs, key),
+      trackedKeys,
+    },
+    state: {
+      read: readOptional,
+      write: writePrivateState,
+      remove: (file) => rm(file, { force: true }),
+      exists: async (file) => !!(await lstat(file).catch(missingPath)),
+      async openPrivate(file) {
+        const handle = await open(
+          file,
+          constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
+        ).catch(missingPath);
+        if (!handle) return null;
+        return {
+          async trusted() {
+            const stat = await handle.stat();
+            return (
+              stat.isFile() &&
+              stat.uid === process.getuid?.() &&
+              !(stat.mode & 0o077) &&
+              stat.size <= 4096
+            );
+          },
+          read: () => handle.readFile("utf8"),
+          close: () => handle.close(),
+        };
+      },
+    },
+    mayRun: config.mayStartProcess,
+  });
+  const serialize = core.lock;
+  const withLaunchLocks = core.locks;
   function managedTarget(workspace: string) {
     if (managedWorkspace && workspace === MANAGED_WORKSPACE) return true;
     if (!config.workspaces.has(workspace))
@@ -380,48 +456,10 @@ export async function createSessionSupervisor(
     return false;
   }
 
-  async function readIdentity(key: string) {
-    const record = await readOptional(identityFile(key));
-    return record === null ? null : parseSessionIdentity(record);
-  }
-
-  const socketPath = (key: string) =>
-    hostFile(path.join(hostRoot, key), "socket");
-
-  async function cleanHost(key: string, identity: SessionIdentity | null) {
-    if (identity) {
-      await processes.cleanup(identity);
-      // Unlink only after all known descendants have gone.
-      await rm(identityFile(key), { force: true });
-    }
-  }
-
-  async function cleanLegacyHost(key: string) {
-    const legacy = await readOptional(markerFile(key));
-    if (legacy) {
-      await processes.cleanupLegacy(legacy);
-      await rm(markerFile(key), { force: true });
-    }
-  }
-
-  function hasNamedSocket(dir: string) {
-    const originalPath = path.join(config.state, "hosts", path.basename(dir));
-    return (
-      processes.socketInUse(hostFile(dir, "socket")) ||
-      (originalPath !== dir &&
-        processes.socketInUse(hostFile(originalPath, "socket")))
-    );
-  }
-
-  function untrackedSocketError() {
-    return new Error(
-      "Runner cannot verify ownership of the existing guest host."
-    );
-  }
-
-  function checkUntrackedSocket(dir: string) {
-    if (hasNamedSocket(dir)) throw untrackedSocketError();
-  }
+  const readIdentity = (key: string) => core.readIdentity(key);
+  const cleanHost = core.clean;
+  const cleanLegacyHost = core.cleanLegacy;
+  const checkUntrackedSocket = core.checkUntrackedSocket;
 
   async function removeGuestDirectory(dir: string) {
     const entry = await lstat(dir).catch(missingPath);
@@ -717,16 +755,16 @@ export async function createSessionSupervisor(
     if (!matchesWorkspace(binding, workspace))
       throw new Error("Agent is not bound to this workspace");
     const identity = await readIdentity(key);
-    if (identity && processes.alive(identity))
+    if (identity && core.isAlive(identity))
       throw new Error("Stop the guest host before releasing it");
     const managed = managedTarget(workspace);
     if (managed) await writePrivateState(retireFile(key), "");
     const dir = path.join(hostRoot, key);
     await cleanHost(key, identity);
-    checkUntrackedSocket(dir);
+    checkUntrackedSocket(key);
     await cleanLegacyHost(key);
     await removeGuestDirectory(dir);
-    if (managed) await rm(path.join(logs, key), { force: true });
+    if (managed) await core.removeLog(key);
     if (binding === managedBinding) {
       const session = path.join(sessions, key);
       // Resume interrupted unregister after the checkout directory was removed.
@@ -821,16 +859,13 @@ export async function createSessionSupervisor(
     )
       throw new Error("The prepared checkout binding changed.");
     const { launchId } = command.launch;
-    const recorded =
-      launchId === undefined
-        ? null
-        : parseLaunchRecord(await readOptional(launchFile(key)));
+    const recorded = launchId === undefined ? null : await core.readLaunch(key);
     // Only the same attempt resumes; another ID is a new launch, as before.
     const repeat = recorded?.launchId === launchId ? recorded : null;
     let record: LaunchRecord | null = null;
     const saveLaunch = async (next: LaunchRecord) => {
       record = next;
-      await writePrivateState(launchFile(key), JSON.stringify(next));
+      await core.saveLaunch(key, next);
     };
     progress?.({ phase: "workspace" });
     if (owner) {
@@ -843,7 +878,7 @@ export async function createSessionSupervisor(
     if (binding === null)
       await writePrivateState(path.join(bindings, key), bindingValue);
     const identity = await readIdentity(key);
-    if (identity && processes.alive(identity)) {
+    if (identity && core.isAlive(identity)) {
       const live = classifySessionIdentity(identity);
       // This attempt's own host: its reply was lost. Adopt it.
       if (
@@ -871,7 +906,7 @@ export async function createSessionSupervisor(
         ...(repeat?.dependencies && { dependencies: repeat.dependencies }),
       });
     await cleanHost(key, identity);
-    checkUntrackedSocket(path.join(hostRoot, key));
+    checkUntrackedSocket(key);
     await cleanLegacyHost(key);
     if (prepared) {
       cwd = displayPath(prepared.path);
@@ -1021,38 +1056,15 @@ export async function createSessionSupervisor(
         stage: "spawning",
         hostInstanceId: hostIdentity.hostInstanceId,
       });
-    const log = openSync(path.join(logs, key), "a", 0o600);
-    try {
-      const host = config.hostCommand(dir);
-      if (!host[0]) throw new Error("Runner host executable is missing");
-      await processes.spawn(
-        host,
-        cwd,
-        mcpCa && env.NODE_EXTRA_CA_CERTS === config.ca
-          ? { ...env, NODE_EXTRA_CA_CERTS: undefined }
-          : env,
-        log,
-        (identity) =>
-          writePrivateState(
-            identityFile(key),
-            JSON.stringify({ ...identity, ...hostIdentity })
-          ),
-        (identity) => {
-          void serialize(key, async () => {
-            const current = await readIdentity(key);
-            if (
-              current?.marker === identity.marker &&
-              !processes.alive(current)
-            )
-              await cleanHost(key, current);
-          }).catch((error) =>
-            console.error("Guest host descendant cleanup:", error.message)
-          );
-        }
-      );
-    } finally {
-      closeSync(log);
-    }
+    await core.spawn(
+      key,
+      () => config.hostCommand(dir),
+      cwd,
+      mcpCa && env.NODE_EXTRA_CA_CERTS === config.ca
+        ? { ...env, NODE_EXTRA_CA_CERTS: undefined }
+        : env,
+      hostIdentity
+    );
   }
 
   async function bound(key: string, workspace: string) {
@@ -1063,11 +1075,6 @@ export async function createSessionSupervisor(
     return managedTarget(workspace)
       ? binding === managedBinding || checkoutOwner(binding) !== null
       : binding === workspace;
-  }
-
-  async function cleanExited(key: string) {
-    const current = await readIdentity(key);
-    if (current && !processes.alive(current)) await cleanHost(key, current);
   }
 
   async function trackedKeys() {
@@ -1083,35 +1090,8 @@ export async function createSessionSupervisor(
     | null // No live host at this binding.
     | undefined // A possible live host could not be verified.
   > {
-    try {
-      // Private state is authoritative. In particular, never read identity
-      // fields or session IDs back from a workload-writable launch file.
-      const handle = await open(
-        identityFile(key),
-        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
-      ).catch(missingPath);
-      if (!handle) {
-        return hasNamedSocket(path.join(hostRoot, key)) ||
-          (await lstat(markerFile(key)).catch(missingPath))
-          ? undefined
-          : null;
-      }
-      let identity;
-      try {
-        const stat = await handle.stat();
-        if (
-          !stat.isFile() ||
-          stat.uid !== process.getuid?.() ||
-          stat.mode & 0o077 ||
-          stat.size > 4096
-        )
-          return undefined;
-        identity = parseSessionIdentity(await handle.readFile("utf8"));
-      } finally {
-        await handle.close();
-      }
-      if (!processes.alive(identity))
-        return hasNamedSocket(path.join(hostRoot, key)) ? undefined : null;
+    let current: CurrentSessionIdentity | undefined;
+    const identity = await core.inspect(key, async (identity) => {
       const binding = await readBinding(key);
       if (
         binding === null ||
@@ -1119,54 +1099,26 @@ export async function createSessionSupervisor(
           ? binding === managedBinding || checkoutOwner(binding) !== null
           : config.workspaces.has(binding))
       )
-        return undefined;
+        return false;
       const classified = classifySessionIdentity(identity);
       // Legacy format 1 is the shape already used by attach(). It has no
       // known build or stable instance to confirm after a supervisor trial.
-      if (classified.kind !== "current") return undefined;
-      const { handoffFormat, sessionId, hostBuild, hostInstanceId } =
-        classified.record;
-      if (runnerStorageKey(sessionId) !== key || hostBuild.revision === null)
-        return undefined;
-      if (!processes.socketMatchesHost(socketPath(key), identity))
-        return undefined;
-      return {
-        format: handoffFormat,
-        host: { sessionId, instanceId: hostInstanceId, build: hostBuild },
-      };
-    } catch {
-      return undefined;
-    }
-  }
-
-  // Recovered hosts have no ChildProcess exit event. Keep descendant cleanup
-  // independent of the service connection and isolate failures by session.
-  let sweeping = false;
-  const sweep = setInterval(() => {
-    // Cleanup runs workload processes; it waits while the update fence holds.
-    if (sweeping || config.mayStartProcess?.() === false) return;
-    sweeping = true;
-    void trackedKeys()
-      .then((keys) =>
-        Promise.allSettled(
-          keys.map((key) => serialize(key, () => cleanExited(key)))
-        )
+      if (classified.kind !== "current") return false;
+      if (
+        runnerStorageKey(classified.record.sessionId) !== key ||
+        classified.record.hostBuild.revision === null
       )
-      .then((results) => {
-        for (const result of results) {
-          if (result.status === "rejected")
-            console.error(
-              "Guest host descendant cleanup:",
-              result.reason.message
-            );
-        }
-      })
-      .catch((error) => console.error("Guest host inventory:", error.message))
-      .finally(() => {
-        sweeping = false;
-      });
-  }, 5_000);
-  sweep.unref();
+        return false;
+      current = classified.record;
+      return true;
+    });
+    if (!identity) return identity;
+    const { handoffFormat, sessionId, hostBuild, hostInstanceId } = current!;
+    return {
+      format: handoffFormat,
+      host: { sessionId, instanceId: hostInstanceId, build: hostBuild },
+    };
+  }
 
   return {
     stateDirectory: storage,
@@ -1375,9 +1327,9 @@ export async function createSessionSupervisor(
         if (!managedTarget(workspace) || binding !== managedBinding)
           return false;
         const identity = await readIdentity(key);
-        if (identity && processes.alive(identity))
+        if (identity && core.isAlive(identity))
           throw new Error("Stop the guest host before releasing it");
-        checkUntrackedSocket(path.join(hostRoot, key));
+        checkUntrackedSocket(key);
         const retiring = (await readOptional(retireFile(key))) !== null;
         const stored = await readOptional(repositoryFile(key));
         if (
@@ -1400,7 +1352,7 @@ export async function createSessionSupervisor(
         await cleanHost(key, identity);
         await cleanLegacyHost(key);
         await removeGuestDirectory(path.join(hostRoot, key));
-        await rm(path.join(logs, key), { force: true });
+        await core.removeLog(key);
         for (const file of [
           repositoryFile(key),
           planFile(key),
@@ -1522,8 +1474,7 @@ export async function createSessionSupervisor(
       const key = runnerStorageKey(agentId);
       return serialize(key, async () => {
         if (!(await bound(key, workspace))) return false;
-        const identity = await readIdentity(key);
-        return identity !== null && processes.alive(identity);
+        return core.alive(key);
       });
     },
     attach(agentId: string, workspace: string) {
@@ -1531,33 +1482,7 @@ export async function createSessionSupervisor(
       return serialize(key, async () => {
         if (!(await bound(key, workspace)))
           throw new Error("Agent is not bound to this workspace");
-        const identity = await readIdentity(key);
-        if (!identity || !processes.alive(identity)) return null;
-
-        let fd: number;
-        try {
-          fd = openHostSocket(socketPath(key), config.uid);
-        } catch (error) {
-          throw new Error("Guest host socket is unavailable", { cause: error });
-        }
-        try {
-          if (!processes.alive(identity)) {
-            closeSync(fd);
-            return null;
-          }
-          const channel = createConnection(`/proc/self/fd/${fd}`);
-          const releaseSocket = () => {
-            channel.off("connect", releaseSocket);
-            channel.off("close", releaseSocket);
-            closeSync(fd);
-          };
-          channel.once("connect", releaseSocket);
-          channel.once("close", releaseSocket);
-          return channel;
-        } catch (error) {
-          closeSync(fd);
-          throw error;
-        }
+        return core.attach(key);
       });
     },
     stop(agentId: string, workspace: string, force: boolean) {
@@ -1568,22 +1493,7 @@ export async function createSessionSupervisor(
             return;
           throw new Error("Agent is not bound to this workspace");
         }
-        const dir = path.join(hostRoot, key);
-        const identity = await readIdentity(key);
-        if (identity) await processes.stop(identity, force);
-        await cleanHost(key, identity);
-        if (identity) {
-          // The recorded host can exit before the kernel drops its socket row.
-          const deadline = performance.now() + 500;
-          while (hasNamedSocket(dir)) {
-            const remaining = deadline - performance.now();
-            if (remaining <= 0) throw untrackedSocketError();
-            await delay(Math.min(50, remaining));
-          }
-        } else {
-          checkUntrackedSocket(dir);
-        }
-        await cleanLegacyHost(key);
+        await core.stop(key, force);
       });
     },
     discard(agentId: string, workspace: string) {
@@ -1601,24 +1511,24 @@ export async function createSessionSupervisor(
           throw new Error("Agent is not bound to this workspace");
         }
         const identity = await readIdentity(key);
-        if (identity && processes.alive(identity))
+        if (identity && core.isAlive(identity))
           throw new Error("Stop the guest host before discarding it");
         if (managed) await writePrivateState(retireFile(key), "");
         const dir = path.join(hostRoot, key);
         await cleanHost(key, identity);
-        checkUntrackedSocket(dir);
+        checkUntrackedSocket(key);
         await cleanLegacyHost(key);
         if (managed) {
           if (!checkoutOwner(await readBinding(key)))
             await discardManagedCheckout(key, agentId);
-          await rm(path.join(logs, key), { force: true });
+          await core.removeLog(key);
         } else {
           await rm(cwdFile(key), { force: true });
         }
         await removeGuestDirectory(dir);
         await rm(selectedFile(key), { force: true });
         await rm(borrowedFile(key), { force: true });
-        await rm(launchFile(key), { force: true });
+        await core.removeLaunch(key);
         await rm(path.join(bindings, key), { force: true });
         if (managed) await syncBindings();
       });
@@ -1627,9 +1537,7 @@ export async function createSessionSupervisor(
       const key = runnerStorageKey(agentId);
       if (!(await bound(key, workspace)))
         throw new Error("Agent is not bound to this workspace");
-      const identity = await readIdentity(key);
-      const live = identity && processes.alive(identity);
-      const log = await readLogTail(path.join(logs, key));
+      const { live, text: log } = await core.logs(key);
       return `Guest agent host ${live ? "log" : "exited"}.${log ? "\n" + log : ""}`;
     },
     async isBound(agentId: string, workspace: string) {
@@ -1682,7 +1590,7 @@ export async function createSessionSupervisor(
           )
             return null;
           const identity = await readIdentity(key);
-          return identity && processes.alive(identity)
+          return identity && core.isAlive(identity)
             ? path.join(hostRoot, key)
             : null;
         })
@@ -1690,7 +1598,7 @@ export async function createSessionSupervisor(
       return dirs.filter((dir) => dir !== null);
     },
     close() {
-      clearInterval(sweep);
+      core.close();
       release();
     },
   };

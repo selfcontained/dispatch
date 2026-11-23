@@ -97,6 +97,7 @@ vi.mock("../src/agents/remote/session-supervisor.js", async (original) => {
   };
 });
 
+import { createSessionCore } from "@dispatch/runner/cli";
 import {
   runnerStorageKey,
   runRemoteRunner,
@@ -147,6 +148,7 @@ describe("remote runner startup", () => {
         state: path.join(root, "update-state"),
       },
       updateIdentity: null,
+      createSessions: createSessionCore,
     };
     await writeFile(key, "unused test credential", { mode: 0o600 });
     await writeFile(
