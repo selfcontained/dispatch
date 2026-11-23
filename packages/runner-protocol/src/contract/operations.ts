@@ -331,7 +331,12 @@ export const operations = {
   "checkout.list": op({
     scope: "session",
     kind: "call",
-    request: object({ target, path: string }),
+    request: object({
+      target,
+      path: string,
+      /** List regular files at the checkout root, following file and directory symlinks. */
+      filesOnly: optional(literal(true)),
+    }),
     response: directoryListing,
     errors: ["not_found", "forbidden"],
     retry: read,

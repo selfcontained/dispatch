@@ -570,6 +570,8 @@ export function decodeCommand(
       );
     case "watchCheckout":
       return withWorkspace(decoded("checkout.watch", { target: { session } }));
+    case "checkoutRead":
+      return { op: null, legacy: "checkoutRead", command };
     case "viewCheckout":
       return withWorkspace(decodeView(session, command.query));
     case "inspectCheckout":
@@ -805,6 +807,13 @@ export function encodeCommand(input: Decoded | LegacyCommand): Command {
         operation: { kind: "collect", path: r.path as string },
       };
     case "checkout.list":
+      if (r.filesOnly === true)
+        return {
+          ...session,
+          kind: "inspectCheckout",
+          query: { kind: "listFiles", path: r.path as string },
+        };
+      return { ...session, kind: "viewCheckout", query: encodeView(op, r) };
     case "checkout.preview":
     case "checkout.index":
     case "checkout.stats":

@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
-import type { CheckoutCommand, Command } from "@dispatch/runner-protocol";
+import type {
+  CheckoutCommand,
+  CheckoutView,
+  Command,
+} from "@dispatch/runner-protocol";
 import {
   pathFromWire,
   sessionFromWire,
@@ -12,6 +16,11 @@ import {
 } from "@dispatch/runner-protocol/contract";
 import { RunnerConnection } from "@dispatch/runner-client/v1/connection";
 import { wireFrames } from "@dispatch/runner-client/v1/node";
+import {
+  inspectAgentCheckout,
+  readAgentView,
+} from "../src/agents/checkout-runner.js";
+import type { AgentRecord } from "../src/agents/types.js";
 import { RemoteRunnerService } from "../src/agents/remote/service.js";
 import { checkoutRunners } from "../src/runners/directory.js";
 import {
@@ -201,5 +210,80 @@ describe("checkout.exec", () => {
       socket.destroy();
       vi.restoreAllMocks();
     }
+  });
+});
+
+describe("legacy checkout reads", () => {
+  const placement = { runner: "enrolled", workspace: "session-workspace" };
+  const enrolled = {
+    ...agent,
+    cwd: "runner://enrolled/session-workspace",
+    placement: placementForRunner(placement.runner),
+    baseBranch: null,
+  };
+  it("preserves both caller query orders for the file diff frame", async () => {
+    const requestSession = vi
+      .fn()
+      .mockResolvedValue({ value: '{"data":null}' });
+    const remote = { requestSession } as unknown as RemoteRunnerService;
+    const queries: CheckoutView[] = [
+      {
+        kind: "fileDiff",
+        path,
+        baseBranch: null,
+        ignoreWhitespace: true,
+        includeUncommitted: true,
+      },
+      {
+        kind: "fileDiff",
+        path,
+        baseBranch: null,
+        includeUncommitted: true,
+        ignoreWhitespace: false,
+      },
+    ];
+    for (const query of queries) {
+      await expect(
+        readAgentView(enrolled, query, remote, "main")
+      ).resolves.toBeNull();
+    }
+    expect(
+      requestSession.mock.calls.map(([location, operation]) => {
+        expect(location).toEqual(placement);
+        return JSON.stringify(operation);
+      })
+    ).toEqual(
+      queries.map((query) =>
+        JSON.stringify({
+          kind: "viewCheckout",
+          agentId: enrolled.id,
+          query: { ...query, baseBranch: "main" },
+        })
+      )
+    );
+  });
+
+  it("still rejects a legacy inspection reply above the v1 file cap", async () => {
+    const query = { kind: "readFile", path } as const;
+    const requestSession = vi.fn().mockResolvedValue({
+      value: JSON.stringify({
+        kind: "readFile",
+        content: "x".repeat(256 * 1024 + 1),
+      }),
+    });
+    const remote = { requestSession } as unknown as RemoteRunnerService;
+    await expect(
+      inspectAgentCheckout(enrolled as AgentRecord, query, remote)
+    ).rejects.toMatchObject({ statusCode: 502 });
+    expect(requestSession.mock.calls).toEqual([
+      [
+        placement,
+        {
+          kind: "inspectCheckout",
+          agentId: enrolled.id,
+          query,
+        },
+      ],
+    ]);
   });
 });

@@ -6,6 +6,7 @@
 import { startLocalLane } from "./lanes/local.js";
 import { startRemoteLane } from "./lanes/remote.js";
 import { walkthrough } from "./reference-client.js";
+import { remoteScenarios } from "./scenarios.js";
 import { turnText } from "./session.js";
 import {
   compareBaseline,
@@ -30,11 +31,14 @@ if (!start) {
 const began = performance.now();
 let started: Lane | undefined;
 const errors: string[] = [];
-const results: Result[] = await runLane(async () => {
-  started = await start();
-  // Kept open for the reference client below.
-  return { ...started, close: async () => {} };
-});
+const results: Result[] = await runLane(
+  async () => {
+    started = await start();
+    // Kept open for the reference client below.
+    return { ...started, close: async () => {} };
+  },
+  lane === "remote" ? remoteScenarios : undefined
+);
 const baseline = readBaseline();
 errors.push(...compareBaseline(lane, results, baseline));
 
@@ -54,7 +58,8 @@ if (started) {
           env: { [namespace]: name },
           mcp: [{ name, url: "https://example.invalid/mcp", token: "fixture" }],
           prompt: `proof-conformance-env:${namespace}`,
-        }
+        },
+        started.readGuard
       );
       if (exec.exitCode !== 0 || exec.stdout !== guard.content)
         throw new Error(`Unexpected exec ${JSON.stringify(exec)}`);

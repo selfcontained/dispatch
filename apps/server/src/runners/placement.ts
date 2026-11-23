@@ -20,6 +20,14 @@ export function placementForRunner(runnerId: string): Placement {
   return placementOf(runnerIdFromWire(runnerId));
 }
 
+/** Older read callers may only have the v1 session locator. */
+export function checkoutReadPlacement(
+  cwd: string | null | undefined
+): Placement {
+  const locator = cwd && remotePlacement(cwd);
+  return locator ? placementForRunner(locator.runner) : controllerPlacement;
+}
+
 export function runnerIdForPlacement(placement: Placement): string {
   return runnerIdToWire(placementRunner(placement));
 }

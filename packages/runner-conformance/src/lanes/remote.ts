@@ -165,6 +165,17 @@ cat > /opt/profile-tools/fixture-checkout <<'TOOL'
 printf '%s:%s' "$(id -u)" "$FIXTURE_VALUE"
 TOOL
 chmod 755 /opt/profile-tools/fixture-checkout
+setpriv --reuid=${UID} --regid=${UID} --clear-groups git -C ${WORKSPACE_DIR} init -b main
+setpriv --reuid=${UID} --regid=${UID} --clear-groups git -C ${WORKSPACE_DIR} -c user.name=Fixture -c user.email=fixture@example.invalid commit --allow-empty -m base
+printf "/file-list/\\n" >> ${WORKSPACE_DIR}/.git/info/exclude
+mkdir ${WORKSPACE_DIR}/file-list
+index=0
+while [ "$index" -lt 1050 ]; do
+  : > ${WORKSPACE_DIR}/file-list/"$index".txt
+  index=$((index + 1))
+done
+printf private > ${WORKSPACE_DIR}/.root-only
+chmod 600 ${WORKSPACE_DIR}/.root-only
 printf guard > ${WORKSPACE_DIR}/.exec-probe
 exec /opt/bin/runner remote-runner /run/cfg/runner.json
 `;
@@ -258,16 +269,9 @@ export async function startRemoteLane(): Promise<Lane> {
     if (accepted.ready.checkoutExecStream) {
       const target = { session: SESSION, checkout: "current" } as const;
       const path = ".exec-probe";
-      const file = await accepted.runner.call("checkout.read", {
-        target,
-        path,
-        encoding: "utf8",
-        maxBytes: null,
-      });
-      if (!file?.digest) throw new Error("Missing exec probe guard.");
       const exec = {
         target,
-        guard: { path, digest: file.digest },
+        guard: { path, digest: await accepted.readGuard(SESSION, path) },
         shell: "direct",
         env: { FIXTURE_VALUE: "literal ; $HOME" },
         timeoutMs: 15_000,
@@ -331,6 +335,7 @@ export async function startRemoteLane(): Promise<Lane> {
     return {
       runner: accepted.runner,
       session: SESSION,
+      readGuard: accepted.readGuard,
       async seed(path, content) {
         run(
           "docker",

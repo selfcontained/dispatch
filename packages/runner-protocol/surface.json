@@ -1965,7 +1965,12 @@
               }
             ]
           },
-          "path": "string"
+          "path": "string",
+          "filesOnly": {
+            "optional": {
+              "literal": [true]
+            }
+          }
         }
       },
       "response": {

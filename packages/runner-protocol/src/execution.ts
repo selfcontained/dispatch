@@ -1,3 +1,7 @@
+import {
+  isCheckoutReadStream,
+  type CheckoutReadRequest,
+} from "./checkout-reads.js";
 import { isCheckoutCommand, type CheckoutCommand } from "./checkout-command.js";
 import {
   isSessionFileOperation,
@@ -91,6 +95,11 @@ export type SessionOperation =
   | { agentId: string; kind: "sessionFile"; operation: SessionFileOperation }
   | { agentId: string; kind: "watchCheckout" }
   | { agentId: string; kind: "openTerminal" }
+  | {
+      agentId: string;
+      kind: "checkoutRead";
+      operation: CheckoutReadRequest & { streamId: string };
+    }
   | { agentId: string; kind: "viewCheckout"; query: CheckoutView }
   | { agentId: string; kind: "inspectCheckout"; query: CheckoutQuery }
   | {
@@ -133,6 +142,7 @@ export type ReadyFrame = {
   checkoutMetadata?: true;
   checkoutCommands?: true;
   checkoutExecStream?: true;
+  checkoutReadStream?: true;
   terminals?: true;
   defaultBranchFiles?: true;
   checkoutViews?: true;
@@ -175,6 +185,7 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     ...(frame.checkoutViews === true && { checkoutViews: true }),
     ...(frame.defaultBranchFiles === true && { defaultBranchFiles: true }),
     ...(frame.checkoutCommands === true && { checkoutCommands: true }),
+    ...(frame.checkoutReadStream === true && { checkoutReadStream: true }),
     ...(frame.checkoutExecStream === true && { checkoutExecStream: true }),
     ...(frame.terminals === true && { terminals: true }),
     ...(frame.checkoutMetadata === true && { checkoutMetadata: true }),
@@ -387,6 +398,8 @@ function isCommand(value: unknown): value is Command {
       );
     case "sessionFile":
       return isSessionFileOperation(value.operation);
+    case "checkoutRead":
+      return isCheckoutReadStream(value.operation, value.agentId);
     case "checkoutCommand":
       return isCheckoutCommand(value.operation);
     case "checkoutRelease":

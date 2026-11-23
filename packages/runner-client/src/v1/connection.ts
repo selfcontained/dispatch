@@ -1,4 +1,15 @@
 import {
+  operations,
+  runnerError,
+  sessionToWire,
+  type Req,
+  type Res,
+} from "@dispatch/runner-protocol/contract";
+import type {
+  CheckoutReadName,
+  CheckoutReadRequest,
+} from "@dispatch/runner-protocol";
+import {
   checkoutCommandTimeoutMs,
   isCheckoutCommandStatus,
   type CheckoutExecution,
@@ -73,6 +84,7 @@ export function runnerReplyTimeoutMs(command: Command): number {
   return command.kind === "sessionCheckout" ||
     command.kind === "checkoutRelease" ||
     isStreamedCollection(command) ||
+    command.kind === "checkoutRead" ||
     command.kind === "inspectCheckout" ||
     command.kind === "viewCheckout" ||
     command.kind === "engine" ||
@@ -227,6 +239,67 @@ export async function receiveCheckoutExec(
   }
 }
 
+/** Collect a contract result from the bound checkout's credit-controlled stream. */
+export async function receiveCheckoutRead<K extends CheckoutReadName>(
+  op: K,
+  input: Req<K>,
+  workspace: string,
+  request: (
+    command: Extract<Command, { kind: "checkoutRead" }>,
+    signal: AbortSignal
+  ) => Promise<{ value: unknown }>,
+  streams: FlowStreams,
+  signal?: AbortSignal
+): Promise<Res<K>> {
+  const { target, ...parameters } = input as Req<CheckoutReadName>;
+  if (!("session" in target) || (target.checkout ?? "current") !== "current")
+    throw new RunnerCallError({
+      code: "invalid",
+      message: "Expected a current session checkout.",
+    });
+  const operation = { op, request: parameters } as CheckoutReadRequest;
+  const streamId = randomUUID();
+  const controller = new AbortController();
+  const active = signal
+    ? AbortSignal.any([signal, controller.signal])
+    : controller.signal;
+  active.throwIfAborted();
+  const chunks: Buffer[] = [];
+  try {
+    const [, { value }] = await Promise.all([
+      streams.receive(
+        streamId,
+        new Writable({
+          write(chunk: Buffer, _encoding, callback) {
+            chunks.push(chunk);
+            callback();
+          },
+        }),
+        active,
+        { stall: false }
+      ),
+      request(
+        {
+          kind: "checkoutRead",
+          workspace,
+          agentId: sessionToWire(target.session),
+          operation: { ...operation, streamId },
+        },
+        active
+      ),
+    ]);
+    if (value !== true)
+      throw new Error("Invalid runner checkout stream response.");
+    const reply = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    if (runnerError.check(reply?.error)) throw new RunnerCallError(reply.error);
+    if (!operations[op].response.check(reply?.data))
+      throw new Error("Invalid runner checkout read response.");
+    return reply.data as Res<K>;
+  } finally {
+    controller.abort();
+  }
+}
+
 /** Service side of one authenticated runner connection. Request IDs and channels are local to it. */
 export class RunnerConnection {
   private readonly pending = new Map<string, (frame?: ResultFrame) => void>();
@@ -277,7 +350,11 @@ export class RunnerConnection {
   ) {
     if (this.closed)
       throw new RunnerUnavailable("The runner connection is closed.");
-    if (command.kind === "checkoutCommand" || isStreamedCollection(command))
+    if (
+      command.kind === "checkoutCommand" ||
+      command.kind === "checkoutRead" ||
+      isStreamedCollection(command)
+    )
       signal?.throwIfAborted();
     const id = crypto.randomUUID();
     const channel = openChannel
@@ -296,7 +373,9 @@ export class RunnerConnection {
       const value = await this.sendRequest(
         id,
         command,
-        command.kind === "checkoutCommand" || isStreamedCollection(command)
+        command.kind === "checkoutCommand" ||
+          command.kind === "checkoutRead" ||
+          isStreamedCollection(command)
           ? signal
           : undefined
       );
@@ -361,7 +440,9 @@ export class RunnerConnection {
           new Error(
             command.kind === "checkoutCommand"
               ? "Checkout command cancelled."
-              : "File stream cancelled."
+              : command.kind === "checkoutRead"
+                ? "Checkout read cancelled."
+                : "File stream cancelled."
           )
         );
       };

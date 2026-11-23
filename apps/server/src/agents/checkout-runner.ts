@@ -3,8 +3,6 @@ import type { DiffStatsComputation } from "../shared/git/diff-stats.js";
 import { readCheckoutView } from "./checkout-view.js";
 import {
   isCheckoutView,
-  isCheckoutViewData,
-  MAX_CHECKOUT_VIEW_BYTES,
   type CheckoutView,
   type CheckoutStatsOutcome,
   isCheckoutQuery,
@@ -22,7 +20,7 @@ import {
 } from "@dispatch/runner-protocol/contract";
 import { inspectCheckout } from "./checkout-inspection.js";
 import { AgentError } from "./errors.js";
-import { RunnerRevoked, type RemoteRunnerService } from "./remote/service.js";
+import type { RemoteRunnerService } from "./remote/service.js";
 import type { AgentRecord } from "./types.js";
 import {
   agentComparisonBase,
@@ -34,7 +32,8 @@ import {
   type CheckoutCommandRunners,
   type CheckoutSession,
 } from "../runners/directory.js";
-import { controllerPlacement } from "../runners/placement.js";
+import { readLegacyCheckoutView } from "../runners/enrolled/reads.js";
+import { checkoutReadPlacement } from "../runners/placement.js";
 import { TEST_FILE_PATTERNS } from "../shared/lib/test-file-rule.js";
 import { WorkspaceError } from "../shared/lib/workspace-error.js";
 
@@ -57,17 +56,20 @@ function readRunners(runners: CheckoutReadRunners): CheckoutCommandRunners {
 }
 
 /** The agent's checkout runner, by its placement. */
-function sessionRunner(runners: CheckoutReadRunners, agent: ReadAgent): Runner {
-  // This is the arm for agents on the controller's runner; rows built
-  // without a placement (older callers' fixtures) are on it too.
+function sessionRunner(
+  runners: CheckoutReadRunners,
+  agent: ReadAgent,
+  legacyView?: CheckoutView
+): Runner {
   const session = {
     ...agent,
     id: agent.id ?? "",
-    placement: agent.placement ?? controllerPlacement,
+    placement: agent.placement ?? checkoutReadPlacement(agent.cwd),
   } as CheckoutSession;
   const { directory, placement } = checkoutRunners(
     readRunners(runners),
-    session
+    session,
+    legacyView
   );
   return directory.for(placement);
 }
@@ -172,7 +174,20 @@ export async function inspectAgentCheckout(
     query,
   };
   const placement = remotePlacement(agent.cwd);
-  if (placement) {
+  if (placement && query.kind === "listFiles") {
+    const listing = await readThrough(() =>
+      sessionRunner(runners, agent).call("checkout.list", {
+        target: target(agent),
+        path: query.path,
+        filesOnly: true,
+      })
+    );
+    return {
+      kind: "listFiles",
+      names: listing.entries.map(({ name }) => name),
+    };
+  }
+  if (placement && query.kind !== "readFile" && query.kind !== "changes") {
     const remote = remoteOf(runners);
     if (!remote)
       throw new AgentError("The agent’s runner is unavailable.", 409);
@@ -218,37 +233,6 @@ export async function inspectAgentCheckout(
 /** Resolve the launch placement from the requester, never the display parent. */
 export function reviewerWorkspace(owner: AgentRecord) {
   return agentWorkspaceDir(owner) ?? owner.cwd;
-}
-
-export function decodeCheckoutView(raw: unknown, view: CheckoutView) {
-  if (
-    typeof raw !== "string" ||
-    Buffer.byteLength(raw) > MAX_CHECKOUT_VIEW_BYTES
-  )
-    throw new AgentError("Invalid runner checkout response.", 502);
-  let value: unknown;
-  try {
-    value = JSON.parse(raw);
-  } catch {
-    throw new AgentError("Invalid runner checkout response.", 502);
-  }
-  if (
-    value !== null &&
-    typeof value === "object" &&
-    "status" in value &&
-    "error" in value &&
-    [400, 403, 404, 409, 413, 500].includes(Number(value.status)) &&
-    typeof value.error === "string"
-  )
-    throw new AgentError(value.error.slice(0, 256), Number(value.status));
-  if (
-    !value ||
-    typeof value !== "object" ||
-    !("data" in value) ||
-    !isCheckoutViewData(view, value.data)
-  )
-    throw new AgentError("Invalid runner checkout response.", 502);
-  return value.data;
 }
 
 /**
@@ -336,30 +320,17 @@ async function readAgentViewData(
     "baseBranch" in view
       ? { ...view, baseBranch: view.baseBranch ?? comparisonBase }
       : view;
-  const placement = agent.cwd && remotePlacement(agent.cwd);
-  if (placement) {
-    const remote = remoteOf(runners);
-    if (!remote) throw new AgentError("The runner is unavailable.", 503);
-    try {
-      const { value } = await remote.requestSession(placement, {
-        kind: "viewCheckout",
-        agentId: agent.id!,
-        query,
-      });
-      return decodeCheckoutView(value, view);
-    } catch (error) {
-      if (error instanceof AgentError) throw error;
-      throw new AgentError(
-        error instanceof Error
-          ? error.message
-          : "Unable to read the runner checkout.",
-        error instanceof RunnerRevoked ? 403 : 503
-      );
-    }
-  }
   if (query.kind !== "image")
     return readThrough(() =>
-      readRunnerView(sessionRunner(runners, agent), agent, query)
+      readRunnerView(sessionRunner(runners, agent, query), agent, query)
+    );
+  const placement = agent.cwd && remotePlacement(agent.cwd);
+  if (placement)
+    return readLegacyCheckoutView(
+      remoteOf(runners),
+      placement,
+      agent.id!,
+      query
     );
   const cwd = agentDiffPath(agent);
   if (!cwd) throw new AgentError("This agent has no workspace.", 404);
@@ -376,24 +347,20 @@ export async function readAgentStats(
     comparisonBase === undefined
       ? await agentComparisonBase(agent, "changes")
       : comparisonBase;
-  const placement = agent.cwd && remotePlacement(agent.cwd);
   const view = {
     kind: "stats",
-    baseBranch: null,
+    baseBranch: base,
     includeUncommitted: true,
   } as const;
-  if (placement) {
-    const data = await readAgentViewData({ ...agent, id }, view, runners, base);
-    return decodeStats(data);
-  }
   try {
     const data = await readRunnerView(
-      sessionRunner(runners, { ...agent, id }),
+      sessionRunner(runners, { ...agent, id }, view),
       { id },
-      { ...view, baseBranch: base }
+      view
     );
     return decodeStats(data);
   } catch (error) {
+    if (error instanceof AgentError) throw error;
     return { kind: "failure", stats: null, error: readError(error) };
   }
 }

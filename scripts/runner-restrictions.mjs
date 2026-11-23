@@ -94,6 +94,8 @@ const rules = [
     "N13",
     "Checkout reply and watch limits",
     "T09",
+    // Streamed reads bypass these v1 reply anchors. The legacy reply path,
+    // image/default-file/metadata reads and watch still use them.
     [
       protocol + "checkout-view.ts",
       "MAX_CHECKOUT_VIEW_BYTES = 16 * 1024 * 1024",

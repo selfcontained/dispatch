@@ -9,8 +9,13 @@ import {
   type RunnerFrame,
   type ServiceFrame,
 } from "@dispatch/runner-protocol";
+import { sessionFromWire } from "@dispatch/runner-protocol/contract";
 import { describe, expect, it } from "vitest";
-import { receiveFile, RunnerConnection } from "../src/v1/connection.js";
+import {
+  receiveCheckoutRead,
+  receiveFile,
+  RunnerConnection,
+} from "../src/v1/connection.js";
 import { wireFrames, FlowStreams, acceptsStreams } from "../src/v1/node.js";
 import {
   STREAM_CHUNK,
@@ -73,6 +78,23 @@ async function loopback(advertise = true, stallMs?: number, file?: Buffer) {
       if (runner.handle(value)) return;
       received.push(value);
       const frame = parseServiceFrame(value);
+      if (
+        frame?.type === "request" &&
+        frame.command.kind === "checkoutRead" &&
+        file
+      ) {
+        void runner
+          .send(frame.command.operation.streamId, Readable.from([file]))
+          .then(
+            () => reply({ type: "result", id: frame.id, value: true }),
+            () =>
+              reply({
+                type: "result",
+                id: frame.id,
+                error: "Checkout stream ended.",
+              })
+          );
+      }
       if (frame?.type === "request" && frame.command.kind === "attach")
         reply({ type: "result", id: frame.id, value: true });
       if (
@@ -133,6 +155,45 @@ async function loopback(advertise = true, stallMs?: number, file?: Buffer) {
 }
 
 describe("v1 credit streams", () => {
+  it("receives a checkout reply above the legacy frame limit alongside another session", async () => {
+    const data = "¥".repeat(9 * 1024 * 1024);
+    const link = await loopback(
+      true,
+      undefined,
+      Buffer.from(JSON.stringify({ data: { data } }))
+    );
+    try {
+      const read = receiveCheckoutRead(
+        "checkout.read",
+        {
+          target: { session: sessionFromWire("reader") },
+          path: "large.txt",
+          encoding: "utf8",
+          maxBytes: null,
+        },
+        "test",
+        (command, signal) => link.connection.request(command, { signal }),
+        link.client
+      );
+      await expect(link.connection.request(link.attach)).resolves.toMatchObject(
+        { value: true }
+      );
+      const result = await read;
+      expect(result?.data === data).toBe(true);
+      const frame = parseServiceFrame(link.received[0]);
+      expect(frame).toMatchObject({
+        type: "request",
+        command: { kind: "checkoutRead" },
+      });
+      if (frame?.type !== "request" || frame.command.kind !== "checkoutRead")
+        throw new Error("Missing checkout stream");
+      expect(link.client.has(frame.command.operation.streamId)).toBe(false);
+      expect(link.runner.has(frame.command.operation.streamId)).toBe(false);
+    } finally {
+      await link.close();
+    }
+  });
+
   it.each([true, false])(
     "reads attachments and preserves the old request shape without streams (%s)",
     async (streamed) => {

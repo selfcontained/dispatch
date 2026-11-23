@@ -2,6 +2,7 @@ import {
   RUNNER_WIRE_VERSION,
   type CheckoutCommand,
   type CheckoutCommandFile,
+  type CheckoutView,
 } from "@dispatch/runner-protocol";
 import {
   placementOf,
@@ -67,7 +68,8 @@ const localDescription: RunnerDescription = {
 
 export function checkoutRunners(
   { remote, child }: CheckoutCommandRunners,
-  agent: CheckoutSession
+  agent: CheckoutSession,
+  legacyView?: CheckoutView
 ): {
   directory: CheckoutDirectory;
   placement: Placement;
@@ -103,7 +105,8 @@ export function checkoutRunners(
               capabilities: {},
             }
           );
-        }
+        },
+        legacyView
       );
     },
     list() {
