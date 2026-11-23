@@ -50,7 +50,7 @@ function RunnerOption({
   );
 }
 
-/** "Runs on" picker: This computer by default, or a paired runner + workspace. */
+/** "Runs on" picker: This computer by default, or a paired runner. */
 export function RunnerPicker({
   runners,
   runnerId,
@@ -116,54 +116,6 @@ export function RunnerPicker({
           </SelectContent>
         </Select>
       </div>
-    </div>
-  );
-}
-
-export function RunnerWorkspacePicker({
-  selected,
-  workspace,
-  onWorkspaceChange,
-}: {
-  selected: Runner;
-  workspace: string | null;
-  onWorkspaceChange: (workspace: string) => void;
-}) {
-  const workspaceLabelId = useId();
-  return (
-    <div className="space-y-1">
-      <label
-        id={workspaceLabelId}
-        className="text-body-md text-muted-foreground"
-      >
-        Workspace
-      </label>
-      {selected.workspaces.length === 0 ? (
-        <p className="text-body-md text-muted-foreground">
-          This runner has not reported any workspaces.
-        </p>
-      ) : (
-        <Select
-          value={workspace ?? ""}
-          onValueChange={(next) => {
-            if (next) onWorkspaceChange(next);
-          }}
-        >
-          <SelectTrigger
-            aria-labelledby={workspaceLabelId}
-            data-testid="create-agent-runner-workspace"
-          >
-            <SelectValue placeholder="Choose a workspace" />
-          </SelectTrigger>
-          <SelectContent>
-            {selected.workspaces.map((name) => (
-              <SelectItem key={name} value={name}>
-                {name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
     </div>
   );
 }

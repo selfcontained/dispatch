@@ -44,9 +44,7 @@ vi.mock("./use-create-agent-form", async () => {
         runners: [],
         runnerId: null,
         runnerUnavailable: false,
-        runnerWorkspace: null,
         selectRunner: vi.fn(),
-        setRunnerWorkspace: vi.fn(),
         creating: false,
       };
     },

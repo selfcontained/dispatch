@@ -34,7 +34,6 @@ it("shows one selected default when starting a new branch from the explicit defa
   const runner = {
     id: "runner-a",
     repository: "https://github.com/example/first",
-    browse: true,
   };
   const { rerender } = render(
     <BranchSelect
@@ -141,13 +140,12 @@ it.each([
         runner={{
           id: "runner-a",
           repository: "https://github.com/example/first",
-          browse: true,
         }}
       />,
       { wrapper: wrapper() }
     );
     await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
-    rerender(<BranchSelect {...props} runner={{ ...current, browse: true }} />);
+    rerender(<BranchSelect {...props} runner={current} />);
     await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
     await act(async () =>
       newer.resolve({ branches: ["new-main"], defaultBranch: "new-main" })
@@ -167,7 +165,6 @@ const sources = {
     runner: {
       id: "runner-a",
       repository: "https://github.com/example/repo",
-      browse: true,
     },
   },
 } as const;

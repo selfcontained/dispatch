@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { expect, test } from "@playwright/test";
-import { deleteAgentViaAPI } from "../helpers";
+import { authHeaders, deleteAgentViaAPI } from "../helpers";
 import {
   enrollViaUi,
   guest,
@@ -90,9 +90,20 @@ test("GitHub sign-in, private checkout and sign-out belong to the selected runne
     ).toBeVisible();
   }
 
+  const projectName = "Private checkout project";
+  const project = await request.post("/api/v1/projects", {
+    headers: authHeaders(),
+    data: {
+      name: projectName,
+      color: "#64748b",
+      repository: "https://github.com/fixture-scratch/private",
+    },
+  });
+  expect(project.ok(), await project.text()).toBe(true);
+
   const agent = await launchViaUi(page, {
     runnerId: ids.get("scratch"),
-    repository: "fixture-scratch/private",
+    projectName,
     pullRequest: "https://github.com/fixture-scratch/private/pull/42",
     name: "Private checkout",
     prompt: "proof-reviewed-checkout post-private-pr",

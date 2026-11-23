@@ -209,10 +209,18 @@ describe("launch location preference", () => {
   beforeEach(() => {
     queryClient.setQueryDefaults(["projects"], { staleTime: Infinity });
     queryClient.setQueryData(["projects"], projects);
+    queryClient.setQueryDefaults(["runner-project-origin"], {
+      staleTime: Infinity,
+    });
+    queryClient.setQueryData(["runner-project-origin", "project-a"], {
+      url: "https://github.com/org/repo",
+    });
+    queryClient.setQueryData(["runner-project-origin", "project-b"], {
+      url: null,
+    });
   });
 
-  it("submits project, standalone, and empty runner sessions with distinct locations", async () => {
-    queryClient.setQueryDefaults(["runners"], { staleTime: Infinity });
+  it("requires a repository-linked project and launches it by project ID", async () => {
     queryClient.setQueryData(
       ["runners"],
       [
@@ -220,91 +228,42 @@ describe("launch location preference", () => {
           id: "rnr_lima",
           name: "Lima",
           status: "online",
-          workspaces: ["@session"],
-          managedWorkspace: true,
+          workspaces: ["legacy"],
         },
       ]
     );
-    queryClient.setQueryDefaults(["runner-project-origin", "project-a"], {
-      staleTime: Infinity,
-    });
-    queryClient.setQueryData(["runner-project-origin", "project-a"], {
-      url: "https://github.com/org/project",
-    });
     const { result } = await setup({ initialProjectId: "project-a" });
-    act(() => {
-      result.current.setCreatePersona("builder");
-      result.current.handlePathInfoChange(REPO_INFO);
-    });
-    await act(async () => result.current.handleSubmit(submitEvent()));
-    expect(agentsPostJson()).toMatchObject({
-      projectId: "project-a",
-      persona: "builder",
-    });
-    apiMock.mockClear();
-
     act(() => result.current.selectRunner("rnr_lima"));
-    expect(result.current.repository).toBe("https://github.com/org/project");
+    expect(result.current.locationReady).toBe(false);
+    await act(async () => result.current.handleSubmit(submitEvent()));
+    expect(apiMock.mock.calls.some(([path]) => path === "/api/v1/agents")).toBe(
+      false
+    );
+
+    act(() => result.current.setCreateProjectId("project-b"));
+    expect(result.current.locationReady).toBe(false);
+    act(() => result.current.setCreateProjectId("project-a"));
+    expect(result.current.locationReady).toBe(true);
     act(() => {
       result.current.setCreatePersona("builder");
       result.current.setCreateBaseBranch("release");
     });
     await act(async () => result.current.handleSubmit(submitEvent()));
-    // A runner repository sends the same worktree intent as a local launch;
-    // the server names the branch and builds the checkout.
     expect(agentsPostJson()).toEqual({
       name: "",
+      runner: "rnr_lima",
       projectId: "project-a",
       persona: "builder",
-      cwd: "runner://rnr_lima/@session",
-      repository: { url: "https://github.com/org/project" },
       type: "claude",
       fullAccess: true,
       useWorktree: true,
       createNewBranch: true,
       baseBranch: "release",
     });
-    apiMock.mockClear();
-    act(() => result.current.setCreateWorktreeBranch("feature/custom"));
-    await act(async () => result.current.handleSubmit(submitEvent()));
-    expect(agentsPostJson()).toMatchObject({
-      repository: { url: "https://github.com/org/project" },
-      useWorktree: true,
-      createNewBranch: true,
-      worktreeBranch: "feature/custom",
-      baseBranch: "release",
-    });
-
-    apiMock.mockClear();
-    act(() => {
-      result.current.chooseRepo("https://github.com/org/standalone");
-      result.current.setCreateNewBranch(false);
-      result.current.setCreateBaseBranch("feature");
-    });
-    await act(async () => result.current.handleSubmit(submitEvent()));
-    expect(agentsPostJson()).toMatchObject({
-      cwd: "runner://rnr_lima/@session",
-      repository: { url: "https://github.com/org/standalone" },
-      useWorktree: true,
-      createNewBranch: false,
-      baseBranch: "feature",
-    });
-    expect(agentsPostJson()).not.toHaveProperty("projectId");
-    expect(agentsPostJson()).not.toHaveProperty("persona");
-    expect(agentsPostJson()).not.toHaveProperty("worktreeBranch");
-    // A runner repository always uses a managed worktree.
     expect(result.current.worktreeOptional).toBe(false);
     expect(result.current.worktreeAvailable).toBe(true);
-
-    apiMock.mockClear();
-    act(() => result.current.setCreateProjectId(null));
-    await act(async () => result.current.handleSubmit(submitEvent()));
-    expect(agentsPostJson()).toMatchObject({
-      cwd: "runner://rnr_lima/@session",
-    });
-    expect(agentsPostJson()).not.toHaveProperty("projectId");
-    expect(agentsPostJson()).not.toHaveProperty("repository");
   });
+
   it("submits the same checkout fields for a local folder and a runner repository", async () => {
     queryClient.setQueryDefaults(["runners"], { staleTime: Infinity });
     queryClient.setQueryData(
@@ -343,13 +302,15 @@ describe("launch location preference", () => {
       await act(async () => result.current.handleSubmit(submitEvent()));
       submitted.push(checkoutFields());
       act(() => result.current.selectRunner("rnr_lima"));
-      act(() => result.current.chooseRepo("https://github.com/org/repo"));
+      act(() => result.current.setCreateProjectId("project-a"));
       fill(newBranch);
       apiMock.mockClear();
       await act(async () => result.current.handleSubmit(submitEvent()));
-      expect(agentsPostJson().repository).toEqual({
-        url: "https://github.com/org/repo",
+      expect(agentsPostJson()).toMatchObject({
+        runner: "rnr_lima",
+        projectId: "project-a",
       });
+      expect(agentsPostJson()).not.toHaveProperty("cwd");
       submitted.push(checkoutFields());
     }
     expect(submitted).toEqual([
@@ -386,7 +347,7 @@ describe("launch location preference", () => {
     const { result } = await setup();
     const pr = "https://github.com/org/repo/pull/12";
     act(() => result.current.selectRunner("rnr_lima"));
-    act(() => result.current.chooseRepo("https://github.com/org/repo"));
+    act(() => result.current.setCreateProjectId("project-a"));
     act(() => {
       result.current.setCreateNewBranch(false);
       result.current.setCreateBaseBranch(pr);
@@ -450,7 +411,7 @@ describe("launch location preference", () => {
     const { result } = await setup();
     act(() => result.current.setCreateBaseBranch("develop"));
     act(() => result.current.selectRunner("rnr_lima"));
-    act(() => result.current.chooseRepo("https://github.com/org/one"));
+    act(() => result.current.setCreateProjectId("project-a"));
     expect(result.current.createBaseBranch).toBe("");
     expect(result.current.createNewBranch).toBe(true);
     act(() => {
@@ -458,7 +419,7 @@ describe("launch location preference", () => {
       result.current.setCreateNewBranch(false);
       result.current.setCreateWorktreeBranch("typed");
     });
-    act(() => result.current.chooseRepo("https://github.com/org/two"));
+    act(() => result.current.setCreateProjectId("project-b"));
     expect(result.current.createBaseBranch).toBe("");
     expect(result.current.createNewBranch).toBe(true);
     expect(result.current.createWorktreeBranch).toBe("");

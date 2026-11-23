@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { AgentPermissionsResponse } from "@dispatch/shared";
-import { authHeaders, cleanupE2EAgents } from "../helpers";
+import { authHeaders, cleanupE2EAgents, trackAgent } from "../helpers";
 import {
   agentInfo,
   chat,
@@ -82,7 +82,33 @@ test("enroll two runners with identical workspace names", async ({
   expect(marker("alpha")).not.toBe(marker("beta"));
 });
 
-test("UI launches local, alpha and beta; each answer comes from its own side", async ({
+// The legacy configured-workspace and scratch fixtures exercise explicit
+// runner locators through the API. Project-based UI launch is covered by the
+// GitHub account fixture.
+async function launchLegacyFixture(
+  page: Page,
+  opts: { name: string; cwd: string; prompt: string; restricted?: boolean }
+) {
+  const { name, cwd, prompt, restricted } = opts;
+  const response = await page.request.post("/api/v1/agents", {
+    headers: authHeaders(),
+    data: {
+      name,
+      cwd,
+      type: "claude",
+      fullAccess: !restricted,
+      useWorktree: false,
+      initialPrompt: prompt,
+    },
+  });
+  expect(response.status(), await response.text()).toBe(201);
+  const { agent } = (await response.json()) as { agent: { id: string } };
+  trackAgent(agent.id);
+  await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+  return { status: response.status(), id: agent.id };
+}
+
+test("local and runner fixture launches answer from their own side", async ({
   baseURL,
   browser,
 }, testInfo) => {
@@ -93,17 +119,19 @@ test("UI launches local, alpha and beta; each answer comes from its own side", a
   ] as const) {
     const page = await (await browser.newContext({ baseURL })).newPage();
     pages[key] = page;
-    const { status, id } = await launchViaUi(
-      page,
+    const { status, id } =
       key === "local"
-        ? { name: `e2e-rr-${key}`, cwd: "/tmp", prompt }
-        : {
+        ? await launchViaUi(page, {
             name: `e2e-rr-${key}`,
-            runnerId: runnerIds[key],
+            cwd: "/tmp",
+            prompt,
+          })
+        : await launchLegacyFixture(page, {
+            name: `e2e-rr-${key}`,
+            cwd: loc(key),
             prompt,
             restricted: true,
-          }
-    );
+          });
     expect(status).toBe(201);
     agents[key] = id!;
     if (key !== "local")
@@ -460,10 +488,9 @@ test("managed scratch checkout selection persists across host start and preserve
   expect((await runnerRow(request, "scratch"))?.workspaces).toEqual([
     "@session",
   ]);
-  const { status, id } = await launchViaUi(page, {
+  const { status, id } = await launchLegacyFixture(page, {
     name: "e2e-rr-managed-scratch",
-    runnerId,
-    managedScratch: true,
+    cwd: `runner://${runnerId}/@session`,
     prompt: "proof-count scratch-start",
   });
   expect(status).toBe(201);

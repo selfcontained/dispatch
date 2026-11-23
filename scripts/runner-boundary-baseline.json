@@ -3150,13 +3150,6 @@
     "count": 1
   },
   {
-    "file": "apps/web/src/components/app/create-agent-dialog.tsx",
-    "kind": "R6 placement read",
-    "detail": "form.runner",
-    "task": "T38",
-    "count": 4
-  },
-  {
     "file": "apps/web/src/components/app/files-pane.tsx",
     "kind": "R6 placement call",
     "detail": "remotePlacement(workspace)",
@@ -3234,13 +3227,6 @@
     "count": 1
   },
   {
-    "file": "apps/web/src/components/app/runner-project-picker.tsx",
-    "kind": "R6 protocol value import",
-    "detail": "@dispatch/runner-protocol",
-    "task": "T38",
-    "count": 2
-  },
-  {
     "file": "apps/web/src/components/app/runner-settings.tsx",
     "kind": "R6 placement read",
     "detail": "{ runner }",
@@ -3258,13 +3244,6 @@
     "file": "apps/web/src/components/app/use-create-agent-form.ts",
     "kind": "R6 protocol value import",
     "detail": "@dispatch/runner-protocol",
-    "task": "T38",
-    "count": 1
-  },
-  {
-    "file": "apps/web/src/components/app/use-create-agent-form.ts",
-    "kind": "R7 restriction",
-    "detail": "N8 Create form gates project and checkout options",
     "task": "T38",
     "count": 1
   },

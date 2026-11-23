@@ -13,10 +13,7 @@ import { AgentEngineFields } from "@/components/app/agent-engine-fields";
 import { ContextPicker } from "@/components/app/context-picker";
 import { CONTEXT_PROMPT_ID } from "@/components/app/create-agent-dialog-utils";
 import { WorktreeSection } from "@/components/app/create-agent-worktree-section";
-import {
-  RunnerPicker,
-  RunnerWorkspacePicker,
-} from "@/components/app/runner-picker";
+import { RunnerPicker } from "@/components/app/runner-picker";
 import { PathInput } from "@/components/app/path-input";
 import { useCreateAgentForm } from "@/components/app/use-create-agent-form";
 import { Button } from "@/components/ui/button";
@@ -189,52 +186,22 @@ function CreateAgentDialogContent({
               </Field>
 
               {task && <TaskContextCard task={task} />}
-              {form.runner &&
-                !form.runnerUnavailable &&
-                !form.managedSession && (
-                  <RunnerWorkspacePicker
-                    selected={form.runner}
-                    workspace={form.runnerWorkspace}
-                    onWorkspaceChange={form.setRunnerWorkspace}
-                  />
-                )}
-              {form.managedSession && form.runnerId && (
-                <>
-                  {!task && (
-                    <RunnerProjectPicker
-                      key={form.runnerId}
-                      runnerId={form.runnerId}
-                      canSearch={
-                        form.runnerGitHubAvailable &&
-                        Boolean(form.runner?.repositoryPicker)
-                      }
-                      updateNeeded={
-                        form.runnerGitHubAvailable &&
-                        !form.runner?.repositoryPicker
-                      }
-                      projectId={form.createProjectId}
-                      repository={form.repository}
-                      onProject={form.setCreateProjectId}
-                      onRepository={form.chooseRepo}
-                    />
-                  )}
-                  {task && form.repository && (
-                    <p
-                      className="truncate text-body-sm text-muted-foreground"
-                      title={form.repository}
-                    >
-                      {form.repository}
-                    </p>
-                  )}
-                  {form.repoStatus && (
-                    <p
-                      role="status"
-                      className="text-body-sm text-muted-foreground"
-                    >
-                      {form.repoStatus}
-                    </p>
-                  )}
-                </>
+              {form.runnerId && !form.runnerUnavailable && !task && (
+                <RunnerProjectPicker
+                  projects={form.runnerProjects}
+                  projectId={form.createProjectId}
+                  loading={form.runnerProjectsLoading}
+                  error={form.runnerProjectsError}
+                  onProject={form.setCreateProjectId}
+                />
+              )}
+              {form.runnerId && task && form.repository && (
+                <p
+                  className="truncate text-body-sm text-muted-foreground"
+                  title={form.repository}
+                >
+                  {form.repository}
+                </p>
               )}
               {!form.runnerId && !task && (
                 <div className="space-y-1">
