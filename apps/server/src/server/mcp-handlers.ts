@@ -897,8 +897,6 @@ async function handleListFiles(
 ): Promise<ListedFileItem[]> {
   const owner = await resolveReadableOwner(deps, agentId, opts.ownerAgentId);
 
-  // Files stay in the owner's directory; a family read hands back the owner's
-  // path and nothing is copied. Agents read files by path, never over HTTP.
   const filesDir = resolveFilesDir(owner.id, owner.filesDir, deps.filesRoot);
   const whereClause = opts.source
     ? `WHERE agent_id = $1 AND source = $2`
@@ -920,15 +918,38 @@ async function handleListFiles(
     params
   );
 
-  return result.rows.map((row) => ({
-    ownerAgentId: owner.id,
-    fileName: row.file_name,
-    filePath: path.join(filesDir, row.file_name),
-    source: row.source,
-    description: row.description ?? null,
-    sizeBytes: row.size_bytes,
-    createdAt: row.created_at.toISOString(),
-  }));
+  if (!result.rows.length) return [];
+  const recipient = await deps.agentManager.getAgent(agentId);
+  if (!recipient) throw new Error("Agent not found.");
+
+  const files: ListedFileItem[] = [];
+  for (const row of result.rows) {
+    let filePath: string;
+    try {
+      filePath = await deps.agentManager.deliverSessionFile(
+        recipient,
+        path.join(filesDir, row.file_name),
+        row.file_name,
+        "reference"
+      );
+    } catch (err) {
+      deps.appLog.warn(
+        { err, agentId, ownerAgentId: owner.id, fileName: row.file_name },
+        "Shared file is unavailable"
+      );
+      continue;
+    }
+    files.push({
+      ownerAgentId: owner.id,
+      fileName: row.file_name,
+      filePath,
+      source: row.source,
+      description: row.description ?? null,
+      sizeBytes: row.size_bytes,
+      createdAt: row.created_at.toISOString(),
+    });
+  }
+  return files;
 }
 
 async function handleDeleteFile(
