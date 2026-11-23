@@ -53,6 +53,15 @@ const repoRoot = path.resolve(here, "../../..");
 const mainTs = path.resolve(here, "../src/main.ts");
 const fakeAgent = path.join(repoRoot, "e2e/fixtures/fake-acp-agent.mjs");
 
+function configProbeEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    DATABASE_URL: "postgres://unused",
+    // The probes also run from Dispatch agent contexts, where the default port is reserved.
+    DISPATCH_PORT: "0",
+  };
+}
+
 const logger = {
   info: () => {},
   warn: () => {},
@@ -228,8 +237,7 @@ describe("agent host", () => {
         `DISPATCH_ACP_ADAPTER_COMMAND='${JSON.stringify([fakeAgent])}'\n`
       );
       const env: NodeJS.ProcessEnv = {
-        ...process.env,
-        DATABASE_URL: "postgres://unused",
+        ...configProbeEnv(),
         DISPATCH_HOST: "127.0.0.1",
         DOTENV_CONFIG_PATH: dotenv,
       };
@@ -271,8 +279,7 @@ describe("agent host", () => {
       {
         cwd,
         env: {
-          ...process.env,
-          DATABASE_URL: "postgres://unused",
+          ...configProbeEnv(),
           DISPATCH_ACP_ADAPTER_COMMAND: JSON.stringify([fakeAgent]),
         },
         encoding: "utf8",
