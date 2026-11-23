@@ -732,6 +732,32 @@ describe("runner session supervision", () => {
     expect(transfer).toHaveBeenCalledTimes(4);
   });
 
+  it("writes a streamed delivery into the session's files area, sized", async () => {
+    const runner = await start(["configured"]);
+    const cwd = await realpath(root);
+    const transfer = vi.fn(async () => "");
+    const first = launch("configured");
+    await runner.launch(first, cwd);
+    const deliver = (name: string) =>
+      runner.sessionFile(
+        agentId,
+        first.workspace,
+        { kind: "deliver", name, streamId: "put-1", size: 42 },
+        transfer,
+        cwd
+      );
+    const destination = await deliver("résumé (1).pdf");
+    expect(transfer).toHaveBeenLastCalledWith(
+      "receive",
+      path.dirname(destination),
+      "42:résumé (1).pdf"
+    );
+    expect(path.basename(destination)).toBe("résumé (1).pdf");
+    expect(path.basename(path.dirname(destination))).toBe("files");
+    await expect(deliver("../escape")).rejects.toThrow("Invalid");
+    expect(transfer).toHaveBeenCalledTimes(1);
+  });
+
   const helper = [
     "bun",
     "--no-env-file",
@@ -791,6 +817,30 @@ describe("runner session supervision", () => {
       })
     ).rejects.toHaveProperty("stderr", "Session files are limited to 20 MiB.");
   });
+
+  it.skipIf(process.platform !== "linux")(
+    "writes a streamed file of any size with the workload helper and discards a short one",
+    async () => {
+      const contents = Buffer.alloc(21 * 1024 * 1024, 0x3c);
+      const put = (name: string, size: number, bytes: Buffer) =>
+        new Promise<number | null>((resolve, reject) => {
+          const child = execFile(
+            helper[0]!,
+            [...helper.slice(1), "receive", root, `${size}:${name}`],
+            { timeout: 15_000 }
+          );
+          child.once("error", reject);
+          child.once("close", resolve);
+          child.stdin!.end(bytes);
+        });
+      expect(await put("big.bin", contents.length, contents)).toBe(0);
+      expect(
+        (await readFile(path.join(root, "big.bin"))).equals(contents)
+      ).toBe(true);
+      expect(await put("short.bin", 10, Buffer.from("abc"))).not.toBe(0);
+      await expect(readFile(path.join(root, "short.bin"))).rejects.toThrow();
+    }
+  );
 
   it.skipIf(process.platform !== "linux" || process.getuid?.() !== 0)(
     "gets EACCES from the kernel for a root-owned file after dropping privileges",

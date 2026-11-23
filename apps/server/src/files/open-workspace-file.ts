@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { lstat, open, type FileHandle } from "node:fs/promises";
+import { lstat, open, realpath, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 // These flags are provided by the operating systems but aren't exposed by Node.
 export const DARWIN_NOFOLLOW_ANY = 0x20000000;
@@ -60,3 +60,17 @@ export async function openLinuxDirectory(target: string): Promise<FileHandle> {
     throw error;
   }
 }
+
+/** A file Dispatch holds, opened to hand to an agent: any regular file. */
+export async function openSourceFile(source: string) {
+  const file = await open(source, constants.O_RDONLY | constants.O_NONBLOCK);
+  try {
+    if (!(await file.stat()).isFile()) throw new Error("Not a regular file.");
+    return file;
+  } catch (error) {
+    await file.close();
+    throw error;
+  }
+}
+
+export { realpath as realDirectory };

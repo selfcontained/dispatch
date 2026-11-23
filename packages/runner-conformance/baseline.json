@@ -589,12 +589,6 @@
   },
   {
     "lane": "remote",
-    "scenario": "files.put/pending",
-    "task": "T12",
-    "reason": "scenario not written yet"
-  },
-  {
-    "lane": "remote",
     "scenario": "git.context/pending",
     "task": "T15",
     "reason": "not on wire v1: local probe today; v1 roots and sessionCheckout carry parts"

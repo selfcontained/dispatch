@@ -3,7 +3,11 @@ import {
   isSessionFilePath,
   MAX_SESSION_FILE_BYTES,
 } from "@dispatch/runner-protocol";
-import { openRegularFile } from "./open-workspace-file.js";
+import {
+  openRegularFile,
+  openSourceFile,
+  realDirectory,
+} from "./open-workspace-file.js";
 
 export async function openBoundedSessionFile(root: string, relative: string) {
   if (!isSessionFilePath(relative) || path.isAbsolute(relative))
@@ -45,4 +49,24 @@ export async function readSessionFile(root: string, relative: string) {
   } finally {
     await file.close();
   }
+}
+
+/**
+ * A file to hand to a runner: streamed as it is where the peer supports it,
+ * or read whole under today's v1 limits where it does not. Used once.
+ */
+export async function sessionFileSource(source: string) {
+  const file = await openSourceFile(source);
+  const { size } = await file.stat();
+  return {
+    size,
+    open: () => file.createReadStream(),
+    read: async () => {
+      await file.close();
+      return readSessionFile(
+        await realDirectory(path.dirname(source)),
+        path.basename(source)
+      );
+    },
+  };
 }

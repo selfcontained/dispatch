@@ -803,6 +803,19 @@ export async function runRemoteRunner(
       let updateConnection: ReturnType<typeof updates.connect> | undefined;
       let advert: ReturnType<typeof updates.advert>;
 
+      /** A streamed delivery's bytes, buffered only within the stream window. */
+      function receiveIncoming(streamId: string) {
+        const controller = new AbortController();
+        const body = new PassThrough();
+        const done = streams.receive(streamId, body, controller.signal);
+        done.catch(() => {});
+        return {
+          body,
+          done,
+          abort: () => controller.abort(),
+        };
+      }
+
       async function request(id: string, command: Command) {
         if (!isOpaqueId(id)) throw new Error("Invalid runner request ID");
         if (socket.destroyed) return;
@@ -1022,81 +1035,125 @@ export async function runRemoteRunner(
             break;
           }
           case "sessionFile": {
-            const streamId =
-              command.operation.kind === "collect"
-                ? command.operation.streamId
+            const streamId = command.operation.streamId;
+            // Register a streamed delivery's sink before anything awaits: the
+            // controller opens the stream right after this request's frame.
+            const incoming =
+              command.operation.kind === "deliver" && streamId !== undefined
+                ? receiveIncoming(streamId)
                 : undefined;
-            const value = await supervisor.sessionFile(
-              agentId,
-              workspace,
-              command.operation,
-              async (kind, root, name, data) => {
-                const [bin, args] = sessionFileCommand(
-                  config.uid,
-                  config.gid,
-                  self("runner-session-file"),
-                  kind,
-                  root,
-                  name
-                );
-                if (kind === "stream") {
-                  if (streamId === undefined)
-                    throw new Error("Missing file stream ID.");
-                  const child = spawn(bin, args, {
-                    env,
-                    signal: connection.signal,
-                    stdio: ["ignore", "pipe", "pipe"],
-                  });
-                  let stderr = "";
-                  child.stderr
-                    .setEncoding("utf8")
-                    .on("data", (chunk: string) => {
-                      stderr = (stderr + chunk).slice(0, 256);
-                    });
-                  const exited = new Promise<void>((resolve, reject) => {
-                    child.once("error", reject);
-                    child.once("close", (status) => {
-                      if (status === 0) resolve();
-                      else
-                        reject(
-                          new Error(
-                            stderr.trim() || "Runner file transfer failed."
-                          )
-                        );
-                    });
-                  });
-                  try {
-                    await Promise.all([
-                      streams.send(streamId, child.stdout, connection.signal),
-                      exited,
-                    ]);
-                  } finally {
-                    if (child.exitCode === null && child.signalCode === null)
-                      child.kill();
-                  }
-                  return "";
-                }
-                const child = execute(bin, args, {
-                  env,
-                  timeout: 15_000,
-                  signal: connection.signal,
-                  maxBuffer: MAX_SESSION_FILE_BASE64 + 1024,
-                });
-                child.child.stdin?.on("error", () => {});
-                child.child.stdin?.end(data);
-                try {
-                  return (await child).stdout;
-                } catch (error) {
-                  throw new Error(
-                    (error as { stderr?: string }).stderr
-                      ?.trim()
-                      .slice(0, 256) || "Runner file transfer failed."
+            const value = await supervisor
+              .sessionFile(
+                agentId,
+                workspace,
+                command.operation,
+                async (kind, root, name, data) => {
+                  const [bin, args] = sessionFileCommand(
+                    config.uid,
+                    config.gid,
+                    self("runner-session-file"),
+                    kind,
+                    root,
+                    name
                   );
-                }
-              },
-              target?.cwd
+                  if (kind === "receive") {
+                    if (!incoming) throw new Error("Missing file stream ID.");
+                    const child = spawn(bin, args, {
+                      env,
+                      signal: connection.signal,
+                      stdio: ["pipe", "ignore", "pipe"],
+                    });
+                    let stderr = "";
+                    child.stderr
+                      .setEncoding("utf8")
+                      .on("data", (chunk: string) => {
+                        stderr = (stderr + chunk).slice(0, 256);
+                      });
+                    child.stdin.on("error", () => {});
+                    const exited = new Promise<void>((resolve, reject) => {
+                      child.once("error", reject);
+                      child.once("close", (status) => {
+                        if (status === 0) resolve();
+                        else
+                          reject(
+                            new Error(
+                              stderr.trim() || "Runner file transfer failed."
+                            )
+                          );
+                      });
+                    });
+                    incoming.body.pipe(child.stdin);
+                    try {
+                      await Promise.all([incoming.done, exited]);
+                    } finally {
+                      if (child.exitCode === null && child.signalCode === null)
+                        child.kill();
+                    }
+                    return "";
+                  }
+                  if (kind === "stream") {
+                    if (streamId === undefined)
+                      throw new Error("Missing file stream ID.");
+                    const child = spawn(bin, args, {
+                      env,
+                      signal: connection.signal,
+                      stdio: ["ignore", "pipe", "pipe"],
+                    });
+                    let stderr = "";
+                    child.stderr
+                      .setEncoding("utf8")
+                      .on("data", (chunk: string) => {
+                        stderr = (stderr + chunk).slice(0, 256);
+                      });
+                    const exited = new Promise<void>((resolve, reject) => {
+                      child.once("error", reject);
+                      child.once("close", (status) => {
+                        if (status === 0) resolve();
+                        else
+                          reject(
+                            new Error(
+                              stderr.trim() || "Runner file transfer failed."
+                            )
+                          );
+                      });
+                    });
+                    try {
+                      await Promise.all([
+                        streams.send(streamId, child.stdout, connection.signal),
+                        exited,
+                      ]);
+                    } finally {
+                      if (child.exitCode === null && child.signalCode === null)
+                        child.kill();
+                    }
+                    return "";
+                  }
+                  const child = execute(bin, args, {
+                    env,
+                    timeout: 15_000,
+                    signal: connection.signal,
+                    maxBuffer: MAX_SESSION_FILE_BASE64 + 1024,
+                  });
+                  child.child.stdin?.on("error", () => {});
+                  child.child.stdin?.end(data);
+                  try {
+                    return (await child).stdout;
+                  } catch (error) {
+                    throw new Error(
+                      (error as { stderr?: string }).stderr
+                        ?.trim()
+                        .slice(0, 256) || "Runner file transfer failed."
+                    );
+                  }
+                },
+                target?.cwd
+              )
+              .finally(() => incoming?.abort());
+            result(
+              streamId === undefined || command.operation.kind === "deliver"
+                ? value
+                : true
             );
-            result(streamId === undefined ? value : true);
             break;
           }
           case "checkoutRelease": {
@@ -1684,6 +1741,7 @@ export async function runRemoteRunner(
           checkoutRelease: true,
           sessionFiles: true,
           filesGetStream: true,
+          filesPutStream: true,
           checkoutViews: true,
           sharedWorktree: true,
           launchReconcile: true,

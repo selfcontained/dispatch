@@ -4,7 +4,7 @@
  * the result. Operations v1 cannot carry (`NOT_ON_V1`) answer `unsupported`.
  */
 import { openTerminalStream } from "@dispatch/runner-client/v1/terminal";
-import type { Duplex } from "node:stream";
+import { Readable, type Duplex } from "node:stream";
 import {
   RUNNER_WIRE_VERSION,
   isCheckoutReadName,
@@ -40,6 +40,7 @@ import {
   receiveFile,
   receiveCheckoutExec,
   receiveCheckoutRead,
+  sendFile,
   RunnerAcknowledgementLost,
   RunnerHostGone,
   RunnerUnavailable,
@@ -236,6 +237,26 @@ export function v1Runner({
           return result.streamed
             ? (result.result as Res<K>)
             : decodeResult(frame, result.value);
+        }
+        if (
+          command.kind === "sessionFile" &&
+          command.operation.kind === "deliver" &&
+          command.operation.data !== undefined
+        ) {
+          const bytes = Buffer.from(command.operation.data, "base64");
+          const { operation, ...target } = command;
+          const value = await sendFile(
+            target,
+            operation.name,
+            {
+              size: bytes.length,
+              open: () => Readable.from([bytes]),
+              read: async () => bytes,
+            },
+            (command, signal) => connection.request(command, { signal }),
+            ready.filesPutStream ? streams : undefined
+          );
+          return decodeResult(frame, value as string);
         }
         const { value } = await connection.request(command, {
           signal: opts?.signal,

@@ -17,7 +17,7 @@ import {
 import { requestCheckoutCommand } from "./checkout-commands.js";
 import { REPO_TOOL_MANIFEST_PATH } from "../shared/mcp/repo-tools.js";
 import { isPromptImageMimeType } from "./acp/prompt-source.js";
-import { readSessionFile } from "../files/session-file.js";
+import { sessionFileSource } from "../files/session-file.js";
 import { readAgentView } from "./checkout-runner.js";
 import {
   agentComparisonBase,
@@ -128,7 +128,6 @@ import {
   isCheckoutPath,
   isSessionCheckout,
   remotePlacement,
-  isSessionFilePath,
   type RunnerRepository,
   type LaunchProgress,
   type CheckoutQuery,
@@ -556,7 +555,8 @@ export class AgentManager {
         remote: this.remote,
         holds: this.holds,
         remoteInbox,
-        preparePromptFiles: (id, images) => this.preparePromptFiles(id, images),
+        preparePromptFiles: (id, images, text) =>
+          this.preparePromptFiles(id, images, text),
         recoverRemoteEvent: (agentId) =>
           remoteInbox.recover(agentId, (event) =>
             this.handleRuntimeEvent(agentId, event, 0, true)
@@ -980,6 +980,10 @@ export class AgentManager {
     return this.remote.getFile(placement, agent.id, filePath);
   }
 
+  /**
+   * `files.put`: hand one file to the agent and return the path it opens.
+   * Local agents open the file where it is, so nothing is copied.
+   */
   private async deliverSessionFile(
     agent: AgentRecord,
     source: string,
@@ -989,28 +993,29 @@ export class AgentManager {
     if (!placement)
       return this.localRunner.deliverSessionFile(agent.id, source);
     if (!this.remote) throw new Error("Runner session is unavailable.");
-    const bytes = await readSessionFile(
-      await realpath(path.dirname(source)),
-      path.basename(source)
+    return this.remote.putFile(
+      placement,
+      agent.id,
+      name,
+      await sessionFileSource(source)
     );
-    const { value } = await this.remote.requestSession(placement, {
-      agentId: agent.id,
-      kind: "sessionFile",
-      operation: { kind: "deliver", name, data: bytes.toString("base64") },
-    });
-    if (!isSessionFilePath(value) || !path.posix.isAbsolute(value))
-      throw new Error("Invalid runner input file location.");
-    return value;
   }
 
+  /**
+   * Put a prompt's files and point its text at where the agent opens them.
+   * A file that cannot be handed over is left out with a warning, and the
+   * text keeps its reference, as main does for a missing image.
+   */
   private async preparePromptFiles(
     id: string,
-    images: PromptImage[]
-  ): Promise<PromptImage[]> {
-    if (!images.some((image) => image.runnerName !== undefined)) return images;
+    images: PromptImage[],
+    text: string
+  ): Promise<{ images: PromptImage[]; text: string }> {
+    if (!images.some((image) => image.runnerName !== undefined))
+      return { images, text };
     const agent = await this.getRequiredAgent(id);
     const prepared: PromptImage[] = [];
-    const delivered = new Map<string, string>();
+    const delivered = new Map<string, string | null>();
     for (const { path: source, mimeType, runnerName } of images) {
       if (runnerName === undefined) {
         prepared.push({ path: source, mimeType });
@@ -1025,20 +1030,22 @@ export class AgentManager {
             runnerName
           );
         } catch (error) {
-          // Native prompts historically retain a reference if an image is gone.
-          if (remotePlacement(agent.cwd)) throw error;
+          if (error instanceof RunnerUpdateFenced) throw error;
           this.logger.warn(
             { err: error, agentId: id },
             "Native prompt file is unavailable"
           );
-          continue;
+          destination = null;
         }
         delivered.set(source, destination);
       }
-      if (isPromptImageMimeType(mimeType))
+      if (destination !== null && isPromptImageMimeType(mimeType))
         prepared.push({ path: destination, mimeType });
     }
-    return prepared;
+    for (const [source, destination] of delivered)
+      if (destination !== null && destination !== source)
+        text = text.split(source).join(destination);
+    return { images: prepared, text };
   }
 
   /** Queue one turn; see AgentRuntime.prompt. */
@@ -2669,40 +2676,30 @@ export class AgentManager {
         throw error;
       }
       const { sessionId } = started;
-      const remote = remotePlacement(agent.cwd);
-      let images = chatLaunchPost?.images;
-      try {
-        if (opts.initialFiles.length || images?.length) {
-          const filesDir = resolveFilesDir(
-            id,
-            agent.filesDir,
-            this.config.filesRoot
-          );
-          const inputs = [...(images ?? [])];
-          const sources = new Set(inputs.map((image) => image.path));
-          for (const file of opts.initialFiles) {
-            const source = path.join(filesDir, file.fileName);
-            if (!sources.has(source)) {
-              await this.whileFenced(agent, () =>
-                this.deliverSessionFile(agent, source, file.fileName)
-              );
-            }
-          }
-          images = await this.whileFenced(agent, () =>
-            this.preparePromptFiles(id, inputs)
-          );
-        }
-      } catch (error) {
-        if (error instanceof LifecycleSuperseded) throw error;
-        await this.runtime
-          .stop(id, true)
-          .catch((err: unknown) =>
+      const images = chatLaunchPost?.images;
+      if (opts.initialFiles.length) {
+        const filesDir = resolveFilesDir(
+          id,
+          agent.filesDir,
+          this.config.filesRoot
+        );
+        // The first turn's own files go with it; the rest are put here.
+        const sources = new Set(images?.map((image) => image.path));
+        for (const file of opts.initialFiles) {
+          const source = path.join(filesDir, file.fileName);
+          if (sources.has(source)) continue;
+          try {
+            await this.whileFenced(agent, () =>
+              this.deliverSessionFile(agent, source, file.fileName)
+            );
+          } catch (error) {
+            if (error instanceof LifecycleSuperseded) throw error;
             this.logger.warn(
-              { err, agentId: id },
-              "Runner host cleanup after file delivery failure"
-            )
-          );
-        throw error;
+              { err: error, agentId: id },
+              "Startup file is unavailable"
+            );
+          }
+        }
       }
       await this.pool.query(
         `UPDATE agents SET status = 'running', cli_session_id = $2, setup_phase = NULL, updated_at = NOW() WHERE id = $1`,
@@ -2721,12 +2718,7 @@ export class AgentManager {
       const firstTurn = buildStartupTurn(
         {
           initialPrompt: opts.initialPrompt,
-          initialFiles: remote
-            ? opts.initialFiles.map((file) => ({
-                ...file,
-                runnerPath: `$DISPATCH_FILES_DIR/${file.fileName}`,
-              }))
-            : opts.initialFiles,
+          initialFiles: opts.initialFiles,
           chatLaunchPost,
         },
         { jobRunId: opts.jobRunId }

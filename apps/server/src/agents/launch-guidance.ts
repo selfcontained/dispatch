@@ -7,7 +7,6 @@ export type StartupFile = {
   displayName: string;
   source: string;
   description: string | null;
-  runnerPath?: string;
 };
 
 /**
@@ -86,9 +85,7 @@ export function buildStartupPrompt(
 
   const sections = [
     "Startup context is attached to this session.",
-    initialFiles.some((file) => file.runnerPath)
-      ? "Inspect the provided links and shared files before acting. Resolve file paths using the session's DISPATCH_FILES_DIR."
-      : "Inspect the provided links and shared files before acting. Use Dispatch shared-file tools to access attached files; do not try to locate them by searching the filesystem by name.",
+    "Inspect the provided links and shared files before acting. Use Dispatch shared-file tools to access attached files; do not try to locate them by searching the filesystem by name.",
   ];
 
   if (trimmedPrompt) {
@@ -108,9 +105,7 @@ export function buildStartupPrompt(
         ...initialFiles.map((file) => {
           const detail = file.description?.trim();
           const suffix = detail ? ` — ${detail}` : "";
-          const location =
-            file.runnerPath ?? "available via dispatch shared files";
-          return `- ${file.displayName}${suffix} (${location})`;
+          return `- ${file.displayName}${suffix} (available via dispatch shared files)`;
         }),
       ].join("\n")
     );

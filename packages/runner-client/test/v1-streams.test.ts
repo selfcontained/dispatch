@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 import {
   receiveCheckoutRead,
   receiveFile,
+  sendFile,
   RunnerConnection,
 } from "../src/v1/connection.js";
 import { wireFrames, FlowStreams, acceptsStreams } from "../src/v1/node.js";
@@ -126,9 +127,42 @@ async function loopback(advertise = true, stallMs?: number, file?: Buffer) {
           });
         }
       }
+      if (
+        frame?.type === "request" &&
+        frame.command.kind === "sessionFile" &&
+        frame.command.operation.kind === "deliver"
+      ) {
+        const { operation } = frame.command;
+        const done = (bytes: Buffer) => {
+          delivered.push(bytes);
+          reply({
+            type: "result",
+            id: frame.id,
+            value: `/files/${operation.name}`,
+          });
+        };
+        if (operation.streamId === undefined)
+          done(Buffer.from(operation.data, "base64"));
+        else {
+          // Registered on the request frame, before the stream opens.
+          const chunks: Buffer[] = [];
+          void runner
+            .receive(
+              operation.streamId,
+              new Writable({
+                write(chunk: Buffer, _encoding, callback) {
+                  chunks.push(chunk);
+                  callback();
+                },
+              })
+            )
+            .then(() => done(Buffer.concat(chunks)));
+        }
+      }
       if (frame?.type === "data") reply(frame);
     }
   );
+  const delivered: Buffer[] = [];
   const runner = new FlowStreams(runnerSocket, reply, stallMs);
   reply({
     type: "ready",
@@ -142,6 +176,7 @@ async function loopback(advertise = true, stallMs?: number, file?: Buffer) {
     runner,
     connection,
     received,
+    delivered,
     attach,
     clientSocket,
     runnerSocket,
@@ -223,6 +258,58 @@ describe("v1 credit streams", () => {
           : command;
         expect(link.received).toEqual([
           { type: "request", id: expect.any(String), command: request },
+        ]);
+      } finally {
+        await link.close();
+      }
+    }
+  );
+
+  it.each([true, false])(
+    "puts files and keeps the old inline frame without streams (%s)",
+    async (streamed) => {
+      const bytes = streamed
+        ? Buffer.alloc(21 * 1024 * 1024, 0x5b)
+        : Buffer.from([0, 255, 128]);
+      const link = await loopback(streamed);
+      const target = {
+        kind: "sessionFile",
+        agentId: "agent",
+        workspace: "test",
+      } as const;
+      try {
+        const path = await sendFile(
+          target,
+          "notes (1).txt",
+          {
+            size: bytes.length,
+            open: () => Readable.from([bytes]),
+            read: async () => bytes,
+          },
+          (command, signal) => link.connection.request(command, { signal }),
+          streamed ? link.client : undefined
+        );
+        expect(path).toBe("/files/notes (1).txt");
+        expect(link.delivered).toHaveLength(1);
+        expect(link.delivered[0]!.equals(bytes)).toBe(true);
+        const operation = streamed
+          ? {
+              kind: "deliver",
+              name: "notes (1).txt",
+              streamId: expect.any(String),
+              size: bytes.length,
+            }
+          : {
+              kind: "deliver",
+              name: "notes (1).txt",
+              data: bytes.toString("base64"),
+            };
+        expect(link.received).toEqual([
+          {
+            type: "request",
+            id: expect.any(String),
+            command: { ...target, operation },
+          },
         ]);
       } finally {
         await link.close();

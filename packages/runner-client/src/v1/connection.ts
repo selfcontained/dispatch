@@ -18,7 +18,7 @@ import {
 import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 import type { Timeout } from "@dispatch/runner-protocol/contract";
 import { randomUUID } from "node:crypto";
-import { Writable, type Duplex } from "node:stream";
+import { Writable, type Duplex, type Readable } from "node:stream";
 import { isSessionFileData } from "@dispatch/runner-protocol";
 import type { FlowStreams } from "./streams.js";
 import type {
@@ -83,7 +83,7 @@ export function runnerReplyTimeoutMs(command: Command): number {
   }
   return command.kind === "sessionCheckout" ||
     command.kind === "checkoutRelease" ||
-    isStreamedCollection(command) ||
+    isStreamedFile(command) ||
     command.kind === "checkoutRead" ||
     command.kind === "inspectCheckout" ||
     command.kind === "viewCheckout" ||
@@ -94,11 +94,10 @@ export function runnerReplyTimeoutMs(command: Command): number {
     : runnerDeadlineMs("default", null, 0);
 }
 
-function isStreamedCollection(command: Command) {
+/** A session file whose bytes travel on a stream: bounded by progress, not a reply deadline. */
+function isStreamedFile(command: Command) {
   return (
-    command.kind === "sessionFile" &&
-    command.operation.kind === "collect" &&
-    command.operation.streamId !== undefined
+    command.kind === "sessionFile" && command.operation.streamId !== undefined
   );
 }
 
@@ -300,6 +299,63 @@ export async function receiveCheckoutRead<K extends CheckoutReadName>(
   }
 }
 
+type DeliverCommand = Extract<Command, { kind: "sessionFile" }> & {
+  operation: { kind: "deliver" };
+};
+
+/** The bytes of one file to hand to the runner. */
+export type FileSource = {
+  size: number;
+  /** A fresh read of the bytes, for a stream. */
+  open(): Readable;
+  /** The whole file, for the v1 frame. */
+  read(): Promise<Buffer>;
+};
+
+/**
+ * Hand a file to the runner. With streams the bytes follow the request on a
+ * flow-controlled stream; the v1 fallback keeps its original inline frame.
+ * `request` must write its frame before it first awaits: the stream opens
+ * right after it, and the runner registers its sink on that frame.
+ */
+export async function sendFile(
+  command: Omit<DeliverCommand, "operation">,
+  name: string,
+  source: FileSource,
+  request: (
+    command: DeliverCommand,
+    signal?: AbortSignal
+  ) => Promise<{ value: unknown }>,
+  streams?: FlowStreams
+): Promise<unknown> {
+  if (!streams) {
+    const data = (await source.read()).toString("base64");
+    const { value } = await request({
+      ...command,
+      operation: { kind: "deliver", name, data },
+    });
+    return value;
+  }
+  const id = randomUUID();
+  const controller = new AbortController();
+  const reply = request(
+    {
+      ...command,
+      operation: { kind: "deliver", name, streamId: id, size: source.size },
+    },
+    controller.signal
+  );
+  const sent = streams.send(id, source.open(), controller.signal);
+  try {
+    const [{ value }] = await Promise.all([reply, sent]);
+    return value;
+  } finally {
+    controller.abort();
+    // Whichever side failed first, the other is settled by the abort.
+    await Promise.allSettled([reply, sent]);
+  }
+}
+
 /** Service side of one authenticated runner connection. Request IDs and channels are local to it. */
 export class RunnerConnection {
   private readonly pending = new Map<string, (frame?: ResultFrame) => void>();
@@ -353,7 +409,7 @@ export class RunnerConnection {
     const cancellable =
       command.kind === "checkoutCommand" ||
       command.kind === "checkoutRead" ||
-      isStreamedCollection(command) ||
+      isStreamedFile(command) ||
       (command.kind === "openTerminal" && command.stream !== undefined);
     if (cancellable) signal?.throwIfAborted();
     const id = crypto.randomUUID();

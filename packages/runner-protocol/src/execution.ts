@@ -159,6 +159,8 @@ export type ReadyFrame = {
   checkoutRelease?: true;
   sessionFiles?: true;
   filesGetStream?: true;
+  /** `sessionFile` deliveries may carry their bytes on a stream. */
+  filesPutStream?: true;
   /** A repeated `launch.launchId` is reconciled rather than run again. */
   launchReconcile?: true;
   /** Supervisor self-update support and the installed identity. */
@@ -201,6 +203,7 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     ...(frame.sharedWorktree === true && { sharedWorktree: true }),
     ...(frame.sessionFiles === true && { sessionFiles: true }),
     ...(frame.filesGetStream === true && { filesGetStream: true }),
+    ...(frame.filesPutStream === true && { filesPutStream: true }),
     ...(frame.launchReconcile === true && { launchReconcile: true }),
     ...(frame.checkoutRelease === true && { checkoutRelease: true }),
     ...(frame.sessionCheckout === true && { sessionCheckout: true }),

@@ -326,10 +326,12 @@ describe("AgentManager", () => {
         activeTurn: () => false,
         cancel: async () => {},
         inject: async (id, text, opts) => {
-          submitted(
-            text,
-            await manager["preparePromptFiles"](id, opts?.images ?? [])
+          const prepared = await manager["preparePromptFiles"](
+            id,
+            opts?.images ?? [],
+            text
           );
+          submitted(prepared.text, prepared.images);
         },
       },
     });

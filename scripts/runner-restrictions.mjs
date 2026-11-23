@@ -78,12 +78,6 @@ const rules = [
     [supervisor, "Directory is outside the bound runner checkout."],
   ],
   [
-    "N11",
-    "Delivery filename and path rules",
-    "T12",
-    [protocol + "session-files.ts", "!/[^A-Za-z0-9 ._()-]/u.test(value)"],
-  ],
-  [
     "N12",
     "Runner checkout hardens Git configuration",
     "T19",
@@ -150,21 +144,6 @@ const rules = [
       mcp,
       "const repoRoot = placement ? null : (roots?.repositoryRoot ?? null)",
     ],
-  ],
-  [
-    "N20",
-    "Runner attachments require a new prompt",
-    "T12",
-    [
-      runtime,
-      "entry.remote || input.runnerName === undefined || isPromptImageMimeType(input.mimeType)",
-    ],
-  ],
-  [
-    "N21",
-    "Missing runner attachment fails prompt",
-    "T12",
-    [manager, "if (remotePlacement(agent.cwd)) throw error"],
   ],
   [
     "N22",

@@ -62,8 +62,9 @@ async function fixture(
   options: {
     preparePromptFiles?: (
       agentId: string,
-      images: PromptImage[]
-    ) => Promise<PromptImage[]>;
+      images: PromptImage[],
+      text: string
+    ) => Promise<{ images: PromptImage[]; text: string }>;
     attach?: boolean;
   } = {}
 ) {
@@ -294,11 +295,14 @@ describe("runner update hold in the runtime queue", () => {
   });
 
   it("transfers an attachment only after release, once, then delivers the prompt once", async () => {
-    const prepared = vi.fn(async (_agentId: string, images: PromptImage[]) =>
-      images.map((image) => ({
-        path: `/runner/files/${image.runnerName}`,
-        mimeType: image.mimeType,
-      }))
+    const prepared = vi.fn(
+      async (_agentId: string, images: PromptImage[], text: string) => ({
+        images: images.map((image) => ({
+          path: `/runner/files/${image.runnerName}`,
+          mimeType: image.mimeType,
+        })),
+        text,
+      })
     );
     const { runtime, holds, held } = await fixture({
       preparePromptFiles: prepared,
@@ -325,20 +329,61 @@ describe("runner update hold in the runtime queue", () => {
     ]);
   });
 
+  it("steers a runner turn with a text attachment, naming the path it was put at", async () => {
+    const prepared = vi.fn(
+      async (_agentId: string, images: PromptImage[], text: string) => ({
+        images: [],
+        text: text.replace("/local/notes.txt", "/runner/files/notes.txt"),
+      })
+    );
+    const { runtime, held } = await fixture({ preparePromptFiles: prepared });
+    const chat = { source: "chat", chatMessageId: "question" } as const;
+    held.turn("started", chat);
+    await vi.waitFor(() => expect(runtime.hasOpenTurn("agt_held")).toBe(true));
+    const steer = runtime.prompt(
+      "agt_held",
+      "- file: /local/notes.txt (text/plain, 5 B)",
+      { ...chat, chatMessageId: "review", awaited: true },
+      {
+        delivery: "auto",
+        images: [
+          {
+            path: "/local/notes.txt",
+            mimeType: "text/plain",
+            runnerName: "notes.txt",
+          },
+        ],
+      }
+    );
+    await steer.accepted;
+    expect(prepared).toHaveBeenCalledTimes(1);
+    expect(held.steers).toEqual([
+      "- file: /runner/files/notes.txt (text/plain, 5 B)",
+    ]);
+    expect(held.prompts).toEqual([]);
+    held.turn("settled");
+    await steer.settled;
+  });
+
   it("re-queues a file transfer the fence refused instead of failing the prompt", async () => {
     let holds!: RunnerUpdateHolds;
     let refusals = 0;
-    const prepared = vi.fn(async (_agentId: string, images: PromptImage[]) => {
-      if (refusals++ === 0) {
-        // The fence closed while this transfer was on its way.
-        await holds.begin("r1", ATTEMPT);
-        throw new RunnerUpdateFenced("The runner is updating.");
+    const prepared = vi.fn(
+      async (_agentId: string, images: PromptImage[], text: string) => {
+        if (refusals++ === 0) {
+          // The fence closed while this transfer was on its way.
+          await holds.begin("r1", ATTEMPT);
+          throw new RunnerUpdateFenced("The runner is updating.");
+        }
+        return {
+          images: images.map((image) => ({
+            path: `/runner/files/${image.runnerName}`,
+            mimeType: image.mimeType,
+          })),
+          text,
+        };
       }
-      return images.map((image) => ({
-        path: `/runner/files/${image.runnerName}`,
-        mimeType: image.mimeType,
-      }));
-    });
+    );
     const built = await fixture({ preparePromptFiles: prepared });
     holds = built.holds;
     const delivery = built.runtime.prompt("agt_held", "fenced", undefined, {

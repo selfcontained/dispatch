@@ -1354,10 +1354,10 @@ describe("AcpRuntime delivery during a turn", () => {
       const runtime = await attached(
         host.stateRoot,
         undefined,
-        async (id, inputs) => {
+        async (id, inputs, text) => {
           for (const input of inputs)
             await local.deliverSessionFile(id, input.path);
-          return [];
+          return { images: [], text };
         }
       );
       const file = path.join(host.stateRoot, "composer.txt");
