@@ -131,6 +131,28 @@ describe("core checkout commands", () => {
   });
 });
 
+it("probes Git in the checkout named by the local binding", async () => {
+  const { connection, calls } = await harness(() => null);
+  await expect(
+    connection.call("git.context", { target: target("moved") })
+  ).resolves.toBeNull();
+  await expect(
+    connection.call("git.context", { target: target("moved", "launch") })
+  ).resolves.toBeNull();
+  await expect(
+    connection.call("git.context", { target: target("unknown") })
+  ).rejects.toMatchObject({ code: "not_found" });
+  expect(
+    calls.map(({ op, input }) => [
+      op,
+      (input as { directory: string }).directory,
+    ])
+  ).toEqual([
+    ["git.context", "/moved"],
+    ["git.context", "/launch"],
+  ]);
+});
+
 describe("core checkout reads", () => {
   it("resolves a session's target from its binding, by selector", async () => {
     const { connection, calls } = await harness(() => listing);

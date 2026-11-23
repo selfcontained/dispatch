@@ -50,6 +50,22 @@ export function agentWorkspaceDir(agent: WorkspaceTargetAgent): string | null {
   return agent.workspacePath ?? agent.worktreePath ?? agent.cwd ?? null;
 }
 
+/** Path used to make tool locations relative to the session's checkout. */
+export function agentStreamDirectory(
+  agent: Pick<
+    WorkspaceTargetAgent,
+    "worktreePath" | "workspacePath" | "gitContext"
+  > & { cwd: string }
+): string {
+  return (
+    agent.workspacePath ??
+    agent.worktreePath ??
+    (path.isAbsolute(agent.cwd)
+      ? agent.cwd
+      : (agent.gitContext?.worktreePath ?? agent.cwd))
+  );
+}
+
 /** Local path used by Changes, including a worktree discovered on older rows. */
 export function agentDiffPath(agent: WorkspaceTargetAgent): string | null {
   if (agent.cwd && remotePlacement(agent.cwd)) return null;

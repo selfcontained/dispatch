@@ -1,4 +1,10 @@
-import type { Placement, Runner } from "@dispatch/runner-protocol/contract";
+import {
+  displayPath,
+  sessionFromWire,
+  type Placement,
+  type Runner,
+} from "@dispatch/runner-protocol/contract";
+import { checkoutRunners } from "../runners/directory.js";
 import {
   controllerPlacement,
   enrolledRunnerId,
@@ -48,11 +54,7 @@ import { getPullRequestHead } from "../shared/github/pr.js";
 import { GitWorktreeError } from "../shared/git/worktree.js";
 import { resolveFilesDir } from "../shared/files.js";
 import { getDirectoryIconPath } from "../shared/directory-icon-cache.js";
-import {
-  buildGitContextForWorktree,
-  gitContextFrom,
-  probeGitContext,
-} from "../shared/git/git-context.js";
+import { gitContextFrom } from "./git-context-value.js";
 import { getActivePersonality } from "../db/personalities.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import {
@@ -110,7 +112,7 @@ import type {
   PromptImage,
 } from "./acp/prompt-source.js";
 import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
-import { agentWorkspaceDir, isSafeBranchName } from "./workspace-target.js";
+import { agentStreamDirectory, isSafeBranchName } from "./workspace-target.js";
 import { inspectAgentCheckout, reviewerWorkspace } from "./checkout-runner.js";
 import {
   resolveCheckoutIntent,
@@ -1349,18 +1351,18 @@ export class AgentManager {
       id: string;
       cwd: string;
       workspacePath: string | null;
+      worktreePath: string | null;
+      gitContext: AgentRecord["gitContext"];
     }>(
-      `SELECT id, cwd, workspace_path AS "workspacePath" FROM agents
+      `SELECT id, cwd, workspace_path AS "workspacePath",
+              worktree_path AS "worktreePath", git_context AS "gitContext" FROM agents
         WHERE status IN ('running', 'creating') AND deleted_at IS NULL
         ORDER BY created_at`
     );
     for (const row of result.rows) {
       // Set for a receipt's agent too: the reconciler attaches it if the
       // update gives up resuming it.
-      this.streamRecorder.setCwd(
-        row.id,
-        remotePlacement(row.cwd) ? row.cwd : (row.workspacePath ?? row.cwd)
-      );
+      this.streamRecorder.setCwd(row.id, agentStreamDirectory(row));
       // Its launch is held for a runner update and runs when that opens.
       if (this.holds?.hasLaunch(row.id) || this.hasRunnerDrainReceipt(row.id))
         continue;
@@ -1623,13 +1625,8 @@ export class AgentManager {
 
   /**
    * Populate `git_context` for an agent at lifecycle boundaries (creation,
-   * setup-complete, restart). For dispatch-managed worktrees we already
-   * know the branch + path from row columns and only need a single git
-   * call to resolve the parent repo root; for other agents (no
-   * `worktree_path`) we run a full probe against `cwd`. Probe failures
-   * are logged and persisted as `stale = true` so the existing value
-   * (if any) stays visible in the UI rather than disappearing. A moved
-   * workspace is probed in place of either.
+   * setup-complete, restart). Probe the runner's current checkout. Failures
+   * mark the stored context stale so the existing value stays visible.
    *
    * With `publishIfChanged`, an unchanged probe writes nothing, and a
    * changed one is published — for refreshes between lifecycle boundaries,
@@ -1642,21 +1639,41 @@ export class AgentManager {
     const agent = await this.getAgent(id);
     if (!agent) return;
 
-    if (remotePlacement(agent.cwd)) return;
-    const result = agent.workspacePath
-      ? await probeGitContext(agent.workspacePath)
-      : agent.worktreePath && agent.worktreeBranch
-        ? await buildGitContextForWorktree({
-            worktreePath: agent.worktreePath,
-            worktreeBranch: agent.worktreeBranch,
-          })
-        : await probeGitContext(agent.cwd);
+    const { directory, placement } = checkoutRunners(
+      this.checkoutReadRunners(),
+      agent
+    );
+    let value: AgentRecord["gitContext"];
+    try {
+      const context = await directory.for(placement).call("git.context", {
+        target: { session: sessionFromWire(id) },
+      });
+      value = context && {
+        repoRoot: displayPath(context.repoRoot),
+        worktreePath: displayPath(context.worktreePath),
+        worktreeName: context.worktreeName,
+        isWorktree: context.isWorktree,
+        branch: context.branch,
+        repoIconPath: context.repoIconPath ?? null,
+      };
+    } catch (err) {
+      this.logger.warn(
+        { agentId: id, err },
+        "Git context probe failed; marking stale and continuing."
+      );
+      // A concurrent workspace change probes its own checkout.
+      await this.pool.query(
+        `UPDATE agents SET git_context_stale = true, git_context_updated_at = NOW()
+         WHERE id = $1 AND workspace_path IS NOT DISTINCT FROM $2`,
+        [id, agent.workspacePath]
+      );
+      return;
+    }
 
     if (
       opts.publishIfChanged &&
-      result.status === "ok" &&
       !agent.gitContextStale &&
-      sameGitContext(agent.gitContext, result.value)
+      sameGitContext(agent.gitContext, value)
     ) {
       return;
     }
@@ -1664,19 +1681,6 @@ export class AgentManager {
     // The probe ran against the workspace read above; a set_workspace that
     // landed meanwhile has probed its own, so this result no longer applies.
     const probedWorkspace = agent.workspacePath;
-
-    if (result.status === "error") {
-      this.logger.warn(
-        { agentId: id },
-        "Git context probe failed; marking stale and continuing."
-      );
-      await this.pool.query(
-        `UPDATE agents SET git_context_stale = true, git_context_updated_at = NOW()
-         WHERE id = $1 AND workspace_path IS NOT DISTINCT FROM $2`,
-        [id, probedWorkspace]
-      );
-      return;
-    }
 
     const written = await this.pool.query(
       `
@@ -1686,11 +1690,14 @@ export class AgentManager {
           git_context_updated_at = NOW()
       WHERE id = $1 AND workspace_path IS NOT DISTINCT FROM $3
       `,
-      [id, result.value ? JSON.stringify(result.value) : null, probedWorkspace]
+      [id, value ? JSON.stringify(value) : null, probedWorkspace]
     );
-    if (opts.publishIfChanged && (written.rowCount ?? 0) > 0) {
+    if ((written.rowCount ?? 0) > 0) {
       const updated = await this.getAgent(id);
-      if (updated) this.eventBus.publish(updated);
+      if (updated) {
+        this.streamRecorder.setCwd(id, agentStreamDirectory(updated));
+        if (opts.publishIfChanged) this.eventBus.publish(updated);
+      }
     }
   }
 
@@ -1756,7 +1763,7 @@ export class AgentManager {
       void this.diffStatsRefresher?.signal(id);
 
       const updated = await this.getRequiredAgent(id);
-      this.streamRecorder.setCwd(id, agentWorkspaceDir(updated) ?? updated.cwd);
+      this.streamRecorder.setCwd(id, agentStreamDirectory(updated));
       this.eventBus.publish(updated);
       return updated;
     });
@@ -2708,6 +2715,8 @@ export class AgentManager {
         })
       );
 
+      // A prepared checkout already supplied its initial probe.
+      if (!workspace) await this.populateGitContext(id);
       this.eventBus.publish(await this.getRequiredAgent(id));
       const firstTurn = buildStartupTurn(
         {
@@ -3044,7 +3053,7 @@ export class AgentManager {
         "launching agent on engine CLI"
       );
     }
-    this.streamRecorder.setCwd(agent.id, agentWorkspaceDir(agent) ?? agent.cwd);
+    this.streamRecorder.setCwd(agent.id, agentStreamDirectory(agent));
     // Rows a previous host left open (a crash mid-turn) settle first, so the
     // feed never shows a turn that can no longer finish.
     await this.streamRecorder.reconcile(agent.id);
@@ -3225,7 +3234,7 @@ export class AgentManager {
     const launchId = heldLaunchId ?? randomUUID();
     let agent = await this.getRequiredAgent(id);
     if (await this.runtime.attach(id)) {
-      this.streamRecorder.setCwd(id, agent.workspacePath ?? agent.cwd);
+      this.streamRecorder.setCwd(id, agentStreamDirectory(agent));
       await this.setAgentStatus(id, "running", null);
 
       return (await this.getAgent(id)) as AgentRecord;
@@ -3399,7 +3408,7 @@ export class AgentManager {
   async attachRunnerSession(runnerId: string, agentId: string): Promise<void> {
     const agent = await this.getAgent(agentId);
     if (!agent || !isOnEnrolledRunner(agent.placement, runnerId)) return;
-    this.streamRecorder.setCwd(agentId, agent.cwd);
+    this.streamRecorder.setCwd(agentId, agentStreamDirectory(agent));
     await this.runtime.attach(agentId);
   }
 

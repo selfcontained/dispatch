@@ -29,6 +29,7 @@ export type CheckoutSession = Pick<
   "id" | "cwd" | "worktreePath" | "workspacePath" | "placement"
 > & {
   /** Older rows found their worktree through Git; Changes reads it. */
+  worktreeBranch?: string | null;
   gitContext?: { worktreePath: string; isWorktree: boolean } | null;
 };
 export type CheckoutCommandRunners = {

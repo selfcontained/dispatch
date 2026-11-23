@@ -6,6 +6,7 @@ import {
 } from "@dispatch/runner-protocol";
 import {
   RunnerCallError,
+  operations,
   sessionToWire,
   type CallName,
   type CallOptions,
@@ -80,7 +81,7 @@ export function createEnrolledCheckoutRunner(
       options?: CallOptions<K>
     ): Promise<Res<K>> {
       if (op === "runner.describe") return describe() as Res<K>;
-      if (op !== "checkout.exec")
+      if (op !== "checkout.exec" && op !== "git.context")
         throw new RunnerCallError({
           code: "unsupported",
           message: `Unsupported operation: ${op}`,
@@ -92,7 +93,7 @@ export function createEnrolledCheckoutRunner(
           message: "Invalid checkout command binding.",
         });
 
-      const request = input as Req<"checkout.exec">;
+      const request = input as Req<"checkout.exec" | "git.context">;
       if (
         !("session" in request.target) ||
         sessionToWire(request.target.session) !== agent.id
@@ -101,10 +102,33 @@ export function createEnrolledCheckoutRunner(
           code: "invalid",
           message: "Invalid checkout command binding.",
         });
+      if (op === "git.context") {
+        const frame: Decoded<"git.context"> = {
+          op,
+          request,
+          extras: { workspace: placement.workspace, agentId: agent.id },
+          absent: [],
+        };
+        const command = encodeCommand(frame);
+        if (command.kind !== "sessionCheckout")
+          throw new Error("Invalid v1 Git context command.");
+        const { value } = await service.requestSession(
+          placement,
+          command,
+          undefined,
+          options?.signal
+        );
+        const context = decodeResult(frame, value);
+        if (!operations["git.context"].response.check(context))
+          throw new Error("Invalid runner Git context response.");
+        return context as Res<K>;
+      }
+
+      const execRequest = request as Req<"checkout.exec">;
       const frame: Decoded<"checkout.exec"> = {
         op,
         request: {
-          ...request,
+          ...execRequest,
           target: {
             ...request.target,
             checkout: request.target.checkout ?? "current",
@@ -124,7 +148,7 @@ export function createEnrolledCheckoutRunner(
           operation: command.operation,
           workspace: placement.workspace,
         },
-        request,
+        execRequest,
         options?.signal
       );
       if (result?.streamed) return result.result as Res<K>;

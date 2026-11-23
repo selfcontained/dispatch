@@ -575,6 +575,17 @@ export function decodeCommand(
     case "inspectCheckout":
       return withWorkspace(decodeInspect(session, command.query, command));
     case "sessionCheckout":
+      if (command.operation.kind === "context")
+        return withWorkspace(
+          decoded("git.context", {
+            target: {
+              session,
+              ...(command.operation.checkout !== undefined && {
+                checkout: command.operation.checkout,
+              }),
+            },
+          })
+        );
       return withWorkspace(
         command.operation.kind === "describe"
           ? decoded("workspace.describe", { session })
@@ -698,6 +709,18 @@ export function encodeCommand(input: Decoded | LegacyCommand): Command {
         kind: "sessionCheckout",
         operation: { kind: "select", path: r.path as string | null },
       };
+    case "git.context": {
+      const { target } = r as Req<"git.context">;
+      return {
+        ...session,
+        kind: "sessionCheckout",
+        operation: {
+          kind: "context",
+          ...("session" in target &&
+            target.checkout !== undefined && { checkout: target.checkout }),
+        },
+      };
+    }
     case "workspace.observe":
       return {
         ...session,
@@ -883,6 +906,7 @@ export function decodeResult<K extends OpName>(
       return out(parse(value));
     case "workspace.describe":
     case "workspace.select":
+    case "git.context":
     case "workspace.observe":
       return out(parse(value));
     case "workspace.release":
@@ -1020,6 +1044,8 @@ export function encodeResult<K extends OpName>(
       return res.state === "live";
     case "session.logs":
       return res.text as string;
+    case "git.context":
+      return JSON.stringify(response);
     case "workspace.release":
       return (input.extras.v1Result ??
         (res.removed ? "released" : "retained")) as string;
@@ -1209,7 +1235,6 @@ export const NOT_ON_V1 = {
   "path.resolve": "controller-machine probe today (D7)",
   "path.complete": "controller-machine probe today (D7)",
   "checkout.write": "local-only today (persona authoring)",
-  "git.context": "local probe today; v1 roots and sessionCheckout carry parts",
   "git.defaultBranch": "local-only today",
   "git.branches": "local-only today; v1 has github.branches",
   "git.base": "decided inside Dispatch today",

@@ -20,6 +20,7 @@ export const WORKER_OPS = [
   "checkout.stats",
   "checkout.diff",
   "checkout.changes",
+  "git.context",
 ] as const;
 
 /** Commands the workload runs. They may write, so the fence refuses them. */
@@ -42,7 +43,8 @@ export type Selector = "current" | "launch" | "moved";
 export type WorkerInput<K extends WorkloadOp> = {
   directory: string;
   request: Omit<Req<K>, "target">;
-} & (K extends ExecOp ? { selector: Selector } : unknown);
+} & (K extends ExecOp ? { selector: Selector } : unknown) &
+  (K extends "git.context" ? { checkoutBranch?: string } : unknown);
 
 export type RunOptions = { signal?: AbortSignal };
 

@@ -15,6 +15,7 @@
 import { createHash } from "node:crypto";
 import {
   RunnerCallError,
+  pathFromWire,
   operations,
   type DeclarableError,
   type ErrorCode,
@@ -33,6 +34,11 @@ import {
   commandBaseEnvironment,
 } from "./checkout-command-executor.js";
 
+import {
+  buildGitContextForWorktree,
+  probeGitContext,
+} from "../shared/git/git-context.js";
+
 type WorkerOp =
   | "checkout.list"
   | "checkout.preview"
@@ -40,12 +46,14 @@ type WorkerOp =
   | "checkout.read"
   | "checkout.stats"
   | "checkout.diff"
-  | "checkout.changes";
+  | "checkout.changes"
+  | "git.context";
 type Selector = "current" | "launch" | "moved";
 type Input<K extends WorkerOp | "checkout.exec"> = {
   directory: string;
   request: Omit<Req<K>, "target">;
-} & (K extends "checkout.exec" ? { selector: Selector } : unknown);
+} & (K extends "checkout.exec" ? { selector: Selector } : unknown) &
+  (K extends "git.context" ? { checkoutBranch?: string } : unknown);
 
 /**
  * Compile `exclude` patterns: regular-expression literals, `/source/flags`.
@@ -341,6 +349,29 @@ async function execCheckoutCommand(
   });
 }
 
+export async function readGitContext(
+  directory: string,
+  checkoutBranch?: string
+): Promise<Res<"git.context">> {
+  const result = checkoutBranch
+    ? await buildGitContextForWorktree({
+        worktreePath: directory,
+        worktreeBranch: checkoutBranch,
+      })
+    : await probeGitContext(directory);
+  if (result.status === "error")
+    throw new RunnerCallError({
+      code: "failed",
+      message: "Git context probe failed.",
+    });
+  if (!result.value) return null;
+  return {
+    ...result.value,
+    repoRoot: pathFromWire(result.value.repoRoot),
+    worktreePath: pathFromWire(result.value.worktreePath),
+  };
+}
+
 export const checkoutWorkload = {
   async run<K extends WorkerOp | "checkout.exec">(
     op: K,
@@ -348,6 +379,11 @@ export const checkoutWorkload = {
     options: { signal?: AbortSignal }
   ): Promise<Res<K>> {
     try {
+      if (op === "git.context")
+        return (await readGitContext(
+          input.directory,
+          (input as Input<"git.context">).checkoutBranch
+        )) as Res<K>;
       if (op === "checkout.exec")
         return (await execCheckoutCommand(
           input as unknown as Input<"checkout.exec">,
@@ -378,6 +414,9 @@ export const WORKER_ALIASES: Record<string, string> = {
 export async function runCheckoutWorker(argv: string[]): Promise<void> {
   const [op, cwd, flag] = argv;
   switch (op) {
+    case "git-context":
+      process.stdout.write(JSON.stringify(await readGitContext(cwd!)));
+      return;
     case "view": {
       const { runCheckoutViewCli } = await import("./checkout-view.js");
       return runCheckoutViewCli(cwd!, flag === "--managed");
