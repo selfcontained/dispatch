@@ -16,6 +16,7 @@ import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 import { createSessionCore, localSessionHandlers } from "@dispatch/runner/cli";
 import { embeddedBuild } from "../../src/agents/build-identity.js";
 import { hostCommand } from "../../src/agents/acp/host-command.js";
+import { localLaunchSettings } from "../../src/agents/acp/launch-env.js";
 import { localHostEntry } from "../../src/agents/acp/local-host-entry.js";
 import type { LocalSessionRunner } from "../../src/runners/local.js";
 
@@ -135,9 +136,19 @@ export function startTestLocalRunner(
 const shared = new Map<string, TestLocalRunner>();
 
 /** The child for `stateRoot`, started on first use and shared after. */
-export function localRunnerFor(stateRoot: string) {
+type LaunchSettings = ReturnType<typeof localLaunchSettings>;
+
+export function localRunnerFor(stateRoot: string, settings?: LaunchSettings) {
   let child = shared.get(stateRoot);
-  if (!child) shared.set(stateRoot, (child = startTestLocalRunner(stateRoot)));
+  if (!child)
+    shared.set(
+      stateRoot,
+      (child = startTestLocalRunner(stateRoot, {
+        env: settings && {
+          DISPATCH_LOCAL_RUNNER_LAUNCH: JSON.stringify(settings),
+        },
+      }))
+    );
   return child;
 }
 
@@ -153,10 +164,13 @@ export async function stopLocalRunners() {
  * runtime's queue and holds rather than the child process: the same
  * handlers, called directly.
  */
-export function inProcessLocalRunner(stateRoot: string): LocalSessionRunner {
+export function inProcessLocalRunner(
+  stateRoot: string,
+  settings?: LaunchSettings
+): LocalSessionRunner {
   const handlers = localSessionHandlers({
     root: stateRoot,
-    entry: localHostEntry(),
+    entry: localHostEntry(settings),
     command: hostCommand(),
     createSessions: createSessionCore,
   });
@@ -194,9 +208,12 @@ export function inProcessLocalRunner(stateRoot: string): LocalSessionRunner {
 const inProcess = new Map<string, LocalSessionRunner>();
 
 /** `inProcessLocalRunner` for `stateRoot`, one per root, as a runtime getter. */
-export function localRunnerIn(stateRoot: string) {
+export function localRunnerIn(stateRoot: string, settings?: LaunchSettings) {
   let runner = inProcess.get(stateRoot);
   if (!runner)
-    inProcess.set(stateRoot, (runner = inProcessLocalRunner(stateRoot)));
+    inProcess.set(
+      stateRoot,
+      (runner = inProcessLocalRunner(stateRoot, settings))
+    );
   return () => runner;
 }

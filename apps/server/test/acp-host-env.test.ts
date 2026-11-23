@@ -10,8 +10,14 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildLaunchEnv } from "../src/agents/acp/launch-env.js";
-import { buildHostEnv } from "../src/agents/acp/host-env.js";
+import { launchListenerEnv } from "../src/agents/acp/launch-env.js";
+import { buildHostEnv, buildLaunchEnv } from "../src/agents/acp/host-env.js";
+import {
+  pathFromWire,
+  sessionFromWire,
+} from "@dispatch/runner-protocol/contract";
+import { writeLocalHostLaunch } from "../src/agents/acp/local-host-entry.js";
+import type { HostLaunch } from "../src/agents/acp/host-protocol.js";
 import { loginShellCommand } from "../src/agents/acp/runtime.js";
 
 const roots: string[] = [];
@@ -73,17 +79,18 @@ it("merges shell-provided trust after ~/.dispatch/env and isolates agents and co
   const launch = buildLaunchEnv({
     agentId: "test",
     filesDir: root,
-    engine: "codex",
-    config: {
-      port: 7000,
-      tls: { cert: Buffer.from(""), key: Buffer.from("") },
-      dispatchBinDir: "",
-    },
-    base: {
-      TLS_CA: local,
-      DISPATCH_LOCAL_TLS: "1",
-      CODEX_CA_CERTIFICATE: "/server-only.pem",
-    },
+    helperBin: "",
+    env: launchListenerEnv(
+      {
+        port: 7000,
+        tls: { cert: Buffer.from(""), key: Buffer.from("") },
+      },
+      {
+        TLS_CA: local,
+        DISPATCH_LOCAL_TLS: "1",
+        CODEX_CA_CERTIFICATE: "/server-only.pem",
+      }
+    ),
   });
   expect(launch.env.CODEX_CA_CERTIFICATE).toBeUndefined();
   const results: NodeJS.ProcessEnv[] = [];
@@ -278,3 +285,68 @@ it("preserves CLI effort defaults unless the launch explicitly overrides them", 
   expect(overridden.CLAUDE_EFFORT).toBeUndefined();
   expect(overridden.CLAUDE_CODE_EFFORT_LEVEL).toBeUndefined();
 });
+
+for (const engine of ["claude", "codex", "opencode"] as const) {
+  it(`preserves the ${engine} local launch environment`, async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "dispatch-launch-golden-"));
+    roots.push(root);
+    const bins = {
+      claudeBin: path.join(root, "tools/claude/bin/claude"),
+      codexBin: path.join(root, "tools/codex/bin/codex"),
+      opencodeBin: path.join(root, "tools/opencode/bin/opencode"),
+    };
+    for (const bin of Object.values(bins)) {
+      mkdirSync(path.dirname(bin), { recursive: true });
+      writeFileSync(bin, "#!/bin/sh\necho 1.0.0\n", { mode: 0o755 });
+    }
+    const shellEnv = {
+      HOME: "/dispatch-golden/home",
+      PATH: "/shell/bin:/usr/bin:/bin",
+      DISPATCH_ACP_ADAPTER_COMMAND: '["fixture"]',
+      CLAUDE_CODE_EFFORT_LEVEL: "high",
+      CUSTOM_SHELL_SETTING: "kept",
+    };
+    vi.stubEnv("HOME", shellEnv.HOME);
+    vi.stubEnv(
+      "DISPATCH_LOCAL_RUNNER_LAUNCH",
+      JSON.stringify({
+        filesRoot: path.join(root, "files"),
+        helperBin: "/dispatch/bin",
+        env: launchListenerEnv({ port: 6767, tls: null }),
+        bins,
+      })
+    );
+    try {
+      await writeLocalHostLaunch(root, {
+        session: sessionFromWire("agt_golden"),
+        launchId: "golden",
+        directory: pathFromWire(root),
+        engine,
+        model: null,
+        effort: "medium",
+        access: "full",
+        resume: null,
+        systemText: null,
+        firstText: null,
+        overflowNotice: null,
+        env: {},
+        mcp: [],
+        owner: null,
+      });
+      const launch: HostLaunch = JSON.parse(
+        readFileSync(path.join(root, "launch.json"), "utf8")
+      );
+      const env = buildHostEnv(launch, root, shellEnv);
+      expect({
+        ...env,
+        DISPATCH_FILES_DIR: env.DISPATCH_FILES_DIR?.replace(
+          root,
+          "/dispatch-golden"
+        ),
+        PATH: env.PATH?.replace(`${root}/tools`, "/tools"),
+      }).toMatchSnapshot();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+}

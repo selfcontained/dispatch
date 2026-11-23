@@ -99,7 +99,6 @@ const testConfig = {
   authToken: "test-token",
   filesRoot: "/tmp/dispatch-test-files",
   dispatchBinDir: "/tmp/dispatch-test-bin",
-  // Real executables: the launch path checks the engine CLI is installed.
   codexBin: "/bin/echo",
   claudeBin: "/bin/echo",
   opencodeBin: "/bin/opencode",
@@ -1297,7 +1296,7 @@ describe("AgentManager", () => {
       expect(runtime.launch).toHaveBeenCalledTimes(1);
     });
 
-    it("should hand the runtime the engine, cwd, bins and an agent-scoped MCP endpoint", async () => {
+    it("should hand the runtime the engine, cwd and an agent-scoped MCP endpoint", async () => {
       const agent = await manager.createAgent({
         type: "claude",
         cwd: "/tmp",
@@ -1309,23 +1308,15 @@ describe("AgentManager", () => {
         agentId: agent.id,
         cwd: "/tmp",
         engine: "claude",
-        bins: {
-          claudeBin: "/bin/echo",
-          codexBin: "/bin/echo",
-        },
         mcp: {
           url: `http://127.0.0.1:6767/api/mcp/${agent.id}`,
           token: createAgentMcpToken("test-token", agent.id),
         },
         resumeSessionId: null,
       });
-      expect(launch.env).toMatchObject({
-        DISPATCH_AGENT_ID: agent.id,
+      expect(launch.env).toEqual({
         DISPATCH_FILES_DIR: path.join(testConfig.filesRoot, agent.id),
-        DISPATCH_PORT: "6767",
-        DISPATCH_SCHEME: "http",
       });
-      expect(launch.pathPrefix[0]).toBe(testConfig.dispatchBinDir);
       expect(launch.systemPrompt).toContain(agent.id);
     });
 
@@ -3776,7 +3767,7 @@ describe("AgentManager", () => {
 
         await manager.startAgent(agent.id);
 
-        expect(lastLaunch().env.DISPATCH_FILES_DIR).toBe(
+        expect(lastLaunch().env?.DISPATCH_FILES_DIR).toBe(
           path.join(fakeHome, ".dispatch", `legacy-files-${agent.id}`)
         );
       } finally {

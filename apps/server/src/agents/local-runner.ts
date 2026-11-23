@@ -1,16 +1,10 @@
 import { execFile } from "node:child_process";
-import { readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { FastifyBaseLogger } from "fastify";
-import {
-  displayPath,
-  sessionToWire,
-  type Req,
-} from "@dispatch/runner-protocol/contract";
 import { childProcessEnv } from "../shared/process/child-environment.js";
-import { hostFile, type HostLaunch } from "./acp/host-protocol.js";
-import { preparePersonaContext } from "./acp/persona-context.js";
+import { hostFile } from "./acp/host-protocol.js";
 
 import {
   createWorkspacePreparation,
@@ -137,72 +131,4 @@ export function createLocalRunner(
       return (await inspectHostProcess(stateDir(agentId))).pid;
     },
   };
-}
-
-/** The MCP server name a host uses when its launch names none. */
-const DEFAULT_MCP_NAME = "dispatch";
-
-/**
- * The launch's programs as the host's engine bins: a program sent as null
- * is null, one not sent is absent, exactly as the app wrote them.
- */
-export function programsToBins(
-  programs: Req<"session.launch">["programs"]
-): HostLaunch["bins"] {
-  const all = programs ?? {};
-  const path = (name: string) =>
-    name in all ? (all[name] ? all[name].path : null) : undefined;
-  const adapter = all.adapter;
-  return {
-    claudeBin: path("claude") as string,
-    codexBin: path("codex") as string | null,
-    opencodeBin: path("opencode"),
-    ...(adapter && {
-      adapter: {
-        bin: adapter.path,
-        ...(adapter.args !== undefined && { args: adapter.args }),
-      },
-    }),
-  };
-}
-
-/**
- * Write the host's launch file (and persona context) for `request` into
- * `dir`, byte for byte as the app wrote it before the runner started hosts.
- */
-export async function writeLocalHostLaunch(
-  dir: string,
-  request: Req<"session.launch">
-) {
-  const agentId = sessionToWire(request.session);
-  const [mcp] = request.mcp;
-  const env: Record<string, string> = {};
-  for (const [name, value] of Object.entries(request.env)) {
-    if (typeof value === "string") env[name] = value;
-    else if (value.from === "session.id") env[name] = agentId;
-    else throw new Error(`Unsupported launch environment value ${value.from}`);
-  }
-  if (!request.directory) throw new Error("A local launch names its directory");
-  const launch: HostLaunch = {
-    agentId,
-    cwd: displayPath(request.directory),
-    engine: request.engine as HostLaunch["engine"],
-    bins: programsToBins(request.programs),
-    model: request.model,
-    effort: request.effort,
-    fullAccess: request.access === "full",
-    systemPrompt: request.systemText,
-    personaContext: await preparePersonaContext(dir, request.firstText),
-    mcp: mcp && {
-      url: mcp.url,
-      token: mcp.token,
-      ...(mcp.name !== DEFAULT_MCP_NAME && { name: mcp.name }),
-    },
-    env,
-    pathPrefix: (request.pathPrefix ?? []).map(displayPath),
-    resumeSessionId: request.resume,
-  };
-  await writeFile(hostFile(dir, "launch"), JSON.stringify(launch, null, 2), {
-    mode: 0o600,
-  });
 }

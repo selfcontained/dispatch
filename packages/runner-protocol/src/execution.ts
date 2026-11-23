@@ -42,6 +42,9 @@ import {
   isRecord,
 } from "./validation.js";
 
+/** Inline first-text budget; larger launches use a private file. */
+export const MAX_INLINE_FIRST_TEXT_BYTES = 64 * 1024;
+
 import { isTerminalControl } from "./terminal.js";
 
 import { operations, type Req } from "./contract/index.js";

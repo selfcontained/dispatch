@@ -667,6 +667,7 @@ export function createLocalRunnerFence(input: {
 export function startLocalRunnerProcess(options: {
   stateRoot: string;
   filesRoot: string;
+  launchEnvironment?: string;
   build: { version: string; revision: string | null };
   log: LocalRunnerLog;
   /** Start frozen (an update's probation): writes are refused until `thaw`. */
@@ -730,7 +731,10 @@ export function startLocalRunnerProcess(options: {
   const supervisor = superviseRunner({
     command: options.command ?? selfCommand("local-runner"),
     // Main's child-environment scrub: no database URL, tokens or API keys.
-    env: childProcessEnv(),
+    env: {
+      ...childProcessEnv(),
+      DISPATCH_LOCAL_RUNNER_LAUNCH: options.launchEnvironment,
+    },
     start: {
       build: {
         version: options.build.version,

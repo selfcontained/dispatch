@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   extractPersonaContext,
   PERSONA_CONTEXT_ARG,
-  preparePersonaContext,
 } from "../src/agents/acp/persona-context.js";
+import { preparePersonaContext } from "../src/agents/acp/host-env.js";
 import { firstPromptContext } from "../src/agents/acp/host/first-prompt.js";
 import { MAX_PERSONA_PROMPT_BYTES } from "../src/personas/loader.js";
 

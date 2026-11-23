@@ -1,3 +1,4 @@
+import { localLaunchSettings } from "./agents/acp/launch-env.js";
 import { enrolledRunnerId, isOnEnrolledRunner } from "./runners/placement.js";
 import {
   localRunnerOf,
@@ -1639,6 +1640,7 @@ function startLocalRunnerChild(command?: string[]) {
   localRunnerProcess = startLocalRunnerProcess({
     stateRoot: config.agentStateRoot,
     filesRoot: config.filesRoot,
+    launchEnvironment: JSON.stringify(localLaunchSettings(config)),
     build: embeddedBuild,
     log: app.log,
     frozen: updateRecoveryRuntime.localRunnerStartsFrozen(),

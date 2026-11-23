@@ -32,8 +32,7 @@ type PersonaFrontmatter = {
   description?: string;
 };
 
-/** Inline ACP context budget; larger launches use a complete private file. */
-export const MAX_PERSONA_PROMPT_BYTES = 64 * 1024;
+export { MAX_INLINE_FIRST_TEXT_BYTES as MAX_PERSONA_PROMPT_BYTES } from "@dispatch/runner-protocol";
 export const PERSONA_SIZE_WARNING_BYTES = 48 * 1024;
 
 export function parseFrontmatter(content: string): {

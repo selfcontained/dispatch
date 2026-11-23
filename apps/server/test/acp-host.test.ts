@@ -40,7 +40,7 @@ import {
 import { embeddedBuild } from "../src/agents/build-identity.js";
 import type { DriverEvent } from "../src/agents/acp/driver.js";
 import { createAcpRuntime } from "../src/agents/acp/runtime.js";
-import { preparePersonaContext } from "../src/agents/acp/persona-context.js";
+import { preparePersonaContext } from "../src/agents/acp/host-env.js";
 import { HostClient } from "../src/agents/acp/host-client.js";
 import { mainLocalHosts } from "./helpers/main-local-hosts.js";
 import { RunnerUnavailable } from "../src/agents/remote/service.js";

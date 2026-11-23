@@ -12,6 +12,7 @@ import { workspaceHandlers } from "../../../../packages/runner/src/core/workspac
 import { BindingStore } from "../../../../packages/runner/src/local/bindings.js";
 import type { AgentManager } from "../../src/agents/manager.js";
 import { workspaceWorkload } from "../../src/agents/checkout-worker.js";
+import { localLaunchSettings } from "../../src/agents/acp/launch-env.js";
 import { localRunnerIn } from "./local-runner-child.js";
 
 /** Direct manager tests keep their Git mocks in this process. The app
@@ -43,7 +44,7 @@ export function withTestWorkspaceRunner(Manager: typeof AgentManager) {
           code: "unsupported",
           message: "Operation is outside the workspace fixture.",
         });
-      const sessions = localRunnerIn(directory);
+      const sessions = localRunnerIn(directory, localLaunchSettings(config));
       const runner: Runner & Pick<ReturnType<typeof sessions>, "openStream"> = {
         connection: { state: "ready", epoch: 0, onChange: () => () => {} },
         describe() {
