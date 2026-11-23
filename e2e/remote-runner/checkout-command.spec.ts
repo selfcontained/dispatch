@@ -12,6 +12,7 @@ import path from "node:path";
 import { authHeaders, deleteAgentViaAPI } from "../helpers";
 import {
   enrollViaUi,
+  repositoryProject,
   guest,
   guestDiagnostics,
   RUNNERS_API,
@@ -104,6 +105,7 @@ test("dispatches authenticated repo tools and stop hooks to the bound checkout",
     mkdtempSync(path.join(os.tmpdir(), "dispatch-checkout-command-"))
   );
   const agents: string[] = [];
+  let projectId: string | undefined;
   const start = async (cwd: string) => {
     const res = await request.post("/api/v1/agents", {
       headers: authHeaders(),
@@ -111,6 +113,7 @@ test("dispatches authenticated repo tools and stop hooks to the bound checkout",
         name: "Checkout command fixture",
         type: "claude",
         cwd,
+        ...(cwd.endsWith("/@session") ? { projectId } : {}),
         useWorktree: false,
       },
     });
@@ -185,6 +188,7 @@ test("dispatches authenticated repo tools and stop hooks to the bound checkout",
     );
 
     const scratch = await enrollViaUi(page, request, "scratch");
+    projectId = await repositoryProject(request, "scratch");
     const managedId = await start(`runner://${scratch}/@session`);
     const managed = `/var/lib/runner/sessions/${managedId}`;
     seedGuest("scratch", managed, "managed", 23);
@@ -321,6 +325,10 @@ test("dispatches authenticated repo tools and stop hooks to the bound checkout",
     throw error;
   } finally {
     for (const id of agents.reverse()) await deleteAgentViaAPI(request, id);
+    if (projectId)
+      await request.delete(`/api/v1/projects/${projectId}`, {
+        headers: authHeaders(),
+      });
     rmSync(native, { recursive: true, force: true });
   }
 });
