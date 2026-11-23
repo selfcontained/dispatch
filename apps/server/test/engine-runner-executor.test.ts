@@ -506,6 +506,78 @@ if (args === "auth login") {
     expect(submitted.ok).toBe(true);
   });
 
+  it("runs every sign-in process as the workload account", async () => {
+    // A fixture CLI behind the workload wrap: the wrap stands in for the
+    // setpriv drop and records each process it starts.
+    const workloadHome = mkdtempSync(
+      path.join(os.tmpdir(), "dispatch-workload-home-")
+    );
+    const loginFake = path.join(dir, "fake-workload-login.mjs");
+    writeFileSync(
+      loginFake,
+      `#!/usr/bin/env node
+const args = process.argv.slice(2).join(" ");
+if (args === "--version") console.log("2.0.0");
+else if (args === "auth status --json") console.log(JSON.stringify({ loggedIn: process.env.HOME === ${JSON.stringify(workloadHome)}, email: "workload@example.com" }));
+else if (args === "auth login") {
+  console.log("Visit: https://claude.com/cai/oauth/authorize?state=x");
+  process.stdin.once("data", () => process.exit(0));
+} else process.exit(2);
+`
+    );
+    chmodSync(loginFake, 0o755);
+    const wrapped: string[][] = [];
+    executor = new EngineRunnerExecutor({
+      uid: 1234,
+      gid: 5678,
+      env: { PATH: process.env.PATH, HOME: workloadHome },
+      wrap: (bin, args) => {
+        wrapped.push([bin, ...args]);
+        return { bin, args };
+      },
+      engines: { claude: { bin: loginFake } },
+    });
+    const started = await executor.handle({
+      type: "login_start",
+      engine: "claude",
+    });
+    expect(started.login?.status).toBe("waiting");
+    await executor.handle({
+      type: "login_submit",
+      loginId: started.login!.id,
+      code: "good",
+    });
+    await expect
+      .poll(
+        async () =>
+          (
+            await executor!.handle({
+              type: "login_status",
+              loginId: started.login!.id,
+            })
+          ).login?.status
+      )
+      .toBe("succeeded");
+    const done = await executor.handle({
+      type: "login_status",
+      loginId: started.login!.id,
+    });
+    // Signed in as the workload: the status check ran with its HOME.
+    expect(done.login?.detail).toBe("workload@example.com");
+    // The login itself and its status check both went through the wrap.
+    expect(
+      wrapped.some((argv) => argv[0] === "/bin/sh" && argv.includes("login"))
+    ).toBe(true);
+    expect(
+      wrapped.some(
+        (argv) =>
+          argv[0] === "/bin/sh" &&
+          argv.slice(-3).join(" ") === "auth status --json"
+      )
+    ).toBe(true);
+    rmSync(workloadHome, { recursive: true, force: true });
+  });
+
   it("refuses sign-in for an engine with no login flow", async () => {
     executor = new EngineRunnerExecutor({
       uid: 1000,

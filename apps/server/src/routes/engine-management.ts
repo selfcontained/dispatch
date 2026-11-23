@@ -62,9 +62,9 @@ const operationBodySchema = z.object({
   operation: engineOperationSchema,
 });
 
-// Browser cards look up the current login by engine. The manager resolves
-// its ID before sending the existing login_status operation over the wire.
-const currentRunnerLoginSchema = z.object({
+// Browser cards look up the current login by engine, on any placement. The
+// manager resolves its ID before sending login_status to the runner.
+const currentLoginSchema = z.object({
   scope: scopeSchema,
   operation: z.object({
     type: z.literal("login_status"),
@@ -74,11 +74,12 @@ const currentRunnerLoginSchema = z.object({
 });
 
 /**
- * Engine install/update/sign-in, scoped to this machine or a named runner.
- * Ordinary `/api` routes — the global auth hook protects them like every
- * other control route. Backed by `EngineManager`, which wraps the existing
- * local `EngineLogins`/`EngineUpdateOperations` untouched and forwards
- * runner-scoped operations over the wire.
+ * Engine install/update/sign-in for a placement: this machine's runner or a
+ * named enrolled one. The one engine route set; main's `/system/engines`
+ * sign-in routes are its aliases for the local placement. Ordinary `/api`
+ * routes — the global auth hook protects them like every other control
+ * route. Backed by `EngineManager`, which sends each placement's inventory
+ * and sign-in to its runner.
  */
 export async function registerEngineManagementRoutes(
   app: FastifyInstance,
@@ -93,10 +94,10 @@ export async function registerEngineManagementRoutes(
   });
 
   app.post("/api/v1/engine-management/operations", async (request, reply) => {
-    const current = currentRunnerLoginSchema.safeParse(request.body);
-    if (current.success && current.data.scope.kind === "runner") {
+    const current = currentLoginSchema.safeParse(request.body);
+    if (current.success) {
       return {
-        ack: await manager.runnerLoginStatus(
+        ack: await manager.currentLogin(
           current.data.scope,
           current.data.operation.engine
         ),

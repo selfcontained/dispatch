@@ -36,6 +36,7 @@ import type { PosixHostEntry } from "../platform/posix-user/sessions.js";
 import { checkoutHandlers, checkoutOpens } from "../core/checkout.js";
 import { workspaceHandlers } from "../core/workspace.js";
 import { githubHandlers } from "../core/github.js";
+import { engineHandlers } from "../core/engines.js";
 import type { Platform } from "../platform/types.js";
 
 export type Build = { version: string; revision?: string };
@@ -257,6 +258,7 @@ export async function runLocalRunner(
     ? workspaceHandlers(message.roots.state, store!, options.platform.workspace)
     : {};
   const github = options.platform ? githubHandlers(options.platform) : {};
+  const engines = options.platform ? engineHandlers(options.platform) : {};
   const socket = await serveSocket(
     socketPath,
     message.nonce,
@@ -265,6 +267,7 @@ export async function runLocalRunner(
         ...checkout,
         ...workspace,
         ...github,
+        ...engines,
         ...sessions?.calls,
         ...extra?.calls,
         "runner.describe": () => description,
@@ -285,6 +288,8 @@ export async function runLocalRunner(
 
   const shutdown = async () => {
     socket.close();
+    // A sign-in's CLI waits on its own process group; end it with the runner.
+    options.platform?.engines?.close();
     await extra?.stop?.();
     await sessions?.stop();
     if (readHolder(holderPath)?.pid === process.pid)

@@ -2,10 +2,17 @@ import {
   createLocalEngineRunner,
   type LocalEngineRunner,
 } from "../local-runner-engine.js";
+import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 
 import type { RunnerEngine } from "@dispatch/runner-protocol";
-import type { EngineLoginEngine } from "@dispatch/shared";
+import { RunnerCallError } from "@dispatch/runner-protocol/contract";
+import {
+  LOGIN_ENGINES,
+  type EngineAuthStatus,
+  type EngineLogin,
+  type EngineLoginEngine,
+} from "@dispatch/shared";
 import {
   RUNNER_ENGINES,
   engineScopeKey,
@@ -15,26 +22,19 @@ import {
   type EngineOperationAck,
   type EngineOperationEvent,
   type EngineScope,
-  type EngineSupportedAction,
 } from "@dispatch/runner-protocol/engine-management";
 
 import type { AcpEngineId } from "../acp/engine-spec.js";
-import {
-  engineStatuses,
-  withEngineVersions,
-  type EngineStatus,
-} from "../engine-availability.js";
-import { withEngineUpdates } from "../engine-updates.js";
-import type { EngineLogins } from "../engine-login.js";
 import type { EngineUpdateOperations } from "../engine-updates.js";
+import type { EngineCalls } from "../../runners/local.js";
 
 /**
- * One place to read engine status and run install/update/sign-in, whether
- * the engine runs on this machine or on a named runner workspace. Local
- * scope wraps the existing `EngineLogins`/`EngineUpdateOperations`
- * untouched — this adds a scope-aware read model and dispatch on top, it
- * never changes what those run or how. Remote scope forwards to whatever
- * transport the caller supplies; this class has no socket of its own.
+ * One place to read engine status and run install/update/sign-in, for any
+ * placement. The inventory (`engine.list`) and sign-in (`engine.login.*`)
+ * go through the placement's runner: the local child (or, while it is away,
+ * the same port in process) or an enrolled runner over its transport. Local
+ * update still runs main's `EngineUpdateOperations` (T29). This class has
+ * no socket of its own.
  */
 
 export type { EngineScope };
@@ -67,7 +67,8 @@ export interface RunnerEngineTransport {
 }
 
 export type LocalEngineDeps = {
-  logins: EngineLogins;
+  /** The local runner's engine inventory and sign-in. */
+  engines: EngineCalls;
   updates: EngineUpdateOperations;
   capabilities?: Pick<LocalEngineRunner, "handle">;
   overrides?: Partial<Record<AcpEngineId, string>>;
@@ -86,7 +87,8 @@ export type EngineManagerChangeListener = (
 export class EngineManager {
   private readonly events = new EventEmitter();
   private readonly localCapabilities: Pick<LocalEngineRunner, "handle">;
-  private readonly runnerLogins = new Map<string, Map<RunnerEngine, string>>();
+  /** Each placement's latest sign-in per engine, by scope key. */
+  private readonly logins = new Map<string, Map<RunnerEngine, string>>();
 
   constructor(
     private readonly deps: {
@@ -140,19 +142,8 @@ export class EngineManager {
       scope.kind === "local"
         ? await this.localRpc(operation)
         : await this.deps.remote.send(scope.runnerId, operation, onEvent);
-    if (
-      scope.kind === "runner" &&
-      operation.type === "login_start" &&
-      ack.ok &&
-      ack.login
-    ) {
-      let logins = this.runnerLogins.get(scope.runnerId);
-      if (!logins) {
-        logins = new Map();
-        this.runnerLogins.set(scope.runnerId, logins);
-      }
-      logins.set(operation.engine, ack.login.id);
-    }
+    if (scope.kind === "runner" && operation.type === "login_start")
+      this.track(scope, ack.ok ? ack.login : undefined);
     // Refresh before returning, so a caller that awaits `rpc` sees the
     // change notification fire no later than its own result. A runner's
     // own pushed-cache update can lag its ack by a round trip, so force a
@@ -174,57 +165,140 @@ export class EngineManager {
     return ack;
   }
 
-  /** Resolve the latest runner sign-in to the ID used by the wire operation. */
-  async runnerLoginStatus(
-    scope: Extract<EngineScope, { kind: "runner" }>,
+  /**
+   * A sign-in operation alone, without the inventory refresh `rpc` adds:
+   * main's sign-in routes answer as soon as the login does.
+   */
+  async login(
+    scope: EngineScope,
+    operation: Extract<EngineOperation, { type: `login_${string}` }>
+  ): Promise<EngineOperationAck> {
+    if (scope.kind === "local") return this.localLogin(operation);
+    const ack = await this.deps.remote.send(scope.runnerId, operation);
+    if (operation.type === "login_start")
+      this.track(scope, ack.ok ? ack.login : undefined);
+    return ack;
+  }
+
+  /**
+   * The engine's sign-in a page should show on this placement: the one under
+   * way, else the newest that ended in the last few minutes. `{ ok: true }`
+   * without a login when there is neither.
+   */
+  async currentLogin(
+    scope: EngineScope,
     engine: EngineLoginEngine
   ): Promise<EngineOperationAck> {
-    const logins = this.runnerLogins.get(scope.runnerId);
+    const key = engineScopeKey(scope);
+    const logins = this.logins.get(key);
     const loginId = logins?.get(engine);
     if (!logins || loginId === undefined) return { ok: true };
-    const ack = await this.rpc(scope, { type: "login_status", loginId });
+    const ack = await this.login(scope, { type: "login_status", loginId });
     // The runner prunes old logins and forgets them when it restarts.
     if (!ack.ok && ack.error === "Sign-in not found.") {
       if (logins.get(engine) === loginId) {
         logins.delete(engine);
-        if (logins.size === 0) this.runnerLogins.delete(scope.runnerId);
+        if (logins.size === 0) this.logins.delete(key);
       }
       return { ok: true };
     }
     return ack;
   }
 
+  /** Whether each signed-in engine's CLI is signed in on this placement, and as whom. */
+  async signInStatus(scope: EngineScope): Promise<EngineAuthStatus[]> {
+    const entries = (await this.inventory(scope)) ?? [];
+    return LOGIN_ENGINES.map((engine) => {
+      const entry = entries.find((candidate) => candidate.id === engine);
+      const installed = entry?.installed ?? false;
+      const signedIn = entry?.signedIn === true;
+      return {
+        engine,
+        installed,
+        signedIn,
+        ...(installed && entry?.detail ? { detail: entry.detail } : {}),
+      };
+    });
+  }
+
+  /** Cancel this placement's sign-ins under way; the app is closing. */
+  async closeLogins(scope: EngineScope): Promise<void> {
+    const logins = this.logins.get(engineScopeKey(scope));
+    if (!logins) return;
+    await Promise.all(
+      [...logins.values()].map((loginId) =>
+        this.login(scope, { type: "login_cancel", loginId }).catch(() => null)
+      )
+    );
+  }
+
+  private track(
+    scope: EngineScope,
+    login: { id: string; engine: string } | undefined
+  ) {
+    if (!login) return;
+    const key = engineScopeKey(scope);
+    let logins = this.logins.get(key);
+    if (!logins) {
+      logins = new Map();
+      this.logins.set(key, logins);
+    }
+    logins.set(login.engine as RunnerEngine, login.id);
+  }
+
   private async localInventory(): Promise<EngineInventoryEntry[]> {
-    const { logins, overrides } = this.deps.local;
-    const statuses = await withEngineUpdates(
-      await withEngineVersions(await engineStatuses(overrides))
-    );
-    return Promise.all(
-      statuses.map(async (status) => {
-        let signedIn: boolean | null = null;
-        let detail: string | undefined;
-        if (status.installed && isLoginSupported(status.id)) {
-          const auth = await logins.status(status.id);
-          signedIn = auth.signedIn;
-          detail = auth.detail;
-        }
-        const actions: EngineSupportedAction[] = [];
-        // Local install is always manual (see missingEngineMessage); this
-        // view never offers an automatic install, matching current behavior.
-        if (status.installed && status.update.canUpdate) actions.push("update");
-        if (status.installed && isLoginSupported(status.id))
-          actions.push("login", "login_cancel");
-        return {
-          id: status.id,
-          label: LABELS[status.id],
-          installed: status.installed,
-          signedIn,
-          version: status.version,
-          ...(detail ? { detail } : {}),
-          actions,
-        };
-      })
-    );
+    const { entries } = await this.deps.local.engines.call("engine.list", {
+      refresh: true,
+    });
+    return entries as EngineInventoryEntry[];
+  }
+
+  /** A local sign-in operation through the local runner, as a wire v1 ack. */
+  private async localLogin(
+    operation: Extract<EngineOperation, { type: `login_${string}` }>
+  ): Promise<EngineOperationAck> {
+    const { engines } = this.deps.local;
+    const local: EngineScope = { kind: "local" };
+    try {
+      let login: unknown;
+      switch (operation.type) {
+        case "login_start":
+          login = await engines.call(
+            "engine.login.start",
+            {
+              engine: operation.engine,
+              restart: operation.restart ?? false,
+              requestId: randomUUID(),
+            },
+            // Known by ID from the moment it exists, so a page asking for
+            // the current login sees it while its link is on the way.
+            { onEvent: (event) => this.track(local, event.login) }
+          );
+          this.track(local, login as EngineLogin);
+          break;
+        case "login_submit":
+          login = await engines.call("engine.login.submit", {
+            loginId: operation.loginId,
+            code: operation.code,
+          });
+          break;
+        case "login_status":
+          login = await engines.call("engine.login.status", {
+            loginId: operation.loginId,
+          });
+          break;
+        case "login_cancel":
+          login = await engines.call("engine.login.cancel", {
+            loginId: operation.loginId,
+          });
+          break;
+      }
+      return { ok: true, login: login as EngineLogin };
+    } catch (error) {
+      if (error instanceof RunnerCallError)
+        return { ok: false, error: error.message };
+      throw error;
+    }
   }
 
   private async remoteInventory(
@@ -269,7 +343,7 @@ export class EngineManager {
   private async localRpc(
     operation: EngineOperation
   ): Promise<EngineOperationAck> {
-    const { logins, updates, overrides } = this.deps.local;
+    const { updates, overrides } = this.deps.local;
     if (isEngineCapabilityOperation(operation)) {
       return this.localCapabilities.handle(operation);
     }
@@ -296,33 +370,11 @@ export class EngineManager {
           return { ok: false, error: (error as Error).message };
         }
       }
-      case "login_start": {
-        if (!isLoginSupported(operation.engine)) {
-          return {
-            ok: false,
-            error: `${LABELS[operation.engine]} has no sign-in flow.`,
-          };
-        }
-        const login = await logins.start(operation.engine, {
-          restart: operation.restart,
-        });
-        return { ok: true, login };
-      }
-      case "login_submit": {
-        const login = logins.submitCode(operation.loginId, operation.code);
-        if (!login) return { ok: false, error: "Sign-in not found." };
-        return { ok: true, login };
-      }
-      case "login_cancel": {
-        const login = logins.cancel(operation.loginId);
-        if (!login) return { ok: false, error: "Sign-in not found." };
-        return { ok: true, login };
-      }
-      case "login_status": {
-        const login = logins.get(operation.loginId);
-        if (!login) return { ok: false, error: "Sign-in not found." };
-        return { ok: true, login };
-      }
+      case "login_start":
+      case "login_submit":
+      case "login_cancel":
+      case "login_status":
+        return this.localLogin(operation);
     }
   }
 }
@@ -330,9 +382,3 @@ export class EngineManager {
 function isAcpEngine(engine: RunnerEngine): engine is AcpEngineId {
   return engine === "claude" || engine === "codex" || engine === "opencode";
 }
-
-function isLoginSupported(engine: RunnerEngine): engine is "claude" | "codex" {
-  return engine === "claude" || engine === "codex";
-}
-
-export type { EngineStatus };

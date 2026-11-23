@@ -36,6 +36,7 @@ import { LOCAL_RUNNER_ID } from "./placement.js";
 import {
   checkoutWorkload,
   githubWorkload,
+  localEnginePort,
   readCommandGuard,
 } from "../agents/checkout-worker.js";
 import {
@@ -698,6 +699,119 @@ export type LocalRunnerFence = {
    */
   frozenSessions(): Promise<number>;
 };
+
+export type EngineCallName =
+  | "engine.list"
+  | "engine.login.start"
+  | "engine.login.submit"
+  | "engine.login.status"
+  | "engine.login.cancel";
+
+/** Engine inventory and sign-in on one runner, by protocol operation. */
+export type EngineCalls = {
+  call<K extends EngineCallName>(
+    op: K,
+    input: Req<K>,
+    options?: CallOptions<K>
+  ): Promise<Res<K>>;
+};
+
+/** A call the child never answered: it was not there, or went mid-call. */
+const childMissed = (error: unknown) =>
+  error instanceof RunnerCallError &&
+  (error.code === "unavailable" ||
+    error.code === "unknown_outcome" ||
+    error.code === "fenced");
+
+/** The posix-user engine port, as this process runs it while the child is away. */
+export type InProcessEngines = {
+  list(): Promise<Res<"engine.list">>;
+  loginStart(
+    request: Req<"engine.login.start">,
+    onUpdate: (login: Res<"engine.login.start">) => void
+  ): Promise<Res<"engine.login.start">>;
+  loginSubmit(
+    request: Req<"engine.login.submit">
+  ): Promise<Res<"engine.login.submit">>;
+  loginStatus(
+    request: Req<"engine.login.status">
+  ): Promise<Res<"engine.login.status">>;
+  loginCancel(
+    request: Req<"engine.login.cancel">
+  ): Promise<Res<"engine.login.cancel">>;
+  close(): void;
+};
+
+/** The child's engine port in this process, with the app's configured CLIs. */
+export function inProcessEngines(
+  bins: Parameters<typeof localEnginePort>[0]
+): InProcessEngines {
+  return localEnginePort(bins);
+}
+
+/**
+ * The local placement's engines: in the child when it serves, else in
+ * process with the same port (R3, as for reads). A sign-in the child does
+ * not know may be one started in process while it was away, so a login
+ * looked up by ID is asked of both.
+ */
+export function localEngineCalls(
+  child: () => Runner | undefined,
+  inProcess: InProcessEngines
+): EngineCalls {
+  async function here<K extends EngineCallName>(
+    op: K,
+    input: Req<K>,
+    options?: CallOptions<K>
+  ): Promise<Res<K>> {
+    switch (op) {
+      case "engine.list":
+        return (await inProcess.list()) as Res<K>;
+      case "engine.login.start":
+        return (await inProcess.loginStart(
+          input as Req<"engine.login.start">,
+          (login) =>
+            (
+              options as CallOptions<"engine.login.start"> | undefined
+            )?.onEvent?.({ type: "login_update", login })
+        )) as Res<K>;
+      case "engine.login.submit":
+        return (await inProcess.loginSubmit(
+          input as Req<"engine.login.submit">
+        )) as Res<K>;
+      case "engine.login.status":
+        return (await inProcess.loginStatus(
+          input as Req<"engine.login.status">
+        )) as Res<K>;
+      default:
+        return (await inProcess.loginCancel(
+          input as Req<"engine.login.cancel">
+        )) as Res<K>;
+    }
+  }
+  return {
+    async call(op, input, options) {
+      const runner = child();
+      if (runner?.connection.state === "ready")
+        try {
+          return await runner.call(op, input, options);
+        } catch (error) {
+          const byId = op !== "engine.list" && op !== "engine.login.start";
+          if (
+            !childMissed(error) &&
+            !(
+              byId &&
+              error instanceof RunnerCallError &&
+              error.code === "not_found"
+            )
+          )
+            throw error;
+          options?.signal?.throwIfAborted();
+        }
+      return here(op, input, options);
+    },
+  };
+}
 
 /** The child as a `Runner`, while the app has one. */
 export function localRunnerOf(process: LocalRunnerProcess | undefined) {

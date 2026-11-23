@@ -1,6 +1,15 @@
 /** The engines Dispatch can sign in from the browser. */
 export type EngineLoginEngine = "claude" | "codex";
 
+export const LOGIN_ENGINES = [
+  "claude",
+  "codex",
+] as const satisfies readonly EngineLoginEngine[];
+
+export function isLoginEngine(value: string): value is EngineLoginEngine {
+  return (LOGIN_ENGINES as readonly string[]).includes(value);
+}
+
 /**
  * The `errorKind` a turn carries when the engine's sign-in has lapsed; the
  * turn offers a sign-in in place of a retry.

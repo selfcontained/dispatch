@@ -26,11 +26,7 @@ import { loginShellCommand } from "./acp/host-command.js";
  * The link and code live here and in the response, never in a log.
  */
 
-export const LOGIN_ENGINES = ["claude", "codex"] as const;
-
-export function isLoginEngine(value: string): value is EngineLoginEngine {
-  return (LOGIN_ENGINES as readonly string[]).includes(value);
-}
+export { LOGIN_ENGINES, isLoginEngine } from "@dispatch/shared";
 
 /** Codex's device codes last 15 minutes; Claude's flow gets the same. */
 const LOGIN_TTL_MS = 15 * 60_000;
@@ -131,6 +127,16 @@ export type EngineLoginDeps = {
    * override this so that identity can actually write into the directory.
    */
   createStageDir?: () => Promise<string>;
+};
+
+export type EngineLoginStartOptions = {
+  /** Drop the login under way for a fresh link (Start over). */
+  restart?: boolean;
+  /**
+   * Told the login this start returns as soon as it exists, before its link:
+   * a caller that tracks logins by ID can find it while it is starting.
+   */
+  onEntry?: (login: EngineLogin) => void;
 };
 
 export type LoginScriptOptions = {
@@ -267,7 +273,7 @@ export class EngineLogins {
    */
   start(
     engine: EngineLoginEngine,
-    opts: { restart?: boolean } = {}
+    opts: EngineLoginStartOptions = {}
   ): Promise<EngineLogin> {
     // One at a time per engine: two pages (or a page mounting twice) asking
     // at once must join one login, not each spawn their own.
@@ -281,11 +287,14 @@ export class EngineLogins {
 
   private async startNow(
     engine: EngineLoginEngine,
-    opts: { restart?: boolean }
+    opts: EngineLoginStartOptions
   ): Promise<EngineLogin> {
     for (const entry of this.entries.values()) {
       if (entry.view.engine !== engine || !this.active(entry.view)) continue;
-      if (!opts.restart) return entry.view;
+      if (!opts.restart) {
+        opts.onEntry?.(entry.view);
+        return entry.view;
+      }
       this.finish(entry, { status: "cancelled" });
     }
     const bin = await this.deps.resolveBin(engine);
@@ -307,6 +316,7 @@ export class EngineLogins {
       stageDir: null,
     };
     this.entries.set(id, entry);
+    opts.onEntry?.(entry.view);
     if (!bin) {
       this.finish(entry, {
         status: "failed",

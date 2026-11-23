@@ -75,6 +75,37 @@ export interface Platform {
   workspace?: WorkspacePort;
   /** The workload account's GitHub reads; without it, `github.*` is unsupported. */
   github?: GitHubPort;
+  /** The workload account's engines; without it, `engine.list` and sign-in are unsupported. */
+  engines?: EnginePort;
+}
+
+/**
+ * The engine CLIs as the workload account has them: which are installed,
+ * and their sign-in. A sign-in runs the CLI's own login as that account, so
+ * it lands in the configuration its agents read.
+ */
+export interface EnginePort {
+  /** Every engine with its installation, sign-in and actions (`engine.list`). */
+  list(request: Req<"engine.list">): Promise<Res<"engine.list">>;
+  /**
+   * Start a sign-in, or join the one under way (`engine.login.start`).
+   * `onUpdate` hears of the login as soon as it exists, before its link.
+   */
+  loginStart(
+    request: Req<"engine.login.start">,
+    onUpdate: (login: Res<"engine.login.start">) => void
+  ): Promise<Res<"engine.login.start">>;
+  loginSubmit(
+    request: Req<"engine.login.submit">
+  ): Promise<Res<"engine.login.submit">>;
+  loginStatus(
+    request: Req<"engine.login.status">
+  ): Promise<Res<"engine.login.status">>;
+  loginCancel(
+    request: Req<"engine.login.cancel">
+  ): Promise<Res<"engine.login.cancel">>;
+  /** Stop every sign-in under way; the runner is shutting down. */
+  close(): void;
 }
 
 /**

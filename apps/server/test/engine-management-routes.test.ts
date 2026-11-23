@@ -6,7 +6,7 @@ import {
   EngineManager,
   type RunnerEngineTransport,
 } from "../src/agents/remote/engine-manager.js";
-import type { EngineLogins } from "../src/agents/engine-login.js";
+import type { EngineCalls } from "../src/runners/local.js";
 import type { EngineUpdateOperations } from "../src/agents/engine-updates.js";
 import type { AgentRecord } from "@dispatch/shared";
 import {
@@ -15,20 +15,25 @@ import {
 } from "../src/runners/placement.js";
 import { agentForClient } from "../src/server/agent-client-view.js";
 
-function fakeLogins(): EngineLogins {
+function fakeEngines(): EngineCalls {
   return {
-    status: vi.fn(async () => ({
-      engine: "claude",
-      installed: true,
-      signedIn: true,
-    })),
-    start: vi.fn(),
-    submitCode: vi.fn(),
-    cancel: vi.fn(),
-    get: vi.fn(),
-    current: vi.fn(),
-    close: vi.fn(),
-  } as unknown as EngineLogins;
+    call: vi.fn(async (op: string) => {
+      if (op === "engine.list")
+        return {
+          entries: [
+            {
+              id: "claude",
+              label: "Claude Code",
+              installed: true,
+              signedIn: true,
+              version: "1",
+              actions: [],
+            },
+          ],
+        };
+      throw new Error(op);
+    }),
+  } as never;
 }
 
 function fakeUpdates(): EngineUpdateOperations {
@@ -43,7 +48,7 @@ describe("engine-management routes", () => {
 
   it("reads local inventory and rejects a missing scope", async () => {
     const manager = new EngineManager({
-      local: { logins: fakeLogins(), updates: fakeUpdates() },
+      local: { engines: fakeEngines(), updates: fakeUpdates() },
       remote: { send: vi.fn() },
     });
     const test = Fastify();
@@ -72,7 +77,7 @@ describe("engine-management routes", () => {
       ok: true,
     }));
     const manager = new EngineManager({
-      local: { logins: fakeLogins(), updates: fakeUpdates() },
+      local: { engines: fakeEngines(), updates: fakeUpdates() },
       remote: { send },
     });
     const test = Fastify();
@@ -110,7 +115,7 @@ describe("engine-management routes", () => {
         .engineLoginRunnerId
     ).toBeUndefined();
 
-    const logins = fakeLogins();
+    const engines = fakeEngines();
     const login = {
       id: "login-42",
       engine: "claude",
@@ -121,7 +126,7 @@ describe("engine-management routes", () => {
       operation.type === "status" ? { ok: true } : { ok: true, login }
     );
     const manager = new EngineManager({
-      local: { logins, updates: fakeUpdates() },
+      local: { engines, updates: fakeUpdates() },
       remote: { send },
     });
     const app = Fastify();
@@ -162,14 +167,11 @@ describe("engine-management routes", () => {
         ["runner-42", submit],
         ["runner-42", cancel],
       ]);
-      for (const localAction of [
-        logins.start,
-        logins.current,
-        logins.get,
-        logins.submitCode,
-        logins.cancel,
-      ])
-        expect(localAction).not.toHaveBeenCalled();
+      expect(
+        vi
+          .mocked(engines.call)
+          .mock.calls.filter(([op]) => op !== "engine.list")
+      ).toEqual([]);
     } finally {
       await app.close();
     }
@@ -177,7 +179,7 @@ describe("engine-management routes", () => {
 
   it("rejects a malformed operation body", async () => {
     const manager = new EngineManager({
-      local: { logins: fakeLogins(), updates: fakeUpdates() },
+      local: { engines: fakeEngines(), updates: fakeUpdates() },
       remote: { send: vi.fn() },
     });
     const test = Fastify();

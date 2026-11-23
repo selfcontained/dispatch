@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 
 import type { RunnerEngine } from "@dispatch/runner-protocol";
+import { RunnerCallError, type Req } from "@dispatch/runner-protocol/contract";
 import {
   RUNNER_ENGINES,
   isEngineCapabilityOperation,
@@ -18,8 +19,163 @@ import {
   type EngineSupportedAction,
 } from "@dispatch/runner-protocol/engine-management";
 
-import { compareVersions } from "../engine-availability.js";
-import { EngineLogins, isLoginEngine, loginScript } from "../engine-login.js";
+import type { AcpEngineId } from "../acp/engine-spec.js";
+import {
+  compareVersions,
+  engineStatuses,
+  withEngineVersions,
+} from "../engine-availability.js";
+import {
+  EngineLogins,
+  isLoginEngine,
+  loginScript,
+  type EngineLoginDeps,
+} from "../engine-login.js";
+import { withEngineUpdates } from "../engine-updates.js";
+
+/**
+ * One engine's installation, and the install or update it offers: the half
+ * of an inventory row each platform answers its own way (T29).
+ */
+export type EngineInstallation = {
+  id: RunnerEngine;
+  installed: boolean;
+  version: string | null;
+  actions: EngineSupportedAction[];
+  detail?: string;
+  issue?: string;
+};
+
+export type EngineWorkloadPlatform = {
+  installations(): Promise<EngineInstallation[]>;
+  /** How this platform finds and runs an engine's CLI for a sign-in. */
+  logins: EngineLoginDeps;
+};
+
+const notFound = () =>
+  new RunnerCallError({ code: "not_found", message: "Sign-in not found." });
+
+/**
+ * The engine inventory (`engine.list`) and sign-in (`engine.login.*`) every
+ * runner serves, the local child and enrolled runners alike: the platform
+ * says what is installed and how a CLI runs; the sign-in, and which rows
+ * offer it, are the same everywhere.
+ */
+export class EngineWorkload {
+  private readonly logins: EngineLogins;
+
+  constructor(private readonly platform: EngineWorkloadPlatform) {
+    this.logins = new EngineLogins(platform.logins);
+  }
+
+  async list(): Promise<{ entries: EngineInventoryEntry[] }> {
+    const installations = await this.platform.installations();
+    const entries = await Promise.all(
+      installations.map(async (installation) => {
+        const { id, installed, version } = installation;
+        let signedIn: boolean | null = null;
+        let detail = installation.detail;
+        if (installed && isLoginEngine(id)) {
+          const status = await this.logins.status(id);
+          signedIn = status.signedIn;
+          detail = status.detail;
+        }
+        const actions = [...installation.actions];
+        if (installed && isLoginEngine(id))
+          actions.push("login", "login_cancel");
+        return {
+          id,
+          label: LABELS[id],
+          installed,
+          signedIn,
+          version,
+          ...(detail ? { detail } : {}),
+          ...(installation.issue ? { issue: installation.issue } : {}),
+          actions,
+        };
+      })
+    );
+    return { entries };
+  }
+
+  /**
+   * Start a sign-in, or join the one under way. `onUpdate` hears of the
+   * login as soon as it exists, before its link.
+   */
+  async loginStart(
+    request: Pick<Req<"engine.login.start">, "engine"> & { restart?: boolean },
+    onUpdate?: (login: EngineLoginView) => void
+  ): Promise<EngineLoginView> {
+    const engine = request.engine as RunnerEngine;
+    if (!isLoginEngine(engine))
+      throw new RunnerCallError({
+        code: "unsupported",
+        message: `${LABELS[engine] ?? engine} has no sign-in flow.`,
+      });
+    return this.logins.start(engine, {
+      ...(request.restart !== undefined && { restart: request.restart }),
+      ...(onUpdate && { onEntry: onUpdate }),
+    });
+  }
+
+  async loginSubmit(request: {
+    loginId: string;
+    code: string;
+  }): Promise<EngineLoginView> {
+    const login = this.logins.submitCode(request.loginId, request.code);
+    if (!login) throw notFound();
+    return login;
+  }
+
+  async loginStatus(request: { loginId: string }): Promise<EngineLoginView> {
+    const login = this.logins.get(request.loginId);
+    if (!login) throw notFound();
+    return login;
+  }
+
+  async loginCancel(request: { loginId: string }): Promise<EngineLoginView> {
+    const login = this.logins.cancel(request.loginId);
+    if (!login) throw notFound();
+    return login;
+  }
+
+  /** Stop every sign-in under way; for shutdown. */
+  close(): void {
+    this.logins.close();
+  }
+}
+
+/**
+ * This machine's engines as the agents run them (the `posix-user`
+ * platform): found as main finds them, updated by main's detected update,
+ * never installed automatically, and signed in through the person's login
+ * shell. `bins` are the configured CLIs (`DISPATCH_CLAUDE_BIN` and so on).
+ */
+export function localEngineWorkload(
+  bins: Partial<Record<AcpEngineId, string>>,
+  seams: Pick<EngineLoginDeps, "command" | "env" | "linkTimeoutMs"> = {}
+): EngineWorkload {
+  const statuses = () => engineStatuses(bins, seams.env ?? process.env);
+  return new EngineWorkload({
+    async installations() {
+      const found = await withEngineUpdates(
+        await withEngineVersions(await statuses())
+      );
+      return found.map((status) => ({
+        id: status.id,
+        installed: status.installed,
+        version: status.version,
+        // Local install is always manual (see missingEngineMessage).
+        actions: status.installed && status.update.canUpdate ? ["update"] : [],
+      }));
+    },
+    logins: {
+      resolveBin: async (engine) =>
+        (await statuses()).find((status) => status.id === engine)?.path ?? null,
+      ...seams,
+    },
+  });
+}
 
 /**
  * Runs engine install/update/sign-in on a runner's non-root workload
@@ -105,30 +261,34 @@ function sanitizeVersion(output: string): string | null {
 
 export class EngineRunnerExecutor {
   private installingBundledPackage = false;
-  private readonly logins: EngineLogins;
+  private readonly workload: EngineWorkload;
   private readonly wrap: NonNullable<EngineRunnerExecutorConfig["wrap"]>;
 
   constructor(private readonly config: EngineRunnerExecutorConfig) {
     this.wrap = config.wrap ?? setprivWrap(config.uid, config.gid);
-    this.logins = new EngineLogins({
-      resolveBin: async (engine) => (await this.resolveEngine(engine)).bin,
-      // loginScript's own argv already starts with "/bin/sh"; wrap that
-      // whole command behind the same privilege drop every runner exec uses.
-      command: (bin, args, opts) => {
-        const [shBin, ...shArgs] = loginScript(bin, args, opts);
-        return this.wrap(shBin!, shArgs);
-      },
-      env: config.env,
-      // A staged login (Codex) writes its scratch CODEX_HOME under the
-      // dropped-privilege workload identity, not this (root) process —
-      // the default root-owned 0700 mkdtemp would refuse that write, so
-      // this chowns it to the workload before the CLI ever touches it.
-      createStageDir: async () => {
-        const dir = await mkdtemp(
-          path.join(os.tmpdir(), "dispatch-engine-login-")
-        );
-        await chown(dir, config.uid, config.gid);
-        return dir;
+    this.workload = new EngineWorkload({
+      installations: () =>
+        Promise.all(RUNNER_ENGINES.map((engine) => this.installation(engine))),
+      logins: {
+        resolveBin: async (engine) => (await this.resolveEngine(engine)).bin,
+        // loginScript's own argv already starts with "/bin/sh"; wrap that
+        // whole command behind the same privilege drop every runner exec uses.
+        command: (bin, args, opts) => {
+          const [shBin, ...shArgs] = loginScript(bin, args, opts);
+          return this.wrap(shBin!, shArgs);
+        },
+        env: config.env,
+        // A staged login (Codex) writes its scratch CODEX_HOME under the
+        // dropped-privilege workload identity, not this (root) process —
+        // the default root-owned 0700 mkdtemp would refuse that write, so
+        // this chowns it to the workload before the CLI ever touches it.
+        createStageDir: async () => {
+          const dir = await mkdtemp(
+            path.join(os.tmpdir(), "dispatch-engine-login-")
+          );
+          await chown(dir, config.uid, config.gid);
+          return dir;
+        },
       },
     });
   }
@@ -292,43 +452,36 @@ export class EngineRunnerExecutor {
     return result.code === 0 && (await usable());
   }
 
+  /** One engine's installation and the configured install or update it offers. */
+  private async installation(
+    engine: RunnerEngine
+  ): Promise<EngineInstallation> {
+    const cfg = this.config.engines[engine];
+    const { bin, installed, version } = await this.resolveEngine(engine);
+    const actions: EngineSupportedAction[] = [];
+    let detail: string | undefined;
+    let issue: string | undefined;
+    if (!installed && cfg?.install) {
+      detail = await this.installerFailure(
+        this.bundledCommand(engine, cfg.install) ?? cfg.install
+      );
+      if (detail) issue = "install-unavailable";
+      else actions.push("install");
+    }
+    if (installed && cfg?.update && bin === cfg.bin) actions.push("update");
+    return {
+      id: engine,
+      installed,
+      version,
+      actions,
+      ...(detail ? { detail } : {}),
+      ...(issue ? { issue } : {}),
+    };
+  }
+
   /** The scope-aware engine list and supported actions, for a snapshot view. */
   async inventory(): Promise<EngineInventoryEntry[]> {
-    return Promise.all(
-      RUNNER_ENGINES.map(async (engine) => {
-        const cfg = this.config.engines[engine];
-        const { bin, installed, version } = await this.resolveEngine(engine);
-        let signedIn: boolean | null = null;
-        let detail: string | undefined;
-        if (installed && isLoginEngine(engine)) {
-          const status = await this.logins.status(engine);
-          signedIn = status.signedIn;
-          detail = status.detail;
-        }
-        const actions: EngineSupportedAction[] = [];
-        let issue: string | undefined;
-        if (!installed && cfg?.install) {
-          detail = await this.installerFailure(
-            this.bundledCommand(engine, cfg.install) ?? cfg.install
-          );
-          if (detail) issue = "install-unavailable";
-          else actions.push("install");
-        }
-        if (installed && cfg?.update && bin === cfg.bin) actions.push("update");
-        if (installed && isLoginEngine(engine))
-          actions.push("login", "login_cancel");
-        return {
-          id: engine,
-          label: LABELS[engine],
-          installed,
-          signedIn,
-          version,
-          ...(detail ? { detail } : {}),
-          ...(issue ? { issue } : {}),
-          actions,
-        };
-      })
-    );
+    return (await this.workload.list()).entries;
   }
 
   /** Run one operation; `onEvent` receives any progress before the ack returns. */
@@ -353,37 +506,22 @@ export class EngineRunnerExecutor {
         return this.runManaged(operation.engine, "install", onEvent);
       case "update":
         return this.runManaged(operation.engine, "update", onEvent);
-      case "login_start": {
-        if (!isLoginEngine(operation.engine)) {
-          return {
-            ok: false,
-            error: `${LABELS[operation.engine]} has no sign-in flow.`,
-          };
-        }
-        const login = await this.logins.start(operation.engine, {
-          restart: operation.restart,
-        });
-        const view = toLoginView(login);
-        onEvent?.({ type: "login_update", login: view });
-        return { ok: true, login: view };
-      }
-      case "login_submit": {
-        const login = this.logins.submitCode(operation.loginId, operation.code);
-        if (!login) return { ok: false, error: "Sign-in not found." };
-        const view = toLoginView(login);
-        onEvent?.({ type: "login_update", login: view });
-        return { ok: true, login: view };
-      }
-      case "login_cancel": {
-        const login = this.logins.cancel(operation.loginId);
-        if (!login) return { ok: false, error: "Sign-in not found." };
-        return { ok: true, login: toLoginView(login) };
-      }
-      case "login_status": {
-        const login = this.logins.get(operation.loginId);
-        if (!login) return { ok: false, error: "Sign-in not found." };
-        return { ok: true, login: toLoginView(login) };
-      }
+      case "login_start":
+        return loginAck(
+          this.workload.loginStart({
+            engine: operation.engine,
+            ...(operation.restart !== undefined && {
+              restart: operation.restart,
+            }),
+          }),
+          onEvent
+        );
+      case "login_submit":
+        return loginAck(this.workload.loginSubmit(operation), onEvent);
+      case "login_cancel":
+        return loginAck(this.workload.loginCancel(operation));
+      case "login_status":
+        return loginAck(this.workload.loginStatus(operation));
     }
   }
 
@@ -502,7 +640,23 @@ export class EngineRunnerExecutor {
 
   /** Stop every sign-in under way; for shutdown. */
   close(): void {
-    this.logins.close();
+    this.workload.close();
+  }
+}
+
+/** A sign-in's wire v1 ack; `onEvent`, when given, hears the login too. */
+async function loginAck(
+  login: Promise<EngineLoginView>,
+  onEvent?: (event: EngineOperationEvent) => void
+): Promise<EngineOperationAck> {
+  try {
+    const view = toLoginView(await login);
+    onEvent?.({ type: "login_update", login: view });
+    return { ok: true, login: view };
+  } catch (error) {
+    if (error instanceof RunnerCallError)
+      return { ok: false, error: error.message };
+    throw error;
   }
 }
 

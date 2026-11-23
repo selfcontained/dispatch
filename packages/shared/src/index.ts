@@ -209,7 +209,11 @@ export type {
 export type { ScheduledMessagePresentation } from "./scheduled-messages.js";
 
 export { scheduledMessageCadence } from "./scheduled-messages.js";
-export { AUTHENTICATION_REQUIRED } from "./engine-login-types.js";
+export {
+  AUTHENTICATION_REQUIRED,
+  LOGIN_ENGINES,
+  isLoginEngine,
+} from "./engine-login-types.js";
 export type {
   EngineAuthStatus,
   EngineLogin,

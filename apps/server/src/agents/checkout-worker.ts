@@ -70,6 +70,8 @@ import {
 import { installWorkspaceDependencies } from "./workspace-prep.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import { localPullRequestStatus } from "./remote/github-runner-executor.js";
+import { localEngineWorkload } from "./remote/engine-runner-executor.js";
+import { configuredLaunchEnvironment } from "./acp/local-host-entry.js";
 import { copyLocalConfigFiles } from "./worktree-local-config.js";
 
 import {
@@ -558,6 +560,18 @@ export const githubWorkload = {
     ) as Promise<Res<"github.pr.status">>;
   },
 };
+
+/**
+ * The `posix-user` platform's engine port: this machine's engines with the
+ * app's configured CLIs, from the launch settings the app hands its child.
+ */
+export function localEnginePort(bins = configuredLaunchEnvironment()?.bins) {
+  return localEngineWorkload({
+    claude: bins?.claudeBin ?? "claude",
+    ...(bins?.codexBin && { codex: bins.codexBin }),
+    ...(bins?.opencodeBin && { opencode: bins.opencodeBin }),
+  });
+}
 
 /** Legacy self-exec names, kept for a runner that started on an older build. */
 export const WORKER_ALIASES: Record<string, string> = {

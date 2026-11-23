@@ -1,6 +1,7 @@
 import { runLocalRunner, type Build } from "./local/child.js";
 
 export type {
+  EnginePort,
   GitHubPort,
   Platform,
   Workload,
