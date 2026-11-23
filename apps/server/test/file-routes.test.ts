@@ -6,7 +6,7 @@ import {
   rm,
   readdir,
   symlink,
-  truncate,
+  chmod,
 } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -122,7 +122,7 @@ beforeEach(async () => {
 });
 
 describe("native MCP path attachments", () => {
-  it("collects files from the session and /tmp, and refuses private paths and oversized outputs", async () => {
+  it("attaches any file the local agent's OS account can read, including other agents' files, state, symlinks and outputs over 20 MiB, and refuses missing or unreadable paths", async () => {
     const foreign = await createAgent("files-test-foreign");
     const own = path.join(filesRoot, agentId, "own.txt");
     const foreignPath = path.join(filesRoot, foreign.id, "foreign.txt");
@@ -176,8 +176,7 @@ describe("native MCP path attachments", () => {
       await mkdir(stateDir, { recursive: true });
       await writeFile(stateFile, "session state");
       await writeFile(temporary, "temporary output");
-      await writeFile(large, "");
-      await truncate(large, MAX_SESSION_FILE_BYTES + 1);
+      await writeFile(large, Buffer.alloc(MAX_SESSION_FILE_BYTES + 1, "a"));
       await symlink(foreignPath, alias);
       await mkdir(custom);
       await writeFile(legacy, "foreign legacy output");
@@ -185,26 +184,32 @@ describe("native MCP path attachments", () => {
         foreign.id,
         custom,
       ]);
-      for (const output of [own, temporary]) {
-        expect((await post(output)).isError).not.toBe(true);
-      }
-      for (const output of [
+      const unreadable = path.join(scratch, "unreadable.txt");
+      await writeFile(unreadable, "no permission");
+      await chmod(unreadable, 0o000);
+      // Local agents attach any regular file their OS account can read, as on
+      // main: other agents' files, session state, symlinks and large outputs.
+      const accepted = [
+        own,
+        temporary,
         foreignPath,
         alias,
         legacy,
         stateFile,
         large,
         `${scratch}/../${path.basename(scratch)}/temporary.txt`,
-      ]) {
-        const result = await post(output);
-        expect(result.isError, output).toBe(true);
-        if (output === large)
-          expect(result.content[0]?.text).toContain("20 MiB");
+      ];
+      for (const output of accepted) {
+        expect((await post(output)).isError, output).not.toBe(true);
+      }
+      // What the OS cannot read is still refused.
+      for (const output of [path.join(scratch, "missing.txt"), unreadable]) {
+        expect((await post(output)).isError, output).toBe(true);
       }
       expect(
         (await authedInject("GET", `/api/v1/agents/${agentId}/files`)).json()
           .files
-      ).toHaveLength(2);
+      ).toHaveLength(accepted.length);
     } finally {
       await rm(scratch, { recursive: true, force: true });
     }
