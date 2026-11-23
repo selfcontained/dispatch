@@ -17,6 +17,7 @@ import {
   sessionFromWire,
   type CallOptions,
   type Event,
+  type Req,
   type Res,
   type Runner,
 } from "@dispatch/runner-protocol/contract";
@@ -187,25 +188,37 @@ const withoutDeadline = <K extends "workspace.prepare" | "workspace.resume">(
   options: CallOptions<K>
 ) => ({ ...options, timeoutMs: null }) as CallOptions<K>;
 
-export async function prepareLocalWorkspace(
+/** A local launch's request to `workspace.prepare`, without its session. */
+export type LocalPreparation = Omit<Req<"workspace.prepare">, "session">;
+
+/**
+ * The request a local launch prepares with. One that asks for a worktree is
+ * recorded on the agent row, so Start can finish it after a restart.
+ */
+export function localPreparation(
+  directory: Pick<LaunchDirectory, "cwd">,
+  worktree: WorktreeRequest | null
+): LocalPreparation {
+  return {
+    source: { directory: pathFromWire(directory.cwd) },
+    ...(worktree && { worktree: runnerWorktree(worktree) }),
+    copyIgnored: [...WORKTREE_LOCAL_CONFIG_FILES],
+    installDependencies: true,
+  };
+}
+
+async function prepare(
   runner: Runner | undefined,
   session: string,
-  directory: LaunchDirectory,
-  worktree: WorktreeRequest | null,
+  request: LocalPreparation,
   progress: PrepareProgress
-): Promise<PreparedWorkspace> {
+): Promise<Binding> {
   const steps = ordered(progress);
   let binding: Binding;
   try {
     binding = await required(runner).call(
       "workspace.prepare",
-      {
-        session: sessionFromWire(session),
-        source: { directory: pathFromWire(directory.cwd) },
-        ...(worktree && { worktree: runnerWorktree(worktree) }),
-        copyIgnored: [...WORKTREE_LOCAL_CONFIG_FILES],
-        installDependencies: true,
-      },
+      { ...request, session: sessionFromWire(session) },
       withoutDeadline<"workspace.prepare">({ onEvent: steps.onEvent })
     );
   } catch (error) {
@@ -213,9 +226,36 @@ export async function prepareLocalWorkspace(
     throw error;
   }
   await steps.settled();
-  const result = prepared(binding);
+  return binding;
+}
+
+export async function prepareLocalWorkspace(
+  runner: Runner | undefined,
+  session: string,
+  directory: LaunchDirectory,
+  worktree: WorktreeRequest | null,
+  progress: PrepareProgress
+): Promise<PreparedWorkspace> {
+  const result = prepared(
+    await prepare(
+      runner,
+      session,
+      localPreparation(directory, worktree),
+      progress
+    )
+  );
   // A folder launch keeps main's probe of the folder it resolved.
   return worktree ? result : { ...result, git: directory.git };
+}
+
+/** Prepare again from the request the row recorded; a repeat is safe. */
+export async function prepareRecordedWorkspace(
+  runner: Runner | undefined,
+  session: string,
+  request: LocalPreparation,
+  progress: PrepareProgress
+): Promise<PreparedWorkspace> {
+  return prepared(await prepare(runner, session, request, progress));
 }
 
 /** Finish a launch a restart interrupted; null when it never asked for a worktree. */
