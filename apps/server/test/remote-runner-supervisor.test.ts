@@ -22,6 +22,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import Fastify from "fastify";
+import { createSessionCore } from "@dispatch/runner/cli";
 import { buildHostEnv } from "../src/agents/acp/host-env.js";
 import {
   HOST_FILES,
@@ -255,6 +256,7 @@ describe("runner session supervision", () => {
         env: {},
         workspaces: new Set(workspaces),
         hostCommand: (dir) => ["/test-host", "--state", dir],
+        sessions: createSessionCore,
         asWorkload,
         observeCheckout: (dir, scratch) =>
           scratch ? observeScratchCheckout(dir) : observeGitCheckout(dir),

@@ -11,6 +11,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { afterAll, expect, it, vi } from "vitest";
+import { createSessionCore } from "@dispatch/runner/cli";
 import {
   createSessionSupervisor,
   runnerStorageKey,
@@ -48,6 +49,7 @@ const supervisor = await createSessionSupervisor(
     gid: process.getgid!(),
     ca: path.join(runnerState, "ca.pem"),
     bins: { claudeBin: "", codexBin: "" },
+    sessions: createSessionCore,
     workspaces: new Set(),
     env: {},
     hostCommand: () => {

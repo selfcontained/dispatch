@@ -17,7 +17,10 @@ import { terminalEnvironment } from "../../terminal/pty.js";
 import { promisify } from "node:util";
 import type { HostLaunch } from "../acp/host-protocol.js";
 import type { WorkloadCommand } from "./session-storage.js";
-import { createSessionSupervisor } from "./session-supervisor.js";
+import {
+  createSessionSupervisor,
+  type SessionCoreFactory,
+} from "./session-supervisor.js";
 export { runnerStorageKey } from "./session-supervisor.js";
 import { hostCommand, selfCommand } from "../acp/host-command.js";
 import {
@@ -404,6 +407,8 @@ export type RunnerUpdateOptions = {
   updateIdentity?: UpdateIdentity | null;
   terminalGraceMs?: number;
   createWorkspacePreparation?: WorkspacePreparationFactory;
+  /** The runner's session core; the supervisor needs it to start. */
+  createSessions?: SessionCoreFactory;
 };
 
 type RunnerOutput = RunnerFrame | StreamFrame;
@@ -687,6 +692,11 @@ export async function runRemoteRunner(
     | undefined;
   const supervisor = await createSessionSupervisor({
     ...config,
+    sessions:
+      updateOptions.createSessions ??
+      (() => {
+        throw new Error("Runner session core is missing.");
+      }),
     build: embeddedBuild,
     resolveBins,
     env,
