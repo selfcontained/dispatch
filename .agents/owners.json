@@ -31,6 +31,7 @@
         "apps/server/src/observability/service-resources.ts",
         "apps/server/test/service-resources.test.ts",
         "apps/server/src/runners/**",
+        "apps/server/test/repository-identity*.test.ts",
         "docs/runner-interface/**",
         "apps/server/src/db/seed/agents.ts",
         "apps/server/src/main.ts",
