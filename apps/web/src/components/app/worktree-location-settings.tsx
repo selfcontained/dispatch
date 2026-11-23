@@ -140,11 +140,11 @@ export function WorktreeLocationSettings(): JSX.Element {
                   aria-pressed={shown === opt.value}
                   onClick={() => {
                     if (opt.value === shown) return;
-                    if (opt.value === "directory" && !worktreeDirectory) {
-                      setPickingDirectory(true);
-                      return;
-                    }
-                    setPickingDirectory(false);
+                    // The folder field stays open for "Another folder" until
+                    // a save succeeds, so a saved folder that has gone
+                    // missing can still be corrected here.
+                    setPickingDirectory(opt.value === "directory");
+                    if (opt.value === "directory" && !worktreeDirectory) return;
                     void autoSave.save("location", opt.value);
                   }}
                   className={cn(

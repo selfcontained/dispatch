@@ -116,8 +116,10 @@ import { StreamWriteThrottle } from "./stream-write-throttle.js";
 import * as telemetry from "./telemetry.js";
 import {
   assertWorktreeDirectoryUsable,
+  getWorktreePlacement,
   WorktreeDirectoryError,
   type WorktreeLocation,
+  type WorktreePlacement,
 } from "../worktree-location-settings.js";
 
 export { AgentError } from "./errors.js";
@@ -1760,7 +1762,15 @@ export class AgentManager {
       } else {
         worktreeBranchName = normalizedBaseBranch || "main";
       }
-      const worktreeLocation = input.worktreeLocation ?? "sibling";
+      // Callers that do not pass a placement (jobs, templates and task
+      // triggers, persona launches) get the instance-wide setting too.
+      const placement: WorktreePlacement = input.worktreeLocation
+        ? {
+            worktreeLocation: input.worktreeLocation,
+            worktreeDirectory: input.worktreeDirectory,
+          }
+        : await getWorktreePlacement(this.pool);
+      const worktreeLocation = placement.worktreeLocation;
       if (worktreeLocation === "nested") {
         worktreePathOverride = path.join(
           originalCwd,
@@ -1774,7 +1784,7 @@ export class AgentManager {
         let directory: string;
         try {
           directory = await assertWorktreeDirectoryUsable(
-            input.worktreeDirectory ?? ""
+            placement.worktreeDirectory ?? ""
           );
         } catch (err) {
           if (err instanceof WorktreeDirectoryError) {

@@ -290,6 +290,38 @@ describe("POST /api/v1/templates/:id/launch", () => {
     expect(body.agent.id).toBeTruthy();
   });
 
+  // Task triggers launch through templates; they must not fall back to a
+  // sibling worktree on the internal disk when a worktree folder is chosen.
+  it("applies the instance worktree folder to template launches", async () => {
+    await ctx.pool.query(
+      `INSERT INTO settings (key, value) VALUES
+         ('worktree_location', 'directory'),
+         ('worktree_directory', '/Volumes/dispatch-test-absent-drive/worktrees')
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`
+    );
+    try {
+      const created = await createTemplate("folder-tmpl", {
+        prompt: "Build it",
+        useWorktree: true,
+      });
+      const res = await authedInject(
+        "POST",
+        `/api/v1/templates/${(created as { id: string }).id}/launch`,
+        {}
+      );
+      // The route maps errors by message (classifyErrorCode); what matters
+      // here is that the launch is refused with the folder named.
+      expect(res.statusCode).toBeGreaterThanOrEqual(400);
+      expect(res.json().error).toContain(
+        "/Volumes/dispatch-test-absent-drive/worktrees is unavailable"
+      );
+    } finally {
+      await ctx.pool.query(
+        "DELETE FROM settings WHERE key IN ('worktree_location', 'worktree_directory')"
+      );
+    }
+  });
+
   it("records startup links as link attachments on the launch post", async () => {
     const created = await createTemplate("links-tmpl", {
       prompt: "Read the spec",

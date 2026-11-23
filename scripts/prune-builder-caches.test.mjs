@@ -132,6 +132,35 @@ test("apply removes candidates and keeps required revisions and live profiles", 
   }
 });
 
+test("revisions are all kept when a linked install is on an absent drive", () => {
+  const f = fixture();
+  try {
+    writeFileSync(
+      path.join(f.pw, ".links", "unmounted"),
+      "/Volumes/dispatch-test-absent-drive/repo/node_modules/playwright-core"
+    );
+    const result = f.run("--apply");
+    assert.ok(existsSync(path.join(f.pw, "chromium-1100")));
+    assert.ok(
+      result.kept.some((k) => k.reason.startsWith("install unreachable"))
+    );
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("revisions are all kept when no live install is found", () => {
+  const f = fixture();
+  try {
+    rmSync(path.join(f.pw, ".links"), { recursive: true });
+    f.run("--apply");
+    assert.ok(existsSync(path.join(f.pw, "chromium-1100")));
+    assert.ok(existsSync(path.join(f.pw, "chromium_headless_shell-1208")));
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
 test("an unavailable cache root is skipped, not created", () => {
   const f = fixture();
   try {

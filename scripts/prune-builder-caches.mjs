@@ -103,16 +103,35 @@ const candidates = [];
 const kept = [];
 
 // --- Playwright browser revisions -------------------------------------------
+/**
+ * An install path whose drive is not mounted is unreachable, not retired:
+ * its browsers are still needed once the drive is back.
+ */
+function onAbsentVolume(target) {
+  const match = /^\/Volumes\/[^/]+/.exec(target);
+  return Boolean(match) && !existsSync(match[0]);
+}
+
 function playwrightRevisions(root) {
   const linksDir = path.join(root, ".links");
   const required = new Set();
   const liveInstalls = [];
+  const unreachable = [];
   for (const link of existsSync(linksDir) ? readdirSync(linksDir) : []) {
     const install = readFileSync(path.join(linksDir, link), "utf8").trim();
     const browsersJson = path.join(install, "browsers.json");
-    if (!existsSync(browsersJson)) continue;
+    if (!existsSync(browsersJson)) {
+      if (onAbsentVolume(install)) unreachable.push(install);
+      continue;
+    }
+    let browsers;
+    try {
+      ({ browsers } = JSON.parse(readFileSync(browsersJson, "utf8")));
+    } catch {
+      unreachable.push(install);
+      continue;
+    }
     liveInstalls.push(install);
-    const { browsers } = JSON.parse(readFileSync(browsersJson, "utf8"));
     for (const browser of browsers) {
       const dirName = browser.name.replace(/-/g, "_");
       for (const revision of [
@@ -123,6 +142,14 @@ function playwrightRevisions(root) {
       }
     }
   }
+  // Without a complete picture of what is needed, delete nothing.
+  const holdAll =
+    unreachable.length > 0
+      ? `install unreachable: ${unreachable[0]}`
+      : liveInstalls.length === 0
+        ? "no live Playwright install found"
+        : null;
+  if (holdAll) console.error(`keep all browser revisions (${holdAll})`);
   for (const entry of readdirSync(root)) {
     // Only revision folders (chromium-1208, ffmpeg-1011…); `.links` and the
     // session registry `b/` belong to Playwright itself.
@@ -131,11 +158,13 @@ function playwrightRevisions(root) {
     if (!lstatSync(target).isDirectory()) continue;
     // A revision being downloaded right now has no link yet.
     const recent = now - lastWrite(target) < DAY_MS;
-    if (required.has(entry) || recent) {
+    if (holdAll || required.has(entry) || recent) {
       kept.push({
         kind: "playwright-browser",
         path: target,
-        reason: required.has(entry) ? "referenced" : "used in the last day",
+        reason:
+          holdAll ??
+          (required.has(entry) ? "referenced" : "used in the last day"),
       });
     } else {
       candidates.push({
