@@ -9,7 +9,7 @@ exports[`preserves the claude local launch environment 1`] = `
   "DISPATCH_PORT": "6767",
   "DISPATCH_SCHEME": "http",
   "HOME": "/dispatch-golden/home",
-  "PATH": "/dispatch/bin:/dispatch-golden/home/.local/bin:/shell/bin:/usr/bin:/bin:/tools/claude/bin:/dispatch-golden/home/.opencode/bin:/dispatch-golden/home/.bun/bin:/dispatch-golden/home/.volta/bin:/opt/homebrew/bin:/usr/local/bin",
+  "PATH": "/dispatch/bin:/dispatch-golden/home/.local/bin:/shell/bin:/launch-inherited/bin:/usr/bin:/bin:/tools/claude/bin:/dispatch-golden/home/.opencode/bin:/dispatch-golden/home/.bun/bin:/dispatch-golden/home/.volta/bin:/opt/homebrew/bin:/usr/local/bin",
 }
 `;
 
@@ -21,7 +21,7 @@ exports[`preserves the codex local launch environment 1`] = `
   "DISPATCH_PORT": "6767",
   "DISPATCH_SCHEME": "http",
   "HOME": "/dispatch-golden/home",
-  "PATH": "/dispatch/bin:/dispatch-golden/home/.local/bin:/shell/bin:/usr/bin:/bin:/tools/codex/bin:/dispatch-golden/home/.opencode/bin:/dispatch-golden/home/.bun/bin:/dispatch-golden/home/.volta/bin:/opt/homebrew/bin:/usr/local/bin",
+  "PATH": "/dispatch/bin:/dispatch-golden/home/.local/bin:/shell/bin:/launch-inherited/bin:/usr/bin:/bin:/tools/codex/bin:/dispatch-golden/home/.opencode/bin:/dispatch-golden/home/.bun/bin:/dispatch-golden/home/.volta/bin:/opt/homebrew/bin:/usr/local/bin",
 }
 `;
 
@@ -33,6 +33,6 @@ exports[`preserves the opencode local launch environment 1`] = `
   "DISPATCH_PORT": "6767",
   "DISPATCH_SCHEME": "http",
   "HOME": "/dispatch-golden/home",
-  "PATH": "/dispatch/bin:/dispatch-golden/home/.local/bin:/shell/bin:/usr/bin:/bin:/tools/opencode/bin:/dispatch-golden/home/.opencode/bin:/dispatch-golden/home/.bun/bin:/dispatch-golden/home/.volta/bin:/opt/homebrew/bin:/usr/local/bin",
+  "PATH": "/dispatch/bin:/dispatch-golden/home/.local/bin:/shell/bin:/launch-inherited/bin:/usr/bin:/bin:/tools/opencode/bin:/dispatch-golden/home/.opencode/bin:/dispatch-golden/home/.bun/bin:/dispatch-golden/home/.volta/bin:/opt/homebrew/bin:/usr/local/bin",
 }
 `;
