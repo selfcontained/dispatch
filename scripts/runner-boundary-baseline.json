@@ -2681,27 +2681,6 @@
     "count": 1
   },
   {
-    "file": "apps/web/src/components/app/agent-history-detail.tsx",
-    "kind": "R6 placement call",
-    "detail": "remotePlacement(data.agent.cwd)",
-    "task": "T38",
-    "count": 1
-  },
-  {
-    "file": "apps/web/src/components/app/agent-history-detail.tsx",
-    "kind": "R6 placement read",
-    "detail": "placement?.runner",
-    "task": "T38",
-    "count": 1
-  },
-  {
-    "file": "apps/web/src/components/app/agent-history-detail.tsx",
-    "kind": "R6 protocol value import",
-    "detail": "@dispatch/runner-protocol",
-    "task": "T38",
-    "count": 1
-  },
-  {
     "file": "apps/web/src/components/app/branch-select.tsx",
     "kind": "R6 placement read",
     "detail": "{ runner }",

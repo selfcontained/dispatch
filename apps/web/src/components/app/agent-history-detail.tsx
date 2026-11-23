@@ -1,4 +1,3 @@
-import { remotePlacement } from "@dispatch/runner-protocol";
 import { ArchivedConversation } from "./archived-conversation";
 import { AgentSessionLink } from "./agent-session-link";
 import { ArrowLeft, Search } from "lucide-react";
@@ -16,7 +15,6 @@ import {
   useHistoryAgentDetail,
   type HistoryAgentDetail,
 } from "@/hooks/use-agent-history";
-import { useRunnerName } from "@/hooks/use-runners";
 import { DetailTabs } from "@/components/app/agent-history-detail-tabs";
 import { Button } from "@/components/ui/button";
 import { AsyncBoundary } from "@/components/ui/async-boundary";
@@ -77,8 +75,6 @@ function HistoryDetail({
   data: HistoryAgentDetail;
 }) {
   const { agent, tokenUsage, files } = data;
-  const placement = remotePlacement(data.agent.cwd);
-  const runnerName = useRunnerName(placement?.runner);
   const durationMs =
     new Date(agent.updatedAt).getTime() - new Date(agent.createdAt).getTime();
   const totalTokens =
@@ -106,14 +102,6 @@ function HistoryDetail({
 
         {/* Agent details */}
         <div className="mt-3 space-y-1 text-body-sm text-muted-foreground">
-          {runnerName && (
-            <div className="flex items-center gap-2">
-              <span className="w-16 shrink-0 text-label-sm">Runner</span>
-              <span className="break-all font-mono text-label-sm">
-                {runnerName}
-              </span>
-            </div>
-          )}
           {(agent.worktreeBranch || agent.gitContext?.branch) && (
             <div className="flex items-center gap-2">
               <span className="w-16 shrink-0 text-label-sm">Branch</span>
