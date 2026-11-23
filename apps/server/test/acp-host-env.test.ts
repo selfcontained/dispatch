@@ -16,7 +16,10 @@ import {
   pathFromWire,
   sessionFromWire,
 } from "@dispatch/runner-protocol/contract";
-import { writeLocalHostLaunch } from "../src/agents/acp/local-host-entry.js";
+import {
+  localHostEntry,
+  writeLocalHostLaunch,
+} from "../src/agents/acp/local-host-entry.js";
 import type { HostLaunch } from "../src/agents/acp/host-protocol.js";
 import { loginShellCommand } from "../src/agents/acp/runtime.js";
 
@@ -299,9 +302,27 @@ for (const engine of ["claude", "codex", "opencode"] as const) {
       mkdirSync(path.dirname(bin), { recursive: true });
       writeFileSync(bin, "#!/bin/sh\necho 1.0.0\n", { mode: 0o755 });
     }
+    const inheritedBin = "/launch-inherited/bin";
+    mkdirSync(path.join(root, ".dispatch"));
+    writeFileSync(
+      path.join(root, ".dispatch/env"),
+      'export PATH="/shell/bin:$PATH"\n'
+    );
+    vi.stubEnv("SHELL", "/bin/sh");
+    const command = localHostEntry().wrap(["/usr/bin/printenv", "PATH"]);
+    const shellPath = execFileSync(command.bin, command.args, {
+      env: { HOME: root, PATH: `${inheritedBin}:/usr/bin:/bin` },
+      encoding: "utf8",
+    })
+      .trim()
+      .split(path.delimiter);
+    // macOS and Linux supply different system PATHs in the login profile.
+    const fixturePath = shellPath.filter(
+      (entry) => entry === inheritedBin || entry === "/shell/bin"
+    );
     const shellEnv = {
       HOME: "/dispatch-golden/home",
-      PATH: "/shell/bin:/usr/bin:/bin",
+      PATH: [...fixturePath, "/usr/bin", "/bin"].join(path.delimiter),
       DISPATCH_ACP_ADAPTER_COMMAND: '["fixture"]',
       CLAUDE_CODE_EFFORT_LEVEL: "high",
       CUSTOM_SHELL_SETTING: "kept",

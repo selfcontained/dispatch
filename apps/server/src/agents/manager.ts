@@ -3329,10 +3329,12 @@ export class AgentManager {
         { ...preparation, session },
         { onEvent }
       ));
-    if (prepared.worktree?.base)
+    if (prepared.worktree)
       await this.pool.query(
-        "UPDATE agents SET base_branch = $2 WHERE id = $1 AND base_branch IS NULL",
-        [agent.id, prepared.worktree.base]
+        `UPDATE agents SET worktree_branch = $2,
+          base_branch = COALESCE(base_branch, $3), updated_at = NOW()
+         WHERE id = $1 AND deleted_at IS NULL`,
+        [agent.id, prepared.worktree.branch, prepared.worktree.base]
       );
   }
 
