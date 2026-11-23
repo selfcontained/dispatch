@@ -2,6 +2,7 @@ import { execFile, execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:net";
 import { once } from "node:events";
+import { PassThrough, Writable } from "node:stream";
 import {
   chmod,
   link,
@@ -46,6 +47,8 @@ import {
 import { readSessionFile } from "../src/files/session-file.js";
 import { sessionFileCommand } from "../src/agents/remote/session-files.js";
 import { createSessionSupervisor } from "../src/agents/remote/session-supervisor.js";
+import { streamCheckoutWorker } from "../src/agents/remote/runner.js";
+import { FlowStreams } from "../src/runners/enrolled/v1-framing.js";
 
 import {
   observeGitCheckout,
@@ -275,6 +278,112 @@ describe("runner session supervision", () => {
     supervisor?.close();
     supervisor = undefined;
     await rm(root, { recursive: true, force: true });
+  });
+
+  it("acknowledges the same session after cancelling exec with both transfers complete", async () => {
+    const workspace = "fixture";
+    const runner = await start([workspace]);
+    await runner.launch(launch(workspace), root);
+    const abort = new AbortController();
+    const socket = new PassThrough();
+    const peerSocket = new PassThrough();
+    let pid: number | undefined;
+    const streams = new FlowStreams(socket, (frame, flushed) =>
+      queueMicrotask(() => {
+        peer.handle(frame);
+        flushed?.();
+      })
+    );
+    const peer = new FlowStreams(peerSocket, (frame) =>
+      queueMicrotask(() => streams.handle(frame))
+    );
+    streams.enable();
+    peer.enable();
+    const outputDone = Promise.all([
+      peer.receive(
+        "stdout",
+        new Writable({
+          write(chunk, _encoding, done) {
+            pid = Number(chunk.toString());
+            done();
+          },
+        })
+      ),
+      peer.receive(
+        "stderr",
+        new Writable({
+          write(_chunk, _encoding, done) {
+            done();
+          },
+        })
+      ),
+    ]);
+    const work = runner.withCommandCheckout(
+      agentId,
+      workspace,
+      "effective",
+      root,
+      abort.signal,
+      () =>
+        streamCheckoutWorker(
+          [
+            process.execPath,
+            "-e",
+            `const { closeSync } = require("node:fs");
+             process.stdout.write(String(process.pid), () => {
+               closeSync(1);
+               closeSync(2);
+             });
+             setInterval(() => {}, 1000);`,
+          ],
+          {},
+          "",
+          {
+            stdout: "stdout",
+            stderr: "stderr",
+            shell: "direct",
+            env: {},
+            timeoutMs: null,
+            maxOutput: null,
+          },
+          streams,
+          abort.signal
+        )
+    );
+    let settled = false;
+    void work
+      .catch(() => {})
+      .finally(() => {
+        settled = true;
+      });
+    try {
+      const deadline = AbortSignal.timeout(1500);
+      const timeout = new Promise<never>((_, reject) =>
+        deadline.addEventListener("abort", () => reject(deadline.reason), {
+          once: true,
+        })
+      );
+      await Promise.race([outputDone, timeout]);
+      expect(streams.has("stdout")).toBe(false);
+      expect(streams.has("stderr")).toBe(false);
+      abort.abort(new Error("Cancelled by test"));
+      await expect(
+        Promise.race([runner.alive(agentId, workspace), timeout])
+      ).resolves.toBe(true);
+      await expect(work).rejects.toBe(abort.signal.reason);
+    } finally {
+      abort.abort();
+      socket.destroy();
+      peerSocket.destroy();
+      if (pid && !settled) {
+        try {
+          process.kill(-pid, "SIGKILL");
+        } catch {
+          // The supervisor already stopped it.
+        }
+      }
+      await work.catch(() => {});
+    }
   });
 
   it("pauses exited-host cleanup while the update fence holds admission", async () => {

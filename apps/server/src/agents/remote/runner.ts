@@ -155,57 +155,106 @@ function validExecutionId(value: number) {
   return Number.isInteger(value) && value > 0 && value < 0xffffffff;
 }
 
-function runCheckoutWorker(
+function startCheckoutWorker(
+  [command, ...args]: [string, ...string[]],
+  env: NodeJS.ProcessEnv,
+  input: string
+) {
+  if (typeof Bun !== "undefined") {
+    // Bun's node:child_process bridge can miss completion after the process
+    // has exited. Use its native process handle and consume the pipes directly.
+    const child = Bun.spawn([command, ...args], {
+      detached: true,
+      env,
+      stdin: Buffer.from(input),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    return {
+      pid: child.pid,
+      stdout: Readable.from(child.stdout ?? [], { objectMode: false }),
+      stderr: Readable.from(child.stderr ?? [], { objectMode: false }),
+      exited: child.exited.then((code) => String(child.signalCode ?? code)),
+    };
+  }
+  const child = spawn(command, args, {
+    detached: true,
+    env,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  const exited = new Promise<string>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code, signal) => resolve(String(code ?? signal)));
+  });
+  child.stdin.on("error", () => {});
+  child.stdin.end(input);
+  return { pid: child.pid, stdout: child.stdout, stderr: child.stderr, exited };
+}
+
+function stopCheckoutWorker(child: ReturnType<typeof startCheckoutWorker>) {
+  if (child.pid) {
+    try {
+      process.kill(-child.pid, "SIGKILL");
+    } catch {
+      // The process group may already have exited.
+    }
+  }
+  child.stdout.destroy();
+  child.stderr.destroy();
+}
+
+async function waitForCheckoutWorker<T>(signal: AbortSignal, work: Promise<T>) {
+  const cancelled = Promise.withResolvers<never>();
+  const abort = () => cancelled.reject(signal.reason);
+  signal.addEventListener("abort", abort, { once: true });
+  try {
+    if (signal.aborted) abort();
+    return await Promise.race([cancelled.promise, work]);
+  } finally {
+    signal.removeEventListener("abort", abort);
+  }
+}
+
+async function runCheckoutWorker(
   args: string[],
   env: NodeJS.ProcessEnv,
   input: string,
   signal: AbortSignal
 ): Promise<string> {
   signal.throwIfAborted();
-  const child = spawn(setpriv, args, { detached: true, env });
-  const kill = () => {
-    if (!child.pid) return;
-    try {
-      process.kill(-child.pid, "SIGKILL");
-    } catch {
-      // The process group may already have exited.
-    }
-  };
-  return new Promise((resolve, reject) => {
-    const stdout: Buffer[] = [];
-    let bytes = 0;
-    let stderr = "";
-    signal.addEventListener("abort", kill, { once: true });
-    child.stdout.on("data", (chunk: Buffer) => {
+  const child = startCheckoutWorker([setpriv, ...args], env, input);
+  const stdout: Buffer[] = [];
+  let bytes = 0;
+  let stderr = "";
+  async function collectOutput() {
+    for await (const chunk of child.stdout as AsyncIterable<Buffer>) {
       bytes += chunk.length;
-      if (bytes > MAX_CHECKOUT_COMMAND_REPLY_BYTES) kill();
-      else stdout.push(chunk);
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
+      if (bytes > MAX_CHECKOUT_COMMAND_REPLY_BYTES)
+        throw new Error("Checkout command reply exceeded its output limit.");
+      stdout.push(chunk);
+    }
+  }
+  async function collectErrors() {
+    for await (const chunk of child.stderr as AsyncIterable<Buffer>) {
       if (stderr.length < 1024)
-        stderr = (stderr + chunk.toString()).slice(0, 1024);
-    });
-    child.stdin.on("error", () => {});
-    child.stdin.end(input);
-    child.once("error", () =>
-      reject(new Error("Could not start checkout worker."))
-    );
-    child.once("close", (code) => {
-      signal.removeEventListener("abort", kill);
-      if (signal.aborted) reject(signal.reason);
-      else if (bytes > MAX_CHECKOUT_COMMAND_REPLY_BYTES)
-        reject(new Error("Checkout command reply exceeded its output limit."));
-      else if (code !== 0)
-        reject(new Error(stderr || "Checkout worker failed."));
-      else resolve(Buffer.concat(stdout).toString("utf8"));
-    });
+        stderr = (stderr + Buffer.from(chunk).toString()).slice(0, 1024);
+    }
+  }
+  const [status] = await waitForCheckoutWorker(
+    signal,
+    Promise.all([child.exited, collectOutput(), collectErrors()])
+  ).catch((error) => {
+    stopCheckoutWorker(child);
+    throw error;
   });
+  if (status !== "0") throw new Error(stderr || "Checkout worker failed.");
+  return Buffer.concat(stdout).toString("utf8");
 }
 
 /** The workload process owns the command. Its parent only forwards bounded
  * chunks and kills the process group when any part of the transfer fails. */
-async function streamCheckoutWorker(
-  args: string[],
+export async function streamCheckoutWorker(
+  command: [string, ...string[]],
   env: NodeJS.ProcessEnv,
   input: string,
   execution: CheckoutExecution,
@@ -213,11 +262,7 @@ async function streamCheckoutWorker(
   signal: AbortSignal
 ) {
   signal.throwIfAborted();
-  const child = spawn(setpriv, args, {
-    detached: true,
-    env,
-    stdio: ["pipe", "pipe", "pipe"],
-  });
+  const child = startCheckoutWorker(command, env, input);
   let truncated = false;
   async function* limitOutput(source: AsyncIterable<Buffer>) {
     let remaining = execution.maxOutput ?? Infinity;
@@ -232,12 +277,6 @@ async function streamCheckoutWorker(
   const stderr = checkoutWorkerStderr(child.stderr, (value) => {
     status = value;
   });
-  const exited = new Promise<string>((resolve, reject) => {
-    child.once("error", reject);
-    child.once("exit", (code, signal) => resolve(String(code ?? signal)));
-  });
-  child.stdin.on("error", () => {});
-  child.stdin.end(input);
   const controller = new AbortController();
   const transfer = AbortSignal.any([signal, controller.signal]);
   const send = (id: string, source: AsyncIterable<Buffer>) =>
@@ -247,13 +286,18 @@ async function streamCheckoutWorker(
       transfer,
       { stall: "blocked" }
     );
+  // Either output can finish before the worker exits. Cancellation must
+  // release the checkout even if neither transfer is still listening.
   let completed = false;
   try {
-    const [workerStatus] = await Promise.all([
-      exited,
-      send(execution.stdout, child.stdout),
-      send(execution.stderr, stderr),
-    ]);
+    const [workerStatus] = await waitForCheckoutWorker(
+      signal,
+      Promise.all([
+        child.exited,
+        send(execution.stdout, child.stdout),
+        send(execution.stderr, stderr),
+      ])
+    );
     completed = true;
     const value = JSON.parse(status || "null");
     if (workerStatus === "1" && value?.code === "stale")
@@ -265,13 +309,7 @@ async function streamCheckoutWorker(
     return JSON.stringify({ exitCode: value.exitCode, truncated });
   } finally {
     controller.abort();
-    if (!completed && child.pid) {
-      try {
-        process.kill(-child.pid, "SIGKILL");
-      } catch {
-        // The process group may already have exited.
-      }
-    }
+    if (!completed) stopCheckoutWorker(child);
   }
 }
 
@@ -995,7 +1033,7 @@ export async function runRemoteRunner(
                     args.push(await loginPath());
                   }
                   return streamCheckoutWorker(
-                    args,
+                    [setpriv, ...args],
                     env,
                     input,
                     execution,
