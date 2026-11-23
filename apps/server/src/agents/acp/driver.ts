@@ -6,29 +6,39 @@ import {
   type BackgroundNotification,
 } from "./background-ingress.js";
 import { BackgroundWorkRegistry } from "./background-work.js";
-import type { BackgroundSnapshot } from "@dispatch/shared";
 import {
   ownedEnvironment,
   killOwnedProcesses,
 } from "../../shared/process/owned-processes.js";
 import { setTimeout as delay } from "node:timers/promises";
-import type { Effort } from "@dispatch/shared";
-import { parseMcpInventory } from "./mcp-inventory.js";
-import type { AgentMcpInventoryResponse } from "@dispatch/shared";
+import { parseMcpInventory } from "./host/mcp-inventory.js";
 import { PermissionRequests } from "./permissions.js";
 import {
   AUTHENTICATION_REQUIRED,
-  type AgentPermissionRequest,
-} from "@dispatch/shared";
-import type { PromptSource, PromptImage } from "./prompt-source.js";
+  type BackgroundSnapshot,
+  type Effort,
+  type McpInventoryResult as AgentMcpInventoryResponse,
+  type PermissionRequest as AgentPermissionRequest,
+  type PromptImage,
+  type CallerSource,
+} from "./host/types.js";
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import { access, constants as fsConstants } from "node:fs/promises";
 import path from "node:path";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import type { EngineSpec } from "./engine-spec.js";
-import { readPromptImages } from "./prompt-images.js";
+import { readPromptImages } from "./host/prompt-images.js";
 import { isPackageBinDir } from "./package-bin-dir.js";
+
+export type {
+  BackgroundSnapshot,
+  Effort,
+  McpInventoryResult,
+  PermissionRequest,
+  PromptImage,
+  CallerSource,
+} from "./host/types.js";
 
 export type DriverUpdate = acp.SessionUpdate;
 export type DriverUsage = acp.Usage;
@@ -70,7 +80,7 @@ export type DriverEvent =
       type: "steered";
       agentId: string;
       text: string;
-      source?: PromptSource;
+      source?: CallerSource;
       receiptId?: string;
       at?: string;
     }
@@ -78,14 +88,14 @@ export type DriverEvent =
       type: "prompt_delivered";
       agentId: string;
       receiptId: string;
-      source?: PromptSource;
+      source?: CallerSource;
       at: string;
     }
   | {
       type: "steering_picked_up";
       agentId: string;
       receiptId: string;
-      source?: PromptSource;
+      source?: CallerSource;
       at: string;
     }
   /** Live host snapshot, emitted by the runtime with seq 0; never replayed from the journal. */
@@ -114,7 +124,7 @@ export type DriverEvent =
        * same id for Dispatch's own use, so nothing has to read the
        * envelope back off the wire to find out what opened the turn.
        */
-      source?: PromptSource;
+      source?: CallerSource;
       /** The model the engine runs this turn on, when it publishes one. */
       model?: string;
       /** The ACP session the turn runs in: its usage belongs to that session. */
@@ -177,7 +187,7 @@ type Live = {
   promptReceiptsSupported: boolean;
   steeringReceipts: Map<
     string,
-    { source?: PromptSource; accepted: boolean; pickedUpAt?: string }
+    { source?: CallerSource; accepted: boolean; pickedUpAt?: string }
   >;
   turnOpen: boolean;
   steering: Promise<unknown>;
@@ -1168,7 +1178,7 @@ export class AcpDriver {
   steer(
     agentId: string,
     text: string,
-    source?: PromptSource
+    source?: CallerSource
   ): Promise<"injected" | "promptRequired"> {
     const entry = this.require(agentId);
     const request = entry.steering
@@ -1264,7 +1274,7 @@ export class AcpDriver {
     agentId: string,
     text: string,
     onAccepted?: () => void,
-    source?: PromptSource,
+    source?: CallerSource,
     images?: PromptImage[]
   ): Promise<void> {
     const entry = this.require(agentId);

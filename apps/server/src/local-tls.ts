@@ -16,7 +16,6 @@ import {
 import { isIP } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { rootCertificates } from "node:tls";
 import type { TlsConfig } from "./config.js";
 import { childProcessEnv } from "./shared/process/child-environment.js";
 
@@ -39,19 +38,6 @@ function atomicWrite(file: string, data: string | Buffer) {
   } finally {
     rmSync(temporary, { force: true });
   }
-}
-
-/** Preserve public roots and an existing custom trust bundle for agent tools. */
-export function localAgentCaBundle(
-  caPath: string,
-  existingBundle: string | undefined,
-  output: string
-): string {
-  const certificates = [...rootCertificates];
-  if (existingBundle) certificates.push(readFileSync(existingBundle, "utf8"));
-  certificates.push(readFileSync(caPath, "utf8"));
-  atomicWrite(output, certificates.join("\n"));
-  return output;
 }
 
 /** Stop polling after renewal; the app supervisor loads it in a new worker. */

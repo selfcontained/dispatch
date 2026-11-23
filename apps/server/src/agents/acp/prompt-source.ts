@@ -65,6 +65,15 @@ export type PromptSource = {
   | { source: "engine"; text: string; after?: string }
 );
 
+type DispatchPromptSource = PromptSource;
+
+/** The host carries a source opaquely; within Dispatch it is this one. */
+declare module "./host/types.js" {
+  interface CallerSourceRegistry {
+    source: DispatchPromptSource;
+  }
+}
+
 export function isPromptSource(value: unknown): value is PromptSource {
   if (!isSourceRecord(value)) return false;
   const { conversation } = value;

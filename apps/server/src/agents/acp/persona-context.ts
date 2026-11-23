@@ -22,15 +22,3 @@ export async function preparePersonaContext(
   await writeFile(file, context, { mode: 0o600 });
   return `The complete persona instructions, ownership scope, and briefing exceed the inline message budget. Nothing has been trimmed. Before beginning the task, read the entire UTF-8 launch context file at ${JSON.stringify(file)}. If your file tool limits output, read it in chunks until you reach the end. If you cannot read it, report the problem to the launching agent instead of reviewing with incomplete instructions.`;
 }
-
-export function firstPromptContext(
-  delivery: "system_prompt" | "first_prompt" | "instructions_file",
-  systemPrompt: string | null,
-  personaContext: string | null | undefined
-): string | null {
-  return (
-    [delivery === "first_prompt" ? systemPrompt : null, personaContext]
-      .filter(Boolean)
-      .join("\n\n") || null
-  );
-}

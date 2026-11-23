@@ -45,6 +45,7 @@
         "apps/server/test/db/runner-host-recycle.test.ts",
         "apps/server/test/db/runner-launch-reconcile-manager.test.ts",
         "apps/server/test/fixtures/local-runner-entry.ts",
+        "apps/server/test/fixtures/acp-*",
         "apps/server/test/helpers/inject-app.ts",
         "apps/server/test/helpers/recycle-acp-fixture.ts",
         "apps/server/test/helpers/test-workspace-runner.ts",
@@ -254,7 +255,7 @@
         "apps/server/test/repo-tool-environment.test.ts",
         "apps/server/test/tasks-service.test.ts",
         "packages/shared/src/mcp-inventory-types.ts",
-        "apps/server/src/agents/acp/mcp-inventory.ts"
+        "apps/server/src/agents/acp/host/mcp-inventory.ts"
       ],
       "personas": ["mcp-contract-owner"]
     },

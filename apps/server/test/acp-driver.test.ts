@@ -1,4 +1,4 @@
-import { firstPromptContext } from "../src/agents/acp/persona-context.js";
+import { firstPromptContext } from "../src/agents/acp/host/first-prompt.js";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";

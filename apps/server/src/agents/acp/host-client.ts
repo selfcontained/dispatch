@@ -4,7 +4,11 @@ import type {
   AgentPermissionRequest,
   AgentPermissionsResponse,
 } from "@dispatch/shared";
-import type { PromptImage, PromptSource } from "./prompt-source.js";
+import {
+  isPromptSource,
+  type PromptImage,
+  type PromptSource,
+} from "./prompt-source.js";
 
 import { randomUUID } from "node:crypto";
 import type { Duplex } from "node:stream";
@@ -21,6 +25,31 @@ import {
   type PromptReceiptState,
   ndjsonDecoder,
 } from "./host-protocol.js";
+
+/**
+ * A host carries a prompt's `source` without reading it, so Dispatch checks
+ * it here, on receipt: one it did not write is dropped, and the turn reads
+ * as a system prompt.
+ */
+function withValidSource(message: HostMessage): HostMessage {
+  if (message.type === "welcome") {
+    if (!message.turn || message.turn.source === undefined) return message;
+    if (isPromptSource(message.turn.source)) return message;
+    const { source: _, ...turn } = message.turn;
+    return { ...message, turn };
+  }
+  if (
+    message.type === "event" &&
+    message.event &&
+    "source" in message.event &&
+    message.event.source !== undefined &&
+    !isPromptSource(message.event.source)
+  ) {
+    const { source: _, ...event } = message.event;
+    return { ...message, event } as HostMessage;
+  }
+  return message;
+}
 
 const RECONNECT_BASE_MS = 500;
 const RECONNECT_MAX_MS = 10_000;
@@ -325,7 +354,7 @@ export class HostClient {
           socket.destroy();
           break;
         }
-        this.handle(message);
+        this.handle(withValidSource(message));
       }
     });
     socket.on("error", (err) => {

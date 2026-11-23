@@ -2,7 +2,23 @@ import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { expect, it, vi } from "vitest";
-import { readPromptImages } from "../src/agents/acp/prompt-images.js";
+import {
+  PROMPT_IMAGE_MIME_TYPES,
+  readPromptImages,
+} from "../src/agents/acp/host/prompt-images.js";
+import { isPromptImageMimeType } from "../src/agents/acp/prompt-source.js";
+
+it("accepts the same image kinds in the host as Dispatch attaches", () => {
+  for (const mimeType of [
+    ...PROMPT_IMAGE_MIME_TYPES,
+    "image/svg+xml",
+    "image/heic",
+    "application/pdf",
+  ])
+    expect(PROMPT_IMAGE_MIME_TYPES.includes(mimeType)).toBe(
+      isPromptImageMimeType(mimeType)
+    );
+});
 
 it("bounds native images and retains readable files after missing, oversized, or unsupported attachments", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "dispatch-images-"));

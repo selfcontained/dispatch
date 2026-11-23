@@ -4,10 +4,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   extractPersonaContext,
-  firstPromptContext,
   PERSONA_CONTEXT_ARG,
   preparePersonaContext,
 } from "../src/agents/acp/persona-context.js";
+import { firstPromptContext } from "../src/agents/acp/host/first-prompt.js";
 import { MAX_PERSONA_PROMPT_BYTES } from "../src/personas/loader.js";
 
 const roots: string[] = [];

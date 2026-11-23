@@ -1999,18 +1999,10 @@ mock.module("node:fs/promises", () => ({
     )!;
     expect(welcome.hostBuild).toBeUndefined();
     expect(welcome.hostInstanceId).toBeUndefined();
+    // A prompt's source is the caller's opaque metadata (as on main); only
+    // the wire shape is the host's to reject.
     for (const [id, fields] of [
       ["malformed-image", { images: [{ path: true, mimeType: "image/png" }] }],
-      [
-        "malformed-source",
-        {
-          source: {
-            source: "chat",
-            chatMessageId: "post:1",
-            conversation: { streamId: "stream:1" },
-          },
-        },
-      ],
     ] as const) {
       first.socket.write(
         encodeMessage({

@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
+import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { localAgentCaBundle } from "../../local-tls.js";
+import { rootCertificates } from "node:tls";
 import { withToolSearchPath } from "../../shared/lib/tool-environment.js";
 import { withEngineBinDir } from "./engine-bin-dir.js";
 import type { AcpEngineId, EngineBins } from "./engine-spec.js";
@@ -52,4 +54,30 @@ function launchedBin(engine: AcpEngineId, bins: EngineBins): string | null {
   if (engine === "claude") return bins.claudeBin;
   if (engine === "codex") return bins.codexBin;
   return bins.opencodeBin ?? null;
+}
+
+function atomicWrite(file: string, data: string) {
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temporary, data, { mode: 0o600, flag: "wx" });
+    renameSync(temporary, file);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
+}
+
+/**
+ * A trust bundle for one consumer: the public roots, an existing custom
+ * bundle, then the caller's CA. The caller names the CA by its file.
+ */
+export function localAgentCaBundle(
+  caPath: string,
+  existingBundle: string | undefined,
+  output: string
+): string {
+  const certificates = [...rootCertificates];
+  if (existingBundle) certificates.push(readFileSync(existingBundle, "utf8"));
+  certificates.push(readFileSync(caPath, "utf8"));
+  atomicWrite(output, certificates.join("\n"));
+  return output;
 }
