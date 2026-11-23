@@ -1547,10 +1547,21 @@ export async function createSessionSupervisor(
         return core.attach(key);
       });
     },
-    stop(agentId: string, workspace: string, force: boolean) {
+    stop(
+      agentId: string,
+      workspace: string,
+      force: boolean,
+      expectedLaunchId?: string
+    ) {
       const key = runnerStorageKey(agentId);
       return serialize(key, async () => {
+        if (
+          expectedLaunchId !== undefined &&
+          (await core.readLaunch(key))?.launchId !== expectedLaunchId
+        )
+          return false;
         if (!(await bound(key, workspace))) {
+          if (expectedLaunchId !== undefined) return false;
           if (managedTarget(workspace) && (await readBinding(key)) === null)
             return;
           throw new Error("Agent is not bound to this workspace");

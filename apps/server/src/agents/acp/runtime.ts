@@ -2,7 +2,7 @@ import { AgentError } from "../errors.js";
 import { isPromptImageMimeType } from "./prompt-source.js";
 import type { RuntimeLaunch } from "../runtime.js";
 import { sameConversation, type PromptConversation } from "@dispatch/shared";
-import { appendFile, mkdir, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import path from "node:path";
 import type { Duplex } from "node:stream";
 import type { SessionLifecycleOperation } from "@dispatch/runner-protocol";
@@ -19,6 +19,10 @@ import {
   requestLocalSession as callLocalSession,
   type LocalSessionRunner,
 } from "../../runners/local.js";
+import {
+  controllerPlacement,
+  runnerIdForPlacement,
+} from "../../runners/placement.js";
 import { createLocalRunner } from "../local-runner.js";
 export { selfCommand, hostCommand, loginShellCommand } from "./host-command.js";
 
@@ -92,13 +96,29 @@ export function hostReconnectDisposition(
 ): "retry" | "gone" | undefined {
   if (error instanceof RunnerRevoked || error instanceof RunnerHostGone)
     return "gone";
-  if (error instanceof RunnerUnavailable) return "retry";
+  if (isSessionUnavailable(error)) return "retry";
   if (error instanceof RunnerCallError) {
     if (error.code === "host_gone") return "gone";
-    if (error.code === "unavailable" || error.code === "unknown_outcome")
-      return "retry";
   }
   return undefined;
+}
+
+/** A request that cannot establish whether the session is still running. */
+function isSessionUnavailable(error: unknown): boolean {
+  return (
+    (error instanceof RunnerUnavailable && !(error instanceof RunnerRevoked)) ||
+    (error instanceof RunnerCallError &&
+      (error.code === "unavailable" || error.code === "unknown_outcome"))
+  );
+}
+
+/** The stop remains pending until the runner can serve it. */
+export function isStopDeferred(error: unknown): boolean {
+  return (
+    isSessionUnavailable(error) ||
+    error instanceof RunnerUpdateFenced ||
+    (error instanceof RunnerCallError && error.code === "fenced")
+  );
 }
 
 export const COMBINE_MAX_PROMPTS = 8;
@@ -141,8 +161,7 @@ type Waiting = {
 type Live = {
   agentId: string;
   remote?: boolean;
-  /** The runner this host is placed on; local hosts have none. */
-  runner?: string;
+  runnerId: string;
   /** The runner connection the host's newest channel was opened over. */
   channelEpoch?: number;
   client: HostClient;
@@ -394,7 +413,10 @@ export type AcpRuntimeDeps = {
   ) => Promise<{ images: PromptImage[]; text: string }>;
   remote?: Pick<RemoteRunnerService, "available" | "requestSession"> &
     Partial<
-      Pick<RemoteRunnerService, "connectionEpoch" | "reconcilesLaunches">
+      Pick<
+        RemoteRunnerService,
+        "connectionEpoch" | "reconcilesLaunches" | "supportsScopedStop"
+      >
     >;
   /**
    * The app's local runner child, once started: local hosts are attached,
@@ -411,6 +433,7 @@ export type AcpRuntimeDeps = {
   remoteInbox?: Pick<RemoteEventInbox, "receive" | "projected">;
   recoverRemoteEvent?: (agentId: string) => Promise<void>;
   placement?: (agentId: string) => Promise<Placement | null>;
+  recordLaunch?: (agentId: string, launchId: string | null) => Promise<void>;
   classifySteering?: ClassifySteering;
   config: Pick<
     AppConfig,
@@ -457,18 +480,20 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     return deps.remote;
   };
 
+  const controllerId = runnerIdForPlacement(controllerPlacement);
+  const runnerIdAt = (placement?: Placement | null) =>
+    placement?.runner ?? controllerId;
+
   const stateDir = (agentId: string) =>
     path.join(config.agentStateRoot, agentId);
 
   /** An update holds new work for this host's runner. */
   const held = (entry: Live) =>
-    entry.runner !== undefined &&
-    (deps.holds?.isHeld(entry.runner) === true ||
-      recycleHolds.has(entry.agentId));
+    deps.holds?.isHeld(entry.runnerId) === true ||
+    recycleHolds.has(entry.agentId);
 
   const draining = (entry: Live) =>
-    entry.runner !== undefined &&
-    deps.holds?.current(entry.runner)?.draining === true &&
+    deps.holds?.current(entry.runnerId)?.draining === true &&
     !recycleHolds.has(entry.agentId);
   const canWake = (w: Waiting, entry: Live) =>
     draining(entry) &&
@@ -482,20 +507,26 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
    * request never started while the hold is still on.
    */
   async function heldSessionRequest(
-    placement: Placement,
-    operation: SessionLifecycleOperation
+    placement: Placement | null | undefined,
+    operation: SessionLifecycleOperation,
+    beforeRequest?: () => void
   ): Promise<SessionResult> {
+    const runnerId = runnerIdAt(placement);
     for (;;) {
-      await deps.holds?.wait(placement.runner, "stop");
+      if (placement && !deps.remote?.available(placement))
+        throw new RunnerUnavailable(
+          "The runner is disconnected or unavailable."
+        );
+      await deps.holds?.wait(runnerId, "stop");
       try {
+        beforeRequest?.();
         return await requestSession(placement, operation);
       } catch (error) {
         if (
           error instanceof RunnerUpdateFenced &&
-          deps.holds?.isHeld(placement.runner)
+          deps.holds?.isHeld(runnerId)
         ) {
-          if (deps.holds.isResuming(placement.runner))
-            await deps.holds.wait(placement.runner);
+          if (deps.holds.isResuming(runnerId)) await deps.holds.wait(runnerId);
           continue;
         }
         throw error;
@@ -521,7 +552,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       try {
         return await requestSession(placement, operation, request, onProgress);
       } catch (error) {
-        const hold = placement && deps.holds?.current(placement.runner);
+        const hold = deps.holds?.current(runnerIdAt(placement));
         if (
           !(error instanceof RunnerAcknowledgementLost) ||
           !placement ||
@@ -543,7 +574,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         logger.info(
           {
             agentId: operation.agentId,
-            runnerId: placement.runner,
+            runnerId: runnerIdAt(placement),
             launchId: operation.launch.launchId,
           },
           "launch reply lost during a runner update; reconciling the same launch"
@@ -620,10 +651,23 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         };
       }
       case "stop": {
-        await callLocalSession(localChild(), "session.stop", {
-          session,
-          force: operation.force === true,
-        });
+        try {
+          await localChild().call(
+            "session.stop",
+            {
+              session,
+              force: operation.force,
+              ...(operation.expectedLaunchId !== undefined && {
+                expectedLaunchId: operation.expectedLaunchId,
+              }),
+            },
+            { wait: false, timeoutMs: 30_000 }
+          );
+        } catch (error) {
+          if (error instanceof RunnerCallError && error.code === "timeout")
+            throw new RunnerAcknowledgementLost(error.message);
+          throw error;
+        }
         return {};
       }
       case "discard": {
@@ -937,23 +981,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
                   : "default"
               );
           } else {
-            if (entry.remote) {
-              const dir = stateDir(agentId);
-              await mkdir(dir, { recursive: true, mode: 0o700 });
-              await appendFile(
-                path.join(dir, "remote-prompts.jsonl"),
-                JSON.stringify({
-                  id,
-                  journalId: entry.journalId,
-                  blocks: sourceBlockIds(source),
-                }) + "\n",
-                { mode: 0o600, flush: true }
-              );
-            }
             if (
               !continuation &&
-              entry.runner &&
-              deps.holds?.current(entry.runner)?.draining
+              deps.holds?.current(entry.runnerId)?.draining
             ) {
               await requeue();
               continue;
@@ -1126,7 +1156,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     const entry: Live = {
       agentId,
       remote: Boolean(placement),
-      ...(placement ? { runner: placement.runner } : {}),
+      runnerId: runnerIdAt(placement),
       client: null as unknown as HostClient,
       commands: [],
       configOptions: [],
@@ -1157,8 +1187,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       openSocket: async () => {
         if (placement) await entry.events;
         // No await before the request: it goes over exactly this connection.
-        const epoch =
-          placement && deps.remote?.connectionEpoch?.(placement.runner);
+        const epoch = deps.remote?.connectionEpoch?.(entry.runnerId);
         const { channel } = await requestSession(placement, {
           kind: "attach",
           agentId,
@@ -1170,14 +1199,10 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       reconnectError: hostReconnectDisposition,
       // A host that is ready again takes the input queued while it was not.
       onReady: () => void pump(agentId, entry),
-      ...(placement
-        ? {
-            updateDeadline: () => {
-              const hold = deps.holds?.current(placement.runner);
-              return hold ? Date.parse(hold.expiresAt) : undefined;
-            },
-          }
-        : {}),
+      updateDeadline: () => {
+        const hold = deps.holds?.current(entry.runnerId);
+        return hold ? Date.parse(hold.expiresAt) : undefined;
+      },
       logger,
       fromSeq: () =>
         entry.remote && deps.remoteInbox ? entry.durableSeq : entry.lastSeq,
@@ -1466,13 +1491,13 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
 
   deps.holds?.onRelease(({ runnerId }) => {
     for (const [agentId, entry] of live)
-      if (entry.runner === runnerId) void pump(agentId, entry);
+      if (entry.runnerId === runnerId) void pump(agentId, entry);
   });
   deps.holds?.countWith((runnerId) => {
     let prompts = 0;
     let scheduled = 0;
     for (const entry of live.values()) {
-      if (entry.runner !== runnerId) continue;
+      if (entry.runnerId !== runnerId) continue;
       // Taken prompts have already left the queue.
       for (const w of entry.queue.waiting) {
         if (w.source?.scheduleId) scheduled++;
@@ -1500,7 +1525,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
    * the host (if any) is stopped. A child that did not come back in time
    * says so, so the agent's error names it.
    */
-  async function localLaunchFailed(agentId: string, err: unknown) {
+  async function launchFailed(agentId: string, err: unknown) {
     if (
       err instanceof RunnerCallError &&
       err.code === "unsupported" &&
@@ -1533,13 +1558,13 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
   runtime = {
     runnerHosts(runnerId) {
       return [...live.values()]
-        .filter((entry) => entry.runner === runnerId)
+        .filter((entry) => entry.runnerId === runnerId)
         .map(identify);
     },
 
     async runnerHostAlive(runnerId, agentId) {
       const placement = await placementOf(agentId);
-      if (placement?.runner !== runnerId)
+      if (runnerIdAt(placement) !== runnerId)
         throw new Error("No matching runner placement for this host.");
       const { value } = await requestSession(placement, {
         kind: "alive",
@@ -1550,7 +1575,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
 
     wakeRunnerDrain(runnerId) {
       for (const [agentId, entry] of live)
-        if (entry.runner === runnerId) void pump(agentId, entry);
+        if (entry.runnerId === runnerId) void pump(agentId, entry);
     },
 
     holdForRecycle(runnerId, host, drainEpoch) {
@@ -1559,7 +1584,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       const drain = drainEpoch !== undefined;
       if (
         !entry ||
-        entry.runner !== runnerId ||
+        entry.runnerId !== runnerId ||
         !host.instanceId ||
         entry.client.welcome?.hostInstanceId !== host.instanceId ||
         entry.client.welcome?.quiesceSupported !== true ||
@@ -1601,7 +1626,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
 
     holdRunnerHosts(runnerId) {
       for (const [agentId, entry] of live)
-        if (entry.runner === runnerId && !recycleHolds.has(agentId))
+        if (entry.runnerId === runnerId && !recycleHolds.has(agentId))
           recycleHolds.set(agentId, { entry, restarting: false, forced: true });
     },
 
@@ -1637,7 +1662,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
 
     releaseRunnerHosts(runnerId) {
       for (const [agentId, hold] of recycleHolds)
-        if (hold.forced && hold.entry.runner === runnerId)
+        if (hold.forced && hold.entry.runnerId === runnerId)
           releaseHold(agentId, hold);
     },
 
@@ -1677,7 +1702,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
 
     async stopRunnerHost(runnerId, agentId) {
       const placement = await placementOf(agentId);
-      if (placement?.runner !== runnerId)
+      if (runnerIdAt(placement) !== runnerId)
         throw new Error("No matching runner placement for this host.");
       const entry = live.get(agentId);
       let hold = recycleHolds.get(agentId);
@@ -1780,19 +1805,29 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         programs:
           bins && binsToPrograms({ ...bins, adapter: config.acpAdapter }),
       });
-      let launched: SessionResult | undefined;
-      try {
-        launched = await requestLaunch(
-          placement,
-          { kind: "launch", agentId: input.agentId, launch },
-          request,
-          onWorkspaceProgress,
-          beforeLaunchReconcile
-        );
-      } catch (err) {
-        if (placement) throw err;
-        throw await localLaunchFailed(input.agentId, err);
-      }
+      await deps.recordLaunch?.(
+        input.agentId,
+        !placement
+          ? request.launchId
+          : deps.remote?.supportsScopedStop?.(placement)
+            ? (launch.launchId ?? null)
+            : null
+      );
+      const launched = await requestLaunch(
+        placement,
+        {
+          kind: "launch",
+          agentId: input.agentId,
+          launch,
+        },
+        request,
+        onWorkspaceProgress,
+        beforeLaunchReconcile
+      ).catch(async (error: unknown) => {
+        if (!placement || error instanceof RunnerHostGone)
+          throw await launchFailed(input.agentId, error);
+        throw error;
+      });
       const { launchExited } = launched;
       try {
         const entry = await connect(
@@ -1807,7 +1842,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           (requireResume || recycle?.restarting) &&
           (!welcome.resumed || welcome.sessionId !== input.resumeSessionId)
         ) {
-          if (requireResume && placement) {
+          if (requireResume) {
+            // The resume coordinator already owns the fence for this attempt.
             await requestSession(placement, {
               kind: "stop",
               agentId: input.agentId,
@@ -1824,8 +1860,15 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         if (requireResume && recycle?.forced) recycle.restarting = false;
         return { sessionId: welcome.sessionId, resumed: welcome.resumed };
       } catch (err) {
-        if (placement) throw err; // A disconnected remote host may still be running.
-        throw await localLaunchFailed(input.agentId, err);
+        if (requireResume || err instanceof RunnerResumeRefused) throw err;
+        // When the runner cannot confirm the launch outcome, a host may
+        // still be running and the reconciler will try to attach again.
+        if (
+          !launchExited &&
+          (await runtime.isAlive(input.agentId).catch(() => true))
+        )
+          throw err;
+        throw await launchFailed(input.agentId, err);
       }
     },
 
@@ -1866,11 +1909,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         return value === true;
       } catch (error) {
         if (error instanceof RunnerRevoked) return false;
-        if (
-          error instanceof RunnerUnavailable ||
-          (error instanceof RunnerCallError && error.code === "unavailable")
-        )
-          return true;
+        if (isSessionUnavailable(error)) return true;
         throw error;
       }
     },
@@ -2071,27 +2110,54 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       entry.client.cancel();
     },
 
-    async stop(agentId, force) {
+    async stop(agentId, force = false, expectedLaunchId) {
       const placement = await placementOf(agentId);
-      const operation = { kind: "stop", agentId, force } as const;
-      if (placement) await heldSessionRequest(placement, operation);
       const entry = live.get(agentId);
-      if (entry) {
+      const detach = () => {
+        if (!entry || live.get(agentId) !== entry) return;
         live.delete(agentId);
         if (!preserving(entry))
           failWaiting(entry, new Error("The agent stopped before delivery."));
-        if (!placement) {
-          try {
-            entry.client.shutdown(force);
-          } catch {
-            // A disconnected local host can still be stopped by its supervisor.
+      };
+      try {
+        await heldSessionRequest(
+          placement,
+          { kind: "stop", agentId, force, expectedLaunchId },
+          () => {
+            if (placement) return;
+            // Native shutdown writes to the existing channel before the
+            // supervisor's grace period starts. The enrolled supervisor
+            // owns shutdown and the queue stays connected until it answers.
+            detach();
+            if (entry?.client.isConnected()) {
+              try {
+                entry.client.shutdown(force);
+              } catch {
+                // The connection closed during shutdown.
+              }
+            }
           }
-        }
+        );
+        detach();
+      } catch (error) {
+        if (isStopDeferred(error)) detach();
+        throw error;
+      } finally {
+        if (entry && live.get(agentId) !== entry) entry.client.close();
       }
-      if (!placement) await requestSession(null, operation);
-      entry?.client.close();
       const recycle = recycleHolds.get(agentId);
       if (recycle?.restarting) await recycle.entry.events;
+    },
+
+    async retryStop(agentId, force, placement, expectedLaunchId) {
+      // A background attempt must not hold up a later Start while waiting
+      // for an update. The runner can refuse admission until it thaws.
+      await requestSession(placement, {
+        kind: "stop",
+        agentId,
+        force,
+        expectedLaunchId,
+      });
     },
 
     async inspectNativeHost(agentId) {
@@ -2219,7 +2285,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     async discard(agentId) {
       const placement = await placementOf(agentId);
       const operation = { kind: "discard", agentId } as const;
-      if (placement) await heldSessionRequest(placement, operation);
+      await heldSessionRequest(placement, operation);
       const entry = live.get(agentId);
       if (entry) {
         live.delete(agentId);
@@ -2227,7 +2293,6 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       }
       if (placement)
         await rm(stateDir(agentId), { recursive: true, force: true });
-      else await requestSession(null, operation);
     },
   };
   return runtime;

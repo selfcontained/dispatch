@@ -240,6 +240,7 @@ type Peer = {
   workspaceRelease: boolean;
   /** Reconciles a repeated `launch.launchId` instead of running it again. */
   launchReconcile: boolean;
+  scopedStop: boolean;
   /** Last pushed, validated engine inventory; absent until the runner first reports one. */
   engines?: EngineInventoryEntry[];
 };
@@ -1007,6 +1008,7 @@ export class RemoteRunnerService {
           gitQueries: ready.gitQueries === true,
           workspaceRelease: ready.workspaceRelease === true,
           launchReconcile: ready.launchReconcile === true,
+          scopedStop: ready.scopedStop === true,
           connection: new RunnerConnection(send),
           ...(ready.streamCredit && { streams: new FlowStreams(socket, send) }),
           send,
@@ -2377,6 +2379,10 @@ export class RemoteRunnerService {
   }
 
   /** Whether the connected runner reconciles a repeated launch ID. */
+  supportsScopedStop(placement: Placement): boolean {
+    return this.workspacePeer(placement)?.scopedStop === true;
+  }
+
   reconcilesLaunches(placement: Placement) {
     return this.peers.get(placement.runner)?.launchReconcile === true;
   }
@@ -2531,6 +2537,14 @@ export class RemoteRunnerService {
         ...command,
         launch: { ...command.launch, prepareWorkspace: true },
       };
+    if (
+      command.kind === "stop" &&
+      command.expectedLaunchId !== undefined &&
+      !peer.scopedStop
+    )
+      throw new RunnerCapabilityUnavailable(
+        "This runner cannot stop a specific launch."
+      );
     if (
       command.kind === "launch" &&
       command.launch.launchId !== undefined &&

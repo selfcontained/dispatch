@@ -81,35 +81,21 @@
     "kind": "R1 placement read",
     "detail": "entry.remote",
     "task": "T07",
-    "count": 7
-  },
-  {
-    "file": "apps/server/src/agents/acp/runtime.ts",
-    "kind": "R1 placement read",
-    "detail": "entry.runner",
-    "task": "T07",
-    "count": 12
-  },
-  {
-    "file": "apps/server/src/agents/acp/runtime.ts",
-    "kind": "R1 placement read",
-    "detail": "hold.entry.runner",
-    "task": "T07",
-    "count": 1
+    "count": 6
   },
   {
     "file": "apps/server/src/agents/acp/runtime.ts",
     "kind": "R1 placement read",
     "detail": "placement?.runner",
     "task": "T07",
-    "count": 2
+    "count": 1
   },
   {
     "file": "apps/server/src/agents/acp/runtime.ts",
     "kind": "R1 placement read",
     "detail": "placement.runner",
     "task": "T07",
-    "count": 10
+    "count": 1
   },
   {
     "file": "apps/server/src/agents/acp/runtime.ts",
@@ -144,13 +130,6 @@
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/local-runner",
     "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/acp/runtime.ts",
-    "kind": "R7 restriction",
-    "detail": "N33 Runner stop waits for the remote request",
-    "task": "T26",
     "count": 1
   },
   {
