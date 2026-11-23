@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { createServer } from "node:net";
 import { once } from "node:events";
 import { PassThrough, Writable } from "node:stream";
+import { text } from "node:stream/consumers";
 import {
   chmod,
   link,
@@ -52,7 +53,10 @@ import {
 } from "../src/agents/remote/session-supervisor.js";
 import { createLinuxPrivsep } from "../../../packages/runner/src/platform/linux-privsep/index.js";
 import { storageKey } from "../../../packages/runner/src/platform/linux-privsep/layout.js";
-import { streamCheckoutWorker } from "../src/agents/remote/runner.js";
+import {
+  startTerminalWorker,
+  streamCheckoutWorker,
+} from "../src/agents/remote/runner.js";
 import { FlowStreams } from "../src/runners/enrolled/v1-framing.js";
 
 import {
@@ -288,6 +292,32 @@ describe("runner session supervision", () => {
     supervisor?.close();
     supervisor = undefined;
     await rm(root, { recursive: true, force: true });
+  });
+
+  it("finishes terminal readiness before the worker exits using only standard pipes", async () => {
+    const child = startTerminalWorker(
+      ["/usr/bin/env"],
+      [
+        "/bin/sh",
+        "-c",
+        'printf ready >&3; exec 3>&-; printf private >&2; read -r input; printf "%s" "$input"',
+      ],
+      process.env
+    );
+    const exit = once(child, "close");
+    const output = text(child.stdout);
+    try {
+      expect(child.stdio).toHaveLength(3);
+      expect(await text(child.stderr)).toBe("ready");
+      expect(child.exitCode).toBeNull();
+      child.stdin.end("terminal output\n");
+      expect(await output).toBe("terminal output");
+      expect(await exit).toEqual([0, null]);
+    } finally {
+      child.stdin.destroy();
+      child.kill();
+      await exit;
+    }
   });
 
   it("acknowledges the same session after cancelling exec with both transfers complete", async () => {

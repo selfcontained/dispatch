@@ -374,6 +374,31 @@ export type RunnerUpdateOptions = {
 
 type RunnerOutput = RunnerFrame | StreamFrame;
 
+/**
+ * Bun's child_process can close an extra stdio pipe again when the child
+ * is collected, by which time the descriptor may belong to another worker.
+ * Route readiness through the standard stderr pipe. The shell moves it to
+ * fd 3 before exec so closing fd 3 still immediately signals readiness EOF.
+ */
+export function startTerminalWorker(
+  [privilegeCommand, ...privilegeArgs]: [string, ...string[]],
+  command: string[],
+  env: NodeJS.ProcessEnv
+) {
+  return spawn(
+    privilegeCommand,
+    [
+      ...privilegeArgs,
+      "/bin/sh",
+      "-c",
+      'exec 3>&2 2>/dev/null; exec "$@"',
+      "terminal-worker",
+      ...command,
+    ],
+    { env, stdio: ["pipe", "pipe", "pipe"] }
+  );
+}
+
 export async function runRemoteRunner(
   filename: string,
   updateOptions: RunnerUpdateOptions = {}
@@ -1262,23 +1287,12 @@ export async function runRemoteRunner(
                   target?.cwd
                 );
                 signal.throwIfAborted();
-                const child = spawn(
-                  setpriv,
-                  [
-                    ...childArgs,
-                    ...self("runner-terminal"),
-                    cwd,
-                    String(cols),
-                    String(rows),
-                  ],
-                  {
-                    env: terminalEnvironment(env),
-                    stdio: ["pipe", "pipe", "ignore", "pipe"],
-                  }
+                const child = startTerminalWorker(
+                  [setpriv, ...childArgs],
+                  [...self("runner-terminal"), cwd, String(cols), String(rows)],
+                  terminalEnvironment(env)
                 );
-                const stdin = child.stdin!;
-                const stdout = child.stdout!;
-                const readiness = child.stdio[3] as Readable;
+                const { stdin, stdout, stderr: readiness } = child;
                 const stop = () => {
                   stdin.destroy();
                   stdout.destroy();
