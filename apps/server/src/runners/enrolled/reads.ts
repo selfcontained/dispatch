@@ -97,6 +97,7 @@ export async function callCheckoutRead<K extends CheckoutReadName>(
   const view =
     op !== "checkout.read" &&
     op !== "checkout.changes" &&
+    op !== "checkout.defaultFiles" &&
     !(op === "checkout.list" && (request as Req<"checkout.list">).filesOnly);
   if (!service)
     throw view
@@ -131,6 +132,7 @@ export async function callCheckoutRead<K extends CheckoutReadName>(
       agent.id,
       legacyView ?? command.query
     );
+    if (op === "checkout.image") return { bytes: data } as Res<K>;
     if (op === "checkout.stats" && data && typeof data === "object")
       return rename(data, "excludingTests", "excluded") as Res<K>;
     if (

@@ -20,6 +20,8 @@ export const SERVED_WHILE_FROZEN: ReadonlySet<string> = new Set([
   // Checkout reads write nothing of the runner's. While frozen, Git also
   // skips its optional index refresh in the checkout (`GIT_OPTIONAL_LOCKS`).
   ...WORKER_OPS,
+  // The watch channel only reports changes others make.
+  "checkout.watch",
 ]);
 
 /**

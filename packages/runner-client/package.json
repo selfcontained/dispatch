@@ -8,6 +8,7 @@
     "./v1/host": "./src/v1/host.ts",
     "./v1/connection": "./src/v1/connection.ts",
     "./v1/terminal": "./src/v1/terminal.ts",
+    "./v1/watch": "./src/v1/watch.ts",
     "./v1/node": "./src/v1/node.ts",
     "./launcher": "./src/launcher/index.ts",
     "./transport/local-socket": "./src/transport/local-socket.ts",

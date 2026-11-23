@@ -12,7 +12,8 @@ import {
   type Res,
   type Target,
 } from "@dispatch/runner-protocol/contract";
-import type { CallHandlers } from "../local/socket-server.js";
+import { Duplex } from "node:stream";
+import type { CallHandlers, OpenHandlers } from "../local/socket-server.js";
 import type { BindingStore, StoredBinding } from "../local/bindings.js";
 import {
   EXEC_OPS,
@@ -43,6 +44,69 @@ function selected(
       return binding.currentPath ?? binding.checkout.path;
   }
 }
+
+/** A session target's directory, from the runner's own binding only. */
+async function boundDirectory(
+  store: Pick<BindingStore, "get">,
+  target: Target
+): Promise<string> {
+  if (!("session" in target))
+    throw new RunnerCallError({
+      code: "unsupported",
+      message: "This runner watches the checkouts it holds",
+    });
+  const binding = await store.get(sessionToWire(target.session));
+  if (!binding) throw notBound();
+  return selected(binding, target.checkout);
+}
+
+/**
+ * `checkout.watch`: one byte on the channel per burst of changes in the
+ * bound checkout, as the workload sees them; the channel ends when the
+ * watch does. Closing it stops the watch.
+ */
+export function checkoutOpens(
+  store: Pick<BindingStore, "get">,
+  platform: Platform
+): OpenHandlers {
+  const { watch } = platform.workload;
+  if (!watch) return {};
+  return {
+    async "checkout.watch"({ target }) {
+      const directory = await boundDirectory(store, target);
+      let stop = () => {};
+      const channel = new Duplex({
+        allowHalfOpen: false,
+        read() {},
+        write(_chunk, _encoding, callback) {
+          callback(); // A pulse from the caller carries no meaning.
+        },
+        final(callback) {
+          channel.destroy();
+          callback();
+        },
+        destroy(error, callback) {
+          stop();
+          callback(error);
+        },
+      });
+      stop = watch.call(
+        platform.workload,
+        directory,
+        () => {
+          if (!channel.destroyed) channel.push(PULSE);
+        },
+        () => {
+          if (!channel.destroyed) channel.push(null);
+        }
+      );
+      if (channel.destroyed) stop();
+      return { info: {}, channel };
+    },
+  };
+}
+
+const PULSE = Buffer.from("1");
 
 export function checkoutHandlers(
   store: Pick<BindingStore, "get" | "origin">,

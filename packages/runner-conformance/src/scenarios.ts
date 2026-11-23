@@ -584,6 +584,82 @@ const checkoutReads: Scenario[] = [
       );
     },
   },
+  {
+    op: "checkout.image",
+    id: "checkout.image/bytes",
+    async run({ runner, session, seed }) {
+      // Larger than one v1 reply line once base64-encoded.
+      const content = "image bytes ".repeat(100_000);
+      await seed("checkout-reads/pixel.png", content);
+      const result = await runner.call("checkout.image", {
+        target: { session },
+        base: "main",
+        uncommitted: true,
+        path: "checkout-reads/pixel.png",
+        side: "new",
+      });
+      expect(
+        Buffer.from(result.bytes, "base64").toString("utf8") === content,
+        "The image bytes were cut short or changed."
+      );
+      await rejectsWith(
+        runner.call("checkout.image", {
+          target: { session },
+          base: "main",
+          uncommitted: true,
+          path: "checkout-reads/none.png",
+          side: "new",
+        }),
+        "not_found"
+      );
+    },
+  },
+  {
+    op: "checkout.defaultFiles",
+    id: "checkout.defaultFiles/listing",
+    async run({ runner, session }) {
+      const result = await runner.call("checkout.defaultFiles", {
+        target: { session },
+        dirs: [".agents/personas"],
+        wait: true,
+      });
+      expect(
+        result.hasOrigin || (result.files.length === 0 && !result.refreshing),
+        "A checkout without an origin listed default-branch files."
+      );
+    },
+  },
+  {
+    op: "checkout.watch",
+    id: "checkout.watch/pulses",
+    async run({ runner, session, seed }) {
+      const { channel } = await runner.open("checkout.watch", {
+        target: { session },
+      });
+      try {
+        let pulses = 0;
+        let closed = false;
+        channel.onData(() => pulses++);
+        channel.onClose(() => (closed = true));
+        const until = async (done: () => boolean, message: string) => {
+          for (let i = 0; i < 100 && !done(); i++)
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          expect(done(), message);
+        };
+        // One pulse once the watch is set up, then one for the change.
+        await until(() => pulses >= 1, "The watch never reported in.");
+        const settled = pulses;
+        await seed("checkout-reads/watched.txt", "changed\n");
+        await until(
+          () => pulses > settled,
+          "The watch missed a change in the checkout."
+        );
+        expect(!closed, "The watch closed by itself.");
+      } finally {
+        channel.close();
+      }
+    },
+  },
 ];
 
 const interactiveTerminal: Scenario = {

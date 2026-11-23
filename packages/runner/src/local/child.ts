@@ -33,7 +33,7 @@ import { serveSocket, type Handlers } from "./socket-server.js";
 import { localSessionHandlers } from "./sessions.js";
 import type { SessionCoreFactory } from "../core/sessions.js";
 import type { PosixHostEntry } from "../platform/posix-user/sessions.js";
-import { checkoutHandlers } from "../core/checkout.js";
+import { checkoutHandlers, checkoutOpens } from "../core/checkout.js";
 import { workspaceHandlers } from "../core/workspace.js";
 import type { Platform } from "../platform/types.js";
 
@@ -271,7 +271,11 @@ export async function runLocalRunner(
           ...(sessions && { sessions: await sessions.liveCount() }),
         }),
       },
-      opens: { ...sessions?.opens, ...extra?.opens },
+      opens: {
+        ...(options.platform && checkoutOpens(store!, options.platform)),
+        ...sessions?.opens,
+        ...extra?.opens,
+      },
     },
     fence
   );

@@ -6,7 +6,9 @@ import {
   sessionFromWire,
   sessionToWire,
   type CallName,
+  type CallerChannel,
   type CallOptions,
+  type OpenName,
   type Req,
   type Res,
   type Runner,
@@ -50,6 +52,8 @@ const CHILD_READS = new Set<CallName>([
   "checkout.stats",
   "checkout.diff",
   "checkout.changes",
+  "checkout.image",
+  "checkout.defaultFiles",
 ]);
 type ChildRead =
   | "checkout.list"
@@ -58,7 +62,9 @@ type ChildRead =
   | "checkout.read"
   | "checkout.stats"
   | "checkout.diff"
-  | "checkout.changes";
+  | "checkout.changes"
+  | "checkout.image"
+  | "checkout.defaultFiles";
 
 /** How long a read waits for a child that is restarting. */
 const CHILD_WAIT_MS = 15_000;
@@ -200,10 +206,15 @@ export function createLocalCheckoutRunner(
         code: "invalid",
         message: "Invalid native checkout binding.",
       });
-    const views = op !== "checkout.read" && op !== "checkout.changes";
+    const views =
+      op !== "checkout.read" &&
+      op !== "checkout.changes" &&
+      op !== "checkout.defaultFiles";
     const row = { baseBranch: null, ...agent };
     const directory =
-      op === "checkout.stats" || op === "checkout.diff"
+      op === "checkout.stats" ||
+      op === "checkout.diff" ||
+      op === "checkout.image"
         ? agentDiffPath(row)
         : agentWorkspaceDir(row);
     if (!directory) {
@@ -385,6 +396,42 @@ export function createLocalCheckoutRunner(
     );
   }
 
+  /**
+   * The Files pane's watch, by the same rule as reads: in the child when it
+   * holds this session's checkout at the directory the agent row names,
+   * else in process with the same workload (R3, as for reads).
+   */
+  async function watch(
+    input: Req<"checkout.watch">,
+    options?: CallOptions<"checkout.watch">
+  ): Promise<{
+    info: Res<"checkout.watch">;
+    channel: CallerChannel<"checkout.watch">;
+  }> {
+    const { target } = input;
+    if (!("session" in target) || sessionToWire(target.session) !== agent?.id)
+      throw new RunnerCallError({
+        code: "invalid",
+        message: "Invalid native checkout binding.",
+      });
+    const directory = agentWorkspaceDir({ baseBranch: null, ...agent });
+    if (!directory)
+      throw new RunnerCallError({
+        code: "not_found",
+        message: "This agent has no workspace.",
+      });
+    if (
+      child &&
+      (await childHolds(target.session, "current", directory, options))
+    )
+      return child.open(
+        "checkout.watch",
+        { target: { session: target.session, checkout: "current" } },
+        options
+      );
+    return { info: {}, channel: pulses(directory) };
+  }
+
   return {
     describe: () => description,
     connection: { state: "ready", epoch: 0, onChange: () => () => {} },
@@ -443,14 +490,56 @@ export function createLocalCheckoutRunner(
         message: `Unsupported operation: ${op}`,
       });
     },
-    async open(op) {
-      throw new RunnerCallError({
-        code: "unsupported",
-        message: `Unsupported operation: ${op}`,
-      });
+    async open<K extends OpenName>(
+      op: K,
+      input: Req<K>,
+      options?: CallOptions<K>
+    ): Promise<{ info: Res<K>; channel: CallerChannel<K> }> {
+      if (op !== "checkout.watch")
+        throw new RunnerCallError({
+          code: "unsupported",
+          message: `Unsupported operation: ${op}`,
+        });
+      return watch(
+        input as Req<"checkout.watch">,
+        options as CallOptions<"checkout.watch">
+      ) as Promise<{ info: Res<K>; channel: CallerChannel<K> }>;
     },
   };
 }
+
+/** An in-process watch as the caller's end of a `checkout.watch` channel. */
+function pulses(directory: string): CallerChannel<"checkout.watch"> {
+  const data = new Set<(pulse: Uint8Array) => void>();
+  const closes = new Set<(error?: undefined) => void>();
+  let open = true;
+  const end = () => {
+    if (!open) return;
+    open = false;
+    stop();
+    for (const listener of closes) listener();
+  };
+  const stop = checkoutWorkload.watch(
+    directory,
+    () => {
+      if (open) for (const listener of data) listener(PULSE);
+    },
+    end
+  );
+  return {
+    write() {},
+    onData(listener) {
+      data.add(listener);
+      return () => data.delete(listener);
+    },
+    onClose(listener) {
+      closes.add(listener);
+      return () => closes.delete(listener);
+    },
+    close: end,
+  };
+}
+const PULSE = new Uint8Array([0x31]);
 
 /** The local runner child as its callers use it: a `Runner` with streams. */
 export type LocalRunner = LocalRunnerSession;

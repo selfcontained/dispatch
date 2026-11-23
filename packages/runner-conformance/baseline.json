@@ -439,24 +439,6 @@
   },
   {
     "lane": "remote",
-    "scenario": "checkout.image/pending",
-    "task": "T09",
-    "reason": "scenario not written yet"
-  },
-  {
-    "lane": "remote",
-    "scenario": "checkout.defaultFiles/pending",
-    "task": "T09",
-    "reason": "scenario not written yet"
-  },
-  {
-    "lane": "remote",
-    "scenario": "checkout.watch/pending",
-    "task": "T09",
-    "reason": "scenario not written yet"
-  },
-  {
-    "lane": "remote",
     "scenario": "git.context/pending",
     "task": "T15",
     "reason": "not on wire v1: local probe today; v1 roots and sessionCheckout carry parts"

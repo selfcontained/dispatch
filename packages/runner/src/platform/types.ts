@@ -20,6 +20,8 @@ export const WORKER_OPS = [
   "checkout.stats",
   "checkout.diff",
   "checkout.changes",
+  "checkout.image",
+  "checkout.defaultFiles",
   "git.context",
   "git.defaultBranch",
 ] as const;
@@ -55,6 +57,16 @@ export interface Workload {
     input: WorkerInput<K>,
     options: RunOptions
   ): Promise<Res<K>>;
+  /**
+   * Watch a checkout as the workload account (`checkout.watch`): `changed`
+   * once per burst of changes, `closed` when the watch ends by itself.
+   * Returns the stop. Without it, `checkout.watch` is unsupported.
+   */
+  watch?(
+    directory: string,
+    changed: () => void,
+    closed: () => void
+  ): () => void;
 }
 
 export interface Platform {
