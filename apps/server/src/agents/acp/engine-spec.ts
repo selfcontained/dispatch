@@ -1,14 +1,12 @@
 import path from "node:path";
 
-import type { AgentType } from "@dispatch/shared";
-
 import { selfCommand } from "./host-command.js";
 
 /** The engines the ACP runtime can drive. `agents.type` names one of these. */
 export const ACP_ENGINE_IDS = ["claude", "codex", "opencode"] as const;
 export type AcpEngineId = (typeof ACP_ENGINE_IDS)[number];
 
-export function isAcpEngine(type: AgentType | string): type is AcpEngineId {
+export function isAcpEngine(type: string): type is AcpEngineId {
   return (ACP_ENGINE_IDS as readonly string[]).includes(type);
 }
 

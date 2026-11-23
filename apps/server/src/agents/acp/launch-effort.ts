@@ -1,4 +1,3 @@
-import type { Effort } from "@dispatch/shared";
 import type { AcpDriver } from "./driver.js";
 import type { AcpEngineId } from "./engine-spec.js";
 
@@ -7,7 +6,7 @@ async function applyStrictLaunchEffort(
   driver: Pick<AcpDriver, "getConfigOptions" | "setConfigOption">,
   agentId: string,
   engine: AcpEngineId,
-  effort?: Effort | null
+  effort?: string | null
 ): Promise<void> {
   if (effort == null) return;
   const option = driver
@@ -43,7 +42,7 @@ export async function applyLaunchEffort(
   driver: Pick<AcpDriver, "getConfigOptions" | "setConfigOption">,
   agentId: string,
   engine: AcpEngineId,
-  effort?: Effort | null,
+  effort?: string | null,
   resume?: { onError: (error: unknown) => void }
 ): Promise<void> {
   try {

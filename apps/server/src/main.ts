@@ -132,7 +132,10 @@ if (process.argv[2]?.startsWith("recovery-")) {
     handlers: () => localTerminalHandlers(),
   });
 } else if (process.argv[2] === "agent-host") {
-  await import("./agents/acp/host/main.js");
+  // The host is generic; Dispatch names the build it runs.
+  const { runAgentHost } = await import("./agents/acp/host/main.js");
+  const { embeddedBuild } = await import("./agents/build-identity.js");
+  await runAgentHost(process.argv.slice(2), { build: embeddedBuild });
 } else if (process.argv[2] === "claude-acp") {
   // The dependency patch exports upstream's CLI so the bundled adapter
   // uses its managed policy, logging, and stdio shutdown behavior.

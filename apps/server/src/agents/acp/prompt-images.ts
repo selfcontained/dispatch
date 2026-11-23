@@ -1,6 +1,17 @@
 import { open } from "node:fs/promises";
 import type { ImageContent } from "@agentclientprotocol/sdk";
-import { isPromptImageMimeType, type PromptImage } from "./prompt-source.js";
+import type { PromptImage as WirePromptImage } from "@dispatch/runner-protocol";
+
+/** A runner name marks an input to stage before ACP submission. */
+type PromptImage = WirePromptImage & { runnerName?: string };
+
+/** The image kinds ACP engines accept inline. */
+export const PROMPT_IMAGE_MIME_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+];
 
 // Bound both memory and the ACP request. File references remain in the envelope
 // when an image is too large or unavailable, so the agent can use its file tools.
@@ -15,7 +26,10 @@ export async function readPromptImages(
   let remaining = MAX_PROMPT_IMAGE_BYTES;
   const seen = new Set<string>();
   for (const image of images) {
-    if (!isPromptImageMimeType(image.mimeType) || seen.has(image.path))
+    if (
+      !PROMPT_IMAGE_MIME_TYPES.includes(image.mimeType) ||
+      seen.has(image.path)
+    )
       continue;
     seen.add(image.path);
     try {

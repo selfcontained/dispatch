@@ -1,4 +1,11 @@
-import type { McpInventory } from "@dispatch/shared";
+import type { Infer, hostMessage } from "@dispatch/runner-protocol/contract";
+
+type McpInventory = NonNullable<
+  Extract<
+    Infer<typeof hostMessage>,
+    { type: "mcp_inventory_result" }
+  >["result"]["inventory"]
+>;
 
 /** Project at the process boundary as well as in adapters; reject partial data. */
 export function parseMcpInventory(value: unknown): McpInventory {

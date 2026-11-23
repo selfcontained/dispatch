@@ -6,15 +6,16 @@ import {
   type SessionCommand,
   type SessionReply,
 } from "@dispatch/runner-protocol";
-import type { BackgroundSnapshot } from "@dispatch/shared";
-import type { AgentMcpInventoryResponse } from "@dispatch/shared";
-import type { AgentPermissionRequest } from "@dispatch/shared";
-import { isPromptSource, type PromptSource } from "./prompt-source.js";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
-import type { BuildIdentity } from "../build-identity.js";
-import type { DriverEvent } from "./driver.js";
+import type {
+  BackgroundSnapshot,
+  DriverEvent,
+  McpInventoryResult,
+  PermissionRequest,
+  CallerSource,
+} from "./driver.js";
 import type {
   AvailableCommand,
   SessionConfigOption,
@@ -84,7 +85,7 @@ type PromptReceiptQuery = {
   journalId: string;
 };
 export type ClientMessage =
-  | SessionCommand<PromptSource>
+  | SessionCommand<CallerSource>
   | PromptReceiptQuery
   | { type: "quiesce" | "release_quiesce"; id: string }
   | { type: "shutdown"; quiesceId: string };
@@ -125,17 +126,16 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
         : null;
     }
   }
-  const message = parseSessionCommand(value);
-  if (message?.type !== "prompt" && message?.type !== "steer") return message;
-  // Keep validating the legacy Dispatch source shape. Other services can
-  // omit it or use their own metadata with a host that understands it.
-  const { source, ...command } = message;
-  if (source === undefined) return command;
-  return isPromptSource(source) ? { ...command, source } : null;
+  // A prompt's `source` is the caller's metadata: carried, never read.
+  // The caller validates what comes back on the turn's events.
+  return parseSessionCommand(value) as ClientMessage | null;
 }
 
-type DispatchWelcome = HostWelcome & {
-  hostBuild?: BuildIdentity;
+/** The build a host was started from. */
+type HostBuild = { version: string; revision: string | null };
+
+type Welcome = HostWelcome & {
+  hostBuild?: HostBuild;
   promptReceiptSupported?: true;
   quiesceSupported?: true;
   /** Answers `hello {replayComplete}` with `replay_complete`. Hosts from
@@ -143,16 +143,16 @@ type DispatchWelcome = HostWelcome & {
   replayCompleteSupported?: true;
   hostInstanceId?: string;
   /** The open turn, if one is running. */
-  turn: { seq: number; startedAt: string; source?: PromptSource } | null;
+  turn: { seq: number; startedAt: string; source?: CallerSource } | null;
   /** Current ACP commands, including skills; refreshed on each reconnect. */
   commands: AvailableCommand[];
   /** The session's config options as they stand; absent from older hosts. */
   configOptions?: SessionConfigOption[];
-  permissions?: AgentPermissionRequest[];
+  permissions?: PermissionRequest[];
 };
 
 export type HostMessage =
-  | SessionReply<DriverEvent, DispatchWelcome>
+  | SessionReply<DriverEvent, Welcome>
   | {
       type: "prompt_receipt_result";
       id: string;
@@ -163,11 +163,11 @@ export type HostMessage =
   | { type: "quiesce_shutdown_result"; id: string; accepted: boolean }
   /** A set_config took; the engine's options after it. */
   | { type: "config_set"; id: string; options: SessionConfigOption[] }
-  | { type: "permissions"; requests: AgentPermissionRequest[] }
+  | { type: "permissions"; requests: PermissionRequest[] }
   | {
       type: "mcp_inventory_result";
       id: string;
-      result: AgentMcpInventoryResponse;
+      result: McpInventoryResult;
     }
   | { type: "background_work_result"; id: string; result: BackgroundSnapshot };
 

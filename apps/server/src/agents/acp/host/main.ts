@@ -1,13 +1,14 @@
 import { sessionCommandId } from "@dispatch/runner-protocol";
 import { applyLaunchEffort } from "../launch-effort.js";
-import { firstPromptContext } from "../persona-context.js";
-import type { PromptSource } from "../prompt-source.js";
+import { firstPromptContext } from "./first-prompt.js";
 /**
  * `dispatch agent-host --state <dir>`: the process that owns one agent's
  * ACP session. It spawns the engine adapter, holds its stdio for its whole
- * life, journals every event, and serves the Dispatch server over a Unix
- * socket. It is deliberately dumb: one session, one prompt at a time, no
- * queue and no policy. See docs/design/acp-runtime.md.
+ * life, journals every event, and serves its client over a Unix socket.
+ * It is deliberately dumb: one session, one prompt at a time, no queue and
+ * no policy. Everything product-specific arrives as input: the launch file
+ * in its directory and the build its caller names. See
+ * docs/design/acp-runtime.md.
  */
 import {
   appendFileSync,
@@ -24,13 +25,13 @@ import path from "node:path";
 import {
   AcpDriver,
   type DriverEvent,
+  type CallerSource,
   resolveExecutable,
   TEARDOWN_STEP_MS,
 } from "../driver.js";
 import { openCodeInstructionsEnv } from "../opencode-instructions.js";
 import { buildHostEnv } from "../host-env.js";
 import { engineSpecFor } from "../engine-spec.js";
-import { embeddedBuild, isHostInstanceId } from "../../build-identity.js";
 import { engineVersion } from "../../engine-availability.js";
 import {
   type ClientMessage,
@@ -42,6 +43,22 @@ import {
   ndjsonDecoder,
   parseClientMessage,
 } from "../host-protocol.js";
+
+/** What the caller supplies besides the state directory. */
+export type AgentHostOptions = {
+  /** The build this host runs, reported to clients that set an instance ID. */
+  build: { version: string; revision: string | null };
+};
+
+/** A launch's host instance ID is a version 4 UUID. */
+function isHostInstanceId(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(
+      value
+    )
+  );
+}
 
 /** How long a crashed engine's host stays up so the server can read the exit. */
 const EXIT_LINGER_MS = 2_000;
@@ -159,15 +176,15 @@ class Journal {
   }
 }
 
-async function main(): Promise<void> {
-  const { stateDir } = parseArgs(process.argv.slice(2));
+async function main(argv: string[], options: AgentHostOptions): Promise<void> {
+  const { stateDir } = parseArgs(argv);
   await mkdir(stateDir, { recursive: true });
   const launch = JSON.parse(
     await readFile(hostFile(stateDir, "launch"), "utf8")
   ) as HostLaunch;
   const { agentId } = launch;
   const hostIdentity = isHostInstanceId(launch.hostInstanceId)
-    ? { hostInstanceId: launch.hostInstanceId, hostBuild: embeddedBuild }
+    ? { hostInstanceId: launch.hostInstanceId, hostBuild: options.build }
     : undefined;
   await writeFile(hostFile(stateDir, "pid"), `${process.pid}\n`);
   const journal = new Journal(
@@ -239,7 +256,7 @@ async function main(): Promise<void> {
   let openTurn: {
     seq: number;
     startedAt: string;
-    source?: PromptSource;
+    source?: CallerSource;
   } | null = null;
   let running = false;
   let sessionId = "";
@@ -772,11 +789,17 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  log(
-    "error",
-    { err: err instanceof Error ? err.message : String(err) },
-    "host: fatal"
-  );
-  process.exit(1);
-});
+/** Run the host for `--state <dir>` in `argv`; exits the process when done. */
+export async function runAgentHost(
+  argv: string[],
+  options: AgentHostOptions
+): Promise<void> {
+  await main(argv, options).catch((err) => {
+    log(
+      "error",
+      { err: err instanceof Error ? err.message : String(err) },
+      "host: fatal"
+    );
+    process.exit(1);
+  });
+}
