@@ -1,3 +1,4 @@
+import { usesBoundArchiveRelease } from "../runners/enrolled/checkout.js";
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
@@ -179,6 +180,12 @@ export async function beginArchive(
   checkoutState: string | null = null
 ): Promise<AgentRecord> {
   const { pool } = deps;
+
+  if (checkoutState !== null && deps.remote) {
+    const agent = await deps.getAgent(id);
+    if (agent && usesBoundArchiveRelease(deps.remote, agent.cwd))
+      checkoutState = null;
+  }
 
   const result = await pool.query(
     `UPDATE agents

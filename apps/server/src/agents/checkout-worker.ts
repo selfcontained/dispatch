@@ -55,6 +55,7 @@ import {
 import path from "node:path";
 import {
   cleanupGitWorktree,
+  cleanupWorktreeBranches,
   createGitWorktree,
   GitWorktreeError,
   planGitWorktree,
@@ -521,9 +522,12 @@ export async function runCheckoutWorker(argv: string[]): Promise<void> {
       const { observeGitCheckout, observeScratchCheckout } =
         await import("./checkout-inspection.js");
       try {
-        const observe =
-          flag === "--scratch" ? observeScratchCheckout : observeGitCheckout;
-        process.stdout.write(JSON.stringify(await observe(cwd!)));
+        const observe = argv.includes("--scratch")
+          ? observeScratchCheckout
+          : observeGitCheckout;
+        process.stdout.write(
+          JSON.stringify(await observe(cwd!, !argv.includes("--policy-only")))
+        );
       } catch {
         process.exitCode = 1;
       }
@@ -958,7 +962,11 @@ const workspaceSteps = {
   "workspace.git": workspaceWorkload.git,
   "workspace.cache": repositoryCache.cache,
   "workspace.pullRequest": repositoryCache.pullRequest,
-  async "workspace.forgetWorktree"(source: string, at: string) {
+  async "workspace.forgetWorktree"(
+    source: string,
+    at: string,
+    release?: Omit<Req<"workspace.release">, "session">
+  ) {
     if (!(await isClone(source))) return;
     const result = await repositoryGit([
       "-C",
@@ -968,16 +976,37 @@ const workspaceSteps = {
       "--porcelain",
       "-z",
     ]);
-    if (result.stdout.split("\0").includes(`worktree ${at}`))
-      await repositoryGit([
-        "-C",
+    const entry = result.stdout
+      .split("\0\0")
+      .find((record) => record.split("\0")[0] === `worktree ${at}`);
+    if (entry === undefined) return;
+    const branch =
+      entry
+        .split("\0")
+        .find((line) => line.startsWith("branch refs/heads/"))
+        ?.slice("branch refs/heads/".length) ?? null;
+    await repositoryGit([
+      "-C",
+      source,
+      "worktree",
+      "remove",
+      "--force",
+      "--",
+      at,
+    ]);
+    if (release)
+      await cleanupWorktreeBranches(
         source,
-        "worktree",
-        "remove",
-        "--force",
-        "--",
-        at,
-      ]);
+        branch,
+        {
+          ...release,
+          originalBranch: validBranch(release.originalBranch)
+            ? release.originalBranch
+            : null,
+          force: true,
+        },
+        runCommand
+      );
   },
   async "workspace.installDependencies"(directory: string) {
     const steps: Parameters<

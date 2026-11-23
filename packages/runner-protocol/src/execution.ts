@@ -124,6 +124,11 @@ export type SessionOperation =
       operation: Omit<Req<"workspace.prepare">, "session">;
     }
   | { agentId: string; kind: "workspaceResume" }
+  | {
+      agentId: string;
+      kind: "workspaceRelease";
+      operation: Omit<Req<"workspace.release">, "session">;
+    }
   | { agentId: string; kind: "checkoutCommand"; operation: CheckoutCommand }
   | { agentId: string; kind: "checkoutRelease"; operation: CheckoutRelease }
   | { agentId: string; kind: "repo" };
@@ -164,6 +169,7 @@ export type ReadyFrame = {
   sharedWorktree?: true;
   workspacePreparation?: true;
   workspacePrepare?: true;
+  workspaceRelease?: true;
   sessionCheckout?: true;
   checkoutRelease?: true;
   sessionFiles?: true;
@@ -201,6 +207,7 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     version: RUNNER_WIRE_VERSION,
     workspaces: frame.workspaces,
     ...(frame.workspacePrepare === true && { workspacePrepare: true }),
+    ...(frame.workspaceRelease === true && { workspaceRelease: true }),
     ...(frame.checkoutViews === true && { checkoutViews: true }),
     ...(frame.defaultBranchFiles === true && { defaultBranchFiles: true }),
     ...(frame.checkoutCommands === true && { checkoutCommands: true }),
@@ -432,6 +439,14 @@ function isCommand(value: unknown): value is Command {
       return (
         isRecord(value.operation) &&
         operations["workspace.prepare"].request.check({
+          ...value.operation,
+          session: value.agentId,
+        })
+      );
+    case "workspaceRelease":
+      return (
+        isRecord(value.operation) &&
+        operations["workspace.release"].request.check({
           ...value.operation,
           session: value.agentId,
         })

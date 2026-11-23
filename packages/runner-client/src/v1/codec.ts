@@ -101,8 +101,9 @@ export const EXTRAS = {
   withCredentialContext: "T32: credential context is always returned",
   refreshWatch: "T33: watch refresh is removed with the watch",
   agentId: "v1 runner-wide commands carry an ignored agent id",
-  expectedState: "T20: the runner's state recheck is deleted (N35)",
-  v1Result: "T20: retained and inUse feed the offline and pending release path",
+  expectedState: "Legacy checkoutRelease only",
+  v1Result: "Legacy checkoutRelease result",
+  observationPolicy: "Optional observation without a legacy snapshot",
 } as const;
 
 export class CodecError extends Error {}
@@ -557,6 +558,10 @@ export function decodeCommand(
       return withWorkspace(
         decoded("workspace.prepare", { ...command.operation, session })
       );
+    case "workspaceRelease":
+      return withWorkspace(
+        decoded("workspace.release", { ...command.operation, session })
+      );
     case "workspaceResume":
       return withWorkspace(decoded("workspace.resume", { session }));
     case "attach":
@@ -606,7 +611,15 @@ export function decodeCommand(
     case "checkoutRelease":
       return withWorkspace(
         command.operation.kind === "observe"
-          ? decoded("workspace.observe", { session })
+          ? decoded(
+              "workspace.observe",
+              { session },
+              {
+                ...(command.operation.policy !== undefined && {
+                  observationPolicy: command.operation.policy,
+                }),
+              }
+            )
           : // v1 runners decide branch deletion themselves; these are placeholders.
             decoded(
               "workspace.release",
@@ -743,12 +756,18 @@ export function encodeCommand(input: Decoded | LegacyCommand): Command {
       return {
         ...session,
         kind: "checkoutRelease",
-        operation: { kind: "observe" },
+        operation: {
+          kind: "observe",
+          ...(extras.observationPolicy !== undefined && {
+            policy: extras.observationPolicy as "ownership" | "changes",
+          }),
+        },
       };
-    case "workspace.release":
-      // Until T20 the adapter supplies the state of the observation it just made.
-      if (extras.expectedState === undefined)
-        throw new CodecError("v1 release needs extras.expectedState.");
+    case "workspace.release": {
+      if (extras.expectedState === undefined) {
+        const { session: _, ...operation } = r as Req<"workspace.release">;
+        return { ...session, kind: "workspaceRelease", operation };
+      }
       return {
         ...session,
         kind: "checkoutRelease",
@@ -757,6 +776,7 @@ export function encodeCommand(input: Decoded | LegacyCommand): Command {
           expectedState: extras.expectedState as string | null,
         },
       };
+    }
     case "checkout.changes":
       return {
         ...session,
@@ -943,6 +963,12 @@ export function decodeResult<K extends OpName>(
     case "workspace.observe":
       return out(parse(value));
     case "workspace.release":
+      if (input.extras.expectedState === undefined) {
+        const reply = parse(value);
+        if (!operations[op].response.check(reply))
+          throw new CodecError("Invalid workspace release result.");
+        return out(reply);
+      }
       input.extras.v1Result = value;
       return out({ removed: value === "released" });
     case "files.put":
@@ -1085,6 +1111,8 @@ export function encodeResult<K extends OpName>(
     case "git.context":
       return JSON.stringify(response);
     case "workspace.release":
+      if (input.extras.expectedState === undefined)
+        return JSON.stringify(response);
       return (input.extras.v1Result ??
         (res.removed ? "released" : "retained")) as string;
     case "files.put":

@@ -83,6 +83,7 @@ export function runnerReplyTimeoutMs(command: Command): number {
   }
   return command.kind === "workspacePrepare" ||
     command.kind === "workspaceResume" ||
+    command.kind === "workspaceRelease" ||
     command.kind === "sessionCheckout" ||
     command.kind === "checkoutRelease" ||
     isStreamedFile(command) ||

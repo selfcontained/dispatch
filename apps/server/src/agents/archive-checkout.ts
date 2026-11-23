@@ -16,6 +16,7 @@ import type { createLocalRunner } from "./local-runner.js";
 import { observeBoundCheckout } from "./checkout-observation.js";
 import { AgentError } from "./errors.js";
 import type { RemoteRunnerService } from "./remote/service.js";
+import { enrolledArchiveCheckout } from "../runners/enrolled/checkout.js";
 import type { AgentRecord, WorktreeCleanupMode } from "./types.js";
 
 export type ArchiveCheckoutAgent = Pick<
@@ -112,11 +113,17 @@ export async function observeRemoteCheckout(
   remote: RemoteRunnerService,
   placement: NonNullable<ReturnType<typeof remotePlacement>>
 ): Promise<CheckoutObservation> {
-  const { value } = await remote.requestSession(placement, {
-    kind: "checkoutRelease",
-    agentId: agent.id,
-    operation: { kind: "observe" },
-  });
+  const { value } = await enrolledArchiveCheckout(
+    remote,
+    placement,
+    agent.id
+  ).observe();
+  return parseRemoteArchiveObservation(value);
+}
+
+export function parseRemoteArchiveObservation(
+  value: unknown
+): CheckoutObservation {
   const observation: unknown =
     typeof value === "string" ? JSON.parse(value) : null;
   if (!isCheckoutObservation(observation))
@@ -135,18 +142,26 @@ export async function rememberArchiveCheckoutState(
   );
 }
 
+export function authorizesArchiveRelease(
+  mode: WorktreeCleanupMode,
+  checkout: CheckoutObservation["checkout"]
+): boolean {
+  return (
+    mode !== "keep" &&
+    !(
+      mode === "auto" &&
+      checkout &&
+      (checkout.unmerged || checkout.uncommittedFiles.length)
+    )
+  );
+}
+
 /** The snapshot to release, or null when the archive should keep the checkout. */
 export function archiveReleaseState(
   mode: WorktreeCleanupMode,
   checkout: CheckoutObservation["checkout"]
 ): string | null {
-  if (mode === "keep") return null;
-  if (
-    mode === "auto" &&
-    checkout &&
-    (checkout.unmerged || checkout.uncommittedFiles.length)
-  )
-    return null;
+  if (!authorizesArchiveRelease(mode, checkout)) return null;
   return checkout?.stateId ?? UNOBSERVED_STATE;
 }
 
@@ -165,7 +180,7 @@ export function releaseRemoteCheckout(
     logger,
     agent,
     mode,
-    runnerArchiveExecutor(agent, remote, stopped),
+    runnerArchiveExecutor(agent, remote, stopped, pool),
     hooks
   );
 }

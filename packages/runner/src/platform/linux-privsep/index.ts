@@ -56,6 +56,7 @@ export async function createLinuxPrivsep(options: PrivsepOptions) {
   return {
     paths,
     bindings: new PrivsepBindings(fs, paths, asWorkload),
+    release: where.release,
     /** A clone port with this platform's place for sessions' checkouts. */
     repository(
       clones: Omit<RepositoryPort, "location" | "remove">
@@ -71,7 +72,8 @@ export async function createLinuxPrivsep(options: PrivsepOptions) {
   };
 }
 
-type Operation = "workspace.prepare" | "workspace.resume";
+type Operation = "workspace.prepare" | "workspace.resume" | "workspace.release";
+type Release = Omit<Req<"workspace.release">, "session">;
 type Step = (method: string, args: unknown[]) => Promise<unknown>;
 
 export async function createRemoteWorkspacePreparation(
@@ -83,7 +85,45 @@ export async function createRemoteWorkspacePreparation(
   const { ids } = options;
   const step = <T>(method: string, ...args: unknown[]) =>
     options.step(`workspace.${method}`, args) as Promise<T>;
+  async function release(
+    session: string,
+    source: string | null,
+    request: Release,
+    verify?: (path: string) => Promise<boolean>
+  ) {
+    const removed = await platform.release(session, source !== null, verify);
+    if (removed && source !== null)
+      await step(
+        "forgetWorktree",
+        source,
+        bindings.checkoutOf(session),
+        request
+      );
+    return removed;
+  }
   const port: WorkspacePort = {
+    async release(session, checkout, request) {
+      const raw = await fs.read(
+        join(paths.receipts, storageKey(session), RECEIPT_FILE)
+      );
+      if (raw === null) return false;
+      const receipt: Receipt = JSON.parse(raw);
+      if (
+        !receipt.worktree ||
+        receipt.at !== checkout.path ||
+        receipt.worktree.path !== checkout.path ||
+        checkout.path !== bindings.checkoutOf(session)
+      )
+        return false;
+      const identity = receipt.worktree.identity;
+      const removed = await release(
+        session,
+        receipt.source,
+        request,
+        async (path) => (await port.identity(path)) === identity
+      );
+      return removed;
+    },
     canonical: (path) => step("canonical", path),
     locate: (path) => step("locate", path),
     identity: (path) => step("identity", path),
@@ -160,6 +200,7 @@ export async function createRemoteWorkspacePreparation(
   );
   return {
     legacy: (session: string) => bindings.legacy(session),
+    releaseLegacy: release,
     async remove(session: string) {
       const dir = join(paths.receipts, storageKey(session));
       const raw = await fs.read(join(dir, RECEIPT_FILE));
@@ -204,6 +245,11 @@ export async function createRemoteWorkspacePreparation(
           throw new Error("Workspace preparation does not receive blobs.");
         },
       };
+      if (op === "workspace.release")
+        return (await calls["workspace.release"]!(
+          request as Req<"workspace.release">,
+          context
+        )) as Res<K>;
       const reply =
         op === "workspace.prepare"
           ? await calls["workspace.prepare"]!(

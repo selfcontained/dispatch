@@ -233,6 +233,7 @@ type Peer = {
   sharedWorktree: boolean;
   workspacePreparation: boolean;
   workspacePrepare: boolean;
+  workspaceRelease: boolean;
   /** Reconciles a repeated `launch.launchId` instead of running it again. */
   launchReconcile: boolean;
   /** Last pushed, validated engine inventory; absent until the runner first reports one. */
@@ -996,6 +997,7 @@ export class RemoteRunnerService {
           sharedWorktree: ready.sharedWorktree === true,
           workspacePreparation: ready.workspacePreparation === true,
           workspacePrepare: ready.workspacePrepare === true,
+          workspaceRelease: ready.workspaceRelease === true,
           launchReconcile: ready.launchReconcile === true,
           connection: new RunnerConnection(send),
           ...(ready.streamCredit && { streams: new FlowStreams(socket, send) }),
@@ -1820,8 +1822,13 @@ export class RemoteRunnerService {
     placement: Placement,
     operation: SessionOperation,
     onProgress?: (progress: LaunchProgress) => void,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    expectedEpoch?: number
   ) {
+    const expectedPeer =
+      expectedEpoch === undefined ? undefined : this.workspacePeer(placement);
+    if (expectedEpoch !== undefined && expectedPeer?.epoch !== expectedEpoch)
+      throw new RunnerUnavailable("The enrolled runner connection changed.");
     return this.request(
       placement,
       { ...operation, workspace: placement.workspace },
@@ -1829,7 +1836,8 @@ export class RemoteRunnerService {
         operation.kind === "watchCheckout" ||
         operation.kind === "openTerminal",
       onProgress,
-      signal
+      signal,
+      expectedPeer
     );
   }
 
@@ -2318,6 +2326,10 @@ export class RemoteRunnerService {
     );
   }
 
+  supportsWorkspaceRelease(placement: Placement) {
+    return this.workspacePeer(placement)?.workspaceRelease === true;
+  }
+
   supportsSharedWorktree(placement: Placement) {
     return (
       this.available(placement) &&
@@ -2423,6 +2435,10 @@ export class RemoteRunnerService {
     if (command.kind === "sessionFile" && !peer.sessionFiles)
       throw new RunnerCapabilityUnavailable(
         "Update the runner to transfer session files."
+      );
+    if (command.kind === "workspaceRelease" && !peer.workspaceRelease)
+      throw new RunnerCapabilityUnavailable(
+        "Update the runner to release a bound workspace."
       );
     if (command.kind === "checkoutRelease" && !peer.checkoutRelease)
       throw new RunnerCapabilityUnavailable(
