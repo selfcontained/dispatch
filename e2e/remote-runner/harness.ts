@@ -1,4 +1,6 @@
 import { execFile, execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 import { authHeaders, trackAgent } from "../helpers";
@@ -87,6 +89,75 @@ export function guestDiagnostics(name: GuestName) {
   } catch {
     return `${status}Guest diagnostics unavailable.\n`;
   }
+}
+
+/** Publish a host fixture as a real repository the runner can clone (D7). */
+export async function repositoryProject(
+  request: APIRequestContext,
+  name: GuestName,
+  source?: string,
+  defaultBranch = "main"
+) {
+  // Real runner installs provide gh for the Git credential helper. Keep this
+  // standalone spec independent of github-account.spec.ts installing its fake.
+  if (!guestOk(name, "command -v gh >/dev/null")) {
+    docker(
+      "cp",
+      resolve("e2e/remote-runner/fixture-gh.sh"),
+      state.runners[name].container + ":/usr/bin/gh"
+    );
+    guest(
+      name,
+      `chmod 755 /usr/bin/gh; echo '${name}' > /etc/field-runner-name`
+    );
+  }
+  const id = randomUUID();
+  const root = "/tmp/runner-repositories";
+  if (!guestOk(name, `test -f ${root}/cert`)) {
+    guest(
+      name,
+      `mkdir -p ${root}/repos
+      echo '127.0.0.1 repo.runner.test' >> /etc/hosts
+      openssl req -newkey rsa:2048 -x509 -nodes -days 1 -subj '/CN=repo.runner.test' -addext 'subjectAltName=DNS:repo.runner.test' -keyout ${root}/key -out ${root}/cert >/dev/null 2>&1
+      cp ${root}/cert /usr/local/share/ca-certificates/runner-repository.crt
+      update-ca-certificates >/dev/null 2>&1`
+    );
+    docker(
+      "cp",
+      resolve("e2e/remote-runner/repository-fixture.cjs"),
+      state.runners[name].container + ":" + root + "/server.cjs"
+    );
+    docker(
+      "exec",
+      "-d",
+      state.runners[name].container,
+      "node",
+      root + "/server.cjs"
+    );
+  }
+  const seed = `${root}/${id}`;
+  if (source) docker("cp", source, state.runners[name].container + ":" + seed);
+  else
+    guest(
+      name,
+      `mkdir -p ${seed}; git -C ${seed} init -b main; git -C ${seed} -c user.name=Fixture -c user.email=fixture@localhost commit --allow-empty -m base`
+    );
+  guest(
+    name,
+    `chown -R 0:0 ${seed}
+    git clone --bare ${seed} ${root}/repos/${id}.git
+    git --git-dir=${root}/repos/${id}.git symbolic-ref HEAD refs/heads/${defaultBranch}`
+  );
+  const response = await request.post("/api/v1/projects", {
+    headers: authHeaders(),
+    data: {
+      name: "Runner repository " + id,
+      color: "#7c6ee6",
+      repository: `https://repo.runner.test:8443/${id}.git`,
+    },
+  });
+  expect(response.ok(), await response.text()).toBe(true);
+  return (await response.json()).id as string;
 }
 
 /** Fault injection on the runner's TCP path (TLS stays end to end). */
@@ -237,6 +308,12 @@ export async function enrollViaUi(
   request: APIRequestContext,
   name: GuestName
 ) {
+  // Independent specs share a fleet. Re-pairing an active name invalidates its
+  // credentials before approval fails on the registry's unique-name constraint.
+  const existing = (await runnerRows(request)).find(
+    (row) => row.name === name && row.status === "online"
+  );
+  if (existing) return existing.id;
   const { form, code, finished } = await requestConnection(page, name);
   await form.getByLabel("Runner name").fill(name);
   await form.getByLabel("Pairing code").fill(code);
@@ -306,7 +383,7 @@ export async function launchViaUi(
         .getByPlaceholder("Branch name or GitHub PR URL")
         .fill(opts.pullRequest);
       await page
-        .getByRole("option", { name: `Use ${opts.pullRequest}`, exact: true })
+        .getByRole("option", { name: opts.pullRequest, exact: true })
         .click();
     }
   } else await page.getByTestId("create-agent-cwd").fill(opts.cwd ?? "/tmp");

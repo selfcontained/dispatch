@@ -11,6 +11,7 @@ import {
   lane,
   newSettledTurn,
   runnerRow,
+  repositoryProject,
   settledTurns,
   state,
 } from "./harness";
@@ -131,12 +132,15 @@ for (const placement of ["This Mac", "Linux runner"] as const) {
           row?.id ?? (await enrollViaUi(page, request, "scratch"));
         cwd = `runner://${runnerId}/@session`;
       }
-      const project = await request.post("/api/v1/projects", {
-        headers,
-        data: { name: "Runner parity task", repoRoot: tmp, color: "#7c6ee6" },
-      });
-      expect(project.ok(), await project.text()).toBe(true);
-      projectId = (await project.json()).id;
+      if (remote) projectId = await repositoryProject(request, "scratch", tmp);
+      else {
+        const project = await request.post("/api/v1/projects", {
+          headers,
+          data: { name: "Runner parity task", repoRoot: tmp, color: "#7c6ee6" },
+        });
+        expect(project.ok(), await project.text()).toBe(true);
+        projectId = (await project.json()).id;
+      }
       const template = await request.post("/api/v1/templates", {
         headers,
         data: {
@@ -442,6 +446,7 @@ for (const placement of ["This Mac", "Linux runner"] as const) {
   }) => {
     const tmp = mkdtempSync(path.join(os.tmpdir(), "dispatch-default-review-"));
     const agents: string[] = [];
+    let projectId: string | undefined;
     try {
       seed(tmp, randomUUID());
       seedDefaultBranch(tmp);
@@ -449,10 +454,13 @@ for (const placement of ["This Mac", "Linux runner"] as const) {
       const cwd = remote
         ? `runner://${(await runnerRow(request, "scratch"))?.id ?? (await enrollViaUi(page, request, "scratch"))}/@session`
         : tmp;
+      if (remote)
+        projectId = await repositoryProject(request, "scratch", tmp, "trunk");
       const created = await request.post("/api/v1/agents", {
         headers: authHeaders(),
         data: {
           name: "Default-branch persona author",
+          projectId,
           type: "claude",
           cwd,
           useWorktree: false,
@@ -541,6 +549,10 @@ for (const placement of ["This Mac", "Linux runner"] as const) {
       await launchDefaultReviewer(author, "Checkout override reviewer");
     } finally {
       for (const id of agents.reverse()) await deleteAgentViaAPI(request, id);
+      if (projectId)
+        await request.delete(`/api/v1/projects/${projectId}`, {
+          headers: authHeaders(),
+        });
       rmSync(tmp, { recursive: true, force: true });
     }
   });

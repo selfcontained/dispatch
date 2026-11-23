@@ -21,6 +21,7 @@ import {
   requestConnection,
   runnerRow,
   runnerRows,
+  repositoryProject,
   state,
   settledTurns,
   type RunnerName,
@@ -39,6 +40,7 @@ const agents: Record<"local" | RunnerName, string> = {
   alpha: "",
   beta: "",
 };
+const projects: string[] = [];
 const pages: Partial<Record<keyof typeof agents, Page>> = {};
 
 test.beforeAll(() => {
@@ -46,6 +48,8 @@ test.beforeAll(() => {
 });
 test.afterAll(async ({ request }) => {
   await cleanupE2EAgents(request);
+  for (const id of projects)
+    await request.delete(`/api/v1/projects/${id}`, { headers: authHeaders() });
   await Promise.all(
     Object.values(pages).map((page) => page?.context().close())
   );
@@ -87,13 +91,20 @@ test("enroll two runners with identical workspace names", async ({
 // GitHub account fixture.
 async function launchLegacyFixture(
   page: Page,
-  opts: { name: string; cwd: string; prompt: string; restricted?: boolean }
+  opts: {
+    name: string;
+    cwd: string;
+    prompt: string;
+    restricted?: boolean;
+    projectId?: string;
+  }
 ) {
   const { name, cwd, prompt, restricted } = opts;
   const response = await page.request.post("/api/v1/agents", {
     headers: authHeaders(),
     data: {
       name,
+      projectId: opts.projectId,
       cwd,
       type: "claude",
       fullAccess: !restricted,
@@ -488,7 +499,10 @@ test("managed scratch checkout selection persists across host start and preserve
   expect((await runnerRow(request, "scratch"))?.workspaces).toEqual([
     "@session",
   ]);
+  const projectId = await repositoryProject(request, "scratch");
+  projects.push(projectId);
   const { status, id } = await launchLegacyFixture(page, {
+    projectId,
     name: "e2e-rr-managed-scratch",
     cwd: `runner://${runnerId}/@session`,
     prompt: "proof-count scratch-start",

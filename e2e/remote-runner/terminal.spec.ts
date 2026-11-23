@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { authHeaders, cleanupE2EAgents, createAgentViaAPI } from "../helpers";
+import { authHeaders, cleanupE2EAgents, trackAgent } from "../helpers";
 import {
   agentInfo,
   enrollViaUi,
@@ -10,6 +10,7 @@ import {
   guestOk,
   marker,
   runnerRow,
+  repositoryProject,
   state,
 } from "./harness";
 
@@ -26,7 +27,9 @@ async function openTerminal(page: Page) {
   await tab.click();
   const panel = page.getByRole("region", { name: "Terminal", exact: true });
   // Runner opens can wait for checkout resolution and a worker acknowledgement.
-  await expect(panel.getByRole("status")).toHaveText("Connected", {
+  await expect(
+    panel.getByRole("status").filter({ hasText: /^Connected$/ })
+  ).toHaveText("Connected", {
     timeout: 25_000,
   });
   return panel;
@@ -54,12 +57,25 @@ for (const lane of ["native", "runner", "managed"] as const) {
       data: { enabledIdes: ["vscode"] },
     });
     expect(enabled.ok()).toBe(true);
-    const agent = await createAgentViaAPI(request, {
-      name: `e2e-${lane}-terminal`,
-      cwd: runner
-        ? `runner://${runner}/${lane === "managed" ? "@session" : state.workspace}`
-        : "/tmp",
+    const projectId =
+      lane === "managed"
+        ? await repositoryProject(request, guestName)
+        : undefined;
+    const created = await request.post("/api/v1/agents", {
+      headers,
+      data: {
+        name: `e2e-${lane}-terminal`,
+        type: "codex",
+        useWorktree: false,
+        projectId,
+        cwd: runner
+          ? `runner://${runner}/${lane === "managed" ? "@session" : state.workspace}`
+          : "/tmp",
+      },
     });
+    expect(created.ok(), await created.text()).toBe(true);
+    const { agent } = await created.json();
+    trackAgent(agent.id);
     const context = await browser.newContext({
       viewport: remote
         ? { width: 390, height: 844 }
@@ -227,6 +243,8 @@ for (const lane of ["native", "runner", "managed"] as const) {
       if (nativeFixture)
         await rm(nativeFixture, { recursive: true, force: true });
       await request.post(ideSettings, { headers, data: previousIdes });
+      if (projectId)
+        await request.delete(`/api/v1/projects/${projectId}`, { headers });
     }
   });
 }
