@@ -35,6 +35,7 @@ import type { SessionCoreFactory } from "../core/sessions.js";
 import type { PosixHostEntry } from "../platform/posix-user/sessions.js";
 import { checkoutHandlers, checkoutOpens } from "../core/checkout.js";
 import { workspaceHandlers } from "../core/workspace.js";
+import { githubHandlers } from "../core/github.js";
 import type { Platform } from "../platform/types.js";
 
 export type Build = { version: string; revision?: string };
@@ -255,6 +256,7 @@ export async function runLocalRunner(
   const workspace = options.platform?.workspace
     ? workspaceHandlers(message.roots.state, store!, options.platform.workspace)
     : {};
+  const github = options.platform ? githubHandlers(options.platform) : {};
   const socket = await serveSocket(
     socketPath,
     message.nonce,
@@ -262,6 +264,7 @@ export async function runLocalRunner(
       calls: {
         ...checkout,
         ...workspace,
+        ...github,
         ...sessions?.calls,
         ...extra?.calls,
         "runner.describe": () => description,

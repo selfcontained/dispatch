@@ -59,8 +59,6 @@ import {
   isTerminalEvent,
   isTerminalInfo,
   MAX_TERMINAL_FRAME_LENGTH,
-  isGitHubPullRequestObservation,
-  MAX_PULL_REQUEST_WATCH_EVENT_BYTES,
   MANAGED_WORKSPACE,
   RUNNER_WIRE_VERSION,
   MAX_CHECKOUT_VIEW_BYTES,
@@ -88,7 +86,6 @@ import {
   acceptsStreams,
   type StreamFrame,
 } from "../../runners/enrolled/v1-framing.js";
-import { GitHubPullRequestWatches } from "./github-pull-request-watches.js";
 import { GitHubRunnerExecutor } from "./github-runner-executor.js";
 import {
   WorkloadTools,
@@ -549,16 +546,6 @@ export async function runRemoteRunner(
       config.home === "/var/lib/dispatch-runner/home" &&
       passwdShell === "/usr/sbin/nologin"
   );
-  const pullRequests = new GitHubPullRequestWatches(async (target, signal) => {
-    const result = await github.handle(
-      { type: "pullRequestStatus", ...target, withCredentialContext: true },
-      signal
-    );
-    if (!isGitHubPullRequestObservation(result))
-      throw new Error("Invalid GitHub observation.");
-    return result;
-  });
-  github.onLogin = () => pullRequests.reset();
   const engineExecutor = new EngineRunnerExecutor({
     bundledRuntime: process.versions.bun ? process.execPath : undefined,
     uid: config.uid,
@@ -1015,49 +1002,10 @@ export async function runRemoteRunner(
         if (command.kind === "github") {
           try {
             const operation = command.operation;
-            if (operation.type === "watchPullRequests") {
-              if (watches.has(id)) throw new Error("Duplicate watch ID.");
-              const close = pullRequests.subscribe(
-                operation.targets,
-                (event) => {
-                  let line = JSON.stringify(event) + "\n";
-                  if (
-                    event.type === "observation" &&
-                    Buffer.byteLength(line) > MAX_PULL_REQUEST_WATCH_EVENT_BYTES
-                  )
-                    line =
-                      JSON.stringify({ ...event, observation: null }) + "\n";
-                  safeSend({
-                    type: "data",
-                    id,
-                    data: Buffer.from(line).toString("base64"),
-                  });
-                }
-              );
-              watches.set(id, close);
-              safeSend({ type: "result", id, value: true });
-              return;
-            }
-            const run = () => github.handle(operation, connection.signal);
-            const watched =
-              operation.type === "pullRequestStatus" && operation.refreshWatch
-                ? pullRequests.refreshIfWatched(operation)
-                : undefined;
-            let value = await (watched ??
-              (operation.type === "logout" || operation.type === "login"
-                ? pullRequests.accountOperation(run)
-                : run()));
-            if (watched && value === null)
-              throw new Error("Runner pull request observation unavailable.");
-            if (
-              watched &&
-              operation.type === "pullRequestStatus" &&
-              !operation.withCredentialContext &&
-              isGitHubPullRequestObservation(value)
-            ) {
-              const { credentialContext: _, ...publicValue } = value;
-              value = publicValue;
-            }
+            // Dispatch's refresher reads pull requests itself (T32).
+            if (operation.type === "watchPullRequests")
+              throw new Error("Pull request watches are not served.");
+            const value = await github.handle(operation, connection.signal);
             safeSend({ type: "result", id, value: JSON.stringify(value) });
           } catch {
             safeSend({
@@ -2017,7 +1965,6 @@ export async function runRemoteRunner(
           githubManagement: true,
           repositoryPicker: true,
           pullRequestStatus: true,
-          pullRequestWatch: true,
           pullRequestEvidence: true,
           checkoutInspection: true,
           checkoutMetadata: true,

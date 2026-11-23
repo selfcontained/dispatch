@@ -57,7 +57,6 @@
         "apps/server/test/helpers/test-workspace-runner.ts",
         "apps/server/test/lifecycle-hooks.test.ts",
         "apps/server/test/runner-*.test.ts",
-        "apps/server/test/github-pull-request-watches.test.ts",
         "apps/server/test/helpers/remote-acp-fixture.ts",
         "apps/server/test/helpers/codex-mcp-probe.mjs",
         "packages/runner-protocol/**",
@@ -461,6 +460,7 @@
         "apps/server/src/agents/remote/github-runner-executor.ts",
         "apps/server/src/routes/runner-github.ts",
         "apps/server/test/github-runner-executor.test.ts",
+        "apps/server/test/github-pull-request-status.test.ts",
         "apps/server/test/runner-github-auth.test.ts",
         "packages/runner-protocol/src/github.ts",
         "apps/server/test/*login-link*"

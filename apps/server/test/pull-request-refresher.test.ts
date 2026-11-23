@@ -2,7 +2,7 @@ import { createRunnerPullRequestReader } from "../src/agents/pull-request-reader
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   PULL_REQUEST_ACTIVE_REFRESH_MS,
-  type GitHubPullRequestWatchEvent,
+  type GitHubPullRequestObservation,
 } from "@dispatch/runner-protocol";
 import type { Pool } from "pg";
 import type { AgentPullRequest, Block } from "@dispatch/shared";
@@ -60,7 +60,8 @@ function fixture(count = 1) {
 }
 afterEach(() => vi.useRealTimers());
 describe("server PR orchestration", () => {
-  it("shares runner subscriptions, projects pushed updates and rejects events from a replaced connection", async () => {
+  it("reads every placement through its runner on one cadence, one read per runner and URL", async () => {
+    vi.useFakeTimers();
     const f = fixture(2);
     const row = f.rows[1];
     f.rows.splice(
@@ -69,147 +70,76 @@ describe("server PR orchestration", () => {
       { ...row, author_agent_id: "b" },
       { ...row, author_agent_id: "c" }
     );
-    const url = row.attachments[0].url;
-    type Receiver = (event: GitHubPullRequestWatchEvent) => void;
-    const events = new Map<string, Receiver>();
-    const close = vi.fn();
-    const watchPullRequests = vi.fn(
-      async (id: string, _urls: string[], receive: Receiver) => {
-        events.set(id, receive);
-        return close;
-      }
-    );
+    const observation: GitHubPullRequestObservation = {
+      state: "OPEN",
+      draft: false,
+      title: "Fix",
+      head: "sha",
+      rollup: [],
+    };
+    const calls: [string | null, string, unknown][] = [];
+    const runnerFor = (id: string | null) => ({
+      call: (async (op: string, input: unknown) => {
+        calls.push([id, op, input]);
+        return observation;
+      }) as never,
+    });
     const service = new PullRequestRefresher({
       pool: { query: f.query } as unknown as Pool,
       listAgents: async () => [
-        { id: "a", runnerId: "alpha" },
-        { id: "b", runnerId: "alpha" },
+        { id: "a", runnerId: null },
+        { id: "b", runnerId: null },
         { id: "c", runnerId: "beta" },
       ],
       publish: f.publish,
-      read: f.read,
-      remote: { canWatchPullRequests: () => true, watchPullRequests },
-      warn: vi.fn(),
-    });
-    const sample = (
-      observedAt: number,
-      state: "OPEN" | "MERGED" | null
-    ): GitHubPullRequestWatchEvent => ({
-      type: "observation",
-      target: { owner: "a", repo: "b", number: 1 },
-      observedAt,
-      observation: state
-        ? { state, draft: false, title: "Private", head: "sha", rollup: [] }
-        : null,
-    });
-    try {
-      await service.refresh();
-      expect(
-        watchPullRequests.mock.calls.map(([id, urls]) => [id, urls])
-      ).toEqual([
-        ["alpha", [url]],
-        ["beta", [url]],
-      ]);
-      const old = events.get("alpha")!;
-      old(sample(1, "OPEN"));
-      events.get("beta")!(sample(2, null));
-      await service.refresh();
-      expect(service.get("a")[0].status).toBe("Open");
-      expect(service.get("b")[0].status).toBe("Open");
-      expect(service.get("c")[0].status).toBe("Unavailable");
-      expect(f.read).not.toHaveBeenCalled();
-
-      service.invalidateRunner("alpha");
-      await service.refresh();
-      old(sample(4, "MERGED"));
-      events.get("alpha")!(sample(3, "OPEN"));
-      await service.refresh();
-      expect(service.get("a")[0].status).toBe("Open");
-      events.get("alpha")!({ type: "reset" });
-      expect(service.get("a")[0].status).toBe("Pending");
-      events.get("alpha")!(sample(5, null));
-      await service.refresh();
-      expect(service.get("a")[0].status).toBe("Unavailable");
-      await service.dismiss("a", url);
-      await service.dismiss("b", url);
-      await service.refresh();
-      expect(close).toHaveBeenCalledTimes(2);
-    } finally {
-      await service.stop();
-    }
-  });
-
-  it("recovers a silent watch by resubscribing without forcing provider reads", async () => {
-    vi.useFakeTimers();
-    const f = fixture(3);
-    f.rows.shift();
-    type Receiver = (event: GitHubPullRequestWatchEvent) => void;
-    const close = vi.fn();
-    const watchPullRequests = vi.fn(
-      async (
-        _id: string,
-        _urls: string[],
-        _receive: Receiver,
-        _ended: () => void
-      ) => close
-    );
-    const service = new PullRequestRefresher({
-      pool: { query: f.query } as unknown as Pool,
-      listAgents: async () => [{ id: "a", runnerId: "alpha" }],
-      publish: f.publish,
-      read: f.read,
-      remote: { canWatchPullRequests: () => true, watchPullRequests },
+      read: createRunnerPullRequestReader(runnerFor),
       warn: vi.fn(),
     });
     try {
       service.start();
       await vi.advanceTimersByTimeAsync(200);
-      const receive = watchPullRequests.mock.calls[0][2];
-      const observedAt = Date.now();
-      const merged: GitHubPullRequestWatchEvent = {
-        type: "observation",
-        target: { owner: "a", repo: "b", number: 1 },
-        observedAt,
-        observation: {
-          state: "MERGED",
-          draft: false,
-          title: "Merged",
-          head: "sha",
-          rollup: [],
-        },
-      };
-      const failed: GitHubPullRequestWatchEvent = {
-        type: "observation",
-        target: { owner: "a", repo: "b", number: 2 },
-        observedAt,
-        observation: null,
-      };
-      receive(merged);
-      receive(failed);
-      await vi.advanceTimersByTimeAsync(200);
-      expect(service.get("a").map((pr) => pr.status)).toEqual([
-        "Merged",
-        "Unavailable",
+      const target = { owner: "a", repo: "b", number: 1 };
+      expect(calls).toEqual([
+        [null, "github.pr.status", target],
+        ["beta", "github.pr.status", target],
       ]);
-      receive(failed); // Replay keeps the provider timestamp unchanged.
-      await vi.advanceTimersByTimeAsync(7 * 60_000 + 1_000);
-      expect(watchPullRequests).toHaveBeenCalledTimes(2);
-      expect(close).toHaveBeenCalledTimes(1);
-      const replacement = watchPullRequests.mock.calls[1];
-      replacement[2](merged);
-      replacement[2](failed);
-      replacement[3](); // An ended channel also retries through subscribe.
-      await vi.advanceTimersByTimeAsync(31_000);
-      expect(watchPullRequests).toHaveBeenCalledTimes(3);
-      expect(f.read).not.toHaveBeenCalled();
+      for (const id of ["a", "b", "c"])
+        expect(service.get(id)[0]).toMatchObject({
+          title: "Fix",
+          status: "Open",
+        });
+      await vi.advanceTimersByTimeAsync(PULL_REQUEST_ACTIVE_REFRESH_MS - 1_000);
+      expect(calls).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(calls).toHaveLength(4);
+    } finally {
+      await service.stop();
+    }
+  });
 
-      await service.refreshOne("a", f.rows[0].attachments[0].url);
-      expect(f.read).toHaveBeenCalledExactlyOnceWith(
-        f.rows[0].attachments[0].url,
-        "PR 1",
-        "alpha",
-        true
+  it("keeps a runner PR's lifecycle through a failed read, as for local", async () => {
+    const f = fixture();
+    let fail = false;
+    const service = new PullRequestRefresher({
+      pool: { query: f.query } as unknown as Pool,
+      listAgents: async () => [{ id: "a", runnerId: "alpha" }],
+      publish: f.publish,
+      read: async (url, title) => {
+        if (fail) throw new Error("Runner unavailable");
+        return f.read(url, title);
+      },
+      warn: vi.fn(),
+    });
+    try {
+      await service.refresh();
+      expect(service.get("a")[0].status).toBe("Open");
+      fail = true;
+      await expect(
+        service.refreshOne("a", f.rows[0].attachments[0].url)
+      ).rejects.toThrow(
+        "Could not refresh PR. Check GitHub authentication and try again."
       );
+      expect(service.get("a")[0].status).toBe("Open");
     } finally {
       await service.stop();
     }
@@ -221,12 +151,16 @@ describe("server PR orchestration", () => {
     const url = f.rows[0].attachments[0].url;
     const readRemote = vi.fn(
       async (
-        runnerId: string,
-        url: string,
-        title: string
-      ): Promise<AgentPullRequest> => {
+        runnerId: string | null
+      ): Promise<GitHubPullRequestObservation> => {
         if (runnerId === "beta") throw new Error("Access denied");
-        return { url, title: "Visible to alpha", status: "Open" };
+        return {
+          state: "OPEN",
+          draft: false,
+          title: "Visible to alpha",
+          head: "sha",
+          rollup: [],
+        };
       }
     );
     const assess = vi.fn();
@@ -237,10 +171,9 @@ describe("server PR orchestration", () => {
         { id: "b", runnerId: "beta" },
       ],
       publish: f.publish,
-      read: createRunnerPullRequestReader(
-        { readPullRequest: readRemote },
-        f.read
-      ),
+      read: createRunnerPullRequestReader((id) => ({
+        call: (() => readRemote(id)) as never,
+      })),
       assess,
       warn: vi.fn(),
     });
@@ -272,7 +205,7 @@ describe("server PR orchestration", () => {
       readRemote.mockClear();
       await expect(service.refreshOne("b", url)).rejects.toThrow("GitHub");
       expect(readRemote.mock.calls.map(([id]) => id)).toEqual(["beta"]);
-      let finish!: (pr: AgentPullRequest) => void;
+      let finish!: (pr: GitHubPullRequestObservation) => void;
       readRemote.mockImplementationOnce(
         () =>
           new Promise((resolve) => {
@@ -282,7 +215,13 @@ describe("server PR orchestration", () => {
       const refreshing = service.refreshOne("a", url);
       await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
       service.invalidateRunner("alpha");
-      finish({ url, title: "Previous account", status: "Merged" });
+      finish({
+        state: "MERGED",
+        draft: false,
+        title: "Previous account",
+        head: "sha",
+        rollup: [],
+      });
       await expect(refreshing).rejects.toThrow("changed");
       expect(service.get("a")[0]).toMatchObject({
         status: "Pending",
@@ -462,7 +401,7 @@ describe("server PR orchestration", () => {
     await restarted.service.refresh();
     expect(restarted.notify).not.toHaveBeenCalled();
   });
-  it("re-reads open pull requests on the interval shared with runner watches", async () => {
+  it("re-reads open pull requests on the interval shared by every placement", async () => {
     vi.useFakeTimers();
     const f = fixture();
     await f.service.refresh();

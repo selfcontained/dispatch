@@ -865,7 +865,6 @@ function fixtureRunner(current: boolean) {
       engineCapabilities: true,
       githubManagement: true,
       pullRequestEvidence: true,
-      pullRequestWatch: true,
       sessionCheckout: true,
       checkoutRelease: true,
       checkoutCommands: true,
@@ -997,27 +996,7 @@ function fixtureRunner(current: boolean) {
             command.kind === "github" &&
             command.workspace === workspace
           ) {
-            if (command.operation.type === "watchPullRequests") {
-              const channel = hostChannel(id, reply, () => channels.delete(id));
-              channels.set(id, channel);
-              result(true);
-              for (const target of command.operation.targets) {
-                channel.write(
-                  JSON.stringify({
-                    type: "observation",
-                    target,
-                    observedAt: Date.now(),
-                    observation: {
-                      state: "OPEN",
-                      title: "Tracked",
-                      draft: false,
-                      head: githubDetails.headRefOid,
-                      rollup: [],
-                    },
-                  }) + "\n"
-                );
-              }
-            } else if (command.operation.type === "pullRequestDetails")
+            if (command.operation.type === "pullRequestDetails")
               result(JSON.stringify(githubDetails));
             else if (
               command.operation.type === "pullRequestDiff" &&
@@ -1439,40 +1418,8 @@ it.each([true, false])(
         expect(ready?.engineCapabilities).toBeUndefined();
       }
 
-      if (ready?.githubManagement && ready.pullRequestWatch) {
-        const { value, channel } = await peer.connection.request(
-          {
-            kind: "github",
-            workspace: runner.session.workspace,
-            agentId: "independent-watcher",
-            operation: { type: "watchPullRequests", targets: [githubTarget] },
-          },
-          { openChannel: true }
-        );
-        expect(value).toBe(true);
-        const snapshots: unknown[] = [];
-        wireFrames(channel!, (raw) =>
-          snapshots.push(parseGitHubPullRequestWatchEvent(raw))
-        );
-        await vi.waitFor(() =>
-          expect(snapshots).toEqual([
-            expect.objectContaining({
-              type: "observation",
-              target: githubTarget,
-              observedAt: expect.any(Number),
-              observation: expect.objectContaining({ rollup: [] }),
-            }),
-          ])
-        );
-        channel!.destroy();
-        await vi.waitFor(() =>
-          expect(runner.requests).toContainEqual(
-            expect.objectContaining({ type: "close" })
-          )
-        );
-      } else {
-        expect(ready?.pullRequestWatch).toBeUndefined();
-      }
+      // Dispatch's refresher reads pull requests; no runner watches them.
+      expect(ready?.pullRequestWatch).toBeUndefined();
       if (ready?.githubManagement && ready.pullRequestEvidence) {
         const route = {
           kind: "github" as const,

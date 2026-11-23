@@ -1001,13 +1001,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/pull-request-refresher.ts",
-    "kind": "R1 placement read",
-    "detail": "{ runner }",
-    "task": "T07",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/remote/checkout-command.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/checkout-command-executor",
@@ -1110,13 +1103,6 @@
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/acp/driver",
     "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/github-pull-request-watches.ts",
-    "kind": "R5 protocol leak",
-    "detail": "setTimeout",
-    "task": "T33",
     "count": 1
   },
   {
@@ -2013,20 +1999,6 @@
     "kind": "R2 host import",
     "detail": "apps/server/src/shared/git/diff-image",
     "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/agents/pull-request-routes.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(agent.cwd)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/agents/pull-request-routes.ts",
-    "kind": "R1 placement read",
-    "detail": "remotePlacement(agent.cwd)?.runner",
-    "task": "T07",
     "count": 1
   },
   {

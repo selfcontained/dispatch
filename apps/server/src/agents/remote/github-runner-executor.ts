@@ -1,18 +1,28 @@
-import { GitHubPullRequestEvidence } from "../github-pull-request-evidence.js";
+import {
+  GitHubPullRequestEvidence,
+  nativeGitHubEvidence,
+} from "../github-pull-request-evidence.js";
 import {
   pullRequestObservation,
   pullRequestQueryArgs,
 } from "../pull-request-reader.js";
+import {
+  runCommand,
+  type CommandRunner,
+} from "../../shared/lib/run-command.js";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import {
   githubDeviceUrl,
   githubAccountIssues,
   githubPullRequestHead,
+  githubPullRequestTargetKey,
   githubRepositoryResults,
   validGitHubLogin,
   validBranch,
   type GitHubOperation,
+  type GitHubPullRequestObservation,
+  type GitHubPullRequestTarget,
   type GitHubStatus,
 } from "@dispatch/runner-protocol";
 import {
@@ -39,6 +49,76 @@ function cliIssue(error: unknown, fallback: string) {
   return fallback;
 }
 
+/**
+ * `github.pr.status` for one workload account, on every placement: the
+ * credential-scoped read first, else the plain query, whose answer (or
+ * failure) is shared for a minute by every caller of the same pull request.
+ * Each platform supplies how its commands run.
+ */
+export class GitHubPullRequestStatus {
+  private plainReads = new Map<
+    string,
+    { expires: number; value: Promise<GitHubPullRequestObservation> }
+  >();
+
+  constructor(
+    private readonly evidence: Pick<GitHubPullRequestEvidence, "status"> | null,
+    /** The query's stdout; a usable answer with check-level errors included. */
+    private readonly plain: (args: string[]) => Promise<string>
+  ) {}
+
+  async read(
+    target: GitHubPullRequestTarget,
+    signal?: AbortSignal,
+    scoped = true
+  ): Promise<GitHubPullRequestObservation> {
+    if (scoped && this.evidence) {
+      const deadline = AbortSignal.timeout(12_000);
+      const observation = await this.evidence
+        .status(target, signal ? AbortSignal.any([signal, deadline]) : deadline)
+        .catch(() => null);
+      if (observation) return observation;
+    }
+    const key = githubPullRequestTargetKey(target);
+    const now = Date.now();
+    const cached = this.plainReads.get(key);
+    if (cached && cached.expires > now) return cached.value;
+    for (const [entry, { expires }] of this.plainReads)
+      if (expires <= now) this.plainReads.delete(entry);
+    const value = this.plain(
+      pullRequestQueryArgs(target.owner, target.repo, String(target.number))
+    ).then((stdout) => pullRequestObservation(JSON.parse(stdout)));
+    value.catch(() => {});
+    this.plainReads.set(key, { expires: now + 60_000, value });
+    return value;
+  }
+
+  /** A changed account cannot reuse the previous account's answers. */
+  reset() {
+    this.plainReads.clear();
+  }
+}
+
+/** The local runner's reads: the user's own `gh`, as the app ran it. */
+export function localPullRequestStatus(
+  run: CommandRunner = runCommand,
+  evidence: Pick<
+    GitHubPullRequestEvidence,
+    "status"
+  > | null = nativeGitHubEvidence()
+) {
+  return new GitHubPullRequestStatus(
+    evidence,
+    async (args) =>
+      (
+        await run("gh", args, {
+          timeoutMs: 10_000,
+          allowedExitCodes: [0, 1],
+        })
+      ).stdout
+  );
+}
+
 type Login = {
   connection: AbortSignal;
   child: ChildProcess;
@@ -59,6 +139,7 @@ type CommandWrapper = (
 /** Commands run with the same workload HOME as checkout and agents. */
 export class GitHubRunnerExecutor {
   private readonly evidence: GitHubPullRequestEvidence;
+  private readonly status: GitHubPullRequestStatus;
   private readonly env: NodeJS.ProcessEnv;
   private login?: Login;
   private failure?: string;
@@ -179,6 +260,18 @@ export class GitHubRunnerExecutor {
     this.evidence = new GitHubPullRequestEvidence(
       this.run.bind(this),
       credentialKey
+    );
+    this.status = new GitHubPullRequestStatus(this.evidence, (args) =>
+      this.run(args, AbortSignal.timeout(17_000)).catch((error) => {
+        // GraphQL can return a usable PR and a check-level error together.
+        if (
+          error.code === 1 &&
+          typeof error.stdout === "string" &&
+          error.stdout
+        )
+          return error.stdout;
+        throw error;
+      })
     );
   }
 
@@ -366,7 +459,7 @@ export class GitHubRunnerExecutor {
       clearTimeout(codeDeadline);
       session.code = undefined;
       if (code === 0) {
-        this.onLogin?.();
+        this.status.reset();
         try {
           const account = await this.account(AbortSignal.timeout(7000));
           if (account.status !== "signed-in")
@@ -466,8 +559,6 @@ export class GitHubRunnerExecutor {
     }
   }
 
-  onLogin?: () => void;
-
   async handle(operation: GitHubOperation, signal: AbortSignal) {
     signal.throwIfAborted();
     switch (operation.type) {
@@ -510,29 +601,13 @@ export class GitHubRunnerExecutor {
           AbortSignal.any([signal, AbortSignal.timeout(18000)])
         );
       case "pullRequestStatus": {
-        if (operation.withCredentialContext) {
-          // Older workload installations may support the status query but
-          // lack an exportable credential. Keep status usable without a scope.
-          const scoped = await this.evidence
-            .status(operation, signal)
-            .catch(() => null);
-          if (scoped) return scoped;
-        }
+        // Older apps ask without a credential scope, and get none.
         const { owner, repo, number } = operation;
-        const result = await this.run(
-          pullRequestQueryArgs(owner, repo, String(number)),
-          signal
-        ).catch((error) => {
-          // GraphQL can return a usable PR and a check-level error together.
-          if (
-            error.code === 1 &&
-            typeof error.stdout === "string" &&
-            error.stdout
-          )
-            return error.stdout;
-          throw error;
-        });
-        return pullRequestObservation(JSON.parse(result));
+        return this.status.read(
+          { owner, repo, number },
+          signal,
+          operation.withCredentialContext === true
+        );
       }
       case "pullRequestHead": {
         const { owner, repo, number } = operation;
@@ -554,6 +629,7 @@ export class GitHubRunnerExecutor {
           this.accountChangesPending++;
           this.repositoryGeneration++;
           this.repositories = undefined;
+          this.status.reset();
         }
         const result = this.queue.then(() =>
           this.statusOperation(operation, signal)

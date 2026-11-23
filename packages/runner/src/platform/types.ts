@@ -73,6 +73,20 @@ export interface Platform {
   workload: Workload;
   /** Preparing checkouts from a directory; without it, `workspace.prepare` is unsupported. */
   workspace?: WorkspacePort;
+  /** The workload account's GitHub reads; without it, `github.*` is unsupported. */
+  github?: GitHubPort;
+}
+
+/**
+ * GitHub reads as the workload account, with its own credentials. They
+ * write nothing, so a frozen runner serves them.
+ */
+export interface GitHubPort {
+  /** A pull request's state and current checks (`github.pr.status`). */
+  pullRequestStatus(
+    request: Req<"github.pr.status">,
+    options: RunOptions
+  ): Promise<Res<"github.pr.status">>;
 }
 
 /** A checkout's Git facts, paths as text (the contract's `gitContext`). */

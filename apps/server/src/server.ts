@@ -1,5 +1,10 @@
 import { localLaunchSettings } from "./agents/acp/launch-env.js";
-import { enrolledRunnerId, isOnEnrolledRunner } from "./runners/placement.js";
+import {
+  enrolledRunnerId,
+  isOnEnrolledRunner,
+  placementForEnrolledId,
+} from "./runners/placement.js";
+import { runnerDirectory } from "./runners/directory.js";
 import {
   localRunnerOf,
   startLocalRunnerProcess,
@@ -463,15 +468,16 @@ const mergeRiskAssessor = new MergeRiskAssessor({
 });
 const pullRequests = new PullRequestRefresher({
   pool,
-  remote: remoteRunner,
   listAgents: async () =>
     (await agentManager.listAgents()).map((agent) => ({
       id: agent.id,
       runnerId: enrolledRunnerId(agent.placement) ?? null,
     })),
-  read: createRunnerPullRequestReader(
-    remoteRunner,
-    mergeRiskGitHub.nativeStatus
+  read: createRunnerPullRequestReader((runnerId) =>
+    runnerDirectory({
+      remote: remoteRunner,
+      child: () => localRunnerOf(localRunnerProcess),
+    }).for(placementForEnrolledId(runnerId))
   ),
   publish: (event) => uiEventBroker.publish(event),
   assess: (url, value, owners, onProgress, runnerId) =>

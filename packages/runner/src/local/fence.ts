@@ -22,6 +22,8 @@ export const SERVED_WHILE_FROZEN: ReadonlySet<string> = new Set([
   ...WORKER_OPS,
   // The watch channel only reports changes others make.
   "checkout.watch",
+  // GitHub reads write nothing of the runner's or the checkout's.
+  "github.pr.status",
 ]);
 
 /**

@@ -316,11 +316,11 @@ describe("engine wire integration", () => {
       ],
     });
     await expect(
-      service.readPullRequest(
-        alpha.created.id,
-        "https://github.com/org/project/pull/42",
-        "Fixture"
-      )
+      service.readPullRequestStatus(alpha.created.id, {
+        owner: "org",
+        repo: "project",
+        number: 42,
+      })
     ).rejects.toThrow("Update the runner");
     expect(await service.githubAccount(beta.created.id, "login")).toMatchObject(
       {
