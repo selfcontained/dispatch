@@ -2,7 +2,6 @@ import { execFile, spawn } from "node:child_process";
 import { closeSync, openSync } from "node:fs";
 import {
   mkdir,
-  readdir,
   readFile,
   realpath,
   rm,
@@ -10,7 +9,6 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
-import net from "node:net";
 import path from "node:path";
 import type { Duplex } from "node:stream";
 import { promisify } from "node:util";
@@ -46,13 +44,6 @@ export type SessionResult = {
 
 export const STOP_GRACE_MS = 8_000;
 const KILL_GRACE_MS = 2_000;
-const LOG_TAIL_LINES = 20;
-const CONNECT_TIMEOUT_MS = 5_000;
-
-export type NativeHostProcess = {
-  sessionHandle: string;
-  processState: "live" | "gone" | "stale";
-};
 
 const processArgs = promisify(execFile);
 
@@ -67,7 +58,7 @@ async function readHostPid(dir: string): Promise<number | null> {
 }
 
 async function inspectHostProcess(dir: string): Promise<{
-  processState: NativeHostProcess["processState"];
+  processState: "live" | "gone" | "stale";
   pid: number | null;
 }> {
   const pid = await readHostPid(dir);
@@ -245,18 +236,6 @@ export function createLocalRunner(
     await unlink(hostFile(dir, "socket")).catch(() => {});
     await unlink(hostFile(dir, "pid")).catch(() => {});
   }
-  async function readLogTail(agentId: string) {
-    try {
-      const log = await readFile(hostFile(stateDir(agentId), "log"), "utf8");
-      const tail = log.trim().split("\n").slice(-LOG_TAIL_LINES).join("\n");
-      return tail
-        ? `\n\nHost log (last ${LOG_TAIL_LINES} lines):\n${tail}`
-        : "";
-    } catch {
-      return "";
-    }
-  }
-
   async function requestSession(
     operation: SessionLifecycleOperation,
     settings?: LocalLaunchSettings
@@ -272,36 +251,19 @@ export function createLocalRunner(
         )
           throw new Error("Missing or mismatched native launch settings");
         return launch({ ...operation.launch, ...settings });
-      case "attach": {
-        const channel = await new Promise<net.Socket>((resolve, reject) => {
-          const socket = net.createConnection(hostFile(dir, "socket"));
-          const timer = setTimeout(
-            () => socket.destroy(new Error("connect timed out")),
-            CONNECT_TIMEOUT_MS
-          );
-          socket.once("connect", () => {
-            clearTimeout(timer);
-            resolve(socket);
-          });
-          socket.once("error", (err) => {
-            clearTimeout(timer);
-            reject(err);
-          });
-        });
-        return { channel };
-      }
-      case "alive": {
-        const { processState } = await inspectHostProcess(dir);
-        return { value: processState === "live" };
-      }
+      case "attach":
+      case "alive":
+      case "log":
+        // The local runner child attaches to and reads local hosts.
+        throw new Error(
+          `Local ${operation.kind} goes through the local runner child`
+        );
       case "stop":
         await stop(agentId, operation.force);
         return {};
       case "discard":
         await rm(dir, { recursive: true, force: true });
         return {};
-      case "log":
-        return { value: await readLogTail(agentId) };
     }
   }
   return {
@@ -333,29 +295,6 @@ export function createLocalRunner(
         : workspace.upgrade(stateDir(agentId)),
     requestedWorktree: (agentId: string) =>
       workspace.requested(stateDir(agentId)),
-    async inspectHost(sessionHandle: string): Promise<NativeHostProcess> {
-      const { processState } = await inspectHostProcess(
-        stateDir(sessionHandle)
-      );
-      return { sessionHandle, processState };
-    },
-
-    async listHosted() {
-      const entries = await readdir(agentStateRoot, {
-        withFileTypes: true,
-      }).catch((error: NodeJS.ErrnoException) => {
-        if (error.code === "ENOENT") return [];
-        throw error;
-      });
-      const hosted: string[] = [];
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        const { processState } = await inspectHostProcess(stateDir(entry.name));
-        if (processState === "live") hosted.push(entry.name);
-      }
-      return hosted;
-    },
-
     /** The recorded pid, unverified: a failed `ps` must not read as no host. */
     async recordedHostPid(agentId: string) {
       const pid = await readHostPid(stateDir(agentId));

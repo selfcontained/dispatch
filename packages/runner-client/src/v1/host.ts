@@ -4,6 +4,8 @@
  * results; the contract channel is the session, so decoding drops that id
  * and encoding restores it. Client frames are the same on both sides.
  */
+import { StringDecoder } from "node:string_decoder";
+import { Duplex } from "node:stream";
 import type {
   Infer,
   clientMessage,
@@ -55,4 +57,92 @@ export function encodeHostFrame(
     default:
       return message;
   }
+}
+
+/**
+ * A v1 host frame for the session `agentId` as the contract message, or the
+ * error the caller sees instead. Decoding drops the agent id, so a result a
+ * v1 host gave for another agent is refused here, where the id is still
+ * known: an MCP inventory answer becomes an error for its request.
+ */
+export function decodeSessionFrame(
+  frame: AnyRecord,
+  agentId: string
+): HostMessage {
+  if (
+    frame.type === "mcp_inventory_result" &&
+    (frame.result as AnyRecord | undefined)?.agentId !== agentId
+  )
+    return {
+      type: "error",
+      id: frame.id,
+      message: "The host answered for another session.",
+    } as HostMessage;
+  return decodeHostFrame(frame);
+}
+
+/**
+ * Newline-delimited JSON frames as the v1 host and its clients write them:
+ * blank and malformed lines are skipped, and a line has no length limit.
+ */
+export function frameDecoder(): (chunk: Buffer | string) => AnyRecord[] {
+  const decoder = new StringDecoder("utf8");
+  let buffer = "";
+  return (chunk) => {
+    buffer += typeof chunk === "string" ? chunk : decoder.write(chunk);
+    const frames: AnyRecord[] = [];
+    let index: number;
+    while ((index = buffer.indexOf("\n")) !== -1) {
+      const line = buffer.slice(0, index).trim();
+      buffer = buffer.slice(index + 1);
+      if (!line) continue;
+      try {
+        const value = JSON.parse(line) as unknown;
+        if (value && typeof value === "object") frames.push(value as AnyRecord);
+      } catch {
+        // Skipped, as the v1 client skips it.
+      }
+    }
+    return frames;
+  };
+}
+
+/**
+ * A duplex over `source` whose incoming frames pass through `map`; outgoing
+ * bytes go to `source` unchanged (client frames are the same on both sides).
+ * Either end closing closes the other, and a slow reader pauses `source`.
+ */
+export function mapIncomingFrames(
+  source: Duplex,
+  map: (frame: AnyRecord) => unknown
+): Duplex {
+  const decode = frameDecoder();
+  const mapped: Duplex = new Duplex({
+    allowHalfOpen: false,
+    read() {
+      source.resume();
+    },
+    write(chunk: Buffer, _encoding, callback) {
+      if (source.destroyed) return callback(new Error("Channel closed"));
+      source.write(chunk, (error) => callback(error ?? null));
+    },
+    final(callback) {
+      source.end();
+      callback();
+    },
+    destroy(error, callback) {
+      source.destroy();
+      callback(error);
+    },
+  });
+  source.on("data", (chunk: Buffer) => {
+    for (const frame of decode(chunk)) {
+      if (mapped.destroyed) return;
+      if (!mapped.push(JSON.stringify(map(frame)) + "\n")) source.pause();
+    }
+  });
+  source.once("end", () => mapped.push(null));
+  source.once("close", () => mapped.destroy());
+  source.on("error", () => mapped.destroy());
+  return mapped;
 }

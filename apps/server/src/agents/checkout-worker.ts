@@ -1096,3 +1096,6 @@ const workspaceSteps = {
     return steps;
   },
 };
+
+/** The `posix-user` host entry the local runner child starts hosts with. */
+export { localHostEntry } from "./acp/host-command.js";

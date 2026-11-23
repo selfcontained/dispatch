@@ -47,6 +47,10 @@ import { RunnerUnavailable } from "../src/agents/remote/service.js";
 import { RunnerUpdateHolds } from "../src/agents/remote/update-hold.js";
 import { buildSystemPrompt } from "../src/agents/acp/system-prompt.js";
 import type { AgentRuntime, RuntimeLaunch } from "../src/agents/runtime.js";
+import {
+  localRunnerFor,
+  stopLocalRunners,
+} from "./helpers/local-runner-child.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "../../..");
@@ -100,6 +104,7 @@ function runtimeWith(
     syncJournal: async (_agentId, id, reset) => {
       synced.push({ journalId: id, reset });
     },
+    localRunner: () => localRunnerFor(stateRoot).session,
     ...overrides,
   });
   runtime.onEvent((agentId, event, seq) => {
@@ -186,6 +191,7 @@ describe("agent host", () => {
     // Preserve the owned state until all hosts are stopped, even on assertion failure.
     const { runtime } = runtimeWith(stateRoot, () => 0);
     for (const id of await runtime.listHosted()) await runtime.stop(id, true);
+    await stopLocalRunners();
     delete process.env.DISPATCH_AGENT_HOST_COMMAND;
     rmSync(stateRoot, { recursive: true, force: true });
     rmSync(cwd, { recursive: true, force: true });
@@ -917,16 +923,22 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
       args: [path.join(here, "helpers/remote-acp-fixture.ts")],
     };
     const controller = path.join(stateRoot, "handoff.ts");
+    // The earlier app reaches the same local runner child as the next one.
+    const child = localRunnerFor(stateRoot);
+    await child.ready();
     // Exit only after the engine has begun the turn. Nothing in this process
     // runs the host's stop path or can resolve a promise in the new controller.
     writeFileSync(
       controller,
       `
       import {createAcpRuntime} from ${JSON.stringify(pathToFileURL(path.join(here, "../src/agents/acp/runtime.ts")).href)};
+      import {sessionFor} from ${JSON.stringify(pathToFileURL(path.join(here, "helpers/local-runner-child.ts")).href)};
+      const child = sessionFor(${JSON.stringify(child.endpoint())});
       const runtime = createAcpRuntime({
         config: ${JSON.stringify({ agentStateRoot: stateRoot, acpAdapter: adapter })},
         logger: {info(){}, warn(){}, debug(){}, error(){}},
-        hostSeq:async()=>({seq:0,journalId:null}), syncJournal:async()=>{}
+        hostSeq:async()=>({seq:0,journalId:null}), syncJournal:async()=>{},
+        localRunner: () => child,
       });
       const input = ${JSON.stringify(input)};
       await runtime.launch({...input, agentId: ${JSON.stringify(parentId)}});

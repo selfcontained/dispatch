@@ -31,6 +31,7 @@ import type { StreamService } from "../src/chat/service.js";
 import { ScheduledMessageService } from "../src/scheduled-messages/service.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 import { scriptedHost } from "./runner-update-hold-fixtures.js";
+import { localRunnerIn } from "./helpers/local-runner-child.js";
 
 const logger = {
   info: () => {},
@@ -82,6 +83,7 @@ async function controller(socket: string, stateRoot: string) {
   holds.start();
   cleanup.push(() => holds.close());
   const runtime = createAcpRuntime({
+    localRunner: localRunnerIn(stateRoot),
     config: {
       agentStateRoot: stateRoot,
       agentRuntime: "acp",

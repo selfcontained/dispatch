@@ -3,6 +3,7 @@ import {
   pathFromWire,
   RunnerCallError,
   runnerIdToWire,
+  sessionFromWire,
   sessionToWire,
   type CallName,
   type CallOptions,
@@ -21,6 +22,12 @@ import {
   type LauncherBinding,
 } from "@dispatch/runner-client/launcher";
 import { LocalRunnerSession } from "@dispatch/runner-client/session";
+import {
+  encodeHostFrame,
+  mapIncomingFrames,
+  type HostMessage,
+} from "@dispatch/runner-client/v1/host";
+import type { Duplex } from "node:stream";
 import { childProcessEnv } from "../shared/process/child-environment.js";
 import { LOCAL_RUNNER_ID } from "./placement.js";
 import {
@@ -442,6 +449,72 @@ export function createLocalCheckoutRunner(
       });
     },
   };
+}
+
+/** The local runner child as its callers use it: a `Runner` with streams. */
+export type LocalRunner = LocalRunnerSession;
+
+/** What the agent runtime uses of the child for local hosts. */
+export type LocalSessionRunner = Pick<LocalRunner, "call" | "openStream">;
+
+/**
+ * A local host's channel through the child, as the host client reads it:
+ * the host's own v1 frames with the agent id the contract channel drops.
+ * Waits while the child restarts.
+ */
+export async function localHostChannel(
+  child: LocalSessionRunner,
+  agentId: string
+): Promise<Duplex> {
+  const { channel } = await unavailableAfter(ATTACH_WAIT_MS, (signal) =>
+    child.openStream(
+      "session.attach",
+      { session: sessionFromWire(agentId) },
+      { wait: true, signal }
+    )
+  );
+  return mapIncomingFrames(channel, (message) =>
+    encodeHostFrame(message as HostMessage, agentId)
+  );
+}
+
+/** How long one attach waits for a restarting child; the caller retries. */
+const ATTACH_WAIT_MS = 5_000;
+/** How long a host read waits for a restarting child. */
+const SESSION_READ_WAIT_MS = 15_000;
+
+/**
+ * A session read through the child, waiting a bounded time while it
+ * restarts: start-up and reconcile passes read hosts and must not hang on
+ * a child that cannot start. Not answering in time is `unavailable`.
+ */
+export function readLocalSession<
+  K extends "session.alive" | "session.logs" | "session.list",
+>(child: LocalSessionRunner, op: K, input: Req<K>): Promise<Res<K>> {
+  return unavailableAfter(SESSION_READ_WAIT_MS, (signal) =>
+    child.call(op, input, { signal })
+  );
+}
+
+async function unavailableAfter<T>(
+  ms: number,
+  run: (signal: AbortSignal) => Promise<T>
+): Promise<T> {
+  const signal = AbortSignal.timeout(ms);
+  try {
+    return await run(signal);
+  } catch (error) {
+    if (
+      signal.aborted &&
+      error instanceof RunnerCallError &&
+      error.code === "cancelled"
+    )
+      throw new RunnerCallError({
+        code: "unavailable",
+        message: "The local runner is unavailable",
+      });
+    throw error;
+  }
 }
 
 export type LocalRunnerLog = {

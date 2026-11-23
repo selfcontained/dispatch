@@ -227,6 +227,7 @@ export function createAgentRuntime(
     | "remote"
     | "holds"
     | "placement"
+    | "localRunner"
   >
 ): AgentRuntime {
   if (config.agentRuntime === "inert") {

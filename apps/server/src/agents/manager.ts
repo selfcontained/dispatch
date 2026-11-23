@@ -6,9 +6,9 @@ import {
   sameRunner,
   type Req,
   type Placement,
-  type Runner,
 } from "@dispatch/runner-protocol/contract";
 import { checkoutRunners } from "../runners/directory.js";
+import type { LocalRunner } from "../runners/local.js";
 import {
   controllerPlacement,
   checkoutReadPlacement,
@@ -576,6 +576,8 @@ export class AgentManager {
       options.runtime ??
       createAgentRuntime(config, logger, {
         classifySteering: options.classifySteering,
+        // Read when used: the child is attached after construction.
+        localRunner: () => this.localRunnerChild(),
         remote: this.remote,
         holds: this.holds,
         remoteInbox,
@@ -1557,10 +1559,13 @@ export class AgentManager {
     this.diffStatsRefresher = refresher;
   }
 
-  private localRunnerChild: () => Runner | undefined = () => undefined;
+  private localRunnerChild: () => LocalRunner | undefined = () => undefined;
 
-  /** The local runner child, once started: checkout reads go through it. */
-  attachLocalRunner(child: () => Runner | undefined): void {
+  /**
+   * The local runner child, once started: checkout reads and local hosts'
+   * attaches and reads go through it.
+   */
+  attachLocalRunner(child: () => LocalRunner | undefined): void {
     this.localRunnerChild = child;
   }
 

@@ -1,5 +1,10 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { childProcessEnv } from "../../shared/process/child-environment.js";
+import {
+  killOwnedProcesses,
+  ownedEnvironment,
+} from "../../shared/process/owned-processes.js";
 
 /**
  * The command that runs the host: the same executable as the server. Under
@@ -78,5 +83,23 @@ export function loginShellCommand(
       ...extraArgs,
       ...command,
     ],
+  };
+}
+
+/**
+ * The agent host as the local runner child starts and identifies it (its
+ * `posix-user` host entry): this binary's `agent-host` mode through the
+ * user's login shell, with an ownership marker whose processes are cleaned
+ * up after the host.
+ */
+export function localHostEntry() {
+  return {
+    command: () => hostCommand(),
+    wrap: (command: string[]) => loginShellCommand(command),
+    env: () => childProcessEnv(),
+    ownership: {
+      create: (env: NodeJS.ProcessEnv) => ownedEnvironment(env),
+      cleanup: (marker: string) => killOwnedProcesses(marker),
+    },
   };
 }

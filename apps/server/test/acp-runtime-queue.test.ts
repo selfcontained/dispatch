@@ -27,6 +27,7 @@ import {
   COMBINE_MAX_PROMPTS,
   createAcpRuntime,
 } from "../src/agents/acp/runtime.js";
+import { localRunnerIn } from "./helpers/local-runner-child.js";
 
 const logger = {
   info: () => {},
@@ -157,6 +158,7 @@ describe("AcpRuntime prompt queue", () => {
       };
     });
     const runtime = createAcpRuntime({
+      localRunner: localRunnerIn(stateRoot),
       config: {
         agentStateRoot: stateRoot,
         agentRuntime: "acp",
@@ -177,6 +179,7 @@ describe("AcpRuntime prompt queue", () => {
   it("takes the next prompt after a turn whose ack and settle arrive together", async () => {
     const { stateRoot, prompts } = await fastFailingHost();
     const runtime = createAcpRuntime({
+      localRunner: localRunnerIn(stateRoot),
       config: {
         agentStateRoot: stateRoot,
         agentRuntime: "acp",
@@ -276,6 +279,7 @@ describe("AcpRuntime prompt queue", () => {
       rmSync(stateRoot, { recursive: true, force: true });
     });
     const runtime = createAcpRuntime({
+      localRunner: localRunnerIn(stateRoot),
       config: {
         agentStateRoot: stateRoot,
         agentRuntime: "acp",
@@ -492,6 +496,7 @@ describe("AcpRuntime legacy host replay", () => {
     const seen: number[] = [];
     const syncs: boolean[] = [];
     const runtime = createAcpRuntime({
+      localRunner: localRunnerIn(stateRoot),
       config: {
         agentStateRoot: stateRoot,
         agentRuntime: "acp",
@@ -705,6 +710,7 @@ async function attached(
   >[0]["preparePromptFiles"]
 ) {
   const runtime = createAcpRuntime({
+    localRunner: localRunnerIn(stateRoot),
     classifySteering,
     preparePromptFiles,
     config: {

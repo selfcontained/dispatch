@@ -122,10 +122,12 @@ if (process.argv[2]?.startsWith("recovery-")) {
 } else if (process.argv[2] === "local-runner") {
   // This app's local runner child: same binary, same build.
   const { embeddedBuild } = await import("./agents/build-identity.js");
-  const { runCli } = await import("@dispatch/runner/cli");
+  const { runCli, createSessionCore } = await import("@dispatch/runner/cli");
   // The `posix-user` platform: checkout reads and preparation steps run in
   // the child's process.
-  const { checkoutWorkload, workspaceWorkload } =
+  // The agent host entry point too: the session core tracks the hosts it
+  // names.
+  const { checkoutWorkload, workspaceWorkload, localHostEntry } =
     await import("./agents/checkout-worker.js");
   const { localTerminalHandlers } = await loadTerminalWorker();
   await runCli(process.argv.slice(2), {
@@ -134,6 +136,7 @@ if (process.argv[2]?.startsWith("recovery-")) {
       ...(embeddedBuild.revision && { revision: embeddedBuild.revision }),
     },
     platform: { workload: checkoutWorkload, workspace: workspaceWorkload },
+    sessions: { entry: localHostEntry(), createSessions: createSessionCore },
     handlers: () => localTerminalHandlers(),
   });
 } else if (process.argv[2] === "agent-host") {

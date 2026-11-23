@@ -19,6 +19,7 @@ import {
   RunnerUpdateHolds,
   type RunnerHoldState,
 } from "../src/agents/remote/update-hold.js";
+import { localRunnerIn } from "./helpers/local-runner-child.js";
 
 const logger = {
   info: () => {},
@@ -106,6 +107,7 @@ async function fixture(
   );
   const holds = memoryHolds();
   const runtime = createAcpRuntime({
+    localRunner: localRunnerIn(stateRoot),
     config: {
       agentStateRoot: stateRoot,
       agentRuntime: "acp",

@@ -7,13 +7,14 @@
  *   RUNNER_DIE_AFTER_INSTALL  after dependencies, before the binding
  */
 import { existsSync, rmSync } from "node:fs";
-import { runCli } from "@dispatch/runner/cli";
+import { createSessionCore, runCli } from "@dispatch/runner/cli";
 import { embeddedBuild } from "../../src/agents/build-identity.js";
 import {
   checkoutWorkload,
   workspaceWorkload,
 } from "../../src/agents/checkout-worker.js";
 import { localTerminalHandlers } from "../../src/terminal/runner-worker.js";
+import { localHostEntry } from "../../src/agents/acp/host-command.js";
 
 const dieOnce = (marker: string | undefined) => {
   if (marker && existsSync(marker)) {
@@ -43,5 +44,6 @@ await runCli(process.argv.slice(2), {
       },
     },
   },
+  sessions: { entry: localHostEntry(), createSessions: createSessionCore },
   handlers: () => localTerminalHandlers(),
 });

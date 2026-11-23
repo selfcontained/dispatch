@@ -10,6 +10,12 @@ export const SERVED_WHILE_FROZEN: ReadonlySet<string> = new Set([
   "runner.describe",
   "runner.health",
   "session.list",
+  // Session reads, and the attach channel: it relays the app's frames to a
+  // host process and writes nothing of the runner's. An update's probation
+  // attaches to the hosts that survived it.
+  "session.alive",
+  "session.logs",
+  "session.attach",
   "workspace.describe",
   // Checkout reads write nothing of the runner's. While frozen, Git also
   // skips its optional index refresh in the checkout (`GIT_OPTIONAL_LOCKS`).

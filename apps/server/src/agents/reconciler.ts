@@ -219,7 +219,14 @@ async function reconcileAgentStatuses(
 
 async function cleanupOrphanedHosts(deps: ReconcilerDeps): Promise<void> {
   const { pool, logger, runtime } = deps;
-  const hosted = await runtime.listHosted();
+  let hosted: string[];
+  try {
+    hosted = await runtime.listHosted();
+  } catch (err) {
+    // The local runner child may be restarting; the next pass cleans up.
+    logger.warn({ err }, "Could not list agent hosts; skipping orphan cleanup");
+    return;
+  }
   if (hosted.length === 0) return;
 
   const dbResult = await pool.query<{ id: string; status: string }>(

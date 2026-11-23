@@ -7,6 +7,7 @@ export type {
   WorkerInput,
 } from "./platform/types.js";
 export { WORKER_OPS } from "./platform/types.js";
+export type { PosixHostEntry } from "./platform/posix-user/sessions.js";
 
 /**
  * The runner's standalone entry. The embedding binary passes its own build,
@@ -24,3 +25,4 @@ export async function runCli(
 
 export { createRemoteWorkspacePreparation } from "./platform/linux-privsep/index.js";
 export { createSessionCore } from "./core/sessions.js";
+export { localSessionHandlers } from "./local/sessions.js";

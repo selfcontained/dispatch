@@ -18,6 +18,10 @@ import type { Pool } from "pg";
 import { afterAll, beforeAll, expect, it, onTestFinished, vi } from "vitest";
 import { AgentManager } from "../../src/agents/manager.js";
 import {
+  localRunnerFor,
+  stopLocalRunners,
+} from "../helpers/local-runner-child.js";
+import {
   encodeMessage,
   ndjsonDecoder,
   type ClientMessage,
@@ -53,7 +57,10 @@ beforeAll(async () => {
   pool = await setupTestDb();
   await runTestMigrations();
 });
-afterAll(async () => teardownTestDb());
+afterAll(async () => {
+  await stopLocalRunners();
+  await teardownTestDb();
+});
 
 function listening(socketPath: string) {
   return new Promise<boolean>((resolve) => {
@@ -276,6 +283,7 @@ async function fixture({ periodicRescan = false } = {}) {
     },
     { remote: remote as unknown as RemoteRunnerService }
   );
+  manager.attachLocalRunner(() => localRunnerFor(state).session);
 
   if (!periodicRescan) {
     const recycler = manager["hostRecycler"];

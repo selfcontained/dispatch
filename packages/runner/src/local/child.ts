@@ -30,6 +30,9 @@ import {
   type HeldLock,
 } from "./lock.js";
 import { serveSocket, type Handlers } from "./socket-server.js";
+import { localSessionHandlers } from "./sessions.js";
+import type { SessionCoreFactory } from "../core/sessions.js";
+import type { PosixHostEntry } from "../platform/posix-user/sessions.js";
 import { checkoutHandlers } from "../core/checkout.js";
 import { workspaceHandlers } from "../core/workspace.js";
 import type { Platform } from "../platform/types.js";
@@ -105,6 +108,11 @@ export async function runLocalRunner(
     ) => Handlers & { stop?(): Promise<void> };
     /** The machine's platform; without one, no checkout family is served. */
     platform?: Platform;
+    /**
+     * The app's host entry point; without it, no session family is served.
+     * The core is injected as the remote runner's is.
+     */
+    sessions?: { entry: PosixHostEntry; createSessions?: SessionCoreFactory };
   } = {}
 ): Promise<void> {
   let start: LauncherStart | undefined;
@@ -226,6 +234,15 @@ export async function runLocalRunner(
     capabilities: {},
   };
   const extra = options.handlers?.(message, fence!);
+  // Host directories are named under the root exactly as the app names
+  // them in each host's command line, which identifies the host.
+  const sessions = options.sessions
+    ? localSessionHandlers({
+        root: message.roots.state,
+        entry: options.sessions.entry,
+        createSessions: options.sessions.createSessions,
+      })
+    : undefined;
   const checkout = options.platform
     ? checkoutHandlers(store!, options.platform)
     : {};
@@ -239,11 +256,12 @@ export async function runLocalRunner(
       calls: {
         ...checkout,
         ...workspace,
+        ...sessions?.calls,
         ...extra?.calls,
         "runner.describe": () => description,
         "runner.health": () => health(),
       },
-      opens: extra?.opens,
+      opens: { ...sessions?.opens, ...extra?.opens },
     },
     fence
   );
@@ -251,6 +269,7 @@ export async function runLocalRunner(
   const shutdown = async () => {
     socket.close();
     await extra?.stop?.();
+    await sessions?.stop();
     if (readHolder(holderPath)?.pid === process.pid)
       rmSync(holderPath, { force: true });
     lock.release();

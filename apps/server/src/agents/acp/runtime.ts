@@ -10,7 +10,16 @@ import {
   type SessionResult,
 } from "../local-runner.js";
 import type { SessionLifecycleOperation } from "@dispatch/runner-protocol";
-import { RunnerCallError } from "@dispatch/runner-protocol/contract";
+import {
+  RunnerCallError,
+  sessionFromWire,
+  sessionToWire,
+} from "@dispatch/runner-protocol/contract";
+import {
+  localHostChannel,
+  readLocalSession,
+  type LocalSessionRunner,
+} from "../../runners/local.js";
 export { selfCommand, hostCommand, loginShellCommand } from "./host-command.js";
 
 import type { FastifyBaseLogger } from "fastify";
@@ -74,9 +83,9 @@ const MAX_LAUNCH_RECONCILES = 5;
  * as long as the app runs, keeping the prompt queue. Anything else keeps the
  * bounded retry (about 25 s) after which the host is recorded as gone.
  *
- * Local attaches do not go through the runner child yet: their errors are
- * plain and still take the bounded path, as on main. They take the
- * unavailable path once local sessions are routed through the child (T23).
+ * Local attaches go through the runner child: while it is down they wait
+ * for it (unavailable, retried), and a host that does not answer is a plain
+ * error that takes the bounded path, as on main.
  */
 export function hostReconnectDisposition(
   error: unknown
@@ -287,6 +296,8 @@ function sourceBlockIds(source?: PromptSource): string[] {
     : [];
 }
 
+const LOG_TAIL_LINES = 20;
+
 export type AcpRuntimeDeps = {
   /** Put the prompt's files; the text names the paths the agent opens. */
   preparePromptFiles?: (
@@ -298,6 +309,11 @@ export type AcpRuntimeDeps = {
     Partial<
       Pick<RemoteRunnerService, "connectionEpoch" | "reconcilesLaunches">
     >;
+  /**
+   * The app's local runner child, once started: local hosts are attached,
+   * checked and read through it.
+   */
+  localRunner?: () => LocalSessionRunner | undefined;
   /** How often a lost launch reply polls for the runner to return. */
   launchRetryPollMs?: number;
   /** Runner update holds: new work for a held runner waits in the queue. */
@@ -458,7 +474,57 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
   ): Promise<SessionResult> {
     return placement
       ? remoteService().requestSession(placement, operation, onProgress)
-      : local.requestSession(operation, settings);
+      : requestLocalSession(operation, settings);
+  }
+
+  function localChild(): LocalSessionRunner {
+    const child = deps.localRunner?.();
+    if (!child)
+      throw new RunnerCallError({
+        code: "unavailable",
+        message: "The local runner is unavailable",
+      });
+    return child;
+  }
+
+  /**
+   * Local hosts are attached, checked and read through the runner child,
+   * which waits while it restarts. The app still starts and stops them.
+   */
+  async function requestLocalSession(
+    operation: SessionLifecycleOperation,
+    settings?: LocalLaunchSettings
+  ): Promise<SessionResult> {
+    const { agentId } = operation;
+    const session = sessionFromWire(agentId);
+    switch (operation.kind) {
+      case "attach": {
+        return { channel: await localHostChannel(localChild(), agentId) };
+      }
+      case "alive": {
+        const { state } = await readLocalSession(
+          localChild(),
+          "session.alive",
+          { session }
+        );
+        return { value: state === "live" };
+      }
+      case "log": {
+        const text = await readLocalSession(localChild(), "session.logs", {
+          session,
+          lines: LOG_TAIL_LINES,
+        })
+          .then(({ text }) => text.trim())
+          .catch(() => "");
+        return {
+          value: text
+            ? `\n\nHost log (last ${LOG_TAIL_LINES} lines):\n${text}`
+            : "",
+        };
+      }
+      default:
+        return local.requestSession(operation, settings);
+    }
   }
 
   function finishDecision(w: Waiting, outcome: SteeringOutcome) {
@@ -506,6 +572,17 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     }
   }
 
+  /**
+   * Whether queued input may go to the host now. A runner's host waits for
+   * its replay. A local host takes input as soon as it is connected, as on
+   * main (a resumed host's replay can carry the previous host's exit, which
+   * would fail input held behind it); while it is not connected (the runner
+   * child restarting) input waits in the queue, and the host's next ready
+   * pumps it.
+   */
+  const deliverable = (entry: Live) =>
+    entry.client.isReady() || (!entry.remote && entry.client.isConnected());
+
   /** Submit input one request at a time while allowing steering during a turn. */
   async function pump(agentId: string, entry: Live): Promise<void> {
     if (
@@ -518,7 +595,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     try {
       while (
         entry.queue.waiting.length &&
-        (!entry.remote || entry.client.isReady()) &&
+        deliverable(entry) &&
         !entry.deliveryInterrupts.size &&
         live.get(agentId) === entry
       ) {
@@ -961,13 +1038,14 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         return channel;
       },
       reconnectError: hostReconnectDisposition,
+      // A host that is ready again takes the input queued while it was not.
+      onReady: () => void pump(agentId, entry),
       ...(placement
         ? {
             updateDeadline: () => {
               const hold = deps.holds?.current(placement.runner);
               return hold ? Date.parse(hold.expiresAt) : undefined;
             },
-            onReady: () => void pump(agentId, entry),
           }
         : {}),
       logger,
@@ -1632,7 +1710,11 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         return value === true;
       } catch (error) {
         if (error instanceof RunnerRevoked) return false;
-        if (error instanceof RunnerUnavailable) return true;
+        if (
+          error instanceof RunnerUnavailable ||
+          (error instanceof RunnerCallError && error.code === "unavailable")
+        )
+          return true;
         throw error;
       }
     },
@@ -1857,7 +1939,10 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     },
 
     async inspectNativeHost(agentId) {
-      const process = await local.inspectHost(agentId);
+      const { state } = await readLocalSession(localChild(), "session.alive", {
+        session: sessionFromWire(agentId),
+      });
+      const process = { sessionHandle: agentId, processState: state };
       const entry = live.get(agentId);
       const welcome =
         process.processState === "live" &&
@@ -1941,7 +2026,15 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     },
 
     async listHosted() {
-      return (await local.listHosted()).filter((id) => id.startsWith("agt_"));
+      const { sessions } = await readLocalSession(
+        localChild(),
+        "session.list",
+        { owner: null }
+      );
+      return sessions
+        .filter((entry) => entry.state === "live")
+        .map((entry) => sessionToWire(entry.session))
+        .filter((id) => id.startsWith("agt_"));
     },
     hostPid: local.hostPid,
 
