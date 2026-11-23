@@ -6,6 +6,8 @@ import {
 } from "./runners/placement.js";
 import { runnerDirectory } from "./runners/directory.js";
 import {
+  inProcessEngines,
+  localEngineCalls,
   localRunnerOf,
   startLocalRunnerProcess,
   type LocalRunnerProcess,
@@ -174,8 +176,6 @@ import { registerStaticRoutes } from "./routes/static.js";
 import { registerSystemRoutes } from "./routes/system.js";
 import { registerEngineLoginRoutes } from "./routes/engine-login.js";
 import { registerEngineManagementRoutes } from "./routes/engine-management.js";
-import { EngineLogins } from "./agents/engine-login.js";
-import { engineStatuses } from "./agents/engine-availability.js";
 import {
   EngineUpdateOperations,
   engineOperationStore,
@@ -1225,18 +1225,15 @@ async function registerRoutes() {
   });
 
   await registerScheduledMessageRoutes(app, scheduledMessages);
-  // Shared with registerEngineManagementRoutes below: one login/update
-  // tracker per process, so a scope-aware view (local or runner) and the
-  // existing engine routes never diverge on the same in-flight state.
-  const engineLogins = new EngineLogins({
-    resolveBin: async (engine) =>
-      (
-        await engineStatuses({
-          claude: config.claudeBin,
-          codex: config.codexBin,
-        })
-      ).find((status) => status.id === engine)?.path ?? null,
+  // The local placement's engines: the runner child, else this same port in
+  // process while the child is away (R3). One login tracker per process, so
+  // main's sign-in routes and the engine-management routes never diverge.
+  const localEnginesInProcess = inProcessEngines({
+    claudeBin: config.claudeBin,
+    codexBin: config.codexBin,
+    opencodeBin: config.opencodeBin,
   });
+  app.addHook("onClose", async () => localEnginesInProcess.close());
   const engineUpdates = new EngineUpdateOperations(engineOperationStore(pool), {
     onError: (error) =>
       app.log.error({ err: error }, "Engine update persistence failed"),
@@ -1278,29 +1275,30 @@ async function registerRoutes() {
       opencode: config.opencodeBin,
     },
   });
-  await registerEngineLoginRoutes(app, engineLogins);
-  await registerEngineManagementRoutes(
-    app,
-    new EngineManager({
-      local: {
-        logins: engineLogins,
-        capabilities: localEngines,
-        updates: engineUpdates,
-        overrides: {
-          claude: config.claudeBin,
-          codex: config.codexBin,
-          opencode: config.opencodeBin,
-        },
+  const engineManager = new EngineManager({
+    local: {
+      engines: localEngineCalls(
+        () => localRunnerOf(localRunnerProcess),
+        localEnginesInProcess
+      ),
+      capabilities: localEngines,
+      updates: engineUpdates,
+      overrides: {
+        claude: config.claudeBin,
+        codex: config.codexBin,
+        opencode: config.opencodeBin,
       },
-      remote: runnerEngines ?? {
-        send: async () => ({
-          ok: false,
-          error: "Runner enrollment is disabled.",
-          unsupported: true,
-        }),
-      },
-    })
-  );
+    },
+    remote: runnerEngines ?? {
+      send: async () => ({
+        ok: false,
+        error: "Runner enrollment is disabled.",
+        unsupported: true,
+      }),
+    },
+  });
+  await registerEngineLoginRoutes(app, engineManager);
+  await registerEngineManagementRoutes(app, engineManager);
   await registerUpdateRecoveryRoutes(app, updateRecoveryRuntime.routeDeps);
   await registerResourceRoutes(app, { pool, resources: serviceResources });
   await registerRoutingShadowRoutes(

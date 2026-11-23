@@ -3538,7 +3538,14 @@
       "kind": "call",
       "request": {
         "object": {
-          "refresh": "boolean"
+          "refresh": "boolean",
+          "include": {
+            "optional": {
+              "array": {
+                "literal": ["version", "actions", "signIn"]
+              }
+            }
+          }
         }
       },
       "response": {

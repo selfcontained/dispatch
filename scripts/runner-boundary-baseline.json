@@ -961,23 +961,9 @@
   {
     "file": "apps/server/src/agents/remote/engine-manager.ts",
     "kind": "R2 host import",
-    "detail": "apps/server/src/agents/engine-availability",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/engine-manager.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/engine-login",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/engine-manager.ts",
-    "kind": "R2 host import",
     "detail": "apps/server/src/agents/engine-updates",
     "task": "T04",
-    "count": 2
+    "count": 1
   },
   {
     "file": "apps/server/src/agents/remote/engine-manager.ts",
@@ -1939,13 +1925,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/routes/engine-login.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/engine-login",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/routes/mcp.ts",
     "kind": "R1 placement call",
     "detail": "agentWorkspaceDir(agent)",
@@ -2103,20 +2082,6 @@
     "file": "apps/server/src/scheduled-messages/service.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/acp/driver",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/server.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/engine-availability",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/server.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/engine-login",
     "task": "T04",
     "count": 1
   },

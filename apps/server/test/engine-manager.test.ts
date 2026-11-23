@@ -1,14 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { EngineLogin, EngineAuthStatus } from "@dispatch/shared";
+import type { EngineLogin } from "@dispatch/shared";
 import type { EngineOperationEvent } from "@dispatch/runner-protocol/engine-management";
+import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 
 import {
   EngineManager,
   type RunnerEngineTransport,
 } from "../src/agents/remote/engine-manager.js";
-import type { EngineLogins } from "../src/agents/engine-login.js";
+import { localEngineWorkload } from "../src/agents/remote/engine-runner-executor.js";
 import type { EngineUpdateOperations } from "../src/agents/engine-updates.js";
+import { localEngineCalls, type EngineCalls } from "../src/runners/local.js";
 
 vi.mock("../src/agents/engine-availability.js", async () => {
   const actual = await vi.importActual<
@@ -73,33 +75,30 @@ vi.mock("../src/agents/engine-updates.js", async () => {
   };
 });
 
-function fakeLogins(overrides: Partial<EngineLogins> = {}): EngineLogins {
+const waiting: EngineLogin = {
+  id: "login-1",
+  engine: "claude",
+  status: "waiting",
+  needsCode: true,
+  url: "https://example.com",
+  expiresAt: new Date().toISOString(),
+};
+
+/** The local runner's engine calls, answered by `answer` (or as below). */
+function fakeEngines(
+  answer?: (op: string, input: any, options?: any) => unknown
+): EngineCalls & { call: ReturnType<typeof vi.fn> } {
   return {
-    status: vi.fn(
-      async (): Promise<EngineAuthStatus> => ({
-        engine: "claude",
-        installed: true,
-        signedIn: true,
-        detail: "me@example.com",
-      })
-    ),
-    start: vi.fn(
-      async (): Promise<EngineLogin> => ({
-        id: "login-1",
-        engine: "claude",
-        status: "waiting",
-        needsCode: true,
-        url: "https://example.com",
-        expiresAt: new Date().toISOString(),
-      })
-    ),
-    submitCode: vi.fn(() => null),
-    cancel: vi.fn(() => null),
-    get: vi.fn(() => null),
-    current: vi.fn(() => null),
-    close: vi.fn(),
-    ...overrides,
-  } as unknown as EngineLogins;
+    call: vi.fn(async (op: string, input: any, options?: any) => {
+      if (answer) return answer(op, input, options);
+      if (op === "engine.list") return { entries: [] };
+      if (op === "engine.login.start") return waiting;
+      throw new RunnerCallError({
+        code: "not_found",
+        message: "Sign-in not found.",
+      });
+    }),
+  } as never;
 }
 
 function fakeUpdates(
@@ -122,26 +121,48 @@ function fakeTransport(
 }
 
 describe("EngineManager local scope", () => {
-  it("builds inventory from existing engine-availability/engine-login collaborators", async () => {
+  it("builds local inventory through the local runner's engine.list", async () => {
+    // The posix-user port in process, its CLI a stand-in that is signed in.
+    const port = localEngineWorkload(
+      {},
+      {
+        command: () => ({
+          bin: process.execPath,
+          args: [
+            "-e",
+            'console.log(JSON.stringify({ loggedIn: true, email: "me@example.com" }))',
+          ],
+        }),
+      }
+    );
     const manager = new EngineManager({
-      local: { logins: fakeLogins(), updates: fakeUpdates() },
+      local: {
+        engines: localEngineCalls(() => undefined, port),
+        updates: fakeUpdates(),
+      },
       remote: fakeTransport(),
     });
-    const inventory = await manager.inventory({ kind: "local" });
+    const inventory = (await manager.inventory({ kind: "local" }))!;
     const claude = inventory.find((e) => e.id === "claude")!;
-    expect(claude.installed).toBe(true);
-    expect(claude.version).toBe("1.2.3");
-    expect(claude.signedIn).toBe(true);
-    expect(claude.actions).toEqual(["update", "login", "login_cancel"]);
+    expect(claude).toEqual({
+      id: "claude",
+      label: "Claude Code",
+      installed: true,
+      signedIn: true,
+      version: "1.2.3",
+      detail: "me@example.com",
+      actions: ["update", "login", "login_cancel"],
+    });
 
     const codex = inventory.find((e) => e.id === "codex")!;
     expect(codex.installed).toBe(false);
     expect(codex.actions).toEqual([]);
+    port.close();
   });
 
   it("never offers automatic install locally", async () => {
     const manager = new EngineManager({
-      local: { logins: fakeLogins(), updates: fakeUpdates() },
+      local: { engines: fakeEngines(), updates: fakeUpdates() },
       remote: fakeTransport(),
     });
     const ack = await manager.rpc(
@@ -154,7 +175,7 @@ describe("EngineManager local scope", () => {
   it("routes update through the existing EngineUpdateOperations", async () => {
     const updates = fakeUpdates();
     const manager = new EngineManager({
-      local: { logins: fakeLogins(), updates },
+      local: { engines: fakeEngines(), updates },
       remote: fakeTransport(),
     });
     const ack = await manager.rpc(
@@ -165,18 +186,136 @@ describe("EngineManager local scope", () => {
     expect(updates.start).toHaveBeenCalledWith("claude", {});
   });
 
-  it("routes sign-in through the existing EngineLogins", async () => {
-    const logins = fakeLogins();
+  it("routes sign-in through the local runner", async () => {
+    const engines = fakeEngines();
     const manager = new EngineManager({
-      local: { logins, updates: fakeUpdates() },
+      local: { engines, updates: fakeUpdates() },
       remote: fakeTransport(),
     });
     const ack = await manager.rpc(
       { kind: "local" },
       { type: "login_start", engine: "claude" }
     );
-    expect(ack.ok).toBe(true);
-    expect(logins.start).toHaveBeenCalledWith("claude", { restart: undefined });
+    expect(ack).toEqual({ ok: true, login: waiting });
+    expect(engines.call).toHaveBeenCalledWith(
+      "engine.login.start",
+      { engine: "claude", restart: false, requestId: expect.any(String) },
+      { onEvent: expect.any(Function) }
+    );
+  });
+
+  it("answers a sign-in error as main's ack", async () => {
+    const manager = new EngineManager({
+      local: {
+        engines: fakeEngines((op) => {
+          throw new RunnerCallError(
+            op === "engine.login.start"
+              ? {
+                  code: "unsupported",
+                  message: "OpenCode has no sign-in flow.",
+                }
+              : { code: "not_found", message: "Sign-in not found." }
+          );
+        }),
+        updates: fakeUpdates(),
+      },
+      remote: fakeTransport(),
+    });
+    const local = { kind: "local" } as const;
+    expect(
+      await manager.login(local, { type: "login_start", engine: "opencode" })
+    ).toEqual({ ok: false, error: "OpenCode has no sign-in flow." });
+    expect(
+      await manager.login(local, { type: "login_status", loginId: "x" })
+    ).toEqual({ ok: false, error: "Sign-in not found." });
+  });
+
+  it("knows the current login from the moment it exists", async () => {
+    let release!: () => void;
+    const linked = new Promise<void>((resolve) => (release = resolve));
+    const starting = {
+      ...waiting,
+      status: "starting" as const,
+      url: undefined,
+    };
+    const engines = fakeEngines(async (op, _input, options) => {
+      if (op === "engine.login.start") {
+        options.onEvent({ type: "login_update", login: starting });
+        await linked;
+        return waiting;
+      }
+      if (op === "engine.login.status") return starting;
+      if (op === "engine.login.cancel")
+        return { ...waiting, status: "cancelled" };
+      throw new Error(op);
+    });
+    const manager = new EngineManager({
+      local: { engines, updates: fakeUpdates() },
+      remote: fakeTransport(),
+    });
+    const local = { kind: "local" } as const;
+    expect(await manager.currentLogin(local, "claude")).toEqual({ ok: true });
+    const started = manager.login(local, {
+      type: "login_start",
+      engine: "claude",
+    });
+    await vi.waitFor(() =>
+      expect(engines.call).toHaveBeenCalledWith(
+        "engine.login.start",
+        expect.anything(),
+        expect.anything()
+      )
+    );
+    expect(await manager.currentLogin(local, "claude")).toEqual({
+      ok: true,
+      login: starting,
+    });
+    release();
+    await started;
+    // Closing cancels it.
+    await manager.closeLogins(local);
+    expect(engines.call).toHaveBeenCalledWith("engine.login.cancel", {
+      loginId: "login-1",
+    });
+  });
+
+  it("reports sign-in status from the inventory", async () => {
+    const manager = new EngineManager({
+      local: {
+        engines: fakeEngines(() => ({
+          entries: [
+            {
+              id: "claude",
+              label: "Claude Code",
+              installed: true,
+              signedIn: true,
+              version: "1",
+              detail: "me@example.com",
+              actions: [],
+            },
+            {
+              id: "codex",
+              label: "Codex",
+              installed: true,
+              signedIn: false,
+              version: "1",
+              actions: [],
+            },
+          ],
+        })),
+        updates: fakeUpdates(),
+      },
+      remote: fakeTransport(),
+    });
+    expect(await manager.signInStatus({ kind: "local" })).toEqual([
+      {
+        engine: "claude",
+        installed: true,
+        signedIn: true,
+        detail: "me@example.com",
+      },
+      { engine: "codex", installed: true, signedIn: false },
+    ]);
   });
 });
 
@@ -184,7 +323,7 @@ describe("EngineManager runner scope", () => {
   it("forwards operations to the injected transport", async () => {
     const transport = fakeTransport();
     const manager = new EngineManager({
-      local: { logins: fakeLogins(), updates: fakeUpdates() },
+      local: { engines: fakeEngines(), updates: fakeUpdates() },
       remote: transport,
     });
     await manager.rpc(
@@ -218,7 +357,7 @@ describe("EngineManager runner scope", () => {
       }),
     });
     const manager = new EngineManager({
-      local: { logins: fakeLogins(), updates: fakeUpdates() },
+      local: { engines: fakeEngines(), updates: fakeUpdates() },
       remote: transport,
     });
     const inventory = await manager.inventory({
@@ -246,7 +385,7 @@ describe("EngineManager runner scope", () => {
       })),
     });
     const manager = new EngineManager({
-      local: { logins: fakeLogins(), updates: fakeUpdates() },
+      local: { engines: fakeEngines(), updates: fakeUpdates() },
       remote: transport,
     });
     const inventory = await manager.inventory({
@@ -261,7 +400,7 @@ describe("EngineManager runner scope", () => {
 
   it("announces nothing while a runner's engines are unknown", async () => {
     const manager = new EngineManager({
-      local: { logins: fakeLogins(), updates: fakeUpdates() },
+      local: { engines: fakeEngines(), updates: fakeUpdates() },
       remote: fakeTransport({
         send: vi.fn(async () => ({ ok: false, error: "fenced" })),
       }),
@@ -283,7 +422,7 @@ describe("EngineManager runner scope", () => {
       }),
     });
     const manager = new EngineManager({
-      local: { logins: fakeLogins(), updates: fakeUpdates() },
+      local: { engines: fakeEngines(), updates: fakeUpdates() },
       remote: transport,
     });
     const scope = { kind: "runner" as const, runnerId: "r1" };

@@ -89,7 +89,9 @@ type LocalLaunchEnvironment = {
   bins: EngineBins;
 };
 
-function configuredLaunchEnvironment(): LocalLaunchEnvironment | undefined {
+export function configuredLaunchEnvironment():
+  | LocalLaunchEnvironment
+  | undefined {
   const value = process.env.DISPATCH_LOCAL_RUNNER_LAUNCH;
   return value ? (JSON.parse(value) as LocalLaunchEnvironment) : undefined;
 }

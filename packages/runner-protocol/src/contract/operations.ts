@@ -729,7 +729,13 @@ export const operations = {
   "engine.list": op({
     scope: "runner",
     kind: "call",
-    request: object({ refresh: boolean }),
+    // `include` asks for less: absent means everything. A row always says
+    // whether its engine is installed; what is left out reads as unknown
+    // (`version` null, `signedIn` null, no `actions`).
+    request: object({
+      refresh: boolean,
+      include: optional(array(literal("version", "actions", "signIn"))),
+    }),
     response: object({ entries: array(engineInventoryEntry) }),
     errors: [],
     retry: read,
