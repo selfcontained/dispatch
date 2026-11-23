@@ -281,7 +281,7 @@
         "kind": "key",
         "key": ["launchId"]
       },
-      "timeout": "long",
+      "timeout": "default",
       "capability": "baseline"
     },
     "session.attach": {
@@ -697,7 +697,16 @@
                 "create": "boolean",
                 "location": {
                   "optional": {
-                    "literal": ["nested", "sibling"]
+                    "union": [
+                      {
+                        "literal": ["sibling"]
+                      },
+                      {
+                        "object": {
+                          "nested": "string"
+                        }
+                      }
+                    ]
                   }
                 }
               }
@@ -1126,22 +1135,20 @@
           "session": {
             "opaque": "SessionHandle"
           },
-          "expectedState": {
+          "deleteBranch": "boolean",
+          "originalBranch": {
             "nullable": "string"
           }
         }
       },
       "response": {
         "object": {
-          "result": {
-            "literal": ["released", "retained", "inUse"]
-          }
+          "removed": "boolean"
         }
       },
       "errors": [],
       "retry": {
-        "kind": "state",
-        "field": "expectedState"
+        "kind": "read"
       },
       "timeout": "long",
       "capability": "baseline"

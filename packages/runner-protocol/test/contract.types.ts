@@ -39,6 +39,21 @@ export type OptionalModel = Assert<
   Equal<Req<"engine.models">, { engine: string; model?: string }>
 >;
 
+// Release takes removal inputs, not the pre-P7 state gate (C1).
+export type ReleaseHasNoState = Assert<
+  "expectedState" extends keyof Req<"workspace.release"> ? false : true
+>;
+export type ReleaseRemoved = Assert<
+  Equal<Res<"workspace.release">, { removed: boolean }>
+>;
+// A worktree's nested location names its directory (C2).
+export type NestedLocation = Assert<
+  Equal<
+    NonNullable<Req<"workspace.prepare">["worktree"]>["location"],
+    "sibling" | { nested: string } | undefined
+  >
+>;
+
 // A handler map that omits an operation does not compile.
 // @ts-expect-error: "port.connect" and every other operation are missing.
 export const incomplete: RunnerHandlers = {

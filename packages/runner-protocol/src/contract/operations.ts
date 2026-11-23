@@ -141,7 +141,7 @@ export const operations = {
     response: empty,
     errors: ["conflict", "not_found", "unauthenticated", "unsupported"],
     retry: key("launchId"),
-    timeout: "long",
+    timeout: "default",
     capability: "baseline",
   }),
   "session.attach": op({
@@ -292,10 +292,17 @@ export const operations = {
   "workspace.release": op({
     scope: "session",
     kind: "call",
-    request: object({ ...session, expectedState: nullable(string) }),
-    response: object({ result: literal("released", "retained", "inUse") }),
+    request: object({
+      ...session,
+      /** The caller decides: the session's checkout was created on its own branch. */
+      deleteBranch: boolean,
+      /** The branch the checkout was created on; deleted only if 0 ahead of its upstream. */
+      originalBranch: nullable(string),
+    }),
+    /** `removed` is also true when the checkout is already gone, so a repeat is safe. */
+    response: object({ removed: boolean }),
     errors: [],
-    retry: { kind: "state", field: "expectedState" },
+    retry: read,
     timeout: "long",
     capability: "baseline",
   }),

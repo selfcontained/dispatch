@@ -51,7 +51,11 @@ export const worktreeRequest = object({
   branch: string,
   base: optional(string),
   create: boolean,
-  location: optional(literal("nested", "sibling")),
+  /**
+   * Beside the checkout, or in `nested`, a directory relative to the checkout
+   * (non-empty, no `..` segment; checked by the runner, as the schema is structural).
+   */
+  location: optional(union(literal("sibling"), object({ nested: string }))),
 });
 
 /** A session's checkout as the runner holds it. */

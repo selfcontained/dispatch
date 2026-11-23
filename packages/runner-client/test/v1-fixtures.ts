@@ -309,6 +309,12 @@ export const results: ResultFixture[] = [
   },
   {
     command: s("checkoutRelease", {
+      operation: { kind: "release", expectedState: state },
+    }),
+    value: "retained",
+  },
+  {
+    command: s("checkoutRelease", {
       operation: { kind: "release", expectedState: null },
     }),
     value: "released",

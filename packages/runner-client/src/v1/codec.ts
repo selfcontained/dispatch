@@ -100,6 +100,8 @@ export const EXTRAS = {
   withCredentialContext: "T32: credential context is always returned",
   refreshWatch: "T33: watch refresh is removed with the watch",
   agentId: "v1 runner-wide commands carry an ignored agent id",
+  expectedState: "T20: the runner's state recheck is deleted (N35)",
+  v1Result: "T20: retained and inUse feed the offline and pending release path",
 } as const;
 
 export class CodecError extends Error {}
@@ -585,10 +587,12 @@ export function decodeCommand(
       return withWorkspace(
         command.operation.kind === "observe"
           ? decoded("workspace.observe", { session })
-          : decoded("workspace.release", {
-              session,
-              expectedState: command.operation.expectedState,
-            })
+          : // v1 runners decide branch deletion themselves; these are placeholders.
+            decoded(
+              "workspace.release",
+              { session, deleteBranch: false, originalBranch: null },
+              { expectedState: command.operation.expectedState }
+            )
       );
     case "checkoutCommand": {
       const o = command.operation;
@@ -699,12 +703,15 @@ export function encodeCommand(input: Decoded | LegacyCommand): Command {
         operation: { kind: "observe" },
       };
     case "workspace.release":
+      // Until T20 the adapter supplies the state of the observation it just made.
+      if (extras.expectedState === undefined)
+        throw new CodecError("v1 release needs extras.expectedState.");
       return {
         ...session,
         kind: "checkoutRelease",
         operation: {
           kind: "release",
-          expectedState: r.expectedState as string | null,
+          expectedState: extras.expectedState as string | null,
         },
       };
     case "checkout.changes":
@@ -877,7 +884,8 @@ export function decodeResult<K extends OpName>(
     case "workspace.observe":
       return out(parse(value));
     case "workspace.release":
-      return out({ result: value });
+      input.extras.v1Result = value;
+      return out({ removed: value === "released" });
     case "files.put":
       return out({ path: value });
     case "files.get": {
@@ -1011,7 +1019,8 @@ export function encodeResult<K extends OpName>(
     case "session.logs":
       return res.text as string;
     case "workspace.release":
-      return res.result as string;
+      return (input.extras.v1Result ??
+        (res.removed ? "released" : "retained")) as string;
     case "files.put":
       return res.path as string;
     case "files.get":
