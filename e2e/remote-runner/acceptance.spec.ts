@@ -662,8 +662,8 @@ test("managed scratch checkout selection persists across host start and preserve
     await page.getByTestId(`agent-expand-toggle-${id}`).click();
   await archive.click();
   await page.getByTestId("delete-agent-confirm").click();
-  const choice = page.getByRole("dialog", {
-    name: "Worktree Has Outstanding Changes",
+  const choice = page.getByRole("alertdialog").filter({
+    has: page.getByTestId("delete-agent-force-worktree"),
   });
   await expect(
     choice.getByText("?? provider-invocations", { exact: true })

@@ -102,14 +102,11 @@ function copyCheckoutToRunner(directory: string, agentId: string) {
     "switch",
     "unpublished",
   ]);
-  const files = execFileSync("tar", [
-    "-C",
-    directory,
-    "--exclude=.git",
-    "-cf",
-    "-",
-    ".",
-  ]);
+  const files = execFileSync(
+    "tar",
+    ["-C", directory, "--exclude=.git", "-cf", "-", "."],
+    { env: { ...process.env, COPYFILE_DISABLE: "1" } }
+  );
   execFileSync(
     "docker",
     [
