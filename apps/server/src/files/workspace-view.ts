@@ -7,17 +7,11 @@ import { lstat, open, realpath } from "node:fs/promises";
 import path from "node:path";
 import { imageDimensionsFromBuffer } from "./image-dimensions.js";
 import { detectFileType } from "./file-type.js";
+import { WorkspaceError } from "../shared/lib/workspace-error.js";
 
 const MAX_ENTRIES = 500;
 const MAX_BYTES = 1_048_576;
-export class WorkspaceError extends Error {
-  constructor(
-    message: string,
-    readonly status = 400
-  ) {
-    super(message);
-  }
-}
+export { WorkspaceError };
 
 // Do not follow links, including directory links. Recheck after opening a file
 // as well, so an ordinary concurrent rename cannot return unrelated contents.

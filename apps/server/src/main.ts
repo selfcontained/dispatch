@@ -47,9 +47,23 @@ if (process.argv[2]?.startsWith("recovery-")) {
 } else if (process.argv[2] === "runner-terminal") {
   const { runTerminalWorker } = await import("./terminal/runner-worker.js");
   await runTerminalWorker(process.argv[3]!);
-} else if (process.argv[2] === "runner-watch-checkout") {
-  const { runCheckoutWatchCli } = await import("./agents/checkout-watch.js");
-  runCheckoutWatchCli(process.argv[3]!);
+} else if (
+  process.argv[2] === "runner-worker" ||
+  [
+    "runner-view-checkout",
+    "runner-inspect-checkout",
+    "runner-observe-checkout",
+    "runner-watch-checkout",
+  ].includes(process.argv[2]!)
+) {
+  // One worker entry for checkout operations as the workload account; the
+  // older names stay for a runner started on an earlier build.
+  const { runCheckoutWorker, WORKER_ALIASES } =
+    await import("./agents/checkout-worker.js");
+  const [mode, ...rest] = process.argv.slice(2);
+  await runCheckoutWorker(
+    mode === "runner-worker" ? rest : [WORKER_ALIASES[mode!]!, ...rest]
+  );
 } else if (process.argv[2] === "runner-prepare-dependencies") {
   const { installWorkspaceDependencies } =
     await import("./agents/workspace-prep.js");
@@ -62,21 +76,6 @@ if (process.argv[2]?.startsWith("recovery-")) {
   const { runSessionFileCli } =
     await import("./agents/remote/session-files.js");
   await runSessionFileCli(process.argv[3]!, process.argv[4]!, process.argv[5]!);
-} else if (process.argv[2] === "runner-view-checkout") {
-  const { runCheckoutViewCli } = await import("./agents/checkout-view-cli.js");
-  await runCheckoutViewCli(process.argv[3]!, process.argv[4] === "--managed");
-} else if (process.argv[2] === "runner-observe-checkout") {
-  const { observeGitCheckout, observeScratchCheckout } =
-    await import("./agents/checkout-inspection.js");
-  try {
-    const observe =
-      process.argv[4] === "--scratch"
-        ? observeScratchCheckout
-        : observeGitCheckout;
-    process.stdout.write(JSON.stringify(await observe(process.argv[3]!)));
-  } catch {
-    process.exitCode = 1;
-  }
 } else if (process.argv[2] === "runner-checkout-command") {
   const { runCheckoutCommandCli } =
     await import("./agents/remote/checkout-command.js");
@@ -85,10 +84,6 @@ if (process.argv[2]?.startsWith("recovery-")) {
     process.argv[4]!,
     process.argv[5]
   );
-} else if (process.argv[2] === "runner-inspect-checkout") {
-  const { runCheckoutInspectionCli } =
-    await import("./agents/checkout-inspection.js");
-  await runCheckoutInspectionCli(process.argv[3]!);
 } else if (process.argv[2] === "runner-engine-capability") {
   const { runEngineCapabilityWorker } =
     await import("./agents/remote/engine-capability-worker.js");
@@ -117,11 +112,14 @@ if (process.argv[2]?.startsWith("recovery-")) {
   // This app's local runner child: same binary, same build.
   const { embeddedBuild } = await import("./agents/build-identity.js");
   const { runCli } = await import("@dispatch/runner/cli");
+  // The `posix-user` platform: checkout reads run in the child's process.
+  const { checkoutWorkload } = await import("./agents/checkout-worker.js");
   await runCli(process.argv.slice(2), {
     build: {
       version: embeddedBuild.version,
       ...(embeddedBuild.revision && { revision: embeddedBuild.revision }),
     },
+    platform: { workload: checkoutWorkload },
   });
 } else if (process.argv[2] === "agent-host") {
   await import("./agents/acp/host/main.js");

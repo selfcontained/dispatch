@@ -1,4 +1,5 @@
 import { RunnerCallError } from "@dispatch/runner-protocol/contract";
+import { WORKER_OPS } from "../platform/types.js";
 
 /**
  * Operations a frozen runner still serves: they read and change nothing. A
@@ -9,6 +10,10 @@ export const SERVED_WHILE_FROZEN: ReadonlySet<string> = new Set([
   "runner.describe",
   "runner.health",
   "session.list",
+  "workspace.describe",
+  // Checkout reads write nothing of the runner's. While frozen, Git also
+  // skips its optional index refresh in the checkout (`GIT_OPTIONAL_LOCKS`).
+  ...WORKER_OPS,
 ]);
 
 export const fencedError = () =>
@@ -16,6 +21,25 @@ export const fencedError = () =>
     code: "fenced",
     message: "The runner is frozen for an update",
   });
+
+/**
+ * Git's optional locks let a read refresh the checkout's index. A frozen
+ * runner's Git reads skip it, so nothing is written; thawed, Git behaves as
+ * it does for any other reader. Workload Git inherits the runner's
+ * environment.
+ */
+let saved: { value: string | undefined } | null = null;
+function optionalLocks(on: boolean) {
+  if (!on) {
+    saved ??= { value: process.env.GIT_OPTIONAL_LOCKS };
+    process.env.GIT_OPTIONAL_LOCKS = "0";
+    return;
+  }
+  if (!saved) return;
+  if (saved.value === undefined) delete process.env.GIT_OPTIONAL_LOCKS;
+  else process.env.GIT_OPTIONAL_LOCKS = saved.value;
+  saved = null;
+}
 
 /**
  * The updater's write fence inside the runner. While frozen, admission
@@ -30,6 +54,7 @@ export class WriteFence {
 
   constructor(frozen = false) {
     this.frozenNow = frozen;
+    if (frozen) optionalLocks(false);
   }
 
   get frozen(): boolean {
@@ -56,11 +81,13 @@ export class WriteFence {
   /** Refuse new writes now; resolve when none admitted earlier is running. */
   freeze(): Promise<void> {
     this.frozenNow = true;
+    optionalLocks(false);
     if (this.inFlight === 0) return Promise.resolve();
     return new Promise((resolve) => this.idle.push(resolve));
   }
 
   thaw(): void {
     this.frozenNow = false;
+    optionalLocks(true);
   }
 }

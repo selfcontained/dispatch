@@ -7,6 +7,9 @@
  *            a wrong nonce closes the connection.
  *   call     `{id, op, input}` → `{id, ok: true, value}` or
  *            `{id, ok: false, error}`. `id` is scoped to the connection.
+ *            A value too long for one line is answered `{id, ok: true,
+ *            stream}` instead: its JSON text follows on the credit-controlled
+ *            stream `reply:<id>`, which the caller registers on that answer.
  *   open     The same request for an `open` operation. A successful reply
  *            opens channel `id`: two credit-controlled streams,
  *            `channel:<id>:in` (to the runner) and `channel:<id>:out` (from
@@ -54,6 +57,7 @@ export const socketHello = object({
 export const socketRequest = object({ id: integer, op: string, input: json });
 export const socketReply = union(
   object({ id: integer, ok: literal(true), value: json }),
+  object({ id: integer, ok: literal(true), stream: string }),
   object({ id: integer, ok: literal(false), error: runnerError })
 );
 /** The path-blob frame: accepted on the local socket only. */
@@ -77,6 +81,17 @@ export type BlobPathFrame = Infer<typeof blobPathFrame>;
 export type BlobPathReply = Infer<typeof blobPathReply>;
 
 export type LocalEndpoint = { socket: string; nonce: string };
+
+/** The stream that carries the JSON text of call `id`'s value. */
+export function replyStream(id: number) {
+  return `reply:${id}`;
+}
+
+/**
+ * Values whose JSON text is longer than this go as a reply stream. Well
+ * under a line's limit, so a reply never ends the connection.
+ */
+export const INLINE_REPLY_BYTES = 256 * 1024;
 
 /** The two stream IDs that carry channel `id`. */
 export function channelStreams(id: number) {
@@ -274,13 +289,58 @@ export class LocalSocketConnection {
     }
     if (!socketReply.check(frame)) return this.socket.destroy();
     const pending = this.pending.get(frame.id);
-    if (!pending) return;
+    if (!pending) {
+      // A streamed answer nobody waits for: refuse its stream.
+      if (frame.ok && "stream" in frame)
+        void this.streams
+          .receive(frame.stream, new PassThrough().resume())
+          .catch(() => {});
+      return;
+    }
     this.pending.delete(frame.id);
     if (!frame.ok) return pending.reject(new RunnerCallError(frame.error));
+    if ("stream" in frame) {
+      if (frame.stream !== replyStream(frame.id))
+        return pending.reject(fail("failed", `Invalid ${pending.op} reply`));
+      // Registered now, before the runner's first stream frame is read.
+      const chunks: Buffer[] = [];
+      const sink = new PassThrough();
+      sink.on("data", (chunk: Buffer) => chunks.push(chunk));
+      this.streams.receive(frame.stream, sink).then(
+        () => {
+          let value: unknown;
+          try {
+            value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+          } catch {
+            return pending.reject(
+              fail("failed", `Invalid ${pending.op} reply`)
+            );
+          }
+          this.settle(pending, value);
+        },
+        (error: unknown) =>
+          pending.reject(
+            error instanceof RunnerCallError
+              ? new RunnerCallError({
+                  code: "unknown_outcome",
+                  message: `The ${pending.op} reply did not arrive: ${error.message}`,
+                })
+              : fail(
+                  "unknown_outcome",
+                  `The ${pending.op} reply did not arrive`
+                )
+          )
+      );
+      return;
+    }
+    this.settle(pending, frame.value);
+  }
+
+  private settle(pending: Pending, value: unknown) {
     const spec = (operations as Record<string, OperationSpec>)[pending.op];
-    if (!spec?.response.check(frame.value))
+    if (!spec?.response.check(value))
       return pending.reject(fail("failed", `Invalid ${pending.op} reply`));
-    pending.resolve(frame.value);
+    pending.resolve(value);
   }
 
   private request(

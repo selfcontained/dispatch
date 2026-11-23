@@ -1,10 +1,13 @@
 import {
+  displayPath,
   RunnerCallError,
   runnerIdToWire,
   sessionToWire,
   type CallName,
+  type CallOptions,
   type Req,
   type Res,
+  type Runner,
   type RunnerDescription,
 } from "@dispatch/runner-protocol/contract";
 import {
@@ -27,12 +30,133 @@ import {
 import { LocalRunnerSession } from "@dispatch/runner-client/session";
 import { childProcessEnv } from "../shared/process/child-environment.js";
 import { LOCAL_RUNNER_ID } from "./placement.js";
+import { checkoutWorkload } from "../agents/checkout-worker.js";
+import {
+  agentDiffPath,
+  agentWorkspaceDir,
+} from "../agents/workspace-target.js";
+
+/** Checkout reads the local runner child serves (T09). */
+const CHILD_READS = new Set<CallName>([
+  "checkout.list",
+  "checkout.preview",
+  "checkout.index",
+  "checkout.read",
+  "checkout.stats",
+  "checkout.diff",
+  "checkout.changes",
+]);
+type ChildRead =
+  | "checkout.list"
+  | "checkout.preview"
+  | "checkout.index"
+  | "checkout.read"
+  | "checkout.stats"
+  | "checkout.diff"
+  | "checkout.changes";
+
+/** How long a read waits for a child that is restarting. */
+const CHILD_WAIT_MS = 15_000;
+
+/**
+ * Each child's answers to `workspace.describe`, per connection epoch. A
+ * binding the child holds never changes (import never replaces one), so a
+ * found path is kept until the child reconnects; not found is asked again.
+ */
+const bound = new WeakMap<
+  Runner,
+  { epoch: number; paths: Map<string, string> }
+>();
+
+async function childBinding(
+  child: Runner,
+  session: Req<"workspace.describe">["session"],
+  signal: AbortSignal
+): Promise<string | null> {
+  let cache = bound.get(child);
+  if (!cache || cache.epoch !== child.connection.epoch)
+    bound.set(
+      child,
+      (cache = { epoch: child.connection.epoch, paths: new Map() })
+    );
+  const known = cache.paths.get(sessionToWire(session));
+  if (known !== undefined) return known;
+  try {
+    const binding = await child.call(
+      "workspace.describe",
+      { session },
+      { signal }
+    );
+    const path = displayPath(binding.path);
+    cache.paths.set(sessionToWire(session), path);
+    return path;
+  } catch (error) {
+    if (error instanceof RunnerCallError && error.code === "not_found")
+      return null;
+    throw error;
+  }
+}
 
 export function createLocalCheckoutRunner(
   local: LocalCheckoutRunner,
   agent: CheckoutSession | undefined,
-  description: RunnerDescription
+  description: RunnerDescription,
+  child?: Runner
 ): CheckoutRunner {
+  /**
+   * A checkout read for the bound session: through the child when it holds
+   * this session's checkout at the directory the agent row names, else in
+   * process with the same workload. The second case is temporary (R3, T18):
+   * sessions launched after the import, or moved since, have no current
+   * binding in the child until launches and moves write one.
+   */
+  async function read<K extends ChildRead>(
+    op: K,
+    input: Req<K>,
+    options?: CallOptions<K>
+  ): Promise<Res<K>> {
+    const { target, ...request } = input as Req<ChildRead>;
+    if (!("session" in target) || sessionToWire(target.session) !== agent?.id)
+      throw new RunnerCallError({
+        code: "invalid",
+        message: "Invalid native checkout binding.",
+      });
+    const views = op !== "checkout.read" && op !== "checkout.changes";
+    const row = { baseBranch: null, ...agent };
+    const directory =
+      op === "checkout.stats" || op === "checkout.diff"
+        ? agentDiffPath(row)
+        : agentWorkspaceDir(row);
+    if (!directory) {
+      if (op === "checkout.stats") return null as Res<K>;
+      throw new RunnerCallError({
+        code: "not_found",
+        message: views
+          ? "This agent has no workspace."
+          : "The session checkout is unavailable.",
+        details: { status: views ? 404 : 409, class: "agent" },
+      });
+    }
+    if (child) {
+      const signal = AbortSignal.any([
+        AbortSignal.timeout(CHILD_WAIT_MS),
+        ...(options?.signal ? [options.signal] : []),
+      ]);
+      if ((await childBinding(child, target.session, signal)) === directory)
+        return child.call(
+          op,
+          {
+            ...input,
+            target: { session: target.session, checkout: "current" },
+          },
+          options
+        );
+    }
+    return checkoutWorkload.run(op, { directory, request } as never, {
+      signal: options?.signal,
+    });
+  }
+
   async function requestCheckout(operation: CheckoutCommand) {
     if (!agent)
       throw new RunnerCallError({
@@ -58,8 +182,18 @@ export function createLocalCheckoutRunner(
     async readManifest(operation) {
       return (await requestCheckout(operation)) as CheckoutCommandFile | null;
     },
-    async call<K extends CallName>(op: K, input: Req<K>): Promise<Res<K>> {
+    async call<K extends CallName>(
+      op: K,
+      input: Req<K>,
+      options?: CallOptions<K>
+    ): Promise<Res<K>> {
       if (op === "runner.describe") return description as Res<K>;
+      if (CHILD_READS.has(op))
+        return read(
+          op as ChildRead,
+          input as Req<ChildRead>,
+          options as CallOptions<ChildRead>
+        ) as Promise<Res<K>>;
       if (op !== "checkout.exec")
         throw new RunnerCallError({
           code: "unsupported",
@@ -114,6 +248,11 @@ export type LocalRunnerFence = {
    */
   frozenSessions(): Promise<number>;
 };
+
+/** The child as a `Runner`, while the app has one. */
+export function localRunnerOf(process: LocalRunnerProcess | undefined) {
+  return process?.runner;
+}
 
 export type LocalRunnerProcess = LocalRunnerFence & {
   /** The child as a `Runner`: one connection, retried while unavailable. */

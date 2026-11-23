@@ -29,6 +29,8 @@ export type GetDiffStatsOptions = {
   includeUncommitted?: boolean;
   /** Receives command/probe failures while the public result remains null. */
   onError?: (error: unknown) => void;
+  /** What `excludingTests` leaves out; the test-file rule by default. */
+  isExcluded?: (path: string) => boolean;
 };
 
 /**
@@ -69,6 +71,7 @@ export async function getDiffStatsComputation(
 ): Promise<DiffStatsComputation> {
   const run = options.runCommand ?? runCommand;
   const includeUncommitted = options.includeUncommitted !== false;
+  const isExcluded = options.isExcluded ?? isTestFile;
   const probeErrors: unknown[] = [];
   const recordError = (error: unknown) => {
     probeErrors.push(error);
@@ -147,7 +150,7 @@ export async function getDiffStatsComputation(
       // `src/test/helper.ts`. Only this decision uses the resolved path;
       // `seenFiles` and `shouldExcludePath` stay on the raw one so the
       // unfiltered totals keep counting exactly what they counted before.
-      const countsAsTest = isTestFile(resolveRenamePath(filePath).dest);
+      const countsAsTest = isExcluded(resolveRenamePath(filePath).dest);
       if (!countsAsTest) excludingTests.files += 1;
       if (a === "-" && d === "-") continue;
       const fileAdded = Number.parseInt(a, 10) || 0;
@@ -167,7 +170,7 @@ export async function getDiffStatsComputation(
       seenFiles.add(filePath);
       const { lines } = await readUntrackedFile(worktreePath, filePath);
       added += lines;
-      if (!isTestFile(filePath)) {
+      if (!isExcluded(filePath)) {
         excludingTests.files += 1;
         excludingTests.added += lines;
       }

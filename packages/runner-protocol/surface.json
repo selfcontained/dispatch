@@ -2524,6 +2524,11 @@
           },
           "base": {
             "nullable": "string"
+          },
+          "fallback": {
+            "optional": {
+              "array": "string"
+            }
           }
         }
       },

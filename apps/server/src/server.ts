@@ -1,5 +1,6 @@
 import { enrolledRunnerId, isOnEnrolledRunner } from "./runners/placement.js";
 import {
+  localRunnerOf,
   startLocalRunnerProcess,
   type LocalRunnerProcess,
 } from "./runners/local.js";
@@ -491,7 +492,7 @@ const diffStatsRefresher = new DiffStatsRefresher({
   comparisonBase: (id, agent) =>
     agentManager.comparisonBase({ ...agent, id }, "changes"),
   computeAgentStats: (id, agent, base) =>
-    readAgentStats(id, agent, remoteRunner, base),
+    readAgentStats(id, agent, agentManager.checkoutReadRunners(), base),
   publishEvent: (event) => uiEventBroker.publish(event),
   logger: app.log,
   tracker: gitRefreshTracker,
@@ -1639,6 +1640,7 @@ export async function start() {
     frozen: updateRecoveryRuntime.localRunnerStartsFrozen(),
     bindings: () => readLocalBindings(pool),
   });
+  agentManager.attachLocalRunner(() => localRunnerOf(localRunnerProcess));
   await remoteRunner?.start();
   await initializeApp();
 

@@ -496,7 +496,8 @@ export async function runRemoteRunner(
         setpriv,
         [
           ...childArgs,
-          ...self("runner-observe-checkout"),
+          ...self("runner-worker"),
+          "observe",
           cwd,
           ...(scratch ? ["--scratch"] : []),
         ],
@@ -595,7 +596,7 @@ export async function runRemoteRunner(
         childWatch(
           spawn(
             setpriv,
-            [...childArgs, ...self("runner-watch-checkout"), cwd],
+            [...childArgs, ...self("runner-worker"), "watch", cwd],
             { env, stdio: ["pipe", "pipe", "pipe"] }
           ),
           changed,
@@ -1040,11 +1041,8 @@ export async function runRemoteRunner(
               setpriv,
               [
                 ...childArgs,
-                ...self(
-                  command.kind === "viewCheckout"
-                    ? "runner-view-checkout"
-                    : "runner-inspect-checkout"
-                ),
+                ...self("runner-worker"),
+                command.kind === "viewCheckout" ? "view" : "inspect",
                 cwd,
                 ...(managed ? ["--managed"] : []),
               ],

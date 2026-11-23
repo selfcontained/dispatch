@@ -1,4 +1,4 @@
-import type { Placement } from "@dispatch/runner-protocol/contract";
+import type { Placement, Runner } from "@dispatch/runner-protocol/contract";
 import {
   controllerPlacement,
   enrolledRunnerId,
@@ -1508,6 +1508,22 @@ export class AgentManager {
     this.diffStatsRefresher = refresher;
   }
 
+  private localRunnerChild: () => Runner | undefined = () => undefined;
+
+  /** The local runner child, once started: checkout reads go through it. */
+  attachLocalRunner(child: () => Runner | undefined): void {
+    this.localRunnerChild = child;
+  }
+
+  /** The runners an agent's checkout reads go through. */
+  checkoutReadRunners() {
+    return {
+      local: this.localRunner,
+      remote: this.remote ?? undefined,
+      child: this.localRunnerChild,
+    };
+  }
+
   /**
    * Inject the Chat feed's launch-context recorder. Wired post-construction
    * because the chat service reads agents through this manager.
@@ -1859,7 +1875,7 @@ export class AgentManager {
       "baseBranch" in query && query.baseBranch === null
         ? await this.comparisonBase(agent, "changes")
         : null;
-    return readAgentView(agent, query, this.remote, base);
+    return readAgentView(agent, query, this.checkoutReadRunners(), base);
   }
 
   async inspectCheckout(
@@ -1871,7 +1887,7 @@ export class AgentManager {
         ...query,
         baseBranch: await this.comparisonBase(agent, "review"),
       };
-    return inspectAgentCheckout(agent, query, this.remote);
+    return inspectAgentCheckout(agent, query, this.checkoutReadRunners());
   }
 
   /**

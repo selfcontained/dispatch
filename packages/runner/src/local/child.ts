@@ -30,6 +30,8 @@ import {
   type HeldLock,
 } from "./lock.js";
 import { serveSocket, type Handlers } from "./socket-server.js";
+import { checkoutHandlers } from "../core/checkout.js";
+import type { Platform } from "../platform/types.js";
 
 export type Build = { version: string; revision?: string };
 
@@ -97,6 +99,8 @@ export async function runLocalRunner(
   options: {
     /** Operations served beside describe and health, as families move in. */
     handlers?: (start: LauncherStart, fence: WriteFence) => Handlers;
+    /** The machine's platform; without one, no checkout family is served. */
+    platform?: Platform;
   } = {}
 ): Promise<void> {
   let start: LauncherStart | undefined;
@@ -218,11 +222,15 @@ export async function runLocalRunner(
     capabilities: {},
   };
   const extra = options.handlers?.(message, fence!);
+  const checkout = options.platform
+    ? checkoutHandlers(store!, options.platform)
+    : {};
   const socket = await serveSocket(
     socketPath,
     message.nonce,
     {
       calls: {
+        ...checkout,
         ...extra?.calls,
         "runner.describe": () => description,
         "runner.health": () => health(),

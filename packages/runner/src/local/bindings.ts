@@ -159,6 +159,7 @@ export async function decideBinding(
 
 export class BindingStore {
   readonly dir: string;
+  private readonly origins = new Map<string, Promise<string | null>>();
 
   constructor(stateRoot: string) {
     this.dir = join(stateRoot, BINDINGS_DIR);
@@ -172,6 +173,22 @@ export class BindingStore {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * The `origin` remote's URL of the checkout at `path`, or null outside Git
+   * or without one. Read once per path: a remote rarely moves, and the
+   * answer only describes the binding.
+   */
+  origin(path: string): Promise<string | null> {
+    let origin = this.origins.get(path);
+    if (!origin) {
+      origin = git(path, ["config", "--get", "remote.origin.url"]).then(
+        (lines) => lines?.[0] ?? null
+      );
+      this.origins.set(path, origin);
+    }
+    return origin;
   }
 
   /**
