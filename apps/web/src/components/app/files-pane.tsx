@@ -1,4 +1,3 @@
-import { remotePlacement } from "@dispatch/runner-protocol";
 import { useAtom } from "jotai";
 import { filesBrowserStateFamily } from "./files-browser-state";
 import { WorkspaceSvgPreview } from "./workspace-svg-preview";
@@ -29,7 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { IconButton } from "@/components/ui/icon-button";
 import { RowButton } from "@/components/ui/row-button";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
 import { FileActions } from "./file-lightbox-actions";
 import { cn } from "@/lib/utils";
 import { LoadError } from "@/components/ui/async-boundary";
@@ -59,7 +58,6 @@ type Row =
   | { entry: Entry; depth: number }
   | { message: string; depth: number; retry?: string };
 const queryOptions = {
-  refetchInterval: 30_000,
   staleTime: Infinity,
   gcTime: 30_000,
   refetchOnWindowFocus: false,
@@ -301,9 +299,6 @@ function WorkspaceFiles({
   isSplit: boolean;
   isMobile: boolean;
 }) {
-  const remote = Boolean(remotePlacement(workspace));
-  const unavailable = (error: unknown) =>
-    remote && error instanceof ApiError && error.status === 503;
   const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
   const selected = params.get("files.path") ?? params.get("path") ?? "";
@@ -318,6 +313,7 @@ function WorkspaceFiles({
   const browse = browserState.browse ?? !selected;
   const setBrowse = (browse: boolean) =>
     setBrowserState((old) => ({ ...old, browse }));
+  const indexGeneration = useRef("initial");
   const [search, setSearch] = useState(filter.trim().toLowerCase());
   useEffect(() => {
     const timer = setTimeout(() => setSearch(filter.trim().toLowerCase()), 180);
@@ -352,13 +348,13 @@ function WorkspaceFiles({
     enabled: !!selected,
     ...queryOptions,
   });
-  const keepPreview = !preview.isError || unavailable(preview.error);
   const fileIndex = useQuery({
     queryKey: [...prefix, "index"],
     queryFn: ({ signal }) =>
-      api<FileIndex>(url("") + "&index=true&generation=" + Date.now(), {
-        signal,
-      }),
+      api<FileIndex>(
+        url("") + "&index=true&generation=" + indexGeneration.current,
+        { signal }
+      ),
     enabled: !!search,
     ...queryOptions,
   });
@@ -392,10 +388,10 @@ function WorkspaceFiles({
     if (query.isError) {
       rows.push({
         depth,
-        message: remote ? query.error.message : "Couldn’t load the folder.",
+        message: "Couldn’t load the folder.",
         retry: directory,
       });
-      if (!unavailable(query.error)) return;
+      return;
     }
     if (!query.data) return;
     for (const entry of query.data.entries) {
@@ -416,16 +412,13 @@ function WorkspaceFiles({
     rows.length = 0;
     if (fileIndex.isPending)
       rows.push({ depth: 0, message: "Finding filenames…" });
-    if (fileIndex.isError)
+    else if (fileIndex.isError)
       rows.push({
         depth: 0,
-        message: remote ? fileIndex.error.message : "Couldn’t load filenames.",
+        message: "Couldn’t load filenames.",
         retry: "index",
       });
-    if (
-      !fileIndex.isPending &&
-      (!fileIndex.isError || unavailable(fileIndex.error))
-    )
+    else
       for (const path of matches.slice(0, 200))
         rows.push({
           depth: 0,
@@ -474,26 +467,15 @@ function WorkspaceFiles({
       <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2">
         <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
-          {remote ? (
-            <div className="truncate text-body-md font-medium">
-              Session files
-            </div>
-          ) : (
-            <>
-              <div
-                className="truncate text-body-md font-medium"
-                title={workspace}
-              >
-                {workspace.split("/").filter(Boolean).at(-1)}
-              </div>
-              <div
-                className="truncate text-label-xs text-muted-foreground"
-                title={workspace}
-              >
-                {workspace}
-              </div>
-            </>
-          )}
+          <div className="truncate text-body-md font-medium" title={workspace}>
+            {workspace.split("/").filter(Boolean).at(-1)}
+          </div>
+          <div
+            className="truncate text-label-xs text-muted-foreground"
+            title={workspace}
+          >
+            {workspace}
+          </div>
         </div>
         {!isSplit && !isMobile && (
           <IconButton label="Open beside Agent" onClick={onOpenBeside}>
@@ -504,6 +486,7 @@ function WorkspaceFiles({
           label="Refresh files and preview"
           disabled={refreshing}
           onClick={() => {
+            indexGeneration.current = String(Date.now());
             void queryClient.invalidateQueries({ queryKey: prefix });
           }}
         >
@@ -709,7 +692,7 @@ function WorkspaceFiles({
                   >
                     {selected}
                   </span>
-                  {keepPreview && preview.data && (
+                  {preview.data && (
                     <WorkspaceFileActions
                       key={selected}
                       preview={preview.data}
@@ -717,14 +700,6 @@ function WorkspaceFiles({
                     />
                   )}
                 </div>
-                {preview.isError && keepPreview && preview.data && (
-                  <p
-                    role="status"
-                    className="px-3 py-2 text-body-sm text-muted-foreground"
-                  >
-                    {preview.error.message} Showing the last loaded preview.
-                  </p>
-                )}
                 {preview.isPending ? (
                   <LoadingSkeleton
                     label="Loading preview…"
@@ -732,7 +707,7 @@ function WorkspaceFiles({
                     rowClassName="h-4"
                     rows={8}
                   />
-                ) : preview.isError && (!keepPreview || !preview.data) ? (
+                ) : preview.isError ? (
                   <LoadError
                     thing="the preview"
                     error={preview.error}

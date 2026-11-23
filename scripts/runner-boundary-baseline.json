@@ -2730,20 +2730,6 @@
     "count": 1
   },
   {
-    "file": "apps/web/src/components/app/files-pane.tsx",
-    "kind": "R6 placement call",
-    "detail": "remotePlacement(workspace)",
-    "task": "T38",
-    "count": 1
-  },
-  {
-    "file": "apps/web/src/components/app/files-pane.tsx",
-    "kind": "R6 protocol value import",
-    "detail": "@dispatch/runner-protocol",
-    "task": "T38",
-    "count": 1
-  },
-  {
     "file": "apps/web/src/components/app/path-input-utils.ts",
     "kind": "R6 locator",
     "detail": "runner://",
