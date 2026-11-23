@@ -70,6 +70,8 @@ export type AgentRecord = {
   role: AgentRole;
   status: AgentStatus;
   placement: Placement;
+  /** Runner to address for engine sign-in, supplied by the client projection. */
+  engineLoginRunnerId?: string;
   cwd: string;
   /** Directory requested at creation, before any managed worktree changed cwd. */
   launchCwd?: string | null;

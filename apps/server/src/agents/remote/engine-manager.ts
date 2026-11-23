@@ -5,6 +5,7 @@ import {
 import { EventEmitter } from "node:events";
 
 import type { RunnerEngine } from "@dispatch/runner-protocol";
+import type { EngineLoginEngine } from "@dispatch/shared";
 import {
   RUNNER_ENGINES,
   engineScopeKey,
@@ -85,6 +86,7 @@ export type EngineManagerChangeListener = (
 export class EngineManager {
   private readonly events = new EventEmitter();
   private readonly localCapabilities: Pick<LocalEngineRunner, "handle">;
+  private readonly runnerLogins = new Map<string, Map<RunnerEngine, string>>();
 
   constructor(
     private readonly deps: {
@@ -138,6 +140,19 @@ export class EngineManager {
       scope.kind === "local"
         ? await this.localRpc(operation)
         : await this.deps.remote.send(scope.runnerId, operation, onEvent);
+    if (
+      scope.kind === "runner" &&
+      operation.type === "login_start" &&
+      ack.ok &&
+      ack.login
+    ) {
+      let logins = this.runnerLogins.get(scope.runnerId);
+      if (!logins) {
+        logins = new Map();
+        this.runnerLogins.set(scope.runnerId, logins);
+      }
+      logins.set(operation.engine, ack.login.id);
+    }
     // Refresh before returning, so a caller that awaits `rpc` sees the
     // change notification fire no later than its own result. A runner's
     // own pushed-cache update can lag its ack by a round trip, so force a
@@ -155,6 +170,26 @@ export class EngineManager {
               () => null
             );
       if (entries) this.emitChanged(scope, entries);
+    }
+    return ack;
+  }
+
+  /** Resolve the latest runner sign-in to the ID used by the wire operation. */
+  async runnerLoginStatus(
+    scope: Extract<EngineScope, { kind: "runner" }>,
+    engine: EngineLoginEngine
+  ): Promise<EngineOperationAck> {
+    const logins = this.runnerLogins.get(scope.runnerId);
+    const loginId = logins?.get(engine);
+    if (!logins || loginId === undefined) return { ok: true };
+    const ack = await this.rpc(scope, { type: "login_status", loginId });
+    // The runner prunes old logins and forgets them when it restarts.
+    if (!ack.ok && ack.error === "Sign-in not found.") {
+      if (logins.get(engine) === loginId) {
+        logins.delete(engine);
+        if (logins.size === 0) this.runnerLogins.delete(scope.runnerId);
+      }
+      return { ok: true };
     }
     return ack;
   }

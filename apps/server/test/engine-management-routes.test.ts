@@ -8,6 +8,12 @@ import {
 } from "../src/agents/remote/engine-manager.js";
 import type { EngineLogins } from "../src/agents/engine-login.js";
 import type { EngineUpdateOperations } from "../src/agents/engine-updates.js";
+import type { AgentRecord } from "@dispatch/shared";
+import {
+  controllerPlacement,
+  placementForRunner,
+} from "../src/runners/placement.js";
+import { agentForClient } from "../src/server/agent-client-view.js";
 
 function fakeLogins(): EngineLogins {
   return {
@@ -89,6 +95,84 @@ describe("engine-management routes", () => {
     );
 
     await test.close();
+  });
+
+  it("starts and resumes sign-in on the runner projected from the agent placement", async () => {
+    const storedAgent = {
+      agentArgs: [],
+      cwd: "/work/project",
+      placement: placementForRunner("runner-42"),
+    } as AgentRecord;
+    const agent = agentForClient(storedAgent, false);
+    expect(agent.engineLoginRunnerId).toBe("runner-42");
+    expect(
+      agentForClient({ ...storedAgent, placement: controllerPlacement }, false)
+        .engineLoginRunnerId
+    ).toBeUndefined();
+
+    const logins = fakeLogins();
+    const login = {
+      id: "login-42",
+      engine: "claude",
+      status: "waiting",
+      needsCode: true,
+    } as const;
+    const send = vi.fn<RunnerEngineTransport["send"]>(async (_id, operation) =>
+      operation.type === "status" ? { ok: true } : { ok: true, login }
+    );
+    const manager = new EngineManager({
+      local: { logins, updates: fakeUpdates() },
+      remote: { send },
+    });
+    const app = Fastify();
+    await registerEngineManagementRoutes(app, manager);
+    const scope = { kind: "runner", runnerId: agent.engineLoginRunnerId };
+    const request = (operation: Record<string, unknown>) =>
+      app.inject({
+        method: "POST",
+        url: "/api/v1/engine-management/operations",
+        payload: { scope, operation },
+      });
+    const status = { type: "login_status", engine: "claude" };
+    try {
+      expect((await request(status)).json()).toEqual({ ack: { ok: true } });
+      expect(send).not.toHaveBeenCalled();
+      const start = { type: "login_start", engine: "claude", restart: false };
+      expect((await request(start)).json()).toEqual({
+        ack: { ok: true, login },
+      });
+      expect((await request(status)).json()).toEqual({
+        ack: { ok: true, login },
+      });
+      const submit = {
+        type: "login_submit",
+        loginId: login.id,
+        code: "test-code",
+      };
+      const cancel = { type: "login_cancel", loginId: login.id };
+      await request(submit);
+      await request(cancel);
+      expect(
+        send.mock.calls
+          .filter(([, op]) => op.type !== "status")
+          .map(([runnerId, operation]) => [runnerId, operation])
+      ).toEqual([
+        ["runner-42", start],
+        ["runner-42", { type: "login_status", loginId: login.id }],
+        ["runner-42", submit],
+        ["runner-42", cancel],
+      ]);
+      for (const localAction of [
+        logins.start,
+        logins.current,
+        logins.get,
+        logins.submitCode,
+        logins.cancel,
+      ])
+        expect(localAction).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
   });
 
   it("rejects a malformed operation body", async () => {

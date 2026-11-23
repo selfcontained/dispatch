@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import type { ChatTurnEntry, StreamBlockEntry } from "@dispatch/shared";
+import { AUTHENTICATION_REQUIRED } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
@@ -27,6 +28,7 @@ vi.mock("@/components/ui/markdown-mermaid-theme", () => ({
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   Reflect.deleteProperty(navigator, "clipboard");
   localStorage.clear();
 });
@@ -568,6 +570,111 @@ describe("TurnEntryView", () => {
       expect(screen.queryByTestId("harness-retried")).toBeNull();
     });
   });
+
+  it.each(["runner agent", "controller agent"])(
+    "routes the sign-in card for a %s",
+    async (agent) => {
+      const runnerId = agent === "runner agent" ? "runner-42" : undefined;
+      const operationsUrl = "/api/v1/engine-management/operations";
+      const engineUrl = "/api/v1/system/engines/claude/login";
+      const loginUrl = "/api/v1/system/engines/logins/login-42";
+      const calls: unknown[] = [];
+      let login = null as null | {
+        id: string;
+        engine: string;
+        status: string;
+        url: string;
+        expiresAt: string;
+        needsCode: boolean;
+      };
+      vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? "GET";
+        const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+        if (
+          url === operationsUrl ||
+          url.startsWith("/api/v1/system/engines/")
+        ) {
+          calls.push([url, method, body]);
+          switch (body?.operation?.type ?? method + url) {
+            case "login_start":
+            case "POST" + engineUrl:
+              login = {
+                id: "login-42",
+                engine: "claude",
+                status: "waiting",
+                url: "https://example.test/login",
+                expiresAt: "2026-09-08T10:15:00.000Z",
+                needsCode: true,
+              };
+              break;
+            case "login_cancel":
+            case "DELETE" + loginUrl:
+              if (login) login = { ...login, status: "cancelled" };
+              break;
+          }
+          return Response.json(
+            url === operationsUrl
+              ? { ack: { ok: true, ...(login ? { login } : {}) } }
+              : { login }
+          );
+        }
+        return new Response(null, { status: 404 });
+      });
+      const agentId = runnerId ? "agt_child" : AGENT_ID;
+      renderTurn(
+        turn({
+          agentId,
+          error: "Sign-in expired",
+          errorKind: AUTHENTICATION_REQUIRED,
+          retry: "open",
+        }),
+        {
+          ...ctx,
+          agentType: "claude",
+          peers: {
+            agt_child: {
+              name: "Child",
+              agentType: "claude",
+              relation: "child",
+              engineLoginRunnerId: runnerId,
+            },
+          },
+          onResendAfterSignIn: vi.fn(),
+        }
+      );
+      const start = screen.getByTestId("engine-sign-in-start");
+      await waitFor(() => expect(start).toHaveProperty("disabled", false));
+      fireEvent.click(start);
+      const code = await screen.findByTestId("engine-sign-in-code");
+      await waitFor(() => expect(calls).toHaveLength(3), { timeout: 3_000 });
+      fireEvent.change(code, { target: { value: "test-code" } });
+      fireEvent.click(screen.getByTestId("engine-sign-in-submit"));
+      await waitFor(() => expect(calls).toHaveLength(4));
+      fireEvent.click(screen.getByTestId("engine-sign-in-cancel"));
+      await screen.findByTestId("engine-sign-in-start");
+      expect(calls).toEqual(
+        runnerId
+          ? [
+              { type: "login_status", engine: "claude" },
+              { type: "login_start", engine: "claude", restart: false },
+              { type: "login_status", engine: "claude" },
+              { type: "login_submit", loginId: "login-42", code: "test-code" },
+              { type: "login_cancel", loginId: "login-42" },
+            ].map((operation) => [
+              operationsUrl,
+              "POST",
+              { scope: { kind: "runner", runnerId }, operation },
+            ])
+          : [
+              [engineUrl, "GET", undefined],
+              [engineUrl, "POST", { restart: false }],
+              [engineUrl, "GET", undefined],
+              [`${loginUrl}/code`, "POST", { code: "test-code" }],
+              [loginUrl, "DELETE", undefined],
+            ]
+      );
+    }
+  );
 
   describe("the response placeholder", () => {
     const RUN_STEP: ChatTurnEntry["trace"]["steps"][number] = {
