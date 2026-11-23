@@ -687,7 +687,7 @@ describe("AgentManager", () => {
       });
       await expect(
         first.setWorkspace(parent.id, { path: "runner://other/@session" })
-      ).rejects.toThrow("absolute on the bound runner");
+      ).rejects.toThrow("Workspace path must be absolute.");
       expect(requestSession).toHaveBeenCalledTimes(1);
       await expect(first.setWorkspace(parent.id, move)).resolves.toMatchObject({
         cwd,
@@ -695,13 +695,16 @@ describe("AgentManager", () => {
         workspacePath: "/workload/moved",
         workspaceBaseBranch: "develop",
       });
-      expect(requestSession).toHaveBeenLastCalledWith(
+      expect(requestSession).toHaveBeenCalledWith(
         { runner: "runner-test", workspace: "@session" },
         {
           agentId: parent.id,
           kind: "sessionCheckout",
           operation: { kind: "select", path: move.path },
-        }
+          workspace: "@session",
+        },
+        undefined,
+        undefined
       );
 
       const childInput = {

@@ -41,7 +41,10 @@ const temp = () => {
   return dir;
 };
 const git = (cwd: string, ...args: string[]) =>
-  execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
+  execFileSync("git", ["-C", cwd, ...args], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  }).trim();
 
 function repository(root: string) {
   const checkout = join(root, "repo");
@@ -113,13 +116,30 @@ function port(calls: string[]): WorkspacePort {
       calls.push("install");
       await report({ status: "done", detail: "nothing to install" });
     },
+    async locate(path) {
+      if (!existsSync(path)) return "missing";
+      if (!statSync(path).isDirectory()) return "not_directory";
+      return { directory: realpathSync(path) };
+    },
     async git(directory) {
-      if (!existsSync(join(directory, ".git"))) return null;
+      if (basename(directory) === "unreadable") return "error";
+      let top: string;
+      try {
+        top = git(directory, "rev-parse", "--show-toplevel");
+      } catch {
+        return null;
+      }
+      const common = git(
+        directory,
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-common-dir"
+      );
       return {
-        repoRoot: directory,
+        repoRoot: dirname(common),
         branch: git(directory, "branch", "--show-current"),
-        worktreePath: directory,
-        worktreeName: basename(directory),
+        worktreePath: top,
+        worktreeName: basename(top),
         isWorktree: true,
       };
     },
@@ -362,5 +382,103 @@ describe("workspace.prepare from a directory", () => {
     await expect(
       connection.call("workspace.resume", { session: sessionFromWire("z") })
     ).rejects.toMatchObject({ code: "fenced" });
+  });
+});
+
+describe("workspace.select", () => {
+  const select = (session: string, path: string | null) => ({
+    session: sessionFromWire(session),
+    path: path === null ? null : pathFromWire(path),
+  });
+
+  it("records the folder a session moved into, never as its own, and moves back", async () => {
+    const { root, connection, store } = await harness();
+    const checkout = repository(root);
+    await connection.call(
+      "workspace.prepare",
+      request("s", checkout, { name: "S", branch: "agent/s", create: true })
+    );
+    const launched = await store.get("s");
+    const otherParent = join(root, "other-parent");
+    mkdirSync(otherParent);
+    const other = repository(otherParent);
+    const sub = join(other, "src");
+    mkdirSync(sub);
+
+    // A subdirectory moves the session to its checkout's root.
+    const moved = await connection.call("workspace.select", select("s", sub));
+    expect(moved).toMatchObject({
+      path: other,
+      moved: true,
+      repositoryRoot: other,
+      checkoutRoot: launched!.checkout.path,
+      git: { worktreePath: other, branch: "main" },
+    });
+    expect(await store.get("s")).toEqual({ ...launched, currentPath: other });
+
+    // The launch checkout itself is no move.
+    const home = await connection.call(
+      "workspace.select",
+      select("s", launched!.checkout.path)
+    );
+    expect(home).toMatchObject({ moved: false, path: launched!.checkout.path });
+    expect(await store.get("s")).toEqual(launched);
+
+    await connection.call("workspace.select", select("s", other));
+    const back = await connection.call("workspace.select", select("s", null));
+    expect(back).toMatchObject({ moved: false, path: launched!.checkout.path });
+    expect(await store.get("s")).toEqual(launched);
+  });
+
+  it("accepts a folder outside Git and refuses what main refuses", async () => {
+    const { root, connection, store } = await harness();
+    const folder = join(root, "folder");
+    mkdirSync(folder);
+    await connection.call("workspace.prepare", request("p", folder));
+    const plain = join(root, "plain");
+    mkdirSync(plain);
+    expect(
+      await connection.call("workspace.select", select("p", plain))
+    ).toMatchObject({
+      path: plain,
+      moved: true,
+      repositoryRoot: null,
+      git: null,
+    });
+
+    const file = join(root, "file.txt");
+    writeFileSync(file, "x");
+    const unreadable = join(root, "unreadable");
+    mkdirSync(unreadable);
+    for (const [path, message] of [
+      [join(root, "nope"), `${join(root, "nope")} does not exist.`],
+      [file, `${file} is not a directory.`],
+      [unreadable, `Could not read git state in ${unreadable}.`],
+      ["relative/dir", "Workspace path must be absolute."],
+    ])
+      await expect(
+        connection.call("workspace.select", select("p", path))
+      ).rejects.toMatchObject({
+        code: "invalid",
+        details: { status: 400 },
+        message,
+      });
+    // A refusal records nothing.
+    expect((await store.get("p"))?.currentPath).toBe(plain);
+    await expect(
+      connection.call("workspace.select", select("unknown", plain))
+    ).rejects.toMatchObject({ code: "not_found" });
+  });
+
+  it("is refused while frozen, writing nothing", async () => {
+    const { root, connection, store, fence } = await harness();
+    const folder = join(root, "folder");
+    mkdirSync(folder);
+    await connection.call("workspace.prepare", request("f", folder));
+    await fence.freeze();
+    await expect(
+      connection.call("workspace.select", select("f", root))
+    ).rejects.toMatchObject({ code: "fenced" });
+    expect((await store.get("f"))?.currentPath).toBeNull();
   });
 });

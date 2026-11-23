@@ -1,5 +1,7 @@
 import {
   displayPath,
+  pathFromWire,
+  RunnerCallError,
   sessionFromWire,
   type Placement,
   type Runner,
@@ -54,7 +56,6 @@ import { getPullRequestHead } from "../shared/github/pr.js";
 import { GitWorktreeError } from "../shared/git/worktree.js";
 import { resolveFilesDir } from "../shared/files.js";
 import { getDirectoryIconPath } from "../shared/directory-icon-cache.js";
-import { gitContextFrom } from "./git-context-value.js";
 import { getActivePersonality } from "../db/personalities.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import {
@@ -120,7 +121,11 @@ import type {
   PromptImage,
 } from "./acp/prompt-source.js";
 import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
-import { agentStreamDirectory, isSafeBranchName } from "./workspace-target.js";
+import {
+  agentStreamDirectory,
+  settleWorkspace,
+  type WorkspaceProbes,
+} from "./workspace-target.js";
 import { inspectAgentCheckout, reviewerWorkspace } from "./checkout-runner.js";
 import {
   resolveCheckoutIntent,
@@ -133,7 +138,6 @@ import {
 import { RemoteEventInbox } from "./remote/event-inbox.js";
 import {
   MANAGED_WORKSPACE,
-  isCheckoutPath,
   isSessionCheckout,
   remotePlacement,
   type RunnerRepository,
@@ -1744,9 +1748,11 @@ export class AgentManager {
 
   /**
    * Point the agent's workspace at the directory it now works in, or back at
-   * its launch worktree/cwd with `path: null`. A remote runner confirms and
-   * journals the selection for checkout reads and future launches. Archive
-   * ownership remains tied to the original binding.
+   * its launch worktree/cwd with `path: null`. The agent's runner validates
+   * the folder as the agent's account and records it in its binding
+   * (`workspace.select`), so its reads, commands and Git context follow;
+   * the comparison base is settled here by one policy. Archive ownership
+   * stays with the launch checkout.
    */
   async setWorkspace(
     id: string,
@@ -1754,35 +1760,25 @@ export class AgentManager {
   ): Promise<AgentRecord> {
     return this.serializeLifecycle(id, async () => {
       const agent = await this.getRequiredAgent(id);
-      const placement = remotePlacement(agent.cwd);
-      if (placement) {
-        const resolved = await this.selectRunnerCheckout(agent, input);
-        await this.pool.query(
-          `UPDATE agents
-           SET workspace_path = $2, workspace_base_branch = $3,
-             git_context = $4::jsonb, git_context_stale = false,
-             git_context_updated_at = NOW(), updated_at = NOW()
-           WHERE id = $1`,
-          [
-            id,
-            resolved.path,
-            resolved.baseBranch,
-            resolved.gitContext && JSON.stringify(resolved.gitContext),
-          ]
-        );
-      } else {
-        const resolved = await this.localRunner.resolveWorkspace(agent, input);
-        await this.pool.query(
-          `UPDATE agents
-           SET workspace_path = $2, workspace_base_branch = $3, updated_at = NOW()
-           WHERE id = $1`,
-          [id, resolved.path, resolved.baseBranch]
-        );
-        await this.populateGitContext(id);
-      }
+      const resolved = await settleWorkspace(
+        agent,
+        input,
+        this.workspaceProbes(agent)
+      ).catch((error: unknown) => {
+        throw selectionError(error);
+      });
+      await this.pool.query(
+        `UPDATE agents
+         SET workspace_path = $2, workspace_base_branch = $3, updated_at = NOW()
+         WHERE id = $1`,
+        [id, resolved.path, resolved.baseBranch]
+      );
+      await this.populateGitContext(id);
       this.diffStatsRefresher?.clear(id);
       void this.diffStatsRefresher?.signal(id);
 
+      // Read back rather than trusting `resolved`: an overlapping call may
+      // have landed after this one's UPDATE, and the recorder follows the row.
       const updated = await this.getRequiredAgent(id);
       this.streamRecorder.setCwd(id, agentStreamDirectory(updated));
       this.eventBus.publish(updated);
@@ -1790,9 +1786,50 @@ export class AgentManager {
     });
   }
 
+  /** `set_workspace`'s machine questions, asked of the agent's runner. */
+  private workspaceProbes(agent: AgentRecord): WorkspaceProbes {
+    const { directory, placement } = checkoutRunners(
+      this.checkoutReadRunners(),
+      agent
+    );
+    const runner = directory.for(placement);
+    const session = sessionFromWire(agent.id);
+    return {
+      async select(path) {
+        const selected = await runner.call("workspace.select", {
+          session,
+          path: path === null ? null : pathFromWire(path),
+        });
+        // Enrolled runners answer without `git`, with the repository root;
+        // older builds with neither.
+        const repoRoot =
+          selected.git !== undefined
+            ? (selected.git?.repoRoot ?? null)
+            : selected.repositoryRoot;
+        return {
+          path: displayPath(selected.path),
+          moved: selected.moved,
+          repoRoot: repoRoot ? displayPath(repoRoot) : repoRoot,
+        };
+      },
+      async launchRepoRoot() {
+        const context = await runner.call("git.context", {
+          target: { session, checkout: "launch" },
+        });
+        return context && displayPath(context.repoRoot);
+      },
+      async defaultBranch(dir) {
+        const { branch } = await runner.call("git.defaultBranch", {
+          target: { path: pathFromWire(dir) },
+        });
+        return branch;
+      },
+    };
+  }
+
   private async runnerCheckout(
     agent: AgentRecord,
-    operation: { kind: "describe" } | { kind: "select"; path: string | null }
+    operation: { kind: "describe" }
   ) {
     const placement = remotePlacement(agent.cwd);
     if (!placement || !this.remote)
@@ -1819,36 +1856,6 @@ export class AgentManager {
     if (!isSessionCheckout(result))
       throw new AgentError("Invalid runner checkout response.", 502);
     return result;
-  }
-
-  private async selectRunnerCheckout(
-    agent: AgentRecord,
-    input: { path: string | null; baseBranch?: string | null }
-  ) {
-    const path = input.path?.trim() || null;
-    const baseBranch = input.baseBranch?.trim() || null;
-    if (path !== null && !isCheckoutPath(path))
-      throw new AgentError(
-        "Workspace path must be absolute on the bound runner.",
-        400
-      );
-    if (baseBranch !== null && !isSafeBranchName(baseBranch))
-      throw new AgentError("Invalid base branch.", 400);
-    const selected = await this.runnerCheckout(agent, { kind: "select", path });
-    return {
-      path: selected.moved || (path && baseBranch) ? selected.path : null,
-      baseBranch: path ? baseBranch : null,
-      // The runner probes like populateGitContext; older runners omit it.
-      gitContext:
-        selected.repositoryRoot && selected.checkoutRoot && selected.branch
-          ? gitContextFrom({
-              repoRoot: selected.repositoryRoot,
-              branch: selected.branch,
-              worktreePath: selected.checkoutRoot,
-              repoIconPath: null,
-            })
-          : null,
-    };
   }
 
   /**
@@ -4350,4 +4357,19 @@ function sameGitContext(
     a.isWorktree === b.isWorktree &&
     (a.repoIconPath ?? null) === (b.repoIconPath ?? null)
   );
+}
+
+/**
+ * A refused `set_workspace` as the app answers it: a status the runner
+ * recorded (main's 400s), 403 for a revoked runner, else 409 as before.
+ */
+function selectionError(error: unknown): Error {
+  if (error instanceof AgentError) return error;
+  if (error instanceof RunnerRevoked) return new AgentError(error.message, 403);
+  const message = errorMessage(error);
+  if (error instanceof RunnerCallError) {
+    const status = (error.details as { status?: unknown } | undefined)?.status;
+    if (typeof status === "number") return new AgentError(message, status);
+  }
+  return new AgentError(message, 409);
 }

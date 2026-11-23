@@ -21,6 +21,7 @@ export const WORKER_OPS = [
   "checkout.diff",
   "checkout.changes",
   "git.context",
+  "git.defaultBranch",
 ] as const;
 
 /** Commands the workload runs. They may write, so the fence refuses them. */
@@ -94,6 +95,13 @@ export type WorktreeSpec = {
 export interface WorkspacePort {
   /** The canonical path of an existing directory, else null. */
   canonical(path: string): Promise<string | null>;
+  /**
+   * What is at `path` for the workload account: a directory (with its
+   * canonical path), something else, or nothing it can reach.
+   */
+  locate(
+    path: string
+  ): Promise<{ directory: string } | "not_directory" | "missing">;
   /** Evidence that a directory is the same one later (device, inode, birth), else null. */
   identity(path: string): Promise<string | null>;
   /**

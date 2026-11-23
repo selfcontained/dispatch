@@ -30,6 +30,7 @@ import {
 import {
   agentDiffPath,
   agentWorkspaceDir,
+  selectWorkspaceDirectory,
 } from "../agents/workspace-target.js";
 
 /** Checkout reads the local runner child serves (T09). */
@@ -58,28 +59,51 @@ type Selector = "current" | "launch" | "moved";
 type ChildBinding = { path: string; launch: string | null; moved: boolean };
 
 /**
- * Each child's answers to `workspace.describe`, per connection epoch. A
- * binding the child holds never changes (import never replaces one), so a
- * found binding is kept until the child reconnects; not found is asked again.
+ * Each child's answers to `workspace.describe`, per connection epoch. Only
+ * `workspace.select` changes a binding the child holds (import never
+ * replaces one), and it goes through this adapter, which forgets the answer
+ * around it; otherwise a found binding is kept until the child reconnects,
+ * and not found is asked again. An answer that started before a select is
+ * not kept.
  */
-const bound = new WeakMap<
-  Runner,
-  { epoch: number; bindings: Map<string, ChildBinding> }
->();
+type BindingCache = {
+  epoch: number;
+  bindings: Map<string, ChildBinding>;
+  selects: Map<string, number>;
+};
+const bound = new WeakMap<Runner, BindingCache>();
+
+function bindingCache(child: Runner): BindingCache {
+  let cache = bound.get(child);
+  if (!cache || cache.epoch !== child.connection.epoch)
+    bound.set(
+      child,
+      (cache = {
+        epoch: child.connection.epoch,
+        bindings: new Map(),
+        selects: new Map(),
+      })
+    );
+  return cache;
+}
+
+/** Forget a session's binding: a select is about to change it, or did. */
+function forgetBinding(child: Runner, session: string) {
+  const cache = bindingCache(child);
+  cache.bindings.delete(session);
+  cache.selects.set(session, (cache.selects.get(session) ?? 0) + 1);
+}
 
 async function childBinding(
   child: Runner,
   session: Req<"workspace.describe">["session"],
   signal: AbortSignal
 ): Promise<ChildBinding | null> {
-  let cache = bound.get(child);
-  if (!cache || cache.epoch !== child.connection.epoch)
-    bound.set(
-      child,
-      (cache = { epoch: child.connection.epoch, bindings: new Map() })
-    );
-  const known = cache.bindings.get(sessionToWire(session));
+  const cache = bindingCache(child);
+  const key = sessionToWire(session);
+  const known = cache.bindings.get(key);
   if (known !== undefined) return known;
+  const selects = cache.selects.get(key) ?? 0;
   try {
     const described = await child.call(
       "workspace.describe",
@@ -93,7 +117,8 @@ async function childBinding(
         : null,
       moved: described.moved,
     };
-    cache.bindings.set(sessionToWire(session), binding);
+    if (bound.get(child) === cache && (cache.selects.get(key) ?? 0) === selects)
+      cache.bindings.set(key, binding);
     return binding;
   } catch (error) {
     if (error instanceof RunnerCallError && error.code === "not_found")
@@ -151,10 +176,10 @@ export function createLocalCheckoutRunner(
    * A checkout read for the bound session: through the child when it holds
    * this session's checkout at the directory the agent row names, else in
    * process with the same workload. Every local launch is prepared and bound
-   * by the child (T18), so the second case is temporary (R3) and covers only
-   * a session the child holds no binding for (a row its import has not
-   * reached) or one moved since, whose binding names its launch checkout
-   * until moves write one (`workspace.select`, T16).
+   * by the child (T18), and every move is recorded by it (`workspace.select`,
+   * T16), so the second case is temporary (R3) and covers only a session the
+   * child holds no binding for (a row its import has not reached, or no
+   * child), or a binding that disagrees with the row after a failed write.
    */
   async function read<K extends ChildRead>(
     op: K,
@@ -203,9 +228,9 @@ export function createLocalCheckoutRunner(
   /**
    * A command for the bound session, by the same rule as reads: in the
    * child when it holds the selected checkout at the directory the agent row
-   * names, else in process with the same workload (R3: unbound or moved
-   * sessions, as for reads). The child
-   * refuses it with `fenced` while frozen for an update.
+   * names, else in process with the same workload (R3: unbound sessions, as
+   * for reads). The child refuses it with `fenced` while frozen for an
+   * update.
    */
   async function exec(
     input: Req<"checkout.exec">,
@@ -280,6 +305,78 @@ export function createLocalCheckoutRunner(
     );
   }
 
+  function boundSession(target: {
+    session: Req<"workspace.select">["session"];
+  }) {
+    if (sessionToWire(target.session) !== agent?.id)
+      throw new RunnerCallError({
+        code: "invalid",
+        message: "Invalid native checkout binding.",
+      });
+    return agent;
+  }
+
+  /**
+   * Move the session (`set_workspace`): the child validates the folder and
+   * records it in its binding when it holds one; a session it holds no
+   * binding for is checked in process by the same rule (R3, as for reads)
+   * and stays served in process.
+   */
+  async function select(
+    input: Req<"workspace.select">,
+    options?: CallOptions<"workspace.select">
+  ): Promise<Res<"workspace.select">> {
+    const session = boundSession(input);
+    const key = sessionToWire(input.session);
+    if (child) {
+      const signal = AbortSignal.any([
+        AbortSignal.timeout(CHILD_WAIT_MS),
+        ...(options?.signal ? [options.signal] : []),
+      ]);
+      if (await childBinding(child, input.session, signal)) {
+        forgetBinding(child, key);
+        try {
+          return await child.call("workspace.select", input, options);
+        } finally {
+          forgetBinding(child, key);
+        }
+      }
+    }
+    const home = session.worktreePath ?? session.cwd;
+    const selected = input.path
+      ? await selectWorkspaceDirectory(home, displayPath(input.path))
+      : { path: home, moved: false, repoRoot: null };
+    return {
+      path: pathFromWire(selected.path),
+      moved: selected.moved,
+      origin: null,
+      repositoryRoot: selected.repoRoot
+        ? pathFromWire(selected.repoRoot)
+        : null,
+      checkoutRoot: pathFromWire(home),
+    };
+  }
+
+  /** A folder's default branch: in the child when it serves this session, else in process (R3). */
+  async function defaultBranch(
+    input: Req<"git.defaultBranch">,
+    options?: CallOptions<"git.defaultBranch">
+  ): Promise<Res<"git.defaultBranch">> {
+    const { target } = input;
+    if (!("path" in target))
+      throw new RunnerCallError({
+        code: "unsupported",
+        message: "The default branch is read for a path.",
+      });
+    if (child?.connection.state === "ready")
+      return child.call("git.defaultBranch", input, options);
+    return checkoutWorkload.run(
+      "git.defaultBranch",
+      { directory: displayPath(target.path), request: {} },
+      { signal: options?.signal }
+    );
+  }
+
   return {
     describe: () => description,
     connection: { state: "ready", epoch: 0, onChange: () => () => {} },
@@ -318,6 +415,16 @@ export function createLocalCheckoutRunner(
         return gitContext(input as Req<"git.context">, options) as Promise<
           Res<K>
         >;
+      if (op === "workspace.select")
+        return select(
+          input as Req<"workspace.select">,
+          options as CallOptions<"workspace.select">
+        ) as Promise<Res<K>>;
+      if (op === "git.defaultBranch")
+        return defaultBranch(
+          input as Req<"git.defaultBranch">,
+          options as CallOptions<"git.defaultBranch">
+        ) as Promise<Res<K>>;
       if (op === "checkout.exec")
         return exec(
           input as Req<"checkout.exec">,

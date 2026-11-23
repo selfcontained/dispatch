@@ -21,6 +21,11 @@
  * same decision, once its checkout exists. That binding replaces one the
  * import wrote for the session (an import can run while a launch is
  * preparing) and is never replaced itself.
+ *
+ * `workspace.select` changes only `currentPath`, the folder the session
+ * moved itself into (null: back at its checkout). The checkout, its
+ * ownership and the binding's source never change, so a moved-to folder is
+ * never owned and never removed.
  */
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
@@ -227,6 +232,28 @@ export class BindingStore {
           // An import published one meanwhile: this one replaces it.
           await rename(temp, target);
         }
+    } finally {
+      await rm(temp, { force: true });
+    }
+    return stored;
+  }
+
+  /**
+   * Record the folder a bound session now works in (null: its checkout),
+   * keeping everything else. Returns the binding the store holds
+   * afterwards, or null when the session has none.
+   */
+  async select(
+    session: string,
+    currentPath: string | null
+  ): Promise<StoredBinding | null> {
+    const held = await this.get(session);
+    if (!held) return null;
+    const stored: StoredBinding = { ...held, currentPath };
+    const temp = join(this.dir, `.${randomUUID()}.tmp`);
+    await writeFile(temp, JSON.stringify(stored) + "\n", { mode: 0o600 });
+    try {
+      await rename(temp, join(this.dir, fileName(session)));
     } finally {
       await rm(temp, { force: true });
     }
