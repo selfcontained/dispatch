@@ -1,0 +1,3810 @@
+{
+  "version": 2,
+  "errors": [
+    "invalid",
+    "not_found",
+    "forbidden",
+    "conflict",
+    "stale",
+    "busy",
+    "too_large",
+    "unsupported",
+    "unauthenticated",
+    "unavailable",
+    "unknown_outcome",
+    "host_gone",
+    "fenced",
+    "cancelled",
+    "timeout",
+    "failed"
+  ],
+  "commonErrors": [
+    "invalid",
+    "unavailable",
+    "unknown_outcome",
+    "fenced",
+    "cancelled",
+    "timeout",
+    "failed"
+  ],
+  "description": {
+    "object": {
+      "runnerId": {
+        "opaque": "RunnerId"
+      },
+      "displayName": "string",
+      "build": {
+        "object": {
+          "version": "string",
+          "revision": {
+            "optional": "string"
+          }
+        }
+      },
+      "protocol": "integer",
+      "engines": {
+        "array": "string"
+      },
+      "capabilities": {
+        "object": {
+          "selfUpdate": {
+            "optional": {
+              "object": {
+                "protocol": "integer",
+                "os": "string",
+                "arch": "string",
+                "version": "string",
+                "revision": "string",
+                "installedSha256": "string",
+                "handoff": {
+                  "object": {
+                    "reads": {
+                      "array": "integer"
+                    },
+                    "writes": "integer"
+                  }
+                },
+                "pendingAttemptId": {
+                  "optional": "string"
+                },
+                "fenceUnreadable": {
+                  "optional": {
+                    "literal": [true]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "operations": {
+    "runner.describe": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {}
+      },
+      "response": {
+        "object": {
+          "runnerId": {
+            "opaque": "RunnerId"
+          },
+          "displayName": "string",
+          "build": {
+            "object": {
+              "version": "string",
+              "revision": {
+                "optional": "string"
+              }
+            }
+          },
+          "protocol": "integer",
+          "engines": {
+            "array": "string"
+          },
+          "capabilities": {
+            "object": {
+              "selfUpdate": {
+                "optional": {
+                  "object": {
+                    "protocol": "integer",
+                    "os": "string",
+                    "arch": "string",
+                    "version": "string",
+                    "revision": "string",
+                    "installedSha256": "string",
+                    "handoff": {
+                      "object": {
+                        "reads": {
+                          "array": "integer"
+                        },
+                        "writes": "integer"
+                      }
+                    },
+                    "pendingAttemptId": {
+                      "optional": "string"
+                    },
+                    "fenceUnreadable": {
+                      "optional": {
+                        "literal": [true]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": [],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "runner.health": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {}
+      },
+      "response": {
+        "object": {
+          "version": "string",
+          "revision": {
+            "optional": "string"
+          },
+          "maintenanceFailure": {
+            "optional": {
+              "object": {
+                "step": "string",
+                "exitCode": "integer",
+                "at": "string"
+              }
+            }
+          },
+          "sessions": "integer",
+          "working": "integer",
+          "cpuPercent": {
+            "nullable": "number"
+          },
+          "memoryUsed": "number",
+          "memoryTotal": "number"
+        }
+      },
+      "errors": [],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline",
+      "events": {
+        "object": {
+          "version": "string",
+          "revision": {
+            "optional": "string"
+          },
+          "maintenanceFailure": {
+            "optional": {
+              "object": {
+                "step": "string",
+                "exitCode": "integer",
+                "at": "string"
+              }
+            }
+          },
+          "sessions": "integer",
+          "working": "integer",
+          "cpuPercent": {
+            "nullable": "number"
+          },
+          "memoryUsed": "number",
+          "memoryTotal": "number"
+        }
+      }
+    },
+    "session.launch": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "session": {
+            "opaque": "SessionHandle"
+          },
+          "launchId": "string",
+          "engine": "string",
+          "model": {
+            "nullable": "string"
+          },
+          "effort": {
+            "nullable": "string"
+          },
+          "access": {
+            "literal": ["full", "default"]
+          },
+          "resume": {
+            "nullable": "string"
+          },
+          "systemText": {
+            "nullable": "string"
+          },
+          "firstText": {
+            "nullable": "string"
+          },
+          "overflowNotice": {
+            "nullable": "string"
+          },
+          "env": {
+            "record": {
+              "union": [
+                "string",
+                {
+                  "object": {
+                    "from": {
+                      "literal": [
+                        "session.id",
+                        "session.filesDir",
+                        "mcp.origin",
+                        "mcp.caFile"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "mcp": {
+            "array": {
+              "object": {
+                "name": "string",
+                "url": "string",
+                "token": "string",
+                "caPem": {
+                  "optional": "string"
+                }
+              }
+            }
+          },
+          "owner": {
+            "nullable": "string"
+          }
+        }
+      },
+      "response": {
+        "object": {}
+      },
+      "errors": ["conflict", "not_found", "unauthenticated", "unsupported"],
+      "retry": {
+        "kind": "key",
+        "key": ["launchId"]
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "session.attach": {
+      "scope": "session",
+      "kind": "open",
+      "request": {
+        "object": {
+          "session": {
+            "opaque": "SessionHandle"
+          }
+        }
+      },
+      "response": {
+        "object": {}
+      },
+      "errors": ["host_gone"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline",
+      "channel": {
+        "toRunner": "bytes",
+        "fromRunner": "bytes"
+      }
+    },
+    "session.alive": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "session": {
+            "opaque": "SessionHandle"
+          }
+        }
+      },
+      "response": {
+        "object": {
+          "state": {
+            "literal": ["live", "gone", "stale"]
+          }
+        }
+      },
+      "errors": [],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "session.stop": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "session": {
+            "opaque": "SessionHandle"
+          },
+          "force": "boolean"
+        }
+      },
+      "response": {
+        "object": {}
+      },
+      "errors": [],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "session.discard": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "session": {
+            "opaque": "SessionHandle"
+          }
+        }
+      },
+      "response": {
+        "object": {}
+      },
+      "errors": ["busy"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "session.logs": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "session": {
+            "opaque": "SessionHandle"
+          },
+          "lines": "integer"
+        }
+      },
+      "response": {
+        "object": {
+          "text": "string"
+        }
+      },
+      "errors": ["not_found"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "session.list": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "owner": {
+            "nullable": "string"
+          }
+        }
+      },
+      "response": {
+        "object": {
+          "sessions": {
+            "array": {
+              "object": {
+                "session": {
+                  "opaque": "SessionHandle"
+                },
+                "state": {
+                  "literal": ["live", "gone", "stale"]
+                },
+                "instanceId": {
+                  "optional": "string"
+                },
+                "build": {
+                  "optional": {
+                    "object": {
+                      "version": "string",
+                      "revision": {
+                        "optional": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": [],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "session.sample": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "sessions": {
+            "array": {
+              "opaque": "SessionHandle"
+            }
+          }
+        }
+      },
+      "response": {
+        "object": {
+          "samples": {
+            "array": {
+              "object": {
+                "session": {
+                  "opaque": "SessionHandle"
+                },
+                "supported": "boolean",
+                "cpuPercent": {
+                  "nullable": "number"
+                },
+                "rssBytes": {
+                  "nullable": "integer"
+                },
+                "processCount": {
+                  "nullable": "integer"
+                },
+                "sampledAt": {
+                  "nullable": "integer"
+                },
+                "error": {
+                  "nullable": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": [],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "terminal.open": {
+      "scope": "session",
+      "kind": "open",
+      "request": {
+        "object": {
+          "target": {
+            "union": [
+              {
+                "object": {
+                  "session": {
+                    "opaque": "SessionHandle"
+                  },
+                  "checkout": {
+                    "optional": {
+                      "literal": ["current", "launch", "moved"]
+                    }
+                  }
+                }
+              },
+              {
+                "object": {
+                  "path": {
+                    "opaque": "RunnerPath"
+                  }
+                }
+              },
+              {
+                "object": {
+                  "repository": "string"
+                }
+              }
+            ]
+          },
+          "cols": "integer",
+          "rows": "integer"
+        }
+      },
+      "response": {
+        "object": {
+          "cwd": "string",
+          "host": "string",
+          "user": "string"
+        }
+      },
+      "errors": ["not_found", "busy"],
+      "retry": {
+        "kind": "none"
+      },
+      "timeout": "default",
+      "capability": "baseline",
+      "channel": {
+        "toRunner": {
+          "union": [
+            {
+              "object": {
+                "type": {
+                  "literal": ["input"]
+                },
+                "data": "string"
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["resize"]
+                },
+                "cols": "integer",
+                "rows": "integer"
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["detach", "resume"]
+                }
+              }
+            }
+          ]
+        },
+        "fromRunner": {
+          "union": [
+            {
+              "object": {
+                "type": {
+                  "literal": ["output"]
+                },
+                "data": "string"
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["exit"]
+                },
+                "code": "integer"
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["error"]
+                },
+                "message": "string",
+                "reason": {
+                  "optional": {
+                    "literal": ["update"]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "workspace.prepare": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "session": {
+            "opaque": "SessionHandle"
+          },
+          "source": {
+            "union": [
+              {
+                "object": {
+                  "directory": {
+                    "opaque": "RunnerPath"
+                  }
+                }
+              },
+              {
+                "object": {
+                  "repository": "string",
+                  "checkout": {
+                    "union": [
+                      {
+                        "object": {
+                          "kind": {
+                            "literal": ["new"]
+                          },
+                          "branch": "string",
+                          "base": {
+                            "optional": "string"
+                          }
+                        }
+                      },
+                      {
+                        "object": {
+                          "kind": {
+                            "literal": ["branch"]
+                          },
+                          "branch": "string",
+                          "allowDefault": {
+                            "optional": {
+                              "literal": [true]
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "object": {
+                          "kind": {
+                            "literal": ["default"]
+                          }
+                        }
+                      },
+                      {
+                        "object": {
+                          "kind": {
+                            "literal": ["pr"]
+                          },
+                          "branch": "string",
+                          "number": "integer"
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "object": {
+                  "session": {
+                    "opaque": "SessionHandle"
+                  }
+                }
+              },
+              {
+                "object": {
+                  "scratch": {
+                    "literal": [true]
+                  }
+                }
+              }
+            ]
+          },
+          "worktree": {
+            "optional": {
+              "object": {
+                "name": "string",
+                "branch": "string",
+                "base": {
+                  "optional": "string"
+                },
+                "create": "boolean",
+                "location": {
+                  "optional": {
+                    "literal": ["nested", "sibling"]
+                  }
+                }
+              }
+            }
+          },
+          "copyIgnored": {
+            "array": "string"
+          },
+          "installDependencies": "boolean"
+        }
+      },
+      "response": {
+        "object": {
+          "path": {
+            "opaque": "RunnerPath"
+          },
+          "moved": "boolean",
+          "origin": {
+            "nullable": "string"
+          },
+          "repositoryRoot": {
+            "optional": {
+              "nullable": {
+                "opaque": "RunnerPath"
+              }
+            }
+          },
+          "checkoutRoot": {
+            "optional": {
+              "nullable": {
+                "opaque": "RunnerPath"
+              }
+            }
+          },
+          "branch": {
+            "optional": {
+              "nullable": "string"
+            }
+          },
+          "worktree": {
+            "optional": {
+              "nullable": {
+                "object": {
+                  "path": {
+                    "opaque": "RunnerPath"
+                  },
+                  "branch": "string",
+                  "base": {
+                    "nullable": "string"
+                  }
+                }
+              }
+            }
+          },
+          "git": {
+            "optional": {
+              "nullable": {
+                "object": {
+                  "repoRoot": {
+                    "opaque": "RunnerPath"
+                  },
+                  "branch": "string",
+                  "worktreePath": {
+                    "opaque": "RunnerPath"
+                  },
+                  "worktreeName": "string",
+                  "isWorktree": "boolean",
+                  "repoIconPath": {
+                    "optional": {
+                      "nullable": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": ["conflict", "not_found", "forbidden"],
+      "retry": {
+        "kind": "key",
+        "key": ["session"]
+      },
+      "timeout": "long",
+      "capability": "baseline",
+      "events": {
+        "object": {
+          "phase": {
+            "literal": ["workspace", "dependencies", "ready"]
+          },
+          "status": {
+            "optional": {
+              "literal": ["done", "failed"]
+            }
+          }
+        }
+      }
+    },
+    "workspace.resume": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "session": {
+            "opaque": "SessionHandle"
+          }
+        }
+      },
+      "response": {
+        "nullable": {
+          "object": {
+            "path": {
+              "opaque": "RunnerPath"
+            },
+            "moved": "boolean",
+            "origin": {
+              "nullable": "string"
+            },
+            "repositoryRoot": {
+              "optional": {
+                "nullable": {
+                  "opaque": "RunnerPath"
+                }
+              }
+            },
+            "checkoutRoot": {
+              "optional": {
+                "nullable": {
+                  "opaque": "RunnerPath"
+                }
+              }
+            },
+            "branch": {
+              "optional": {
+                "nullable": "string"
+              }
+            },
+            "worktree": {
+              "optional": {
+                "nullable": {
+                  "object": {
+                    "path": {
+                      "opaque": "RunnerPath"
+                    },
+                    "branch": "string",
+                    "base": {
+                      "nullable": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "git": {
+              "optional": {
+                "nullable": {
+                  "object": {
+                    "repoRoot": {
+                      "opaque": "RunnerPath"
+                    },
+                    "branch": "string",
+                    "worktreePath": {
+                      "opaque": "RunnerPath"
+                    },
+                    "worktreeName": "string",
+                    "isWorktree": "boolean",
+                    "repoIconPath": {
+                      "optional": {
+                        "nullable": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": ["conflict", "not_found"],
+      "retry": {
+        "kind": "key",
+        "key": ["session"]
+      },
+      "timeout": "long",
+      "capability": "baseline",
+      "events": {
+        "object": {
+          "phase": {
+            "literal": ["workspace", "dependencies", "ready"]
+          },
+          "status": {
+            "optional": {
+              "literal": ["done", "failed"]
+            }
+          }
+        }
+      }
+    },
+    "workspace.describe": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "session": {
+            "opaque": "SessionHandle"
+          }
+        }
+      },
+      "response": {
+        "object": {
+          "path": {
+            "opaque": "RunnerPath"
+          },
+          "moved": "boolean",
+          "origin": {
+            "nullable": "string"
+          },
+          "repositoryRoot": {
+            "optional": {
+              "nullable": {
+                "opaque": "RunnerPath"
+              }
+            }
+          },
+          "checkoutRoot": {
+            "optional": {
+              "nullable": {
+                "opaque": "RunnerPath"
+              }
+            }
+          },
+          "branch": {
+            "optional": {
+              "nullable": "string"
+            }
+          },
+          "worktree": {
+            "optional": {
+              "nullable": {
+                "object": {
+                  "path": {
+                    "opaque": "RunnerPath"
+                  },
+                  "branch": "string",
+                  "base": {
+                    "nullable": "string"
+                  }
+                }
+              }
+            }
+          },
+          "git": {
+            "optional": {
+              "nullable": {
+                "object": {
+                  "repoRoot": {
+                    "opaque": "RunnerPath"
+                  },
+                  "branch": "string",
+                  "worktreePath": {
+                    "opaque": "RunnerPath"
+                  },
+                  "worktreeName": "string",
+                  "isWorktree": "boolean",
+                  "repoIconPath": {
+                    "optional": {
+                      "nullable": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": ["not_found"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "workspace.select": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "session": {
+            "opaque": "SessionHandle"
+          },
+          "path": {
+            "nullable": {
+              "opaque": "RunnerPath"
+            }
+          }
+        }
+      },
+      "response": {
+        "object": {
+          "path": {
+            "opaque": "RunnerPath"
+          },
+          "moved": "boolean",
+          "origin": {
+            "nullable": "string"
+          },
+          "repositoryRoot": {
+            "optional": {
+              "nullable": {
+                "opaque": "RunnerPath"
+              }
+            }
+          },
+          "checkoutRoot": {
+            "optional": {
+              "nullable": {
+                "opaque": "RunnerPath"
+              }
+            }
+          },
+          "branch": {
+            "optional": {
+              "nullable": "string"
+            }
+          },
+          "worktree": {
+            "optional": {
+              "nullable": {
+                "object": {
+                  "path": {
+                    "opaque": "RunnerPath"
+                  },
+                  "branch": "string",
+                  "base": {
+                    "nullable": "string"
+                  }
+                }
+              }
+            }
+          },
+          "git": {
+            "optional": {
+              "nullable": {
+                "object": {
+                  "repoRoot": {
+                    "opaque": "RunnerPath"
+                  },
+                  "branch": "string",
+                  "worktreePath": {
+                    "opaque": "RunnerPath"
+                  },
+                  "worktreeName": "string",
+                  "isWorktree": "boolean",
+                  "repoIconPath": {
+                    "optional": {
+                      "nullable": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": ["not_found", "forbidden"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "workspace.observe": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "session": {
+            "opaque": "SessionHandle"
+          }
+        }
+      },
+      "response": {
+        "object": {
+          "ownership": {
+            "literal": ["owned", "borrowed", "external", "none"]
+          },
+          "owner": {
+            "nullable": "string"
+          },
+          "borrowers": {
+            "array": "string"
+          },
+          "checkout": {
+            "nullable": {
+              "object": {
+                "path": {
+                  "opaque": "RunnerPath"
+                },
+                "branch": {
+                  "nullable": "string"
+                },
+                "stateId": "string",
+                "unmerged": "boolean",
+                "changedFiles": {
+                  "array": "string"
+                },
+                "uncommittedFiles": {
+                  "array": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": ["not_found"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "workspace.release": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "session": {
+            "opaque": "SessionHandle"
+          },
+          "expectedState": {
+            "nullable": "string"
+          }
+        }
+      },
+      "response": {
+        "object": {
+          "result": {
+            "literal": ["released", "retained", "inUse"]
+          }
+        }
+      },
+      "errors": [],
+      "retry": {
+        "kind": "state",
+        "field": "expectedState"
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "path.resolve": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "path": "string"
+        }
+      },
+      "response": {
+        "object": {
+          "resolvedPath": {
+            "opaque": "RunnerPath"
+          },
+          "canonicalPath": {
+            "nullable": {
+              "opaque": "RunnerPath"
+            }
+          },
+          "exists": "boolean",
+          "isDirectory": "boolean",
+          "isGitRepo": "boolean",
+          "privacyRestricted": "boolean",
+          "projectRoot": {
+            "nullable": {
+              "opaque": "RunnerPath"
+            }
+          },
+          "git": {
+            "nullable": {
+              "object": {
+                "repoRoot": {
+                  "opaque": "RunnerPath"
+                },
+                "branch": "string",
+                "worktreePath": {
+                  "opaque": "RunnerPath"
+                },
+                "worktreeName": "string",
+                "isWorktree": "boolean",
+                "repoIconPath": {
+                  "optional": {
+                    "nullable": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": ["forbidden"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "path.complete": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "prefix": "string",
+          "limit": "integer"
+        }
+      },
+      "response": {
+        "object": {
+          "completions": {
+            "array": "string"
+          },
+          "privacyRestricted": {
+            "optional": "boolean"
+          }
+        }
+      },
+      "errors": ["forbidden"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "checkout.list": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "target": {
+            "union": [
+              {
+                "object": {
+                  "session": {
+                    "opaque": "SessionHandle"
+                  },
+                  "checkout": {
+                    "optional": {
+                      "literal": ["current", "launch", "moved"]
+                    }
+                  }
+                }
+              },
+              {
+                "object": {
+                  "path": {
+                    "opaque": "RunnerPath"
+                  }
+                }
+              },
+              {
+                "object": {
+                  "repository": "string"
+                }
+              }
+            ]
+          },
+          "path": "string"
+        }
+      },
+      "response": {
+        "object": {
+          "truncated": "boolean",
+          "entries": {
+            "array": {
+              "object": {
+                "name": "string",
+                "path": "string",
+                "kind": {
+                  "literal": ["file", "directory", "link", "other"]
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": ["not_found", "forbidden"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "checkout.read": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "target": {
+            "union": [
+              {
+                "object": {
+                  "session": {
+                    "opaque": "SessionHandle"
+                  },
+                  "checkout": {
+                    "optional": {
+                      "literal": ["current", "launch", "moved"]
+                    }
+                  }
+                }
+              },
+              {
+                "object": {
+                  "path": {
+                    "opaque": "RunnerPath"
+                  }
+                }
+              },
+              {
+                "object": {
+                  "repository": "string"
+                }
+              }
+            ]
+          },
+          "path": "string",
+          "encoding": {
+            "literal": ["utf8"]
+          },
+          "maxBytes": {
+            "nullable": "integer"
+          }
+        }
+      },
+      "response": {
+        "nullable": {
+          "object": {
+            "data": "string",
+            "digest": {
+              "optional": "string"
+            }
+          }
+        }
+      },
+      "errors": ["forbidden", "too_large"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "checkout.write": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "target": {
+            "union": [
+              {
+                "object": {
+                  "session": {
+                    "opaque": "SessionHandle"
+                  },
+                  "checkout": {
+                    "optional": {
+                      "literal": ["current", "launch", "moved"]
+                    }
+                  }
+                }
+              },
+              {
+                "object": {
+                  "path": {
+                    "opaque": "RunnerPath"
+                  }
+                }
+              },
+              {
+                "object": {
+                  "repository": "string"
+                }
+              }
+            ]
+          },
+          "path": "string",
+          "data": "string",
+          "expectedDigest": {
+            "nullable": "string"
+          }
+        }
+      },
+      "response": {
+        "object": {
+          "digest": "string"
+        }
+      },
+      "errors": ["forbidden", "stale"],
+      "retry": {
+        "kind": "state",
+        "field": "expectedDigest"
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "checkout.preview": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "target": {
+            "union": [
+              {
+                "object": {
+                  "session": {
+                    "opaque": "SessionHandle"
+                  },
+                  "checkout": {
+                    "optional": {
+                      "literal": ["current", "launch", "moved"]
+                    }
+                  }
+                }
+              },
+              {
+                "object": {
+                  "path": {
+                    "opaque": "RunnerPath"
+                  }
+                }
+              },
+              {
+                "object": {
+                  "repository": "string"
+                }
+              }
+            ]
+          },
+          "path": "string"
+        }
+      },
+      "response": {
+        "union": [
+          {
+            "object": {
+              "kind": {
+                "literal": ["text"]
+              },
+              "size": "integer",
+              "text": "string"
+            }
+          },
+          {
+            "object": {
+              "kind": {
+                "literal": ["image"]
+              },
+              "size": "integer",
+              "src": "string"
+            }
+          },
+          {
+            "object": {
+              "kind": {
+                "literal": ["svg"]
+              },
+              "size": "integer",
+              "text": "string",
+              "src": "string"
+            }
+          },
+          {
+            "object": {
+              "kind": {
+                "literal": ["unsupported"]
+              },
+              "size": "integer",
+              "message": "string"
+            }
+          }
+        ]
+      },
+      "errors": ["not_found", "too_large"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "checkout.index": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "target": {
+            "union": [
+              {
+                "object": {
+                  "session": {
+                    "opaque": "SessionHandle"
+                  },
+                  "checkout": {
+                    "optional": {
+                      "literal": ["current", "launch", "moved"]
+                    }
+                  }
+                }
+              },
+              {
+                "object": {
+                  "path": {
+                    "opaque": "RunnerPath"
+                  }
+                }
+              },
+              {
+                "object": {
+                  "repository": "string"
+                }
+              }
+            ]
+          },
+          "generation": "string"
+        }
+      },
+      "response": {
+        "object": {
+          "source": {
+            "literal": ["git", "folders"]
+          },
+          "paths": {
+            "array": "string"
+          },
+          "truncated": "boolean"
+        }
+      },
+      "errors": [],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "checkout.stats": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "target": {
+            "union": [
+              {
+                "object": {
+                  "session": {
+                    "opaque": "SessionHandle"
+                  },
+                  "checkout": {
+                    "optional": {
+                      "literal": ["current", "launch", "moved"]
+                    }
+                  }
+                }
+              },
+              {
+                "object": {
+                  "path": {
+                    "opaque": "RunnerPath"
+                  }
+                }
+              },
+              {
+                "object": {
+                  "repository": "string"
+                }
+              }
+            ]
+          },
+          "base": {
+            "nullable": "string"
+          },
+          "uncommitted": "boolean",
+          "exclude": {
+            "array": "string"
+          }
+        }
+      },
+      "response": {
+        "nullable": {
+          "object": {
+            "files": "integer",
+            "added": "integer",
+            "deleted": "integer",
+            "excluded": {
+              "object": {
+                "files": "integer",
+                "added": "integer",
+                "deleted": "integer"
+              }
+            },
+            "computedAt": "integer",
+            "outcome": {
+              "optional": {
+                "literal": ["success", "partial"]
+              }
+            }
+          }
+        }
+      },
+      "errors": ["not_found"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "checkout.diff": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "target": {
+            "union": [
+              {
+                "object": {
+                  "session": {
+                    "opaque": "SessionHandle"
+                  },
+                  "checkout": {
+                    "optional": {
+                      "literal": ["current", "launch", "moved"]
+                    }
+                  }
+                }
+              },
+              {
+                "object": {
+                  "path": {
+                    "opaque": "RunnerPath"
+                  }
+                }
+              },
+              {
+                "object": {
+                  "repository": "string"
+                }
+              }
+            ]
+          },
+          "base": {
+            "nullable": "string"
+          },
+          "uncommitted": "boolean",
+          "whitespace": {
+            "literal": ["show", "ignore"]
+          },
+          "exclude": {
+            "array": "string"
+          },
+          "path": {
+            "optional": "string"
+          }
+        }
+      },
+      "response": {
+        "union": [
+          {
+            "object": {
+              "baseRef": {
+                "nullable": "string"
+              },
+              "files": {
+                "array": {
+                  "object": {
+                    "path": "string",
+                    "oldPath": {
+                      "optional": "string"
+                    },
+                    "status": {
+                      "literal": ["modified", "added", "deleted", "renamed"]
+                    },
+                    "added": "integer",
+                    "deleted": "integer",
+                    "diff": {
+                      "nullable": "string"
+                    },
+                    "excluded": "boolean",
+                    "truncated": "boolean",
+                    "image": {
+                      "optional": {
+                        "object": {
+                          "revision": {
+                            "optional": "string"
+                          },
+                          "oldSize": {
+                            "nullable": "integer"
+                          },
+                          "newSize": {
+                            "nullable": "integer"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "truncatedFileCount": {
+                "optional": "integer"
+              }
+            }
+          },
+          {
+            "nullable": {
+              "object": {
+                "path": "string",
+                "oldPath": {
+                  "optional": "string"
+                },
+                "status": {
+                  "literal": ["modified", "added", "deleted", "renamed"]
+                },
+                "added": "integer",
+                "deleted": "integer",
+                "diff": "string"
+              }
+            }
+          }
+        ]
+      },
+      "errors": ["too_large"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "checkout.image": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "target": {
+            "union": [
+              {
+                "object": {
+                  "session": {
+                    "opaque": "SessionHandle"
+                  },
+                  "checkout": {
+                    "optional": {
+                      "literal": ["current", "launch", "moved"]
+                    }
+                  }
+                }
+              },
+              {
+                "object": {
+                  "path": {
+                    "opaque": "RunnerPath"
+                  }
+                }
+              },
+              {
+                "object": {
+                  "repository": "string"
+                }
+              }
+            ]
+          },
+          "base": {
+            "nullable": "string"
+          },
+          "uncommitted": "boolean",
+          "path": "string",
+          "side": {
+            "literal": ["old", "new"]
+          }
+        }
+      },
+      "response": {
+        "object": {
+          "bytes": {
+            "opaque": "Blob"
+          }
+        }
+      },
+      "errors": ["not_found", "too_large"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "checkout.changes": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "target": {
+            "union": [
+              {
+                "object": {
+                  "session": {
+                    "opaque": "SessionHandle"
+                  },
+                  "checkout": {
+                    "optional": {
+                      "literal": ["current", "launch", "moved"]
+                    }
+                  }
+                }
+              },
+              {
+                "object": {
+                  "path": {
+                    "opaque": "RunnerPath"
+                  }
+                }
+              },
+              {
+                "object": {
+                  "repository": "string"
+                }
+              }
+            ]
+          },
+          "base": {
+            "nullable": "string"
+          }
+        }
+      },
+      "response": {
+        "object": {
+          "baseRef": "string",
+          "head": "string",
+          "stateId": "string",
+          "files": {
+            "array": "string"
+          }
+        }
+      },
+      "errors": ["not_found"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "checkout.defaultFiles": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "target": {
+            "union": [
+              {
+                "object": {
+                  "session": {
+                    "opaque": "SessionHandle"
+                  },
+                  "checkout": {
+                    "optional": {
+                      "literal": ["current", "launch", "moved"]
+                    }
+                  }
+                }
+              },
+              {
+                "object": {
+                  "path": {
+                    "opaque": "RunnerPath"
+                  }
+                }
+              },
+              {
+                "object": {
+                  "repository": "string"
+                }
+              }
+            ]
+          },
+          "dirs": {
+            "array": "string"
+          },
+          "wait": "boolean"
+        }
+      },
+      "response": {
+        "object": {
+          "hasOrigin": "boolean",
+          "files": {
+            "array": {
+              "object": {
+                "path": "string",
+                "content": "string"
+              }
+            }
+          },
+          "warnings": {
+            "array": "string"
+          },
+          "refreshing": "boolean",
+          "updatedAt": {
+            "nullable": "number"
+          },
+          "truncated": "boolean"
+        }
+      },
+      "errors": [],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "checkout.watch": {
+      "scope": "session",
+      "kind": "open",
+      "request": {
+        "object": {
+          "target": {
+            "union": [
+              {
+                "object": {
+                  "session": {
+                    "opaque": "SessionHandle"
+                  },
+                  "checkout": {
+                    "optional": {
+                      "literal": ["current", "launch", "moved"]
+                    }
+                  }
+                }
+              },
+              {
+                "object": {
+                  "path": {
+                    "opaque": "RunnerPath"
+                  }
+                }
+              },
+              {
+                "object": {
+                  "repository": "string"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "response": {
+        "object": {}
+      },
+      "errors": ["busy"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline",
+      "channel": {
+        "toRunner": "bytes",
+        "fromRunner": "bytes"
+      }
+    },
+    "checkout.exec": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "target": {
+            "union": [
+              {
+                "object": {
+                  "session": {
+                    "opaque": "SessionHandle"
+                  },
+                  "checkout": {
+                    "optional": {
+                      "literal": ["current", "launch", "moved"]
+                    }
+                  }
+                }
+              },
+              {
+                "object": {
+                  "path": {
+                    "opaque": "RunnerPath"
+                  }
+                }
+              },
+              {
+                "object": {
+                  "repository": "string"
+                }
+              }
+            ]
+          },
+          "guard": {
+            "object": {
+              "path": "string",
+              "digest": "string"
+            }
+          },
+          "argv": {
+            "array": "string"
+          },
+          "env": {
+            "record": "string"
+          },
+          "timeoutMs": {
+            "nullable": "integer"
+          },
+          "maxOutput": {
+            "nullable": "integer"
+          },
+          "shell": {
+            "literal": ["direct", "login"]
+          }
+        }
+      },
+      "response": {
+        "object": {
+          "exitCode": "integer",
+          "stdout": "string",
+          "stderr": "string",
+          "truncated": {
+            "optional": "boolean"
+          }
+        }
+      },
+      "errors": ["stale", "busy"],
+      "retry": {
+        "kind": "none"
+      },
+      "timeout": "request",
+      "capability": "baseline",
+      "cancellable": true
+    },
+    "files.put": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "session": {
+            "opaque": "SessionHandle"
+          },
+          "name": "string",
+          "size": "integer",
+          "digest": "string",
+          "blob": {
+            "opaque": "Blob"
+          }
+        }
+      },
+      "response": {
+        "object": {
+          "path": {
+            "opaque": "RunnerPath"
+          }
+        }
+      },
+      "errors": ["not_found", "conflict"],
+      "retry": {
+        "kind": "key",
+        "key": ["name", "digest"]
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "files.get": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "session": {
+            "opaque": "SessionHandle"
+          },
+          "path": "string"
+        }
+      },
+      "response": {
+        "object": {
+          "name": "string",
+          "size": "integer",
+          "digest": "string",
+          "blob": {
+            "opaque": "Blob"
+          }
+        }
+      },
+      "errors": ["not_found", "forbidden"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "git.context": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "target": {
+            "union": [
+              {
+                "object": {
+                  "session": {
+                    "opaque": "SessionHandle"
+                  },
+                  "checkout": {
+                    "optional": {
+                      "literal": ["current", "launch", "moved"]
+                    }
+                  }
+                }
+              },
+              {
+                "object": {
+                  "path": {
+                    "opaque": "RunnerPath"
+                  }
+                }
+              },
+              {
+                "object": {
+                  "repository": "string"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "response": {
+        "nullable": {
+          "object": {
+            "repoRoot": {
+              "opaque": "RunnerPath"
+            },
+            "branch": "string",
+            "worktreePath": {
+              "opaque": "RunnerPath"
+            },
+            "worktreeName": "string",
+            "isWorktree": "boolean",
+            "repoIconPath": {
+              "optional": {
+                "nullable": "string"
+              }
+            }
+          }
+        }
+      },
+      "errors": [],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "git.defaultBranch": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "target": {
+            "union": [
+              {
+                "object": {
+                  "session": {
+                    "opaque": "SessionHandle"
+                  },
+                  "checkout": {
+                    "optional": {
+                      "literal": ["current", "launch", "moved"]
+                    }
+                  }
+                }
+              },
+              {
+                "object": {
+                  "path": {
+                    "opaque": "RunnerPath"
+                  }
+                }
+              },
+              {
+                "object": {
+                  "repository": "string"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "response": {
+        "object": {
+          "branch": {
+            "nullable": "string"
+          }
+        }
+      },
+      "errors": [],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "git.branches": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "target": {
+            "union": [
+              {
+                "object": {
+                  "session": {
+                    "opaque": "SessionHandle"
+                  },
+                  "checkout": {
+                    "optional": {
+                      "literal": ["current", "launch", "moved"]
+                    }
+                  }
+                }
+              },
+              {
+                "object": {
+                  "path": {
+                    "opaque": "RunnerPath"
+                  }
+                }
+              },
+              {
+                "object": {
+                  "repository": "string"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "response": {
+        "object": {
+          "branches": {
+            "array": "string"
+          },
+          "defaultBranch": {
+            "optional": "string"
+          }
+        }
+      },
+      "errors": ["unauthenticated"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "git.base": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "target": {
+            "union": [
+              {
+                "object": {
+                  "session": {
+                    "opaque": "SessionHandle"
+                  },
+                  "checkout": {
+                    "optional": {
+                      "literal": ["current", "launch", "moved"]
+                    }
+                  }
+                }
+              },
+              {
+                "object": {
+                  "path": {
+                    "opaque": "RunnerPath"
+                  }
+                }
+              },
+              {
+                "object": {
+                  "repository": "string"
+                }
+              }
+            ]
+          },
+          "requested": {
+            "nullable": "string"
+          },
+          "fallback": {
+            "array": "string"
+          }
+        }
+      },
+      "response": {
+        "object": {
+          "base": {
+            "nullable": "string"
+          }
+        }
+      },
+      "errors": [],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "github.account": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {}
+      },
+      "response": {
+        "union": [
+          {
+            "object": {
+              "status": {
+                "literal": ["signed-in"]
+              },
+              "login": "string",
+              "gitIdentityUnavailable": {
+                "optional": {
+                  "literal": [true]
+                }
+              }
+            }
+          },
+          {
+            "object": {
+              "status": {
+                "literal": ["pending"]
+              },
+              "code": {
+                "optional": "string"
+              },
+              "verificationUrl": {
+                "optional": "string"
+              }
+            }
+          },
+          {
+            "object": {
+              "status": {
+                "literal": ["signed-out"]
+              }
+            }
+          },
+          {
+            "object": {
+              "status": {
+                "literal": ["unavailable", "failed"]
+              },
+              "message": {
+                "optional": "string"
+              }
+            }
+          }
+        ]
+      },
+      "errors": [],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "github.login.start": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "requestId": "string"
+        }
+      },
+      "response": {
+        "union": [
+          {
+            "object": {
+              "status": {
+                "literal": ["signed-in"]
+              },
+              "login": "string",
+              "gitIdentityUnavailable": {
+                "optional": {
+                  "literal": [true]
+                }
+              }
+            }
+          },
+          {
+            "object": {
+              "status": {
+                "literal": ["pending"]
+              },
+              "code": {
+                "optional": "string"
+              },
+              "verificationUrl": {
+                "optional": "string"
+              }
+            }
+          },
+          {
+            "object": {
+              "status": {
+                "literal": ["signed-out"]
+              }
+            }
+          },
+          {
+            "object": {
+              "status": {
+                "literal": ["unavailable", "failed"]
+              },
+              "message": {
+                "optional": "string"
+              }
+            }
+          }
+        ]
+      },
+      "errors": ["busy"],
+      "retry": {
+        "kind": "key",
+        "key": ["requestId"]
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "github.login.cancel": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "requestId": "string"
+        }
+      },
+      "response": {
+        "union": [
+          {
+            "object": {
+              "status": {
+                "literal": ["signed-in"]
+              },
+              "login": "string",
+              "gitIdentityUnavailable": {
+                "optional": {
+                  "literal": [true]
+                }
+              }
+            }
+          },
+          {
+            "object": {
+              "status": {
+                "literal": ["pending"]
+              },
+              "code": {
+                "optional": "string"
+              },
+              "verificationUrl": {
+                "optional": "string"
+              }
+            }
+          },
+          {
+            "object": {
+              "status": {
+                "literal": ["signed-out"]
+              }
+            }
+          },
+          {
+            "object": {
+              "status": {
+                "literal": ["unavailable", "failed"]
+              },
+              "message": {
+                "optional": "string"
+              }
+            }
+          }
+        ]
+      },
+      "errors": [],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "github.logout": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {}
+      },
+      "response": {
+        "union": [
+          {
+            "object": {
+              "status": {
+                "literal": ["signed-in"]
+              },
+              "login": "string",
+              "gitIdentityUnavailable": {
+                "optional": {
+                  "literal": [true]
+                }
+              }
+            }
+          },
+          {
+            "object": {
+              "status": {
+                "literal": ["pending"]
+              },
+              "code": {
+                "optional": "string"
+              },
+              "verificationUrl": {
+                "optional": "string"
+              }
+            }
+          },
+          {
+            "object": {
+              "status": {
+                "literal": ["signed-out"]
+              }
+            }
+          },
+          {
+            "object": {
+              "status": {
+                "literal": ["unavailable", "failed"]
+              },
+              "message": {
+                "optional": "string"
+              }
+            }
+          }
+        ]
+      },
+      "errors": [],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "github.repositories": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "query": "string"
+        }
+      },
+      "response": {
+        "object": {
+          "repositories": {
+            "array": {
+              "object": {
+                "name": "string",
+                "url": "string"
+              }
+            }
+          }
+        }
+      },
+      "errors": ["unauthenticated"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "github.branches": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "owner": "string",
+          "repo": "string"
+        }
+      },
+      "response": {
+        "object": {
+          "branches": {
+            "array": "string"
+          },
+          "defaultBranch": {
+            "optional": "string"
+          }
+        }
+      },
+      "errors": ["unauthenticated"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "github.pr.head": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "owner": "string",
+          "repo": "string",
+          "number": "integer"
+        }
+      },
+      "response": {
+        "object": {
+          "url": "string",
+          "branch": "string"
+        }
+      },
+      "errors": ["unauthenticated", "not_found"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "github.pr.status": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "owner": "string",
+          "repo": "string",
+          "number": "integer"
+        }
+      },
+      "response": {
+        "object": {
+          "state": {
+            "nullable": {
+              "literal": ["OPEN", "CLOSED", "MERGED"]
+            }
+          },
+          "draft": "boolean",
+          "title": {
+            "nullable": "string"
+          },
+          "head": {
+            "nullable": "string"
+          },
+          "rollup": {
+            "nullable": {
+              "array": "json"
+            }
+          },
+          "credentialContext": {
+            "optional": "string"
+          }
+        }
+      },
+      "errors": ["unauthenticated"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "github.pr.details": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "owner": "string",
+          "repo": "string",
+          "number": "integer"
+        }
+      },
+      "response": {
+        "nullable": {
+          "object": {
+            "credentialContext": "string",
+            "number": "integer",
+            "title": "string",
+            "body": "string",
+            "baseRefName": "string",
+            "headRefName": "string",
+            "baseRefOid": "string",
+            "headRefOid": "string",
+            "additions": "integer",
+            "deletions": "integer",
+            "files": {
+              "array": {
+                "object": {
+                  "path": "string",
+                  "additions": "integer",
+                  "deletions": "integer",
+                  "patch": {
+                    "optional": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": ["unauthenticated"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "github.pr.diff": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "owner": "string",
+          "repo": "string",
+          "number": "integer",
+          "base": "string",
+          "head": "string",
+          "context": "string"
+        }
+      },
+      "response": {
+        "nullable": {
+          "object": {
+            "files": {
+              "array": {
+                "object": {
+                  "path": "string",
+                  "additions": "integer",
+                  "deletions": "integer",
+                  "patch": {
+                    "optional": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": ["unauthenticated", "stale"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "engine.list": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "refresh": "boolean"
+        }
+      },
+      "response": {
+        "object": {
+          "entries": {
+            "array": {
+              "object": {
+                "id": "string",
+                "label": "string",
+                "installed": "boolean",
+                "signedIn": {
+                  "nullable": "boolean"
+                },
+                "version": {
+                  "nullable": "string"
+                },
+                "detail": {
+                  "optional": "string"
+                },
+                "issue": {
+                  "optional": "string"
+                },
+                "actions": {
+                  "array": {
+                    "literal": ["install", "update", "login", "login_cancel"]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": [],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "engine.install": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "engine": "string",
+          "requestId": "string"
+        }
+      },
+      "response": {
+        "object": {
+          "operationId": "string",
+          "message": {
+            "optional": "string"
+          }
+        }
+      },
+      "errors": ["busy", "unsupported"],
+      "retry": {
+        "kind": "key",
+        "key": ["requestId"]
+      },
+      "timeout": "long",
+      "capability": "baseline",
+      "events": {
+        "union": [
+          {
+            "object": {
+              "type": {
+                "literal": ["operation_progress"]
+              },
+              "operationId": "string",
+              "engine": "string",
+              "phase": "string",
+              "message": "string",
+              "outputChunk": {
+                "optional": "string"
+              }
+            }
+          },
+          {
+            "object": {
+              "type": {
+                "literal": ["operation_complete"]
+              },
+              "operationId": "string",
+              "engine": "string",
+              "success": "boolean",
+              "message": "string"
+            }
+          }
+        ]
+      }
+    },
+    "engine.update": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "engine": "string",
+          "requestId": "string"
+        }
+      },
+      "response": {
+        "object": {
+          "operationId": "string",
+          "message": {
+            "optional": "string"
+          }
+        }
+      },
+      "errors": ["busy", "unsupported"],
+      "retry": {
+        "kind": "key",
+        "key": ["requestId"]
+      },
+      "timeout": "long",
+      "capability": "baseline",
+      "events": {
+        "union": [
+          {
+            "object": {
+              "type": {
+                "literal": ["operation_progress"]
+              },
+              "operationId": "string",
+              "engine": "string",
+              "phase": "string",
+              "message": "string",
+              "outputChunk": {
+                "optional": "string"
+              }
+            }
+          },
+          {
+            "object": {
+              "type": {
+                "literal": ["operation_complete"]
+              },
+              "operationId": "string",
+              "engine": "string",
+              "success": "boolean",
+              "message": "string"
+            }
+          }
+        ]
+      }
+    },
+    "engine.operation": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "operationId": "string"
+        }
+      },
+      "response": {
+        "union": [
+          {
+            "object": {
+              "type": {
+                "literal": ["operation_progress"]
+              },
+              "operationId": "string",
+              "engine": "string",
+              "phase": "string",
+              "message": "string",
+              "outputChunk": {
+                "optional": "string"
+              }
+            }
+          },
+          {
+            "object": {
+              "type": {
+                "literal": ["operation_complete"]
+              },
+              "operationId": "string",
+              "engine": "string",
+              "success": "boolean",
+              "message": "string"
+            }
+          }
+        ]
+      },
+      "errors": ["not_found"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "engine.login.start": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "engine": "string",
+          "restart": "boolean",
+          "requestId": "string"
+        }
+      },
+      "response": {
+        "object": {
+          "id": "string",
+          "engine": "string",
+          "status": {
+            "literal": [
+              "starting",
+              "waiting",
+              "verifying",
+              "succeeded",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "needsCode": "boolean",
+          "url": {
+            "optional": "string"
+          },
+          "userCode": {
+            "optional": "string"
+          },
+          "detail": {
+            "optional": "string"
+          },
+          "error": {
+            "optional": "string"
+          },
+          "expiresAt": {
+            "optional": "string"
+          },
+          "finishedAt": {
+            "optional": "string"
+          }
+        }
+      },
+      "errors": ["unsupported", "busy"],
+      "retry": {
+        "kind": "key",
+        "key": ["requestId"]
+      },
+      "timeout": "long",
+      "capability": "baseline",
+      "events": {
+        "object": {
+          "type": {
+            "literal": ["login_update"]
+          },
+          "login": {
+            "object": {
+              "id": "string",
+              "engine": "string",
+              "status": {
+                "literal": [
+                  "starting",
+                  "waiting",
+                  "verifying",
+                  "succeeded",
+                  "failed",
+                  "cancelled"
+                ]
+              },
+              "needsCode": "boolean",
+              "url": {
+                "optional": "string"
+              },
+              "userCode": {
+                "optional": "string"
+              },
+              "detail": {
+                "optional": "string"
+              },
+              "error": {
+                "optional": "string"
+              },
+              "expiresAt": {
+                "optional": "string"
+              },
+              "finishedAt": {
+                "optional": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "engine.login.submit": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "loginId": "string",
+          "code": "string"
+        }
+      },
+      "response": {
+        "object": {
+          "id": "string",
+          "engine": "string",
+          "status": {
+            "literal": [
+              "starting",
+              "waiting",
+              "verifying",
+              "succeeded",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "needsCode": "boolean",
+          "url": {
+            "optional": "string"
+          },
+          "userCode": {
+            "optional": "string"
+          },
+          "detail": {
+            "optional": "string"
+          },
+          "error": {
+            "optional": "string"
+          },
+          "expiresAt": {
+            "optional": "string"
+          },
+          "finishedAt": {
+            "optional": "string"
+          }
+        }
+      },
+      "errors": ["not_found"],
+      "retry": {
+        "kind": "none"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "engine.login.status": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "loginId": "string"
+        }
+      },
+      "response": {
+        "object": {
+          "id": "string",
+          "engine": "string",
+          "status": {
+            "literal": [
+              "starting",
+              "waiting",
+              "verifying",
+              "succeeded",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "needsCode": "boolean",
+          "url": {
+            "optional": "string"
+          },
+          "userCode": {
+            "optional": "string"
+          },
+          "detail": {
+            "optional": "string"
+          },
+          "error": {
+            "optional": "string"
+          },
+          "expiresAt": {
+            "optional": "string"
+          },
+          "finishedAt": {
+            "optional": "string"
+          }
+        }
+      },
+      "errors": ["not_found"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "engine.login.cancel": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "loginId": "string"
+        }
+      },
+      "response": {
+        "object": {
+          "id": "string",
+          "engine": "string",
+          "status": {
+            "literal": [
+              "starting",
+              "waiting",
+              "verifying",
+              "succeeded",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "needsCode": "boolean",
+          "url": {
+            "optional": "string"
+          },
+          "userCode": {
+            "optional": "string"
+          },
+          "detail": {
+            "optional": "string"
+          },
+          "error": {
+            "optional": "string"
+          },
+          "expiresAt": {
+            "optional": "string"
+          },
+          "finishedAt": {
+            "optional": "string"
+          }
+        }
+      },
+      "errors": ["not_found"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
+    "engine.models": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "engine": "string",
+          "model": {
+            "optional": "string"
+          }
+        }
+      },
+      "response": {
+        "object": {
+          "defaultModel": {
+            "nullable": "string"
+          },
+          "models": {
+            "array": {
+              "object": {
+                "id": "string",
+                "label": "string",
+                "effort": {
+                  "optional": {
+                    "array": {
+                      "object": {
+                        "value": "string",
+                        "name": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": ["unauthenticated"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "engine.usage": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {}
+      },
+      "response": {
+        "object": {
+          "checkedAt": "string",
+          "providers": {
+            "array": {
+              "object": {
+                "engine": "string",
+                "plan": {
+                  "nullable": "string"
+                },
+                "observedAt": {
+                  "nullable": "string"
+                },
+                "source": {
+                  "optional": {
+                    "literal": ["live", "local"]
+                  }
+                },
+                "windows": {
+                  "array": {
+                    "object": {
+                      "id": "string",
+                      "label": "string",
+                      "usedPercent": "number",
+                      "resetsAt": {
+                        "nullable": "string"
+                      }
+                    }
+                  }
+                },
+                "limitReached": {
+                  "optional": "boolean"
+                },
+                "spend": {
+                  "optional": {
+                    "object": {
+                      "used": "number",
+                      "limit": "number",
+                      "currency": "string",
+                      "enabled": {
+                        "optional": "boolean"
+                      }
+                    }
+                  }
+                },
+                "credits": {
+                  "optional": {
+                    "object": {
+                      "balance": {
+                        "nullable": "number"
+                      },
+                      "unlimited": "boolean"
+                    }
+                  }
+                },
+                "limitResets": {
+                  "optional": {
+                    "object": {
+                      "available": "integer",
+                      "applicable": "integer"
+                    }
+                  }
+                },
+                "unavailableReason": {
+                  "optional": "string"
+                }
+              }
+            }
+          },
+          "codexResetAccount": {
+            "optional": "string"
+          }
+        }
+      },
+      "errors": [],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "engine.quota.reset": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "engine": "string",
+          "account": "string",
+          "requestId": "string"
+        }
+      },
+      "response": {
+        "object": {
+          "code": "string",
+          "windowsReset": "integer"
+        }
+      },
+      "errors": ["stale"],
+      "retry": {
+        "kind": "key",
+        "key": ["requestId"]
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "engine.plugin.status": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "engine": "string",
+          "plugin": "string"
+        }
+      },
+      "response": {
+        "object": {
+          "installed": "boolean",
+          "enabled": "boolean",
+          "currentVersion": {
+            "nullable": "string"
+          },
+          "latestVersion": {
+            "nullable": "string"
+          },
+          "updateAvailable": "boolean",
+          "actions": {
+            "array": {
+              "literal": ["install", "update"]
+            }
+          }
+        }
+      },
+      "errors": ["unsupported"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "engine.plugin.apply": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "engine": "string",
+          "plugin": "string",
+          "action": {
+            "literal": ["install", "update"]
+          },
+          "requestId": "string"
+        }
+      },
+      "response": {
+        "object": {
+          "installed": "boolean",
+          "enabled": "boolean",
+          "currentVersion": {
+            "nullable": "string"
+          },
+          "latestVersion": {
+            "nullable": "string"
+          },
+          "updateAvailable": "boolean",
+          "actions": {
+            "array": {
+              "literal": ["install", "update"]
+            }
+          }
+        }
+      },
+      "errors": ["unsupported", "busy"],
+      "retry": {
+        "kind": "key",
+        "key": ["requestId"]
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "port.connect": {
+      "scope": "session",
+      "kind": "open",
+      "request": {
+        "object": {
+          "session": {
+            "opaque": "SessionHandle"
+          },
+          "port": "integer"
+        }
+      },
+      "response": {
+        "object": {}
+      },
+      "errors": ["not_found"],
+      "retry": {
+        "kind": "none"
+      },
+      "timeout": "default",
+      "capability": "baseline",
+      "channel": {
+        "toRunner": "bytes",
+        "fromRunner": "bytes"
+      }
+    },
+    "update.offer": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "attempt": "string",
+          "target": {
+            "object": {
+              "version": "string",
+              "os": "string",
+              "arch": "string",
+              "sha256": "string",
+              "revision": "string"
+            }
+          },
+          "retry": "boolean"
+        }
+      },
+      "response": {
+        "object": {
+          "attemptId": "string",
+          "phase": {
+            "literal": ["deferred", "activating", "confirmed", "rolled_back"]
+          },
+          "reason": {
+            "optional": "string"
+          },
+          "floorVersion": {
+            "optional": "string"
+          },
+          "downloadFailed": {
+            "optional": {
+              "literal": [true]
+            }
+          },
+          "installed": {
+            "object": {
+              "version": "string",
+              "revision": "string",
+              "sha256": "string"
+            }
+          },
+          "fenceCleared": {
+            "optional": {
+              "literal": [true]
+            }
+          },
+          "retained": {
+            "optional": {
+              "array": {
+                "object": {
+                  "sessionId": "string",
+                  "instanceId": "string"
+                }
+              }
+            }
+          },
+          "requiresQuiescence": {
+            "optional": "boolean"
+          }
+        }
+      },
+      "errors": ["unsupported", "conflict"],
+      "retry": {
+        "kind": "key",
+        "key": ["attempt"]
+      },
+      "timeout": "default",
+      "capability": "selfUpdate",
+      "events": {
+        "object": {
+          "attemptId": "string",
+          "phase": {
+            "literal": ["deferred", "activating", "confirmed", "rolled_back"]
+          },
+          "reason": {
+            "optional": "string"
+          },
+          "floorVersion": {
+            "optional": "string"
+          },
+          "downloadFailed": {
+            "optional": {
+              "literal": [true]
+            }
+          },
+          "installed": {
+            "object": {
+              "version": "string",
+              "revision": "string",
+              "sha256": "string"
+            }
+          },
+          "fenceCleared": {
+            "optional": {
+              "literal": [true]
+            }
+          },
+          "retained": {
+            "optional": {
+              "array": {
+                "object": {
+                  "sessionId": "string",
+                  "instanceId": "string"
+                }
+              }
+            }
+          },
+          "requiresQuiescence": {
+            "optional": "boolean"
+          }
+        }
+      }
+    },
+    "update.fence": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "attempt": "string",
+          "retained": "boolean"
+        }
+      },
+      "response": {
+        "object": {
+          "attemptId": "string",
+          "phase": {
+            "literal": ["deferred", "activating", "confirmed", "rolled_back"]
+          },
+          "reason": {
+            "optional": "string"
+          },
+          "floorVersion": {
+            "optional": "string"
+          },
+          "downloadFailed": {
+            "optional": {
+              "literal": [true]
+            }
+          },
+          "installed": {
+            "object": {
+              "version": "string",
+              "revision": "string",
+              "sha256": "string"
+            }
+          },
+          "fenceCleared": {
+            "optional": {
+              "literal": [true]
+            }
+          },
+          "retained": {
+            "optional": {
+              "array": {
+                "object": {
+                  "sessionId": "string",
+                  "instanceId": "string"
+                }
+              }
+            }
+          },
+          "requiresQuiescence": {
+            "optional": "boolean"
+          }
+        }
+      },
+      "errors": ["stale"],
+      "retry": {
+        "kind": "key",
+        "key": ["attempt"]
+      },
+      "timeout": "default",
+      "capability": "selfUpdate"
+    },
+    "update.activate": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "attempt": "string"
+        }
+      },
+      "response": {
+        "object": {
+          "attemptId": "string",
+          "phase": {
+            "literal": ["deferred", "activating", "confirmed", "rolled_back"]
+          },
+          "reason": {
+            "optional": "string"
+          },
+          "floorVersion": {
+            "optional": "string"
+          },
+          "downloadFailed": {
+            "optional": {
+              "literal": [true]
+            }
+          },
+          "installed": {
+            "object": {
+              "version": "string",
+              "revision": "string",
+              "sha256": "string"
+            }
+          },
+          "fenceCleared": {
+            "optional": {
+              "literal": [true]
+            }
+          },
+          "retained": {
+            "optional": {
+              "array": {
+                "object": {
+                  "sessionId": "string",
+                  "instanceId": "string"
+                }
+              }
+            }
+          },
+          "requiresQuiescence": {
+            "optional": "boolean"
+          }
+        }
+      },
+      "errors": ["stale"],
+      "retry": {
+        "kind": "key",
+        "key": ["attempt"]
+      },
+      "timeout": "default",
+      "capability": "selfUpdate"
+    },
+    "update.confirm": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "attempt": "string",
+          "revision": "string",
+          "sha256": "string"
+        }
+      },
+      "response": {
+        "object": {
+          "attemptId": "string",
+          "phase": {
+            "literal": ["deferred", "activating", "confirmed", "rolled_back"]
+          },
+          "reason": {
+            "optional": "string"
+          },
+          "floorVersion": {
+            "optional": "string"
+          },
+          "downloadFailed": {
+            "optional": {
+              "literal": [true]
+            }
+          },
+          "installed": {
+            "object": {
+              "version": "string",
+              "revision": "string",
+              "sha256": "string"
+            }
+          },
+          "fenceCleared": {
+            "optional": {
+              "literal": [true]
+            }
+          },
+          "retained": {
+            "optional": {
+              "array": {
+                "object": {
+                  "sessionId": "string",
+                  "instanceId": "string"
+                }
+              }
+            }
+          },
+          "requiresQuiescence": {
+            "optional": "boolean"
+          }
+        }
+      },
+      "errors": ["stale"],
+      "retry": {
+        "kind": "key",
+        "key": ["attempt"]
+      },
+      "timeout": "default",
+      "capability": "selfUpdate"
+    },
+    "update.cancel": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "attempt": "string",
+          "reason": {
+            "literal": ["policy_changed", "quiesce_timeout", "trial_failed"]
+          }
+        }
+      },
+      "response": {
+        "object": {
+          "attemptId": "string",
+          "phase": {
+            "literal": ["deferred", "activating", "confirmed", "rolled_back"]
+          },
+          "reason": {
+            "optional": "string"
+          },
+          "floorVersion": {
+            "optional": "string"
+          },
+          "downloadFailed": {
+            "optional": {
+              "literal": [true]
+            }
+          },
+          "installed": {
+            "object": {
+              "version": "string",
+              "revision": "string",
+              "sha256": "string"
+            }
+          },
+          "fenceCleared": {
+            "optional": {
+              "literal": [true]
+            }
+          },
+          "retained": {
+            "optional": {
+              "array": {
+                "object": {
+                  "sessionId": "string",
+                  "instanceId": "string"
+                }
+              }
+            }
+          },
+          "requiresQuiescence": {
+            "optional": "boolean"
+          }
+        }
+      },
+      "errors": [],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "selfUpdate"
+    }
+  }
+}

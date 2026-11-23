@@ -7,12 +7,15 @@
     ".": "./src/index.ts",
     "./connection": "./src/connection.ts",
     "./node": "./src/node.ts",
-    "./engine-management": "./src/engine-management.ts"
+    "./engine-management": "./src/engine-management.ts",
+    "./contract": "./src/contract/index.ts"
   },
   "files": [
     "src"
   ],
   "scripts": {
-    "check": "tsc -p tsconfig.json && tsc -p tsconfig.portable.json"
+    "check": "tsc -p tsconfig.json && tsc -p tsconfig.portable.json && tsc -p tsconfig.test.json",
+    "test": "vitest run --root .",
+    "surface": "tsx scripts/write-surface.ts"
   }
 }
