@@ -13,7 +13,11 @@
  *   every later write refused with `fenced`). A runner started with
  *   `frozen: true` is frozen before it serves anything, and says so in
  *   `ready`.
- * - parent → runner `import`: one-time bindings for sessions from older builds.
+ * - parent → runner `import`, runner → parent `imported`: one-time bindings
+ *   for sessions an older build started. A binding the runner already holds
+ *   is never replaced, so the parent may send the same list at every start.
+ *   The runner decides ownership itself (see `launcherBinding`) and, while
+ *   frozen, stores nothing and says so.
  *
  * A refusal is not a message: the runner writes one line to stderr and exits
  * with one of `launcherExit`, so the parent can name the reason.
@@ -26,7 +30,7 @@ import {
   boolean,
   build,
   integer,
-  json,
+  nullable,
   literal,
   object,
   optional,
@@ -75,10 +79,46 @@ export const launcherFence = object({
   seq: integer,
   frozen: boolean,
 });
-/** Bindings are typed when the runner keeps them (L4); until then the runner accepts and ignores them. */
+/**
+ * One session's checkout as an older build recorded it: facts, not a
+ * decision. The runner records the checkout as its own (removable later)
+ * only when `worktree` is given AND Git says that path is the root of a
+ * linked worktree; anything else is external and is never deleted, and a
+ * missing directory is recorded as gone.
+ */
+export const launcherBinding = object({
+  /** The session's opaque handle. */
+  session: string,
+  /** The checkout the session was started in. */
+  path: string,
+  /** A directory the session later moved itself into, if any. */
+  currentPath: nullable(string),
+  /** A linked worktree the parent created for this session, if it did. */
+  worktree: nullable(
+    object({ path: string, branch: nullable(string), base: nullable(string) })
+  ),
+});
+
 export const launcherImport = object({
   type: literal("import"),
-  bindings: array(json),
+  seq: integer,
+  bindings: array(launcherBinding),
+});
+/**
+ * The runner's answer to `import` `seq`: how many bindings it stored, how
+ * many it already held (left unchanged) and how many it could not read. A
+ * frozen runner stores nothing and answers `frozen: true`. Answers follow
+ * the same order as `freeze`/`thaw`.
+ */
+export const launcherImported = object({
+  type: literal("imported"),
+  seq: integer,
+  added: integer,
+  kept: integer,
+  invalid: integer,
+  frozen: boolean,
+  /** Set when storing failed part-way; the bindings stored before it stay. */
+  error: optional(string),
 });
 
 /** Every parent → runner message after `start`. */
@@ -92,6 +132,8 @@ export type LauncherStart = Infer<typeof launcherStart>;
 export type LauncherReady = Infer<typeof launcherReady>;
 export type LauncherCommand = Infer<typeof launcherCommand>;
 export type LauncherFence = Infer<typeof launcherFence>;
+export type LauncherBinding = Infer<typeof launcherBinding>;
+export type LauncherImported = Infer<typeof launcherImported>;
 
 /** Exit codes a runner uses to refuse a start, with stderr naming the detail. */
 export const launcherExit = {
@@ -120,7 +162,11 @@ export function launcherSurface(): {
       thaw: launcherThaw.shape,
       import: launcherImport.shape,
     },
-    fromRunner: { ready: launcherReady.shape, fence: launcherFence.shape },
+    fromRunner: {
+      ready: launcherReady.shape,
+      fence: launcherFence.shape,
+      imported: launcherImported.shape,
+    },
     lifeline: "eof",
     exit: { ...launcherExit },
   };

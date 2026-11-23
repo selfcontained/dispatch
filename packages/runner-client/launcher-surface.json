@@ -57,8 +57,30 @@
         "type": {
           "literal": ["import"]
         },
+        "seq": "integer",
         "bindings": {
-          "array": "json"
+          "array": {
+            "object": {
+              "session": "string",
+              "path": "string",
+              "currentPath": {
+                "nullable": "string"
+              },
+              "worktree": {
+                "nullable": {
+                  "object": {
+                    "path": "string",
+                    "branch": {
+                      "nullable": "string"
+                    },
+                    "base": {
+                      "nullable": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -90,6 +112,21 @@
         },
         "seq": "integer",
         "frozen": "boolean"
+      }
+    },
+    "imported": {
+      "object": {
+        "type": {
+          "literal": ["imported"]
+        },
+        "seq": "integer",
+        "added": "integer",
+        "kept": "integer",
+        "invalid": "integer",
+        "frozen": "boolean",
+        "error": {
+          "optional": "string"
+        }
       }
     }
   },

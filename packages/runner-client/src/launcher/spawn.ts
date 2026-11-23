@@ -6,8 +6,11 @@ import {
   LAUNCHER_PROTOCOL,
   launcherExit,
   launcherFence,
+  launcherImported,
   launcherReady,
+  type LauncherBinding,
   type LauncherCommand,
+  type LauncherImported,
   type LauncherReady,
   type LauncherRefusal,
   type LauncherStart,
@@ -60,6 +63,14 @@ export interface LaunchedRunner {
    * runner exits first: the caller then cannot know the runner's state.
    */
   fence(frozen: boolean, timeoutMs: number): Promise<void>;
+  /**
+   * Send `import` and wait for the runner's `imported` answer. Rejects when
+   * no answer arrives within `timeoutMs` or the runner exits first.
+   */
+  importBindings(
+    bindings: LauncherBinding[],
+    timeoutMs: number
+  ): Promise<LauncherImported>;
   /** Close the lifeline; SIGKILL after `graceMs` if the runner has not exited. */
   close(graceMs: number): Promise<ExitInfo>;
 }
@@ -125,10 +136,29 @@ export function launchRunner(spec: LaunchSpec): Promise<LaunchedRunner> {
     if (message.frozen === pending.frozen) pending.resolve();
     else pending.reject(new Error("The runner answered the other fence state"));
   };
+  let importSeq = 0;
+  const imports = new Map<
+    number,
+    { resolve(answer: LauncherImported): void; reject(error: Error): void }
+  >();
+  const answer = (line: string) => {
+    let message: unknown;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      return;
+    }
+    if (!launcherImported.check(message)) return fenceAnswer(line);
+    const pending = imports.get(message.seq);
+    if (!pending) return;
+    imports.delete(message.seq);
+    pending.resolve(message);
+  };
   void exited.then(() => {
-    for (const pending of fences.values())
+    for (const pending of [...fences.values(), ...imports.values()])
       pending.reject(new Error("The runner exited before answering"));
     fences.clear();
+    imports.clear();
   });
   child.stdin!.write(JSON.stringify(start) + "\n");
 
@@ -151,7 +181,7 @@ export function launchRunner(spec: LaunchSpec): Promise<LaunchedRunner> {
       spec.readyTimeoutMs ?? 10_000
     );
     lines(child.stdout!, (line) => {
-      if (settled) return fenceAnswer(line);
+      if (settled) return answer(line);
       let message: unknown;
       try {
         message = JSON.parse(line);
@@ -250,6 +280,33 @@ export function launchRunner(spec: LaunchSpec): Promise<LaunchedRunner> {
           child.stdin!.write(
             JSON.stringify({ type: frozen ? "freeze" : "thaw", seq }) + "\n"
           );
+        });
+      },
+      importBindings(bindings, timeoutMs) {
+        if (child.exitCode !== null || child.signalCode !== null)
+          return Promise.reject(new Error("The runner has exited"));
+        const seq = ++importSeq;
+        return new Promise<LauncherImported>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            imports.delete(seq);
+            reject(
+              new Error(
+                `The runner did not answer the import in ${timeoutMs} ms`
+              )
+            );
+          }, timeoutMs);
+          imports.set(seq, {
+            resolve(answer) {
+              clearTimeout(timer);
+              resolve(answer);
+            },
+            reject(error) {
+              clearTimeout(timer);
+              reject(error);
+            },
+          });
+          const command: LauncherCommand = { type: "import", seq, bindings };
+          child.stdin!.write(JSON.stringify(command) + "\n");
         });
       },
       close,

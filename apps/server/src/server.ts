@@ -3,6 +3,7 @@ import {
   startLocalRunnerProcess,
   type LocalRunnerProcess,
 } from "./runners/local.js";
+import { readLocalBindings } from "./runners/local-bindings.js";
 import { embeddedBuild } from "./agents/build-identity.js";
 import { CheckoutObservers } from "./agents/checkout-observers.js";
 import { readAgentStats } from "./agents/checkout-runner.js";
@@ -1639,6 +1640,7 @@ export async function start() {
     build: embeddedBuild,
     log: app.log,
     frozen: updateRecoveryRuntime.localRunnerStartsFrozen(),
+    bindings: () => readLocalBindings(pool),
   });
   await remoteRunner?.start();
   await initializeApp();
