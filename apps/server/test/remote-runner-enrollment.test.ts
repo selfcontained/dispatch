@@ -1055,6 +1055,7 @@ describe("runner enrollment service", () => {
       managedWorkspace: true,
       sessionFiles: false,
       sharedWorktree: false,
+      preparedLaunch: false,
     });
     expect(
       service.lastSeenCapabilities({ runner: a.id, workspace: "other" })
@@ -1081,6 +1082,7 @@ describe("runner enrollment service", () => {
       managedWorkspace: true,
       sessionFiles: true,
       sharedWorktree: true,
+      preparedLaunch: false,
     });
     await service.revoke(a.id);
     expect(service.lastSeenCapabilities(placement)).toBeUndefined();

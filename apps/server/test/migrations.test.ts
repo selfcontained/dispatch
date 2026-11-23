@@ -76,6 +76,12 @@ describe("block_reactions uniqueness migration", () => {
 /** Rewinds task migrations, which depend on projects and agents, so older eras can replay. */
 async function dropTasks(): Promise<void> {
   await pool.query(
+    "ALTER TABLE agents DROP COLUMN IF EXISTS runner_preparation"
+  );
+  await pool.query(
+    "DELETE FROM pgmigrations WHERE name = '0067_runner_preparation'"
+  );
+  await pool.query(
     "DROP FUNCTION IF EXISTS invalidate_legacy_saved_location() CASCADE"
   );
   await pool.query("DROP INDEX IF EXISTS projects_repository_key");
