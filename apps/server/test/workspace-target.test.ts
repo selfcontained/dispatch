@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   agentDiffPath,
+  agentStreamDirectory,
   agentWorkspaceDir,
   resolveWorkspace,
 } from "../src/agents/workspace-target.js";
@@ -30,6 +31,37 @@ async function initRepo(dir: string, branch: string): Promise<void> {
   git(dir, "init", "-q", "-b", branch);
   git(dir, "commit", "-q", "--allow-empty", "-m", "init");
 }
+
+describe("agentStreamDirectory", () => {
+  it("relativises against the moved workspace, else the engine's directory, like main", () => {
+    const base = { worktreePath: "/repo/wt", gitContext: null };
+    expect(
+      agentStreamDirectory({
+        ...base,
+        cwd: "/repo/wt/app",
+        workspacePath: null,
+      })
+    ).toBe("/repo/wt/app");
+    expect(
+      agentStreamDirectory({
+        ...base,
+        cwd: "/repo/wt/app",
+        workspacePath: "/moved",
+      })
+    ).toBe("/moved");
+  });
+
+  it("uses the reported checkout for a runner address", () => {
+    expect(
+      agentStreamDirectory({
+        cwd: "runner://r/@session",
+        workspacePath: null,
+        worktreePath: null,
+        gitContext: { worktreePath: "/runner/checkout" } as never,
+      })
+    ).toBe("/runner/checkout");
+  });
+});
 
 describe("agentDiffPath", () => {
   it("uses the moved workspace path", () => {

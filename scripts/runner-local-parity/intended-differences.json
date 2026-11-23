@@ -24,6 +24,10 @@
     "decision": "Owner 2026-11-22: jobs and templates accept an optional runner selection (T08)."
   },
   {
+    "field": "extraRoots",
+    "decision": "Owner 2026-11-22: one project per repository; a merged project keeps its other folders (T17), exposed as an added field"
+  },
+  {
     "consequence": "migrations",
     "decision": "Owner 2026-11-22: the branch's own migrations are a direct consequence of the feature"
   }

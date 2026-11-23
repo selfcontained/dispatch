@@ -398,6 +398,14 @@ export class StreamRecorder {
   }
 
   /**
+   * Move the root of a session this recorder still relativises against.
+   * A session its host's exit dropped stays dropped until the next start.
+   */
+  updateCwd(agentId: string, cwd: string): void {
+    if (this.cwd.has(agentId)) this.cwd.set(agentId, cwd);
+  }
+
+  /**
    * The open turn is in-memory state, and this process may not be the one
    * that opened it: after a server restart the host replays into a fresh
    * recorder. Read the newest turn row once per agent so a settle event
