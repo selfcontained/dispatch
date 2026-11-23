@@ -473,14 +473,14 @@
     "kind": "R1 placement call",
     "detail": "agentDiffPath(agent)",
     "task": "T07",
-    "count": 2
+    "count": 1
   },
   {
     "file": "apps/server/src/agents/checkout-runner.ts",
     "kind": "R1 placement call",
     "detail": "agentWorkspaceDir(agent)",
     "task": "T07",
-    "count": 2
+    "count": 1
   },
   {
     "file": "apps/server/src/agents/checkout-runner.ts",
@@ -514,20 +514,6 @@
     "file": "apps/server/src/agents/checkout-runner.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/shared/git/diff-stats",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/checkout-view-cli.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/checkout-view",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/checkout-view-cli.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/files/workspace-view",
     "task": "T04",
     "count": 1
   },
@@ -2207,16 +2193,9 @@
   {
     "file": "apps/server/src/main.ts",
     "kind": "R2 host import",
-    "detail": "apps/server/src/agents/checkout-inspection",
+    "detail": "apps/server/src/agents/checkout-worker",
     "task": "T04",
     "count": 2
-  },
-  {
-    "file": "apps/server/src/main.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/checkout-watch",
-    "task": "T04",
-    "count": 1
   },
   {
     "file": "apps/server/src/main.ts",
@@ -2713,6 +2692,13 @@
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/local-runner-engine",
     "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/runners/local.ts",
+    "kind": "R3 local adapter delegation",
+    "detail": "checkout reads in process without a current child binding",
+    "task": "T18",
     "count": 1
   },
   {

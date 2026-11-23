@@ -87,7 +87,7 @@ const scopedHostImports = new Map([
 
 // These exact legacy runner implementations have not moved to packages/runner yet.
 const legacyRunner =
-  /^agents\/(acp\/(host\/|driver\.ts$|engine-spec\.ts$|host-env\.ts$|host-command\.ts$|opencode-instructions\.ts$|permissions\.ts$|background-[^/]+\.ts$)|remote\/(runner|session-(supervisor|storage|processes|files)|engine-(capability-worker|runner-executor)|github-(runner-executor|pull-request-watches)|update-(agent|trial|probe|verify|stage-cli|fence-store)|workload-(identity|tools))\.ts$)|^terminal\/runner-worker\.ts$/;
+  /^agents\/(checkout-worker\.ts$|acp\/(host\/|driver\.ts$|engine-spec\.ts$|host-env\.ts$|host-command\.ts$|opencode-instructions\.ts$|permissions\.ts$|background-[^/]+\.ts$)|remote\/(runner|session-(supervisor|storage|processes|files)|engine-(capability-worker|runner-executor)|github-(runner-executor|pull-request-watches)|update-(agent|trial|probe|verify|stage-cli|fence-store)|workload-(identity|tools))\.ts$)|^terminal\/runner-worker\.ts$/;
 const hostModule =
   /^(shared\/(git\/|github\/pr$|process\/|lib\/run-command$|repo-icon$|plugin-status$)|agents\/(workspace(?:-prep)?$|worktree-local-config$|checkout-(?:view|watch|inspection|observation|command-executor)$|default-branch-files$|engine-(?:availability|login|updates)$|provider-plans$|local-runner(?:-[^/]+)?$|acp\/host-client$)|files\/(?:workspace-[^/]+|session-file)$|projects\/resolve-root$|terminal\/(?:pty|process-session)$)/;
 const hostBuiltins = new Map([
@@ -296,7 +296,19 @@ export function scanSource(file, source, declared = new Set()) {
       const builtin = hostBuiltins.get(specifier.replace(/^node:/, ""));
       if (builtin && !typeOnly)
         hostUse(builtin, specifier.replace(/^node:/, ""));
+      // T09's in-process fallback: the local adapter runs the checkout
+      // workload itself for sessions the child holds no current binding for.
+      const inProcessReads =
+        relative === "runners/local.ts" &&
+        target === server + "agents/checkout-worker";
+      if (inProcessReads)
+        hit(
+          "R3 local adapter delegation",
+          "checkout reads in process without a current child binding",
+          "T18"
+        );
       if (
+        !inProcessReads &&
         target.startsWith(server) &&
         (hostModule.test(target.slice(server.length)) ||
           legacyRunner.test(target.slice(server.length) + ".ts"))
@@ -694,6 +706,12 @@ export function compareHistory(previous, next) {
     kind: "R3 local adapter delegation",
     detail: "checkout.exec and manifest read",
   });
+  const inProcessReads = key({
+    file: server + "runners/local.ts",
+    kind: "R3 local adapter delegation",
+    detail: "checkout reads in process without a current child binding",
+  });
+
   for (const [id, entry] of after) {
     const parent = before.get(id);
     // T05 replaces the checkout placement fork with one temporary delegation.
@@ -704,6 +722,36 @@ export function compareHistory(previous, next) {
       entry.task === "L3" &&
       before.has(legacyCheckoutPlacement) &&
       !after.has(legacyCheckoutPlacement)
+    )
+      continue;
+    // T09 moves checkout reads into the child; the in-process fallback for
+    // sessions without a current child binding is one temporary entry,
+    // removed by T18 when launches and moves write bindings.
+    if (
+      !parent &&
+      id === inProcessReads &&
+      entry.count === 1 &&
+      entry.task === "T18" &&
+      before.has(checkoutDelegation)
+    )
+      continue;
+    // T09 folds main's four checkout subcommands into one worker entry: its
+    // checkout-inspection (2) and checkout-watch (1) imports become at most
+    // two of the worker, which holds that same runner code.
+    const mainImport = (module) =>
+      key({
+        file: server + "main.ts",
+        kind: "R2 host import",
+        detail: server + "agents/" + module,
+      });
+    if (
+      !parent &&
+      id === mainImport("checkout-worker") &&
+      entry.count <= 2 &&
+      entry.task === "T04" &&
+      before.has(mainImport("checkout-inspection")) &&
+      !after.has(mainImport("checkout-inspection")) &&
+      !after.has(mainImport("checkout-watch"))
     )
       continue;
     // P7 records the existing runner release boundary as T20 debt.

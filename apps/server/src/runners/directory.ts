@@ -26,7 +26,10 @@ import { createEnrolledCheckoutRunner } from "./enrolled/checkout.js";
 export type CheckoutSession = Pick<
   AgentRecord,
   "id" | "cwd" | "worktreePath" | "workspacePath" | "placement"
->;
+> & {
+  /** Older rows found their worktree through Git; Changes reads it. */
+  gitContext?: { worktreePath: string; isWorktree: boolean } | null;
+};
 export type LocalCheckoutRunner = {
   requestSession(
     request: {
@@ -40,6 +43,8 @@ export type LocalCheckoutRunner = {
 export type CheckoutCommandRunners = {
   local: LocalCheckoutRunner;
   remote?: RemoteRunnerService;
+  /** The local runner child, once the app has started it. */
+  child?: () => Runner | undefined;
 };
 
 export interface CheckoutRunner extends Runner {
@@ -64,7 +69,7 @@ const localDescription: RunnerDescription = {
 };
 
 export function checkoutRunners(
-  { local, remote }: CheckoutCommandRunners,
+  { local, remote, child }: CheckoutCommandRunners,
   agent: CheckoutSession
 ): {
   directory: CheckoutDirectory;
@@ -76,7 +81,12 @@ export function checkoutRunners(
     for(selected: Placement): CheckoutRunner {
       const boundAgent = samePlacement(selected, placement) ? agent : undefined;
       if (samePlacement(selected, controllerPlacement))
-        return createLocalCheckoutRunner(local, boundAgent, localDescription);
+        return createLocalCheckoutRunner(
+          local,
+          boundAgent,
+          localDescription,
+          child?.()
+        );
 
       const id = placementRunner(selected);
       return createEnrolledCheckoutRunner(

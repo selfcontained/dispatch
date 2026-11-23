@@ -395,6 +395,10 @@ export const operations = {
       target,
       base: nullable(string),
       uncommitted: boolean,
+      /**
+       * Regular-expression literals (`/source/flags`), tested against each
+       * checkout-relative path. A path any of them matches is excluded.
+       */
       exclude: array(string),
     }),
     response: stats,
@@ -411,6 +415,7 @@ export const operations = {
       base: nullable(string),
       uncommitted: boolean,
       whitespace: literal("show", "ignore"),
+      /** As `checkout.stats`: matched files are marked `excluded`. */
       exclude: array(string),
       path: optional(string),
     }),
@@ -439,7 +444,12 @@ export const operations = {
   "checkout.changes": op({
     scope: "session",
     kind: "call",
-    request: object({ target, base: nullable(string) }),
+    request: object({
+      target,
+      base: nullable(string),
+      /** Refs tried, in order, when `base` and the checkout's own probes resolve none. */
+      fallback: optional(array(string)),
+    }),
     response: changes,
     errors: ["not_found"],
     retry: read,

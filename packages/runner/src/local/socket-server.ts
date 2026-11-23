@@ -2,7 +2,7 @@ import { chmodSync, createReadStream, rmSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { createServer, type Server, type Socket } from "node:net";
-import type { Duplex, Writable } from "node:stream";
+import { Readable, type Duplex, type Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import {
   operations,
@@ -19,7 +19,9 @@ import {
 import {
   blobPathFrame,
   channelStreams,
+  INLINE_REPLY_BYTES,
   jsonLines,
+  replyStream,
   socketHello,
   socketRequest,
   type BlobPathReply,
@@ -201,12 +203,25 @@ export async function serveSocket(
       if (!socketRequest.check(message)) return socket.destroy();
       const { id, op, input } = message;
       const spec = (operations as Record<string, OperationSpec>)[op];
-      const reply = (result: { value: Json } | { error: RunnerError }) =>
-        write(
-          "error" in result
-            ? { id, ok: false, error: result.error }
-            : { id, ok: true, value: result.value }
-        );
+      const reply = (result: { value: Json } | { error: RunnerError }) => {
+        if ("error" in result)
+          return write({ id, ok: false, error: result.error });
+        const text = JSON.stringify(result.value);
+        if (text.length <= INLINE_REPLY_BYTES / 3)
+          return write({ id, ok: true, value: result.value });
+        const bytes = Buffer.from(text, "utf8");
+        if (bytes.length <= INLINE_REPLY_BYTES)
+          return write({ id, ok: true, value: result.value });
+        // Too long for one line: the caller registers the stream on this
+        // answer, before it reads the stream's first frame.
+        const stream = replyStream(id);
+        write({ id, ok: true, stream });
+        const chunks = (function* () {
+          for (let at = 0; at < bytes.length; at += 64 * 1024)
+            yield bytes.subarray(at, at + 64 * 1024);
+        })();
+        void streams.send(stream, Readable.from(chunks)).catch(() => {});
+      };
       const release = fence ? fence.enter(op) : () => {};
       if (!release) return reply({ error: errorOf(fencedError()) });
       if (spec?.kind === "open")
