@@ -16,6 +16,7 @@
         "apps/server/test/task-watch-unsubscribe.test.ts",
         "apps/server/src/routes/tasks.ts",
         "apps/server/test/tasks-service.test.ts",
+        "apps/server/test/db/task-briefing-files.test.ts",
         "e2e/tasks-board.spec.ts"
       ],
       "personas": ["code-review"]

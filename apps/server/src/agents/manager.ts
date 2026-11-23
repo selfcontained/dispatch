@@ -25,7 +25,7 @@ import {
 import { requestCheckoutCommand } from "./checkout-commands.js";
 import { REPO_TOOL_MANIFEST_PATH } from "../shared/mcp/repo-tools.js";
 import { isPromptImageMimeType } from "./acp/prompt-source.js";
-import { digestSessionFile, sessionFileSource } from "../files/session-file.js";
+import { getSessionFile, putSessionFile } from "../files/session-file.js";
 import { readAgentView } from "./checkout-runner.js";
 import {
   agentComparisonBase,
@@ -277,10 +277,19 @@ type CreateAgentInput = {
     links?: string[];
   };
   initialFiles?: SeedFileInput[];
+  /**
+   * Files on this machine that `initialPrompt` names by path (a task's
+   * attachments). Each is handed to the session when it starts, and the
+   * first turn names the path the agent opens instead.
+   */
+  startupReferences?: StartupReference[];
   templateId?: string;
   projectId?: string | null;
   repository?: unknown;
 };
+
+/** A file on this machine that a launch's first turn names by path. */
+export type StartupReference = { source: string; name: string };
 
 type CreateAgentOptions = {
   detachLaunch?: boolean;
@@ -736,6 +745,7 @@ export class AgentManager {
           originalCwd: agent.cwd,
           initialPrompt: create.initialPrompt,
           initialFiles: create.initialFiles,
+          startupReferences: create.startupReferences,
           chatLaunchPost: create.chatLaunchPost,
           jobRunId: create.jobRunId,
           launchId,
@@ -1027,23 +1037,21 @@ export class AgentManager {
     this.cancelSchedules = cancel;
   }
 
+  /** `files.get`: a file in the agent's session, read through its runner. */
   async collectSessionFile(
     agent: AgentRecord,
     filePath: string
   ): Promise<Buffer> {
-    const placement = remotePlacement(agent.cwd);
-    if (!placement) {
-      return this.localRunner.collectSessionFile(agent.id, filePath);
-    }
-    if (!this.remote) throw new Error("Runner session is unavailable.");
-    return this.remote.getFile(placement, agent.id, filePath);
+    return getSessionFile(
+      this.sessionRunner(agent),
+      sessionFromWire(agent.id),
+      filePath
+    );
   }
 
-  private readonly deliveredReferences = new Map<string, Promise<string>>();
-
   /**
-   * `files.put`: hand one file to the agent and return the path it opens.
-   * Local agents open the file where it is, so nothing is copied.
+   * `files.put`: hand one file to the agent through its runner and return
+   * the path it opens. A local runner hands it over where it is.
    */
   async deliverSessionFile(
     agent: AgentRecord,
@@ -1051,38 +1059,22 @@ export class AgentManager {
     name: string,
     purpose: "prompt" | "reference" = "prompt"
   ) {
-    const placement = remotePlacement(agent.cwd);
-    if (!placement)
-      return purpose === "reference"
-        ? this.localRunner.deliverSessionFile(agent.id, source, purpose)
-        : this.localRunner.deliverSessionFile(agent.id, source);
-    const remote = this.remote;
-    if (!remote) throw new Error("Runner session is unavailable.");
-    if (purpose === "prompt")
-      return remote.putFile(
-        placement,
-        agent.id,
-        name,
-        await sessionFileSource(source)
-      );
+    return putSessionFile(
+      this.sessionRunner(agent),
+      sessionFromWire(agent.id),
+      source,
+      name,
+      purpose
+    );
+  }
 
-    const digest = await digestSessionFile(source);
-    const extension = path.extname(name).slice(0, 32);
-    const storedName = `reference-${digest}${extension}`;
-    const key = JSON.stringify([agent.id, agent.cwd, storedName]);
-    const existing = this.deliveredReferences.get(key);
-    if (existing) return existing;
-
-    // Share in-flight puts too. An updated file gets a new path, so it
-    // cannot overwrite an earlier reference or a same-named family file.
-    const delivery = sessionFileSource(source, digest)
-      .then((file) => remote.putFile(placement, agent.id, storedName, file))
-      .catch((error: unknown) => {
-        this.deliveredReferences.delete(key);
-        throw error;
-      });
-    this.deliveredReferences.set(key, delivery);
-    return delivery;
+  /** The runner an agent's session is on, bound to that session. */
+  private sessionRunner(agent: AgentRecord) {
+    const { directory, placement } = checkoutRunners(
+      this.checkoutReadRunners(),
+      agent
+    );
+    return directory.for(placement);
   }
 
   /**
@@ -2142,6 +2134,7 @@ export class AgentManager {
       preparation,
       initialPrompt: input.initialPrompt,
       initialFiles,
+      startupReferences: input.startupReferences ?? [],
       resolveLaunchPost,
       jobRunId: input.jobRunId,
       beforeLaunch: options.beforeLaunch,
@@ -2883,6 +2876,7 @@ export class AgentManager {
     preparation: WorkspacePreparation | null;
     initialPrompt: string | undefined;
     initialFiles: SeededFile[];
+    startupReferences: StartupReference[];
     /** Writes the launch post once the workspace is ready; see createAgent. */
     resolveLaunchPost: () => Promise<ChatLaunchPost | null>;
     jobRunId: string | undefined;
@@ -2952,6 +2946,7 @@ export class AgentManager {
       originalCwd: opts.originalCwd,
       initialPrompt: opts.initialPrompt,
       initialFiles: opts.initialFiles,
+      startupReferences: opts.startupReferences,
       chatLaunchPost: prepared.chatLaunchPost,
       jobRunId: opts.jobRunId,
     });
@@ -2971,6 +2966,7 @@ export class AgentManager {
       originalCwd: string;
       initialPrompt: string | undefined;
       initialFiles: SeededFile[];
+      startupReferences?: StartupReference[];
       chatLaunchPost: ChatLaunchPost | null;
       jobRunId: string | undefined;
       /** A released launch keeps the attempt's ID. */
@@ -3026,6 +3022,24 @@ export class AgentManager {
           }
         }
       }
+      // The first turn names each reference where the agent opens it: the
+      // same path on this machine, so the text is unchanged there.
+      const referenced = new Map<string, string>();
+      for (const { source, name } of opts.startupReferences ?? []) {
+        if (referenced.has(source)) continue;
+        try {
+          const destination = await this.whileFenced(agent, () =>
+            this.deliverSessionFile(agent, source, name, "reference")
+          );
+          referenced.set(source, destination);
+        } catch (error) {
+          if (error instanceof LifecycleSuperseded) throw error;
+          this.logger.warn(
+            { err: error, agentId: id },
+            "Startup reference is unavailable"
+          );
+        }
+      }
       await this.pool.query(
         `UPDATE agents SET status = 'running', cli_session_id = $2, setup_phase = NULL, updated_at = NOW() WHERE id = $1`,
         [id, sessionId]
@@ -3040,9 +3054,13 @@ export class AgentManager {
       // A prepared checkout already supplied its initial probe.
       if (!workspace) await this.populateGitContext(id);
       this.eventBus.publish(await this.getRequiredAgent(id));
+      let initialPrompt = opts.initialPrompt;
+      for (const [source, destination] of referenced)
+        if (initialPrompt !== undefined && destination !== source)
+          initialPrompt = initialPrompt.split(source).join(destination);
       const firstTurn = buildStartupTurn(
         {
-          initialPrompt: opts.initialPrompt,
+          initialPrompt,
           initialFiles: opts.initialFiles,
           chatLaunchPost,
         },
@@ -3094,6 +3112,7 @@ export class AgentManager {
     create?: {
       initialPrompt: string | undefined;
       initialFiles: SeededFile[];
+      startupReferences?: StartupReference[];
       chatLaunchPost: ChatLaunchPost | null;
       jobRunId: string | undefined;
     }
@@ -3114,6 +3133,9 @@ export class AgentManager {
               chatLaunchPost: create.chatLaunchPost,
               ...(create.jobRunId !== undefined && {
                 jobRunId: create.jobRunId,
+              }),
+              ...(create.startupReferences?.length && {
+                startupReferences: create.startupReferences,
               }),
             },
           }

@@ -5,6 +5,13 @@ import {
   isSessionFilePath,
   MAX_SESSION_FILE_BYTES,
 } from "@dispatch/runner-protocol";
+import type { Runner, SessionHandle } from "@dispatch/runner-protocol/contract";
+import { displayPath } from "@dispatch/runner-protocol/contract";
+import {
+  takeSessionFileBytes,
+  withSessionFileBlob,
+  type SessionFileBlob,
+} from "./session-file-blob.js";
 import {
   openRegularFile,
   openSourceFile,
@@ -68,27 +75,40 @@ const changedFile = () =>
  * or read whole under today's v1 limits where it does not. Used once.
  */
 export async function sessionFileSource(source: string, digest?: string) {
-  const file = await openSourceFile(source);
-  const { size } = await file.stat();
+  // Checked now and opened again only when read, so a source nobody reads
+  // (a put refused before it sends) holds no file handle.
+  const checked = await openSourceFile(source);
+  let identity: { dev: number; ino: number; size: number };
+  try {
+    identity = await checked.stat();
+  } finally {
+    await checked.close();
+  }
   return {
-    size,
-    open: () => {
-      const stream = file.createReadStream();
-      if (!digest) return stream;
-      return Readable.from(
+    size: identity.size,
+    open: () =>
+      Readable.from(
         (async function* () {
-          const hash = createHash("sha256");
-          for await (const chunk of stream) {
-            hash.update(chunk);
-            yield chunk;
+          const file = await openSourceFile(source);
+          try {
+            const { dev, ino } = await file.stat();
+            if (dev !== identity.dev || ino !== identity.ino)
+              throw changedFile();
+            const hash = digest ? createHash("sha256") : null;
+            for await (const chunk of file.createReadStream({
+              autoClose: false,
+            })) {
+              hash?.update(chunk);
+              yield chunk;
+            }
+            if (hash && hash.digest("hex") !== digest) throw changedFile();
+          } finally {
+            await file.close();
           }
-          if (hash.digest("hex") !== digest) throw changedFile();
         })(),
         { objectMode: false }
-      );
-    },
+      ),
     read: async () => {
-      await file.close();
       const bytes = await readSessionFile(
         await realDirectory(path.dirname(source)),
         path.basename(source)
@@ -98,4 +118,46 @@ export async function sessionFileSource(source: string, digest?: string) {
       return bytes;
     },
   };
+}
+
+/**
+ * `files.put`: hand one file on this machine to a session and return the
+ * path it opens there. The session's runner resolves the file (see
+ * `SessionFileBlob`); the request's size and digest are the transport's.
+ */
+export async function putSessionFile(
+  runner: Pick<Runner, "call">,
+  session: SessionHandle,
+  source: string,
+  name: string,
+  purpose: SessionFileBlob["purpose"]
+): Promise<string> {
+  const file: SessionFileBlob = {
+    path: source,
+    purpose,
+    digest: () => digestSessionFile(source),
+    source: (digest) => sessionFileSource(source, digest),
+  };
+  return withSessionFileBlob(file, async (blob) => {
+    const { path } = await runner.call("files.put", {
+      session,
+      name,
+      // The transport takes these from the file `blob` names, when it needs them.
+      size: 0,
+      digest: "",
+      blob,
+    });
+    return displayPath(path);
+  });
+}
+
+/** `files.get`: the bytes of a file in a session, at the path it named. */
+export async function getSessionFile(
+  runner: Pick<Runner, "call">,
+  session: SessionHandle,
+  path: string
+): Promise<Buffer> {
+  const { blob } = await runner.call("files.get", { session, path });
+  // Read in this process: the same bytes. Else base64 from the transport.
+  return takeSessionFileBytes(blob) ?? Buffer.from(blob, "base64");
 }

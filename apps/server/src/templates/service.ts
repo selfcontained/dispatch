@@ -59,6 +59,8 @@ export type LaunchTemplateInput = {
   startupLinks?: string[];
   /** Text appended after the rendered prompt, before any self-improve footer. */
   appendix?: string;
+  /** Files the appendix names by path, handed to the session at start. */
+  startupReferences?: Array<{ source: string; name: string }>;
   /**
    * The project the agent joins. A project template always launches into its
    * own; a projectless one launches into this one when given.
@@ -398,6 +400,7 @@ export class TemplateService {
       fullAccess: template.fullAccess,
       ...templateWorktreeConfig(template),
       initialFiles: input.startupFiles ?? [],
+      startupReferences: input.startupReferences,
       templateId: template.id,
       ...(input.projectId ? { projectId: input.projectId } : {}),
     };

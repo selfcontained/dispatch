@@ -723,20 +723,6 @@
   {
     "file": "apps/server/src/agents/local-runner.ts",
     "kind": "R3 local method",
-    "detail": "collectSessionFile",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner.ts",
-    "kind": "R3 local method",
-    "detail": "deliverSessionFile",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner.ts",
-    "kind": "R3 local method",
     "detail": "inferRepositoryUrl",
     "task": "T04",
     "count": 1
@@ -788,7 +774,7 @@
     "kind": "R1 placement call",
     "detail": "remotePlacement(agent.cwd)",
     "task": "T07",
-    "count": 7
+    "count": 5
   },
   {
     "file": "apps/server/src/agents/manager.ts",

@@ -52,6 +52,7 @@ import {
   lstat,
   mkdir,
   open,
+  readFile,
   realpath,
   readdir,
   rename,
@@ -584,6 +585,22 @@ export const githubWorkload = {
       ...(base !== undefined && { base }),
       head,
     });
+  },
+};
+
+/**
+ * The `posix-user` platform's session files port: the workload shares this
+ * account, so a put hands the file over where it is and a get reads it.
+ */
+export const sessionFilesWorkload = {
+  async put(source: string, purpose: "prompt" | "reference"): Promise<string> {
+    // Already visible to the workload. A missing file drops out of the prompt.
+    // Listings historically include registry rows even if the file vanished.
+    if (purpose === "prompt") await stat(source);
+    return source;
+  },
+  get(source: string): Promise<Buffer> {
+    return readFile(source);
   },
 };
 

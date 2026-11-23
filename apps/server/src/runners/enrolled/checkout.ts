@@ -18,6 +18,7 @@ import {
   operations,
   sessionToWire,
   sessionFromWire,
+  pathFromWire,
   type CallName,
   type CallerChannel,
   type CallOptions,
@@ -33,6 +34,9 @@ import {
   type Decoded,
 } from "@dispatch/runner-client/v1";
 import { watchChannel } from "@dispatch/runner-client/v1/watch";
+import { createHash } from "node:crypto";
+import { posix } from "node:path";
+import { sessionFileBlob } from "../../files/session-file-blob.js";
 import type { RemoteRunnerService } from "../../agents/remote/service.js";
 import { callCheckoutRead } from "./reads.js";
 import type { CheckoutRunner, CheckoutSession } from "../directory.js";
@@ -111,6 +115,71 @@ export function enrolledArchiveCheckout(
       return decodeResult(frame, value).removed;
     },
   };
+}
+
+/** References already on a runner session, and those in flight, per service. */
+const deliveredReferences = new WeakMap<
+  RemoteRunnerService,
+  Map<string, Promise<string>>
+>();
+
+/**
+ * `files.put` and `files.get` through the session's runner. A prompt's file
+ * goes under its own name; a listed reference goes under its digest, once
+ * per session, so an updated file gets a new path and cannot overwrite an
+ * earlier reference or a same-named family file.
+ */
+async function sessionFile<K extends "files.put" | "files.get">(
+  service: RemoteRunnerService,
+  placement: V1Placement,
+  agentId: string,
+  op: K,
+  input: Req<K>
+): Promise<Res<K>> {
+  if (op === "files.get") {
+    const { path } = input as Req<"files.get">;
+    const bytes = await service.getFile(placement, agentId, path);
+    return {
+      name: posix.basename(path),
+      size: bytes.length,
+      digest: createHash("sha256").update(bytes).digest("hex"),
+      blob: bytes.toString("base64"),
+    } as Res<K>;
+  }
+  const { name, blob } = input as Req<"files.put">;
+  const file = sessionFileBlob(blob);
+  if (file.purpose === "prompt")
+    return {
+      path: pathFromWire(
+        await service.putFile(placement, agentId, name, await file.source())
+      ),
+    } as Res<K>;
+
+  const digest = await file.digest();
+  const extension = posix.extname(name).slice(0, 32);
+  const storedName = `reference-${digest}${extension}`;
+  let delivered = deliveredReferences.get(service);
+  if (!delivered) deliveredReferences.set(service, (delivered = new Map()));
+  const key = JSON.stringify([
+    placement.runner,
+    placement.workspace,
+    agentId,
+    storedName,
+  ]);
+  // Share in-flight puts too.
+  let delivery = delivered.get(key);
+  if (!delivery) {
+    const references = delivered;
+    delivery = file
+      .source(digest)
+      .then((source) => service.putFile(placement, agentId, storedName, source))
+      .catch((error: unknown) => {
+        references.delete(key);
+        throw error;
+      });
+    delivered.set(key, delivery);
+  }
+  return { path: pathFromWire(await delivery) } as Res<K>;
 }
 
 export function createEnrolledCheckoutRunner(
@@ -198,6 +267,22 @@ export function createEnrolledCheckoutRunner(
         return service
           .readPullRequestDiff(runnerId, { ...rest, base, context })
           .catch(unreachable) as Promise<Res<K>>;
+      }
+      if (op === "files.put" || op === "files.get") {
+        if (!service) throw new Error("The session runner is unavailable.");
+        const { session } = input as Req<"files.put" | "files.get">;
+        if (!placement || !agent || sessionToWire(session) !== agent.id)
+          throw new RunnerCallError({
+            code: "invalid",
+            message: "Invalid session file binding.",
+          });
+        return sessionFile(
+          service,
+          placement,
+          agent.id,
+          op as "files.put",
+          input as Req<"files.put">
+        ) as Promise<Res<K>>;
       }
       if (
         op !== "checkout.exec" &&

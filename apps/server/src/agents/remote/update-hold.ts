@@ -74,6 +74,13 @@ const heldLaunch = z
           .strict()
           .nullable(),
         jobRunId: z.string().optional(),
+        /**
+         * Files the first turn names, built by Dispatch from a task's
+         * attachments; uncapped, as an unheld launch's are.
+         */
+        startupReferences: z
+          .array(z.object({ source: z.string(), name: z.string() }).strict())
+          .optional(),
       })
       .strict()
       .optional(),

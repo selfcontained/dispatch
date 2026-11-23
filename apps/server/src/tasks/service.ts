@@ -131,6 +131,8 @@ export type TaskLaunchRequest = {
   args: Record<string, string>;
   /** Appended after the rendered template, the way launch_agent appends free text. */
   appendix?: string;
+  /** The attachments the appendix names, handed to the agent's session. */
+  startupReferences?: TaskBriefingReference[];
   agentType?: AgentType;
   model?: string | null;
   effort?: Effort | null;
@@ -214,6 +216,9 @@ function columnsLine(columns: BriefingColumn[], currentKey: string): string {
     })
     .join(" → ");
 }
+
+/** A task attachment a briefing names by its path on this machine. */
+export type TaskBriefingReference = { source: string; name: string };
 
 export function buildTaskBriefing(input: {
   task: Pick<Task, "id" | "title" | "body" | "links">;
@@ -1651,6 +1656,20 @@ export class TaskService {
       name: row.display_name,
       mimeType: row.mime_type,
       path: path.join(this.attachmentDir(id), row.file_name),
+      fileName: row.file_name,
+    }));
+  }
+
+  /**
+   * The files a briefing names, for the launch to hand to the agent's
+   * session: the agent opens each where its runner puts it.
+   */
+  private briefingReferences(
+    attachments: Awaited<ReturnType<TaskService["briefingAttachments"]>>
+  ): TaskBriefingReference[] {
+    return attachments.map(({ path, fileName }) => ({
+      source: path,
+      name: fileName,
     }));
   }
 
@@ -1679,6 +1698,7 @@ export class TaskService {
     if (template.fullAccess && isRestricted(caller))
       throw new Error(RESTRICTED_LAUNCH_REASON);
     const project = await this.requireProject(task.projectId);
+    const attachments = await this.briefingAttachments(task.id);
     return await this.deps.launchTemplate({
       templateId: template.id,
       resolvedTemplate: template,
@@ -1698,8 +1718,9 @@ export class TaskService {
         project,
         column,
         columns: await this.briefingColumns(task.projectId),
-        attachments: await this.briefingAttachments(task.id),
+        attachments,
       }),
+      startupReferences: this.briefingReferences(attachments),
       ...(launch.agentType ? { agentType: launch.agentType } : {}),
       ...(launch.model ? { model: launch.model } : {}),
       ...(launch.effort ? { effort: launch.effort } : {}),
@@ -1826,15 +1847,20 @@ export class TaskService {
    * it belongs in; `POST /api/v1/agents` with `taskId` uses it, then
    * assigns the new agent with `assignCreated`.
    */
-  async briefingFor(
-    id: string
-  ): Promise<{ projectId: string; text: string; name: string }> {
+  async briefingFor(id: string): Promise<{
+    projectId: string;
+    text: string;
+    name: string;
+    /** The files the text names, for the created agent's session. */
+    references: TaskBriefingReference[];
+  }> {
     const task = await this.requireTask(id);
     const [project, column, columns] = await Promise.all([
       this.requireProject(task.projectId),
       this.requireColumn(task.columnId),
       this.briefingColumns(task.projectId),
     ]);
+    const attachments = await this.briefingAttachments(task.id);
     return {
       projectId: task.projectId,
       name: taskAgentName(task.title),
@@ -1843,8 +1869,9 @@ export class TaskService {
         project,
         column,
         columns,
-        attachments: await this.briefingAttachments(task.id),
+        attachments,
       }),
+      references: this.briefingReferences(attachments),
     };
   }
 
