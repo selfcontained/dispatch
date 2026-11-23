@@ -374,7 +374,8 @@ export const operations = {
     request: object({
       target,
       path: string,
-      encoding: literal("utf8"),
+      /** `base64` returns the file's raw bytes, base64 encoded, inside the checkout. */
+      encoding: literal("utf8", "base64"),
       maxBytes: nullable(integer),
     }),
     response: nullable(object({ data: string, digest: optional(string) })),
