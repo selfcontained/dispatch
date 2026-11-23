@@ -1,0 +1,20 @@
+{
+  "name": "@dispatch/runner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./cli": "./src/cli.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "dependencies": {
+    "@dispatch/runner-client": "workspace:*",
+    "@dispatch/runner-protocol": "workspace:*"
+  },
+  "scripts": {
+    "check": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
+    "test": "vitest run --root ."
+  }
+}

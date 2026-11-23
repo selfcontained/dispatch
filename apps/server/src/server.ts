@@ -1,4 +1,9 @@
 import { enrolledRunnerId, isOnEnrolledRunner } from "./runners/placement.js";
+import {
+  startLocalRunnerProcess,
+  type LocalRunnerProcess,
+} from "./runners/local.js";
+import { embeddedBuild } from "./agents/build-identity.js";
 import { CheckoutObservers } from "./agents/checkout-observers.js";
 import { readAgentStats } from "./agents/checkout-runner.js";
 import { discoverSlackLinkOrigins } from "./notifications/slack-link-origins.js";
@@ -1613,7 +1618,17 @@ export async function closeApp(): Promise<void> {
 let closeAdditionalListeners: (() => Promise<void>) | undefined;
 let stopLocalTlsWatch: (() => void) | undefined;
 
+let localRunnerProcess: LocalRunnerProcess | undefined;
+
 export async function start() {
+  // Before agents are restored, probation included. Never awaited: the app
+  // starts and works as before whether or not the child comes up.
+  localRunnerProcess = startLocalRunnerProcess({
+    stateRoot: config.agentStateRoot,
+    filesRoot: config.filesRoot,
+    build: embeddedBuild,
+    log: app.log,
+  });
   await remoteRunner?.start();
   await initializeApp();
 
@@ -1730,6 +1745,9 @@ async function cleanupAppResources(): Promise<void> {
 
   await stage("database", () => pool.end().catch(() => null));
   await stage("http", () => app.close().catch(() => null));
+  // Closes the lifeline; detached hosts are untouched.
+  await stage("local-runner", async () => localRunnerProcess?.stop());
+  localRunnerProcess = undefined;
 }
 
 async function shutdown(code: number): Promise<void> {

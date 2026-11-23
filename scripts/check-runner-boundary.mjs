@@ -72,6 +72,19 @@ const ownMachine = [
   ],
 ];
 
+// Host modules one own-machine file may import, each with its reason.
+const scopedHostImports = new Map([
+  [
+    "runners/local.ts",
+    new Map([
+      [
+        "shared/process/child-environment",
+        "main's environment scrub applies to the local runner child it starts",
+      ],
+    ]),
+  ],
+]);
+
 // These exact legacy runner implementations have not moved to packages/runner yet.
 const legacyRunner =
   /^agents\/(acp\/(host\/|driver\.ts$|engine-spec\.ts$|host-env\.ts$|host-command\.ts$|opencode-instructions\.ts$|permissions\.ts$|background-[^/]+\.ts$)|remote\/(runner|session-(supervisor|storage|processes|files)|engine-(capability-worker|runner-executor)|github-(runner-executor|pull-request-watches)|update-(agent|trial|probe|verify|stage-cli|fence-store)|workload-(identity|tools))\.ts$)|^terminal\/runner-worker\.ts$/;
@@ -287,7 +300,11 @@ export function scanSource(file, source, declared = new Set()) {
         (hostModule.test(target.slice(server.length)) ||
           legacyRunner.test(target.slice(server.length) + ".ts"))
       ) {
-        if (controller) hit("R2 host import", target);
+        if (
+          controller &&
+          !scopedHostImports.get(relative)?.has(target.slice(server.length))
+        )
+          hit("R2 host import", target);
       }
       if (/^@dispatch\/runner(?:\/|$)/.test(specifier)) {
         // The CLI exception is confined to dynamic imports inside a subcommand branch.

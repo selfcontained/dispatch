@@ -1,5 +1,6 @@
 import {
   RunnerCallError,
+  runnerIdToWire,
   sessionToWire,
   type CallName,
   type Req,
@@ -16,6 +17,10 @@ import type {
   CheckoutSession,
   LocalCheckoutRunner,
 } from "./directory.js";
+import { selfCommand, superviseRunner } from "@dispatch/runner-client/launcher";
+import { callLocalSocket } from "@dispatch/runner-client/transport/local-socket";
+import { childProcessEnv } from "../shared/process/child-environment.js";
+import { LOCAL_RUNNER_ID } from "./placement.js";
 
 export function createLocalCheckoutRunner(
   local: LocalCheckoutRunner,
@@ -79,4 +84,82 @@ export function createLocalCheckoutRunner(
       });
     },
   };
+}
+
+export type LocalRunnerLog = {
+  info(object: object, message: string): void;
+  warn(object: object, message: string): void;
+};
+
+export type LocalRunnerProcess = { stop(graceMs?: number): Promise<void> };
+
+/**
+ * Start this app's local runner as a child (`<this executable> local-runner`)
+ * and keep it running: exact build handshake, EOF lifeline, restart with
+ * backoff. It never blocks start-up, and nothing is routed through it yet:
+ * if it cannot start, the app logs, backs off and retries.
+ */
+export function startLocalRunnerProcess(options: {
+  stateRoot: string;
+  filesRoot: string;
+  build: { version: string; revision: string | null };
+  log: LocalRunnerLog;
+}): LocalRunnerProcess {
+  const { log } = options;
+  const supervisor = superviseRunner({
+    command: selfCommand("local-runner"),
+    // Main's child-environment scrub: no database URL, tokens or API keys.
+    env: childProcessEnv(),
+    start: {
+      build: {
+        version: options.build.version,
+        ...(options.build.revision && { revision: options.build.revision }),
+      },
+      roots: { state: options.stateRoot, files: options.filesRoot },
+      config: {
+        runnerId: runnerIdToWire(LOCAL_RUNNER_ID),
+        displayName: "Local",
+        engines: [],
+      },
+    },
+    onStderr: (line) => log.info({ localRunner: line }, "Local runner output"),
+    onState(state) {
+      if (state.state === "ready") {
+        const { pid, ready } = state.runner;
+        log.info({ pid }, "Local runner ready");
+        // A start-up self-check over the socket; nothing else uses it yet.
+        void Promise.all([
+          callLocalSocket(ready.socket, ready.nonce, "runner.describe", {}),
+          callLocalSocket(ready.socket, ready.nonce, "runner.health", {}),
+        ])
+          .then(([description, health]) =>
+            log.info(
+              {
+                pid,
+                build: description.build,
+                sessions: health.sessions,
+                memoryUsed: health.memoryUsed,
+              },
+              "Local runner answered describe and health"
+            )
+          )
+          .catch((err: unknown) =>
+            log.warn(
+              { pid, err },
+              "Local runner did not answer describe and health"
+            )
+          );
+      } else if (state.state === "waiting") {
+        log.warn(
+          {
+            reason: (state.error as { reason?: string }).reason,
+            err: state.error.message,
+            retryInMs: state.retryInMs,
+          },
+          "Local runner is not running; retrying"
+        );
+      }
+    },
+  });
+  return { stop: (graceMs = 3_000) => supervisor.stop(graceMs) };
 }

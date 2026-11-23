@@ -19,6 +19,7 @@
     "@agentclientprotocol/claude-agent-acp": "0.108.0",
     "@agentclientprotocol/codex-acp": "2.7.0",
     "@agentclientprotocol/sdk": "1.8.0",
+    "@dispatch/runner": "workspace:*",
     "@dispatch/runner-client": "workspace:*",
     "@dispatch/runner-protocol": "workspace:*",
     "@dispatch/shared": "workspace:*",

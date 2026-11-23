@@ -70,6 +70,16 @@ const violations = [
     'await import("./shared/git/git-context.js");',
     "R2 host import",
   ],
+  [
+    app + "runners/directory.ts",
+    'import { childProcessEnv } from "../shared/process/child-environment.js";',
+    "R2 host import",
+  ],
+  [
+    app + "runners/local.ts",
+    'import { git } from "../shared/git/git-context.js";',
+    "R2 host import",
+  ],
   [app + "unknown.ts", 'Bun.spawn(["git", "status"]);', "R2 host access"],
   [app + "unknown.ts", 'Bun["file"](path);', "R2 host access"],
   [app + "unknown.ts", "const { spawn: exec } = Bun;", "R2 host access"],
@@ -147,6 +157,14 @@ test("accepts clean sources and the controller's scoped host capabilities", () =
       'if (command === "agent-host") await import("@dispatch/runner/cli");',
     ],
     [app + "unknown.test.ts", 'await import("node:fs");'],
+    [
+      app + "runners/local.ts",
+      'import { childProcessEnv } from "../shared/process/child-environment.js"; import { superviseRunner } from "@dispatch/runner-client/launcher";',
+    ],
+    [
+      app + "main.ts",
+      'if (process.argv[2] === "local-runner") await import("@dispatch/runner/cli");',
+    ],
     [protocol, 'export * from "./index.js";'],
     [web, 'import type { Placement } from "@dispatch/runner-protocol";'],
   ]) {

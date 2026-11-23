@@ -127,6 +127,15 @@ describe("vocabulary (E8)", () => {
     ]);
   });
 
+  it("the runner package and the client's launcher and socket use no Dispatch vocabulary", () => {
+    for (const dir of [
+      "../runner/src",
+      "../runner-client/src/launcher",
+      "../runner-client/src/transport",
+    ])
+      expect(vocabularyHits(root, `${root}/${dir}`)).toEqual([]);
+  });
+
   it("detects a planted term", () => {
     for (const planted of [
       "reviewBase",

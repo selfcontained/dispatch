@@ -1,0 +1,87 @@
+{
+  "protocol": 1,
+  "toRunner": {
+    "start": {
+      "object": {
+        "type": {
+          "literal": ["start"]
+        },
+        "build": {
+          "object": {
+            "version": "string",
+            "revision": {
+              "optional": "string"
+            }
+          }
+        },
+        "protocol": "integer",
+        "nonce": "string",
+        "roots": {
+          "object": {
+            "state": "string",
+            "files": "string"
+          }
+        },
+        "config": {
+          "object": {
+            "runnerId": "string",
+            "displayName": "string",
+            "engines": {
+              "array": "string"
+            }
+          }
+        }
+      }
+    },
+    "freeze": {
+      "object": {
+        "type": {
+          "literal": ["freeze"]
+        }
+      }
+    },
+    "thaw": {
+      "object": {
+        "type": {
+          "literal": ["thaw"]
+        }
+      }
+    },
+    "import": {
+      "object": {
+        "type": {
+          "literal": ["import"]
+        },
+        "bindings": {
+          "array": "json"
+        }
+      }
+    }
+  },
+  "fromRunner": {
+    "ready": {
+      "object": {
+        "type": {
+          "literal": ["ready"]
+        },
+        "build": {
+          "object": {
+            "version": "string",
+            "revision": {
+              "optional": "string"
+            }
+          }
+        },
+        "protocol": "integer",
+        "nonce": "string",
+        "socket": "string"
+      }
+    }
+  },
+  "lifeline": "eof",
+  "exit": {
+    "invalid": 64,
+    "locked": 75,
+    "mismatch": 78
+  }
+}

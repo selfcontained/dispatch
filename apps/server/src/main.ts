@@ -113,6 +113,16 @@ if (process.argv[2]?.startsWith("recovery-")) {
 } else if (process.argv[2] === "remote-runner") {
   const { runRemoteRunner } = await import("./agents/remote/runner.js");
   await runRemoteRunner(process.argv[3]!);
+} else if (process.argv[2] === "local-runner") {
+  // This app's local runner child: same binary, same build.
+  const { embeddedBuild } = await import("./agents/build-identity.js");
+  const { runCli } = await import("@dispatch/runner/cli");
+  await runCli(process.argv.slice(2), {
+    build: {
+      version: embeddedBuild.version,
+      ...(embeddedBuild.revision && { revision: embeddedBuild.revision }),
+    },
+  });
 } else if (process.argv[2] === "agent-host") {
   await import("./agents/acp/host/main.js");
 } else if (process.argv[2] === "claude-acp") {
