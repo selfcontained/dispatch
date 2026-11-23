@@ -1,5 +1,5 @@
 import { sessionCommandId } from "@dispatch/runner-protocol";
-import { applyLaunchEffort } from "../launch-effort.js";
+import { applyLaunchEffort } from "./launch-effort.js";
 import { firstPromptContext } from "./first-prompt.js";
 /**
  * `dispatch agent-host --state <dir>`: the process that owns one agent's
