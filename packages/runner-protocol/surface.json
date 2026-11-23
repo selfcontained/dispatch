@@ -304,8 +304,675 @@
       "timeout": "default",
       "capability": "baseline",
       "channel": {
-        "toRunner": "bytes",
-        "fromRunner": "bytes"
+        "toRunner": {
+          "union": [
+            {
+              "object": {
+                "type": {
+                  "literal": ["hello"]
+                },
+                "fromSeq": "integer",
+                "journalId": {
+                  "optional": {
+                    "nullable": "string"
+                  }
+                },
+                "replayComplete": {
+                  "optional": "boolean"
+                }
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["prompt"]
+                },
+                "id": "string",
+                "text": "string",
+                "journalId": {
+                  "optional": "string"
+                },
+                "source": {
+                  "optional": "json"
+                },
+                "images": {
+                  "optional": {
+                    "array": {
+                      "object": {
+                        "path": {
+                          "opaque": "RunnerPath"
+                        },
+                        "mimeType": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["steer"]
+                },
+                "id": "string",
+                "text": "string",
+                "source": {
+                  "optional": "json"
+                }
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["cancel"]
+                }
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["interrupt"]
+                },
+                "id": "string",
+                "turnSeq": "integer"
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["answer_permission"]
+                },
+                "id": "string",
+                "requestId": "string",
+                "optionId": {
+                  "nullable": "string"
+                }
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["set_config"]
+                },
+                "id": "string",
+                "configId": "string",
+                "value": "string"
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["shutdown"]
+                },
+                "force": {
+                  "optional": "boolean"
+                },
+                "idleOnly": {
+                  "optional": "boolean"
+                }
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["shutdown"]
+                },
+                "quiesceId": "string"
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["mcp_inventory"]
+                },
+                "id": "string",
+                "sessionId": "string"
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["background_work"]
+                },
+                "id": "string",
+                "sessionId": "string"
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["ping"]
+                }
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["prompt_receipt"]
+                },
+                "id": "string",
+                "journalId": "string"
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["quiesce", "release_quiesce"]
+                },
+                "id": "string"
+              }
+            }
+          ]
+        },
+        "fromRunner": {
+          "union": [
+            {
+              "object": {
+                "type": {
+                  "literal": ["welcome"]
+                },
+                "engine": "string",
+                "sessionId": "string",
+                "resumed": "boolean",
+                "running": "boolean",
+                "journalSeq": "integer",
+                "journalId": {
+                  "optional": "string"
+                },
+                "steeringSupported": {
+                  "optional": "boolean"
+                },
+                "interruptSupported": {
+                  "optional": "boolean"
+                },
+                "mcpInventorySupported": {
+                  "optional": "boolean"
+                },
+                "backgroundWorkSupported": {
+                  "optional": "boolean"
+                },
+                "promptReceiptSupported": {
+                  "optional": {
+                    "literal": [true]
+                  }
+                },
+                "quiesceSupported": {
+                  "optional": {
+                    "literal": [true]
+                  }
+                },
+                "hostInstanceId": {
+                  "optional": "string"
+                },
+                "hostBuild": {
+                  "optional": {
+                    "object": {
+                      "version": "string",
+                      "revision": {
+                        "nullable": "string"
+                      }
+                    }
+                  }
+                },
+                "turn": {
+                  "optional": {
+                    "nullable": {
+                      "object": {
+                        "seq": "integer",
+                        "startedAt": "string",
+                        "source": {
+                          "optional": "json"
+                        }
+                      }
+                    }
+                  }
+                },
+                "commands": {
+                  "optional": {
+                    "array": "json"
+                  }
+                },
+                "configOptions": {
+                  "optional": {
+                    "array": "json"
+                  }
+                },
+                "permissions": {
+                  "optional": {
+                    "array": {
+                      "object": {
+                        "id": "string",
+                        "toolCallId": "string",
+                        "title": "string",
+                        "details": "string",
+                        "createdAt": "string",
+                        "options": {
+                          "array": {
+                            "object": {
+                              "optionId": "string",
+                              "name": "string",
+                              "kind": {
+                                "literal": [
+                                  "allow_once",
+                                  "allow_always",
+                                  "reject_once",
+                                  "reject_always"
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["event"]
+                },
+                "seq": "integer",
+                "at": "string",
+                "event": {
+                  "union": [
+                    {
+                      "object": {
+                        "type": {
+                          "literal": ["steered"]
+                        },
+                        "text": "string",
+                        "source": {
+                          "optional": "json"
+                        },
+                        "receiptId": {
+                          "optional": "string"
+                        },
+                        "at": {
+                          "optional": "string"
+                        }
+                      }
+                    },
+                    {
+                      "object": {
+                        "type": {
+                          "literal": ["prompt_delivered"]
+                        },
+                        "receiptId": "string",
+                        "source": {
+                          "optional": "json"
+                        },
+                        "at": "string"
+                      }
+                    },
+                    {
+                      "object": {
+                        "type": {
+                          "literal": ["steering_picked_up"]
+                        },
+                        "receiptId": "string",
+                        "source": {
+                          "optional": "json"
+                        },
+                        "at": "string"
+                      }
+                    },
+                    {
+                      "object": {
+                        "type": {
+                          "literal": ["permissions"]
+                        },
+                        "requests": {
+                          "array": {
+                            "object": {
+                              "id": "string",
+                              "toolCallId": "string",
+                              "title": "string",
+                              "details": "string",
+                              "createdAt": "string",
+                              "options": {
+                                "array": {
+                                  "object": {
+                                    "optionId": "string",
+                                    "name": "string",
+                                    "kind": {
+                                      "literal": [
+                                        "allow_once",
+                                        "allow_always",
+                                        "reject_once",
+                                        "reject_always"
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "object": {
+                        "type": {
+                          "literal": ["update"]
+                        },
+                        "update": "json"
+                      }
+                    },
+                    {
+                      "object": {
+                        "type": {
+                          "literal": ["config"]
+                        },
+                        "options": {
+                          "array": "json"
+                        },
+                        "catalogSource": {
+                          "optional": {
+                            "literal": ["engine", "override"]
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "object": {
+                        "type": {
+                          "literal": ["turn"]
+                        },
+                        "state": {
+                          "literal": ["started"]
+                        },
+                        "text": "string",
+                        "source": {
+                          "optional": "json"
+                        },
+                        "model": {
+                          "optional": "string"
+                        },
+                        "sessionId": {
+                          "optional": "string"
+                        }
+                      }
+                    },
+                    {
+                      "object": {
+                        "type": {
+                          "literal": ["turn"]
+                        },
+                        "state": {
+                          "literal": ["settled"]
+                        },
+                        "stopReason": {
+                          "optional": "string"
+                        },
+                        "usage": {
+                          "optional": "json"
+                        },
+                        "error": {
+                          "optional": "string"
+                        },
+                        "errorKind": {
+                          "optional": "string"
+                        }
+                      }
+                    },
+                    {
+                      "object": {
+                        "type": {
+                          "literal": ["exit"]
+                        },
+                        "code": {
+                          "nullable": "integer"
+                        },
+                        "signal": {
+                          "nullable": "string"
+                        },
+                        "stderrTail": "string",
+                        "expected": "boolean"
+                      }
+                    }
+                  ]
+                },
+                "journalId": {
+                  "optional": "string"
+                }
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["replay_complete"]
+                }
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["prompt_accepted"]
+                },
+                "id": "string"
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["prompt_deferred"]
+                },
+                "id": "string"
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["interrupt_result"]
+                },
+                "id": "string"
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["steer_result"]
+                },
+                "id": "string",
+                "outcome": {
+                  "literal": ["injected", "promptRequired"]
+                }
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["error"]
+                },
+                "id": {
+                  "optional": "string"
+                },
+                "message": "string"
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["permission_answered"]
+                },
+                "id": "string"
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["pong"]
+                }
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["prompt_receipt_result"]
+                },
+                "id": "string",
+                "journalId": "string",
+                "state": {
+                  "literal": ["accepted", "claimed", "unclaimed", "rotated"]
+                }
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["quiesce_result"]
+                },
+                "id": "string",
+                "state": {
+                  "literal": ["idle", "busy"]
+                }
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["quiesce_shutdown_result"]
+                },
+                "id": "string",
+                "accepted": "boolean"
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["config_set"]
+                },
+                "id": "string",
+                "options": {
+                  "array": "json"
+                }
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["permissions"]
+                },
+                "requests": {
+                  "array": {
+                    "object": {
+                      "id": "string",
+                      "toolCallId": "string",
+                      "title": "string",
+                      "details": "string",
+                      "createdAt": "string",
+                      "options": {
+                        "array": {
+                          "object": {
+                            "optionId": "string",
+                            "name": "string",
+                            "kind": {
+                              "literal": [
+                                "allow_once",
+                                "allow_always",
+                                "reject_once",
+                                "reject_always"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["mcp_inventory_result"]
+                },
+                "id": "string",
+                "result": {
+                  "object": {
+                    "status": {
+                      "literal": [
+                        "ok",
+                        "offline",
+                        "unsupported",
+                        "timeout",
+                        "unavailable"
+                      ]
+                    },
+                    "inventory": {
+                      "nullable": {
+                        "object": {
+                          "version": {
+                            "literal": [1]
+                          },
+                          "servers": {
+                            "array": {
+                              "object": {
+                                "name": "string",
+                                "state": "string",
+                                "toolsState": {
+                                  "literal": ["known", "unknown", "error"]
+                                },
+                                "tools": {
+                                  "nullable": {
+                                    "array": {
+                                      "object": {
+                                        "name": "string",
+                                        "description": {
+                                          "optional": "string"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "object": {
+                "type": {
+                  "literal": ["background_work_result"]
+                },
+                "id": "string",
+                "result": {
+                  "object": {
+                    "status": {
+                      "literal": [
+                        "supported",
+                        "unsupported",
+                        "offline",
+                        "unavailable"
+                      ]
+                    },
+                    "items": {
+                      "array": {
+                        "object": {
+                          "id": "string",
+                          "name": "string",
+                          "kind": {
+                            "literal": ["shell", "monitor"]
+                          },
+                          "state": {
+                            "literal": ["running", "paused"]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
       }
     },
     "session.alive": {

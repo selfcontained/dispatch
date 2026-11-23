@@ -5,6 +5,7 @@
  * coverage all derive from it.
  */
 import { runnerDescription } from "./description.js";
+import { clientMessage, hostMessage } from "./host.js";
 import { op } from "./operation.js";
 import { runnerPath, sessionHandle } from "./opaque.js";
 import {
@@ -153,8 +154,7 @@ export const operations = {
     retry: read,
     timeout: "default",
     capability: "baseline",
-    // The host vocabulary (hello, prompt, receipts, events) is typed in T04b.
-    channel: { toRunner: "bytes", fromRunner: "bytes" },
+    channel: { toRunner: clientMessage, fromRunner: hostMessage },
   }),
   "session.alive": op({
     scope: "session",

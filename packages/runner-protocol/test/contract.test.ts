@@ -8,7 +8,11 @@ import {
   surface,
   type OperationSpec,
 } from "../src/contract/index.js";
-import { usesDispatchVocabulary, vocabularyHits } from "./vocabulary.js";
+import {
+  usesContractVocabulary,
+  usesDispatchVocabulary,
+  vocabularyHits,
+} from "./vocabulary.js";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const table = Object.entries(operations as Record<string, OperationSpec>);
@@ -105,14 +109,16 @@ describe("surface snapshot (E8)", () => {
 
 describe("vocabulary (E8)", () => {
   it("the contract and its snapshot use no Dispatch vocabulary", () => {
-    expect(vocabularyHits(root, `${root}/src/contract`)).toEqual([]);
+    expect(
+      vocabularyHits(root, `${root}/src/contract`, usesContractVocabulary)
+    ).toEqual([]);
     const strings: string[] = [];
     JSON.stringify(surface(), (key, value) => {
       strings.push(key);
       if (typeof value === "string") strings.push(value);
       return value;
     });
-    expect(strings.filter(usesDispatchVocabulary)).toEqual([]);
+    expect(strings.filter(usesContractVocabulary)).toEqual([]);
   });
 
   it("the wire v1 modules hold only the known leaks (R5), and no new ones", () => {
@@ -131,6 +137,8 @@ describe("vocabulary (E8)", () => {
       "agt_123",
     ])
       expect(usesDispatchVocabulary(planted)).toBe(true);
+    for (const planted of ["agentId", "PromptSource", "dispatchUrl"])
+      expect(usesContractVocabulary(planted)).toBe(true);
     for (const neutral of ["checkout.preview", "previewUrl", "backgroundWork"])
       expect(usesDispatchVocabulary(neutral)).toBe(false);
   });

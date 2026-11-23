@@ -2,7 +2,13 @@
 import type { PathLike } from "node:fs";
 import {
   pathFromWire,
+  type CallerChannel,
   type CallName,
+  type Handler,
+  type Infer,
+  type Runner,
+  type clientMessage,
+  type hostMessage,
   type OpenName,
   type Placement,
   type Req,
@@ -52,6 +58,34 @@ export type NestedLocation = Assert<
     NonNullable<Req<"workspace.prepare">["worktree"]>["location"],
     "sibling" | { nested: string } | undefined
   >
+>;
+
+// The attach channel carries typed host messages; byte channels stay bytes (T04b).
+type ClientMessage = Infer<typeof clientMessage>;
+type HostMessage = Infer<typeof hostMessage>;
+type AttachCtx = Parameters<Handler<"session.attach">>[1]["channel"];
+declare const runner: Runner;
+const attach = () => runner.open("session.attach", null as never);
+type AttachOpen = Awaited<ReturnType<typeof attach>>["channel"];
+export type HandlerWritesHost = Assert<
+  Equal<Parameters<AttachCtx["write"]>[0], HostMessage>
+>;
+export type HandlerReadsClient = Assert<
+  Equal<Parameters<Parameters<AttachCtx["onData"]>[0]>[0], ClientMessage>
+>;
+export type CallerWritesClient = Assert<
+  Equal<Parameters<CallerChannel<"session.attach">["write"]>[0], ClientMessage>
+>;
+export type OpenReadsHost = Assert<
+  Equal<Parameters<Parameters<AttachOpen["onData"]>[0]>[0], HostMessage>
+>;
+export type PortIsBytes = Assert<
+  Equal<Parameters<CallerChannel<"port.connect">["write"]>[0], Uint8Array>
+>;
+export type EventHasNoSession = Assert<
+  "agentId" extends keyof Extract<HostMessage, { type: "event" }>["event"]
+    ? false
+    : true
 >;
 
 // A handler map that omits an operation does not compile.

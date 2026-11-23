@@ -1,8 +1,9 @@
 import type { RunnerDescription } from "./description.js";
 import type { RunnerError } from "./errors.js";
 import type { Placement } from "./opaque.js";
+import type { ChannelSpec } from "./operation.js";
 import { operations } from "./operations.js";
-import type { Infer } from "./schema.js";
+import type { Infer, Schema } from "./schema.js";
 
 export type Operations = typeof operations;
 export type OpName = keyof Operations;
@@ -36,13 +37,30 @@ export interface Connection {
   onChange(listener: (state: ConnectionState) => void): () => void;
 }
 
-/** A duplex channel returned by an `open` operation. */
-export interface Channel {
-  write(data: Uint8Array): void;
-  onData(listener: (data: Uint8Array) => void): () => void;
+/** A duplex channel returned by an `open` operation; bytes unless the operation types it. */
+export interface Channel<Out = Uint8Array, In = Uint8Array> {
+  write(data: Out): void;
+  onData(listener: (data: In) => void): () => void;
   onClose(listener: (error?: RunnerError) => void): () => void;
   close(): void;
 }
+
+type Message<S> = S extends Schema<infer T> ? T : Uint8Array;
+type Spec<K extends OpName> = Operations[K] extends { channel: infer C }
+  ? C extends ChannelSpec
+    ? C
+    : never
+  : never;
+/** The caller's end: writes `toRunner`, reads `fromRunner`. */
+export type CallerChannel<K extends OpName> = Channel<
+  Message<Spec<K>["toRunner"]>,
+  Message<Spec<K>["fromRunner"]>
+>;
+/** The runner's end: writes `fromRunner`, reads `toRunner`. */
+export type RunnerChannel<K extends OpName> = Channel<
+  Message<Spec<K>["fromRunner"]>,
+  Message<Spec<K>["toRunner"]>
+>;
 
 export interface Runner {
   /** Last known, also while offline. */
@@ -57,7 +75,7 @@ export interface Runner {
     op: K,
     req: Req<K>,
     opts?: CallOptions<K>
-  ): Promise<{ info: Res<K>; channel: Channel }>;
+  ): Promise<{ info: Res<K>; channel: CallerChannel<K> }>;
 }
 
 export type HandlerContext<K extends OpName> = {
@@ -68,7 +86,7 @@ export type HandlerContext<K extends OpName> = {
 export type Handler<K extends OpName> = K extends OpenName
   ? (
       req: Req<K>,
-      ctx: HandlerContext<K> & { channel: Channel }
+      ctx: HandlerContext<K> & { channel: RunnerChannel<K> }
     ) => Promise<Res<K>>
   : (req: Req<K>, ctx: HandlerContext<K>) => Promise<Res<K>>;
 

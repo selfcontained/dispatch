@@ -18,6 +18,14 @@ const WORDS = new Set(
 /** Dispatch names matched anywhere in a string. */
 const NAMES = /DISPATCH_|\.dispatch|agt_/i;
 
+/** Dispatch names the contract also may not use (its session handle replaces agent ids). */
+const CONTRACT_NAMES = /agent_?id|promptsource|persona|dispatch/i;
+
+/** Whether a contract name or literal uses Dispatch vocabulary. */
+export function usesContractVocabulary(text: string): boolean {
+  return CONTRACT_NAMES.test(text) || usesDispatchVocabulary(text);
+}
+
 /** Whether a name or literal uses Dispatch vocabulary, by whole words. */
 export function usesDispatchVocabulary(text: string): boolean {
   if (NAMES.test(text)) return true;
@@ -39,7 +47,11 @@ function files(dir: string): string[] {
 }
 
 /** Identifiers and string literals (not comments) that use Dispatch vocabulary. */
-export function vocabularyHits(root: string, dir: string) {
+export function vocabularyHits(
+  root: string,
+  dir: string,
+  uses: (text: string) => boolean = usesDispatchVocabulary
+) {
   const hits: string[] = [];
   for (const file of files(dir)) {
     const source = ts.createSourceFile(
@@ -55,7 +67,7 @@ export function vocabularyHits(root: string, dir: string) {
           : ts.isStringLiteralLike(node)
             ? node.text
             : undefined;
-      if (text !== undefined && usesDispatchVocabulary(text))
+      if (text !== undefined && uses(text))
         hits.push(`${relative(root, file)}: ${text}`);
       ts.forEachChild(node, visit);
     };
