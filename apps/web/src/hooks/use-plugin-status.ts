@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
 
 import { api } from "@/lib/api";
 // Server-defined shape, imported type-only so nothing from the server
@@ -9,6 +8,7 @@ import type {
   PluginAgentType,
   PluginStatus,
 } from "../../../server/src/shared/plugin-status";
+import { toast } from "@/components/ui/toast";
 
 export type { PluginAgentType, PluginStatus };
 
@@ -61,16 +61,17 @@ export function useUpdatePlugin(action: "update" | "install" = "update") {
       // resetting to exactly its pre-click state, indistinguishable from
       // the click doing nothing at all.
       if (data.status.detectionError || !data.status.installed) {
-        toast.warning(
-          `Command finished, but ${label} plugin installation could not be confirmed. Retry the status check.`
-        );
+        toast.warning(`Couldn’t confirm the ${label} plugin.`, {
+          description: "The command finished. Retry the status check.",
+        });
       } else if (data.status.updateAvailable) {
-        toast.warning(
-          `Update ran, but ${label} is still on v${data.status.currentVersion}.`
-        );
+        toast.warning(`${label} is still on v${data.status.currentVersion}.`, {
+          description: "The update ran. Check again, or run it manually.",
+        });
       } else {
         toast.success(
-          `Dispatch plugin ${action === "install" ? "installed" : "updated"} for ${label}. Start a fresh agent session to load it.`
+          `Dispatch plugin ${action === "install" ? "installed" : "updated"} for ${label}.`,
+          { description: "Start a fresh agent session to load it." }
         );
       }
     },

@@ -3,15 +3,16 @@
  *
  * Handles two modes:
  *   - Desktop: inline collapsible panel with configurable width, animated via CSS width transition
- *   - Mobile: full-screen slide-over with backdrop overlay and slide animation
+ *   - Mobile: a modal Sheet
  *
  * The glass panel styling (frosted gradient, luminous borders, inner highlights)
  * comes from the shared glass tokens so all sidebars look identical.
  */
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode } from "react";
 
 import { glassPanel } from "@/lib/glass";
 import { cn } from "@/lib/utils";
+import { Sheet } from "./sheet";
 
 type GlassSidebarProps = {
   /** Whether the sidebar is open */
@@ -64,70 +65,18 @@ function DesktopSidebar({
   );
 }
 
-/** Mobile: full-screen slide-over with backdrop */
-function MobileSidebar({
-  open,
-  onOpenChange,
-  side,
-  label,
-  className,
-  children,
-}: Omit<GlassSidebarProps, "width" | "mobile">) {
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      // A nested Radix layer (a Select's listbox, a popover, a dropdown
-      // menu) marks the Escape it dismissed with preventDefault before it
-      // reaches the window; that press was for the layer, not the sheet.
-      if (event.key === "Escape" && !event.defaultPrevented)
-        onOpenChange(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onOpenChange, open]);
-
-  return (
-    <>
-      {/* Backdrop */}
-      <div
-        className={cn(
-          "fixed inset-x-0 bottom-0 top-[var(--exposure-banner-height,0px)] z-drawer bg-scrim backdrop-blur-md transition-opacity duration-300",
-          open ? "opacity-100" : "pointer-events-none opacity-0"
-        )}
-        onClick={() => onOpenChange(false)}
-      />
-      {/* Panel */}
-      <div
-        className={cn(
-          "fixed bottom-0 top-[var(--exposure-banner-height,0px)] z-drawer-panel w-screen transition-transform duration-300",
-          side === "left" ? "left-0" : "right-0",
-          open
-            ? "translate-x-0"
-            : side === "left"
-              ? "pointer-events-none -translate-x-full"
-              : "pointer-events-none translate-x-full"
-        )}
-        role="dialog"
-        aria-modal="true"
-        aria-label={label}
-      >
-        <div
-          className={cn(
-            `flex h-full min-h-0 w-full flex-col text-foreground`,
-            glassPanel,
-            className
-          )}
-        >
-          {children}
-        </div>
-      </div>
-    </>
-  );
-}
-
 export function GlassSidebar({ mobile = false, ...props }: GlassSidebarProps) {
-  if (mobile) {
-    return <MobileSidebar {...props} />;
-  }
-  return <DesktopSidebar {...props} />;
+  if (!mobile) return <DesktopSidebar {...props} />;
+  const { open, onOpenChange, side, label, className, children } = props;
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={onOpenChange}
+      side={side}
+      label={label}
+      className={className}
+    >
+      {children}
+    </Sheet>
+  );
 }

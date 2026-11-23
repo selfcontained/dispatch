@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { SHEET_SETTLE_FALLBACK_MS } from "@/components/ui/sheet";
 import {
   act,
   cleanup,
@@ -12,10 +13,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DRAWER_EDGE_GUTTER_PX,
   DRAWER_PINNED_CENTRE_MIN_PX,
-  DRAWER_SETTLE_FALLBACK_MS,
   drawerPinnedReserve,
 } from "./drawer-constants";
 
+const noop = () => {};
 const STORAGE_KEY = "dispatch:drawerWidth";
 
 // The width atom reads storage once, when store.ts is first imported, so
@@ -72,7 +73,7 @@ describe("DrawerFrame resize", () => {
     async (pinned) => {
       const DrawerFrame = await loadFrame();
       const view = render(
-        <DrawerFrame open pinned={pinned}>
+        <DrawerFrame onClose={noop} open pinned={pinned}>
           <div />
         </DrawerFrame>
       );
@@ -88,7 +89,7 @@ describe("DrawerFrame resize", () => {
 
       view.unmount();
       render(
-        <DrawerFrame open pinned={pinned}>
+        <DrawerFrame onClose={noop} open pinned={pinned}>
           <div />
         </DrawerFrame>
       );
@@ -100,7 +101,7 @@ describe("DrawerFrame resize", () => {
     window.localStorage.setItem(STORAGE_KEY, "600");
     const DrawerFrame = await loadFrame();
     render(
-      <DrawerFrame open pinned>
+      <DrawerFrame onClose={noop} open pinned>
         <div />
       </DrawerFrame>
     );
@@ -111,10 +112,10 @@ describe("DrawerFrame resize", () => {
     const DrawerFrame = await loadFrame();
     render(
       <>
-        <DrawerFrame open pinned testId="thread-drawer-wrapper">
+        <DrawerFrame onClose={noop} open pinned testId="thread-drawer-wrapper">
           <div />
         </DrawerFrame>
-        <DrawerFrame open={false} pinned>
+        <DrawerFrame onClose={noop} open={false} pinned>
           <div />
         </DrawerFrame>
       </>
@@ -132,7 +133,7 @@ describe("DrawerFrame resize", () => {
   it("floating, drags past the old cap to all but the edge gutter, and the handle still works there", async () => {
     const DrawerFrame = await loadFrame();
     render(
-      <DrawerFrame open pinned={false}>
+      <DrawerFrame onClose={noop} open pinned={false}>
         <div />
       </DrawerFrame>
     );
@@ -164,7 +165,7 @@ describe("DrawerFrame resize", () => {
     expect(drawerPinnedReserve(false)).toBe(320);
     const DrawerFrame = await loadFrame();
     const frame = (reserve: number) => (
-      <DrawerFrame open pinned pinnedReserve={reserve}>
+      <DrawerFrame onClose={noop} open pinned pinnedReserve={reserve}>
         <div />
       </DrawerFrame>
     );
@@ -198,7 +199,7 @@ describe("DrawerFrame resize", () => {
     setViewportWidth(1000);
     const DrawerFrame = await loadFrame();
     const frame = (pinned: boolean) => (
-      <DrawerFrame open pinned={pinned}>
+      <DrawerFrame onClose={noop} open pinned={pinned}>
         <div />
       </DrawerFrame>
     );
@@ -222,7 +223,7 @@ describe("DrawerFrame resize", () => {
     window.localStorage.setItem(STORAGE_KEY, "40");
     let DrawerFrame = await loadFrame();
     const view = render(
-      <DrawerFrame open pinned>
+      <DrawerFrame onClose={noop} open pinned>
         <div />
       </DrawerFrame>
     );
@@ -232,7 +233,7 @@ describe("DrawerFrame resize", () => {
     window.localStorage.setItem(STORAGE_KEY, '"wide"');
     DrawerFrame = await loadFrame();
     render(
-      <DrawerFrame open pinned>
+      <DrawerFrame onClose={noop} open pinned>
         <div />
       </DrawerFrame>
     );
@@ -242,7 +243,7 @@ describe("DrawerFrame resize", () => {
   it("steps with the arrow keys from a focusable handle", async () => {
     const DrawerFrame = await loadFrame();
     render(
-      <DrawerFrame open pinned>
+      <DrawerFrame onClose={noop} open pinned>
         <div />
       </DrawerFrame>
     );
@@ -265,7 +266,7 @@ describe("DrawerFrame resize", () => {
   it("has no handle while closed", async () => {
     const DrawerFrame = await loadFrame();
     render(
-      <DrawerFrame open={false} pinned>
+      <DrawerFrame onClose={noop} open={false} pinned>
         <div />
       </DrawerFrame>
     );
@@ -276,14 +277,15 @@ describe("DrawerFrame resize", () => {
 describe("DrawerFrame closing", () => {
   async function loadClosingFrame() {
     vi.resetModules();
-    const { DrawerFrame, useDrawerClosing } = await import("./drawer");
+    const { DrawerFrame } = await import("./drawer");
+    const { useSheetClosing } = await import("@/components/ui/sheet");
     function Probe() {
       return (
-        <div data-testid="content" data-closing={String(useDrawerClosing())} />
+        <div data-testid="content" data-closing={String(useSheetClosing())} />
       );
     }
     return (open: boolean, pinned = true) => (
-      <DrawerFrame open={open} pinned={pinned}>
+      <DrawerFrame onClose={noop} open={open} pinned={pinned}>
         <Probe />
       </DrawerFrame>
     );
@@ -332,7 +334,7 @@ describe("DrawerFrame closing", () => {
       view.rerender(frame(false));
       expect(closing()).toBe("true");
       act(() => {
-        vi.advanceTimersByTime(DRAWER_SETTLE_FALLBACK_MS);
+        vi.advanceTimersByTime(SHEET_SETTLE_FALLBACK_MS);
       });
       expect(closing()).toBe("false");
     } finally {

@@ -139,12 +139,12 @@ describe("WorktreeSection", () => {
 
     fireEvent.click(baseBranch());
     expect(baseBranch().getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByPlaceholderText("Search branches...")).toBeTruthy();
+    expect(screen.getByPlaceholderText("Search branches…")).toBeTruthy();
 
     rerender(<WorktreeSection {...defaultProps} useWorktree={false} />);
 
     expect(baseBranch().getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByPlaceholderText("Search branches...")).toBeNull();
+    expect(screen.queryByPlaceholderText("Search branches…")).toBeNull();
     expect(baseBranch().closest("[aria-hidden]")?.hasAttribute("inert")).toBe(
       true
     );
@@ -162,7 +162,9 @@ describe("WorktreeSection", () => {
     const { rerender } = render(
       <WorktreeSection {...defaultProps} branchSource={branchSource} />
     );
-    expect(baseBranch().getAttribute("aria-label")).toBe("Starting branch");
+    expect(screen.getByRole("combobox", { name: "Starting branch" })).toBe(
+      baseBranch()
+    );
     rerender(
       <WorktreeSection
         {...defaultProps}
@@ -170,7 +172,9 @@ describe("WorktreeSection", () => {
         createNewBranch={false}
       />
     );
-    expect(baseBranch().getAttribute("aria-label")).toBe("Existing branch");
+    expect(screen.getByRole("combobox", { name: "Existing branch" })).toBe(
+      baseBranch()
+    );
     expect(screen.getByText("Existing branch")).toBeTruthy();
   });
 });

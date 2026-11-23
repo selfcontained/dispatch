@@ -2,7 +2,6 @@ import { useState } from "react";
 import { ArrowDownToLine, CheckCircle2 } from "lucide-react";
 import type { MacAppUpdateState } from "@dispatch/shared";
 
-import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -10,13 +9,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Alert } from "@/components/ui/alert";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Spinner } from "@/components/ui/spinner";
 import {
   useMacAppUpdate,
   useMacAppUpdateAction,
@@ -63,10 +58,6 @@ export function MacAppUpdatesCard(): JSX.Element {
 
   const progress = PROGRESS[state.phase];
   const idle = state.phase === "idle" || state.phase === "error";
-  const install = () => {
-    setConfirming(false);
-    action.mutate("install");
-  };
 
   return (
     <Card>
@@ -94,10 +85,7 @@ export function MacAppUpdatesCard(): JSX.Element {
           <div className="flex min-w-0 items-center gap-2 text-body-md">
             {progress ? (
               <>
-                <ActivityBars
-                  size={14}
-                  className="shrink-0 text-muted-foreground"
-                />
+                <Spinner className="text-muted-foreground" />
                 <span className="truncate text-muted-foreground">
                   {progress}
                 </span>
@@ -114,15 +102,16 @@ export function MacAppUpdatesCard(): JSX.Element {
         </div>
 
         {state.phase === "recovery" && (
-          <div className="rounded-sm border border-danger/line bg-danger/tint px-3 py-2 text-body-md text-danger">
-            The last update didn’t finish. On the Mac, open the Dispatch menu
-            bar icon and choose <strong>Retry Update Recovery</strong>.
-          </div>
+          <Alert title="The last update didn’t finish.">
+            On the Mac, open the Dispatch menu bar icon and choose{" "}
+            <strong>Retry Update Recovery</strong>.
+          </Alert>
         )}
-        {(state.error || action.error) && (
-          <div className="rounded-sm border border-danger/line bg-danger/tint px-3 py-2 text-body-md text-danger">
-            {action.error?.message ?? state.error}
-          </div>
+        {(state.error || action.error) && !confirming && (
+          <Alert
+            title="Couldn’t update Dispatch."
+            error={action.error ?? state.error}
+          />
         )}
 
         {state.availableVersion && state.phase !== "installing" && (
@@ -150,28 +139,21 @@ export function MacAppUpdatesCard(): JSX.Element {
         )}
       </CardHeader>
 
-      <Dialog open={confirming} onOpenChange={setConfirming}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              Install Dispatch{" "}
-              <span className="font-mono">{state.availableVersion}</span>
-            </DialogTitle>
-            <DialogDescription>
-              The Mac app downloads the update, stops this server, installs it
-              and starts it again. Dispatch is unavailable for about a minute.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setConfirming(false)}>
-              Cancel
-            </Button>
-            <Button variant="primary" onClick={install}>
-              Install and restart
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        tone="primary"
+        title={
+          <>
+            Install Dispatch{" "}
+            <span className="font-mono">{state.availableVersion}</span>?
+          </>
+        }
+        description="The Mac app downloads the update, stops this server, installs it and starts it again. Dispatch is unavailable for about a minute."
+        confirmLabel="Install and restart"
+        errorTitle="Couldn’t start the update."
+        onConfirm={() => action.mutateAsync("install")}
+      />
     </Card>
   );
 }

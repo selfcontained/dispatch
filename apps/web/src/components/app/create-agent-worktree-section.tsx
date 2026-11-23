@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { panelFrame } from "@/components/ui/card";
 import { GitBranch, Info } from "lucide-react";
 
 import {
@@ -61,7 +62,8 @@ export function WorktreeSection({
   return (
     <div
       className={cn(
-        "rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 transition-opacity duration-200",
+        panelFrame,
+        "p-3 transition-opacity duration-200",
         !worktreeAvailable && "opacity-60"
       )}
       data-testid="create-agent-worktree-section"
@@ -144,7 +146,7 @@ export function WorktreeSection({
             <div className="space-y-1">
               <label
                 htmlFor="create-agent-new-branch"
-                className="ml-8 block cursor-pointer text-body-sm text-muted-foreground"
+                className="ml-8 block cursor-pointer text-body-sm font-medium text-foreground"
               >
                 New branch
               </label>

@@ -1,4 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type InputHTMLAttributes,
+  type ReactNode,
+} from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -8,7 +18,7 @@ import {
   X,
 } from "lucide-react";
 
-import { ActivityBars } from "@/components/ui/activity-bars";
+import { Spinner } from "@/components/ui/spinner";
 import { CountBubble } from "@/components/ui/count-bubble";
 import { IconButton } from "@/components/ui/icon-button";
 import { Hint } from "@/components/ui/tooltip";
@@ -25,6 +35,9 @@ import {
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { Field } from "@/components/ui/field";
+import { useFieldControl } from "@/components/ui/field-context";
+import { pickerItem } from "@/components/ui/picker-styles";
 
 type PathInfo = {
   exists: boolean;
@@ -121,6 +134,8 @@ export function PathInput({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const projectSuggestionsRequestRef = useRef(0);
   const listboxRef = useRef<HTMLDivElement>(null);
+  const listId = useId();
+  const listOpen = dropdownOpen && options.length > 0;
 
   useEffect(() => {
     if (!dropdownOpen) return;
@@ -302,37 +317,31 @@ export function PathInput({
   }, [value]);
 
   return (
-    <div className={cn("relative", className)}>
-      {label ? (
-        <label
-          className="mb-1.5 block text-body-sm font-medium text-muted-foreground"
-          htmlFor={id}
-        >
-          {label}
-        </label>
-      ) : null}
-
+    <PathField label={label} id={id} className={className}>
       <div className="relative" ref={cmdRef}>
         <div className="relative rounded-md surface-inset">
           {/* Ghost autocomplete overlay */}
           {ghostSuffix && value.trim() ? (
             <div
               aria-hidden
-              className="pointer-events-none absolute inset-0 flex h-9 items-center overflow-hidden rounded-md border border-transparent px-3 py-2 font-mono text-body-sm"
+              className="pointer-events-none absolute inset-0 flex items-center overflow-hidden rounded-md border border-transparent px-3 py-2 font-mono text-body-sm"
             >
               <span className="invisible whitespace-pre">{value}</span>
               <span className="whitespace-pre text-faint">{ghostSuffix}</span>
             </div>
           ) : null}
-          <input
+          <PathTextInput
             ref={inputRef}
             id={id}
             value={value}
-            aria-expanded={dropdownOpen}
+            role="combobox"
+            aria-autocomplete="list"
+            aria-controls={listOpen ? listId : undefined}
+            aria-expanded={listOpen}
             aria-haspopup="listbox"
             aria-activedescendant={
-              dropdownOpen && options[selectedIndex]
-                ? `${id ?? testId ?? "path-input"}-option-${selectedIndex}`
+              listOpen && options[selectedIndex]
+                ? `${listId}-option-${selectedIndex}`
                 : undefined
             }
             onChange={(event) => {
@@ -347,7 +356,7 @@ export function PathInput({
             }}
             onKeyDown={(e) => {
               const selectedOption = options[selectedIndex];
-              if (e.key === "Escape" && dropdownOpen) {
+              if (e.key === "Escape" && listOpen) {
                 e.preventDefault();
                 e.stopPropagation();
                 setDropdownOpen(false);
@@ -376,6 +385,7 @@ export function PathInput({
                 e.stopPropagation();
                 selectOption(selectedOption);
               }
+              if (e.key === "Tab" && !ghostSuffix) setDropdownOpen(false);
               if (e.key === "Tab" && ghostSuffix) {
                 e.preventDefault();
                 e.stopPropagation();
@@ -385,7 +395,7 @@ export function PathInput({
             }}
             placeholder={placeholder}
             data-testid={testId}
-            className="flex h-9 w-full rounded-md bg-transparent pr-8 px-3 py-1 font-mono text-body-sm text-foreground placeholder:text-muted-foreground focus-ring"
+            className="flex h-9 w-full rounded-md bg-transparent pr-8 px-3 py-1 font-mono text-body-sm text-foreground placeholder:text-muted-foreground focus-ring pointer-coarse:h-11"
           />
           {history.length > 0 ? (
             <IconButton
@@ -415,7 +425,9 @@ export function PathInput({
             </div>
             <div
               ref={listboxRef}
+              id={listId}
               role="listbox"
+              aria-label="Suggestions"
               className="max-h-[240px] overflow-y-auto overflow-x-hidden"
             >
               {options.map((option, index) => {
@@ -426,14 +438,15 @@ export function PathInput({
                 return (
                   <div
                     key={option.path}
-                    id={`${id ?? testId ?? "path-input"}-option-${index}`}
+                    id={`${listId}-option-${index}`}
                     role="option"
                     aria-selected={selected}
                     data-testid={historyItemTestId}
                     data-selected={selected}
                     className={cn(
-                      "group flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-2 text-body-sm outline-none",
-                      selected && "bg-primary/tint-strong text-foreground"
+                      pickerItem,
+                      "group gap-2 px-2 py-2 text-body-sm",
+                      selected && "bg-surface-hover"
                     )}
                     onClick={() => selectOption(option)}
                     onMouseDown={(event) => event.preventDefault()}
@@ -477,11 +490,11 @@ export function PathInput({
       </div>
 
       {showValidation ? (
-        <div className="mt-1.5 flex h-5 items-center justify-end gap-1.5 text-body-sm">
+        <div className="flex h-5 items-center justify-end gap-1.5 text-body-sm">
           {runnerInLocalField ? (
             <span role="status">Choose a folder on this machine.</span>
           ) : validating ? (
-            <ActivityBars size={12} />
+            <Spinner label="Checking the folder" />
           ) : pathValidation ? (
             pathValidation.isDirectory ? (
               <>
@@ -509,9 +522,45 @@ export function PathInput({
           ) : null}
         </div>
       ) : null}
-    </div>
+    </PathField>
   );
 }
+
+function PathField({
+  label,
+  id,
+  className,
+  children,
+}: {
+  label?: string;
+  id?: string;
+  className?: string;
+  children: ReactNode;
+}): JSX.Element {
+  return label ? (
+    <Field label={label} id={id} className={cn("relative", className)}>
+      {children}
+    </Field>
+  ) : (
+    <div className={cn("relative", className)}>{children}</div>
+  );
+}
+
+const PathTextInput = forwardRef<
+  HTMLInputElement,
+  InputHTMLAttributes<HTMLInputElement>
+>((rest, ref) => {
+  const props = useFieldControl(rest);
+  return (
+    <input
+      ref={ref}
+      {...props}
+      // Named by its Field, or else as what it is.
+      aria-label={props["aria-label"] ?? (props.id ? undefined : "Folder path")}
+    />
+  );
+});
+PathTextInput.displayName = "PathTextInput";
 
 function PathOptionIcon({ iconUrl }: { iconUrl?: string }): JSX.Element {
   const [imageFailed, setImageFailed] = useState(false);

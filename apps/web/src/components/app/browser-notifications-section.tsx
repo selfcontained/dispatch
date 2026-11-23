@@ -4,13 +4,20 @@ import {
   EVENT_OPTIONS,
   type NotifyEventType,
 } from "@/components/app/notification-settings-constants";
+import { Switch } from "@/components/ui/switch";
+import { SettingsGroup } from "@/components/app/settings-layout";
+import type { WebNotifySetting } from "@/components/app/use-notification-settings";
+import {
+  OptionCard,
+  SettingRow,
+  type SaveStatus,
+} from "@/components/ui/setting-row";
 
 type BrowserNotificationsSectionProps = {
   webNotifyEnabled: boolean;
   webNotifyEvents: NotifyEventType[];
   browserPermission: NotificationPermission;
-  saving: boolean;
-  webError: string;
+  saveStatus: (setting: WebNotifySetting) => SaveStatus;
   webMessage: string;
   onRequestPermission: () => void;
   onToggleWebNotifyEnabled: (checked: boolean) => void;
@@ -22,8 +29,7 @@ export function BrowserNotificationsSection({
   webNotifyEnabled,
   webNotifyEvents,
   browserPermission,
-  saving,
-  webError,
+  saveStatus,
   webMessage,
   onRequestPermission,
   onToggleWebNotifyEnabled,
@@ -40,12 +46,10 @@ export function BrowserNotificationsSection({
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
   return (
-    <div className="border-t border-border pt-8">
-      <h3 className="mb-1.5 section-label">Browser Notifications</h3>
-      <p className="mb-3 text-body-md text-muted-foreground">
-        Get native desktop or mobile notifications when agents need attention.
-      </p>
-
+    <SettingsGroup
+      title="Browser notifications"
+      description="Get native desktop or mobile notifications when agents need attention."
+    >
       {!notificationsSupported ? (
         <p className="text-body-md text-faint">
           Browser notifications are not supported in this browser.
@@ -54,26 +58,26 @@ export function BrowserNotificationsSection({
             : ""}
         </p>
       ) : (
-        <div className="max-w-lg space-y-4">
+        <>
           {/* Permission status + grant button */}
           {browserPermission !== "granted" ? (
-            <div className="flex items-center gap-3 rounded-sm border border-border px-3 py-3">
-              <div className="min-w-0 flex-1">
-                <div className="text-body-md text-foreground">
-                  {browserPermission === "denied"
-                    ? "Notifications blocked"
-                    : "Permission required"}
-                </div>
-                <div className="text-body-sm text-muted-foreground">
-                  {browserPermission === "denied"
-                    ? isIOS
-                      ? "Open device Settings > Notifications > Dispatch to enable, or tap Allow to re-request"
-                      : "Update the notification permission in your browser settings, or tap Allow to re-request"
-                    : isIOS
-                      ? "Tap Allow, then confirm in the system prompt"
-                      : "Your browser needs permission to show notifications"}
-                </div>
-              </div>
+            <SettingRow
+              layout="action"
+              label={
+                browserPermission === "denied"
+                  ? "Notifications blocked"
+                  : "Permission required"
+              }
+              description={
+                browserPermission === "denied"
+                  ? isIOS
+                    ? "Open device Settings > Notifications > Dispatch to enable, or tap Allow to re-request"
+                    : "Update the notification permission in your browser settings, or tap Allow to re-request"
+                  : isIOS
+                    ? "Tap Allow, then confirm in the system prompt"
+                    : "Your browser needs permission to show notifications"
+              }
+            >
               <Button
                 variant="primary"
                 size="sm"
@@ -81,57 +85,49 @@ export function BrowserNotificationsSection({
               >
                 Allow
               </Button>
-            </div>
+            </SettingRow>
           ) : null}
 
           {/* Enable toggle */}
-          <label className="flex cursor-pointer items-center gap-3 rounded-sm border border-border px-3 py-3 transition-colors hover:bg-surface-hover">
-            <Checkbox
+          <SettingRow
+            label="Enable browser notifications"
+            description={
+              browserPermission === "granted"
+                ? "Show notifications when agents change status"
+                : "Grant permission above to enable"
+            }
+            disabled={browserPermission !== "granted"}
+            status={saveStatus("enabled")}
+          >
+            <Switch
               checked={webNotifyEnabled}
-              disabled={browserPermission !== "granted" || saving}
+              disabled={browserPermission !== "granted"}
               onCheckedChange={(checked) =>
-                void onToggleWebNotifyEnabled(checked === true)
+                void onToggleWebNotifyEnabled(checked)
               }
               data-testid="web-notify-enabled"
             />
-            <div className="min-w-0">
-              <div className="text-body-md font-medium text-foreground">
-                Enable browser notifications
-              </div>
-              <div className="text-body-sm text-muted-foreground">
-                {browserPermission === "granted"
-                  ? "Show notifications when agents change status"
-                  : "Grant permission above to enable"}
-              </div>
-            </div>
-          </label>
+          </SettingRow>
 
           {/* Web event toggles */}
           {webNotifyEnabled && browserPermission === "granted" && (
-            <div className="space-y-2 pl-1">
+            <div className="space-y-2">
               <div className="text-body-sm text-muted-foreground">
                 Notify on:
               </div>
               {EVENT_OPTIONS.map(({ id, label, description }) => (
-                <label
+                <OptionCard
                   key={id}
-                  className="flex cursor-pointer items-center gap-3 rounded-sm border border-border px-3 py-3 transition-colors hover:bg-surface-hover"
+                  label={label}
+                  description={description}
+                  status={saveStatus(id)}
                 >
                   <Checkbox
                     checked={webNotifyEvents.includes(id)}
-                    disabled={saving}
                     onCheckedChange={() => void onToggleWebEvent(id)}
                     data-testid={`web-notify-event-${id}`}
                   />
-                  <div className="min-w-0">
-                    <div className="text-body-md font-medium text-foreground">
-                      {label}
-                    </div>
-                    <div className="text-body-sm text-muted-foreground">
-                      {description}
-                    </div>
-                  </div>
-                </label>
+                </OptionCard>
               ))}
               <div className="pt-1">
                 <Button
@@ -144,14 +140,13 @@ export function BrowserNotificationsSection({
               </div>
             </div>
           )}
-          {webError ? (
-            <p className="text-body-md text-danger">{webError}</p>
-          ) : null}
           {webMessage ? (
-            <p className="text-body-md text-success">{webMessage}</p>
+            <p role="status" className="text-body-md text-success-ink">
+              {webMessage}
+            </p>
           ) : null}
-        </div>
+        </>
       )}
-    </div>
+    </SettingsGroup>
   );
 }

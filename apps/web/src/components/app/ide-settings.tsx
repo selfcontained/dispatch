@@ -1,8 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { api } from "@/lib/api";
 import { IDE_LABELS, IDE_TYPES, type IdeType } from "@/lib/ide-types";
+import { SettingsGroup } from "@/components/app/settings-layout";
+import { useAutoSave } from "@/hooks/use-auto-save";
+import { LoadError } from "@/components/ui/async-boundary";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
+import { OptionCard } from "@/components/ui/setting-row";
 
 type IdeSettingsResponse = {
   enabledIdes: IdeType[];
@@ -19,27 +24,30 @@ export function IdeSettings({
 }: IdeSettingsProps): JSX.Element {
   const [ides, setIdes] = useState<IdeType[]>(enabledIdes);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  // What the server last confirmed, read by a save when its turn comes.
+  const savedRef = useRef(enabledIdes);
+  const [loadError, setLoadError] = useState<unknown>();
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     setIdes(enabledIdes);
+    savedRef.current = enabledIdes;
   }, [enabledIdes]);
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
 
     void api<IdeSettingsResponse>("/api/v1/app/settings/ides")
       .then((data) => {
         if (cancelled) return;
         setIdes(data.enabledIdes);
+        savedRef.current = data.enabledIdes;
         onChange(data.enabledIdes);
-        setError("");
+        setLoadError(undefined);
       })
       .catch((err) => {
-        if (cancelled) return;
-        setError(
-          err instanceof Error ? err.message : "Failed to load IDE settings."
-        );
+        if (!cancelled) setLoadError(err);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -48,81 +56,53 @@ export function IdeSettings({
     return () => {
       cancelled = true;
     };
-  }, [onChange]);
+  }, [onChange, attempt]);
 
-  const toggleIde = useCallback(
-    async (ide: IdeType) => {
-      setError("");
-
-      const next = ides.includes(ide)
-        ? ides.filter((item) => item !== ide)
-        : [...ides, ide];
-
-      setIdes(next);
-      onChange(next);
-
-      try {
-        const data = await api<IdeSettingsResponse>(
-          "/api/v1/app/settings/ides",
-          {
-            method: "POST",
-            body: JSON.stringify({ enabledIdes: next }),
-          }
-        );
-        setIdes(data.enabledIdes);
-        onChange(data.enabledIdes);
-      } catch (err) {
-        setIdes(ides);
-        onChange(ides);
-        setError(
-          err instanceof Error ? err.message : "Failed to save IDE settings."
-        );
-      }
-    },
-    [ides, onChange]
-  );
-
-  if (loading) {
-    return (
-      <div className="p-6 text-body-md text-muted-foreground">Loading...</div>
-    );
-  }
+  const autoSave = useAutoSave<boolean, IdeType>(async (ide, enabled) => {
+    const others = savedRef.current.filter((item) => item !== ide);
+    const data = await api<IdeSettingsResponse>("/api/v1/app/settings/ides", {
+      method: "POST",
+      body: JSON.stringify({
+        enabledIdes: enabled ? [...others, ide] : others,
+      }),
+    });
+    savedRef.current = data.enabledIdes;
+    setIdes(data.enabledIdes);
+    onChange(data.enabledIdes);
+  });
 
   return (
-    <div className="flex flex-col gap-4 p-6">
-      <div>
-        <div className="mb-1.5 section-label">Available IDEs</div>
-        <p className="mb-3 max-w-2xl text-body-md text-muted-foreground">
-          Choose which IDEs appear in the &ldquo;Open in IDE&rdquo; button on
-          agent cards. Only enable IDEs you actually have installed locally. The
-          button is hidden when accessing Dispatch from a non-loopback host.
-        </p>
-      </div>
-
-      <div className="max-w-lg space-y-2">
-        {IDE_TYPES.map((ide) => {
-          const checked = ides.includes(ide);
+    <SettingsGroup
+      title="Available IDEs"
+      description="Choose which IDEs appear in the “Open in IDE” button on agent cards. Only enable IDEs you have installed locally. The button is hidden when Dispatch is opened from a non-loopback host."
+    >
+      {loadError ? (
+        <LoadError
+          thing="IDE settings"
+          error={loadError}
+          retrying={loading}
+          onRetry={() => setAttempt((count) => count + 1)}
+        />
+      ) : loading ? (
+        <LoadingSkeleton label="Loading IDE settings…" />
+      ) : (
+        IDE_TYPES.map((ide) => {
+          const checked = autoSave.value(ide, ides.includes(ide));
           return (
-            <label
+            <OptionCard
               key={ide}
-              className="flex cursor-pointer items-center gap-3 rounded-sm border border-border px-3 py-3 transition-colors hover:bg-surface-hover"
+              label={IDE_LABELS[ide]}
+              status={autoSave.status(ide)}
             >
               <Checkbox
                 checked={checked}
-                onCheckedChange={() => void toggleIde(ide)}
+                onCheckedChange={() => void autoSave.save(ide, !checked)}
                 data-testid={`ide-toggle-${ide}`}
               />
-              <div className="min-w-0">
-                <div className="text-body-md font-medium text-foreground">
-                  {IDE_LABELS[ide]}
-                </div>
-              </div>
-            </label>
+            </OptionCard>
           );
-        })}
-      </div>
-
-      {error ? <p className="text-body-md text-danger">{error}</p> : null}
-    </div>
+        })
+      )}
+    </SettingsGroup>
   );
 }

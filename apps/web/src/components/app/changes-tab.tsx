@@ -3,7 +3,7 @@ import type { BlockFindingPatch, BlockReviewSeverity } from "@dispatch/shared";
 import { reviewFindings } from "@dispatch/shared";
 import { useAtom, useAtomValue } from "jotai";
 import { useSearchParams } from "react-router-dom";
-import { FileDiff, Loader2, MessageSquarePlus } from "lucide-react";
+import { FileDiff, MessageSquarePlus } from "lucide-react";
 import { parseDiff } from "react-diff-view";
 
 import { useAgentDiff } from "@/hooks/use-agent-diff";
@@ -36,8 +36,10 @@ import {
   type LineSelection,
 } from "@/components/app/unified-diff-utils";
 import { FileTree } from "@/components/app/changes-file-tree";
-import { LoadError } from "@/components/app/load-error";
 import { DiffPane } from "@/components/app/changes-diff-section";
+import { LoadError } from "@/components/ui/async-boundary";
+import { EmptyState } from "@/components/ui/empty-state";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
 
 type ChangesTabProps = {
   agentId: string | null;
@@ -522,7 +524,7 @@ export const ChangesTab = memo(function ChangesTab({
 
   const loadError = error ? (
     <LoadError
-      message="Couldn't load changes"
+      thing="changes"
       error={error}
       onRetry={refresh}
       retrying={isFetching}
@@ -534,10 +536,11 @@ export const ChangesTab = memo(function ChangesTab({
     return (
       <div className="flex h-full min-h-0 flex-col">
         {toolbar}
-        <div className="flex flex-1 items-center justify-center text-muted-foreground">
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          <span className="text-body-md">Loading changes…</span>
-        </div>
+        <LoadingSkeleton
+          label="Loading changes…"
+          className="flex-1 p-3"
+          rows={6}
+        />
       </div>
     );
   }
@@ -554,14 +557,19 @@ export const ChangesTab = memo(function ChangesTab({
     return (
       <div className="flex h-full min-h-0 flex-col">
         {toolbar}
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
-          <FileDiff className="h-8 w-8" />
-          <p className="text-body-md">
-            {hideTestFiles && data?.files.length
+        <EmptyState
+          icon={FileDiff}
+          title={
+            hideTestFiles && data?.files.length
               ? "No non-test changes"
-              : "No changes yet"}
-          </p>
-        </div>
+              : "No changes yet"
+          }
+          description={
+            hideTestFiles && data?.files.length
+              ? "Show test files in the Changes settings to see the rest."
+              : "The agent’s edits show here."
+          }
+        />
       </div>
     );
   }

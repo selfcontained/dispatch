@@ -4,21 +4,17 @@ import type {
   BlockFindingData,
   BlockReviewSeverity,
 } from "@dispatch/shared";
-import {
-  CheckCircle2,
-  Loader2,
-  MessageSquarePlus,
-  Send,
-  Trash2,
-  X,
-} from "lucide-react";
+import { CheckCircle2, MessageSquarePlus, Send, Trash2, X } from "lucide-react";
 
 import {
   Dialog,
+  DialogBody,
+  DialogCancel,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -33,6 +29,9 @@ import type { PersistedDraftComment } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { IconButton } from "@/components/ui/icon-button";
+import { Alert } from "@/components/ui/alert";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Field } from "@/components/ui/field";
 
 export type DraftComment = PersistedDraftComment;
 
@@ -120,12 +119,12 @@ export const ReviewModeBar = memo(function ReviewModeBar({
   return (
     <>
       <div
-        className="flex items-center gap-2 border-b border-border-subtle bg-surface-subtle px-3 py-2"
+        className="flex items-center gap-1.5 border-b border-border-subtle bg-surface-subtle px-3 py-2 sm:gap-2"
         data-testid="review-mode-bar"
       >
         <MessageSquarePlus className="h-3.5 w-3.5 text-primary" />
-        <span className="text-body-sm font-medium text-foreground">
-          Review Mode
+        <span className="whitespace-nowrap text-body-sm font-medium text-foreground">
+          Review mode
         </span>
         <Badge size="sm" tone="info" data-testid="review-mode-count">
           {drafts.length} comment{drafts.length !== 1 ? "s" : ""}
@@ -245,7 +244,7 @@ function SubmitReviewDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent data-testid="submit-review-dialog">
+      <DialogContent data-testid="submit-review-dialog" busy={isPending}>
         <DialogHeader>
           <DialogTitle>Post review</DialogTitle>
           <DialogDescription>
@@ -254,20 +253,22 @@ function SubmitReviewDialog({
             and you resolve it.
           </DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-3">
-          <Textarea
-            className="w-full resize-none text-body-sm"
-            placeholder="Summary — what you looked at and what you think overall…"
-            rows={3}
-            value={summary}
-            onChange={(e) => setSummary(e.target.value)}
-            onKeyDown={handleKeyDown}
-            autoFocus
-            data-testid="review-summary"
-          />
+        <DialogBody className="flex flex-col gap-3">
+          <Field label="Summary">
+            <Textarea
+              className="w-full resize-none text-body-sm"
+              placeholder="Summary — what you looked at and what you think overall…"
+              rows={3}
+              value={summary}
+              onChange={(e) => setSummary(e.target.value)}
+              onKeyDown={handleKeyDown}
+              autoFocus
+              data-testid="review-summary"
+            />
+          </Field>
           {drafts.length > 0 ? (
             <ol
-              className="flex max-h-56 flex-col divide-y divide-border-subtle overflow-y-auto rounded-md border border-border-subtle"
+              className="flex flex-col divide-y divide-border-subtle rounded-md border border-border-subtle"
               data-testid="review-draft-list"
             >
               {drafts.map((draft) => (
@@ -323,37 +324,24 @@ function SubmitReviewDialog({
               No line comments. The review posts with the summary alone.
             </p>
           )}
-          {isError ? (
-            <p className="text-body-sm text-danger" role="alert">
-              Couldn&apos;t post the review: {error.message}
-            </p>
-          ) : null}
-          <div className="flex items-center justify-end gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => onOpenChange(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="primary"
-              onClick={() => void handleSubmit()}
-              disabled={!canSubmit}
-              data-testid="review-post"
-            >
-              {isPending ? (
-                <Loader2 className="animate-spin" />
-              ) : post.isSuccess ? (
-                <CheckCircle2 />
-              ) : (
-                <Send />
-              )}
-              Post
-            </Button>
-          </div>
-        </div>
+        </DialogBody>
+        {isError ? (
+          <Alert title="Couldn’t post the review." error={error} />
+        ) : null}
+        <DialogFooter>
+          <DialogCancel />
+          <Button
+            type="button"
+            variant="primary"
+            onClick={() => void handleSubmit()}
+            pending={isPending}
+            disabled={!canSubmit}
+            data-testid="review-post"
+          >
+            {post.isSuccess ? <CheckCircle2 /> : <Send />}
+            Post review
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -371,28 +359,15 @@ function CancelReviewDialog({
   onConfirm: () => void;
 }): JSX.Element {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Discard review?</DialogTitle>
-          <DialogDescription>
-            You have {draftCount} draft comment{draftCount !== 1 ? "s" : ""}.
-            Discarding will remove all comments.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="flex items-center justify-end gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => onOpenChange(false)}
-          >
-            Keep reviewing
-          </Button>
-          <Button type="button" variant="danger" onClick={onConfirm}>
-            Discard
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <ConfirmDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Discard review?"
+      description={`You have ${draftCount} draft comment${draftCount !== 1 ? "s" : ""}. Discarding will remove all comments.`}
+      cancelLabel="Keep reviewing"
+      confirmLabel="Discard review"
+      errorTitle="Couldn’t discard the review."
+      onConfirm={onConfirm}
+    />
   );
 }

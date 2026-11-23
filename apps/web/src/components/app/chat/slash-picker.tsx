@@ -2,6 +2,7 @@ import { createPortal } from "react-dom";
 
 import type { SlashCommand } from "./slash-commands";
 import { cn } from "@/lib/utils";
+import { RowButton } from "@/components/ui/row-button";
 
 export function SlashPicker({
   candidates,
@@ -37,16 +38,15 @@ export function SlashPicker({
       data-testid="slash-picker"
     >
       {candidates.map((command, index) => (
-        <button
+        <RowButton
           id={`${listId}-option-${index}`}
           key={`${command.source}:${command.name}`}
-          type="button"
           tabIndex={-1}
           role="option"
           aria-selected={index === activeIndex}
           className={cn(
-            "flex w-full items-start gap-2 px-2 py-1.5 text-left text-body-md",
-            index === activeIndex ? "bg-muted" : "hover:bg-surface-hover"
+            "items-start rounded-none px-2 py-1.5 text-body-md",
+            index === activeIndex && "bg-surface-hover"
           )}
           onMouseDown={(event) => event.preventDefault()}
           onMouseEnter={() => onHover(index)}
@@ -61,7 +61,7 @@ export function SlashPicker({
           <span className="shrink-0 text-label-xs text-muted-foreground">
             {command.source === "dispatch" ? "Dispatch" : "Agent"}
           </span>
-        </button>
+        </RowButton>
       ))}
     </div>,
     document.body

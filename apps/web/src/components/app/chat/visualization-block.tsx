@@ -25,7 +25,12 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
-import { Card } from "@/components/ui/card";
+import {
+  BlockBody,
+  BlockFooter,
+  BlockHeader,
+  BlockShell,
+} from "@/components/ui/block-shell";
 import "./visualization-block.css";
 
 const exact = (value: number | null) =>
@@ -37,11 +42,13 @@ const short = (value: number) =>
   }).format(value);
 function Metadata({ data }: { data: MetricData | ChartData }) {
   return (
-    <p className="text-label-sm text-muted-foreground break-words">
-      {data.dataKind}
-      {data.asOf ? ` · ${data.asOf}` : ""}
-      {data.source ? ` · Source: ${data.source}` : ""}
-    </p>
+    <BlockFooter className="mt-2">
+      <p className="min-w-0 break-words text-label-sm text-muted-foreground">
+        {data.dataKind}
+        {data.asOf ? ` · ${data.asOf}` : ""}
+        {data.source ? ` · Source: ${data.source}` : ""}
+      </p>
+    </BlockFooter>
   );
 }
 export function VisualizationBlock({
@@ -98,49 +105,51 @@ export function VisualizationBlock({
     return <ChartCard data={parseVisualization("chart", payload)} />;
   } catch {
     return (
-      <p role="status" className="text-body-md text-muted-foreground">
-        This visualization is invalid or uses an unsupported version.
-      </p>
+      <BlockShell>
+        <p role="status" className="text-body-md text-muted-foreground">
+          This visualization is invalid or uses an unsupported version.
+        </p>
+      </BlockShell>
     );
   }
 }
 function MetricCard({ data }: { data: MetricData }) {
   return (
-    <Card
-      className="visualization-block metric-tile w-full max-w-[240px] min-w-0 border-t-2 border-t-[var(--graph-cyan)] p-3 space-y-2"
+    <BlockShell
+      className="visualization-block metric-tile w-full max-w-[240px]"
       data-kind="metric-card"
     >
-      <div className="space-y-2">
-        <div className="min-w-0">
-          <h3 className="text-body-sm text-muted-foreground break-words">
-            {data.title}
-          </h3>
-          <p
-            className="tabular-nums text-display break-all"
-            title={exact(data.value)}
-          >
-            {data.value === null ? "Missing" : short(data.value)}{" "}
-            <span className="text-body-sm font-normal text-muted-foreground">
-              {data.unit}
-            </span>
-          </p>
-        </div>
+      <BlockHeader>
+        <h3 className="min-w-0 break-words text-body-sm text-muted-foreground">
+          {data.title}
+        </h3>
+      </BlockHeader>
+      <BlockBody className="mt-1 space-y-2">
+        <p
+          className="break-all text-display tabular-nums"
+          title={exact(data.value)}
+        >
+          {data.value === null ? "Missing" : short(data.value)}{" "}
+          <span className="text-body-sm font-normal text-muted-foreground">
+            {data.unit}
+          </span>
+        </p>
         {data.comparison && (
           <p className="text-body-sm">
             {exact(data.comparison.value)} {data.unit} · {data.comparison.label}
           </p>
         )}
-      </div>
-      {data.description && (
-        <p className="text-body-sm break-words">{data.description}</p>
-      )}
-      {data.value !== null && (
-        <span className="sr-only">
-          Exact value: {exact(data.value)} {data.unit}
-        </span>
-      )}
+        {data.description && (
+          <p className="break-words text-body-sm">{data.description}</p>
+        )}
+        {data.value !== null && (
+          <span className="sr-only">
+            Exact value: {exact(data.value)} {data.unit}
+          </span>
+        )}
+      </BlockBody>
       <Metadata data={data} />
-    </Card>
+    </BlockShell>
   );
 }
 function ChartCard({ data }: { data: ChartData }) {
@@ -399,137 +408,141 @@ function ChartCard({ data }: { data: ChartData }) {
     ? ["Start", "End"]
     : data.series.map((s) => s.label);
   return (
-    <Card
-      className="visualization-block max-w-2xl min-w-0 w-full p-3 space-y-2"
+    <BlockShell
+      className="visualization-block w-full max-w-2xl"
       data-kind="chart-card"
       data-chart-type={data.type}
     >
-      <div>
-        <h3 className="text-heading-sm break-words">{data.title}</h3>
-        <p className="text-label-sm text-muted-foreground break-words">
+      <BlockHeader className="flex-col items-start gap-y-0">
+        <h3 className="max-w-full break-words text-heading-sm">{data.title}</h3>
+        <p className="max-w-full break-words text-label-sm text-muted-foreground">
           {data.xLabel}
           {data.xUnit ? ` (${data.xUnit})` : ""} · {data.unit}
         </p>
-      </div>
-      {data.description && (
-        <p className="text-body-sm break-words">{data.description}</p>
-      )}
-      {!rows.length ? (
-        <p className="text-body-sm text-muted-foreground py-4">
-          No data to display.
-        </p>
-      ) : data.type === "heatmap" ? (
-        <HeatmapPlot data={data} min={scaleMin} max={scaleMax} />
-      ) : (
-        <div className="max-h-64 overflow-y-auto">
-          <ChartContainer
-            config={config}
-            style={{
-              height:
-                ranged || data.type === "bullet"
-                  ? Math.max(128, rows.length * 24 + 32)
-                  : 128,
-            }}
-            className="w-full aspect-auto [&_.recharts-surface]:focus-visible:outline [&_.recharts-surface]:focus-visible:outline-2"
-          >
-            {chart}
-          </ChartContainer>
-        </div>
-      )}
-      {data.type !== "heatmap" && (
-        <ul
-          aria-label="Chart series"
-          className="flex flex-wrap gap-x-3 gap-y-1 text-label-sm"
-        >
-          {data.series.map((s, i) => (
-            <li
-              key={s.id}
-              className="flex max-w-full min-w-0 gap-1.5 items-start"
+      </BlockHeader>
+      <BlockBody className="mt-2 space-y-2">
+        {data.description && (
+          <p className="text-body-sm break-words">{data.description}</p>
+        )}
+        {!rows.length ? (
+          <p className="text-body-sm text-muted-foreground py-4">
+            No data to display.
+          </p>
+        ) : data.type === "heatmap" ? (
+          <HeatmapPlot data={data} min={scaleMin} max={scaleMax} />
+        ) : (
+          <div className="max-h-64 overflow-y-auto">
+            <ChartContainer
+              config={config}
+              style={{
+                height:
+                  ranged || data.type === "bullet"
+                    ? Math.max(128, rows.length * 24 + 32)
+                    : 128,
+              }}
+              className="w-full aspect-auto [&_.recharts-surface]:focus-visible:outline [&_.recharts-surface]:focus-visible:outline-2"
             >
-              <span
-                aria-hidden="true"
-                className="mt-1.5 h-0.5 w-3 shrink-0"
-                style={{ background: `var(--graph-${s.color})` }}
-              />
-              <span className="min-w-0 [overflow-wrap:anywhere]">
-                {s.label}
-                {i > 0 && (data.type === "line" || data.type === "area")
-                  ? " (dashed)"
-                  : ""}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-      <details>
-        <summary className="text-label-sm cursor-pointer">
-          View exact data
-        </summary>
-        <div className="overflow-x-auto">
-          <table className="w-full text-body-sm text-left mt-2">
-            <caption className="sr-only">
-              {data.title}. Exact plotted values in {data.unit}. Null means
-              missing.
-            </caption>
-            <thead>
-              <tr>
-                <th scope="col">{data.xLabel}</th>
-                {data.type === "scatter" && (
-                  <th scope="col">x ({data.xUnit})</th>
-                )}
-                {data.type === "histogram" && (
-                  <>
-                    <th scope="col">Bin start ({data.xUnit})</th>
-                    <th scope="col">Bin end ({data.xUnit})</th>
-                  </>
-                )}
-                {headerCells.map((name, i) => (
-                  <th scope="col" key={i}>
-                    {name} ({data.unit})
-                  </th>
-                ))}
-                {data.type === "waterfall" && (
-                  <>
-                    <th scope="col">Start ({data.unit})</th>
-                    <th scope="col">End ({data.unit})</th>
-                  </>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((p, i) => (
-                <tr key={i} className="border-t">
-                  <th scope="row" className="py-1 pr-2 break-words">
-                    {p.label}
-                  </th>
-                  {data.type === "scatter" && <td>{exact(p.x ?? null)}</td>}
+              {chart}
+            </ChartContainer>
+          </div>
+        )}
+        {data.type !== "heatmap" && (
+          <ul
+            aria-label="Chart series"
+            className="flex flex-wrap gap-x-3 gap-y-1 text-label-sm"
+          >
+            {data.series.map((s, i) => (
+              <li
+                key={s.id}
+                className="flex max-w-full min-w-0 gap-1.5 items-start"
+              >
+                <span
+                  aria-hidden="true"
+                  className="mt-1.5 h-0.5 w-3 shrink-0"
+                  style={{ background: `var(--graph-${s.color})` }}
+                />
+                <span className="min-w-0 [overflow-wrap:anywhere]">
+                  {s.label}
+                  {i > 0 && (data.type === "line" || data.type === "area")
+                    ? " (dashed)"
+                    : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <details>
+          <summary className="w-fit cursor-pointer rounded-sm text-label-sm focus-ring">
+            View exact data
+          </summary>
+          <div className="overflow-x-auto">
+            <table className="w-full text-body-sm text-left mt-2">
+              <caption className="sr-only">
+                {data.title}. Exact plotted values in {data.unit}. Null means
+                missing.
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">{data.xLabel}</th>
+                  {data.type === "scatter" && (
+                    <th scope="col">x ({data.xUnit})</th>
+                  )}
                   {data.type === "histogram" && (
                     <>
-                      <td>{exact(p.from ?? null)}</td>
-                      <td>{exact(p.to ?? null)}</td>
+                      <th scope="col">Bin start ({data.xUnit})</th>
+                      <th scope="col">Bin end ({data.xUnit})</th>
                     </>
                   )}
-                  {p.values.map((v, j) => (
-                    <td className="pr-2 tabular-nums" key={j}>
-                      {exact(v)}
-                    </td>
+                  {headerCells.map((name, i) => (
+                    <th scope="col" key={i}>
+                      {name} ({data.unit})
+                    </th>
                   ))}
                   {data.type === "waterfall" && (
                     <>
-                      <td>
-                        {p.values[0] === null ? "Missing" : exact(p.start)}
-                      </td>
-                      <td>{p.values[0] === null ? "Missing" : exact(p.end)}</td>
+                      <th scope="col">Start ({data.unit})</th>
+                      <th scope="col">End ({data.unit})</th>
                     </>
                   )}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </details>
+              </thead>
+              <tbody>
+                {rows.map((p, i) => (
+                  <tr key={i} className="border-t">
+                    <th scope="row" className="py-1 pr-2 break-words">
+                      {p.label}
+                    </th>
+                    {data.type === "scatter" && <td>{exact(p.x ?? null)}</td>}
+                    {data.type === "histogram" && (
+                      <>
+                        <td>{exact(p.from ?? null)}</td>
+                        <td>{exact(p.to ?? null)}</td>
+                      </>
+                    )}
+                    {p.values.map((v, j) => (
+                      <td className="pr-2 tabular-nums" key={j}>
+                        {exact(v)}
+                      </td>
+                    ))}
+                    {data.type === "waterfall" && (
+                      <>
+                        <td>
+                          {p.values[0] === null ? "Missing" : exact(p.start)}
+                        </td>
+                        <td>
+                          {p.values[0] === null ? "Missing" : exact(p.end)}
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      </BlockBody>
       <Metadata data={data} />
-    </Card>
+    </BlockShell>
   );
 }
 

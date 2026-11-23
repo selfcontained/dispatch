@@ -120,6 +120,10 @@ function errJson(body: unknown) {
   return { ok: false, headers: nullHeaders, json: () => Promise.resolve(body) };
 }
 
+function promoteQuestion(tag: string): HTMLElement {
+  return screen.getByRole("alertdialog", { name: `Promote ${tag}?` });
+}
+
 /** Mount the page and wait for the two mount fetches to settle. */
 async function renderAdmin(routes: Record<string, Handler> = {}) {
   const fetchMock = installFetch({
@@ -162,7 +166,7 @@ describe("ReleasesAdmin — unreleased changes", () => {
     });
 
     expect(
-      await screen.findByText(/unreleased commit info is unavailable/)
+      await screen.findByText(/unreleased commit info is unavailable/i)
     ).toBeTruthy();
     // cleanError strips the wrapper and the `fatal:` prefix.
     expect(screen.getByText("no upstream")).toBeTruthy();
@@ -283,10 +287,10 @@ describe("ReleasesAdmin — recent releases", () => {
     expect(within(row).getByText("Pre-release")).toBeTruthy();
 
     fireEvent.click(within(row).getByRole("button", { name: "Promote" }));
-    expect(within(row).getByText("Mark stable + latest?")).toBeTruthy();
+    expect(promoteQuestion("v2.0.0-rc.1")).toBeTruthy();
 
     await act(async () => {
-      fireEvent.click(within(row).getByRole("button", { name: "Confirm" }));
+      fireEvent.click(screen.getByRole("button", { name: "Promote release" }));
     });
 
     expect(promote).toHaveBeenCalledTimes(1);
@@ -312,7 +316,7 @@ describe("ReleasesAdmin — recent releases", () => {
     const row = (await screen.findByText("v2.0.0-rc.1")).closest("div")!;
     fireEvent.click(within(row).getByRole("button", { name: "Promote" }));
     await act(async () => {
-      fireEvent.click(within(row).getByRole("button", { name: "Confirm" }));
+      fireEvent.click(screen.getByRole("button", { name: "Promote release" }));
     });
 
     expect(await within(row).findByText(/Promoting/)).toBeTruthy();
@@ -321,6 +325,39 @@ describe("ReleasesAdmin — recent releases", () => {
     expect(
       within(row).getByRole("link", { name: "workflow" }).getAttribute("href")
     ).toBe("https://example.test/run");
+  });
+
+  it("keeps a failed promotion poll quiet over the loaded list", async () => {
+    let promoted = false;
+    const fetchMock = await renderAdmin({
+      "/api/v1/releases": () =>
+        promoted
+          ? { ok: false, status: 502, statusText: "", headers: nullHeaders }
+          : okJson({
+              releases: [
+                makeRelease({ tag: "v2.0.0-rc.1", isPrerelease: true }),
+              ],
+            }),
+      "/api/v1/release/promote": () => {
+        promoted = true;
+        return okJson({ ok: true });
+      },
+    });
+
+    const row = (await screen.findByText("v2.0.0-rc.1")).closest("div")!;
+    fireEvent.click(within(row).getByRole("button", { name: "Promote" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Promote release" }));
+    });
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter((c) => c[0] === "/api/v1/releases").length
+      ).toBe(2)
+    );
+    await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    expect(screen.queryByText("Couldn’t load releases.")).toBeNull();
+    expect(within(row).getByText(/Promoting/)).toBeTruthy();
   });
 
   it("cancelling the promote confirmation leaves the release alone", async () => {
@@ -335,10 +372,10 @@ describe("ReleasesAdmin — recent releases", () => {
 
     const row = (await screen.findByText("v2.0.0-rc.1")).closest("div")!;
     fireEvent.click(within(row).getByRole("button", { name: "Promote" }));
-    fireEvent.click(within(row).getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
     expect(promote).not.toHaveBeenCalled();
-    expect(within(row).queryByText("Mark stable + latest?")).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
   });
 
   it("reports a failed promotion and keeps the row prerelease", async () => {
@@ -354,15 +391,17 @@ describe("ReleasesAdmin — recent releases", () => {
     const row = (await screen.findByText("v2.0.0-rc.1")).closest("div")!;
     fireEvent.click(within(row).getByRole("button", { name: "Promote" }));
     await act(async () => {
-      fireEvent.click(within(row).getByRole("button", { name: "Confirm" }));
+      fireEvent.click(screen.getByRole("button", { name: "Promote release" }));
     });
 
     expect(await screen.findByText("not found")).toBeTruthy();
     expect(within(row).getByText("Pre-release")).toBeTruthy();
-    // The confirmation collapsed when the request went out, so the operator
-    // is offered the button again rather than a stuck "confirm" row.
-    expect(within(row).queryByText("Mark stable + latest?")).toBeNull();
-    expect(within(row).getByRole("button", { name: "Promote" })).toBeTruthy();
+    // The question stays, with why, and the same button tries again.
+    const question = promoteQuestion("v2.0.0-rc.1");
+    const again = within(question).getByRole("button", {
+      name: "Promote release",
+    }) as HTMLButtonElement;
+    expect(again.disabled).toBe(false);
   });
 
   it("only confirms the release the operator clicked", async () => {
@@ -377,19 +416,16 @@ describe("ReleasesAdmin — recent releases", () => {
     });
 
     const first = (await screen.findByText("v2.0.0-rc.2")).closest("div")!;
-    const second = screen.getByText("v2.0.0-rc.1").closest("div")!;
     fireEvent.click(within(first).getByRole("button", { name: "Promote" }));
 
-    expect(within(first).getByText("Mark stable + latest?")).toBeTruthy();
-    expect(within(second).queryByText("Mark stable + latest?")).toBeNull();
-    expect(
-      within(second).getByRole("button", { name: "Promote" })
-    ).toBeTruthy();
+    const question = screen.getByRole("alertdialog");
+    expect(question.textContent).toContain("v2.0.0-rc.2");
+    expect(question.textContent).not.toContain("v2.0.0-rc.1");
   });
 
   it("says so when GitHub returns no releases", async () => {
     await renderAdmin();
-    expect(await screen.findByText("No releases found")).toBeTruthy();
+    expect(await screen.findByText("No releases found.")).toBeTruthy();
   });
 });
 
@@ -447,13 +483,15 @@ describe("ReleasesAdmin — creating a release", () => {
     await screen.findByText("Create release");
     fireEvent.click(screen.getByRole("button", { name: /minor/i }));
 
-    const dialog = await screen.findByRole("dialog");
+    const dialog = await screen.findByRole("alertdialog");
     expect(
       within(dialog).getByText(/triggers the release workflow/)
     ).toBeTruthy();
 
     await act(async () => {
-      fireEvent.click(within(dialog).getByRole("button", { name: "Release" }));
+      fireEvent.click(
+        within(dialog).getByRole("button", { name: "Create release" })
+      );
     });
 
     const post = fetchMock.mock.calls.find((c) => c[0] === "/api/v1/release");
@@ -477,10 +515,10 @@ describe("ReleasesAdmin — creating a release", () => {
 
     await screen.findByText("Create release");
     fireEvent.click(screen.getByRole("button", { name: /patch/i }));
-    const dialog = await screen.findByRole("dialog");
+    const dialog = await screen.findByRole("alertdialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
 
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
     expect(fetchMock.mock.calls.some((c) => c[0] === "/api/v1/release")).toBe(
       false
     );
@@ -495,12 +533,15 @@ describe("ReleasesAdmin — creating a release", () => {
 
     await screen.findByText("Create release");
     fireEvent.click(screen.getByRole("button", { name: /patch/i }));
-    const dialog = await screen.findByRole("dialog");
+    const dialog = await screen.findByRole("alertdialog");
     await act(async () => {
-      fireEvent.click(within(dialog).getByRole("button", { name: "Release" }));
+      fireEvent.click(
+        within(dialog).getByRole("button", { name: "Create release" })
+      );
     });
 
     expect(await screen.findByText("dirty tree")).toBeTruthy();
+    expect(screen.getByRole("alertdialog")).toBeTruthy();
     expect(screen.getByText("Recent releases")).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: /Back to releases/ })
@@ -544,12 +585,13 @@ describe("ReleasesAdmin — in-flight job banners", () => {
       error: "workflow blew up\nstderr=fatal: no runner",
     });
 
-    expect(screen.getByText(/Release failed: no runner/)).toBeTruthy();
+    expect(screen.getByText("Couldn’t finish the release.")).toBeTruthy();
+    expect(screen.getByText("no runner")).toBeTruthy();
     // A failed release is finished, so it must not also read as running.
     expect(screen.queryByText(/Releasing/)).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
-    expect(screen.queryByText(/Release failed/)).toBeNull();
+    expect(screen.queryByText("Couldn’t finish the release.")).toBeNull();
   });
 
   it("ignores a job that is not a release-create job", async () => {

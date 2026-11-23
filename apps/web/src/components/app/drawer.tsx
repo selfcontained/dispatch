@@ -1,28 +1,21 @@
 import {
-  createContext,
   type KeyboardEvent,
   type PointerEvent,
-  type ReactNode,
-  type TransitionEvent,
   type RefObject,
   useCallback,
-  useContext,
-  useEffect,
-  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
 } from "react";
 import { useAtom } from "jotai";
-import { ChevronRight, Pin, PinOff, X } from "lucide-react";
+import { Pin, PinOff } from "lucide-react";
 
 import { type FileItem, type SubAgentFiles } from "@/components/app/types";
 import { type DrawerTab, drawerWidthAtom } from "@/lib/store";
 import { TerminalLazyBoundary } from "@/components/terminal/terminal-lazy-boundary";
-import { FilesContent } from "@/components/app/files-content";
+import { FilesContent, type FilesState } from "@/components/app/files-content";
 import { InboxPanel } from "@/components/app/inbox";
 import { type Inbox } from "@/hooks/use-inbox";
-import { glassPanel } from "@/lib/glass";
 import { cn } from "@/lib/utils";
 import {
   clampDrawerWidth,
@@ -30,14 +23,13 @@ import {
   DRAWER_KEYBOARD_BIG_STEP_PX,
   DRAWER_KEYBOARD_STEP_PX,
   DRAWER_MIN_WIDTH_PX,
-  DRAWER_SETTLE_FALLBACK_MS,
-  DRAWER_TRANSITION_MS,
   DRAWER_WIDTH_PX,
   drawerMaxWidth,
   drawerPinnedReserve,
 } from "@/components/app/drawer-constants";
 import { CountBubble } from "@/components/ui/count-bubble";
 import { IconButton } from "@/components/ui/icon-button";
+import { Sheet, SheetClose, type SheetProps } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type DrawerSharedProps = {
@@ -49,6 +41,7 @@ type DrawerSharedProps = {
   /** The selected agent's own files when `files` is showing a sub agent's. */
   ownFiles?: FileItem[];
   filesOwnerId?: string | null;
+  filesState?: FilesState;
   onFilesOwnerChange?: (ownerId: string | null) => void;
   animatingFileKeys: Set<string>;
   drawerViewportRef: RefObject<HTMLDivElement>;
@@ -82,7 +75,6 @@ type DrawerContentProps = DrawerSharedProps & {
   activeTab: DrawerTab;
   setActiveTab: (tab: DrawerTab) => void;
   onRequestClose?: () => void;
-  closeButtonIcon?: "chevron" | "x";
   pinned?: boolean;
   onTogglePin?: () => void;
   className?: string;
@@ -95,6 +87,7 @@ export function DrawerContent({
   subAgentFiles,
   ownFiles,
   filesOwnerId,
+  filesState,
   onFilesOwnerChange,
   animatingFileKeys,
   drawerViewportRef,
@@ -105,7 +98,6 @@ export function DrawerContent({
   visible = true,
   setActiveTab,
   onRequestClose,
-  closeButtonIcon = "x",
   pinned,
   onTogglePin,
   className,
@@ -174,15 +166,7 @@ export function DrawerContent({
                 {pinned ? <PinOff /> : <Pin />}
               </IconButton>
             ) : null}
-            {onRequestClose ? (
-              <IconButton
-                size="icon-sm"
-                onClick={onRequestClose}
-                label="Close sidebar"
-              >
-                {closeButtonIcon === "chevron" ? <ChevronRight /> : <X />}
-              </IconButton>
-            ) : null}
+            {onRequestClose ? <SheetClose onClick={onRequestClose} /> : null}
           </div>
         </div>
 
@@ -232,6 +216,7 @@ export function DrawerContent({
               files={files}
               ownFiles={ownFiles}
               subAgentFiles={subAgentFiles}
+              filesState={filesState}
               filesOwnerId={filesOwnerId}
               onFilesOwnerChange={onFilesOwnerChange}
               selectedAgentId={selectedAgentId}
@@ -382,70 +367,35 @@ function DrawerResizeHandle({
   );
 }
 
-const DrawerClosingContext = createContext(false);
-
 /**
- * True while the frame around this content is sliding shut: it has been
- * told to close and its close transition has not finished. Content whose
- * data goes the moment the drawer closes (a thread, once the URL stops
- * naming it) holds its last render this long, so what slides out is what
- * was open rather than an empty box.
- */
-export function useDrawerClosing(): boolean {
-  return useContext(DrawerClosingContext);
-}
-
-/**
- * `closing` turns on when `open` goes false, and off when the close
- * transition ends (`settle`), when the frame opens again, or after a
- * fallback for a transition that never ends (the frame is `display: none`
- * on a phone, or the tab is in the background).
- */
-function useClosing(open: boolean) {
-  const [closing, setClosing] = useState(false);
-  const [prevOpen, setPrevOpen] = useState(open);
-  if (open !== prevOpen) {
-    setPrevOpen(open);
-    setClosing(!open);
-  }
-  // Settles only a close in progress. A `setClosing(false)` while already
-  // false is not dropped: React keeps it queued, and it lands after the
-  // next close's `setClosing(true)`, cutting that close off before it
-  // slides.
-  const settle = () => {
-    if (closing) setClosing(false);
-  };
-  useEffect(() => {
-    if (!closing) return;
-    const timer = window.setTimeout(
-      () => setClosing(false),
-      DRAWER_SETTLE_FALLBACK_MS
-    );
-    return () => window.clearTimeout(timer);
-  }, [closing]);
-  return { closing, settle };
-}
-
-/**
- * The slot at the right edge, in the sidebar's mode: pinned, it takes
- * layout width (0 when closed) and shrinks the centre; after the centre
- * reaches its usable reserve, further widening overlaps it. Unpinned, the
- * drawer floats over the centre and slides in from the edge. The sidebar
- * and the thread drawer each sit in one, so a thread takes the sidebar's
- * place while it is open and gives it back on close. Its left edge resizes
- * it, and the width is one preference for the client, shared by every frame.
- *
- * Closing slides the same way opening does, and the content is told
- * (`useDrawerClosing`) until the slide ends, so it can keep rendering
- * what it showed.
+ * The slot at the right edge, a Sheet. Pinned, it takes layout width (0 when
+ * closed) and shrinks the centre; after the centre reaches its usable
+ * reserve, further widening overlaps it, and it is a column that closes from
+ * its button. Unpinned, it floats over the centre, and Escape or a press
+ * outside closes it too. The sidebar and the thread drawer each sit in one,
+ * so a thread takes the sidebar's place while it is open and gives it back
+ * on close. Its left edge resizes it, and the width is one preference for
+ * the client, shared by every frame.
  */
 export function DrawerFrame({
   open,
   pinned,
   pinnedReserve = drawerPinnedReserve(true),
-  children,
+  onClose,
+  dismissable = !pinned,
   testId = "drawer-wrapper",
-}: {
+  ...sheet
+}: Pick<
+  SheetProps,
+  | "children"
+  | "label"
+  | "dialog"
+  | "autoFocus"
+  | "dismissable"
+  | "keepOpen"
+  | "onEscape"
+  | "onOutsidePress"
+> & {
   open: boolean;
   pinned: boolean;
   /**
@@ -453,100 +403,30 @@ export function DrawerFrame({
    * wider resize starts overlapping it.
    */
   pinnedReserve?: number;
-  children: ReactNode;
+  onClose: () => void;
   testId?: string;
 }): JSX.Element {
   const drawerWidth = useDrawerWidth();
   const { width, viewportWidth, dragging } = drawerWidth;
-  const pinnedOverlap = Math.max(
-    0,
-    width - drawerMaxWidth(viewportWidth, pinnedReserve)
-  );
-  const { closing, settle } = useClosing(open);
-  // Pinned, a resize changes the same `width` an open or close animates, so
-  // a keyboard step (which animates) ends in a `transitionend` too. This
-  // marks the transitions that are an open or close; only those settle.
-  const toggleInFlightRef = useRef(false);
-  const mountedRef = useRef(false);
-  useLayoutEffect(() => {
-    if (mountedRef.current) toggleInFlightRef.current = true;
-    mountedRef.current = true;
-  }, [open]);
-  // A drag follows the pointer, so it runs with no transition at all. One
-  // that starts mid-open cuts that transition short, so no `transitionend`
-  // comes for it, and the flag must not be left for the next resize.
-  useLayoutEffect(() => {
-    if (dragging) toggleInFlightRef.current = false;
-  }, [dragging]);
-  const transitionDuration = `${dragging ? 0 : DRAWER_TRANSITION_MS}ms`;
-  const handle = open ? <DrawerResizeHandle drawerWidth={drawerWidth} /> : null;
-  const onTransitionEnd = (
-    event: TransitionEvent<HTMLDivElement>,
-    propertyName: string
-  ) => {
-    if (event.target !== event.currentTarget) return;
-    if (event.propertyName !== propertyName) return;
-    if (!toggleInFlightRef.current) return;
-    toggleInFlightRef.current = false;
-    settle();
-  };
-  const content = (
-    <DrawerClosingContext.Provider value={closing}>
-      {children}
-    </DrawerClosingContext.Provider>
-  );
-
-  if (pinned) {
-    return (
-      <div
-        data-testid={testId}
-        data-pinned="true"
-        data-closing={closing ? "true" : undefined}
-        data-resizing={dragging ? "true" : undefined}
-        className="relative h-full min-w-0 flex-none overflow-hidden transition-[width,margin-left] ease-out"
-        style={{
-          width: open ? width : 0,
-          marginLeft: open ? -pinnedOverlap : 0,
-          transitionDuration,
-        }}
-        onTransitionEnd={(event) => onTransitionEnd(event, "width")}
-      >
-        {handle}
-        <div className="h-full min-h-0" style={{ width }}>
-          {content}
-        </div>
-      </div>
-    );
-  }
-
-  // Drawer mode: floats over the terminal, slides in/out without shifting
-  // layout. Anchored to the viewport rather than to the agents-view row, the
-  // same way the mobile slide-over in glass-sidebar.tsx is. That is what keeps
-  // the closed panel — parked off-canvas to the right — from counting as
-  // scrollable overflow on the row: a fixed box's containing block is the
-  // viewport, so it contributes none. As an absolute child it did, leaving the
-  // row a scroll container that any descendant `scrollIntoView` would scroll,
-  // dragging the whole app sideways.
   return (
-    <div
-      data-testid={testId}
-      data-pinned="false"
-      data-closing={closing ? "true" : undefined}
-      data-resizing={dragging ? "true" : undefined}
-      className={cn(
-        "fixed bottom-0 right-0 top-[var(--exposure-banner-height,0px)] z-dock transition-transform ease-out",
-        !open && "pointer-events-none"
-      )}
-      style={{
-        width,
-        transform: open ? "translateX(0)" : `translateX(${width}px)`,
-        transitionDuration,
+    <Sheet
+      {...sheet}
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
       }}
-      onTransitionEnd={(event) => onTransitionEnd(event, "transform")}
-    >
-      {handle}
-      {content}
-    </div>
+      modal={false}
+      docked={pinned}
+      dismissable={dismissable}
+      width={width}
+      overlap={Math.max(
+        0,
+        width - drawerMaxWidth(viewportWidth, pinnedReserve)
+      )}
+      resizing={dragging}
+      edge={open ? <DrawerResizeHandle drawerWidth={drawerWidth} /> : null}
+      data-testid={testId}
+    />
   );
 }
 
@@ -563,15 +443,14 @@ export function Drawer({
       open={drawerOpen}
       pinned={pinned}
       pinnedReserve={pinnedReserve}
+      onClose={() => setDrawerOpen(false)}
     >
       <DrawerContent
         {...props}
         visible={drawerOpen}
         onRequestClose={() => setDrawerOpen(false)}
-        closeButtonIcon="chevron"
         pinned={pinned}
         onTogglePin={onTogglePin}
-        className={cn("rounded-l-lg border-l", glassPanel)}
       />
     </DrawerFrame>
   );

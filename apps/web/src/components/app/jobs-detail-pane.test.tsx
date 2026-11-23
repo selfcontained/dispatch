@@ -56,7 +56,18 @@ const { H, record, stubModule } = vi.hoisted(() => {
 });
 
 vi.mock("@/components/app/jobs-context", () => ({
-  useJobsContext: () => H.context,
+  useJobsContext: () => {
+    const { jobs, isLoading, error, isRetrying, retry } = H.context;
+    // The jobs request, as each test's state describes it.
+    const jobsQuery = {
+      data:
+        isLoading || (error && !(jobs as unknown[]).length) ? undefined : jobs,
+      error,
+      isFetching: isRetrying,
+      refetch: retry,
+    };
+    return { ...H.context, jobsQuery };
+  },
 }));
 vi.mock("@/components/app/jobs-overview", stubModule("JobsOverview"));
 vi.mock("@/components/app/jobs-settings-tab", stubModule("SettingsTab"));
@@ -242,9 +253,9 @@ describe("JobDetailPane — overview branch", () => {
     H.context = defaultContext(null);
     H.context.error = new Error("boom");
     render(<JobDetailPane />);
-    expect(screen.getByRole("alert").textContent).toContain(
-      "Couldn't load jobs: boom"
-    );
+    const alert = screen.getByRole("alert").textContent;
+    expect(alert).toContain("Couldn’t load jobs.");
+    expect(alert).toContain("boom");
     expect(screen.queryByTestId("stub-JobsOverview")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(H.context.retry).toHaveBeenCalledOnce();

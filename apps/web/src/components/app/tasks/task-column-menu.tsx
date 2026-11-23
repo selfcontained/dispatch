@@ -1,12 +1,6 @@
 import { useRef, useState } from "react";
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogAction,
-  AlertDialogCancel,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { toast } from "@/components/ui/toast";
 import { MoreHorizontal } from "lucide-react";
 import type { TaskBoard, TaskColumn } from "@/hooks/use-tasks";
 import { useTaskActions } from "@/hooks/use-tasks";
@@ -22,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { MENU_ITEM, orderedColumns } from "./task-utils";
 import { TaskCapacityDialog } from "./task-column-capacity";
 import { TaskTriggerDialog } from "./task-trigger-dialog";
+import { TaskColumnNameDialog } from "./task-column-name-dialog";
 
 /**
  * A column's `…` menu, shared by the board's column header and the list's
@@ -49,7 +44,8 @@ export function TaskColumnMenu({
   ).length;
   const archiveLabel = `Archive ${archiveCount} ${archiveCount === 1 ? "task" : "tasks"}`;
   const [archiveOpen, setArchiveOpen] = useState(false);
-  const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
   const actions = useTaskActions(projectId);
   const [capacityOpen, setCapacityOpen] = useState(false);
   const [triggerOpen, setTriggerOpen] = useState(false);
@@ -59,6 +55,12 @@ export function TaskColumnMenu({
     orientation === "horizontal"
       ? ["Move left", "Move right"]
       : ["Move up", "Move down"];
+  const reposition = (position: number) =>
+    void actions.updateColumn
+      .mutateAsync({ id: column.id, position })
+      .catch((error: unknown) =>
+        toast.error(`Couldn’t move “${column.name}”.`, { error })
+      );
   return (
     <>
       <DropdownMenu>
@@ -74,16 +76,9 @@ export function TaskColumnMenu({
         <DropdownMenuContent align="end">
           <DropdownMenuItem
             className={MENU_ITEM}
-            onSelect={() => {
-              const name = window.prompt("Column name", column.name);
-              if (name?.trim())
-                void actions.updateColumn.mutateAsync({
-                  id: column.id,
-                  name: name.trim(),
-                });
-            }}
+            onSelect={() => setRenameOpen(true)}
           >
-            Rename
+            Rename…
           </DropdownMenuItem>
           <DropdownMenuItem
             className={MENU_ITEM}
@@ -101,15 +96,13 @@ export function TaskColumnMenu({
             className={MENU_ITEM}
             disabled={index === 0}
             onSelect={() =>
-              void actions.updateColumn.mutateAsync({
-                id: column.id,
-                position:
-                  index > 1
-                    ? (columns[index - 2].position +
-                        columns[index - 1].position) /
+              reposition(
+                index > 1
+                  ? (columns[index - 2].position +
+                      columns[index - 1].position) /
                       2
-                    : columns[0].position - 1,
-              })
+                  : columns[0].position - 1
+              )
             }
           >
             {earlier}
@@ -118,15 +111,13 @@ export function TaskColumnMenu({
             className={MENU_ITEM}
             disabled={index === columns.length - 1}
             onSelect={() =>
-              void actions.updateColumn.mutateAsync({
-                id: column.id,
-                position:
-                  index < columns.length - 2
-                    ? (columns[index + 1].position +
-                        columns[index + 2].position) /
+              reposition(
+                index < columns.length - 2
+                  ? (columns[index + 1].position +
+                      columns[index + 2].position) /
                       2
-                    : columns[columns.length - 1].position + 1,
-              })
+                  : columns[columns.length - 1].position + 1
+              )
             }
           >
             {later}
@@ -135,10 +126,7 @@ export function TaskColumnMenu({
             <DropdownMenuItem
               className={MENU_ITEM}
               disabled={archiveCount === 0}
-              onSelect={() => {
-                setArchiveError(null);
-                setArchiveOpen(true);
-              }}
+              onSelect={() => setArchiveOpen(true)}
             >
               {archiveLabel}
             </DropdownMenuItem>
@@ -147,52 +135,51 @@ export function TaskColumnMenu({
           <DropdownMenuItem
             className={cn(MENU_ITEM, "text-danger")}
             disabled={taskCount > 0}
-            onSelect={() => {
-              if (window.confirm(`Delete ${column.name}?`))
-                void actions.removeColumn.mutateAsync(column.id);
-            }}
+            onSelect={() => setDeleteOpen(true)}
           >
             {taskCount > 0 ? "Delete (empty it first)" : "Delete"}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <AlertDialog open={archiveOpen} onOpenChange={setArchiveOpen}>
-        <AlertDialogContent
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            menuButton.current?.focus();
-          }}
-        >
-          <AlertDialogTitle className="text-heading-md">
-            {archiveLabel} from {column.name}?
-          </AlertDialogTitle>
-          <AlertDialogDescription className="text-body-md text-muted-foreground">
-            Archived tasks leave the board. You can restore them from Archived.
-          </AlertDialogDescription>
-          {archiveError && (
-            <p role="alert" className="text-body-md text-danger">
-              {archiveError}
-            </p>
-          )}
-          <div className="flex justify-end gap-2">
-            <AlertDialogCancel disabled={actions.archiveColumn?.isPending}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={actions.archiveColumn?.isPending || archiveCount === 0}
-              onClick={(event) => {
-                event.preventDefault();
-                void actions.archiveColumn
-                  .mutateAsync(column.id)
-                  .then(() => setArchiveOpen(false))
-                  .catch((error: Error) => setArchiveError(error.message));
-              }}
-            >
-              {archiveLabel}
-            </AlertDialogAction>
-          </div>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={archiveOpen}
+        onOpenChange={setArchiveOpen}
+        returnFocus={menuButton}
+        tone="primary"
+        title={`${archiveLabel} from ${column.name}?`}
+        description="Archived tasks leave the board. You can restore them from Archived."
+        confirmLabel={archiveLabel}
+        confirmDisabled={archiveCount === 0}
+        errorTitle="Couldn’t archive the tasks."
+        onConfirm={async () => {
+          const result = await actions.archiveColumn.mutateAsync(column.id);
+          const count = result?.archived ?? archiveCount;
+          toast.success(`${count} ${count === 1 ? "task" : "tasks"} archived.`);
+        }}
+      />
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        returnFocus={menuButton}
+        title={`Delete “${column.name}”?`}
+        description="The column and its trigger are removed from this board. This cannot be undone."
+        confirmLabel="Delete column"
+        errorTitle="Couldn’t delete the column."
+        onConfirm={async () => {
+          await actions.removeColumn.mutateAsync(column.id);
+          toast.success(`Column “${column.name}” deleted.`);
+        }}
+      />
+      {renameOpen && (
+        <TaskColumnNameDialog
+          name={column.name}
+          returnFocus={menuButton}
+          onClose={() => setRenameOpen(false)}
+          onSave={(name) =>
+            actions.updateColumn.mutateAsync({ id: column.id, name })
+          }
+        />
+      )}
       {capacityOpen && (
         <TaskCapacityDialog
           column={column}

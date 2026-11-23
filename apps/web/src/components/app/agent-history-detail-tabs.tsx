@@ -6,6 +6,8 @@ import { type FileItem } from "@/components/app/types";
 import { type HistoryFile } from "@/hooks/use-agent-history";
 import { fileItemQueryKey } from "@/hooks/use-files";
 import { imageVariantSrcSet } from "@/lib/image-variants";
+import { panelFrame } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import { RowButton } from "@/components/ui/row-button";
 
 export function DetailTabs({
@@ -39,7 +41,7 @@ export function DetailTabs({
   return (
     <>
       <div className="min-w-0">
-        <h3 className="border-b border-border pb-2 text-heading-sm text-foreground">
+        <h3 className="text-heading-sm text-foreground">
           Files {files.length > 0 && `(${files.length})`}
         </h3>
         <div className="pt-3">
@@ -49,7 +51,10 @@ export function DetailTabs({
                 <RowButton
                   key={m.id}
                   onClick={() => setLightboxFileId(m.id)}
-                  className="block overflow-hidden rounded-sm border border-border bg-surface-subtle hover:border-foreground/line hover:bg-surface-subtle"
+                  className={cn(
+                    panelFrame,
+                    "block overflow-hidden hover:border-foreground/line hover:bg-surface-subtle"
+                  )}
                 >
                   {m.media === "image" ? (
                     <img

@@ -3,7 +3,6 @@ import {
   Bot,
   ChevronLeft,
   Settings,
-  X,
   ListTodo,
   Share2,
 } from "lucide-react";
@@ -11,6 +10,7 @@ import React from "react";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { IconButton } from "@/components/ui/icon-button";
+import { SheetClose } from "@/components/ui/sheet";
 import { useIconColor } from "@/hooks/use-icon-color";
 import { useInstanceName } from "@/hooks/use-instance-name";
 import { cn } from "@/lib/utils";
@@ -128,9 +128,13 @@ export function SidebarShell({
         </div>
         {onRequestClose ? (
           <div className="ml-auto">
-            <IconButton onClick={onRequestClose} label="Close sidebar">
-              {closeButtonIcon === "chevron" ? <ChevronLeft /> : <X />}
-            </IconButton>
+            {closeButtonIcon === "chevron" ? (
+              <IconButton onClick={onRequestClose} label="Close sidebar">
+                <ChevronLeft />
+              </IconButton>
+            ) : (
+              <SheetClose onClick={onRequestClose} />
+            )}
           </div>
         ) : null}
       </div>

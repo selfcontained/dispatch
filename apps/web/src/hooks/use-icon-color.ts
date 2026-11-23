@@ -1,5 +1,6 @@
 import { useCallback } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 
 /**
  * Palette ids and swatch hexes come from the shared server module so the web
@@ -39,59 +40,27 @@ export const ICON_COLOR_OPTIONS: IconColorDefinition[] = ICON_COLOR_PALETTE.map(
   })
 );
 
+/** The reload picks up server-rendered icon paths; "Saved" shows first. */
+const RELOAD_DELAY_MS = 1000;
+const ENDPOINT = "/api/v1/agents/settings";
+
 export function useIconColor(): {
   iconColor: IconColorId;
-  setIconColor: (id: IconColorId) => void;
-  isLoading: boolean;
-  error: string | null;
-  clearError: () => void;
+  /** Rejects when the server didn't take it. */
+  saveIconColor: (id: IconColorId) => Promise<void>;
 } {
-  const queryClient = useQueryClient();
-
-  const { data } = useQuery<{ iconColor: IconColorId }>({
+  const { data } = useQuery({
     queryKey: ["agents-settings"],
-    queryFn: async () => {
-      const res = await fetch("/api/v1/agents/settings");
-      if (!res.ok) throw new Error("Failed to fetch settings");
-      return res.json();
-    },
+    queryFn: () => api<{ iconColor: IconColorId }>(ENDPOINT),
   });
 
-  const mutation = useMutation({
-    mutationFn: async (color: IconColorId) => {
-      const res = await fetch("/api/v1/agents/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ iconColor: color }),
-      });
-      if (!res.ok) throw new Error("Failed to save icon color");
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["agents-settings"] });
-      // Reload to pick up server-rendered HTML with new icon paths
-      window.location.reload();
-    },
-  });
+  const saveIconColor = useCallback(async (iconColor: IconColorId) => {
+    await api(ENDPOINT, {
+      method: "POST",
+      body: JSON.stringify({ iconColor }),
+    });
+    window.setTimeout(() => window.location.reload(), RELOAD_DELAY_MS);
+  }, []);
 
-  const setIconColor = useCallback(
-    (id: IconColorId) => {
-      mutation.mutate(id);
-    },
-    [mutation]
-  );
-
-  const clearError = useCallback(() => {
-    mutation.reset();
-  }, [mutation]);
-
-  return {
-    iconColor: data?.iconColor ?? "teal",
-    setIconColor,
-    isLoading: mutation.isPending,
-    error: mutation.isError
-      ? "Failed to save icon color. Please try again."
-      : null,
-    clearError,
-  };
+  return { iconColor: data?.iconColor ?? "teal", saveIconColor };
 }

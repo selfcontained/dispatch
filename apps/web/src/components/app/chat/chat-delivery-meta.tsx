@@ -22,6 +22,7 @@ import {
   Route,
   Zap,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 /** Observe only this message's SSE state; no fetches, polling, or history timers. */
 function useRoutingReceipt(block: Block): boolean {
@@ -159,14 +160,16 @@ function DeliveryStatus({
       >
         Saved · agent unavailable; delivery not attempted
         {onRetryDelivery ? (
-          <button
+          <Button
             type="button"
-            className="ml-1.5 underline underline-offset-2"
+            variant="link"
+            size="inline"
+            className="ml-1.5"
             disabled={retrying}
             onClick={() => onRetryDelivery(block.id)}
           >
             {retrying ? "Sending…" : "Send to agent"}
-          </button>
+          </Button>
         ) : null}
       </div>
     );
@@ -194,9 +197,10 @@ function DeliveryStatus({
             nothing new lands in the stream and nobody reads it twice. Not
             "Retry", which on a failed turn runs the agent again. */}
         {onRetryDelivery ? (
-          <button
+          <Button
             type="button"
-            className="underline underline-offset-2 hover:no-underline disabled-state"
+            variant="ghost"
+            size="xs"
             disabled={retrying}
             onClick={() => onRetryDelivery?.(block.id)}
             data-testid="chat-delivery-retry"
@@ -206,7 +210,7 @@ function DeliveryStatus({
               : interrupt
                 ? "Try interrupt again"
                 : "Send again"}
-          </button>
+          </Button>
         ) : null}
       </div>
     );

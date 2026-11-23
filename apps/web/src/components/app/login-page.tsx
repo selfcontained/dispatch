@@ -3,13 +3,14 @@ import { Navigate, useNavigate } from "react-router-dom";
 import {
   Card,
   CardHeader,
-  CardTitle,
   CardDescription,
   CardContent,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useAuthContext } from "@/contexts/auth-context";
+import { Field } from "@/components/ui/field";
+import { Spinner } from "@/components/ui/spinner";
 
 type LoginPageProps = {
   onAuthenticated: () => void;
@@ -53,7 +54,9 @@ export function LoginPage({ onAuthenticated }: LoginPageProps): JSX.Element {
         setLoading(false);
         onAuthenticated();
       } catch {
-        setError("Unable to reach the server.");
+        setError(
+          "Couldn’t reach the server. Check your connection, then try again."
+        );
         setLoading(false);
       }
     })();
@@ -77,7 +80,9 @@ export function LoginPage({ onAuthenticated }: LoginPageProps): JSX.Element {
       }
       onAuthenticated();
     } catch {
-      setError("Unable to reach the server.");
+      setError(
+        "Couldn’t reach the server. Check your connection, then try again."
+      );
     } finally {
       setLoading(false);
     }
@@ -87,27 +92,30 @@ export function LoginPage({ onAuthenticated }: LoginPageProps): JSX.Element {
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Dispatch</CardTitle>
+          <h1 className="text-heading-md">Dispatch</h1>
           <CardDescription>Enter your password to continue.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <Input
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoFocus
-              data-testid="login-password"
-            />
-            {error && <p className="text-body-md text-danger">{error}</p>}
+            <Field label="Password" error={error}>
+              <Input
+                type="password"
+                autoComplete="current-password"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoFocus
+                data-testid="login-password"
+              />
+            </Field>
             <Button
               type="submit"
               variant="primary"
               className="w-full"
-              disabled={loading || !password}
+              pending={loading}
+              disabled={!password}
             >
-              {loading ? "Signing in..." : "Sign in"}
+              Sign in
             </Button>
           </form>
         </CardContent>
@@ -128,7 +136,7 @@ export function LoginRoute(): JSX.Element {
   if (authState === "loading") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
-        <span className="text-body-md">Loading...</span>
+        <Spinner label="Loading" className="size-icon-lg" />
       </div>
     );
   }

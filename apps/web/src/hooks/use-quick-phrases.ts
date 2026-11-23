@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useStore } from "jotai";
-import { toast } from "sonner";
 
 import { api } from "@/lib/api";
 import { chatDraftAtomFamily } from "@/lib/store";
@@ -42,7 +41,6 @@ export function useQuickPhraseActions(callbacks?: {
       invalidate();
       callbacks?.onSaved?.();
     },
-    onError: () => toast.error("Failed to save phrase"),
   });
 
   const updatePhrase = useMutation({
@@ -62,14 +60,12 @@ export function useQuickPhraseActions(callbacks?: {
       invalidate();
       callbacks?.onSaved?.();
     },
-    onError: () => toast.error("Failed to update phrase"),
   });
 
   const deletePhrase = useMutation({
     mutationFn: (id: string) =>
       api<null>(`/api/v1/quick-phrases/${id}`, { method: "DELETE" }),
     onSuccess: invalidate,
-    onError: () => toast.error("Failed to delete phrase"),
   });
 
   const injectPhrase = useMutation({
@@ -103,7 +99,6 @@ export function useQuickPhraseActions(callbacks?: {
       }
       callbacks?.onInjected?.();
     },
-    onError: () => toast.error("Failed to send phrase"),
   });
 
   return {

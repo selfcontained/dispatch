@@ -8,13 +8,9 @@ import { UpdatesVersionCard } from "@/components/app/updates-version-card";
 import type { UseReleaseStreamResult } from "@/hooks/use-release-stream";
 import { useReleaseUpdates } from "@/hooks/use-release-updates";
 import { UPDATE_PHASES } from "./release-utils";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card";
+import { Alert } from "@/components/ui/alert";
+import { LoadError } from "@/components/ui/async-boundary";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
 
 type UpdatesSectionProps = {
   stream: UseReleaseStreamResult;
@@ -32,12 +28,13 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
     notesExpanded,
     setNotesExpanded,
     channel,
-    channelSaving,
+    channelStatus,
     autoUpdateMode,
-    autoUpdateSaving,
+    autoUpdateStatus,
     infoLoading,
     infoError,
     updateError,
+    preferencesError,
     lastCheckMessage,
 
     displayInfo,
@@ -73,7 +70,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
   }
 
   return (
-    <div className="flex flex-col gap-6 p-4 md:p-6">
+    <div className="space-y-8">
       <UpdatesVersionCard
         status={status}
         versionInfo={versionInfo}
@@ -81,42 +78,36 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
         onToggleNotes={() => setNotesExpanded(!notesExpanded)}
       />
 
-      <div className="border-t border-edge" />
-
       {!versionInfo ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              {versionInfoError
-                ? "Unable to load update settings"
-                : "Loading update settings…"}
-            </CardTitle>
-            <CardDescription>
-              {versionInfoError
-                ? "We couldn’t determine how this installation is updated. Try again to load its update controls."
-                : "Checking how this installation is updated."}
-            </CardDescription>
-            {versionInfoError && (
-              <Button className="self-start" onClick={retryVersionInfo}>
-                Retry
-              </Button>
-            )}
-          </CardHeader>
-        </Card>
+        versionInfoError ? (
+          <LoadError
+            thing="update settings"
+            error={versionInfoError}
+            onRetry={retryVersionInfo}
+          />
+        ) : (
+          <LoadingSkeleton
+            label="Loading update settings…"
+            rowClassName="h-16"
+            rows={2}
+          />
+        )
       ) : versionInfo.updateOwner === "macos-app" ? (
         <MacAppUpdatesCard />
       ) : (
         <>
           <UpdatesPreferences
             channel={channel}
-            channelSaving={channelSaving}
+            channelStatus={channelStatus}
             onChannelChange={(ch) => void handleChannelChange(ch)}
             autoUpdateMode={autoUpdateMode}
-            autoUpdateSaving={autoUpdateSaving}
+            autoUpdateStatus={autoUpdateStatus}
             onAutoUpdateModeChange={(mode) =>
               void handleAutoUpdateModeChange(mode)
             }
           />
+
+          {preferencesError ? <Alert {...preferencesError} /> : null}
 
           <UpdatesCheckPanel
             infoLoading={infoLoading}
@@ -130,8 +121,6 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
           />
         </>
       )}
-
-      <div className="border-t border-edge" />
 
       <EngineUpdatesCard />
 

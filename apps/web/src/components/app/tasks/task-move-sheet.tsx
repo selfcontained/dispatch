@@ -1,20 +1,10 @@
 import { Check } from "lucide-react";
 import type { Task, TaskColumn } from "@/hooks/use-tasks";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Sheet, SheetHeader } from "@/components/ui/sheet";
 import { RowButton } from "@/components/ui/row-button";
 import { StatusDot } from "@/components/ui/status-dot";
 import { cn } from "@/lib/utils";
 import { columnAccent } from "./task-utils";
-
-/** A bottom sheet on a phone; a small centered dialog otherwise. */
-const BOTTOM_SHEET =
-  "max-md:inset-x-0 max-md:bottom-0 max-md:left-0 max-md:top-auto max-md:w-full max-md:max-h-[85dvh] max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-b-none max-md:pb-safe-4 md:w-[min(360px,calc(100vw-2rem))]";
 
 /** Move a task to another column without dragging it there. */
 export function TaskMoveSheet({
@@ -34,58 +24,56 @@ export function TaskMoveSheet({
   returnFocus: () => void;
 }) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        data-testid="task-move-sheet"
-        className={BOTTOM_SHEET}
-        onCloseAutoFocus={(event) => {
-          event.preventDefault();
-          returnFocus();
-        }}
+    <Sheet
+      open={open}
+      onOpenChange={onOpenChange}
+      side="bottom"
+      keepMounted={false}
+      label="Move to…"
+      returnFocus={returnFocus}
+      data-testid="task-move-sheet"
+    >
+      <SheetHeader
+        title="Move to…"
+        description={task.title}
+        onClose={() => onOpenChange(false)}
+      />
+      {/* Plain buttons, one tab stop each: a listbox would promise arrow
+          keys this doesn't need. */}
+      <div
+        role="group"
+        aria-label="Columns"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 pb-safe-2"
       >
-        <DialogHeader>
-          <DialogTitle className="text-heading-md">Move to…</DialogTitle>
-          <DialogDescription className="truncate">
-            {task.title}
-          </DialogDescription>
-        </DialogHeader>
-        {/* Plain buttons, one tab stop each: a listbox would promise arrow
-            keys this doesn't need. */}
-        <div
-          role="group"
-          aria-label="Columns"
-          className="-mx-1 overflow-y-auto"
-        >
-          {columns.map((column, index) => {
-            const current = column.id === task.columnId;
-            return (
-              <RowButton
-                key={column.id}
-                className={cn(
-                  "min-h-11 gap-3 px-3 text-body-md",
-                  current && "font-medium"
-                )}
-                onClick={() => {
-                  onOpenChange(false);
-                  if (!current) onMove(column.id);
-                }}
-              >
-                <StatusDot color={`hsl(${columnAccent(column, index)})`} />
-                <span className="min-w-0 flex-1 truncate">{column.name}</span>
-                {current && (
-                  <>
-                    <span className="sr-only">, current column</span>
-                    <Check
-                      className="h-4 w-4 text-muted-foreground"
-                      aria-hidden="true"
-                    />
-                  </>
-                )}
-              </RowButton>
-            );
-          })}
-        </div>
-      </DialogContent>
-    </Dialog>
+        {columns.map((column, index) => {
+          const current = column.id === task.columnId;
+          return (
+            <RowButton
+              key={column.id}
+              className={cn(
+                "min-h-11 gap-3 px-3 text-body-md",
+                current && "font-medium"
+              )}
+              onClick={() => {
+                onOpenChange(false);
+                if (!current) onMove(column.id);
+              }}
+            >
+              <StatusDot color={`hsl(${columnAccent(column, index)})`} />
+              <span className="min-w-0 flex-1 truncate">{column.name}</span>
+              {current && (
+                <>
+                  <span className="sr-only">, current column</span>
+                  <Check
+                    className="h-4 w-4 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                </>
+              )}
+            </RowButton>
+          );
+        })}
+      </div>
+    </Sheet>
   );
 }

@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   FileText,
   Link2,
-  Loader2,
   MessageCircle,
   Pencil,
   X,
@@ -17,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { IconButton } from "@/components/ui/icon-button";
 import { RowButton } from "@/components/ui/row-button";
 import { Hint } from "@/components/ui/tooltip";
+import { Spinner } from "@/components/ui/spinner";
 
 /** The × that hangs off a chip's top-right corner. */
 export function ChipRemoveButton({
@@ -131,7 +131,7 @@ export function ContextFileItem({
               {status === "failed" ? (
                 <AlertTriangle className="h-4 w-4" />
               ) : (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Spinner className="size-icon-lg" />
               )}
             </div>
           </Hint>

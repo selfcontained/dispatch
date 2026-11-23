@@ -82,6 +82,8 @@ async function startChild(hosts: string, env: Record<string, string> = {}) {
       PATH: process.env.PATH,
       HOME: process.env.HOME,
       TMPDIR: process.env.TMPDIR,
+      BUN_RUNTIME_TRANSPILER_CACHE_PATH:
+        process.env.BUN_RUNTIME_TRANSPILER_CACHE_PATH,
       ...env,
     },
     start: {

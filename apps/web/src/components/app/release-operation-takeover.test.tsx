@@ -295,7 +295,7 @@ describe("the outcome banners", () => {
       isFailed: true,
     });
 
-    expect(screen.getByText("Operation failed")).toBeTruthy();
+    expect(screen.getByText("Operation failed.")).toBeTruthy();
   });
 
   it("shows no banner and no dismissal while the operation runs", () => {

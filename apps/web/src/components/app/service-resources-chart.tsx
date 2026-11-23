@@ -1,12 +1,6 @@
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { ChartFrame, DashboardSection } from "@/components/ui/dashboard";
 import {
   ChartContainer,
   ChartLegend,
@@ -24,7 +18,7 @@ export function ResourceChart({
   keys,
   unit,
   secondaryKey,
-  primaryAxisWidth = 40,
+  primaryAxisWidth = 60,
 }: {
   title: string;
   description: string;
@@ -37,20 +31,22 @@ export function ResourceChart({
 }) {
   const allKeys = secondaryKey ? [...keys, secondaryKey] : keys;
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle>{title}</CardTitle>
-        <CardDescription className="text-body-sm">
-          {description}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
+    <DashboardSection
+      title={title}
+      description={description}
+      // Descriptions differ in length; frames side by side still line up.
+      className="flex h-full flex-col gap-3 space-y-0 [&>[data-chart-frame]]:mt-auto"
+    >
+      <ChartFrame>
         {data.length < 2 ? (
-          <div className="flex h-44 items-center justify-center text-body-md text-muted-foreground">
+          <div className="flex h-full items-center justify-center text-body-md text-muted-foreground">
             Collecting history…
           </div>
         ) : (
-          <ChartContainer config={config} className="h-52 w-full aspect-auto">
+          <ChartContainer
+            config={config}
+            className="aspect-auto min-h-0 w-full flex-1"
+          >
             <AreaChart
               data={data}
               margin={{
@@ -129,11 +125,7 @@ export function ResourceChart({
                   new Date(Number(value)).toLocaleTimeString()
                 }
               />
-              <ChartLegend
-                content={
-                  <ChartLegendContent className="flex-wrap gap-x-4 gap-y-1" />
-                }
-              />
+              <ChartLegend content={<ChartLegendContent />} />
               {allKeys.map((key) => (
                 <Area
                   key={key}
@@ -149,7 +141,7 @@ export function ResourceChart({
             </AreaChart>
           </ChartContainer>
         )}
-      </CardContent>
-    </Card>
+      </ChartFrame>
+    </DashboardSection>
   );
 }

@@ -29,6 +29,12 @@ const boardQuery = vi.hoisted(() =>
 );
 const viewport = vi.hoisted(() => ({ isMobile: false }));
 vi.mock("@/hooks/use-projects", () => ({
+  useProjects: () => ({
+    data: projects,
+    error: null,
+    isFetching: false,
+    refetch: vi.fn(),
+  }),
   useProjectScope: () => {
     const location = useLocation();
     const id = new URLSearchParams(location.search).get("project");
@@ -66,23 +72,26 @@ vi.mock("@/components/app/dashboard-context", () => ({
     setMobileLeftOpen: vi.fn(),
   }),
 }));
-vi.mock("./section-shell", () => ({
-  SectionShell: ({
-    sidebar,
-    children,
-    headerActions,
-  }: {
-    headerActions?: React.ReactNode;
-    sidebar: React.ReactNode;
-    children: React.ReactNode;
-  }) => (
-    <div>
-      {headerActions}
-      {sidebar}
-      {children}
-    </div>
-  ),
-}));
+vi.mock("./section-shell", async () => {
+  const { SectionChrome } = await import("@/components/app/section-chrome");
+  return {
+    // Without the navigation; the header's chrome is the real one.
+    SectionShell: ({
+      sidebar,
+      children,
+    }: {
+      sidebar: React.ReactNode;
+      children: React.ReactNode;
+    }) => (
+      <div>
+        {sidebar}
+        <SectionChrome leftPanelOpen onOpenSidebar={() => {}}>
+          {children}
+        </SectionChrome>
+      </div>
+    ),
+  };
+});
 vi.mock("@/components/app/project-location", () => ({
   ProjectIcon: () => <span aria-hidden="true" />,
 }));

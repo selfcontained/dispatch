@@ -25,7 +25,6 @@ import {
   Split,
   ArrowLeft,
 } from "lucide-react";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { IconButton } from "@/components/ui/icon-button";
@@ -33,6 +32,11 @@ import { RowButton } from "@/components/ui/row-button";
 import { api, ApiError } from "@/lib/api";
 import { FileActions } from "./file-lightbox-actions";
 import { cn } from "@/lib/utils";
+import { LoadError } from "@/components/ui/async-boundary";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Spinner } from "@/components/ui/spinner";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
+import { toast } from "@/components/ui/toast";
 
 type Entry = {
   name: string;
@@ -268,9 +272,10 @@ export function FilesPane({
 }) {
   if (!agentId || !workspace)
     return (
-      <div className="grid h-full place-items-center p-6 text-body-md text-muted-foreground">
-        Select an agent with a workspace to browse files.
-      </div>
+      <EmptyState
+        title="No workspace"
+        description="Select an agent with a workspace to browse files."
+      />
     );
   return (
     <WorkspaceFiles
@@ -296,6 +301,9 @@ function WorkspaceFiles({
   isSplit: boolean;
   isMobile: boolean;
 }) {
+  const remote = Boolean(remotePlacement(workspace));
+  const unavailable = (error: unknown) =>
+    remote && error instanceof ApiError && error.status === 503;
   const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
   const selected = params.get("files.path") ?? params.get("path") ?? "";
@@ -344,9 +352,7 @@ function WorkspaceFiles({
     enabled: !!selected,
     ...queryOptions,
   });
-  const keepPreview =
-    !preview.isError ||
-    (preview.error instanceof ApiError && preview.error.status === 503);
+  const keepPreview = !preview.isError || unavailable(preview.error);
   const fileIndex = useQuery({
     queryKey: [...prefix, "index"],
     queryFn: ({ signal }) =>
@@ -384,9 +390,12 @@ function WorkspaceFiles({
       return;
     }
     if (query.isError) {
-      rows.push({ depth, message: query.error.message, retry: directory });
-      if (!(query.error instanceof ApiError && query.error.status === 503))
-        return;
+      rows.push({
+        depth,
+        message: remote ? query.error.message : "Couldn’t load the folder.",
+        retry: directory,
+      });
+      if (!unavailable(query.error)) return;
     }
     if (!query.data) return;
     for (const entry of query.data.entries) {
@@ -408,11 +417,14 @@ function WorkspaceFiles({
     if (fileIndex.isPending)
       rows.push({ depth: 0, message: "Finding filenames…" });
     if (fileIndex.isError)
-      rows.push({ depth: 0, message: fileIndex.error.message, retry: "index" });
+      rows.push({
+        depth: 0,
+        message: remote ? fileIndex.error.message : "Couldn’t load filenames.",
+        retry: "index",
+      });
     if (
-      fileIndex.data &&
-      (!fileIndex.isError ||
-        (fileIndex.error instanceof ApiError && fileIndex.error.status === 503))
+      !fileIndex.isPending &&
+      (!fileIndex.isError || unavailable(fileIndex.error))
     )
       for (const path of matches.slice(0, 200))
         rows.push({
@@ -437,7 +449,7 @@ function WorkspaceFiles({
             )
           : old.length >= 32
             ? (toast.info(
-                "Close a folder before opening more (32-folder MVP limit)."
+                "Close a folder before opening more. Up to 32 can be open."
               ),
               old)
             : [...old, entry.path]
@@ -462,7 +474,7 @@ function WorkspaceFiles({
       <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2">
         <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
-          {remotePlacement(workspace) ? (
+          {remote ? (
             <div className="truncate text-body-md font-medium">
               Session files
             </div>
@@ -581,6 +593,7 @@ function WorkspaceFiles({
                       className="flex h-full items-center gap-1 truncate px-3 text-label-sm text-muted-foreground"
                       title={row.message}
                     >
+                      {row.message === "Loading…" && <Spinner />}
                       {row.message}
                       {row.retry !== undefined && (
                         <Button
@@ -713,23 +726,20 @@ function WorkspaceFiles({
                   </p>
                 )}
                 {preview.isPending ? (
-                  <div className="p-6 text-body-md text-muted-foreground">
-                    Loading preview…
-                  </div>
+                  <LoadingSkeleton
+                    label="Loading preview…"
+                    className="w-auto p-6"
+                    rowClassName="h-4"
+                    rows={8}
+                  />
                 ) : preview.isError && (!keepPreview || !preview.data) ? (
-                  <div
-                    role="alert"
-                    className="p-6 text-body-md text-muted-foreground"
-                  >
-                    {preview.error.message}
-                    <Button
-                      className="ml-2"
-                      size="sm"
-                      onClick={() => void preview.refetch()}
-                    >
-                      Retry
-                    </Button>
-                  </div>
+                  <LoadError
+                    thing="the preview"
+                    error={preview.error}
+                    retrying={preview.isFetching}
+                    onRetry={() => void preview.refetch()}
+                    className="m-4"
+                  />
                 ) : preview.data?.kind === "text" ? (
                   <FilesTextPreview
                     key={selected}
@@ -757,14 +767,11 @@ function WorkspaceFiles({
                 )}
               </>
             ) : (
-              <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center text-muted-foreground">
-                <File className="h-10 w-10 opacity-30" />
-                <p className="text-body-md">Select a file to preview</p>
-                <p className="max-w-64 text-body-sm leading-relaxed">
-                  Browse the agent’s workspace. Folders load only when opened;
-                  files stay on disk until selected.
-                </p>
-              </div>
+              <EmptyState
+                icon={File}
+                title="Select a file to preview"
+                description="Browse the agent’s workspace. Folders load only when opened; files stay on disk until selected."
+              />
             )}
           </div>
         )}

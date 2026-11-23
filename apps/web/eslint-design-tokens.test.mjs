@@ -87,7 +87,6 @@ for (const [jsx, id] of [
   ['<Button className={cn("w-full", open && "!px-1")} />', "sizing"],
   ["<SplitButton className={SIZED} />", "sizing"],
   ['<Button size="icon-sm" />', "iconButton"],
-  ['<Button size="stream-sm" />', "streamSize"],
   ['<IconButton label="Go" title="Go" />', "title"],
 ]) {
   test(`reject ${jsx}`, async () => {
@@ -107,14 +106,19 @@ test("allow a control's size, width, offset and pseudo-element", async () => {
   );
 });
 
-test("leave the stream and components/ui to their own sizes", async () => {
-  for (const file of [
-    "src/components/app/chat/example.tsx",
-    "src/components/ui/example.tsx",
-  ]) {
-    assert.deepEqual(
-      await controlViolations("export const a = <button />;", file),
-      []
-    );
-  }
+test("hold the stream to the controls, which components/ui defines", async () => {
+  assert.deepEqual(
+    await controlViolations(
+      "export const a = <button />;",
+      "src/components/app/chat/example.tsx"
+    ),
+    ["rawButton"]
+  );
+  assert.deepEqual(
+    await controlViolations(
+      "export const a = <button />;",
+      "src/components/ui/example.tsx"
+    ),
+    []
+  );
 });

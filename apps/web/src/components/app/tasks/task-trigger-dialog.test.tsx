@@ -155,7 +155,7 @@ it("creates a template from the picker and selects it", async () => {
   const { onOpenChange } = renderDialog();
   expect(templatePicker().textContent).toBe("Builder");
   openNewTemplate();
-  await screen.findByRole("heading", { name: "Create Template" });
+  await screen.findByRole("heading", { name: "New template" });
   expect(templatePicker().textContent).toBe("Builder");
   // Locked to the board's project: no project/folder switch, no path input.
   expect(screen.queryByTestId("project-location")).toBeNull();
@@ -166,11 +166,9 @@ it("creates a template from the picker and selects it", async () => {
   fireEvent.change(screen.getByPlaceholderText(/name/i), {
     target: { value: "Reviewer" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "Create" }));
+  fireEvent.click(screen.getByRole("button", { name: "Create template" }));
   await waitFor(() =>
-    expect(
-      screen.queryByRole("heading", { name: "Create Template" })
-    ).toBeNull()
+    expect(screen.queryByRole("heading", { name: "New template" })).toBeNull()
   );
   expect(addTemplate).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -184,7 +182,7 @@ it("creates a template from the picker and selects it", async () => {
   expect(templatePicker().textContent).toBe("Reviewer");
   expect(onOpenChange).not.toHaveBeenCalled();
   // The other fields kept their state; Save stores the new template.
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save trigger" }));
   await waitFor(() =>
     expect(updateColumn).toHaveBeenCalledWith({
       id: "ready",
@@ -198,13 +196,11 @@ it("cancel returns to the trigger unchanged", async () => {
   openNewTemplate();
   fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
   await waitFor(() =>
-    expect(
-      screen.queryByRole("heading", { name: "Create Template" })
-    ).toBeNull()
+    expect(screen.queryByRole("heading", { name: "New template" })).toBeNull()
   );
   expect(addTemplate).not.toHaveBeenCalled();
   expect(templatePicker().textContent).toBe("Builder");
-  expect(screen.getByRole("heading", { name: /Trigger · Ready/ })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: /trigger · Ready/ })).toBeTruthy();
   expect(onOpenChange).not.toHaveBeenCalled();
 });
 
@@ -230,7 +226,7 @@ it("keeps the template's engine until another is picked", async () => {
   ).toEqual(["Claude", "Codex", "OpenCode"]);
   fireEvent.click(screen.getByRole("option", { name: "Codex" }));
   expect(type.textContent).toBe("Codex");
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save trigger" }));
   await waitFor(() =>
     expect(updateColumn).toHaveBeenCalledWith({
       id: "ready",
@@ -246,7 +242,7 @@ it("picking the template's engine again goes back to following it", async () => 
   fireEvent.click(screen.getByRole("option", { name: "Codex" }));
   fireEvent.click(type);
   fireEvent.click(screen.getByRole("option", { name: "Claude" }));
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save trigger" }));
   await waitFor(() =>
     expect(updateColumn).toHaveBeenCalledWith({
       id: "ready",
@@ -320,7 +316,9 @@ it.each(["add", "edit"] as const)(
     );
     expect(fireOnCreate().getAttribute("aria-checked")).toBe("false");
     expect(
-      screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")
+      screen
+        .getByRole("button", { name: "Save trigger" })
+        .hasAttribute("disabled")
     ).toBe(mode === "add");
     expect(updateColumn).not.toHaveBeenCalled();
   }
@@ -368,11 +366,11 @@ it.each([
     expect(screen.getByTestId("task-trigger-effort").textContent).toContain(
       "Default"
     );
-    expect(screen.getByRole("button", { name: "Save" })).toHaveProperty(
+    expect(screen.getByRole("button", { name: "Save trigger" })).toHaveProperty(
       "disabled",
       false
     );
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save trigger" }));
     await waitFor(() =>
       expect(updateColumn).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -398,7 +396,7 @@ it("preserves compatible explicit effort across template runtime changes", async
   expect(screen.getByTestId("task-trigger-effort").textContent).toContain(
     "High"
   );
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save trigger" }));
   await waitFor(() =>
     expect(updateColumn).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -414,7 +412,7 @@ it("uses CLI effort when the trigger overrides the template runtime", async () =
   fireEvent.click(screen.getByRole("combobox", { name: "Type" }));
   fireEvent.click(screen.getByRole("option", { name: "OpenCode" }));
   expect(screen.queryByRole("alert")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save trigger" }));
   await waitFor(() =>
     expect(updateColumn).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -437,7 +435,7 @@ it("resolves inherited Codex max conflict with an explicit compatible override",
   fireEvent.click(screen.getByTestId("task-trigger-effort"));
   fireEvent.click(screen.getByRole("radio", { name: "High" }));
   expect(screen.queryByRole("alert")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save trigger" }));
   await waitFor(() =>
     expect(updateColumn).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -469,7 +467,7 @@ it("keeps max when an explicit Claude runtime overrides the newly selected Codex
     "Max"
   );
   expect(screen.queryByRole("alert")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save trigger" }));
   await waitFor(() =>
     expect(updateColumn).toHaveBeenCalledWith(
       expect.objectContaining({

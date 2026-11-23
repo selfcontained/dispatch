@@ -13,7 +13,6 @@ import {
   MessageSquarePlus,
   SmilePlus,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -22,10 +21,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   Dialog,
+  DialogBody,
+  DialogCancel,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { IconButton } from "@/components/ui/icon-button";
 import { formatDateTime } from "@/lib/format";
 import {
   POST_ACTION_BUTTON,
@@ -96,22 +99,19 @@ export function MessageActions({
             {copy}
             <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
               <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="stream-icon"
+                <IconButton
+                  size="icon-sm"
                   className={`${POST_ACTION_BUTTON} data-[state=open]:opacity-100`}
-                  aria-label="Message actions"
+                  label="Message actions"
                   ref={actionsRef}
-                  title="Message actions"
                 >
                   <span className={POST_ACTION_FACE}>
                     <MoreHorizontal
-                      className="h-3.5 w-3.5"
+                      className="size-icon-md"
                       aria-hidden="true"
                     />
                   </span>
-                </Button>
+                </IconButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="end"
@@ -189,15 +189,13 @@ export function MessageActions({
             event.preventDefault();
             actionsRef.current?.focus();
           }}
-          className="w-[calc(100vw-2rem)] max-w-sm gap-2 p-3 sm:p-4"
+          size="sm"
           aria-describedby={undefined}
         >
           <DialogHeader>
-            <DialogTitle className="tracking-tight">
-              Message metadata
-            </DialogTitle>
+            <DialogTitle>Message metadata</DialogTitle>
           </DialogHeader>
-          <div className="max-h-[70dvh] space-y-2 overflow-y-auto pr-1">
+          <DialogBody className="space-y-2">
             <section className="space-y-1.5" aria-label="Message delivery">
               <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-2">
                 <p className="break-words text-body-sm font-medium">
@@ -299,7 +297,10 @@ export function MessageActions({
             {block.author.kind === "user" && (
               <MessageRoutingDetails block={block} agentName={agentName} />
             )}
-          </div>
+          </DialogBody>
+          <DialogFooter>
+            <DialogCancel>Done</DialogCancel>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

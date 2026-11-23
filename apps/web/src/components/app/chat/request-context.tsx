@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { AutoHeight } from "./turn/auto-height";
 import { glassOverlay } from "@/lib/glass";
 import { Markdown } from "@/components/ui/markdown";
+import { IconButton } from "@/components/ui/icon-button";
 import { AttachmentList } from "./chat-attachment-views";
 import type { FeedContext } from "./chat-entries";
 import { cn } from "@/lib/utils";
@@ -96,7 +97,7 @@ export function RequestContext({
       <div className="pointer-events-auto w-fit bg-background px-3 py-1 sm:px-4">
         <Button
           variant="ghost"
-          size="stream-sm"
+          size="xs"
           disabled={loading || (seekingLatest && !error)}
           onClick={() => {
             setSeekingLatest(true);
@@ -105,7 +106,7 @@ export function RequestContext({
         >
           {seekingLatest && !error ? (
             <>
-              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+              <Loader2 className="animate-spin" />
               Finding your last message…
             </>
           ) : error ? (
@@ -143,7 +144,9 @@ export function RequestContext({
             "grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-1 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto]"
         )}
         onKeyDown={(event) => {
-          if (event.key === "Escape") setOpen(false);
+          if (event.key !== "Escape" || !open) return;
+          event.preventDefault();
+          setOpen(false);
         }}
       >
         <div
@@ -153,13 +156,15 @@ export function RequestContext({
               : "contents"
           )}
         >
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="xs"
             data-testid="request-context-open"
             aria-expanded={open}
             aria-controls={detailId}
             onClick={() => setOpen(!open)}
-            className="col-start-1 row-start-1 flex h-7 min-w-0 flex-1 items-center gap-2 rounded-sm text-left text-label-sm font-medium text-foreground/soft focus-ring pointer-coarse:h-9"
+            className="col-start-1 row-start-1 -ml-2 min-w-0 flex-1 justify-start text-foreground/soft"
           >
             <span className="shrink-0 whitespace-nowrap">
               {index === requests.length - 1
@@ -168,33 +173,31 @@ export function RequestContext({
             </span>
             <ChevronDown
               className={cn(
-                "h-3 w-3 shrink-0 text-muted-foreground transition-transform motion-reduce:transition-none",
+                "text-muted-foreground transition-transform motion-reduce:transition-none",
                 open && "rotate-180"
               )}
             />
-          </button>
-          <Button
-            variant="ghost"
-            size="stream-icon"
-            className="col-start-2 row-start-1 h-7 w-7 shrink-0 pointer-coarse:h-9 pointer-coarse:w-9 sm:col-start-3"
-            aria-label="Previous message"
+          </Button>
+          <IconButton
+            size="icon-sm"
+            className="col-start-2 row-start-1 shrink-0 sm:col-start-3"
+            label="Previous message"
             disabled={busy || (index === 0 && !hasOlder)}
             onClick={previous}
           >
             {busy ? (
               <Loader2
-                className="h-3.5 w-3.5 animate-spin"
+                className="animate-spin"
                 aria-label="Loading earlier messages"
               />
             ) : (
-              <ChevronLeft className="h-3.5 w-3.5" />
+              <ChevronLeft />
             )}
-          </Button>
-          <Button
-            variant="ghost"
-            size="stream-icon"
-            className="col-start-3 row-start-1 h-7 w-7 shrink-0 pointer-coarse:h-9 pointer-coarse:w-9 sm:col-start-4"
-            aria-label="Next message"
+          </IconButton>
+          <IconButton
+            size="icon-sm"
+            className="col-start-3 row-start-1 shrink-0 sm:col-start-4"
+            label="Next message"
             disabled={busy || index === requests.length - 1}
             onClick={() =>
               setSelectedId(
@@ -204,8 +207,8 @@ export function RequestContext({
               )
             }
           >
-            <ChevronRight className="h-3.5 w-3.5" />
-          </Button>
+            <ChevronRight />
+          </IconButton>
         </div>
         <div
           key={request.id}
@@ -229,7 +232,10 @@ export function RequestContext({
           {open ? (
             <div className="py-3">
               {request.text.trim() && (
-                <Markdown className="text-body-sm prose-p:whitespace-pre-line prose-li:whitespace-pre-line">
+                <Markdown
+                  density="compact"
+                  className="prose-p:whitespace-pre-line prose-li:whitespace-pre-line"
+                >
                   {request.text}
                 </Markdown>
               )}
@@ -255,11 +261,11 @@ export function RequestContext({
               </time>
               <Button
                 variant="ghost"
-                size="stream-sm"
-                className="h-6 rounded-sm px-0 text-label-sm font-normal hover:bg-transparent hover:underline pointer-coarse:h-8"
+                size="xs"
+                className="-mr-2"
                 onClick={() => onJump(request.id)}
               >
-                <ArrowUp className="mr-1 h-3 w-3" />
+                <ArrowUp aria-hidden="true" />
                 Jump to message
               </Button>
             </div>

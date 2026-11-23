@@ -90,7 +90,7 @@ export function NotificationsContent() {
         <P>
           The same settings pane hosts <strong>Tips &amp; Guidance</strong> —
           short contextual hints that point out features and link into these
-          docs. They're per-device like sound cues. Untick{" "}
+          docs. They're per-device like sound cues. Turn off{" "}
           <strong>Show tips</strong> to turn them off, or use{" "}
           <strong>Reset dismissed tips</strong> to bring back everything you've
           already dismissed.

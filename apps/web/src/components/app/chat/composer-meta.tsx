@@ -20,9 +20,13 @@ import { EffortPicker } from "@/components/app/effort-picker";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
+import { Hint } from "@/components/ui/tooltip";
 import {
   Dialog,
+  DialogBody,
+  DialogCancel,
   DialogContent,
+  DialogFooter,
   DialogDescription,
   DialogHeader,
   DialogTitle,
@@ -73,9 +77,7 @@ import {
   reportAge,
   resetsIn,
 } from "./composer-meta-format";
-
-const CHIP_CLASS =
-  "inline-flex h-6 min-w-0 items-center gap-1 rounded-md px-1.5 text-label-sm text-muted-foreground hover:bg-surface-hover hover:text-foreground focus-ring disabled-state pointer-coarse:min-h-11";
+import { Alert } from "@/components/ui/alert";
 
 /**
  * Controls beside the recipients under the composer: which model the session runs (a picker)
@@ -186,23 +188,26 @@ function ModelChip({
         }}
       >
         <PopoverTrigger asChild>
-          <button
-            type="button"
-            className={cn(CHIP_CLASS, "max-w-full justify-self-start")}
-            disabled={disabled}
-            title={
+          <Hint
+            label={
               running
                 ? "Change the model"
                 : "Start the agent to change its model"
             }
-            data-testid="composer-model-chip"
           >
-            <Sparkles className="h-3 w-3 shrink-0" aria-hidden="true" />
-            <span className="truncate">{label}</span>
-            {disabled ? null : (
-              <ChevronDown className="h-3 w-3 shrink-0" aria-hidden="true" />
-            )}
-          </button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              className="min-w-0 max-w-full justify-self-start disabled:pointer-events-auto"
+              disabled={disabled}
+              data-testid="composer-model-chip"
+            >
+              <Sparkles aria-hidden="true" />
+              <span className="truncate">{label}</span>
+              {disabled ? null : <ChevronDown aria-hidden="true" />}
+            </Button>
+          </Hint>
         </PopoverTrigger>
         <PopoverContent
           align="start"
@@ -351,38 +356,37 @@ function UsageChip({
       }}
     >
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            CHIP_CLASS,
-            "shrink-0 tabular-nums",
-            !agent && "col-start-2"
-          )}
-          title={usageLabel}
-          aria-label={
-            expiring
-              ? `${usageLabel} · Codex reset credit expires within seven days`
-              : usageLabel
-          }
-          data-testid="composer-usage-chip"
-        >
-          <span className="relative inline-flex shrink-0">
-            <Gauge className="h-3 w-3" aria-hidden="true" />
-            {expiring ? (
-              <span
-                className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-primary ring-2 ring-background"
-                aria-hidden="true"
-                data-testid="composer-usage-expiry-dot"
-              />
-            ) : null}
-          </span>
-          <span className="composer-usage-full">
-            {percent === null ? "Usage" : `${percent}% left · context`}
-          </span>
-          <span className="composer-usage-short hidden">
-            {percent === null ? "Usage" : `${percent}% left`}
-          </span>
-        </button>
+        <Hint label={usageLabel}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            className={cn("shrink-0 tabular-nums", !agent && "col-start-2")}
+            aria-label={
+              expiring
+                ? `${usageLabel} · Codex reset credit expires within seven days`
+                : usageLabel
+            }
+            data-testid="composer-usage-chip"
+          >
+            <span className="relative inline-flex shrink-0">
+              <Gauge className="h-3 w-3" aria-hidden="true" />
+              {expiring ? (
+                <span
+                  className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-primary ring-2 ring-background"
+                  aria-hidden="true"
+                  data-testid="composer-usage-expiry-dot"
+                />
+              ) : null}
+            </span>
+            <span className="composer-usage-full">
+              {percent === null ? "Usage" : `${percent}% left · context`}
+            </span>
+            <span className="composer-usage-short hidden">
+              {percent === null ? "Usage" : `${percent}% left`}
+            </span>
+          </Button>
+        </Hint>
       </PopoverTrigger>
       <PopoverContent
         align="end"
@@ -819,15 +823,15 @@ function PlanLimits({
         ) : null}
         <Button
           type="button"
-          size="stream-sm"
+          size="xs"
           variant="ghost"
-          className="h-6 shrink-0 px-1.5 text-label-sm pointer-coarse:min-h-11"
+          className="shrink-0"
           onClick={() => plans.refresh.mutate()}
           disabled={plans.refresh.isPending}
           aria-busy={busy}
           data-testid="usage-plans-refresh"
         >
-          <RefreshCw className={cn("mr-1 h-3 w-3", busy && "animate-spin")} />
+          <RefreshCw className={cn(busy && "animate-spin")} />
           Refresh
         </Button>
       </div>
@@ -973,8 +977,8 @@ export function UseResetButton({
         <DialogTrigger asChild>
           <Button
             type="button"
-            size="stream-sm"
-            className="h-6 shrink-0 self-end px-2 text-label-sm pointer-coarse:min-h-11"
+            size="xs"
+            className="shrink-0 self-end"
             disabled={available === 0}
             data-testid="usage-codex-reset"
           >
@@ -982,7 +986,7 @@ export function UseResetButton({
           </Button>
         </DialogTrigger>
       </div>
-      <DialogContent className="max-w-lg">
+      <DialogContent busy={consume.isPending}>
         <DialogHeader>
           <DialogTitle>Use a Codex limit reset?</DialogTitle>
           <DialogDescription>
@@ -990,87 +994,88 @@ export function UseResetButton({
             clears your Codex rate-limit windows right now. It cannot be undone.
           </DialogDescription>
         </DialogHeader>
-        {/* What the reset would clear: the windows as the card shows them. */}
-        <div className="space-y-1.5 rounded-md border bg-surface-subtle p-3 text-body-sm">
-          <div className="text-label-sm font-medium text-foreground">
-            Current usage
-          </div>
-          {plan.windows.map((w) => (
-            <PlanWindowRow key={w.id} window={w} now={now} />
-          ))}
-          <div className="flex justify-between text-muted-foreground">
-            <span>Credits</span>
-            <span className="tabular-nums">{formatCredits(plan.credits)}</span>
-          </div>
-        </div>
-        {resets?.items?.length ? (
-          <div className="space-y-1 text-body-sm">
+        <DialogBody className="space-y-3">
+          {/* What the reset would clear: the windows as the card shows them. */}
+          <div className="space-y-1.5 rounded-md border bg-surface-subtle p-3 text-body-sm">
             <div className="text-label-sm font-medium text-foreground">
-              Reset expirations · oldest first
+              Current usage
             </div>
-            <ul className="space-y-1" data-testid="usage-codex-reset-list">
-              {resets.items.map((item, index) => {
-                const expires = formatResetExpiryDate(item.expiresAt);
-                return (
-                  <li
-                    key={item.id}
-                    className={cn(
-                      "grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 py-1",
-                      plan.engine === "codex" &&
-                        available > 0 &&
-                        resetExpiresSoon(item.expiresAt, now)
-                        ? "text-primary"
-                        : "text-muted-foreground"
-                    )}
-                  >
-                    <span className="min-w-0 break-words">
-                      {item.title}
-                      {index === 0 ? " · next" : ""}
-                    </span>
-                    <span className="whitespace-nowrap tabular-nums">
-                      {expires
-                        ? expires
-                        : item.expiresAt == null
-                          ? "no expiry"
-                          : "expiry unknown"}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
+            {plan.windows.map((w) => (
+              <PlanWindowRow key={w.id} window={w} now={now} />
+            ))}
+            <div className="flex justify-between text-muted-foreground">
+              <span>Credits</span>
+              <span className="tabular-nums">
+                {formatCredits(plan.credits)}
+              </span>
+            </div>
           </div>
-        ) : null}
-        {outcome ? (
-          <p
-            className="text-body-md"
-            role="status"
-            data-testid="usage-codex-reset-outcome"
-          >
-            {outcome}
-          </p>
-        ) : null}
+          {resets?.items?.length ? (
+            <div className="space-y-1 text-body-sm">
+              <div className="text-label-sm font-medium text-foreground">
+                Reset expirations · oldest first
+              </div>
+              <ul className="space-y-1" data-testid="usage-codex-reset-list">
+                {resets.items.map((item, index) => {
+                  const expires = formatResetExpiryDate(item.expiresAt);
+                  return (
+                    <li
+                      key={item.id}
+                      className={cn(
+                        "grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 py-1",
+                        plan.engine === "codex" &&
+                          available > 0 &&
+                          resetExpiresSoon(item.expiresAt, now)
+                          ? "text-primary"
+                          : "text-muted-foreground"
+                      )}
+                    >
+                      <span className="min-w-0 break-words">
+                        {item.title}
+                        {index === 0 ? " · next" : ""}
+                      </span>
+                      <span className="whitespace-nowrap tabular-nums">
+                        {expires
+                          ? expires
+                          : item.expiresAt == null
+                            ? "no expiry"
+                            : "expiry unknown"}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ) : null}
+          {outcome ? (
+            <p
+              className="text-body-md"
+              role="status"
+              data-testid="usage-codex-reset-outcome"
+            >
+              {outcome}
+            </p>
+          ) : null}
+        </DialogBody>
         {consume.error ? (
-          <p role="alert" className="text-body-md text-danger">
-            {consume.error.message}
-          </p>
+          <Alert title="Couldn’t use the reset." error={consume.error} />
         ) : null}
-        <div className="flex justify-end gap-2">
-          <Button size="stream-md" type="button" onClick={close}>
-            {outcome ? "Close" : "Cancel"}
-          </Button>
+        <DialogFooter>
+          <DialogCancel onClick={close}>
+            {outcome ? "Done" : "Cancel"}
+          </DialogCancel>
           {outcome ? null : (
             <Button
-              size="stream-md"
               type="button"
               variant="primary"
               onClick={() => consume.mutate()}
-              disabled={consume.isPending}
+              pending={consume.isPending}
               data-testid="usage-codex-reset-confirm"
             >
-              {consume.isPending ? "Resetting…" : "Use a reset"}
+              Use a reset
             </Button>
           )}
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

@@ -1448,86 +1448,36 @@ html[data-hidden] .animate-sidebar-nav-pulse {
   will-change: auto;
 }
 
-/* Sonner toaster — drive sonner's color tokens off the project's theme
-   variables so toasts pick up whatever palette the user has selected,
-   rather than sonner's hardcoded light/dark `richColors` palette.
-
-   `!important` is required on each var because sonner injects its own
-   `[data-sonner-toaster][data-sonner-theme=…]` rule at runtime via JS,
-   which sits later in the cascade than this static stylesheet at equal
-   specificity and would otherwise win.
-
-   Each type maps to the intent of the same name (error is danger).
-   Each typed toast uses the intent color as the bg, so the toast reads as a
-   colored alert surface. Text is `--background`, except error, which uses
-   `--danger-foreground` because the background doesn't read on every red. */
-[data-sonner-toaster][data-sonner-theme] {
-  /* Default ("normal") toast — neutral card surface. */
-  --normal-bg: hsl(var(--card)) !important;
-  --normal-text: hsl(var(--card-foreground)) !important;
-  --normal-border: hsl(var(--border)) !important;
-  --success-bg: hsl(var(--success)) !important;
-  --success-text: hsl(var(--background)) !important;
-  --success-border: hsl(var(--success)) !important;
-  --info-bg: hsl(var(--info)) !important;
-  --info-text: hsl(var(--background)) !important;
-  --info-border: hsl(var(--info)) !important;
-  --warning-bg: hsl(var(--warning)) !important;
-  --warning-text: hsl(var(--background)) !important;
-  --warning-border: hsl(var(--warning)) !important;
-  --error-bg: hsl(var(--danger)) !important;
-  --error-text: hsl(var(--danger-foreground)) !important;
-  --error-border: hsl(var(--danger)) !important;
-
-  /* Push the toast above the mobile bottom nav (≤600px breakpoint).
-     Sonner only consumes `--mobile-offset-bottom` inside its own
-     `@media (max-width:600px)` rule, so setting it at all sizes is
-     a no-op on desktop. The 5rem clears the nav (~52–66px including
-     its safe-area pad) plus a small breathing gap, and adding the
-     env() inset on top keeps the toast above the iOS home indicator
-     when the app is installed as a PWA with `viewport-fit=cover`. */
-  --mobile-offset-bottom: calc(
-    env(safe-area-inset-bottom, 0px) + 5rem
-  ) !important;
+/* The toast host. The cards bring their own surface, type and colour; this
+   gives each one the host's width: nearly full width across the mobile
+   layout (≤767px), inset so the border never meets the screen edge. A modal
+   dialog turns pointer events off on the body, and a toast over it still
+   has to be readable and dismissable. */
+.dispatch-toaster[data-sonner-toaster] {
+  pointer-events: none;
+  font-family: var(--font-ui);
 }
-
-/* Attention toasts (their own toaster): every kind at the toaster's width
-   on desktop; nearly full width across the mobile layout (≤767px), inset
-   so the border never meets the screen edge. */
-.attention-toaster[data-sonner-toaster] [data-sonner-toast] {
+.dispatch-toaster[data-sonner-toaster] [data-sonner-toast] {
   width: var(--width);
+  pointer-events: auto;
+}
+.dispatch-toaster[data-sonner-toaster]
+  [data-sonner-toast][data-removed="true"] {
+  pointer-events: none;
 }
 @media (max-width: 767px) {
-  .attention-toaster[data-sonner-toaster] {
+  .dispatch-toaster[data-sonner-toaster] {
     --width: calc(100vw - 1rem);
     left: 0.5rem !important;
     right: 0.5rem !important;
     width: auto !important;
     transform: none !important;
   }
-  .attention-toaster[data-sonner-toaster] [data-sonner-toast] {
+  .dispatch-toaster[data-sonner-toaster] [data-sonner-toast] {
     left: 0 !important;
     right: 0 !important;
     width: 100% !important;
   }
-}
-
-/* Pin the close + action buttons onto a dark contrasting surface so
-   they read against the bright status-color toast bg. The border is
-   intentionally NOT overridden here — sonner inherits it from the
-   toast type's `--*-border` (= the toast bg in our setup), so each
-   button reads as a dark disc/pill ringed in the toast's accent
-   color, visually tying the two together. `!important` is required
-   because sonner's injected stylesheet sets these via attribute
-   selectors with higher specificity than utility classes. */
-[data-sonner-toaster] [data-close-button],
-[data-sonner-toaster] [data-button] {
-  background: hsl(var(--background)) !important;
-  color: hsl(var(--foreground)) !important;
-}
-[data-sonner-toaster] [data-close-button]:hover,
-[data-sonner-toaster] [data-button]:hover {
-  background: hsl(var(--muted)) !important;
 }
 
 /* Stream content (the feed, a thread) scrolls through long histories of
@@ -1737,17 +1687,16 @@ html[data-hidden] .animate-sidebar-nav-pulse {
 }
 
 /* A block the reader jumped to (a sidebar row's current turn, a pasted
-   `?block=` link): a brief wash so the eye finds it, then gone. Doubled
+   `?block=` link): a brief wash so the eye finds it, then gone. No bar: a
+   block's own left bar is its state. Doubled
    up so it outranks a row's own enter animation. */
 @keyframes chat-jump-flash {
   0%,
   50% {
     background-color: hsl(var(--primary) / 0.16);
-    box-shadow: inset 3px 0 0 hsl(var(--primary) / 0.7);
   }
   100% {
     background-color: transparent;
-    box-shadow: inset 3px 0 0 transparent;
   }
 }
 
@@ -1930,57 +1879,6 @@ html[data-hidden] .animate-sidebar-nav-pulse {
   background-color: currentColor;
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 3 18 18M10.6 4.2A6 6 0 0 1 18 10c0 2 .5 3.5 1 4.5M6.3 6.3A6 6 0 0 0 6 10c0 7-3 7-3 7h14M10 21h4'/%3E%3C/svg%3E")
     center / contain no-repeat;
-}
-
-@keyframes notifications-slide-in {
-  from {
-    transform: translateX(100%);
-  }
-  to {
-    transform: translateX(0);
-  }
-}
-@keyframes notifications-slide-out {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(100%);
-  }
-}
-@keyframes notifications-fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-@keyframes notifications-fade-out {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
-  }
-}
-.notifications-sheet[data-state="open"] {
-  animation: notifications-slide-in 280ms cubic-bezier(0.2, 0, 0, 1);
-}
-.notifications-sheet[data-state="closed"] {
-  animation: notifications-slide-out 200ms ease-in;
-}
-.notifications-sheet-overlay[data-state="open"] {
-  animation: notifications-fade-in 280ms ease-out;
-}
-.notifications-sheet-overlay[data-state="closed"] {
-  animation: notifications-fade-out 200ms ease-in;
-}
-@media (prefers-reduced-motion: reduce) {
-  .notifications-sheet,
-  .notifications-sheet-overlay {
-    animation-duration: 1ms !important;
-  }
 }
 
 /* Light the block in place during the pause before it travels. */

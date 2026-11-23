@@ -1,6 +1,6 @@
 {
   "name": "@dispatch/shared",
-  "version": "1.7.32",
+  "version": "1.7.33",
   "private": true,
   "type": "module",
   "exports": {

@@ -1,45 +1,36 @@
-import { useEffect, useState } from "react";
-
-import { type IconColorId, ICON_COLOR_OPTIONS } from "@/hooks/use-icon-color";
+import {
+  type IconColorId,
+  ICON_COLOR_OPTIONS,
+  useIconColor,
+} from "@/hooks/use-icon-color";
+import { useAutoSave } from "@/hooks/use-auto-save";
 import { DEFAULT_THEME_ID, type ThemeId, THEMES } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
+import { SettingsGroup } from "@/components/app/settings-layout";
 import { RowButton } from "@/components/ui/row-button";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { SettingRow } from "@/components/ui/setting-row";
 
 export function AppearanceSettings({
   theme,
   setTheme,
-  iconColor,
-  setIconColor,
-  isIconColorSaving,
-  iconColorError,
-  clearIconColorError,
 }: {
   theme: ThemeId;
   setTheme: (id: ThemeId) => void;
-  iconColor: IconColorId;
-  setIconColor: (id: IconColorId) => void;
-  isIconColorSaving: boolean;
-  iconColorError: string | null;
-  clearIconColorError: () => void;
 }): JSX.Element {
-  const [pendingColor, setPendingColor] = useState<IconColorId | null>(null);
-  const displayColor = pendingColor ?? iconColor;
-
-  useEffect(() => {
-    if (iconColorError) {
-      setPendingColor(null);
-    }
-  }, [iconColorError]);
+  const { iconColor, saveIconColor } = useIconColor();
+  const autoSave = useAutoSave<IconColorId, "icon">((_, color) =>
+    saveIconColor(color)
+  );
+  const displayColor = autoSave.value("icon", iconColor);
 
   return (
-    <div className="flex flex-col gap-6 p-4 md:p-6">
-      <div>
-        <div className="mb-1.5 section-label">Theme</div>
-        <p className="mb-3 text-body-md text-muted-foreground">
-          Choose a color theme for the interface.
-        </p>
+    <SettingsGroup title="Appearance">
+      <SettingRow
+        layout="group"
+        label="Theme"
+        description="Choose a color theme for the interface."
+      >
         {(["dark", "light"] as const).map((mode) => {
           const items = THEMES.filter((t) => t.mode === mode);
           if (items.length === 0) return null;
@@ -90,19 +81,15 @@ export function AppearanceSettings({
             </div>
           );
         })}
-      </div>
-
-      <div>
-        <div className="mb-1.5 section-label">Icon Color</div>
-        <p className="mb-3 text-body-md text-muted-foreground">
-          Pick a color for the app icon to help distinguish multiple Dispatch
-          installations.
-        </p>
+      </SettingRow>
+      <SettingRow
+        layout="group"
+        label="Icon color"
+        description="Tells installations apart. Changing it reloads the page, and installed apps may need reinstalling for launcher icons to update."
+        status={autoSave.status("icon")}
+      >
         <div
-          className={cn(
-            "flex flex-wrap gap-2",
-            isIconColorSaving && "pointer-events-none opacity-60"
-          )}
+          className="flex flex-wrap gap-2"
           role="radiogroup"
           aria-label="Icon color"
         >
@@ -112,12 +99,8 @@ export function AppearanceSettings({
               role="radio"
               aria-checked={displayColor === c.id}
               aria-label={c.label}
-              disabled={isIconColorSaving}
               onClick={() => {
-                if (c.id !== iconColor) {
-                  setPendingColor(c.id);
-                  setIconColor(c.id);
-                }
+                if (c.id !== displayColor) void autoSave.save("icon", c.id);
               }}
               className={cn(
                 "w-14 flex-col gap-1 rounded-lg border-2 px-1 py-1.5 transition-all",
@@ -144,20 +127,7 @@ export function AppearanceSettings({
             </RowButton>
           ))}
         </div>
-        {iconColorError ? (
-          <p className="mt-2 text-body-sm text-danger">
-            {iconColorError}{" "}
-            <Button variant="link" size="inline" onClick={clearIconColorError}>
-              Dismiss
-            </Button>
-          </p>
-        ) : (
-          <p className="mt-2 text-body-sm text-faint">
-            Changing the icon color will reload the page. PWA users may need to
-            reinstall for launcher icons to update.
-          </p>
-        )}
-      </div>
-    </div>
+      </SettingRow>
+    </SettingsGroup>
   );
 }

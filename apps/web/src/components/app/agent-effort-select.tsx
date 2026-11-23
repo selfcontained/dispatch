@@ -2,6 +2,7 @@ import type { Effort } from "@dispatch/shared";
 import type { AgentType } from "@/lib/agent-types";
 import { useAgentEffortChoices } from "@/hooks/use-agent-model-catalog";
 import { EffortPicker } from "./effort-picker";
+import { Field } from "@/components/ui/field";
 
 export function AgentEffortSelect({
   value,
@@ -25,10 +26,7 @@ export function AgentEffortSelect({
   const nativeChoices = useAgentEffortChoices(agentType, model, !workload);
   const choices = workload ? workloadChoices : nativeChoices;
   return (
-    <div className="space-y-1">
-      <label className="text-body-md text-muted-foreground" htmlFor={id}>
-        Effort
-      </label>
+    <Field id={id} label="Effort">
       <EffortPicker
         id={id}
         value={value}
@@ -43,6 +41,6 @@ export function AgentEffortSelect({
               : "Default follows the saved configuration. Higher levels spend more time thinking."
         }
       />
-    </div>
+    </Field>
   );
 }

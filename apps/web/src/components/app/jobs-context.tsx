@@ -15,6 +15,7 @@ import {
   useJobStats,
 } from "@/hooks/use-jobs";
 import { type AgentType } from "@/lib/agent-types";
+import type { AsyncResult } from "@/components/ui/async-boundary";
 
 type JobsProviderProps = {
   open: boolean;
@@ -25,28 +26,17 @@ type JobsProviderProps = {
 
 export type DetailTab = "configure" | "prompt" | "history";
 
-/** What a pane needs to tell loading, failed and empty apart. */
-type RegionQuery<T> = {
-  data?: T;
-  error: unknown;
-  isPending: boolean;
-  isFetching: boolean;
-  refetch: () => unknown;
-};
-
 type JobsContextValue = {
   jobs: Job[];
-  isLoading: boolean;
-  error: unknown;
-  retry: () => void;
-  isRetrying: boolean;
+  /** The jobs request, for the regions it fills. */
+  jobsQuery: AsyncResult<Job[]>;
   selectedJob: Job | null;
   showOverview: boolean;
   showDetailPane: boolean;
   tab: DetailTab;
-  history: RegionQuery<{ runs: JobRun[] }>;
+  history: AsyncResult<{ runs: JobRun[] }>;
   attachedAgent: { agent: Agent; isActive: boolean } | null;
-  jobStats: RegionQuery<JobStats>;
+  jobStats: AsyncResult<JobStats> & { isPending: boolean };
   routeRunId: string | undefined;
   selectJob: (job: Job) => void;
   openAddJob: () => void;
@@ -102,14 +92,8 @@ export function JobsProvider({
     section: routeSection,
     runId: routeRunId,
   } = useParams();
-  const {
-    data: jobs = [],
-    // Not isLoading: that is false while a retry is paused, with no data yet.
-    isPending,
-    isFetching,
-    error,
-    refetch,
-  } = useJobs(open);
+  const jobsQuery = useJobs(open);
+  const { data: jobs = [] } = jobsQuery;
   const { addJob, runNow, setEnabled, updateJob, removeJob } = useJobActions();
   const [isAddingJob, setIsAddingJob] = useState(false);
   const [actionErrorByJobId] = useState<Record<string, string>>({});
@@ -141,10 +125,7 @@ export function JobsProvider({
 
   const ctx: JobsContextValue = {
     jobs,
-    isLoading: isPending,
-    error,
-    retry: () => void refetch(),
-    isRetrying: isFetching,
+    jobsQuery,
     selectedJob,
     showOverview,
     showDetailPane,
@@ -174,7 +155,11 @@ export function JobsProvider({
   return (
     <JobsContext.Provider value={ctx}>
       {children}
-      <AddJobDialog open={isAddingJob} onOpenChange={setIsAddingJob}>
+      <AddJobDialog
+        open={isAddingJob}
+        onOpenChange={setIsAddingJob}
+        busy={addJob.isPending}
+      >
         <AddJobFlow
           onAddJob={async (job) => {
             const added = await addJob.mutateAsync(job);

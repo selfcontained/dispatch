@@ -1,6 +1,6 @@
 import { remotePlacement } from "@dispatch/runner-protocol";
 import { useAtom } from "jotai";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
@@ -9,7 +9,6 @@ import { type Agent } from "@/components/app/types";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { SplitButton } from "@/components/ui/split-button";
 import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
-import { useClickOutside } from "@/hooks/use-click-outside";
 import { useRunnerModelCatalog } from "@/hooks/use-runner-engines";
 import { useRunners } from "@/hooks/use-runners";
 import { api } from "@/lib/api";
@@ -56,9 +55,6 @@ export function PersonaLauncher({
   const [selectedAgentType, setSelectedAgentType] = useState<AgentType>(
     defaultReviewAgentType(agent)
   );
-  const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
-  const typeCmdRef = useRef<HTMLDivElement>(null);
-  const typeTriggerRef = useRef<HTMLButtonElement>(null);
 
   const modelAtom = useMemo(
     () =>
@@ -90,7 +86,7 @@ export function PersonaLauncher({
     : localCatalog.loading;
   const showModelSelect = modelCatalogLoading || modelOptions.length > 0;
 
-  const { data: personaCatalog, refetch: refreshPersonas } = useQuery<{
+  const { data: personaCatalog, isPending: personasPending } = useQuery<{
     personas: PersonaSummary[];
     /** The checkout has a .agents/owners.json to route reviewers by. */
     codeowners: boolean;
@@ -113,9 +109,6 @@ export function PersonaLauncher({
   });
   const personas = personaCatalog?.personas ?? [];
   const codeownersAvailable = personaCatalog?.codeowners ?? false;
-
-  const closeTypeDropdown = useCallback(() => setTypeDropdownOpen(false), []);
-  useClickOutside(typeCmdRef, typeDropdownOpen, closeTypeDropdown);
 
   const launchMutation = useMutation({
     mutationFn: async (selection: {
@@ -156,7 +149,11 @@ export function PersonaLauncher({
         size="sm"
         disabled
         menuLabel="Choose reviewer type"
-        hint="Could not load personas for this workspace."
+        hint={
+          personasPending
+            ? "Loading personas…"
+            : "Couldn’t load personas for this workspace."
+        }
         className="text-muted-foreground"
         data-testid="launch-reviewer-button-disabled"
       >
@@ -175,8 +172,6 @@ export function PersonaLauncher({
     setCodeownersSelected(false);
     setNote("");
     launchMutation.reset();
-    setTypeDropdownOpen(false);
-    void refreshPersonas();
     setDialogOpen(true);
   };
 
@@ -197,9 +192,6 @@ export function PersonaLauncher({
         ) ?? [result.agent]
     );
   };
-
-  const launchErrorMessage =
-    launchMutation.error instanceof Error ? launchMutation.error.message : null;
 
   return (
     <>
@@ -246,10 +238,6 @@ export function PersonaLauncher({
         reviewerTypes={reviewerTypes}
         selectedAgentType={selectedAgentType}
         setSelectedAgentType={setSelectedAgentType}
-        typeDropdownOpen={typeDropdownOpen}
-        setTypeDropdownOpen={setTypeDropdownOpen}
-        typeCmdRef={typeCmdRef}
-        typeTriggerRef={typeTriggerRef}
         showModelSelect={showModelSelect}
         modelOptions={modelOptions}
         modelCatalogLoading={modelCatalogLoading}
@@ -263,11 +251,11 @@ export function PersonaLauncher({
         setCodeownersSelected={setCodeownersSelected}
         note={note}
         setNote={setNote}
-        launchError={launchErrorMessage}
+        launchError={launchMutation.error}
         isLaunching={launchMutation.isPending}
         onResetLaunchError={() => launchMutation.reset()}
         onSubmit={() =>
-          void launchMutation.mutateAsync({
+          launchMutation.mutate({
             personas: selectedPersonas,
             codeowners: codeownersSelected,
           })

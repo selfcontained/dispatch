@@ -139,7 +139,7 @@ test.describe("Safe worktree archive", () => {
 
     // Second step: worktree choice dialog should appear
     await expect(
-      page.getByText("Worktree Has Outstanding Changes")
+      page.getByRole("alertdialog", { name: /with outstanding changes\?$/ })
     ).toBeVisible({ timeout: 5_000 });
     await expect(page.getByTestId("delete-agent-keep-worktree")).toBeVisible();
     await expect(page.getByTestId("delete-agent-force-worktree")).toBeVisible();

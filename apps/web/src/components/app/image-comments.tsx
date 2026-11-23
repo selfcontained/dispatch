@@ -13,6 +13,7 @@ import {
   Plus,
   X,
 } from "lucide-react";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -612,6 +613,7 @@ export function ImageComments({
       }}
     >
       <DialogContent
+        bare
         data-testid="file-lightbox"
         aria-label={caption}
         aria-describedby={undefined}
@@ -715,7 +717,7 @@ export function ImageComments({
               className="absolute inset-0 flex items-center justify-center text-media-foreground"
             >
               {loadError
-                ? "Unable to load image. Close and try again."
+                ? "Couldn’t load the image. Close and try again."
                 : "Loading image…"}
             </p>
           )}
@@ -1260,13 +1262,14 @@ export function ImageComments({
             </>
           )}
           {markup && send.isError && (
-            <p
-              role="alert"
-              className="w-full text-center text-body-sm text-danger"
+            <Alert
+              title="Couldn’t share the notes."
+              error={send.error}
+              className="w-full"
             >
-              {send.error.message} Notes are kept. Retry sharing; if delivery is
-              uncertain, check the conversation.
-            </p>
+              Notes are kept. Retry sharing; if delivery is uncertain, check the
+              conversation.
+            </Alert>
           )}
         </footer>
       </DialogContent>

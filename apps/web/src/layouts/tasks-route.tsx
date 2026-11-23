@@ -1,17 +1,17 @@
-import { NotificationsDrawer } from "@/components/app/notifications-drawer";
 import { TaskLabelFilter } from "@/components/app/tasks/task-label-filter";
 import { BLOCK_PARAM, THREAD_PARAM } from "@/lib/agent-routes";
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, type NavigateOptions } from "react-router-dom";
 import { useAtom } from "jotai";
 import { LayoutGrid, List, Plus, X, Zap } from "lucide-react";
 import { formatDateTime, formatRelativeCompact } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { SectionShell } from "./section-shell";
 import { ProjectSwitcher } from "@/components/app/project-switcher";
+import { SidebarTop } from "@/components/app/sidebar-top";
 import { ProjectIcon } from "@/components/app/project-location";
 import { useDashboardContext } from "@/components/app/dashboard-context";
-import { useProjectScope } from "@/hooks/use-projects";
+import { useProjects, useProjectScope } from "@/hooks/use-projects";
 import {
   useTaskActions,
   useTaskBoard,
@@ -52,6 +52,14 @@ import {
   visibleTasks,
 } from "@/components/app/tasks/task-utils";
 import { useTemplates } from "@/hooks/use-templates";
+import { Alert } from "@/components/ui/alert";
+import { AsyncBoundary } from "@/components/ui/async-boundary";
+import { EmptyState } from "@/components/ui/empty-state";
+import { LoadingSkeleton, Skeleton } from "@/components/ui/skeleton";
+import { TaskColumnNameDialog } from "@/components/app/tasks/task-column-name-dialog";
+import { PageContent, PageHeader } from "@/components/ui/page-header";
+import { panelFrame } from "@/components/ui/card";
+import { restoreTask } from "@/components/app/tasks/task-feedback";
 
 const ATTENTION = "__attention";
 function TasksContent({ projectId }: { projectId: string }) {
@@ -60,19 +68,10 @@ function TasksContent({ projectId }: { projectId: string }) {
   const [params, setParams] = useSearchParams();
   const { agents, isMobile, setMobileLeftOpen } = useDashboardContext();
   const archived = params.get("view") === "archived";
-  const {
-    data: activeBoard,
-    isLoading: activeLoading,
-    error: activeError,
-  } = useTaskBoard(projectId);
-  const {
-    data: archivedBoard,
-    isLoading: archivedLoading,
-    error: archivedError,
-  } = useTaskBoard(archived ? projectId : null, true);
-  const board = archived ? archivedBoard : activeBoard;
-  const isLoading = archived ? archivedLoading : activeLoading;
-  const error = archived ? archivedError : activeError;
+  const activeQuery = useTaskBoard(projectId);
+  const archivedQuery = useTaskBoard(archived ? projectId : null, true);
+  const boardQuery = archived ? archivedQuery : activeQuery;
+  const board = boardQuery.data;
   const actions = useTaskActions(projectId);
   const [savedLayout, setSavedLayout] = useAtom(
     taskLayoutAtomFamily(projectId)
@@ -88,6 +87,7 @@ function TasksContent({ projectId }: { projectId: string }) {
     null
   );
   const [search, setSearch] = useState("");
+  const [namingColumn, setNamingColumn] = useState(false);
   const [assignee, setAssignee] = useState("all");
   const { moveTask, dialog: relaunchDialog } = useMoveTask(projectId, board);
   const { data: templates } = useTemplates();
@@ -124,7 +124,11 @@ function TasksContent({ projectId }: { projectId: string }) {
   const attentionCount = board
     ? board.tasks.filter((task) => needsAttention(task, attention)).length
     : 0;
-  const updateParam = (name: string, value: string | null) => {
+  const updateParam = (
+    name: string,
+    value: string | null,
+    options?: NavigateOptions
+  ) => {
     const next = new URLSearchParams(params);
     if (value) next.set(name, value);
     else next.delete(name);
@@ -133,7 +137,7 @@ function TasksContent({ projectId }: { projectId: string }) {
       next.delete(BLOCK_PARAM);
       next.delete(THREAD_PARAM);
     }
-    setParams(next);
+    setParams(next, options);
   };
   const openTask = (id: string) => updateParam("task", id);
   const setLayout = (value: "board" | "list") => {
@@ -177,13 +181,17 @@ function TasksContent({ projectId }: { projectId: string }) {
     });
   };
   const sidebar = (
-    <div className="space-y-4 p-3">
-      <ProjectSwitcher allowAll={false} />
-      <Button className="w-full justify-start" onClick={() => startNewTask()}>
-        <Plus />
-        New task
-      </Button>
-      <div>
+    <div>
+      <SidebarTop
+        scope={<ProjectSwitcher allowAll={false} />}
+        action={
+          <Button size="sm" variant="primary" onClick={() => startNewTask()}>
+            <Plus />
+            New task
+          </Button>
+        }
+      />
+      <div className="p-3">
         <h2 className="mb-2 px-2 section-label">Columns</h2>
         {columns.map((column, index) => (
           <RowButton
@@ -218,46 +226,43 @@ function TasksContent({ projectId }: { projectId: string }) {
           variant="ghost"
           size="sm"
           className="mt-2 w-full justify-start"
-          onClick={() => {
-            const name = window.prompt("New column name");
-            if (name?.trim())
-              void actions.createColumn.mutateAsync({ name: name.trim() });
-          }}
+          onClick={() => setNamingColumn(true)}
         >
           <Plus /> Add column
         </Button>
       </div>
     </div>
   );
+  const filtered =
+    Boolean(search) || assignee !== "all" || selectedLabels.size > 0;
+  const clearFilters = () => {
+    setSearch("");
+    setAssignee("all");
+    const next = new URLSearchParams(params);
+    next.delete("label");
+    next.delete("column");
+    setParams(next);
+  };
+  const archivedShown = tasks.filter(
+    (task) => !onlyColumn || task.columnId === onlyColumn.id
+  );
   return (
-    <SectionShell
-      activeSection="tasks"
-      headerActions={<NotificationsDrawer />}
-      sidebar={sidebar}
-    >
-      <div className="flex min-h-0 flex-1 flex-col">
-        <header className="flex flex-col gap-2 px-3 py-2 md:flex-row md:items-center md:px-4 md:py-3">
-          <div className="flex min-w-0 items-center gap-2 md:mr-auto">
-            <h1 className="min-w-0 flex-1 truncate text-heading-lg">
-              Tasks{" "}
-              <span className="text-body-md font-normal text-muted-foreground">
-                · {project?.name}
-              </span>
-            </h1>
-            {onlyColumn && (
-              <ChipButton
-                data-testid="task-column-filter"
-                className="max-w-32 shrink"
-                onClick={() => updateParam("column", null)}
-                aria-label={`Show all columns (showing only ${onlyColumn.name})`}
-              >
-                <StatusDot
-                  color={`hsl(${columnAccent(onlyColumn, columns.indexOf(onlyColumn))})`}
-                />
-                <span className="min-w-0 truncate">{onlyColumn.name}</span>
-                <X aria-hidden="true" />
-              </ChipButton>
-            )}
+    <SectionShell activeSection="tasks" sidebar={sidebar}>
+      <PageHeader title="Tasks" context={project?.name} />
+      <PageContent mode="full">
+        <div
+          role="group"
+          aria-label="Board filters"
+          className="flex shrink-0 flex-wrap items-center gap-2 px-4 py-2"
+        >
+          <div className="flex min-w-0 basis-full items-center gap-2 md:basis-auto">
+            <Input
+              aria-label="Search tasks"
+              placeholder="Search tasks"
+              className="h-8 min-w-0 flex-1 md:w-44 md:flex-none pointer-coarse:h-11"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
             <IconButton
               className="md:hidden"
               label="New task"
@@ -265,38 +270,8 @@ function TasksContent({ projectId }: { projectId: string }) {
             >
               <Plus />
             </IconButton>
-            <Button
-              size="sm"
-              variant="ghost"
-              pressed={archived}
-              onClick={() => updateParam("view", archived ? null : "archived")}
-            >
-              Archived
-            </Button>
-            <SegmentedControl
-              aria-label="Layout"
-              className="shrink-0 md:order-last"
-              value={layout}
-              onValueChange={setLayout}
-            >
-              <SegmentedControlItem value="board" aria-label="Board layout">
-                <LayoutGrid />
-                <span className="hidden md:inline">Board</span>
-              </SegmentedControlItem>
-              <SegmentedControlItem value="list" aria-label="List layout">
-                <List />
-                <span className="hidden md:inline">List</span>
-              </SegmentedControlItem>
-            </SegmentedControl>
           </div>
-          <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap">
-            <Input
-              aria-label="Search tasks"
-              placeholder="Search tasks"
-              className="h-8 min-w-0 flex-1 basis-full md:w-44 md:flex-none md:basis-auto pointer-coarse:h-11"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
+          <div className="flex min-w-0 basis-full items-center gap-2 md:basis-auto">
             <TaskLabelFilter
               labels={[
                 ...(board?.labels ?? []),
@@ -326,110 +301,181 @@ function TasksContent({ projectId }: { projectId: string }) {
               </SelectContent>
             </Select>
           </div>
-        </header>
-        {isLoading && (
-          <p className="p-4 text-body-md text-muted-foreground">
-            Loading board…
-          </p>
-        )}
-        {error && (
-          <p className="p-4 text-body-md text-danger">
-            Could not load tasks: {error.message}
-          </p>
-        )}
-        {board && (
-          <div className="min-h-0 flex-1">
-            {archived ? (
-              <div className="h-full overflow-auto p-4">
-                <h2 className="mb-3 text-heading-md">Archived tasks</h2>
-                {actions.restore.error && (
-                  <p role="alert" className="mb-3 text-body-md text-danger">
-                    {actions.restore.error.message}
-                  </p>
-                )}
-                <div className="mb-3 flex flex-wrap gap-2">
-                  {columns
-                    .filter(
-                      (column) => !onlyColumn || column.id === onlyColumn.id
-                    )
-                    .map((column) => (
-                      <span
-                        key={column.id}
-                        className="inline-flex items-center gap-1 text-body-sm"
-                      >
-                        {column.name} <ColumnCapacity column={column} />
-                      </span>
-                    ))}
+          {onlyColumn && (
+            <ChipButton
+              data-testid="task-column-filter"
+              className="max-w-32 shrink"
+              onClick={() => updateParam("column", null)}
+              aria-label={`Show all columns (showing only ${onlyColumn.name})`}
+            >
+              <StatusDot
+                color={`hsl(${columnAccent(onlyColumn, columns.indexOf(onlyColumn))})`}
+              />
+              <span className="min-w-0 truncate">{onlyColumn.name}</span>
+              <X aria-hidden="true" />
+            </ChipButton>
+          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto"
+            pressed={archived}
+            onClick={() => updateParam("view", archived ? null : "archived")}
+          >
+            Archived
+          </Button>
+          <SegmentedControl
+            aria-label="Layout"
+            className="shrink-0"
+            value={layout}
+            onValueChange={setLayout}
+          >
+            <SegmentedControlItem value="board" aria-label="Board layout">
+              <LayoutGrid />
+              <span className="hidden md:inline">Board</span>
+            </SegmentedControlItem>
+            <SegmentedControlItem value="list" aria-label="List layout">
+              <List />
+              <span className="hidden md:inline">List</span>
+            </SegmentedControlItem>
+          </SegmentedControl>
+        </div>
+        <AsyncBoundary
+          query={boardQuery}
+          thing="tasks"
+          className="m-4"
+          loading={<BoardSkeleton />}
+        >
+          {(board) => (
+            <>
+              {!archived &&
+              filtered &&
+              tasks.length === 0 &&
+              board.tasks.length > 0 ? (
+                <div
+                  role="status"
+                  className="flex shrink-0 items-center gap-2 px-3 pb-2 text-body-sm text-muted-foreground md:px-4"
+                >
+                  No tasks match the filters.
+                  <Button size="xs" variant="ghost" onClick={clearFilters}>
+                    Clear filters
+                  </Button>
                 </div>
-                {tasks.length === 0 && (
-                  <p className="text-body-md text-muted-foreground">
-                    No archived tasks.
-                  </p>
-                )}
-                {tasks
-                  .filter(
-                    (task) => !onlyColumn || task.columnId === onlyColumn.id
-                  )
-                  .map((task) => (
-                    <div
-                      key={task.id}
-                      className="flex items-center gap-3 border-b border-border-subtle py-3"
-                    >
-                      <RowButton
-                        className="min-w-0 flex-1 rounded-sm text-body-md hover:bg-transparent hover:underline"
-                        onClick={() => openTask(task.id)}
-                      >
-                        <span className="min-w-0 truncate">{task.title}</span>
-                      </RowButton>
-                      <span className="text-body-sm text-muted-foreground">
-                        {
-                          columns.find((column) => column.id === task.columnId)
-                            ?.name
-                        }
-                      </span>
-                      {task.archivedAt && (
-                        <Hint label={formatDateTime(task.archivedAt)}>
-                          <time
-                            className="text-body-sm text-muted-foreground"
-                            dateTime={task.archivedAt}
+              ) : null}
+              <div className="min-h-0 flex-1">
+                {archived ? (
+                  <div className="h-full overflow-auto p-4">
+                    <h2 className="mb-3 text-heading-md">Archived tasks</h2>
+                    {actions.restore.error && (
+                      <Alert
+                        title="Couldn’t restore the task."
+                        error={actions.restore.error}
+                        className="mb-3"
+                      />
+                    )}
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      {columns
+                        .filter(
+                          (column) => !onlyColumn || column.id === onlyColumn.id
+                        )
+                        .map((column) => (
+                          <span
+                            key={column.id}
+                            className="inline-flex items-center gap-1 text-body-sm"
                           >
-                            Archived {formatRelativeCompact(task.archivedAt)}
-                          </time>
-                        </Hint>
-                      )}
-                      <Button
-                        size="sm"
-                        disabled={actions.restore.isPending}
-                        onClick={() => actions.restore.mutate(task.id)}
-                      >
-                        Restore
-                      </Button>
+                            {column.name} <ColumnCapacity column={column} />
+                          </span>
+                        ))}
                     </div>
-                  ))}
+                    {board.tasks.length === 0 ? (
+                      <EmptyState
+                        title="No archived tasks."
+                        description="Tasks you archive can be restored from here."
+                      />
+                    ) : archivedShown.length === 0 ? (
+                      <EmptyState
+                        title="No archived tasks match."
+                        action={
+                          <Button size="sm" onClick={clearFilters}>
+                            Clear filters
+                          </Button>
+                        }
+                      />
+                    ) : null}
+                    {archivedShown.map((task) => (
+                      <div
+                        key={task.id}
+                        className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border-subtle py-3"
+                      >
+                        <RowButton
+                          data-opens-task=""
+                          className="min-w-0 flex-1 basis-full rounded-sm sm:basis-0 text-body-md hover:bg-transparent hover:underline"
+                          onClick={() => openTask(task.id)}
+                        >
+                          <span className="min-w-0 truncate">{task.title}</span>
+                        </RowButton>
+                        <span className="text-body-sm text-muted-foreground">
+                          {
+                            columns.find(
+                              (column) => column.id === task.columnId
+                            )?.name
+                          }
+                        </span>
+                        {task.archivedAt && (
+                          <Hint label={formatDateTime(task.archivedAt)}>
+                            <time
+                              className="text-body-sm text-muted-foreground"
+                              dateTime={task.archivedAt}
+                            >
+                              Archived {formatRelativeCompact(task.archivedAt)}
+                            </time>
+                          </Hint>
+                        )}
+                        <Button
+                          size="sm"
+                          disabled={actions.restore.isPending}
+                          onClick={() =>
+                            restoreTask(actions, task, {
+                              failureShownInline: true,
+                            })
+                          }
+                        >
+                          Restore
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                ) : layout === "board" ? (
+                  <TaskBoard
+                    board={board}
+                    tasks={tasks}
+                    agents={agents}
+                    openTask={openTask}
+                    moveTask={moveTask}
+                    addTask={(columnId) => startNewTask(columnId)}
+                    onlyColumnId={onlyColumn?.id ?? null}
+                  />
+                ) : (
+                  <TaskList
+                    board={board}
+                    tasks={tasks}
+                    agents={agents}
+                    openTask={openTask}
+                    moveTask={moveTask}
+                    onlyColumnId={onlyColumn?.id ?? null}
+                  />
+                )}
               </div>
-            ) : layout === "board" ? (
-              <TaskBoard
-                board={board}
-                tasks={tasks}
-                agents={agents}
-                openTask={openTask}
-                moveTask={moveTask}
-                addTask={(columnId) => startNewTask(columnId)}
-                onlyColumnId={onlyColumn?.id ?? null}
-              />
-            ) : (
-              <TaskList
-                board={board}
-                tasks={tasks}
-                agents={agents}
-                openTask={openTask}
-                moveTask={moveTask}
-                onlyColumnId={onlyColumn?.id ?? null}
-              />
-            )}
-          </div>
-        )}
-      </div>
+            </>
+          )}
+        </AsyncBoundary>
+      </PageContent>
+      {namingColumn && (
+        <TaskColumnNameDialog
+          onClose={() => setNamingColumn(false)}
+          onSave={(name) => actions.createColumn.mutateAsync({ name })}
+        />
+      )}
       {board && (
         <TaskDrawer
           id={params.get("task") ?? ""}
@@ -438,7 +484,9 @@ function TasksContent({ projectId }: { projectId: string }) {
           columns={columns}
           boardTasks={board.tasks}
           agents={agents}
-          close={() => updateParam("task", null)}
+          // At once, not in a transition: the press that dismissed it may
+          // be on a control that edits the URL, and must see it closed.
+          close={() => updateParam("task", null, { flushSync: true })}
           openTask={openTask}
           moveTask={moveTask}
           isMobile={isMobile}
@@ -459,8 +507,28 @@ function TasksContent({ projectId }: { projectId: string }) {
     </SectionShell>
   );
 }
+/** Columns and cards, the board's shape. */
+function BoardSkeleton() {
+  return (
+    <LoadingSkeleton
+      label="Loading board…"
+      className="flex min-h-0 w-auto flex-1 gap-3 space-y-0 overflow-hidden p-4"
+    >
+      {[3, 2, 1].map((cards, column) => (
+        <div key={column} className="w-72 shrink-0 space-y-2">
+          <Skeleton className="h-8" />
+          {Array.from({ length: cards }, (_, card) => (
+            <Skeleton key={card} className="h-24" />
+          ))}
+        </div>
+      ))}
+    </LoadingSkeleton>
+  );
+}
+
 export function TasksRoute(): JSX.Element {
   const { projectId, projects } = useProjectScope();
+  const projectsQuery = useProjects();
   const [params, setParams] = useSearchParams();
   const { data: linkedTask } = useTaskDetail(params.get("task"));
   useEffect(() => {
@@ -475,40 +543,49 @@ export function TasksRoute(): JSX.Element {
   ) : (
     <SectionShell
       activeSection="tasks"
-      headerActions={<NotificationsDrawer />}
-      sidebar={
-        <div className="p-3">
-          <ProjectSwitcher allowAll={false} />
-        </div>
-      }
+      sidebar={<SidebarTop scope={<ProjectSwitcher allowAll={false} />} />}
     >
+      <PageHeader title="Tasks" />
       {/* Boards are per project, so with none chosen the page is the choice. */}
-      <div className="flex h-full items-center justify-center p-6">
-        <div className="w-full max-w-sm text-center">
-          <h1 className="text-heading-lg">Choose a project</h1>
-          <p className="mb-4 text-body-md text-muted-foreground">
-            {projects.length
-              ? "Each project has its own board."
-              : "Create a project from the switcher to start a board."}
-          </p>
-          <div className="space-y-1">
-            {projects.map((project) => (
-              <RowButton
-                key={project.id}
-                className="justify-center gap-3 rounded-lg border border-border-subtle bg-card/veil px-3 py-2 text-body-md"
-                onClick={() => {
-                  const next = new URLSearchParams(params);
-                  next.set("project", project.id);
-                  setParams(next);
-                }}
-              >
-                <ProjectIcon project={project} className="h-5 w-5" />
-                <span className="min-w-0 truncate">{project.name}</span>
-              </RowButton>
-            ))}
-          </div>
-        </div>
-      </div>
+      <PageContent className="flex min-h-full flex-col items-center justify-center">
+        <AsyncBoundary
+          query={projectsQuery}
+          thing="projects"
+          loading={
+            <LoadingSkeleton label="Loading projects…" className="max-w-sm" />
+          }
+        >
+          {() => (
+            <div className="w-full max-w-sm text-center">
+              <h2 className="text-heading-md">Choose a project</h2>
+              <p className="mb-4 text-body-md text-muted-foreground">
+                {projects.length
+                  ? "Each project has its own board."
+                  : "Create a project from the switcher to start a board."}
+              </p>
+              <div className="space-y-1">
+                {projects.map((project) => (
+                  <RowButton
+                    key={project.id}
+                    className={cn(
+                      panelFrame,
+                      "justify-center gap-3 px-3 py-2 text-body-md"
+                    )}
+                    onClick={() => {
+                      const next = new URLSearchParams(params);
+                      next.set("project", project.id);
+                      setParams(next);
+                    }}
+                  >
+                    <ProjectIcon project={project} className="h-5 w-5" />
+                    <span className="min-w-0 truncate">{project.name}</span>
+                  </RowButton>
+                ))}
+              </div>
+            </div>
+          )}
+        </AsyncBoundary>
+      </PageContent>
     </SectionShell>
   );
 }

@@ -551,10 +551,10 @@ describe("remove flow", () => {
     const { onRemoveJob } = renderTab(job);
 
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
-    expect(screen.getByText("Remove job?")).toBeTruthy();
+    expect(screen.getByRole("alertdialog", { name: /^Remove “/ })).toBeTruthy();
     expect(onRemoveJob).not.toHaveBeenCalled();
 
-    const dialog = screen.getByRole("dialog");
+    const dialog = screen.getByRole("alertdialog");
     const confirm = Array.from(dialog.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Remove")
     );
@@ -562,7 +562,7 @@ describe("remove flow", () => {
     fireEvent.click(confirm);
 
     expect(onRemoveJob).toHaveBeenCalledWith(job);
-    await waitFor(() => expect(screen.queryByText("Remove job?")).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
   });
 
   it("keeps the dialog open and shows the error when removal fails", async () => {
@@ -570,7 +570,7 @@ describe("remove flow", () => {
     onRemoveJob.mockRejectedValueOnce(new Error("job is mid-run"));
 
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
-    const dialog = screen.getByRole("dialog");
+    const dialog = screen.getByRole("alertdialog");
     const confirm = Array.from(dialog.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Remove")
     );
@@ -580,7 +580,7 @@ describe("remove flow", () => {
     await waitFor(() =>
       expect(screen.getByText("job is mid-run")).toBeTruthy()
     );
-    expect(screen.getByText("Remove job?")).toBeTruthy();
+    expect(screen.getByRole("alertdialog", { name: /^Remove “/ })).toBeTruthy();
   });
 });
 

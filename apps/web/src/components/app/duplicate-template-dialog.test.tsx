@@ -13,7 +13,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Template } from "@/hooks/use-templates";
 import { DuplicateTemplateDialog } from "./duplicate-template-dialog";
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
-vi.mock("sonner", () => ({ toast: { success: vi.fn() } }));
+vi.mock("@/components/ui/toast", () => ({ toast: { success: vi.fn() } }));
 import { api } from "@/lib/api";
 const apiMock = vi.mocked(api);
 const template = { id: "source", name: "Saved source" } as Template;
@@ -97,7 +97,7 @@ it("keeps name and dialog on failure and permits retry", async () => {
   });
   fireEvent.click(screen.getByRole("button", { name: "Create template" }));
   await waitFor(() =>
-    expect(screen.getByRole("alert").textContent).toBe("already exists")
+    expect(screen.getByRole("alert").textContent).toContain("already exists")
   );
   expect(close).not.toHaveBeenCalled();
   expect(

@@ -20,6 +20,7 @@ import {
 import { LinkAttachment } from "@/components/app/chat/chat-attachment-views";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { BlockShell } from "@/components/ui/block-shell";
 import { Markdown } from "@/components/ui/markdown";
 import { CountBubble } from "@/components/ui/count-bubble";
 import { RowButton } from "@/components/ui/row-button";
@@ -35,6 +36,9 @@ import type {
   Inbox,
 } from "@/hooks/use-inbox";
 import { formatRelativeTime } from "@/lib/format";
+import { LoadError } from "@/components/ui/async-boundary";
+import { EmptyState } from "@/components/ui/empty-state";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
 
 export type InboxPanelProps = {
   inbox: Inbox;
@@ -149,8 +153,10 @@ function InboxInputCard({
   const actionPending =
     answer.isPending || submit.isPending || setState.isPending;
   return (
-    <div
-      className="mx-3 mb-2 rounded-md border border-border-subtle bg-card/veil px-3 py-2"
+    <BlockShell
+      level="ask"
+      state="waiting"
+      className="mx-3 mb-2"
       data-testid="inbox-input"
       data-block-id={block.id}
       data-kind={block.kind}
@@ -211,7 +217,7 @@ function InboxInputCard({
           {error ?? cancelError}
         </div>
       ) : null}
-    </div>
+    </BlockShell>
   );
 }
 
@@ -237,8 +243,10 @@ function InboxReviewCard({
   const status = reviewStatus(findings);
   const standing = REVIEW_STATUS[status];
   return (
-    <div
-      className="mx-3 mb-2 flex w-[calc(100%-1.5rem)] flex-col gap-1 rounded-md border border-border-subtle bg-card/veil px-3 py-2 text-left hover:bg-surface-hover"
+    <BlockShell
+      level="ask"
+      state={standing.state}
+      className="mx-3 mb-2 flex flex-col gap-1 text-left hover:bg-surface-hover"
       data-testid="inbox-review"
       data-block-id={review.id}
       data-status={status}
@@ -289,7 +297,7 @@ function InboxReviewCard({
           {findingsSummary(review)}
         </span>
       </RowButton>
-    </div>
+    </BlockShell>
   );
 }
 
@@ -388,22 +396,26 @@ export function InboxPanel({
       data-testid="inbox"
       data-open-inputs={inputs.length}
     >
-      {inbox.isLoading && empty ? (
-        <div className="px-3 py-6 text-center text-body-sm text-muted-foreground">
-          Loading the stream…
-        </div>
-      ) : empty ? (
-        <div
-          className="flex flex-col items-center gap-2 px-6 py-10 text-center text-body-sm text-muted-foreground"
+      {inbox.error ? (
+        <LoadError
+          thing="the Inbox"
+          error={inbox.error}
+          className="m-3"
+          onRetry={() => inbox.retry?.()}
+        />
+      ) : inbox.isLoading && empty ? (
+        <LoadingSkeleton
+          label="Loading the stream…"
+          className="w-auto p-3"
+          rowClassName="h-16"
+        />
+      ) : empty && !inbox.reviewsError ? (
+        <EmptyState
           data-testid="inbox-empty"
-        >
-          <InboxIcon className="h-6 w-6 opacity-60" aria-hidden="true" />
-          <div className="text-foreground/soft">Nothing waiting on you.</div>
-          <div>
-            Questions and forms {agentName ?? "the agent"} asks show up here
-            until you answer them, along with its checklists and links.
-          </div>
-        </div>
+          icon={InboxIcon}
+          title="Nothing waiting on you."
+          description={`Questions and forms ${agentName ?? "the agent"} asks show up here until you answer them, along with its checklists and links.`}
+        />
       ) : null}
       {inputs.length > 0 && rootId ? (
         <div data-testid="inbox-inputs">
@@ -463,17 +475,22 @@ export function InboxPanel({
           ))}
         </div>
       ) : null}
-      {inbox.hasOlderReviews || inbox.reviewsError ? (
+      {inbox.reviewsError ? (
+        <LoadError
+          thing="reviews"
+          error={inbox.reviewsError}
+          className="mx-3 my-2"
+          retrying={inbox.retryingReviews}
+          onRetry={() => inbox.retryReviews?.()}
+        />
+      ) : inbox.hasOlderReviews ? (
         <div className="px-3 py-2">
-          {inbox.reviewsError ? <p role="alert">{inbox.reviewsError}</p> : null}
           <Button
             size="sm"
-            disabled={inbox.loadingOlderReviews}
+            pending={inbox.loadingOlderReviews}
             onClick={inbox.loadOlderReviews}
           >
-            {inbox.loadingOlderReviews
-              ? "Loading reviews…"
-              : "Load older reviews"}
+            Load older reviews
           </Button>
         </div>
       ) : null}

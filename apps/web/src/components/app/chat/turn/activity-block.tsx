@@ -14,6 +14,8 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ChevronDown, ChevronRight, Clock, Square, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { RowButton } from "@/components/ui/row-button";
 import { useTurnDetail } from "@/hooks/use-stream";
 
 import type { Step, Trace } from "./contracts";
@@ -409,8 +411,10 @@ function ActivitySummary({
           </motion.span>
         ) : null}
       </AnimatePresence>
-      <button
+      <Button
         type="button"
+        variant="link"
+        size="inline"
         onClick={toggle}
         aria-expanded={!!expanded}
         data-testid={
@@ -418,10 +422,10 @@ function ActivitySummary({
             ? "chat-response-hide-progress"
             : "chat-response-show-progress"
         }
-        className="shrink-0 whitespace-nowrap rounded-sm text-body-sm text-foreground underline underline-offset-2 hover:no-underline focus-ring"
+        className="shrink-0 text-body-sm text-foreground"
       >
         {expanded ? "Show less" : "Show more"}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -490,19 +494,21 @@ function SummaryRow({
     : runningTurnVerb(trace.steps, label, trace.lastProgressAt);
   const slot = !done || summary.failed || summary.interrupted;
   return (
-    <button
-      type="button"
+    <RowButton
+      dense
       onClick={onToggle}
       aria-expanded={open}
       aria-label={`${verb}, ${steps}, ${formatStepDuration(ms)} total, ${open ? "collapse" : "expand"} activity`}
       data-testid="harness-activity-summary"
       data-final-result={trace.finalResult}
       className={cn(
-        "-ml-1 grid w-[calc(100%+0.25rem)] min-w-0 items-center gap-2 rounded-md py-0.5 pl-1 pr-1 text-left text-muted-foreground",
+        "-ml-1 grid w-[calc(100%+0.25rem)] min-w-0 py-0.5 pl-1 pr-1 text-muted-foreground",
+        // 24px on touch, the minimum target: nothing overlaps the step rows
+        // under it or the placeholder above it.
+        "pointer-coarse:py-1",
         slot
           ? "grid-cols-[12px_minmax(0,1fr)_auto_auto]"
-          : "grid-cols-[minmax(0,1fr)_auto_auto]",
-        "hover:bg-surface-hover focus-ring"
+          : "grid-cols-[minmax(0,1fr)_auto_auto]"
       )}
     >
       {slot ? (
@@ -513,7 +519,7 @@ function SummaryRow({
           <TurnGlyph summary={summary} />
         </span>
       ) : null}
-      <span className="relative min-w-0 overflow-hidden text-label-sm">
+      <span className="relative min-w-0 overflow-hidden text-body-sm">
         {/* A new step name fades in over the old one's place: a keyed CSS
             fade, no layout animation, so the timer ticking around it never
             re-measures anything. */}
@@ -532,14 +538,14 @@ function SummaryRow({
         {thinking ? "" : `${steps} · `}
         {formatStepDuration(ms)} total
       </span>
-      <span aria-hidden="true" className="shrink-0 text-label-xs text-faint">
+      <span aria-hidden="true" className="shrink-0 text-faint">
         {open ? (
           <ChevronDown className="h-3 w-3" />
         ) : (
           <ChevronRight className="h-3 w-3" />
         )}
       </span>
-    </button>
+    </RowButton>
   );
 }
 
@@ -580,7 +586,7 @@ function ThinkingRow({
         thinking
       </span>
       <LiveDuration startedAt={since} />
-      <span aria-hidden="true" className="invisible w-2 shrink-0 text-label-xs">
+      <span aria-hidden="true" className="invisible w-2 shrink-0">
         <ChevronRight className="h-3 w-3" />
       </span>
     </div>

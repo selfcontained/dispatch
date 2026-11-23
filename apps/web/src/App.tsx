@@ -13,7 +13,6 @@ import { useLayout } from "@/hooks/use-layout";
 import { useSectionNavigate } from "@/hooks/use-section-navigate";
 import { useSSE } from "@/hooks/use-sse";
 import { AttentionToasts } from "@/components/app/attention-toast";
-import { useIconColor } from "@/hooks/use-icon-color";
 import { useInstanceName } from "@/hooks/use-instance-name";
 import { useTheme } from "@/hooks/use-theme";
 import { useTemporaryState } from "@/hooks/use-temporary-state";
@@ -30,7 +29,6 @@ import { TipsVersionInit } from "@/components/tips/tips-version-init";
 import { ReleaseAvailableToast } from "@/components/app/release-available-toast";
 import { UpdateAvailableToast } from "@/components/app/update-available-toast";
 import { ExposureBanner } from "@/components/app/exposure-banner";
-import { Toaster } from "sonner";
 
 type RouteHandle = {
   navSection?: NavSection;
@@ -46,13 +44,6 @@ export function DashboardLayout(): JSX.Element {
       .find(Boolean) ?? null;
 
   const { theme, setTheme } = useTheme();
-  const {
-    iconColor,
-    setIconColor,
-    isLoading: isIconColorSaving,
-    error: iconColorError,
-    clearError: clearIconColorError,
-  } = useIconColor();
   const { instanceName } = useInstanceName();
   const { handleLogout } = useAuthContext();
   const {
@@ -185,11 +176,6 @@ export function DashboardLayout(): JSX.Element {
     currentNavItem,
     theme,
     setTheme,
-    iconColor,
-    setIconColor,
-    isIconColorSaving,
-    iconColorError,
-    clearIconColorError,
   };
 
   return (
@@ -206,16 +192,6 @@ export function DashboardLayout(): JSX.Element {
       <AttentionToasts isMobile={isMobile} />
       <ReleaseAvailableToast />
       <UpdateAvailableToast />
-      {/* Color tokens, close button, and action button styling live in
-          `index.css` under `[data-sonner-toaster]` — `richColors` is what
-          tells sonner to apply the type-specific (--success-*, --error-*,
-          etc) tokens we set there. */}
-      <Toaster
-        position="bottom-right"
-        closeButton
-        richColors
-        toastOptions={{ duration: 3000 }}
-      />
     </TipQueueProvider>
   );
 }

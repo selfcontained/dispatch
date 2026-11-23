@@ -162,7 +162,7 @@ it("captures the named task and sends one request while pending, then invalidate
     expect.objectContaining({ method: "DELETE" })
   );
   expect(
-    (screen.getByRole("button", { name: "Deleting…" }) as HTMLButtonElement)
+    (screen.getByRole("button", { name: "Delete task" }) as HTMLButtonElement)
       .disabled
   ).toBe(true);
   expect(

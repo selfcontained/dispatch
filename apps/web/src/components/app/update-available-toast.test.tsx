@@ -7,7 +7,11 @@ const { info, dismiss, reloadApp } = vi.hoisted(() => ({
     (
       message: string,
       options: {
-        action: { label: string; onClick: () => void };
+        action: {
+          label: string;
+          onClick: (event: { preventDefault: () => void }) => void;
+        };
+        description: string;
         onDismiss: () => void;
       }
     ) => void
@@ -16,7 +20,7 @@ const { info, dismiss, reloadApp } = vi.hoisted(() => ({
   reloadApp: vi.fn(),
 }));
 
-vi.mock("sonner", () => ({ toast: { info, dismiss } }));
+vi.mock("@/components/ui/toast", () => ({ toast: { info, dismiss } }));
 vi.mock("@/lib/pwa-update", () => ({ reloadApp }));
 
 afterEach(() => {
@@ -37,7 +41,8 @@ it("keeps main's toast and reload behavior while notifying Health of newer versi
   act(() => noteServerVersion("1.0.1"));
   expect(info).toHaveBeenCalledTimes(1);
   const [message, options] = info.mock.calls[0];
-  expect(message).toBe("Server updated to 1.0.1. Reload to pick it up.");
+  expect(message).toBe("Server updated to 1.0.1.");
+  expect(options.description).toBe("Reload to pick up the new version.");
   expect(options.action.label).toBe("Reload");
 
   act(() => noteServerVersion("1.0.2"));
@@ -45,8 +50,8 @@ it("keeps main's toast and reload behavior while notifying Health of newer versi
   expect(info).toHaveBeenCalledTimes(1);
   expect(refresh).toHaveBeenCalledTimes(2);
 
-  options.action.onClick();
-  options.action.onClick();
+  options.action.onClick({ preventDefault: vi.fn() });
+  options.action.onClick({ preventDefault: vi.fn() });
   expect(reloadApp).toHaveBeenCalledTimes(1);
   act(options.onDismiss);
   view.unmount();

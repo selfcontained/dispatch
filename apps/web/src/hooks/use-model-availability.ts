@@ -40,7 +40,7 @@ export const MODEL_AVAILABILITY_MUTATION_KEY = ["agent-model-availability"];
 /**
  * Edits the model filter. It shows at once in every picker, since they share
  * the catalog's cache entry; saves run in order, and the catalog is read
- * again after the last one, which also undoes any that failed.
+ * again after the last one. One that fails is undone at once.
  */
 export function useUpdateModelAvailability() {
   const queryClient = useQueryClient();
@@ -62,6 +62,25 @@ export function useUpdateModelAvailability() {
           availability: {
             ...data.availability,
             [change.agentType]: applyChange(current, change),
+          },
+        };
+      });
+    },
+    // The refetch below would undo it too, unless that fails as well.
+    onError: (_error, change) => {
+      if ("seen" in change) return;
+      const undo: ModelAvailabilityChange =
+        "autoEnable" in change
+          ? { agentType: change.agentType, autoEnable: !change.autoEnable }
+          : { ...change, enabled: !change.enabled };
+      queryClient.setQueryData<CachedCatalog>(["agent-models"], (data) => {
+        const current = data?.availability?.[undo.agentType];
+        if (!data || !current) return data;
+        return {
+          ...data,
+          availability: {
+            ...data.availability,
+            [undo.agentType]: applyChange(current, undo),
           },
         };
       });

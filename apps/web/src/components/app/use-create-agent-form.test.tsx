@@ -27,10 +27,12 @@ import {
 import { useCreateAgentForm } from "./use-create-agent-form";
 
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
-vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock("@/components/ui/toast", () => ({
+  toast: { error: vi.fn(), success: vi.fn() },
+}));
 
 const { api } = await import("@/lib/api");
-const { toast } = await import("sonner");
+const { toast } = await import("@/components/ui/toast");
 const apiMock = vi.mocked(api);
 const toastErrorMock = vi.mocked(toast.error);
 
@@ -1049,7 +1051,7 @@ describe("handleSubmit", () => {
     expect(result.current.creating).toBe(false);
   });
 
-  it("surfaces API failures via toast and resets the creating flag", async () => {
+  it("keeps an API failure for the dialog and resets the creating flag", async () => {
     const { result, onCreated } = await setup();
     apiMock.mockImplementation(async (path: string) => {
       if (path === "/api/v1/agents") throw new Error("boom");
@@ -1057,13 +1059,14 @@ describe("handleSubmit", () => {
     });
 
     await act(async () => result.current.handleSubmit(submitEvent()));
-    expect(toastErrorMock).toHaveBeenCalledWith("boom");
+    expect(result.current.submitError).toEqual(new Error("boom"));
+    expect(toastErrorMock).not.toHaveBeenCalled();
     expect(onCreated).not.toHaveBeenCalled();
     expect(window.localStorage.getItem(LAST_USED_CWD_KEY)).toBeNull();
     expect(result.current.creating).toBe(false);
   });
 
-  it("falls back to a generic message for non-Error failures", async () => {
+  it("keeps a non-Error failure too", async () => {
     const { result } = await setup();
     apiMock.mockImplementation(async (path: string) => {
       if (path === "/api/v1/agents") throw "string failure";
@@ -1071,7 +1074,7 @@ describe("handleSubmit", () => {
     });
 
     await act(async () => result.current.handleSubmit(submitEvent()));
-    expect(toastErrorMock).toHaveBeenCalledWith("Failed to create agent.");
+    expect(result.current.submitError).toBe("string failure");
   });
 });
 

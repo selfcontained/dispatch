@@ -7,6 +7,8 @@ import { IconButton } from "@/components/ui/icon-button";
 import { SwitchToggle } from "@/components/app/jobs-form-fields";
 
 import { parseLoopItems } from "../../../../server/src/shared/lib/loop-text";
+import { Field } from "@/components/ui/field";
+import { SettingRow } from "@/components/ui/setting-row";
 
 export type ContinuationDraft = {
   enabled: boolean;
@@ -61,25 +63,20 @@ export function LoopSetup({
     Boolean(continuationMaxIterations(draft.maxIterations));
 
   return (
-    <section className="rounded-md border border-border-subtle bg-surface-subtle p-4 text-body-md">
+    <section className="min-w-0 text-body-md">
       <div className="mb-3">
         <h3 className="text-heading-sm text-foreground">Loop setup</h3>
       </div>
-      <label className="flex items-center justify-between gap-3">
-        <span>
-          <span className="block font-medium text-foreground">
-            Run as a loop
-          </span>
-          <span className="block text-body-sm text-muted-foreground">
-            Keep starting new runs until the work is done.
-          </span>
-        </span>
+      <SettingRow
+        label="Run as a loop"
+        description="Keep starting new runs until the work is done."
+      >
         <SwitchToggle
           checked={draft.enabled}
           onCheckedChange={(enabled) => onChange({ ...draft, enabled })}
           ariaLabel="Run as a loop"
         />
-      </label>
+      </SettingRow>
       {draft.enabled ? (
         <div className="mt-4 grid gap-4 border-t border-border-subtle pt-4">
           <p className="text-body-sm text-muted-foreground">
@@ -87,15 +84,17 @@ export function LoopSetup({
             context. Each completed run passes its outcome, next step, relevant
             files, and blockers to the next run.
           </p>
-          <div className="space-y-1">
-            <label
-              className="text-body-md text-muted-foreground"
-              htmlFor={`${idPrefix}-max-iterations`}
-            >
-              Maximum runs
-            </label>
+          <Field
+            id={`${idPrefix}-max-iterations`}
+            label="Maximum runs"
+            hint="Leave blank for no limit."
+            error={
+              maxIterationsValid
+                ? null
+                : "Use a positive whole number or leave this blank."
+            }
+          >
             <Input
-              id={`${idPrefix}-max-iterations`}
               value={draft.maxIterations}
               onChange={(event) =>
                 onChange({ ...draft, maxIterations: event.target.value })
@@ -103,28 +102,8 @@ export function LoopSetup({
               placeholder="10"
               inputMode="numeric"
               aria-invalid={!maxIterationsValid}
-              aria-describedby={
-                maxIterationsValid
-                  ? `${idPrefix}-max-iterations-help`
-                  : `${idPrefix}-max-iterations-help ${idPrefix}-max-iterations-error`
-              }
             />
-            <p
-              id={`${idPrefix}-max-iterations-help`}
-              className="text-body-sm text-muted-foreground"
-            >
-              Leave blank for no limit.
-            </p>
-            {!maxIterationsValid ? (
-              <p
-                id={`${idPrefix}-max-iterations-error`}
-                role="alert"
-                className="text-body-sm text-danger"
-              >
-                Use a positive whole number or leave this blank.
-              </p>
-            ) : null}
-          </div>
+          </Field>
           <div className="border-t border-border-subtle pt-4">
             <div className="grid gap-4 md:grid-cols-2">
               <LoopListField
@@ -173,7 +152,7 @@ function LoopListField({
 
   return (
     <fieldset className="min-w-0 space-y-2">
-      <legend className="text-body-md font-medium text-foreground">
+      <legend className="text-body-sm font-medium text-foreground">
         {label}
       </legend>
       <div className="grid gap-2">

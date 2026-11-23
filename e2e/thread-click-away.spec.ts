@@ -171,7 +171,7 @@ test("task-board thread Escape returns to its conversation", async ({
       .getByTestId(`task-card-${task.id}`)
       .getByRole("button", { name: "Task thread Escape", exact: true })
       .click();
-    await page.getByRole("tab", { name: "Conversation" }).click();
+    await page.getByRole("radio", { name: /^Conversation/ }).click();
     const conversation = page.getByTestId("task-conversation");
     await conversation
       .getByRole("button", { name: "Message actions", exact: true })

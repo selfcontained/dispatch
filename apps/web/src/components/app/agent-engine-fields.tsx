@@ -26,7 +26,6 @@ type AgentEngineFieldsProps = {
   /** What is saved now, which may have been turned off since. */
   savedOption?: AgentModelOption | null;
   modelLoading: boolean;
-  onTypeOpenChange?: (open: boolean) => void;
   /** Overridden by dialogs other than Create Agent so ids stay unique. */
   idPrefix?: string;
   /** Runs on a remote runner: this machine's CLI install state is irrelevant. */
@@ -55,7 +54,6 @@ export function AgentEngineFields({
   catalogDefault,
   savedOption,
   modelLoading,
-  onTypeOpenChange,
   idPrefix,
   remote = false,
   statusLine,
@@ -92,7 +90,6 @@ export function AgentEngineFields({
           agentTypes={agentTypes}
           label={agentLabel}
           loading={agentLoading}
-          onOpenChange={onTypeOpenChange}
           missing={remote ? undefined : missingEngines}
         />
 

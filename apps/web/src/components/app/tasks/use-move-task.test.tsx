@@ -1,9 +1,18 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { ApiError } from "@/lib/api";
 import type { Task, TaskBoard } from "@/hooks/use-tasks";
+import { toast } from "@/components/ui/toast";
 import { useMoveTask } from "./use-move-task";
+
+vi.mock("@/components/ui/toast", () => ({ toast: { error: vi.fn() } }));
 
 const update = vi.fn();
 vi.mock("@/hooks/use-tasks", () => ({
@@ -41,12 +50,11 @@ it("shows capacity refusal without offering an agent relaunch", async () => {
   );
   render(<Harness />);
   fireEvent.click(screen.getByText("Move"));
-  expect(
-    await screen.findByRole("dialog", { name: "Could not move task" })
-  ).toBeTruthy();
-  expect(screen.getByText(/Ready is full/)).toBeTruthy();
+  await waitFor(() => expect(toast.error).toHaveBeenCalledOnce());
+  const [title, options] = vi.mocked(toast.error).mock.calls[0];
+  expect(title).toContain("Couldn’t move");
+  expect(String(options?.error)).toContain("Ready is full");
   expect(screen.queryByRole("button", { name: "Move and launch" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Close" }));
 });
 it("only offers relaunch for agent_working and explains a capacity race on confirmation", async () => {
   update

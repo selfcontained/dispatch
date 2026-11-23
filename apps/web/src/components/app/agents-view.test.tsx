@@ -138,7 +138,10 @@ vi.mock(
   "@/components/app/drawer",
   stubModule("Drawer", "DrawerContent", "DrawerFrame")
 );
-vi.mock("@/components/app/thread-drawer", stubModule("ThreadDrawer"));
+vi.mock("@/components/app/thread-drawer", async () => ({
+  ...(await stubModule("ThreadDrawer")()),
+  THREAD_KEEP_OPEN: "[data-keep-open]",
+}));
 vi.mock("@/components/app/sidebar-shell", stubWrapper("SidebarShell"));
 // Recorded rather than left real: the mobile slide-over can only ever call
 // onOpenChange(false) from its backdrop, so the open branch of AgentsView's

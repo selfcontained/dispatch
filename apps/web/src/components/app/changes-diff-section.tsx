@@ -17,7 +17,6 @@ import {
   FileMinus,
   FilePlus,
   FileText,
-  Loader2,
 } from "lucide-react";
 
 import { useAgentFileDiff, type DiffFile } from "@/hooks/use-agent-diff";
@@ -29,6 +28,8 @@ import { UnifiedDiffView } from "@/components/app/unified-diff-view";
 import { type LineSelection } from "@/components/app/unified-diff-utils";
 import { Button } from "@/components/ui/button";
 import { RowButton } from "@/components/ui/row-button";
+import { LoadError } from "@/components/ui/async-boundary";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
 
 function statusIcon(file: DiffFile): JSX.Element {
   if (file.image) {
@@ -400,7 +401,13 @@ function FileDiffContent({
   onStartReview,
   findings,
 }: FileDiffContentProps): JSX.Element {
-  const { data: fileDiffData, isLoading: fileDiffLoading } = useAgentFileDiff(
+  const {
+    data: fileDiffData,
+    isLoading: fileDiffLoading,
+    error: fileDiffError,
+    isFetching: fileDiffFetching,
+    refetch: refetchFileDiff,
+  } = useAgentFileDiff(
     agentId,
     file.path,
     file.truncated && forceLoad,
@@ -429,10 +436,24 @@ function FileDiffContent({
 
   if (file.truncated && forceLoad && fileDiffLoading) {
     return (
-      <div className="flex items-center gap-2 px-4 py-3 text-body-sm text-muted-foreground">
-        <Loader2 className="h-3 w-3 animate-spin" />
-        Loading…
-      </div>
+      <LoadingSkeleton
+        label="Loading the diff…"
+        className="w-auto px-4 py-3"
+        rowClassName="h-4"
+        rows={4}
+      />
+    );
+  }
+
+  if (file.truncated && forceLoad && fileDiffError && !fileDiffData) {
+    return (
+      <LoadError
+        thing="the diff"
+        error={fileDiffError}
+        retrying={fileDiffFetching}
+        onRetry={() => void refetchFileDiff()}
+        className="m-3"
+      />
     );
   }
 

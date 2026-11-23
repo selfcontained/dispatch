@@ -1,26 +1,17 @@
-import { useMemo, useRef, useState } from "react";
-import { Check, ChevronDown } from "lucide-react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { ActivityBars } from "@/components/ui/activity-bars";
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  CommandLoading,
-} from "@/components/ui/command";
+  Combobox,
+  ComboboxContent,
+  ComboboxItem,
+  ComboboxTrigger,
+} from "@/components/ui/combobox";
+import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Spinner } from "@/components/ui/spinner";
 import { api } from "@/lib/api";
-import { cn } from "@/lib/utils";
 
 const EMPTY_BRANCHES: string[] = [];
 
@@ -174,8 +165,6 @@ export function BranchSelect({
     branches?: string[];
     error?: string;
   }>();
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
   if (disabled && dropdownOpen) setDropdownOpen(false);
 
   // Runners load eagerly so the closed control names the repository default.
@@ -224,27 +213,24 @@ export function BranchSelect({
   const changeOpen = (next: boolean) => {
     if (next && disabled) return;
     if (next) {
-      setTyped("");
       if (!runner && !localResult) void fetchLocalBranches();
     }
     setDropdownOpen(next);
   };
 
-  const localBase = baseBranch || "main";
   const rows = useMemo(() => {
     if (!runner) {
-      const others = listedBranches.filter(
-        (branch) => branch && branch !== "main"
-      );
-      if (localBase !== "main" && !others.includes(localBase)) {
-        others.unshift(localBase);
-      }
-      return ["main", ...others].map((branch) => ({
+      const base = listedBranches.includes("main")
+        ? listedBranches
+        : ["main", ...listedBranches];
+      const localRows =
+        baseBranch && !base.includes(baseBranch) ? [baseBranch, ...base] : base;
+      return localRows.map((branch) => ({
         value: branch,
         label: branch,
-        selected: branch === localBase,
+        selected: branch === baseBranch,
         missing:
-          branch === localBase &&
+          branch === baseBranch &&
           listedBranches.length > 0 &&
           !listedBranches.includes(branch),
       }));
@@ -260,7 +246,6 @@ export function BranchSelect({
     });
   }, [
     runner,
-    localBase,
     listedBranches,
     defaultBranch,
     baseBranch,
@@ -274,144 +259,103 @@ export function BranchSelect({
   const choose = (value: string) => {
     if (value && value === typedBranch.trim()) setEntered(value);
     onBaseBranchChange(value);
-    setDropdownOpen(false);
   };
-  // Keep the list inside the dialog's scroll lock, above its scrolling body.
-  const dialog = triggerRef.current?.closest<HTMLElement>('[role="dialog"]');
 
   return (
     <div className="space-y-2">
-      <div>
-        <label className="mb-1 block text-body-sm text-muted-foreground">
-          {baseBranchLabel}
-        </label>
-        <Popover open={dropdownOpen} onOpenChange={changeOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              variant="field"
-              ref={triggerRef}
-              type="button"
-              role="combobox"
-              disabled={disabled}
-              aria-label={baseBranchLabel}
-              aria-expanded={dropdownOpen}
-              data-testid={`${testIdPrefix}-base-branch`}
-              onKeyDown={(e) => {
-                if (e.key === "ArrowDown" && !dropdownOpen) {
-                  e.preventDefault();
-                  changeOpen(true);
+      <Field
+        label={baseBranchLabel}
+        error={
+          fetchError ? (
+            <>
+              Couldn’t load branches.{" "}
+              <Button
+                type="button"
+                variant="link"
+                size="inline"
+                onClick={() =>
+                  void (runner ? branches.refetch() : fetchLocalBranches())
                 }
-              }}
-              className="w-full font-mono text-body-sm"
-            >
-              <span className="truncate">
-                {runner
-                  ? baseBranch || defaultBranch || "Repository default"
-                  : localBase}
-              </span>
-              {branchesLoading ? (
-                <ActivityBars size={14} className="ml-2 shrink-0" />
-              ) : (
-                <ChevronDown
-                  className={cn(
-                    "ml-2 h-4 w-4 shrink-0 text-muted-foreground transition-transform",
-                    dropdownOpen && "rotate-180"
-                  )}
-                />
-              )}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent
-            container={dialog}
-            collisionBoundary={dialog}
-            align="start"
-            aria-label={baseBranchLabel}
-            onOpenAutoFocus={(e) => {
-              e.preventDefault();
-              inputRef.current?.focus();
-            }}
-            className="flex w-[var(--radix-popover-trigger-width)] flex-col overflow-hidden p-0"
-          >
-            <Command className="min-h-0 border-0 bg-transparent shadow-none">
-              <CommandInput
-                ref={inputRef}
-                value={typed}
-                onValueChange={setTyped}
-                placeholder={
-                  allowPullRequest
-                    ? "Branch name or GitHub PR URL"
-                    : runner
-                      ? "Search or enter a branch"
-                      : "Search branches..."
-                }
-                className="font-mono text-body-sm"
-              />
-              <CommandList className="max-h-[min(200px,calc(var(--radix-popover-content-available-height)-2.75rem))] touch-pan-y overscroll-contain">
-                {branchesLoading ? (
-                  <CommandLoading>
-                    <div className="flex items-center gap-2 px-2 py-3 text-body-sm text-muted-foreground">
-                      <ActivityBars size={12} />
-                      Loading branches...
-                    </div>
-                  </CommandLoading>
-                ) : null}
-                <CommandEmpty>No matching branches.</CommandEmpty>
-                <CommandGroup>
-                  {rows.map((row) => (
-                    <CommandItem
-                      key={row.value || "\0default"}
-                      value={row.label}
-                      keywords={row.value ? undefined : ["default"]}
-                      data-testid={`${testIdPrefix}-base-branch-option`}
-                      className="font-mono"
-                      onSelect={() => choose(row.value)}
-                    >
-                      <Check
-                        className={cn(
-                          "mr-2 h-3 w-3 shrink-0",
-                          row.selected ? "opacity-100" : "opacity-0"
-                        )}
-                      />
-                      <span className="truncate">{row.label}</span>
-                      {row.missing ? (
-                        <span className="ml-2 text-label-xs uppercase tracking-wide text-warning">
-                          not found
-                        </span>
-                      ) : null}
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
-              </CommandList>
-            </Command>
-          </PopoverContent>
-        </Popover>
-      </div>
-      {fetchError ? (
-        <div className="flex items-center gap-2 text-body-sm text-danger">
-          <span className="truncate">Couldn't load branches.</span>
-          <Button
-            type="button"
-            variant="link"
-            size="inline"
-            onClick={() =>
-              void (runner ? branches.refetch() : fetchLocalBranches())
-            }
+                disabled={disabled}
+              >
+                Retry
+              </Button>
+            </>
+          ) : null
+        }
+        hint={
+          fetchError ? null : savedBranchMissing ? (
+            <span className="text-warning-ink">
+              Saved branch <span className="font-mono">{baseBranch}</span> no
+              longer exists on the remote — pick a new one.
+            </span>
+          ) : (
+            baseBranchHelper
+          )
+        }
+      >
+        <Combobox
+          open={dropdownOpen}
+          onOpenChange={changeOpen}
+          search={runner ? typed : undefined}
+          onSearchChange={runner ? setTyped : undefined}
+        >
+          <ComboboxTrigger
             disabled={disabled}
+            loading={branchesLoading}
+            data-testid={`${testIdPrefix}-base-branch`}
+            className="font-mono text-body-sm"
           >
-            Retry
-          </Button>
-        </div>
-      ) : savedBranchMissing ? (
-        <div className="text-body-sm text-warning">
-          Saved branch{" "}
-          <span className="font-mono">{runner ? baseBranch : localBase}</span>{" "}
-          no longer exists on the remote — pick a new one.
-        </div>
-      ) : baseBranchHelper ? (
-        <p className="text-body-sm text-muted-foreground">{baseBranchHelper}</p>
-      ) : null}
+            {runner
+              ? baseBranch || defaultBranch || "Repository default"
+              : baseBranch}
+          </ComboboxTrigger>
+          <ComboboxContent
+            label="Search branches"
+            placeholder={
+              allowPullRequest
+                ? "Branch name or GitHub PR URL"
+                : runner
+                  ? "Search or enter a branch"
+                  : "Search branches…"
+            }
+            value={
+              runner ? rows.find((row) => row.selected)?.label : baseBranch
+            }
+            emptyMessage="No matching branches."
+            status={
+              branchesLoading ? (
+                <>
+                  <Spinner />
+                  Loading branches…
+                </>
+              ) : undefined
+            }
+          >
+            {rows.map((row) => (
+              <ComboboxItem
+                key={row.value || "\0default"}
+                value={row.label}
+                keywords={row.value ? undefined : ["default"]}
+                selected={row.selected}
+                data-testid={`${testIdPrefix}-base-branch-option`}
+                className="font-mono"
+                onSelect={() => choose(row.value)}
+              >
+                <span className="min-w-0 break-all">{row.label}</span>
+                {row.missing ? (
+                  <span className="ml-auto text-label-xs uppercase tracking-wide text-warning-ink">
+                    not found
+                  </span>
+                ) : null}
+              </ComboboxItem>
+            ))}
+          </ComboboxContent>
+        </Combobox>
+      </Field>
       {showNewBranchInput ? (
         <Input
+          aria-label="New branch name"
           value={worktreeBranch}
           onChange={(event) => onWorktreeBranchChange(event.target.value)}
           placeholder={worktreeBranchPlaceholder}

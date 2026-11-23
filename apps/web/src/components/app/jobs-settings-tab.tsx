@@ -3,7 +3,6 @@ import type { Effort } from "@dispatch/shared";
 import { AgentEffortSelect } from "./agent-effort-select";
 import { useProjects } from "@/hooks/use-projects";
 import { ProjectLocation } from "@/components/app/project-location";
-import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -26,12 +25,15 @@ import {
   minutesFromMs,
   msFromMinutes,
 } from "@/components/app/jobs-helpers";
-import { errorMessage } from "@/lib/errors";
-import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { type UpdateJobConfig, type Job } from "@/hooks/use-jobs";
 import { type AgentType, type CliAgentType } from "@/lib/agent-types";
+import { Alert } from "@/components/ui/alert";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Card } from "@/components/ui/card";
+import { Field } from "@/components/ui/field";
+import { SettingRow } from "@/components/ui/setting-row";
 
 export function SettingsTab({
   job,
@@ -102,9 +104,8 @@ export function SettingsTab({
   const [webhookEnabled, setWebhookEnabled] = useState(job.webhookEnabled);
   const [enabled, setEnabled] = useState(job.enabled);
   const [isUpdatingEnabled, setIsUpdatingEnabled] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [enabledError, setEnabledError] = useState<string | null>(null);
-  const [removeError, setRemoveError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<unknown>();
+  const [enabledError, setEnabledError] = useState<unknown>();
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
   const [saved, setSaved] = useState(false);
   const effectiveEnabled =
@@ -144,9 +145,8 @@ export function SettingsTab({
     setSingleton(job.singleton);
     setWebhookEnabled(job.webhookEnabled);
     setEnabled(job.enabled);
-    setSaveError(null);
-    setEnabledError(null);
-    setRemoveError(null);
+    setSaveError(undefined);
+    setEnabledError(undefined);
     setRemoveDialogOpen(false);
     setSaved(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -154,17 +154,17 @@ export function SettingsTab({
 
   return (
     <div className="mt-4 grid gap-4">
-      <label className="flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md">
-        <span>
-          <span className="block font-medium text-foreground">Enabled</span>
-          <span className="block text-body-sm text-muted-foreground">
-            {hasSavedSchedule
-              ? "Allow manual and scheduled starts."
-              : job.continuationEnabled
-                ? "Allow this loop to start."
-                : "Save a schedule before enabling this job."}
-          </span>
-        </span>
+      <SettingRow
+        label="Enabled"
+        description={
+          hasSavedSchedule
+            ? "Allow manual and scheduled starts."
+            : job.continuationEnabled
+              ? "Allow this loop to start."
+              : "Save a schedule before enabling this job."
+        }
+        disabled={!hasSavedSchedule && !job.continuationEnabled}
+      >
         <SwitchToggle
           checked={enabled}
           onCheckedChange={(nextEnabled) => {
@@ -174,7 +174,7 @@ export function SettingsTab({
             )
               return;
             setEnabled(nextEnabled);
-            setEnabledError(null);
+            setEnabledError(undefined);
             setIsUpdatingEnabled(true);
             void onUpdateJob({
               jobId: job.id,
@@ -182,7 +182,7 @@ export function SettingsTab({
             })
               .catch((error) => {
                 setEnabled(job.enabled);
-                setEnabledError(errorMessage(error));
+                setEnabledError(error);
               })
               .finally(() => {
                 setIsUpdatingEnabled(false);
@@ -193,34 +193,32 @@ export function SettingsTab({
             (!hasSavedSchedule && !job.continuationEnabled) || isUpdatingEnabled
           }
         />
-      </label>
+      </SettingRow>
       {enabledError ? (
-        <div className="rounded-md border border-danger/line bg-danger/tint p-3 text-body-md text-danger">
-          {enabledError}
-        </div>
+        <Alert
+          title="Couldn’t change whether the job is enabled."
+          error={enabledError}
+        />
       ) : null}
-      <div className="rounded-md border border-edge bg-fill-inset p-4">
-        <div className="text-body-md font-medium">Job configuration</div>
+      <Card className="p-4">
+        <h2 className="text-heading-sm">Job configuration</h2>
         <p className="mt-1 text-body-sm text-muted-foreground">
           These values are used when the schedule or Run button starts this job.
         </p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
-          <div className="space-y-1 md:col-span-2">
-            <label
-              className="text-body-md text-muted-foreground"
-              htmlFor={`settings-name-${job.id}`}
-            >
-              Name
-            </label>
+          <Field
+            id={`settings-name-${job.id}`}
+            label="Name"
+            className="md:col-span-2"
+          >
             <Input
-              id={`settings-name-${job.id}`}
               value={displayName}
               onChange={(event) => setDisplayName(event.target.value)}
             />
-          </div>
+          </Field>
           <div className="space-y-1 md:col-span-2">
             <label
-              className="text-body-md text-muted-foreground"
+              className="text-body-sm font-medium"
               htmlFor={`settings-directory-${job.id}`}
             >
               Working directory
@@ -297,36 +295,25 @@ export function SettingsTab({
               id={`settings-job-effort-${job.id}`}
             />
           </AgentConfigRow>
-          <div className="space-y-1">
-            <label
-              className="text-body-md text-muted-foreground"
-              htmlFor={`settings-timeout-${job.id}`}
-            >
-              Run timeout, minutes
-            </label>
+          <Field id={`settings-timeout-${job.id}`} label="Run timeout, minutes">
             <Input
-              id={`settings-timeout-${job.id}`}
               value={timeoutMinutes}
               onChange={(event) => setTimeoutMinutes(event.target.value)}
               inputMode="numeric"
             />
-          </div>
-          <div className="space-y-1">
-            <label
-              className="text-body-md text-muted-foreground"
-              htmlFor={`settings-needs-input-${job.id}`}
-            >
-              Wait for input, minutes
-            </label>
+          </Field>
+          <Field
+            id={`settings-needs-input-${job.id}`}
+            label="Wait for input, minutes"
+          >
             <Input
-              id={`settings-needs-input-${job.id}`}
               value={needsInputTimeoutMinutes}
               onChange={(event) =>
                 setNeedsInputTimeoutMinutes(event.target.value)
               }
               inputMode="numeric"
             />
-          </div>
+          </Field>
         </div>
         <div className="mt-4 flex flex-col gap-3">
           <JobWorktreeOption
@@ -355,77 +342,65 @@ export function SettingsTab({
                 : undefined
             }
           />
-          <label className="flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md">
-            <span>
-              <span className="block font-medium text-foreground">
-                Show in command palette
-              </span>
-              <span className="block text-body-sm text-muted-foreground">
-                Launch this job from the {"⌘"}K palette.
-              </span>
-            </span>
+          <SettingRow
+            label="Show in command palette"
+            description={<>Launch this job from the {"⌘"}K palette.</>}
+          >
             <SwitchToggle
               checked={callable}
               onCheckedChange={setCallable}
               ariaLabel="Show in command palette"
             />
-          </label>
-          <label className="flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md">
-            <span>
-              <span className="block font-medium text-foreground">
-                Single instance
-              </span>
-              <span className="block text-body-sm text-muted-foreground">
-                Only allow one active run at a time.
-              </span>
-            </span>
+          </SettingRow>
+          <SettingRow
+            label="Single instance"
+            description="Only allow one active run at a time."
+          >
             <SwitchToggle
               checked={singleton}
               onCheckedChange={setSingleton}
               ariaLabel="Single instance"
             />
-          </label>
-          <div className="rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md">
-            <label className="flex items-center justify-between gap-3">
-              <span>
-                <span className="block font-medium text-foreground">
-                  Webhook trigger
-                </span>
-                <span className="block text-body-sm text-muted-foreground">
-                  Trigger this job via an HTTP POST to a secret URL.
-                </span>
-              </span>
-              <SwitchToggle
-                checked={webhookEnabled}
-                onCheckedChange={setWebhookEnabled}
-                ariaLabel="Webhook trigger"
-              />
-            </label>
-            {webhookEnabled && job.webhookSecret ? (
-              <WebhookUrl secret={job.webhookSecret} />
-            ) : webhookEnabled && !job.webhookSecret ? (
-              <div className="mt-2 text-body-sm text-muted-foreground">
-                Save to generate a webhook URL.
-              </div>
-            ) : null}
-          </div>
+          </SettingRow>
+          <SettingRow
+            label="Webhook trigger"
+            description="Trigger this job via an HTTP POST to a secret URL."
+            details={
+              !webhookEnabled ? null : job.webhookSecret ? (
+                <WebhookUrl secret={job.webhookSecret} />
+              ) : (
+                <p className="text-body-sm text-muted-foreground">
+                  Save to generate a webhook URL.
+                </p>
+              )
+            }
+          >
+            <SwitchToggle
+              checked={webhookEnabled}
+              onCheckedChange={setWebhookEnabled}
+              ariaLabel="Webhook trigger"
+            />
+          </SettingRow>
         </div>
         {saveError ? (
-          <div className="mt-4 rounded-md border border-danger/line bg-danger/tint p-3 text-body-md text-danger">
-            {saveError}
-          </div>
+          <Alert
+            title="Couldn’t save the job."
+            error={saveError}
+            className="mt-4"
+          />
         ) : null}
-        {saved ? (
-          <div className="mt-4 rounded-md border border-info/line bg-info/tint p-3 text-body-md text-info">
-            Settings saved.
-          </div>
-        ) : null}
-        <div className="mt-4 flex justify-end">
+        <div className="mt-4 flex items-center justify-end gap-3">
+          {saved ? (
+            <span role="status" className="text-body-sm text-muted-foreground">
+              Settings saved.
+            </span>
+          ) : null}
           <Button
             variant="primary"
-            disabled={!canSave || isUpdating}
+            pending={isUpdating}
+            disabled={!canSave}
             onClick={() => {
-              setSaveError(null);
+              setSaveError(undefined);
               setSaved(false);
               const submittedLocation = locationEdit;
               void onUpdateJob({
@@ -457,17 +432,16 @@ export function SettingsTab({
                   setSaved(true);
                 })
                 .catch((error) => {
-                  setSaveError(errorMessage(error));
+                  setSaveError(error);
                 });
             }}
           >
-            {isUpdating ? <ActivityBars size={16} /> : null}
             Save
           </Button>
         </div>
-      </div>
-      <div className="rounded-md border border-danger/line bg-danger/wash p-4">
-        <div className="text-body-md font-medium text-danger">Remove job</div>
+      </Card>
+      <Card variant="panel" tone="danger" className="p-4">
+        <h2 className="text-heading-sm text-danger">Remove job</h2>
         <p className="mt-1 text-body-sm text-muted-foreground">
           Remove this saved job, schedule, and run history from this Dispatch
           instance.
@@ -477,77 +451,22 @@ export function SettingsTab({
             variant="danger"
             size="sm"
             disabled={isRemoving}
-            onClick={() => {
-              setRemoveError(null);
-              setRemoveDialogOpen(true);
-            }}
+            onClick={() => setRemoveDialogOpen(true)}
           >
             <Trash2 />
             Remove
           </Button>
         </div>
-        {removeError ? (
-          <div className="mt-3 rounded-md border border-danger/line bg-danger/tint p-3 text-body-md text-danger">
-            {removeError}
-          </div>
-        ) : null}
-      </div>
-      <RemoveJobDialog
+      </Card>
+      <ConfirmDialog
         open={removeDialogOpen}
-        job={job}
-        isRemoving={isRemoving}
         onOpenChange={setRemoveDialogOpen}
-        onConfirm={() => {
-          setRemoveError(null);
-          void onRemoveJob(job)
-            .then(() => setRemoveDialogOpen(false))
-            .catch((error) => setRemoveError(errorMessage(error)));
-        }}
+        title={`Remove “${job.name}”?`}
+        description="This removes the job’s saved schedule and run history from this Dispatch instance."
+        confirmLabel="Remove job"
+        errorTitle="Couldn’t remove the job."
+        onConfirm={() => onRemoveJob(job)}
       />
     </div>
-  );
-}
-
-function RemoveJobDialog({
-  open,
-  job,
-  isRemoving,
-  onOpenChange,
-  onConfirm,
-}: {
-  open: boolean;
-  job: Job;
-  isRemoving: boolean;
-  onOpenChange: (open: boolean) => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
-      <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-drawer bg-scrim backdrop-blur-md" />
-        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-drawer w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg surface-overlay p-4 outline-none">
-          <DialogPrimitive.Title className="text-heading-md">
-            Remove job?
-          </DialogPrimitive.Title>
-          <DialogPrimitive.Description className="mt-2 text-body-md text-muted-foreground">
-            Remove{" "}
-            <span className="font-medium text-foreground">{job.name}</span> from
-            this Dispatch instance? This removes its saved schedule and run
-            history.
-          </DialogPrimitive.Description>
-          <div className="mt-4 flex justify-end gap-2">
-            <DialogPrimitive.Close asChild>
-              <Button variant="ghost" disabled={isRemoving}>
-                Cancel
-              </Button>
-            </DialogPrimitive.Close>
-            <Button variant="danger" disabled={isRemoving} onClick={onConfirm}>
-              {isRemoving ? <ActivityBars size={16} /> : <Trash2 />}
-              Remove
-            </Button>
-          </div>
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
   );
 }

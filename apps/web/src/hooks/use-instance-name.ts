@@ -1,57 +1,45 @@
 import { useCallback } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { api } from "@/lib/api";
+
+const queryKey = ["agents-settings"];
+const endpoint = "/api/v1/agents/settings";
 
 export function useInstanceName(): {
   instanceName: string;
-  setInstanceName: (name: string) => void;
-  isSaving: boolean;
-  saveError: boolean;
-  didSave: boolean;
-  clearSaveState: () => void;
+  loaded: boolean;
+  loadError: unknown;
+  retryLoad: () => void;
+  /** Rejects when the server didn't take it. */
+  saveInstanceName: (name: string) => Promise<void>;
 } {
   const queryClient = useQueryClient();
-
-  const { data } = useQuery<{ instanceName: string }>({
-    queryKey: ["agents-settings"],
-    queryFn: async () => {
-      const res = await fetch("/api/v1/agents/settings");
-      if (!res.ok) throw new Error("Failed to fetch settings");
-      return res.json();
-    },
+  const { data, error, refetch } = useQuery({
+    queryKey,
+    queryFn: () => api<{ instanceName: string }>(endpoint),
   });
 
-  const mutation = useMutation({
-    mutationFn: async (name: string) => {
-      const res = await fetch("/api/v1/agents/settings", {
+  const saveInstanceName = useCallback(
+    async (name: string) => {
+      const saved = await api<{ instanceName: string }>(endpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ instanceName: name }),
       });
-      if (!res.ok) throw new Error("Failed to save instance name");
-      return res.json();
+      await queryClient.cancelQueries({ queryKey });
+      queryClient.setQueryData<object>(queryKey, (current) => ({
+        ...current,
+        ...saved,
+      }));
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["agents-settings"] });
-    },
-  });
-
-  const setInstanceName = useCallback(
-    (name: string) => {
-      mutation.mutate(name);
-    },
-    [mutation]
+    [queryClient]
   );
-
-  const clearSaveState = useCallback(() => {
-    mutation.reset();
-  }, [mutation]);
 
   return {
     instanceName: data?.instanceName ?? "",
-    setInstanceName,
-    isSaving: mutation.isPending,
-    saveError: mutation.isError,
-    didSave: mutation.isSuccess,
-    clearSaveState,
+    loaded: data !== undefined,
+    loadError: data ? null : error,
+    retryLoad: () => void refetch(),
+    saveInstanceName,
   };
 }

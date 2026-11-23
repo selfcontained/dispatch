@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ListChecks } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 import { ComposerStrip } from "../composer-strip";
 import { STRIP_MORE_CLASS } from "../composer-strip-styles";
@@ -51,14 +52,16 @@ export function TasksStrip({
     >
       <TodoList items={shown} className="mt-1.5 pl-5" />
       {hidden > 0 ? (
-        <button
+        <Button
           type="button"
+          variant="link"
+          size="inline"
           onClick={() => setShowAll((v) => !v)}
           className={STRIP_MORE_CLASS}
           data-testid="harness-tasks-more"
         >
           {showAll ? "Show fewer" : `+${hidden} more`}
-        </button>
+        </Button>
       ) : null}
     </ComposerStrip>
   );

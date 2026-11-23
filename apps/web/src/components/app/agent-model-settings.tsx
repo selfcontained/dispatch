@@ -1,5 +1,3 @@
-import { useState } from "react";
-
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
@@ -9,6 +7,17 @@ import {
 } from "@/hooks/use-model-availability";
 import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
+import { Alert } from "@/components/ui/alert";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
+import { useAutoSave } from "@/hooks/use-auto-save";
+import {
+  SaveFailure,
+  SavedNote,
+  SettingRow,
+} from "@/components/ui/setting-row";
+
+const AUTO_ENABLE = "auto-enable";
+const MODEL = "model:";
 
 /** One agent type's model filter, inside its row in Settings → Agents. */
 export function AgentModelSettings({
@@ -19,48 +28,45 @@ export function AgentModelSettings({
   const { options, allOptions, autoEnable, loading, loaded } =
     useAgentModelCatalog(agentType);
   const { mutateAsync } = useUpdateModelAvailability();
-  const [error, setError] = useState("");
   const typeLabel = AGENT_TYPE_LABELS[agentType];
-
-  const save = (change: ModelAvailabilityChange) => {
-    setError("");
-    // Awaited per change: an observer only reports the latest one's failure.
-    mutateAsync(change).catch((err: Error) =>
-      setError(err.message || "Couldn’t save. Try again.")
-    );
-  };
+  // Keyed by model id, with the one switch above them all.
+  const autoSave = useAutoSave<boolean>((key, on) => {
+    const change: ModelAvailabilityChange =
+      key === AUTO_ENABLE
+        ? { agentType, autoEnable: on }
+        : { agentType, model: key.slice(MODEL.length), enabled: on };
+    return mutateAsync(change);
+  });
 
   if (!loaded)
-    return (
-      <p
-        role={loading ? "status" : "alert"}
-        className={cn(
-          "px-3 py-3 text-body-sm",
-          loading ? "text-muted-foreground" : "text-danger"
-        )}
-      >
-        {loading
-          ? "Loading models…"
-          : "Couldn’t load models. Reload to try again."}
-      </p>
+    return loading ? (
+      <LoadingSkeleton label="Loading models…" className="w-auto p-3" />
+    ) : (
+      <Alert title="Couldn’t load models." className="m-3">
+        Reload to try again.
+      </Alert>
     );
+
+  const shownOn = allOptions.filter((model) =>
+    autoSave.value(
+      MODEL + model.id,
+      options.some((option) => option.id === model.id)
+    )
+  ).length;
 
   return (
     <div data-testid={`agent-models-${agentType}`}>
-      <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3 px-3 py-3">
-        <span className="text-body-md">Auto-enable new models</span>
+      <SettingRow
+        label="Auto-enable new models"
+        status={autoSave.status(AUTO_ENABLE)}
+        className="rounded-none border-0 bg-transparent"
+      >
         <Switch
           aria-label={`Auto-enable new ${typeLabel} models`}
-          checked={autoEnable}
-          onCheckedChange={(next) => save({ agentType, autoEnable: next })}
+          checked={autoSave.value(AUTO_ENABLE, autoEnable)}
+          onCheckedChange={(next) => void autoSave.save(AUTO_ENABLE, next)}
         />
-      </label>
-
-      {error ? (
-        <p role="alert" className="px-3 pb-2 text-body-sm text-danger">
-          {error}
-        </p>
-      ) : null}
+      </SettingRow>
 
       {allOptions.length === 0 ? (
         <p
@@ -75,8 +81,15 @@ export function AgentModelSettings({
           className="border-t border-border-subtle py-1"
         >
           {allOptions.map((model) => {
-            const on = options.some((option) => option.id === model.id);
-            const last = on && options.length === 1;
+            const key = MODEL + model.id;
+            const on = autoSave.value(
+              key,
+              options.some((option) => option.id === model.id)
+            );
+            // What is on screen, not the cache: a queued save hasn't reached
+            // the cache yet, and the server refuses turning off the last one.
+            const last = on && shownOn === 1;
+            const status = autoSave.status(key);
             return (
               <li key={model.id}>
                 <label
@@ -91,9 +104,7 @@ export function AgentModelSettings({
                     id={`model-${agentType}-${model.id}`}
                     checked={on}
                     disabled={last}
-                    onCheckedChange={() =>
-                      save({ agentType, model: model.id, enabled: !on })
-                    }
+                    onCheckedChange={() => void autoSave.save(key, !on)}
                   />
                   <span className="min-w-0 flex-1">
                     <span
@@ -110,12 +121,14 @@ export function AgentModelSettings({
                       </span>
                     ) : null}
                   </span>
+                  <SavedNote status={status} />
                   {model.isNew ? (
                     <span className="shrink-0 text-body-sm text-primary">
                       New
                     </span>
                   ) : null}
                 </label>
+                <SaveFailure status={status} className="mx-3 mb-2" />
               </li>
             );
           })}

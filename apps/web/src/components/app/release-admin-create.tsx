@@ -1,13 +1,8 @@
 import { ShieldCheck, Sparkles, Zap } from "lucide-react";
 import { bumpVersion } from "@/components/app/release-utils";
+import { SettingsGroup } from "@/components/app/settings-layout";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type {
   ReleaseInfo,
   ReleaseVersionType,
@@ -26,11 +21,11 @@ const VERSION_CONFIG: Record<
 type CreateReleaseSectionProps = {
   info: ReleaseInfo | null;
   bumpBase: string | null;
-  releaseError: string | null;
   releaseInFlight: boolean;
   confirmType: ReleaseVersionType | null;
   onConfirmTypeChange: (type: ReleaseVersionType | null) => void;
-  onRelease: (versionType: ReleaseVersionType) => void;
+  /** Rejects when the release didn't start. */
+  onRelease: (versionType: ReleaseVersionType) => Promise<void>;
 };
 
 /**
@@ -40,7 +35,6 @@ type CreateReleaseSectionProps = {
 export function CreateReleaseSection({
   info,
   bumpBase,
-  releaseError,
   releaseInFlight,
   confirmType,
   onConfirmTypeChange,
@@ -58,15 +52,7 @@ export function CreateReleaseSection({
   }
 
   return (
-    <div>
-      <div className="mb-3 section-label">Create release</div>
-
-      {releaseError && (
-        <div className="mb-3 rounded-lg border border-danger/line bg-danger/tint px-3 py-2 text-body-md text-danger">
-          {releaseError}
-        </div>
-      )}
-
+    <SettingsGroup title="Create release">
       <div className="flex flex-wrap gap-2">
         {(["patch", "minor", "major"] as ReleaseVersionType[]).map((type) => {
           const { icon: Icon, color } = VERSION_CONFIG[type];
@@ -89,45 +75,38 @@ export function CreateReleaseSection({
         })}
       </div>
 
-      <Dialog
+      <ConfirmDialog
         open={confirmType !== null}
         onOpenChange={(open) => {
           if (!open) onConfirmTypeChange(null);
         }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              Create {confirmType ?? ""} release
-              {confirmType && bumpVersion(bumpBase, confirmType) && (
-                <>
-                  {" "}
-                  <span className="font-mono">
-                    {bumpVersion(bumpBase, confirmType)}
-                  </span>
-                </>
-              )}
-            </DialogTitle>
-            <DialogDescription>
-              This triggers the release workflow against{" "}
-              <span className="font-mono">main</span> on GitHub.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => onConfirmTypeChange(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => {
-                if (confirmType) onRelease(confirmType);
-              }}
-            >
-              Release
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-    </div>
+        tone="primary"
+        title={
+          <>
+            Create {confirmType ?? ""} release
+            {confirmType && bumpVersion(bumpBase, confirmType) && (
+              <>
+                {" "}
+                <span className="font-mono">
+                  {bumpVersion(bumpBase, confirmType)}
+                </span>
+              </>
+            )}
+            ?
+          </>
+        }
+        description={
+          <>
+            This triggers the release workflow against{" "}
+            <span className="font-mono">main</span> on GitHub.
+          </>
+        }
+        confirmLabel="Create release"
+        errorTitle="Couldn’t start the release."
+        onConfirm={async () => {
+          if (confirmType) await onRelease(confirmType);
+        }}
+      />
+    </SettingsGroup>
   );
 }

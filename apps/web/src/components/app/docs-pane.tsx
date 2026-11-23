@@ -17,8 +17,6 @@ import {
   Users,
 } from "lucide-react";
 
-import { ScrollArea } from "@/components/ui/scroll-area";
-
 import {
   AgentsContent,
   AutomationsContent,
@@ -174,13 +172,11 @@ export const DOCS_SECTION_NAV = SECTIONS.map(({ id, label }) => ({
 type DocsContentProps = {
   initialSection?: string;
   onSectionChange?: (section: string | null) => void;
-  title?: string;
 };
 
 export function DocsContent({
   initialSection,
   onSectionChange: _onSectionChange,
-  title = "Docs",
 }: DocsContentProps): JSX.Element {
   const location = useLocation();
   const resolvedInitial = isValidDocsSection(initialSection)
@@ -211,23 +207,12 @@ export function DocsContent({
     SECTIONS.find((section) => section.id === activeSection) ?? SECTIONS[0];
 
   return (
-    <div className="flex min-h-0 flex-1 items-stretch">
-      <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-        <ScrollArea className="h-full">
-          <div
-            ref={contentRef}
-            className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6 md:px-8 md:py-8"
-          >
-            <div className="border-b border-border pb-4">
-              <div>
-                <div className="section-label">{title}</div>
-                <h2 className="text-display tracking-tight">{active.title}</h2>
-              </div>
-            </div>
-            <div className="grid gap-6">{active.content}</div>
-          </div>
-        </ScrollArea>
-      </div>
+    <div
+      ref={contentRef}
+      className="mx-auto flex w-full min-w-0 max-w-reading flex-col gap-6"
+    >
+      <h2 className="text-heading-md">{active.title}</h2>
+      <div className="grid min-w-0 gap-6 [&>*]:min-w-0">{active.content}</div>
     </div>
   );
 }

@@ -1,4 +1,6 @@
 import { useRef, useState } from "react";
+import { panelFrame } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import { matchPath, useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -9,17 +11,24 @@ import {
   Settings,
   Pencil,
 } from "lucide-react";
-import { useProjectSelection, type Project } from "@/hooks/use-projects";
+import {
+  useProjectSelection,
+  useProjects,
+  type Project,
+} from "@/hooks/use-projects";
 import type { Agent } from "./types";
 import { ProjectIcon } from "./project-location";
 import { ProjectEditor } from "./project-editor";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
+  DialogCancel,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from "@/components/ui/dialog";
 import {
   DropdownMenu,
@@ -28,6 +37,8 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { AsyncBoundary } from "@/components/ui/async-boundary";
+import { EmptyState } from "@/components/ui/empty-state";
 
 /**
  * Sections whose content is per project (Tasks) pass `allowAll={false}`:
@@ -40,6 +51,7 @@ export function ProjectSwitcher({ allowAll = true }: { allowAll?: boolean }) {
   const location = useLocation();
   const queryClient = useQueryClient();
   const trigger = useRef<HTMLButtonElement>(null);
+  const projectsQuery = useProjects();
   const [manage, setManage] = useState(false);
   const [edit, setEdit] = useState<Project | "new" | null>(null);
   const select = (id?: string) => {
@@ -153,51 +165,60 @@ export function ProjectSwitcher({ allowAll = true }: { allowAll?: boolean }) {
               Give each folder a name, icon, and color.
             </DialogDescription>
           </DialogHeader>
-          <div className="-m-1 min-h-0 space-y-2 overflow-y-auto p-1">
-            {projects.map((p) => (
-              <div
-                key={p.id}
-                className="flex items-center gap-3 rounded-lg border border-border p-3"
-              >
-                <ProjectIcon project={p} />
-                <span
-                  aria-hidden
-                  className="h-6 w-1 shrink-0 rounded-sm"
-                  style={{ background: p.color }}
+          <DialogBody className="space-y-2">
+            <AsyncBoundary
+              query={projectsQuery}
+              thing="projects"
+              isEmpty={() => !projects.length}
+              empty={
+                <EmptyState
+                  title="No projects yet."
+                  description="Folder launches always remain available."
                 />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-body-md font-medium">
-                    {p.name}
-                  </div>
-                  <div className="truncate text-body-sm text-muted-foreground">
-                    {p.repoRoot}
-                  </div>
-                </div>
-                <Button
-                  size="sm"
-                  aria-label={`Edit ${p.name}`}
-                  onClick={() => setEdit(p)}
-                >
-                  <Pencil />
-                  Edit
-                </Button>
-              </div>
-            ))}
-            {!projects.length && (
-              <p className="py-4 text-body-md text-muted-foreground">
-                No projects yet. Folder launches always remain available.
-              </p>
-            )}
-          </div>
-          <div className="flex justify-between gap-2 pt-2">
-            <Button onClick={() => setEdit("new")}>
+              }
+            >
+              {() => (
+                <>
+                  {projects.map((p) => (
+                    <div
+                      key={p.id}
+                      className={cn(panelFrame, "flex items-center gap-3 p-3")}
+                    >
+                      <ProjectIcon project={p} />
+                      <span
+                        aria-hidden
+                        className="h-6 w-1 shrink-0 rounded-sm"
+                        style={{ background: p.color }}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-body-md font-medium">
+                          {p.name}
+                        </div>
+                        <div className="truncate text-body-sm text-muted-foreground">
+                          {p.repoRoot}
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        aria-label={`Edit ${p.name}`}
+                        onClick={() => setEdit(p)}
+                      >
+                        <Pencil />
+                        Edit
+                      </Button>
+                    </div>
+                  ))}
+                </>
+              )}
+            </AsyncBoundary>
+          </DialogBody>
+          <DialogFooter>
+            <DialogCancel>Done</DialogCancel>
+            <Button variant="primary" onClick={() => setEdit("new")}>
               <Plus />
-              Create project
+              New project
             </Button>
-            <Button variant="ghost" onClick={() => setManage(false)}>
-              Done
-            </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
       {edit && (

@@ -8,13 +8,13 @@ import {
   Hash,
   KeyRound,
   Radio,
-  Slack,
   Unplug,
 } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
+  Panel,
   CardContent,
   CardHeader,
   CardTitle,
@@ -25,6 +25,7 @@ import {
   CollapsibleTrigger,
   CollapsibleContent,
 } from "@/components/ui/collapsible";
+import { SettingsGroup } from "@/components/app/settings-layout";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +40,10 @@ import { api } from "@/lib/api";
 import { SlackAnswerersCard, type SlackAnswerer } from "./slack-answerers-card";
 import { SlackTimingCard } from "./slack-timing-card";
 import { statusLabel } from "@/lib/status-label";
+import { Alert } from "@/components/ui/alert";
+import { LoadError } from "@/components/ui/async-boundary";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
+import { Field } from "@/components/ui/field";
 
 type Channel = { id: string; name: string; private: boolean };
 type State = {
@@ -179,7 +184,8 @@ export function SlackAppSection() {
     setChannelId("");
   };
   const configured = !!query.data?.configured;
-  const showSetup = !configured || editing;
+  // Not loaded is not "not set up".
+  const showSetup = !!query.data && (!configured || editing);
   const status = query.isError
     ? "Unavailable"
     : query.data?.status
@@ -187,22 +193,11 @@ export function SlackAppSection() {
       : "Loading";
   const connected = query.data?.status === "connected";
   return (
-    <section
-      className="border-t border-border pt-8 space-y-4"
+    <SettingsGroup
       aria-label="Slack app setup"
-    >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <div className="rounded-lg border border-border bg-surface-hover p-2">
-            <Slack className="size-5" aria-hidden="true" />
-          </div>
-          <div>
-            <h3 className="text-heading-md">Slack notifications</h3>
-            <p className="mt-1 max-w-lg text-body-md text-muted-foreground">
-              A direct line from your agents to your workspace.
-            </p>
-          </div>
-        </div>
+      title="Slack notifications"
+      description="A direct line from your agents to your workspace."
+      actions={
         <Badge
           dot
           tone={
@@ -216,13 +211,25 @@ export function SlackAppSection() {
         >
           {status}
         </Badge>
-      </div>
-
+      }
+    >
+      {query.isPending && (
+        <LoadingSkeleton label="Loading Slack setup…" rowClassName="h-16" />
+      )}
+      {/* A missed poll shows on the badge alone. */}
+      {query.isError && !query.data && (
+        <LoadError
+          thing="Slack setup"
+          error={query.error}
+          retrying={query.isFetching}
+          onRetry={() => void query.refetch()}
+        />
+      )}
       {configured && (
-        <Card className="border border-success/line">
+        <Card>
           <CardHeader>
             <CardDescription>Notification destination</CardDescription>
-            <CardTitle className="flex items-center gap-2 text-heading-md">
+            <CardTitle className="flex items-center gap-2">
               <Hash
                 className="size-4 text-muted-foreground"
                 aria-hidden="true"
@@ -376,19 +383,17 @@ export function SlackAppSection() {
           </ol>
 
           {step === 1 && (
-            <Card className="border border-border">
+            <Card>
               <CardHeader>
                 <CardDescription>Step 1 of 3</CardDescription>
-                <CardTitle className="text-heading-md">
-                  Your workspace. Your Slack app.
-                </CardTitle>
+                <CardTitle>Your workspace. Your Slack app.</CardTitle>
                 <CardDescription>
                   Create a private Dispatch app in Slack. We’ve prepared its
                   configuration for you.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="rounded-lg border border-border bg-surface-subtle p-4">
+                <Panel>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="text-body-md font-medium">
@@ -410,7 +415,7 @@ export function SlackAppSection() {
                       {manifest}
                     </pre>
                   </Disclosure>
-                </div>
+                </Panel>
                 <div className="space-y-3">
                   <Button asChild variant="primary">
                     <a
@@ -448,45 +453,43 @@ export function SlackAppSection() {
           )}
 
           {step === 2 && (
-            <Card className="border border-border">
+            <Card>
               <CardHeader>
                 <CardDescription>Step 2 of 3</CardDescription>
-                <CardTitle className="text-heading-md">
-                  Connect with two tokens
-                </CardTitle>
+                <CardTitle>Connect with two tokens</CardTitle>
                 <CardDescription>
                   Copy these from your app’s Slack dashboard. No callback URL or
                   tunnel is needed.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="rounded-lg border border-border p-4 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <KeyRound
-                      className="size-4 text-muted-foreground"
-                      aria-hidden="true"
-                    />
-                    <label
-                      htmlFor="slack-app-token"
-                      className="text-body-md font-medium"
-                    >
-                      App token
-                    </label>
-                    <Badge className="ml-auto">xapp</Badge>
-                  </div>
-                  <Input
+                <Panel className="space-y-3">
+                  <Field
                     id="slack-app-token"
-                    aria-label="App token"
-                    disabled={action.isPending}
-                    type="password"
-                    autoComplete="new-password"
-                    value={appToken}
-                    placeholder="xapp-…"
-                    onChange={(e) => {
-                      editToken();
-                      setAppToken(e.target.value);
-                    }}
-                  />
+                    label={
+                      <span className="flex items-center gap-2">
+                        <KeyRound
+                          className="size-icon-lg text-muted-foreground"
+                          aria-hidden="true"
+                        />
+                        App token
+                      </span>
+                    }
+                    labelAction={<Badge className="ml-auto">xapp</Badge>}
+                  >
+                    <Input
+                      aria-label="App token"
+                      disabled={action.isPending}
+                      type="password"
+                      autoComplete="new-password"
+                      value={appToken}
+                      placeholder="xapp-…"
+                      onChange={(e) => {
+                        editToken();
+                        setAppToken(e.target.value);
+                      }}
+                    />
+                  </Field>
                   <Disclosure label="Where do I find the app token?">
                     <p>
                       Basic Information → App-Level Tokens → Generate Token and
@@ -502,34 +505,34 @@ export function SlackAppSection() {
                       />
                     </div>
                   </Disclosure>
-                </div>
-                <div className="rounded-lg border border-border p-4 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <KeyRound
-                      className="size-4 text-muted-foreground"
-                      aria-hidden="true"
-                    />
-                    <label
-                      htmlFor="slack-bot-token"
-                      className="text-body-md font-medium"
-                    >
-                      Bot token
-                    </label>
-                    <Badge className="ml-auto">xoxb</Badge>
-                  </div>
-                  <Input
+                </Panel>
+                <Panel className="space-y-3">
+                  <Field
                     id="slack-bot-token"
-                    aria-label="Bot token"
-                    disabled={action.isPending}
-                    type="password"
-                    autoComplete="new-password"
-                    value={botToken}
-                    placeholder="xoxb-…"
-                    onChange={(e) => {
-                      editToken();
-                      setBotToken(e.target.value);
-                    }}
-                  />
+                    label={
+                      <span className="flex items-center gap-2">
+                        <KeyRound
+                          className="size-icon-lg text-muted-foreground"
+                          aria-hidden="true"
+                        />
+                        Bot token
+                      </span>
+                    }
+                    labelAction={<Badge className="ml-auto">xoxb</Badge>}
+                  >
+                    <Input
+                      aria-label="Bot token"
+                      disabled={action.isPending}
+                      type="password"
+                      autoComplete="new-password"
+                      value={botToken}
+                      placeholder="xoxb-…"
+                      onChange={(e) => {
+                        editToken();
+                        setBotToken(e.target.value);
+                      }}
+                    />
+                  </Field>
                   <Disclosure label="Where do I find the bot token?">
                     <p>
                       OAuth &amp; Permissions → Install to Workspace → Allow.
@@ -537,7 +540,7 @@ export function SlackAppSection() {
                       Bot User OAuth Token shown afterward.
                     </p>
                   </Disclosure>
-                </div>
+                </Panel>
                 <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
                   <Button
                     variant="ghost"
@@ -560,12 +563,10 @@ export function SlackAppSection() {
           )}
 
           {step === 3 && validated && (
-            <Card className="border border-border">
+            <Card>
               <CardHeader>
                 <CardDescription>Step 3 of 3 · {workspace}</CardDescription>
-                <CardTitle className="text-heading-md">
-                  Choose where alerts land
-                </CardTitle>
+                <CardTitle>Choose where alerts land</CardTitle>
                 <CardDescription>
                   Add Dispatch to a Slack channel, then select it here.
                 </CardDescription>
@@ -573,7 +574,7 @@ export function SlackAppSection() {
               <CardContent className="space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <label
-                    className="text-body-md font-medium"
+                    className="text-body-sm font-medium"
                     id="slack-channel-label"
                   >
                     Notification channel
@@ -605,14 +606,14 @@ export function SlackAppSection() {
                   </SelectContent>
                 </Select>
                 {channels.length === 0 && (
-                  <p className="rounded-lg border border-dashed border-border p-3 text-body-md text-muted-foreground">
+                  <p className="text-body-sm text-muted-foreground">
                     No joined channels yet. Use the channel’s Add apps menu in
                     Slack to invite Dispatch, then refresh.
                   </p>
                 )}
                 <div className="space-y-2">
                   <label
-                    className="text-body-md font-medium"
+                    className="text-body-sm font-medium"
                     id="slack-address-label"
                   >
                     Dispatch address
@@ -663,13 +664,7 @@ export function SlackAppSection() {
       )}
 
       {action.error && (
-        <div
-          role="alert"
-          className="rounded-lg border border-danger/line bg-danger/wash p-3 text-body-md text-danger"
-        >
-          <p className="font-medium">Couldn’t complete this step</p>
-          <p className="mt-1 text-body-sm">{action.error.message}</p>
-        </div>
+        <Alert title="Couldn’t complete this step." error={action.error} />
       )}
       {message && (
         <p
@@ -680,7 +675,7 @@ export function SlackAppSection() {
           {message}
         </p>
       )}
-    </section>
+    </SettingsGroup>
   );
 }
 

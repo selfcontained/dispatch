@@ -1,7 +1,5 @@
 /** The drawer's width until someone drags it, and what a reset goes back to. */
 export const DRAWER_WIDTH_PX = 400;
-export const DRAWER_TRANSITION_MS = 300;
-export const DRAWER_SETTLE_FALLBACK_MS = DRAWER_TRANSITION_MS + 40;
 
 // Narrowest the drawer goes: the left sidebar's width (320). A thread's
 // review findings, composer and attachment rows are laid out for a phone's

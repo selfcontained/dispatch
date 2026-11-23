@@ -15,6 +15,10 @@ import {
   cleanError,
   type AppVersionInfo,
 } from "@/components/app/release-utils";
+import { useAutoSave } from "@/hooks/use-auto-save";
+import { errorMessage } from "@/lib/errors";
+
+const LOAD_PREFERENCES_FAILED = "Couldn’t load update preferences.";
 
 /**
  * Takes the update stream as a param rather than opening its own — the
@@ -43,23 +47,45 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
   const versionInfo = versionQuery.data ?? null;
   const [notesExpanded, setNotesExpanded] = useState(false);
   const [channel, setChannel] = useState<ReleaseChannel>("stable");
-  const [channelSaving, setChannelSaving] = useState(false);
   const [autoUpdateMode, setAutoUpdateMode] = useState<"off" | "check">(
     "check"
   );
-  const [autoUpdateSaving, setAutoUpdateSaving] = useState(false);
   const [info, setInfo] = useState<ReleaseInfo | null>(null);
   const [infoLoading, setInfoLoading] = useState(false);
   const [infoError, setInfoError] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
+  const [preferencesError, setPreferencesError] = useState<{
+    title: string;
+    error: unknown;
+  }>();
   const [lastCheckMessage, setLastCheckMessage] = useState<string | null>(null);
   const reloadingRef = useRef(false);
 
+  const channelSave = useAutoSave<ReleaseChannel, "channel">(
+    async (_, value) => {
+      await api("/api/v1/release/channel", {
+        method: "POST",
+        body: JSON.stringify({ channel: value }),
+      });
+      setChannel(value);
+      setInfo(null);
+    }
+  );
+  const modeSave = useAutoSave<"off" | "check", "mode">(async (_, mode) => {
+    await api("/api/v1/release/auto-update-mode", {
+      method: "POST",
+      body: JSON.stringify({ mode }),
+    });
+    setAutoUpdateMode(mode);
+  });
+  const shownChannel = channelSave.value("channel", channel);
+  const { save: saveChannel } = channelSave;
+  const { save: saveMode } = modeSave;
   const cachedInfoQuery = useCachedReleaseInfo();
   const cachedSnapshot = cachedInfoQuery.data?.snapshot ?? null;
 
   const cachedSnapshotForChannel =
-    cachedSnapshot && cachedSnapshot.channel === channel
+    cachedSnapshot && cachedSnapshot.channel === shownChannel
       ? cachedSnapshot
       : null;
   const displayInfo: ReleaseInfo | ReleaseInfoSnapshot | null =
@@ -71,50 +97,31 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
       .then((data) => {
         if (!cancelled) setChannel(data.channel);
       })
-      .catch(() => {});
+      .catch((error: unknown) => {
+        if (!cancelled)
+          setPreferencesError({ title: LOAD_PREFERENCES_FAILED, error });
+      });
     void api<{ mode: "off" | "check" }>("/api/v1/release/auto-update-mode")
       .then((data) => {
         if (!cancelled) setAutoUpdateMode(data.mode);
       })
-      .catch(() => {});
+      .catch((error: unknown) => {
+        if (!cancelled)
+          setPreferencesError({ title: LOAD_PREFERENCES_FAILED, error });
+      });
     return () => {
       cancelled = true;
     };
   }, []);
 
   const handleAutoUpdateModeChange = useCallback(
-    async (next: "off" | "check") => {
-      setAutoUpdateMode(next);
-      setAutoUpdateSaving(true);
-      try {
-        await api("/api/v1/release/auto-update-mode", {
-          method: "POST",
-          body: JSON.stringify({ mode: next }),
-        });
-      } catch {
-        setAutoUpdateMode((prev) => (prev === "off" ? "check" : "off"));
-      } finally {
-        setAutoUpdateSaving(false);
-      }
-    },
-    []
+    (next: "off" | "check") => saveMode("mode", next),
+    [saveMode]
   );
-
-  const handleChannelChange = useCallback(async (value: ReleaseChannel) => {
-    setChannel(value);
-    setChannelSaving(true);
-    try {
-      await api("/api/v1/release/channel", {
-        method: "POST",
-        body: JSON.stringify({ channel: value }),
-      });
-      setInfo(null);
-    } catch {
-      setChannel((prev) => (prev === "stable" ? "preview" : "stable"));
-    } finally {
-      setChannelSaving(false);
-    }
-  }, []);
+  const handleChannelChange = useCallback(
+    (value: ReleaseChannel) => saveChannel("channel", value),
+    [saveChannel]
+  );
 
   const handleCheckForUpdates = async () => {
     setInfoLoading(true);
@@ -129,7 +136,7 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
       });
       if (!res.ok) {
         const err = (await res.json()) as { error?: string };
-        setInfoError(cleanError(err.error ?? "Failed to check for updates"));
+        setInfoError(cleanError(err.error ?? "Couldn’t check for updates."));
         return;
       }
       const nextInfo = (await res.json()) as ReleaseInfo;
@@ -141,7 +148,7 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
       setInfoError(
         err instanceof Error
           ? cleanError(err.message)
-          : "Failed to check for updates"
+          : "Couldn’t check for updates."
       );
     } finally {
       setInfoLoading(false);
@@ -158,14 +165,20 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
 
   const handleUpdate = async (tag: string) => {
     setUpdateError(null);
-    const res = await fetch("/api/v1/release/update", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tag }),
-    });
+    let res: Response;
+    try {
+      res = await fetch("/api/v1/release/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tag }),
+      });
+    } catch (error) {
+      setUpdateError(cleanError(errorMessage(error)));
+      return;
+    }
     if (!res.ok) {
       const err = (await res.json()) as { error?: string };
-      setUpdateError(cleanError(err.error ?? "Failed to start update"));
+      setUpdateError(cleanError(err.error ?? "Couldn’t start the update."));
       return;
     }
     setJob({
@@ -226,12 +239,13 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
     retryVersionInfo: () => void versionQuery.refetch(),
     notesExpanded,
     setNotesExpanded,
-    channel,
-    channelSaving,
-    autoUpdateMode,
-    autoUpdateSaving,
+    channel: shownChannel,
+    channelStatus: channelSave.status("channel"),
+    autoUpdateMode: modeSave.value("mode", autoUpdateMode),
+    autoUpdateStatus: modeSave.status("mode"),
     infoLoading,
     infoError,
+    preferencesError,
     updateError,
     lastCheckMessage,
 

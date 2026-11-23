@@ -1,32 +1,40 @@
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { SettingsGroup } from "@/components/app/settings-layout";
+import { SettingRow } from "@/components/ui/setting-row";
+import { LoadError } from "@/components/ui/async-boundary";
 
 export function CertificateTrustSettings(): JSX.Element | null {
-  const { data } = useQuery({
+  const { data, error, isFetching, refetch } = useQuery({
     queryKey: ["certificate-trust"],
     queryFn: async (): Promise<{ available: boolean }> => {
       const response = await fetch("/api/v1/system/certificate-trust", {
         credentials: "include",
       });
-      if (!response.ok) throw new Error("Could not check certificate setup.");
+      if (!response.ok) throw new Error("The certificate setup check failed.");
       return response.json();
     },
     staleTime: 60_000,
   });
 
+  if (error && !data)
+    return (
+      <LoadError
+        thing="certificate setup"
+        error={error}
+        retrying={isFetching}
+        onRetry={() => void refetch()}
+      />
+    );
   if (!data?.available) return null;
 
   return (
-    <section aria-labelledby="certificate-trust-heading">
-      <h3 id="certificate-trust-heading" className="mb-4 section-label">
-        Certificate trust
-      </h3>
-      <p className="mb-4 max-w-lg text-body-md text-muted-foreground">
-        Trust this Dispatch server once on each device to avoid certificate
-        warnings. On iPhone and iPad, install the profile and enable full trust
-        in Settings.
-      </p>
-      <div className="flex flex-wrap gap-3">
+    <SettingsGroup title="Certificate trust">
+      <SettingRow
+        layout="action"
+        label="Trust this server"
+        description="Once on each device, to avoid certificate warnings. On iPhone and iPad, install the profile and enable full trust in Settings."
+      >
         <Button asChild wrap>
           <a href="/trust">Set up certificate trust</a>
         </Button>
@@ -35,7 +43,7 @@ export function CertificateTrustSettings(): JSX.Element | null {
             Download Apple trust profile
           </a>
         </Button>
-      </div>
-    </section>
+      </SettingRow>
+    </SettingsGroup>
   );
 }

@@ -5,6 +5,8 @@ import { Check, ChevronDown, ChevronUp } from "lucide-react";
 import { glassInset, glassOverlay } from "@/lib/glass";
 import { cn } from "@/lib/utils";
 import { useSafeCollisionPadding } from "@/lib/viewport-insets";
+import { useFieldControl } from "./field-context";
+import { pickerItem } from "./picker-styles";
 
 const Select = SelectPrimitive.Root;
 
@@ -16,27 +18,37 @@ const SelectGroup = SelectPrimitive.Group;
 const SelectValue = SelectPrimitive.Value;
 
 export const selectTriggerClassName = cn(
-  "flex h-9 w-full items-center justify-between rounded-md px-3 py-2 text-body-md",
+  "flex h-9 w-full items-center justify-between rounded-md px-3 py-2 text-left text-body-md",
   glassInset,
-  "placeholder:text-muted-foreground focus-ring",
+  "placeholder:text-muted-foreground focus-ring aria-[invalid=true]:border-danger pointer-coarse:min-h-11",
   "disabled:cursor-not-allowed disabled-state [&>span]:line-clamp-1 disabled:pointer-events-auto"
 );
 
 const SelectTrigger = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Trigger>,
-  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>
->(({ className, children, ...props }, ref) => (
-  <SelectPrimitive.Trigger
-    ref={ref}
-    className={cn(selectTriggerClassName, className)}
-    {...props}
-  >
-    {children}
-    <SelectPrimitive.Icon asChild>
-      <ChevronDown className="h-4 w-4 text-muted-foreground" />
-    </SelectPrimitive.Icon>
-  </SelectPrimitive.Trigger>
-));
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger> & {
+    /** 28px, for a field inside a stream block or another dense surface. */
+    dense?: boolean;
+  }
+>(({ className, children, dense, ...rest }, ref) => {
+  const props = useFieldControl(rest);
+  return (
+    <SelectPrimitive.Trigger
+      ref={ref}
+      className={cn(
+        selectTriggerClassName,
+        dense && "h-7 px-2 py-0 text-body-sm",
+        className
+      )}
+      {...props}
+    >
+      {children}
+      <SelectPrimitive.Icon asChild>
+        <ChevronDown className="h-4 w-4 text-muted-foreground" />
+      </SelectPrimitive.Icon>
+    </SelectPrimitive.Trigger>
+  );
+});
 SelectTrigger.displayName = SelectPrimitive.Trigger.displayName;
 
 const SelectScrollUpButton = React.forwardRef<
@@ -146,8 +158,9 @@ const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-body-md outline-none",
-      "focus:bg-accent focus:text-accent-foreground data-[state=checked]:bg-accent/veil",
+      pickerItem,
+      "w-full py-1.5 pl-8 pr-2 text-body-md",
+      "focus:bg-surface-hover data-[highlighted]:bg-surface-hover",
       "disabled-state",
       className
     )}

@@ -10,6 +10,7 @@ import { useReleaseAdminData } from "@/components/app/use-release-admin-data";
 import { Button } from "@/components/ui/button";
 import type { ReleaseVersionType } from "@/hooks/use-release-stream";
 import { useReleaseStream } from "@/hooks/use-release-stream";
+import { ApiError } from "@/lib/api";
 
 export function ReleasesAdmin(): JSX.Element {
   const stream = useReleaseStream("create");
@@ -31,6 +32,7 @@ export function ReleasesAdmin(): JSX.Element {
     now,
     releases,
     releasesLoading,
+    releasesError,
     promotingTag,
     promotionUrl,
     confirmPromoteTag,
@@ -40,7 +42,6 @@ export function ReleasesAdmin(): JSX.Element {
     promote,
   } = useReleaseAdminData(streamClientId);
 
-  const [releaseError, setReleaseError] = useState<string | null>(null);
   const [confirmType, setConfirmType] = useState<ReleaseVersionType | null>(
     null
   );
@@ -77,8 +78,6 @@ export function ReleasesAdmin(): JSX.Element {
   }, [isDone, watchedRelease, createJob, refresh]);
 
   const handleRelease = async (versionType: ReleaseVersionType) => {
-    setReleaseError(null);
-    setConfirmType(null);
     const res = await fetch("/api/v1/release", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -86,9 +85,12 @@ export function ReleasesAdmin(): JSX.Element {
     });
     if (!res.ok) {
       const err = (await res.json()) as { error?: string };
-      setReleaseError(cleanError(err.error ?? "Failed to start release"));
-      return;
+      throw new ApiError(
+        res.status,
+        cleanError(err.error ?? "The release didn’t start.")
+      );
     }
+    setConfirmType(null);
     setJob({
       jobType: "create",
       versionType,
@@ -112,14 +114,13 @@ export function ReleasesAdmin(): JSX.Element {
     setJob(null);
     setShowProgress(false);
     setWatchedRelease(false);
-    setReleaseError(null);
   };
 
   // Expanded progress view — jump in and out freely; the release keeps
   // running server-side either way.
   if (showProgress && createJob) {
     return (
-      <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-[70dvh] min-h-96 flex-col">
         <div className="flex items-center gap-2 border-b border-edge px-4 py-2">
           <Button
             variant="ghost"
@@ -147,7 +148,7 @@ export function ReleasesAdmin(): JSX.Element {
   }
 
   return (
-    <div className="flex flex-col gap-6 p-4 md:p-6">
+    <div className="space-y-8">
       {/* In-flight / finished release banner — page stays usable */}
       {createJob && (
         <ReleaseJobBanners
@@ -174,24 +175,23 @@ export function ReleasesAdmin(): JSX.Element {
       <CreateReleaseSection
         info={info}
         bumpBase={bumpBase}
-        releaseError={releaseError}
         releaseInFlight={releaseInFlight}
         confirmType={confirmType}
         onConfirmTypeChange={setConfirmType}
-        onRelease={(versionType) => void handleRelease(versionType)}
+        onRelease={handleRelease}
       />
-
-      <div className="border-t border-edge" />
 
       <RecentReleases
         releases={releases}
         releasesLoading={releasesLoading}
+        releasesError={releasesError}
+        onRetry={refresh}
         promoteError={promoteError}
         promotingTag={promotingTag}
         promotionUrl={promotionUrl}
         confirmPromoteTag={confirmPromoteTag}
         onConfirmPromoteTagChange={setConfirmPromoteTag}
-        onPromote={(tag) => void promote(tag)}
+        onPromote={promote}
       />
     </div>
   );

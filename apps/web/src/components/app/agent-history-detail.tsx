@@ -10,11 +10,18 @@ import {
   shortProjectName,
 } from "@/lib/format";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
+import { StatGrid } from "@/components/ui/dashboard";
 import { StatCard } from "@/components/app/stat-card";
-import { useHistoryAgentDetail } from "@/hooks/use-agent-history";
+import {
+  useHistoryAgentDetail,
+  type HistoryAgentDetail,
+} from "@/hooks/use-agent-history";
 import { useRunnerName } from "@/hooks/use-runners";
 import { DetailTabs } from "@/components/app/agent-history-detail-tabs";
 import { Button } from "@/components/ui/button";
+import { AsyncBoundary } from "@/components/ui/async-boundary";
+import { EmptyState } from "@/components/ui/empty-state";
+import { LoadingSkeleton, Skeleton } from "@/components/ui/skeleton";
 
 function shortModelName(model: string): string {
   return model.replace(/-\d{8}$/, "").replace("claude-", "");
@@ -27,50 +34,51 @@ export function AgentHistoryDetail({
   agentId: string;
   onBack: () => void;
 }) {
-  const { data, isLoading, isError } = useHistoryAgentDetail(agentId);
+  const query = useHistoryAgentDetail(agentId);
 
-  const placement = data ? remotePlacement(data.agent.cwd) : undefined;
-  const runnerName = useRunnerName(placement?.runner);
+  return (
+    <div className="min-w-0">
+      <Button variant="ghost" size="xs" onClick={onBack} className="mb-3 -ml-2">
+        <ArrowLeft />
+        Back to history
+      </Button>
+      <AsyncBoundary
+        query={query}
+        thing="the agent’s history"
+        loading={
+          <LoadingSkeleton
+            label="Loading the agent’s history…"
+            className="space-y-4"
+          >
+            <Skeleton className="h-6 w-2/3 max-w-xs" />
+            <Skeleton className="h-16" />
+            <Skeleton className="h-64" />
+          </LoadingSkeleton>
+        }
+        notFound={
+          <EmptyState
+            icon={Search}
+            title="Agent not found"
+            description="No history data exists for this agent ID. It may have been cleaned up or the link may be invalid."
+          />
+        }
+      >
+        {(data) => <HistoryDetail agentId={agentId} data={data} />}
+      </AsyncBoundary>
+    </div>
+  );
+}
 
-  if (isLoading) {
-    return (
-      <div className="space-y-4 p-4">
-        <Button variant="ghost" size="xs" onClick={onBack} className="-ml-2">
-          <ArrowLeft />
-          Back
-        </Button>
-        <div className="space-y-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div
-              key={i}
-              className="h-8 animate-pulse rounded-sm bg-surface-subtle"
-            />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (isError || !data) {
-    return (
-      <div className="space-y-4 p-4">
-        <Button variant="ghost" size="xs" onClick={onBack} className="-ml-2">
-          <ArrowLeft />
-          Back to history
-        </Button>
-        <div className="flex flex-col items-center justify-center py-16 text-center text-body-md text-muted-foreground">
-          <Search className="mb-3 h-8 w-8" />
-          <div className="font-medium text-foreground">Agent not found</div>
-          <div className="mt-1 max-w-xs text-body-sm">
-            No history data exists for this agent ID. It may have been cleaned
-            up or the link may be invalid.
-          </div>
-        </div>
-      </div>
-    );
-  }
-
+function HistoryDetail({
+  agentId,
+  data,
+}: {
+  agentId: string;
+  data: HistoryAgentDetail;
+}) {
   const { agent, tokenUsage, files } = data;
+  const placement = remotePlacement(data.agent.cwd);
+  const runnerName = useRunnerName(placement?.runner);
   const durationMs =
     new Date(agent.updatedAt).getTime() - new Date(agent.createdAt).getTime();
   const totalTokens =
@@ -80,23 +88,14 @@ export function AgentHistoryDetail({
     tokenUsage.total_output;
 
   return (
-    <div className="mx-auto max-w-5xl min-w-0 space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-4 sm:pt-6 sm:pb-20 md:px-8">
+    <div className="min-w-0 space-y-6 sm:space-y-8">
       {/* Header */}
       <div>
-        <Button
-          variant="ghost"
-          size="xs"
-          onClick={onBack}
-          className="mb-3 -ml-2"
-        >
-          <ArrowLeft />
-          Back to history
-        </Button>
         <div className="flex items-center gap-2">
           <AgentSessionLink agentId={agent.id} name={agent.name}>
             <AgentTypeIcon type={agent.type} />
           </AgentSessionLink>
-          <h2 className="text-heading-md text-foreground">
+          <h2 className="min-w-0 truncate text-heading-md text-foreground">
             <AgentSessionLink agentId={agent.id} name={agent.name} />
           </h2>
         </div>
@@ -118,21 +117,21 @@ export function AgentHistoryDetail({
           {(agent.worktreeBranch || agent.gitContext?.branch) && (
             <div className="flex items-center gap-2">
               <span className="w-16 shrink-0 text-label-sm">Branch</span>
-              <span className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-label-sm text-foreground">
+              <span className="min-w-0 break-all rounded-sm bg-muted px-1.5 py-0.5 font-mono text-label-sm text-foreground">
                 {agent.worktreeBranch || agent.gitContext?.branch}
               </span>
             </div>
           )}
           <div className="flex items-center gap-2">
             <span className="w-16 shrink-0 text-label-sm">Project</span>
-            <span className="font-mono text-label-sm">
+            <span className="min-w-0 break-all font-mono text-label-sm">
               {shortProjectName(agent.gitContext?.repoRoot ?? agent.cwd)}
             </span>
           </div>
           {agent.gitContext?.worktreePath && agent.gitContext.isWorktree && (
             <div className="flex items-center gap-2">
               <span className="w-16 shrink-0 text-label-sm">Worktree</span>
-              <span className="font-mono text-label-sm">
+              <span className="min-w-0 break-all font-mono text-label-sm">
                 {shortProjectName(agent.gitContext.worktreePath)}
               </span>
             </div>
@@ -140,7 +139,7 @@ export function AgentHistoryDetail({
           {agent.cwd !== agent.gitContext?.repoRoot && (
             <div className="flex items-center gap-2">
               <span className="w-16 shrink-0 text-label-sm">Directory</span>
-              <span className="font-mono text-label-sm">
+              <span className="min-w-0 break-all font-mono text-label-sm">
                 {shortProjectName(agent.cwd)}
               </span>
             </div>
@@ -155,7 +154,7 @@ export function AgentHistoryDetail({
       />
 
       {/* Stats */}
-      <div className="flex flex-wrap gap-2 sm:gap-3">
+      <StatGrid>
         <StatCard label="Total duration" value={formatDuration(durationMs)} />
         {totalTokens > 0 && (
           <StatCard
@@ -173,7 +172,7 @@ export function AgentHistoryDetail({
         {tokenUsage.total_messages > 0 && (
           <StatCard label="Messages" value={tokenUsage.total_messages} />
         )}
-      </div>
+      </StatGrid>
 
       <DetailTabs files={files} agentId={agentId} />
     </div>

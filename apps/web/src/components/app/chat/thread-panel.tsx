@@ -28,6 +28,9 @@ import {
   mentionablesOf,
 } from "@/components/app/chat/chat-entries";
 import { Button } from "@/components/ui/button";
+import { Alert } from "@/components/ui/alert";
+import { IconButton } from "@/components/ui/icon-button";
+import { Hint } from "@/components/ui/tooltip";
 import { useBlockJump } from "@/hooks/use-block-jump";
 import { useMarkThreadRead, usePostBlock, useThread } from "@/hooks/use-stream";
 import { BLOCK_PARAM } from "@/lib/agent-routes";
@@ -386,7 +389,10 @@ export function ThreadPanel({
   useEffect(() => {
     if (escapeHandledByParent) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !event.defaultPrevented) onClose();
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      // Handled here: the sheet this may sit in stays open.
+      event.preventDefault();
+      onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -417,6 +423,7 @@ export function ThreadPanel({
           onClose();
         }
       }}
+      data-escape-owner={escapeHandledByParent ? undefined : ""}
       role="complementary"
       aria-label={finding ? "Finding" : "Thread"}
       data-testid="chat-thread-panel"
@@ -427,33 +434,34 @@ export function ThreadPanel({
       {chrome ? (
         <div className="flex shrink-0 items-center gap-2 border-b border-border-subtle bg-surface-subtle px-3 py-2">
           {isMobile ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="stream-icon"
-              className="h-8 w-8 shrink-0"
-              aria-label="Back to the channel"
+            <IconButton
+              label="Back to the channel"
               data-testid="chat-thread-close"
               onClick={onClose}
             >
-              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-            </Button>
+              <ArrowLeft aria-hidden="true" />
+            </IconButton>
           ) : null}
           <div className="min-w-0 flex-1">
-            <div className="text-body-md font-semibold text-foreground">
+            <div className="text-heading-sm text-foreground">
               {finding ? "Finding" : "Thread"}
             </div>
             {finding ? (
-              <button
-                type="button"
-                className="block max-w-full truncate text-label-sm text-muted-foreground underline-offset-2 hover:underline"
-                data-testid="chat-thread-subject"
-                onClick={() => ctx.onOpenThread?.(blockId)}
-                title="Back to the review"
-              >
-                ← in the review by{" "}
-                {thread.root ? blockAuthor(thread.root, ctx).name : ""}
-              </button>
+              <Hint label="Back to the review">
+                <Button
+                  type="button"
+                  variant="link"
+                  size="inline"
+                  className="max-w-full justify-start text-label-sm text-muted-foreground no-underline hover:underline"
+                  data-testid="chat-thread-subject"
+                  onClick={() => ctx.onOpenThread?.(blockId)}
+                >
+                  <span className="min-w-0 truncate">
+                    ← in the review by{" "}
+                    {thread.root ? blockAuthor(thread.root, ctx).name : ""}
+                  </span>
+                </Button>
+              </Hint>
             ) : thread.root ? (
               <div
                 className="truncate text-label-sm text-muted-foreground"
@@ -467,43 +475,28 @@ export function ThreadPanel({
             ) : null}
           </div>
           {isMobile ? null : (
-            <Button
-              type="button"
-              variant="ghost"
-              size="stream-icon"
-              className="h-7 w-7 shrink-0"
-              aria-label="Close thread"
+            <IconButton
+              label="Close thread"
               data-testid="chat-thread-close"
               onClick={onClose}
             >
-              <X className="h-4 w-4" aria-hidden="true" />
-            </Button>
+              <X aria-hidden="true" />
+            </IconButton>
           )}
         </div>
       ) : null}
       <div
         ref={scrollRef}
-        className="stream-surfaces-flat min-h-0 flex-1 overflow-y-auto overscroll-contain py-2"
+        className="stream-surfaces-flat min-h-0 flex-1 overflow-y-auto overscroll-contain py-2 [container:post-column/inline-size]"
         data-testid="chat-thread-scroll"
       >
         {thread.error ? (
-          <div
-            role="alert"
-            className="mx-4 mb-3 flex items-center justify-between gap-3 rounded-md border border-danger/line bg-danger/tint px-3 py-2 text-body-sm text-danger"
+          <Alert
+            className="mx-4 mb-3"
             data-testid="chat-thread-error"
-          >
-            <span className="min-w-0 truncate">
-              Couldn&apos;t load the thread: {thread.error.message}
-            </span>
-            <Button
-              type="button"
-              size="stream-sm"
-              className="h-6 shrink-0 px-2 text-body-sm"
-              onClick={thread.refetch}
-            >
-              Retry
-            </Button>
-          </div>
+            title={`Couldn’t load the thread: ${thread.error.message}`}
+            action={{ label: "Retry", onClick: thread.refetch }}
+          />
         ) : null}
         {thread.isLoading && !thread.root ? (
           <div

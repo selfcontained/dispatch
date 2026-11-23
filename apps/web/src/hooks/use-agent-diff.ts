@@ -86,6 +86,9 @@ export function useAgentFileDiff(
 ): {
   data: FileDiffResponse | undefined;
   isLoading: boolean;
+  error: Error | null;
+  isFetching: boolean;
+  refetch: () => unknown;
 } {
   const includeUncommitted = useAtomValue(diffIncludeUncommittedAtom);
   const query = useQuery<FileDiffResponse>({
@@ -106,5 +109,11 @@ export function useAgentFileDiff(
     staleTime: 10_000,
   });
 
-  return { data: query.data, isLoading: query.isLoading };
+  return {
+    data: query.data,
+    isLoading: query.isLoading,
+    error: query.error,
+    isFetching: query.isFetching,
+    refetch: query.refetch,
+  };
 }

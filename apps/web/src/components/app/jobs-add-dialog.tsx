@@ -3,8 +3,7 @@ import type { Effort } from "@dispatch/shared";
 import { AgentEffortSelect } from "./agent-effort-select";
 import { ProjectLocation } from "./project-location";
 import { useProjectScope } from "@/hooks/use-projects";
-import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { ChevronDown, X } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 
 import { PathInput } from "@/components/app/path-input";
@@ -27,12 +26,8 @@ import {
   normalizeLoopItems,
 } from "@/components/app/jobs-continuation-fields";
 import { cronError, msFromMinutes } from "@/components/app/jobs-helpers";
-import { errorMessage } from "@/lib/errors";
-import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { IconButton } from "@/components/ui/icon-button";
 import { RowButton } from "@/components/ui/row-button";
 import { type AddJobConfig } from "@/hooks/use-jobs";
 import {
@@ -40,44 +35,46 @@ import {
   type CliAgentType,
   isCliAgentType,
 } from "@/lib/agent-types";
-import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { cn } from "@/lib/utils";
+import {
+  Dialog,
+  DialogBody,
+  DialogCancel,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Alert } from "@/components/ui/alert";
+import { Card } from "@/components/ui/card";
+import { Field } from "@/components/ui/field";
+import { SettingRow } from "@/components/ui/setting-row";
+import { Textarea } from "@/components/ui/textarea";
 
 export function AddJobDialog({
   open,
   onOpenChange,
+  busy,
   children,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  busy?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
-      <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-drawer bg-scrim backdrop-blur-md" />
-        <DialogPrimitive.Content
-          onEscapeKeyDown={swallowEscapeFromCombobox}
-          className="fixed inset-x-2 bottom-2 top-2 z-drawer flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-lg surface-overlay outline-none md:left-1/2 md:top-1/2 md:h-[min(760px,88vh)] md:w-[min(760px,calc(100vw-2rem))] md:-translate-x-1/2 md:-translate-y-1/2"
-        >
-          <DialogPrimitive.Title className="sr-only">
-            Add job
-          </DialogPrimitive.Title>
-          <DialogPrimitive.Description className="sr-only">
-            Create a new recurring Dispatch job.
-          </DialogPrimitive.Description>
-          <DialogPrimitive.Close asChild>
-            <IconButton
-              className="absolute right-3 top-3 z-sticky"
-              label="Close add job"
-            >
-              <X />
-            </IconButton>
-          </DialogPrimitive.Close>
-          {children}
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="lg" phone="fill" busy={busy}>
+        <DialogHeader>
+          <DialogTitle>New job</DialogTitle>
+          <DialogDescription>
+            Define an automation with a prompt — on a schedule or on demand.
+          </DialogDescription>
+        </DialogHeader>
+        {children}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -120,7 +117,7 @@ export function AddJobFlow({
   const [enableImmediately, setEnableImmediately] = useState(false);
   const [selfImprove, setSelfImprove] = useState(false);
   const [continuation, setContinuation] = useState(defaultContinuationDraft);
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<unknown>();
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const {
     history: cwdHistory,
@@ -148,300 +145,245 @@ export function AddJobFlow({
     !!msFromMinutes(needsInputTimeoutMinutes);
 
   return (
-    <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col overflow-hidden p-4 md:p-8">
-      <div className="text-heading-md">Create a new job</div>
-      <p className="mt-1 text-body-md text-muted-foreground">
-        Define an automation with a prompt — on a schedule or on demand.
-      </p>
-
-      <ScrollArea className="mt-6 min-h-0 flex-1 pr-1">
-        <div className="grid min-w-0 gap-4">
-          <div className="min-w-0 rounded-md border border-edge bg-fill-inset p-4">
-            <div className="grid min-w-0 gap-3 md:grid-cols-2">
-              <div className="min-w-0 space-y-1 md:col-span-2">
-                <label
-                  className="text-body-md text-muted-foreground"
-                  htmlFor="job-display-name"
-                >
-                  Name
-                </label>
-                <Input
-                  id="job-display-name"
-                  value={displayName}
-                  onChange={(event) => setDisplayName(event.target.value)}
-                  placeholder="e.g. Daily cleanup"
-                />
-              </div>
-              <div className="min-w-0 space-y-1 md:col-span-2">
-                <ProjectLocation
-                  projectId={projectId}
-                  onChange={(p) => {
-                    setProjectId(p?.id ?? null);
-                    if (p) setDirectory(p.repoRoot ?? "");
-                  }}
-                >
-                  <PathInput
-                    value={directory}
-                    onChange={setDirectory}
-                    label=""
-                    placeholder="~/code/project"
-                    id="job-directory"
-                    history={cwdHistory}
-                    removableHistory={removableCwdHistory}
-                    historyMetadata={cwdHistoryMetadata}
-                    onRemoveHistory={removeCwdHistory}
-                    data-testid="job-directory-input"
-                  />
-                </ProjectLocation>
-              </div>
-              <AgentPersonaSelect
-                cwd={directory}
-                value={persona}
-                onChange={setPersona}
+    <>
+      <DialogBody className="grid min-w-0 gap-4">
+        <div className="min-w-0">
+          <div className="grid min-w-0 gap-3 md:grid-cols-2">
+            <Field id="job-display-name" label="Name" className="md:col-span-2">
+              <Input
+                value={displayName}
+                onChange={(event) => setDisplayName(event.target.value)}
+                placeholder="e.g. Daily cleanup"
               />
-              <JobScheduleField
-                id="job-schedule"
-                schedule={schedule}
-                scheduleError={scheduleError}
-                enabled={enableImmediately}
-                enabledHelperText={
-                  continuation.enabled
-                    ? "Allow manual or scheduled starts after creating it."
-                    : "Run this job on its schedule after creating it."
-                }
-                showEnabledWithoutSchedule={continuation.enabled}
-                onScheduleChange={setSchedule}
-                onEnabledChange={setEnableImmediately}
-              />
-              <AgentConfigRow
-                className="md:col-span-2"
-                showModel={modelOptions.length > 0 || modelCatalogLoading}
+            </Field>
+            <div className="min-w-0 space-y-1 md:col-span-2">
+              <ProjectLocation
+                projectId={projectId}
+                onChange={(p) => {
+                  setProjectId(p?.id ?? null);
+                  if (p) setDirectory(p.repoRoot ?? "");
+                }}
               >
-                <JobAgentTypeField
-                  value={agentType}
-                  agentTypes={enabledAgentTypes}
-                  onChange={(nextAgentType) => {
-                    setAgentType(nextAgentType);
-                    setModel(null);
+                <PathInput
+                  value={directory}
+                  onChange={setDirectory}
+                  placeholder="~/code/project"
+                  id="job-directory"
+                  history={cwdHistory}
+                  removableHistory={removableCwdHistory}
+                  historyMetadata={cwdHistoryMetadata}
+                  onRemoveHistory={removeCwdHistory}
+                  data-testid="job-directory-input"
+                />
+              </ProjectLocation>
+            </div>
+            <AgentPersonaSelect
+              cwd={directory}
+              value={persona}
+              onChange={setPersona}
+            />
+            <JobScheduleField
+              id="job-schedule"
+              schedule={schedule}
+              scheduleError={scheduleError}
+              enabled={enableImmediately}
+              enabledHelperText={
+                continuation.enabled
+                  ? "Allow manual or scheduled starts after creating it."
+                  : "Run this job on its schedule after creating it."
+              }
+              showEnabledWithoutSchedule={continuation.enabled}
+              onScheduleChange={setSchedule}
+              onEnabledChange={setEnableImmediately}
+            />
+            <AgentConfigRow
+              className="md:col-span-2"
+              showModel={modelOptions.length > 0 || modelCatalogLoading}
+            >
+              <JobAgentTypeField
+                value={agentType}
+                agentTypes={enabledAgentTypes}
+                onChange={(nextAgentType) => {
+                  setAgentType(nextAgentType);
+                  setModel(null);
+                  setEffort(null);
+                }}
+              />
+              {modelOptions.length > 0 || modelCatalogLoading ? (
+                <AgentModelSelect
+                  value={model}
+                  options={modelOptions}
+                  onChange={(value) => {
+                    setModel(value);
                     setEffort(null);
                   }}
+                  loading={modelCatalogLoading}
                 />
-                {modelOptions.length > 0 || modelCatalogLoading ? (
-                  <AgentModelSelect
-                    value={model}
-                    options={modelOptions}
-                    onChange={(value) => {
-                      setModel(value);
-                      setEffort(null);
-                    }}
-                    loading={modelCatalogLoading}
-                  />
-                ) : null}
-                <AgentEffortSelect
-                  model={model}
-                  value={effort}
-                  onChange={setEffort}
-                  agentType={agentType}
-                  id="create-job-effort"
-                />
-              </AgentConfigRow>
-              <label className="flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md md:col-span-2">
-                <span>
-                  <span className="block font-medium text-foreground">
-                    Show in command palette
-                  </span>
-                  <span className="block text-body-sm text-muted-foreground">
-                    Launch this job from the {"⌘"}K palette.
-                  </span>
-                </span>
-                <SwitchToggle
-                  checked={callable}
-                  onCheckedChange={setCallable}
-                  ariaLabel="Show in command palette"
-                />
-              </label>
-              <label className="flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md md:col-span-2">
-                <span>
-                  <span className="block font-medium text-foreground">
-                    Single instance
-                  </span>
-                  <span className="block text-body-sm text-muted-foreground">
-                    Only allow one active run at a time.
-                  </span>
-                </span>
-                <SwitchToggle
-                  checked={singleton}
-                  onCheckedChange={setSingleton}
-                  ariaLabel="Single instance"
-                />
-              </label>
-            </div>
+              ) : null}
+              <AgentEffortSelect
+                model={model}
+                value={effort}
+                onChange={setEffort}
+                agentType={agentType}
+                id="create-job-effort"
+              />
+            </AgentConfigRow>
+            <SettingRow
+              className="md:col-span-2"
+              label="Show in command palette"
+              description={<>Launch this job from the {"⌘"}K palette.</>}
+            >
+              <SwitchToggle
+                checked={callable}
+                onCheckedChange={setCallable}
+                ariaLabel="Show in command palette"
+              />
+            </SettingRow>
+            <SettingRow
+              className="md:col-span-2"
+              label="Single instance"
+              description="Only allow one active run at a time."
+            >
+              <SwitchToggle
+                checked={singleton}
+                onCheckedChange={setSingleton}
+                ariaLabel="Single instance"
+              />
+            </SettingRow>
           </div>
+        </div>
 
-          <div className="min-w-0 rounded-md border border-border bg-surface-subtle p-4">
-            <div className="space-y-1">
-              <label
-                className="text-body-md font-medium text-foreground"
-                htmlFor="job-prompt"
-              >
-                Task prompt
-              </label>
-              <p className="text-body-sm text-muted-foreground">
-                What each run should work on.
-              </p>
-            </div>
-            <textarea
-              id="job-prompt"
+        <div className="min-w-0 space-y-3">
+          <Field
+            id="job-prompt"
+            label="Task prompt"
+            hint="What each run should work on."
+          >
+            <Textarea
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
               placeholder="Describe what the agent should do..."
-              className="mt-2 min-h-64 w-full rounded-md surface-inset px-3 py-2 text-body-md placeholder:text-muted-foreground focus-ring"
+              className="min-h-64"
             />
-            <label className="mt-3 flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md">
-              <span>
-                <span className="block font-medium text-foreground">
-                  Self improve after each run
-                </span>
-                <span className="block text-body-sm text-muted-foreground">
-                  Let the agent update this job's saved prompt when it finds a
-                  durable improvement.
-                </span>
-              </span>
-              <SwitchToggle
-                checked={selfImprove}
-                onCheckedChange={setSelfImprove}
-                ariaLabel="Self improve after each run"
-              />
-            </label>
-          </div>
-
-          <LoopSetup
-            draft={continuation}
-            onChange={(next) => {
-              setContinuation(next);
-              if (next.enabled) {
-                if (!continuation.enabled) setEnableImmediately(true);
-                setKeepAgent(false);
-              } else if (!schedule.trim()) {
-                setEnableImmediately(false);
-              }
-            }}
-            idPrefix="job-continuation"
-          />
-
-          <div className="min-w-0 rounded-md border border-edge bg-fill-inset p-4">
-            <RowButton
-              aria-expanded={advancedOpen}
-              className="justify-between gap-3 rounded-sm hover:bg-transparent"
-              onClick={() => setAdvancedOpen((current) => !current)}
-            >
-              <div>
-                <div className="text-body-md font-medium">
-                  Advanced settings
-                </div>
-                <div className="mt-1 text-body-sm text-muted-foreground">
-                  Timeouts, worktree, permissions, and whether the agent is kept
-                  after running.
-                </div>
-              </div>
-              <ChevronDown
-                className={cn(
-                  "h-4 w-4 text-muted-foreground transition-transform",
-                  advancedOpen && "rotate-180"
-                )}
-              />
-            </RowButton>
-            <div
-              className={cn(
-                "grid min-w-0 overflow-hidden transition-all duration-200 ease-out",
-                advancedOpen
-                  ? "mt-4 grid-rows-[1fr] opacity-100"
-                  : "mt-0 grid-rows-[0fr] opacity-0"
-              )}
-              aria-hidden={!advancedOpen}
-            >
-              <div className="min-h-0">
-                <div className="grid min-w-0 gap-3 md:grid-cols-2">
-                  <div className="min-w-0 space-y-1">
-                    <label
-                      className="text-body-md text-muted-foreground"
-                      htmlFor="job-timeout"
-                    >
-                      Run timeout, minutes
-                    </label>
-                    <Input
-                      id="job-timeout"
-                      value={timeoutMinutes}
-                      onChange={(event) =>
-                        setTimeoutMinutes(event.target.value)
-                      }
-                      inputMode="numeric"
-                    />
-                  </div>
-                  <div className="min-w-0 space-y-1">
-                    <label
-                      className="text-body-md text-muted-foreground"
-                      htmlFor="job-needs-input-timeout"
-                    >
-                      Wait for input, minutes
-                    </label>
-                    <Input
-                      id="job-needs-input-timeout"
-                      value={needsInputTimeoutMinutes}
-                      onChange={(event) =>
-                        setNeedsInputTimeoutMinutes(event.target.value)
-                      }
-                      inputMode="numeric"
-                    />
-                  </div>
-                  <JobWorktreeOption
-                    checked={useWorktree}
-                    cwd={directory}
-                    baseBranch={baseBranch}
-                    branchName={branchName}
-                    onCheckedChange={setUseWorktree}
-                    onBaseBranchChange={setBaseBranch}
-                    onBranchNameChange={setBranchName}
-                    testIdPrefix="job-create"
-                  />
-                  {agentType !== "opencode" && (
-                    <JobFullAccessOption
-                      checked={fullAccess}
-                      onCheckedChange={setFullAccess}
-                    />
-                  )}
-                  <JobKeepAgentOption
-                    checked={keepAgent}
-                    onCheckedChange={setKeepAgent}
-                    disabled={continuation.enabled}
-                    helperText={
-                      continuation.enabled
-                        ? "Unavailable while the loop is on."
-                        : undefined
-                    }
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {submitError ? (
-            <div className="rounded-md border border-danger/line bg-danger/tint p-3 text-body-md text-danger">
-              {submitError}
-            </div>
-          ) : null}
+          </Field>
+          <SettingRow
+            label="Self improve after each run"
+            description="Let the agent update this job's saved prompt when it finds a durable improvement."
+          >
+            <SwitchToggle
+              checked={selfImprove}
+              onCheckedChange={setSelfImprove}
+              ariaLabel="Self improve after each run"
+            />
+          </SettingRow>
         </div>
-      </ScrollArea>
 
-      <div className="mt-4 flex shrink-0 justify-end gap-2 border-t border-border-subtle pt-4">
-        <DialogPrimitive.Close asChild>
-          <Button variant="ghost">Cancel</Button>
-        </DialogPrimitive.Close>
+        <LoopSetup
+          draft={continuation}
+          onChange={(next) => {
+            setContinuation(next);
+            if (next.enabled) {
+              if (!continuation.enabled) setEnableImmediately(true);
+              setKeepAgent(false);
+            } else if (!schedule.trim()) {
+              setEnableImmediately(false);
+            }
+          }}
+          idPrefix="job-continuation"
+        />
+
+        <Card className="min-w-0 p-4">
+          <RowButton
+            aria-expanded={advancedOpen}
+            className="justify-between gap-3 rounded-sm hover:bg-transparent"
+            onClick={() => setAdvancedOpen((current) => !current)}
+          >
+            <div>
+              <div className="text-body-md font-medium">Advanced settings</div>
+              <div className="mt-1 text-body-sm text-muted-foreground">
+                Timeouts, worktree, permissions, and whether the agent is kept
+                after running.
+              </div>
+            </div>
+            <ChevronDown
+              className={cn(
+                "h-4 w-4 text-muted-foreground transition-transform",
+                advancedOpen && "rotate-180"
+              )}
+            />
+          </RowButton>
+          <div
+            className={cn(
+              "grid min-w-0 overflow-hidden transition-all duration-200 ease-out",
+              advancedOpen
+                ? "mt-4 grid-rows-[1fr] opacity-100"
+                : "mt-0 grid-rows-[0fr] opacity-0"
+            )}
+            aria-hidden={!advancedOpen}
+          >
+            <div className="min-h-0">
+              <div className="grid min-w-0 gap-3 md:grid-cols-2">
+                <Field id="job-timeout" label="Run timeout, minutes">
+                  <Input
+                    value={timeoutMinutes}
+                    onChange={(event) => setTimeoutMinutes(event.target.value)}
+                    inputMode="numeric"
+                  />
+                </Field>
+                <Field
+                  id="job-needs-input-timeout"
+                  label="Wait for input, minutes"
+                >
+                  <Input
+                    value={needsInputTimeoutMinutes}
+                    onChange={(event) =>
+                      setNeedsInputTimeoutMinutes(event.target.value)
+                    }
+                    inputMode="numeric"
+                  />
+                </Field>
+                <JobWorktreeOption
+                  checked={useWorktree}
+                  cwd={directory}
+                  baseBranch={baseBranch}
+                  branchName={branchName}
+                  onCheckedChange={setUseWorktree}
+                  onBaseBranchChange={setBaseBranch}
+                  onBranchNameChange={setBranchName}
+                  testIdPrefix="job-create"
+                />
+                {agentType !== "opencode" && (
+                  <JobFullAccessOption
+                    checked={fullAccess}
+                    onCheckedChange={setFullAccess}
+                  />
+                )}
+                <JobKeepAgentOption
+                  checked={keepAgent}
+                  onCheckedChange={setKeepAgent}
+                  disabled={continuation.enabled}
+                  helperText={
+                    continuation.enabled
+                      ? "Unavailable while the loop is on."
+                      : undefined
+                  }
+                />
+              </div>
+            </div>
+          </div>
+        </Card>
+      </DialogBody>
+      {submitError ? (
+        <Alert title="Couldn’t create the job." error={submitError} />
+      ) : null}
+      <DialogFooter>
+        <DialogCancel />
         <Button
           variant="primary"
-          disabled={!canAdd || isAdding}
+          pending={isAdding}
+          disabled={!canAdd}
           onClick={() => {
-            setSubmitError(null);
+            setSubmitError(undefined);
             const trimmedDirectory = directory.trim();
             void onAddJob({
               name: displayName.trim(),
@@ -480,13 +422,12 @@ export function AddJobFlow({
                 : {}),
             })
               .then(() => addCwdHistory(trimmedDirectory))
-              .catch((error) => setSubmitError(errorMessage(error)));
+              .catch(setSubmitError);
           }}
         >
-          {isAdding ? <ActivityBars size={16} /> : null}
-          Add job
+          Create job
         </Button>
-      </div>
-    </div>
+      </DialogFooter>
+    </>
   );
 }

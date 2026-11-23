@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, ExternalLink, XCircle } from "lucide-react";
+import { CheckCircle2, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { OperationLog, PhaseProgress } from "@/components/app/release-shared";
 import type { ReleaseJob } from "@/hooks/use-release-stream";
 import { cleanError, formatProgressLabel } from "./release-utils";
+import { Card, Panel } from "@/components/ui/card";
+import { Alert } from "@/components/ui/alert";
 
 type OperationTakeoverProps = {
   job: ReleaseJob;
@@ -89,12 +91,7 @@ export function OperationTakeover({
           )}
         >
           {progress && (
-            <div
-              className={cn(
-                job.jobType === "update" && "h-full",
-                "rounded-lg border border-edge bg-fill-inset p-3"
-              )}
-            >
+            <Panel className={cn(job.jobType === "update" && "h-full")}>
               <div className="section-label">Current step</div>
               <div className="mt-2 text-body-md font-medium text-foreground">
                 {progress.label}
@@ -125,7 +122,7 @@ export function OperationTakeover({
                     />
                   </div>
                 )}
-            </div>
+            </Panel>
           )}
         </div>
 
@@ -171,7 +168,11 @@ export function OperationTakeover({
 
           {isDone && (
             <div className="flex flex-col gap-3">
-              <div className="flex items-center gap-2 rounded-sm border border-success/line bg-success/tint px-3 py-3 text-body-md text-success">
+              <Card
+                variant="panel"
+                tone="success"
+                className="flex items-center gap-2 p-3 text-body-md text-success"
+              >
                 <CheckCircle2 className="h-4 w-4 shrink-0" />
                 <span>
                   {job.jobType === "update" ? "Updated to" : "Released"}{" "}
@@ -179,7 +180,7 @@ export function OperationTakeover({
                     {job.tag ?? status?.tag}
                   </span>
                 </span>
-              </div>
+              </Card>
               {job.jobType === "update" && (
                 <div className="text-body-sm text-muted-foreground">
                   Reloading the app…
@@ -196,12 +197,9 @@ export function OperationTakeover({
 
           {isFailed && (
             <div className="flex flex-col gap-3">
-              <div className="flex items-start gap-2 rounded-sm border border-danger/line bg-danger/tint px-3 py-3 text-body-md text-danger">
-                <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>
-                  {job.error ? cleanError(job.error) : "Operation failed"}
-                </span>
-              </div>
+              <Alert
+                title={job.error ? cleanError(job.error) : "Operation failed."}
+              />
               <Button
                 onClick={onDismiss}
                 className="self-start text-muted-foreground hover:text-foreground"

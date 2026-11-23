@@ -151,6 +151,7 @@ export function TaskList({
                       <TaskLaunching task={task} columns={board.columns} />
                     ) : (
                       <TaskAgent
+                        agentId={task.assignedAgentId}
                         agent={agents.find(
                           (agent) => agent.id === task.assignedAgentId
                         )}
@@ -192,6 +193,7 @@ export function TaskList({
                         <TaskLaunching task={task} columns={board.columns} />
                       ) : (
                         <TaskAgent
+                          agentId={task.assignedAgentId}
                           agent={agents.find(
                             (agent) => agent.id === task.assignedAgentId
                           )}

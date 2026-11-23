@@ -7,9 +7,11 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Panel,
 } from "@/components/ui/card";
 
 import type { ApprovalState } from "./use-extension-pairing";
+import { Alert } from "@/components/ui/alert";
 
 type BrowserExtensionPairingCardProps = {
   approvalState: ApprovalState;
@@ -29,13 +31,13 @@ export function BrowserExtensionPairingCard({
   onCheckAgain,
 }: BrowserExtensionPairingCardProps): JSX.Element {
   return (
-    <Card className="border-primary/line">
+    <Card tone="accent">
       <CardHeader className="flex-row items-start gap-3 space-y-0 pb-3">
         <div className="rounded-lg bg-surface-selected p-2 text-primary">
           <ShieldCheck className="h-5 w-5" aria-hidden="true" />
         </div>
         <div className="space-y-1.5">
-          <CardTitle className="text-heading-md">
+          <CardTitle>
             {approvalState === "connected"
               ? "Browser connected"
               : approvalState === "timedOut"
@@ -52,7 +54,7 @@ export function BrowserExtensionPairingCard({
         </div>
       </CardHeader>
       <CardContent>
-        <div className="rounded-lg border border-border bg-background/veil p-4">
+        <Panel>
           {approvalState === "connected" ? (
             <div className="flex items-start gap-3" role="status">
               <ShieldCheck
@@ -69,10 +71,9 @@ export function BrowserExtensionPairingCard({
               </div>
             </div>
           ) : !pairingRequestIsValid ? (
-            <p className="text-body-md text-danger" role="alert">
-              This browser extension pairing link is incomplete. Return to the
-              extension and start the connection again.
-            </p>
+            <Alert title="This browser extension pairing link is incomplete.">
+              Return to the extension and start the connection again.
+            </Alert>
           ) : approvalState === "waiting" ? (
             <div className="flex items-start gap-3" role="status">
               <ShieldCheck
@@ -88,21 +89,16 @@ export function BrowserExtensionPairingCard({
               </div>
             </div>
           ) : approvalState === "timedOut" ? (
-            <div className="space-y-3" role="alert">
-              <div>
-                <p className="text-body-md font-medium">
-                  Browser has not finished connecting
-                </p>
-                <p className="mt-1 text-body-md text-muted-foreground">
-                  Keep the extension open while it finishes the exchange, then
-                  check again. If the request is no longer visible in the
-                  extension, start a new connection there.
-                </p>
-              </div>
-              <Button type="button" variant="primary" onClick={onCheckAgain}>
-                Check again
-              </Button>
-            </div>
+            <Alert
+              tone="warning"
+              role="alert"
+              title="Browser has not finished connecting"
+              action={{ label: "Check again", onClick: onCheckAgain }}
+            >
+              Keep the extension open while it finishes the exchange, then check
+              again. If the request is no longer visible in the extension, start
+              a new connection there.
+            </Alert>
           ) : (
             <div className="space-y-4">
               <div>
@@ -115,7 +111,7 @@ export function BrowserExtensionPairingCard({
                   agent you select.
                 </p>
               </div>
-              <div className="rounded-lg border border-primary/line bg-surface-selected px-4 py-3 text-center">
+              <div className="rounded-md bg-surface-selected px-4 py-3 text-center">
                 <p className="section-label">
                   Confirm this code matches the extension
                 </p>
@@ -124,9 +120,7 @@ export function BrowserExtensionPairingCard({
                 </code>
               </div>
               {approvalState === "error" && (
-                <p className="text-body-md text-danger" role="alert">
-                  {error}
-                </p>
+                <Alert title="Couldn’t approve the connection.">{error}</Alert>
               )}
               <Button
                 type="button"
@@ -140,7 +134,7 @@ export function BrowserExtensionPairingCard({
               </Button>
             </div>
           )}
-        </div>
+        </Panel>
       </CardContent>
     </Card>
   );

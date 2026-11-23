@@ -75,7 +75,7 @@ it("loads local branches on first open and reuses the list on reopen", async () 
   expect(api).toHaveBeenCalledTimes(1);
 });
 
-it("pins literal main first and never emits an empty local base", async () => {
+it("keeps local branch order and never emits an empty local base", async () => {
   stubLayout();
   vi.mocked(api).mockResolvedValue({
     branches: ["trunk", "main"],
@@ -95,8 +95,8 @@ it("pins literal main first and never emits an empty local base", async () => {
   fireEvent.click(control);
   await screen.findByRole("option", { name: "trunk" });
   expect(screen.getAllByRole("option").map((row) => row.textContent)).toEqual([
-    "main",
     "trunk",
+    "main",
   ]);
   fireEvent.click(screen.getByRole("option", { name: "trunk" }));
   fireEvent.click(control);
@@ -225,8 +225,17 @@ it.each(["local", "runner"] as const)(
   "%s keeps and flags an unlisted saved branch",
   async (source) => {
     const rows = await openRows(source, { baseBranch: "gone" });
-    expect(rows()[0]?.text).toBe(source === "local" ? "main" : "trunk");
-    expect(rows()[1]).toEqual({ text: "gonenot found", selected: true });
+    const options = rows();
+    expect(options[0]).toEqual(
+      source === "local"
+        ? { text: "gonenot found", selected: true }
+        : { text: "trunk", selected: false }
+    );
+    expect(options[1]).toEqual(
+      source === "local"
+        ? { text: "main", selected: false }
+        : { text: "gonenot found", selected: true }
+    );
     expect(screen.getByText(/no longer exists on the remote/)).toBeTruthy();
   }
 );
@@ -275,7 +284,7 @@ it("only offers listed branches when searching locally", async () => {
   fireEvent.change(search, { target: { value: "feature/a" } });
   fireEvent.click(screen.getByRole("option", { name: "feature/a" }));
   expect(onBaseBranchChange).toHaveBeenLastCalledWith("feature/a");
-  expect(search.getAttribute("placeholder")).toBe("Search branches...");
+  expect(search.getAttribute("placeholder")).toBe("Search branches…");
 });
 
 it("builds runner rows and offers PR URLs only when allowed", () => {
@@ -317,7 +326,7 @@ it("opens the list above a scrolling dialog body and returns focus on close", as
   render(
     <div role="dialog" data-testid="dialog">
       <div data-testid="dialog-body" className="overflow-y-auto">
-        <BranchSelect {...props} cwd="/repo" />
+        <BranchSelect {...props} cwd="/repo" baseBranch="main" />
       </div>
     </div>,
     { wrapper: wrapper() }
@@ -327,10 +336,9 @@ it("opens the list above a scrolling dialog body and returns focus on close", as
   control.focus();
   fireEvent.keyDown(control, { key: "ArrowDown" });
   const option = await screen.findByRole("option", { name: "feature/a" });
-  // Portalled into the dialog, outside the body that scrolls and clips.
+  // The shared combobox portals above the dialog body that scrolls and clips.
   expect(screen.getByTestId("dialog-body").contains(option)).toBe(false);
-  expect(screen.getByTestId("dialog").contains(option)).toBe(true);
-  const search = screen.getByPlaceholderText("Search branches...");
+  const search = screen.getByPlaceholderText("Search branches…");
   await waitFor(() => expect(document.activeElement).toBe(search));
   fireEvent.keyDown(search, { key: "Escape" });
   await waitFor(() =>

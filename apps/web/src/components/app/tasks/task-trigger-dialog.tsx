@@ -4,9 +4,11 @@ import { Plus, Settings2, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Dialog,
-  DialogClose,
+  DialogBody,
+  DialogCancel,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -34,8 +36,10 @@ import { useTemplates } from "@/hooks/use-templates";
 import type { TaskColumn, TaskColumnTrigger } from "@/hooks/use-tasks";
 import { useTaskActions } from "@/hooks/use-tasks";
 import type { AgentType } from "@/lib/agent-types";
-import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { templateName } from "./task-utils";
+import { Alert } from "@/components/ui/alert";
+import { Field, FieldError } from "@/components/ui/field";
+import { OptionCard } from "@/components/ui/setting-row";
 const NEW_TEMPLATE = "__new_template__";
 
 /**
@@ -128,7 +132,8 @@ export function TaskTriggerDialog({
   const templateTrigger = useRef<HTMLButtonElement>(null);
   const actions = useTaskActions(projectId);
   const { enabledAgentTypes } = useDashboardContext();
-  const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
+  const [pending, setPending] = useState<"save" | "remove">();
+  const [failure, setFailure] = useState<unknown>();
   const [trigger, setTrigger] = useState<TaskColumnTrigger>(
     column.trigger ?? empty
   );
@@ -136,6 +141,9 @@ export function TaskTriggerDialog({
   useEffect(() => {
     if (open) setTrigger(column.trigger ?? empty);
   }, [column, open]);
+  useEffect(() => {
+    if (open) setFailure(undefined);
+  }, [open]);
   const projectTemplates = templates.filter(
     (template) => template.projectId === projectId
   );
@@ -182,41 +190,51 @@ export function TaskTriggerDialog({
   };
   const toggle = (key: "assign" | "fireOnCreate") =>
     setTrigger((old) => ({ ...old, [key]: !old[key] }));
-  const save = async () => {
+  const submit = async (
+    action: "save" | "remove",
+    next: TaskColumnTrigger | null
+  ) => {
+    setPending(action);
+    setFailure(undefined);
+    try {
+      await actions.updateColumn.mutateAsync({ id: column.id, trigger: next });
+      onOpenChange(false);
+    } catch (error) {
+      setFailure(error);
+    } finally {
+      setPending(undefined);
+    }
+  };
+  const save = () => {
     if (effortConflict) return;
-    await actions.updateColumn.mutateAsync({
-      id: column.id,
-      trigger: trigger.templateId
+    void submit(
+      "save",
+      trigger.templateId
         ? { ...trigger, model: models.normalizeModel(trigger.model) }
-        : null,
-    });
-    onOpenChange(false);
+        : null
+    );
   };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        onEscapeKeyDown={(event) => {
-          swallowEscapeFromCombobox(event);
-          if (typeDropdownOpen) event.preventDefault();
-        }}
+        busy={Boolean(pending)}
         onCloseAutoFocus={(event) => {
           event.preventDefault();
           returnFocus.current?.focus();
         }}
       >
-        <DialogHeader className="shrink-0">
-          <DialogTitle>Trigger · {column.name}</DialogTitle>
+        <DialogHeader>
+          <DialogTitle>
+            {column.trigger ? "Edit" : "New"} trigger · {column.name}
+          </DialogTitle>
           <DialogDescription>
             {column.trigger
               ? `This column already launches ${templateName(projectTemplates, column.trigger.templateId)} when a task enters it.`
               : "Nothing happens yet when a task enters this column. Choose a template to launch."}
           </DialogDescription>
         </DialogHeader>
-        <div className="-mx-1 min-h-0 space-y-4 overflow-y-auto px-1 pb-1">
-          <div className="space-y-1">
-            <label className="text-body-md" htmlFor="task-trigger-template">
-              Template
-            </label>
+        <DialogBody className="space-y-4">
+          <Field label="Template" id="task-trigger-template">
             <Select
               value={trigger.templateId || "none"}
               onValueChange={(value) => {
@@ -231,7 +249,7 @@ export function TaskTriggerDialog({
                 );
               }}
             >
-              <SelectTrigger id="task-trigger-template" ref={templateTrigger}>
+              <SelectTrigger ref={templateTrigger}>
                 <SelectValue placeholder="Choose a template" />
               </SelectTrigger>
               <SelectContent
@@ -261,7 +279,7 @@ export function TaskTriggerDialog({
                 </SelectItem>
               </SelectContent>
             </Select>
-          </div>
+          </Field>
           <AgentEngineFields
             idPrefix="task-trigger"
             agentType={agentType}
@@ -290,61 +308,54 @@ export function TaskTriggerDialog({
             modelOptions={models.options}
             savedOption={models.savedOption(trigger.model)}
             modelLoading={models.loading}
-            onTypeOpenChange={setTypeDropdownOpen}
           />
-          {effortConflict ? (
-            <p role="alert" className="text-body-md text-danger">
-              {effortConflict}
-            </p>
-          ) : null}
+          {effortConflict ? <FieldError>{effortConflict}</FieldError> : null}
           {(
             [
               ["assign", "Assign the launched agent"],
               ["fireOnCreate", "Also fire when created here"],
             ] as const
           ).map(([key, label]) => (
-            <label key={key} className="flex items-center gap-2 text-body-md">
+            <OptionCard key={key} label={label}>
               <Checkbox
                 checked={trigger[key]}
                 onCheckedChange={() => toggle(key)}
               />
-              {label}
-            </label>
+            </OptionCard>
           ))}
           <p className="rounded-sm bg-surface-hover p-2 text-body-sm text-muted-foreground">
             {chosen
               ? `Entering ${column.name} launches ${chosen.name}${chosen.prompt?.trim() ? "" : " with the task as its prompt"}${trigger.assign ? " and assigns the agent" : ""}.`
               : "Choose a project template to configure this column."}
           </p>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
-          <Button
-            variant="ghost"
-            disabled={!column.trigger}
-            onClick={() => {
-              void actions.updateColumn
-                .mutateAsync({ id: column.id, trigger: null })
-                .then(() => onOpenChange(false));
-            }}
-          >
-            Remove trigger
-          </Button>
-          <div className="ml-auto flex gap-2">
-            <DialogClose asChild>
-              <Button variant="ghost">Cancel</Button>
-            </DialogClose>
+        </DialogBody>
+        {failure ? (
+          <Alert title="Couldn’t save the trigger." error={failure} />
+        ) : null}
+        <DialogFooter
+          start={
             <Button
-              disabled={
-                !trigger.templateId ||
-                Boolean(effortConflict) ||
-                actions.updateColumn.isPending
-              }
-              onClick={() => void save()}
+              variant="ghost"
+              disabled={!column.trigger || Boolean(pending)}
+              pending={pending === "remove"}
+              onClick={() => void submit("remove", null)}
             >
-              Save
+              Remove trigger
             </Button>
-          </div>
-        </div>
+          }
+        >
+          <DialogCancel />
+          <Button
+            variant="primary"
+            disabled={
+              !trigger.templateId || Boolean(effortConflict) || Boolean(pending)
+            }
+            pending={pending === "save"}
+            onClick={save}
+          >
+            Save trigger
+          </Button>
+        </DialogFooter>
       </DialogContent>
       <CreateTemplateDialog
         open={creating}

@@ -54,34 +54,27 @@ export function SettingsRoute(): JSX.Element {
         />
       }
     >
-      <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-        <SettingsContent
-          activeSection={activeSection}
-          onLogout={context.handleLogout}
-          theme={context.theme}
-          setTheme={context.setTheme}
-          iconColor={context.iconColor}
-          setIconColor={context.setIconColor}
-          isIconColorSaving={context.isIconColorSaving}
-          iconColorError={context.iconColorError}
-          clearIconColorError={context.clearIconColorError}
-          enabledAgentTypes={context.enabledAgentTypes}
-          onEnabledAgentTypesChange={context.setEnabledAgentTypes}
-          enabledIdes={context.enabledIdes}
-          onEnabledIdesChange={context.setEnabledIdes}
-          initialSubsection={subsection}
-          onSubsectionChange={(nextSubsection) => {
-            if (section !== "help") return;
-            navigate(
-              nextSubsection
-                ? `/settings/help/${nextSubsection}`
-                : "/settings/help",
-              { replace: true }
-            );
-          }}
-          isAdmin={isAdmin}
-        />
-      </div>
+      <SettingsContent
+        activeSection={activeSection}
+        onLogout={context.handleLogout}
+        theme={context.theme}
+        setTheme={context.setTheme}
+        enabledAgentTypes={context.enabledAgentTypes}
+        onEnabledAgentTypesChange={context.setEnabledAgentTypes}
+        enabledIdes={context.enabledIdes}
+        onEnabledIdesChange={context.setEnabledIdes}
+        initialSubsection={subsection}
+        onSubsectionChange={(nextSubsection) => {
+          if (section !== "help") return;
+          navigate(
+            nextSubsection
+              ? `/settings/help/${nextSubsection}`
+              : "/settings/help",
+            { replace: true }
+          );
+        }}
+        isAdmin={isAdmin}
+      />
     </SectionShell>
   );
 }

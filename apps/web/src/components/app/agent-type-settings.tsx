@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 
@@ -18,6 +18,16 @@ import {
   type AgentType,
   CLI_AGENT_TYPES,
 } from "@/lib/agent-types";
+import { SettingsGroup } from "@/components/app/settings-layout";
+import { panelFrame } from "@/components/ui/card";
+import {
+  SaveFailure,
+  SavedNote,
+  type SaveStatus,
+} from "@/components/ui/setting-row";
+import { useAutoSave } from "@/hooks/use-auto-save";
+import { LoadError } from "@/components/ui/async-boundary";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
 
 type AgentTypeSettingsResponse = {
   enabledAgentTypes: AgentType[];
@@ -38,6 +48,7 @@ function AgentTypeRow({
   agentType,
   checked,
   disabled,
+  status,
   onToggle,
   open,
   onOpenChange,
@@ -45,6 +56,7 @@ function AgentTypeRow({
   agentType: AgentType;
   checked: boolean;
   disabled: boolean;
+  status: SaveStatus;
   onToggle: () => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -59,11 +71,7 @@ function AgentTypeRow({
     wasOpen.current = open;
   }, [allOptions, open]);
   return (
-    <Collapsible
-      open={open}
-      onOpenChange={onOpenChange}
-      className="rounded-sm border border-border"
-    >
+    <Collapsible open={open} onOpenChange={onOpenChange} className={panelFrame}>
       <div className="flex items-stretch">
         <label
           className={cn(
@@ -80,8 +88,9 @@ function AgentTypeRow({
             data-testid={`agent-type-toggle-${agentType}`}
           />
           <div className="min-w-0">
-            <div className="text-body-md font-medium text-foreground">
+            <div className="flex flex-wrap items-center gap-x-2 text-body-md font-medium text-foreground">
               {AGENT_TYPE_LABELS[agentType]}
+              <SavedNote status={status} />
             </div>
             <div className="text-body-sm text-muted-foreground">
               {disabled
@@ -112,7 +121,8 @@ function AgentTypeRow({
           </RowButton>
         </CollapsibleTrigger>
       </div>
-      <CollapsibleContent className="border-t border-border bg-surface-subtle">
+      <SaveFailure status={status} className="mx-3 mb-3" />
+      <CollapsibleContent className="border-t border-border-subtle">
         <AgentModelSettings agentType={agentType} />
       </CollapsibleContent>
     </Collapsible>
@@ -128,29 +138,30 @@ export function AgentTypeSettings({
   const openType =
     CLI_AGENT_TYPES.find((type) => type === searchParams.get("models")) ?? null;
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  // What the server last confirmed, read by a save when its turn comes.
+  const savedRef = useRef(enabledAgentTypes);
+  const [loadError, setLoadError] = useState<unknown>();
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     setAgentTypes(enabledAgentTypes);
+    savedRef.current = enabledAgentTypes;
   }, [enabledAgentTypes]);
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
 
     void api<AgentTypeSettingsResponse>("/api/v1/app/settings/agent-types")
       .then((data) => {
         if (cancelled) return;
         setAgentTypes(data.enabledAgentTypes);
+        savedRef.current = data.enabledAgentTypes;
         onChange(data.enabledAgentTypes);
-        setError("");
+        setLoadError(undefined);
       })
       .catch((err) => {
-        if (cancelled) return;
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Failed to load agent type settings."
-        );
+        if (!cancelled) setLoadError(err);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -159,70 +170,56 @@ export function AgentTypeSettings({
     return () => {
       cancelled = true;
     };
-  }, [onChange]);
+  }, [onChange, attempt]);
 
-  const toggleAgentType = useCallback(
-    async (agentType: AgentType) => {
-      setError("");
-
-      const next = agentTypes.includes(agentType)
-        ? agentTypes.filter((item) => item !== agentType)
-        : [...agentTypes, agentType];
-
-      // Optimistic update
-      setAgentTypes(next);
-      onChange(next);
-
-      try {
-        const data = await api<AgentTypeSettingsResponse>(
-          "/api/v1/app/settings/agent-types",
-          {
-            method: "POST",
-            body: JSON.stringify({ enabledAgentTypes: next }),
-          }
-        );
-        setAgentTypes(data.enabledAgentTypes);
-        onChange(data.enabledAgentTypes);
-      } catch (err) {
-        // Revert on failure
-        setAgentTypes(agentTypes);
-        onChange(agentTypes);
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Failed to save agent type settings."
-        );
+  const autoSave = useAutoSave<boolean, AgentType>(async (type, enabled) => {
+    const others = savedRef.current.filter((item) => item !== type);
+    const data = await api<AgentTypeSettingsResponse>(
+      "/api/v1/app/settings/agent-types",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          enabledAgentTypes: enabled ? [...others, type] : others,
+        }),
       }
-    },
-    [agentTypes, onChange]
+    );
+    savedRef.current = data.enabledAgentTypes;
+    setAgentTypes(data.enabledAgentTypes);
+    onChange(data.enabledAgentTypes);
+  });
+  const shown = CLI_AGENT_TYPES.filter((type) =>
+    autoSave.value(type, agentTypes.includes(type))
   );
 
-  if (loading) {
-    return (
-      <div className="p-6 text-body-md text-muted-foreground">Loading...</div>
-    );
-  }
-
   return (
-    <div className="flex flex-col gap-4 p-6">
-      <div>
-        <div className="mb-1.5 section-label">Available agent types</div>
-        <p className="mb-3 max-w-2xl text-body-md text-muted-foreground">
-          Choose which agent types and models Dispatch offers for new launches.
-        </p>
-      </div>
-
-      <div className="max-w-lg space-y-2">
-        {CLI_AGENT_TYPES.map((agentType) => {
-          const checked = agentTypes.includes(agentType);
-          const disabled = checked && agentTypes.length === 1;
+    <SettingsGroup
+      title="Available agent types"
+      description="Choose which agent types and models Dispatch offers for new launches."
+    >
+      {loadError ? (
+        <LoadError
+          thing="agent type settings"
+          error={loadError}
+          retrying={loading}
+          onRetry={() => setAttempt((count) => count + 1)}
+        />
+      ) : loading ? (
+        <LoadingSkeleton
+          label="Loading agent type settings…"
+          rowClassName="h-16"
+        />
+      ) : (
+        CLI_AGENT_TYPES.map((agentType) => {
+          const checked = shown.includes(agentType);
+          const disabled = checked && shown.length === 1;
           return (
             <AgentTypeRow
               key={agentType}
               agentType={agentType}
               checked={checked}
               disabled={disabled}
-              onToggle={() => void toggleAgentType(agentType)}
+              status={autoSave.status(agentType)}
+              onToggle={() => void autoSave.save(agentType, !checked)}
               open={openType === agentType}
               onOpenChange={(open) =>
                 setSearchParams(
@@ -237,10 +234,8 @@ export function AgentTypeSettings({
               }
             />
           );
-        })}
-      </div>
-
-      {error ? <p className="text-body-md text-danger">{error}</p> : null}
-    </div>
+        })
+      )}
+    </SettingsGroup>
   );
 }

@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { panelFrame } from "@/components/ui/card";
 import {
   AgentIdLabel,
   CopyButton,
@@ -10,6 +11,8 @@ import {
 import { useBrainListItems, type BrainList } from "@/hooks/use-brain";
 import { cn } from "@/lib/utils";
 import { RowButton } from "@/components/ui/row-button";
+import { AsyncBoundary } from "@/components/ui/async-boundary";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
 
 // ── List card with inline items ─────────────────────────────────
 
@@ -72,16 +75,16 @@ export function ListCard({
   onDelete?: () => void;
 }): JSX.Element {
   const [expanded, setExpanded] = useState(list.itemCount <= 5);
-  const { data } = useBrainListItems(repoRoot, list.collection, list.name, {
+  const query = useBrainListItems(repoRoot, list.collection, list.name, {
     limit: expanded ? 50 : 5,
     order: "asc",
   });
 
-  const items = data?.items ?? [];
+  const items = query.data?.items ?? [];
   const allItemValues = items.map((item) => item.value);
 
   return (
-    <div className="mx-3 mb-2 rounded-md border border-border bg-surface-subtle p-2 overflow-hidden">
+    <div className={cn(panelFrame, "mx-3 mb-2 overflow-hidden p-2")}>
       <div className="flex items-center justify-between gap-2 mb-2 min-w-0">
         <div className="flex items-center gap-1.5 text-body-sm min-w-0">
           <span className="rounded-sm bg-chart-4/tint-strong px-1.5 py-0.5 font-mono text-chart-4 text-label-xs shrink-0">
@@ -102,6 +105,21 @@ export function ListCard({
           <RelativeTime iso={list.updatedAt} />
         </div>
       </div>
+      {query.error || (!query.data && list.itemCount > 0) ? (
+        <AsyncBoundary
+          query={query}
+          thing="the list"
+          loading={
+            <LoadingSkeleton
+              label="Loading the list…"
+              rows={Math.min(list.itemCount, 3)}
+              rowClassName="h-6"
+            />
+          }
+        >
+          {() => null}
+        </AsyncBoundary>
+      ) : null}
       {items.length > 0 ? (
         <div className="rounded-sm bg-surface-subtle overflow-hidden">
           {items.map((item) => (

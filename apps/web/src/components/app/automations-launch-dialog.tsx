@@ -2,7 +2,6 @@ import { AgentConfigRow } from "./agent-config-row";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Play } from "lucide-react";
-import { toast } from "sonner";
 
 import { ArgInput } from "@/components/app/arg-input";
 import { ContextPicker } from "@/components/app/context-picker";
@@ -11,12 +10,15 @@ import type { Effort } from "@dispatch/shared";
 import { AgentEffortSelect } from "./agent-effort-select";
 import { AgentModelSelect } from "@/components/app/agent-model-select";
 import { useStartupAttachments } from "@/components/app/use-startup-attachments";
-import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
+  DialogCancel,
   DialogContent,
   DialogDescription,
+  DialogFooter,
+  DialogForm,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -31,10 +33,10 @@ import {
   useAgentModelCatalog,
   useAgentEffortChoices,
 } from "@/hooks/use-agent-model-catalog";
-import { useRadixPopoverZFix } from "@/hooks/use-radix-popover-z-fix";
-import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { agentRoute } from "@/lib/agent-routes";
 import { effortCompatibilityError } from "@/lib/agent-effort";
+import { Alert } from "@/components/ui/alert";
+import { FieldError } from "@/components/ui/field";
 
 export function LaunchTemplateDialog({
   template,
@@ -72,6 +74,7 @@ function LaunchTemplateDialogContent({
   const navigate = useNavigate();
   const { launchTemplate } = useTemplateActions();
   const launchButtonRef = useRef<HTMLButtonElement>(null);
+  const [failure, setFailure] = useState<unknown>();
 
   const args = useMemo(
     () => (template.prompt ? parseTemplateArgs(template.prompt) : []),
@@ -142,8 +145,6 @@ function LaunchTemplateDialogContent({
     requestAnimationFrame(() => launchButtonRef.current?.focus());
   }, [args.length]);
 
-  useRadixPopoverZFix();
-
   const allArgsFilled =
     args.length === 0 ||
     args.every((a) => !a.error && (!a.required || argValues[a.key]?.trim()));
@@ -153,6 +154,7 @@ function LaunchTemplateDialogContent({
 
   const handleLaunch = useCallback(() => {
     if (effortError) return;
+    setFailure(undefined);
     const launchArgs = args.length > 0 ? argValues : undefined;
     // Until the catalog arrives we cannot tell a valid selection from a
     // retired model id, so send nothing and let the template's saved model
@@ -178,9 +180,7 @@ function LaunchTemplateDialogContent({
           `${agentRoute(result.agent.id)}?project=${result.agent.projectId ?? ""}`
         );
       })
-      .catch((err: Error) => {
-        toast.error(`Failed to launch: ${err.message}`);
-      });
+      .catch(setFailure);
   }, [
     agentType,
     args,
@@ -199,14 +199,8 @@ function LaunchTemplateDialogContent({
   ]);
 
   return (
-    <DialogContent
-      // dvh tracks mobile browser chrome so the actions stay on screen.
-      className="max-h-[min(80vh,calc(100dvh-2rem))]"
-      onEscapeKeyDown={(e) => {
-        swallowEscapeFromCombobox(e);
-      }}
-    >
-      <DialogHeader className="shrink-0 space-y-2">
+    <DialogContent busy={launchTemplate.isPending}>
+      <DialogHeader>
         <DialogTitle>{template.name}</DialogTitle>
         {template.description ? (
           // A long description scrolls on its own so it cannot push the form
@@ -224,9 +218,8 @@ function LaunchTemplateDialogContent({
         )}
       </DialogHeader>
 
-      <form
+      <DialogForm
         data-testid="launch-template-form"
-        className="flex min-h-0 flex-1 flex-col"
         onSubmit={(e) => {
           e.preventDefault();
           if (allArgsFilled && !effortError && !launchTemplate.isPending)
@@ -258,10 +251,7 @@ function LaunchTemplateDialogContent({
         }
         onDrop={showFiles ? handleStartupDrop : undefined}
       >
-        <div
-          data-testid="launch-template-body"
-          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-1"
-        >
+        <DialogBody data-testid="launch-template-body">
           <AgentConfigRow showModel={showModelSelect}>
             <AgentTypeSelect
               label="Agent type"
@@ -291,9 +281,7 @@ function LaunchTemplateDialogContent({
           </AgentConfigRow>
 
           {effortError ? (
-            <p role="alert" className="mt-2 text-body-md text-danger">
-              {effortError}
-            </p>
+            <FieldError className="mt-2">{effortError}</FieldError>
           ) : null}
 
           {args.length > 0 ? (
@@ -324,35 +312,24 @@ function LaunchTemplateDialogContent({
               onRemoveLink={handleRemoveStartupLink}
             />
           ) : null}
-        </div>
-
-        <div
-          data-testid="launch-template-actions"
-          className="flex shrink-0 flex-row-reverse justify-start gap-2 pt-3"
-        >
+        </DialogBody>
+        {failure ? (
+          <Alert title="Couldn’t launch the template." error={failure} />
+        ) : null}
+        <DialogFooter data-testid="launch-template-actions">
+          <DialogCancel />
           <Button
+            ref={launchButtonRef}
             type="submit"
             variant="primary"
-            disabled={
-              !allArgsFilled || Boolean(effortError) || launchTemplate.isPending
-            }
+            pending={launchTemplate.isPending}
+            disabled={!allArgsFilled || Boolean(effortError)}
           >
-            {launchTemplate.isPending ? (
-              <ActivityBars size={16} />
-            ) : (
-              <Play className="fill-current" />
-            )}
-            Launch
+            <Play className="fill-current" />
+            Launch agent
           </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
-        </div>
-      </form>
+        </DialogFooter>
+      </DialogForm>
     </DialogContent>
   );
 }

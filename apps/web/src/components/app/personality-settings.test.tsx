@@ -144,6 +144,10 @@ async function openCreateForm(): Promise<HTMLElement> {
   return await screen.findByTestId("personality-form");
 }
 
+function confirmPersonalityDelete(): void {
+  fireEvent.click(screen.getByRole("button", { name: "Delete personality" }));
+}
+
 function typeInto(label: string, value: string): void {
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
 }
@@ -194,7 +198,7 @@ describe("PersonalitySettings", () => {
     await renderPanel();
 
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toBe("personalities unavailable");
+    expect(alert.textContent).toContain("personalities unavailable");
     // `finally` must clear loading even on the error path, or the panel is
     // stuck on the placeholder with no way to add a personality.
     expect(screen.queryByText("Loading…")).toBeNull();
@@ -293,23 +297,22 @@ describe("PersonalitySettings", () => {
     typeInto("Prompt", "Sing it.");
     fireEvent.click(screen.getByTestId("personality-save"));
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "Name is required."
+      "Enter a name."
     );
 
     typeInto("Name", "Shanty");
     typeInto("Prompt", "   \n  ");
     fireEvent.click(screen.getByTestId("personality-save"));
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "Prompt is required."
+      "Enter a prompt."
     );
 
     // A name that is only whitespace is still blank once trimmed, and has to
     // say so rather than silently refusing to submit.
     typeInto("Name", "   ");
     fireEvent.click(screen.getByTestId("personality-save"));
-    expect((await screen.findByRole("alert")).textContent).toBe(
-      "Name is required."
-    );
+    expect(await screen.findByText("Enter a name.")).toBeDefined();
+    expect(screen.getByText("Enter a prompt.")).toBeDefined();
 
     expect(screen.getByTestId("personality-form")).toBeDefined();
     expect(callsFor("POST /api/v1/personalities")).toHaveLength(0);
@@ -320,8 +323,8 @@ describe("PersonalitySettings", () => {
     await openCreateForm();
 
     fireEvent.click(screen.getByTestId("personality-save"));
-    expect((await screen.findByRole("alert")).textContent).toBe(
-      "Name is required."
+    expect((await screen.findAllByRole("alert"))[0].textContent).toBe(
+      "Enter a name."
     );
 
     typeInto("Name", "Shanty");
@@ -342,8 +345,8 @@ describe("PersonalitySettings", () => {
     await openCreateForm();
 
     fireEvent.click(screen.getByTestId("personality-save"));
-    expect((await screen.findByRole("alert")).textContent).toBe(
-      "Name is required."
+    expect((await screen.findAllByRole("alert"))[0].textContent).toBe(
+      "Enter a name."
     );
 
     typeInto("Name", "Shanty");
@@ -358,7 +361,6 @@ describe("PersonalitySettings", () => {
   });
 
   it("drops an error from an earlier action once any refresh succeeds", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     overrides.set("POST /api/v1/personalities/active", () =>
       Promise.reject(new Error("active personality is locked"))
     );
@@ -366,7 +368,7 @@ describe("PersonalitySettings", () => {
 
     await screen.findByText("Pirate");
     fireEvent.click(toggleFor(PIRATE));
-    expect((await screen.findByRole("alert")).textContent).toBe(
+    expect((await screen.findByRole("alert")).textContent).toContain(
       "active personality is locked"
     );
 
@@ -375,6 +377,7 @@ describe("PersonalitySettings", () => {
     const row = screen.getByTestId(`personality-row-${TERSE.id}`);
     listState = { personalities: [PIRATE], activeId: null };
     fireEvent.click(within(row).getByRole("button", { name: "Delete" }));
+    confirmPersonalityDelete();
 
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
     expect(screen.queryByText("Terse")).toBeNull();
@@ -432,7 +435,7 @@ describe("PersonalitySettings", () => {
     fireEvent.click(screen.getByTestId("personality-save"));
 
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toBe("Name already taken");
+    expect(alert.textContent).toContain("Name already taken");
     // The rejected edits must survive so the user can correct and retry, and
     // the buttons must come back out of the submitting state.
     expect(screen.getByTestId("personality-form")).toBeDefined();
@@ -462,7 +465,8 @@ describe("PersonalitySettings", () => {
     await openCreateForm();
 
     fireEvent.click(screen.getByTestId("personality-save"));
-    expect(await screen.findByRole("alert")).toBeDefined();
+    // Both fields say so, each under itself.
+    expect(await screen.findAllByRole("alert")).toHaveLength(2);
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
@@ -538,32 +542,33 @@ describe("PersonalitySettings", () => {
     fireEvent.click(toggleFor(PIRATE));
 
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toBe("active personality is locked");
+    expect(alert.textContent).toContain("active personality is locked");
     expect(toggleFor(PIRATE).getAttribute("aria-pressed")).toBe("false");
     expect(toggleFor(TERSE).getAttribute("aria-pressed")).toBe("true");
   });
 
   it("does not delete when the confirmation is dismissed", async () => {
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     await renderPanel();
 
     const row = await screen.findByTestId(`personality-row-${PIRATE.id}`);
     fireEvent.click(within(row).getByRole("button", { name: "Delete" }));
 
-    expect(confirmSpy).toHaveBeenCalledWith(
-      'Delete personality "Pirate"? This cannot be undone.'
-    );
+    const question = screen.getByRole("alertdialog", {
+      name: "Delete “Pirate”?",
+    });
+    fireEvent.click(within(question).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(requestKeys()).toEqual(["GET /api/v1/personalities"]);
     expect(screen.getByText("Pirate")).toBeDefined();
   });
 
   it("deletes the confirmed personality and refreshes the list", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     await renderPanel();
 
     const row = await screen.findByTestId(`personality-row-${PIRATE.id}`);
     listState = { personalities: [TERSE], activeId: TERSE.id };
     fireEvent.click(within(row).getByRole("button", { name: "Delete" }));
+    confirmPersonalityDelete();
 
     await waitFor(() => expect(screen.queryByText("Pirate")).toBeNull());
     expect(requestKeys()).toEqual([
@@ -575,7 +580,6 @@ describe("PersonalitySettings", () => {
   });
 
   it("surfaces a delete failure without dropping the row", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     overrides.set(`DELETE /api/v1/personalities/${PIRATE.id}`, () =>
       Promise.reject(new Error("personality is in use"))
     );
@@ -583,8 +587,9 @@ describe("PersonalitySettings", () => {
 
     const row = await screen.findByTestId(`personality-row-${PIRATE.id}`);
     fireEvent.click(within(row).getByRole("button", { name: "Delete" }));
+    confirmPersonalityDelete();
 
-    expect((await screen.findByRole("alert")).textContent).toBe(
+    expect((await screen.findByRole("alert")).textContent).toContain(
       "personality is in use"
     );
     expect(screen.getByText("Pirate")).toBeDefined();

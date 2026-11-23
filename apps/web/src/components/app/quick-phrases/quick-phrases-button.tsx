@@ -28,6 +28,10 @@ import {
   type FillingPhrase,
 } from "./fill-variables-dialog";
 import { PhraseRow } from "./phrase-row";
+import { Alert } from "@/components/ui/alert";
+import { AsyncBoundary } from "@/components/ui/async-boundary";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { toast } from "@/components/ui/toast";
 
 export function QuickPhrasesButton({
   agentId,
@@ -44,7 +48,9 @@ export function QuickPhrasesButton({
   const [filling, setFilling] = useState<FillingPhrase>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const { data } = useQuickPhrases();
+  const phrasesQuery = useQuickPhrases();
+  const { data } = phrasesQuery;
+  const [deleting, setDeleting] = useState<QuickPhrase | null>(null);
   const phrases = useMemo(() => data?.phrases ?? [], [data?.phrases]);
   const filteredPhrases = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -55,11 +61,6 @@ export function QuickPhrasesButton({
     );
   }, [phrases, search]);
 
-  const handleOpenChange = useCallback((nextOpen: boolean) => {
-    setOpen(nextOpen);
-    if (nextOpen) setSearch("");
-  }, []);
-
   const actions = useQuickPhraseActions({
     onSaved: () => setEditing(null),
     onInjected: () => {
@@ -68,6 +69,30 @@ export function QuickPhrasesButton({
       onInjected?.();
     },
   });
+
+  const { reset: resetInject } = actions.injectPhrase;
+  const { reset: resetCreate } = actions.createPhrase;
+  const { reset: resetUpdate } = actions.updatePhrase;
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen);
+      if (nextOpen) {
+        setSearch("");
+        resetInject();
+      } else {
+        setDeleting(null);
+      }
+    },
+    [resetInject]
+  );
+  const startEditing = useCallback(
+    (value: EditingPhrase) => {
+      resetCreate();
+      resetUpdate();
+      setEditing(value);
+    },
+    [resetCreate, resetUpdate]
+  );
 
   const handleInject = useCallback(
     (phrase: QuickPhrase, submit: boolean) => {
@@ -81,9 +106,10 @@ export function QuickPhrasesButton({
     (phrase: QuickPhrase) => {
       if (!canInject) return;
       setOpen(false);
+      resetInject();
       setFilling({ phrase, argValues: templateArgDefaults(phrase.args) });
     },
-    [canInject]
+    [canInject, resetInject]
   );
 
   const handleSelect = useCallback(
@@ -162,8 +188,8 @@ export function QuickPhrasesButton({
             <h4 className="section-label">Quick Phrases</h4>
             <IconButton
               size="icon-sm"
-              label="Add phrase"
-              onClick={() => setEditing({ id: "", label: "", text: "" })}
+              label="New phrase"
+              onClick={() => startEditing({ id: "", label: "", text: "" })}
             >
               <Plus />
             </IconButton>
@@ -186,10 +212,20 @@ export function QuickPhrasesButton({
               />
             </div>
             <CommandList className="max-h-64">
-              {phrases.length === 0 ? (
-                <div className="px-3 py-4 text-center text-body-sm text-muted-foreground">
-                  No phrases yet
-                </div>
+              {!data || phrases.length === 0 ? (
+                <AsyncBoundary
+                  query={phrasesQuery}
+                  thing="phrases"
+                  className="m-2"
+                  isEmpty={() => true}
+                  empty={
+                    <p className="px-3 py-4 text-center text-body-sm text-muted-foreground">
+                      No phrases yet
+                    </p>
+                  }
+                >
+                  {() => null}
+                </AsyncBoundary>
               ) : (
                 <>
                   <CommandEmpty>No matching phrases</CommandEmpty>
@@ -208,15 +244,13 @@ export function QuickPhrasesButton({
                           onInject={(submit) => handleInject(phrase, submit)}
                           onFill={() => handleFill(phrase)}
                           onEdit={() =>
-                            setEditing({
+                            startEditing({
                               id: phrase.id,
                               label: phrase.label ?? "",
                               text: phrase.text,
                             })
                           }
-                          onDelete={() =>
-                            actions.deletePhrase.mutate(phrase.id)
-                          }
+                          onDelete={() => setDeleting(phrase)}
                         />
                       </CommandItem>
                     ))}
@@ -225,6 +259,30 @@ export function QuickPhrasesButton({
               )}
             </CommandList>
           </Command>
+          {actions.injectPhrase.error && !filling ? (
+            <Alert
+              title="Couldn’t send the phrase."
+              error={actions.injectPhrase.error}
+              className="m-2"
+            />
+          ) : null}
+          {/* Inside the popover's tree, so confirming leaves it open. */}
+          <ConfirmDialog
+            open={deleting !== null}
+            onOpenChange={(next) => {
+              if (!next) setDeleting(null);
+            }}
+            returnFocus={searchInputRef}
+            title={`Delete “${deleting?.label || deleting?.text.slice(0, 40) || ""}”?`}
+            description="The phrase is removed for every agent. This cannot be undone."
+            confirmLabel="Delete phrase"
+            errorTitle="Couldn’t delete the phrase."
+            onConfirm={async () => {
+              if (!deleting) return;
+              await actions.deletePhrase.mutateAsync(deleting.id);
+              toast.success("Phrase deleted.");
+            }}
+          />
         </PopoverContent>
       </Popover>
 
@@ -234,6 +292,9 @@ export function QuickPhrasesButton({
         onSave={handleSave}
         onChange={setEditing}
         isSaving={actions.isSaving}
+        error={
+          editing?.id ? actions.updatePhrase.error : actions.createPhrase.error
+        }
         detectedArgs={editingDetectedArgs}
       />
 
@@ -243,6 +304,7 @@ export function QuickPhrasesButton({
         onFillChange={setFilling}
         onInject={handleInjectWithArgs}
         isPending={actions.injectPhrase.isPending}
+        error={actions.injectPhrase.error}
         requiredMissing={fillingRequiredMissing}
       />
     </>

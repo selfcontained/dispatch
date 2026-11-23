@@ -6,8 +6,12 @@ import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
+  DialogCancel,
   DialogContent,
   DialogDescription,
+  DialogFooter,
+  DialogForm,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -15,6 +19,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { IconButton } from "@/components/ui/icon-button";
 import { api } from "@/lib/api";
+import { Alert } from "@/components/ui/alert";
+import { Field } from "@/components/ui/field";
 
 /**
  * Point an agent's workspace at the directory it works in now — a worktree it
@@ -70,9 +76,6 @@ export function ChangeWorkspaceButton({
     setOpen(true);
   };
 
-  const errorMessage =
-    mutation.error instanceof Error ? mutation.error.message : null;
-
   return (
     // The trigger lives inside the Dialog root so closing (Escape, Cancel,
     // Save) returns focus to it.
@@ -86,7 +89,7 @@ export function ChangeWorkspaceButton({
           <FolderInput />
         </IconButton>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent busy={mutation.isPending}>
         <DialogHeader>
           <DialogTitle>Change workspace</DialogTitle>
           <DialogDescription>
@@ -94,8 +97,7 @@ export function ChangeWorkspaceButton({
             it; the agent keeps running where it launched.
           </DialogDescription>
         </DialogHeader>
-        <form
-          className="flex min-h-0 flex-1 flex-col gap-3"
+        <DialogForm
           onSubmit={(event) => {
             event.preventDefault();
             mutation.mutate({
@@ -104,11 +106,8 @@ export function ChangeWorkspaceButton({
             });
           }}
         >
-          {/* Scrolls on short screens so a long error can't push the
-                actions out of reach. */}
-          <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1">
-            <label className="flex flex-col gap-1 text-body-md">
-              <span className="text-muted-foreground">Directory</span>
+          <DialogBody className="flex flex-col gap-3">
+            <Field label="Directory">
               <Input
                 value={path}
                 onChange={(event) => setPath(event.target.value)}
@@ -117,12 +116,8 @@ export function ChangeWorkspaceButton({
                 data-testid="change-workspace-path"
                 autoFocus
               />
-            </label>
-            <label className="flex flex-col gap-1 text-body-md">
-              <span className="text-muted-foreground">
-                Base branch{" "}
-                <span className="text-body-sm">(optional, for the diff)</span>
-              </span>
+            </Field>
+            <Field label="Base branch" optional hint="For the diff.">
               <Input
                 value={baseBranch}
                 onChange={(event) => setBaseBranch(event.target.value)}
@@ -130,49 +125,48 @@ export function ChangeWorkspaceButton({
                 className="font-mono text-body-sm"
                 data-testid="change-workspace-base"
               />
-            </label>
+            </Field>
             {moved ? (
               <p className="text-body-sm text-muted-foreground">
                 Launched in <code className="break-all">{agent.cwd}</code>
               </p>
             ) : null}
-            {errorMessage ? (
-              <p className="break-all text-body-md text-danger" role="alert">
-                {errorMessage}
-              </p>
-            ) : null}
-          </div>
-          <div className="flex shrink-0 flex-wrap justify-end gap-2 pt-1">
-            {moved ? (
-              <Button
-                type="button"
-                variant="ghost"
-                disabled={mutation.isPending}
-                onClick={() =>
-                  mutation.mutate({ path: null, baseBranch: null })
-                }
-                data-testid="change-workspace-reset"
-              >
-                Back to launch directory
-              </Button>
-            ) : null}
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => onOpenChange(false)}
-              disabled={mutation.isPending}
-            >
-              Cancel
-            </Button>
+          </DialogBody>
+          {mutation.error ? (
+            <Alert
+              title="Couldn’t change the workspace."
+              error={mutation.error}
+            />
+          ) : null}
+          <DialogFooter
+            start={
+              moved ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={mutation.isPending}
+                  onClick={() =>
+                    mutation.mutate({ path: null, baseBranch: null })
+                  }
+                  data-testid="change-workspace-reset"
+                >
+                  Back to launch directory
+                </Button>
+              ) : null
+            }
+          >
+            <DialogCancel />
             <Button
               type="submit"
-              disabled={mutation.isPending || !path.trim()}
+              variant="primary"
+              pending={mutation.isPending}
+              disabled={!path.trim()}
               data-testid="change-workspace-save"
             >
-              Save
+              Save workspace
             </Button>
-          </div>
-        </form>
+          </DialogFooter>
+        </DialogForm>
       </DialogContent>
     </Dialog>
   );

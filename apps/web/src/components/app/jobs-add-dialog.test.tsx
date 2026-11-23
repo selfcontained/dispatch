@@ -107,8 +107,10 @@ function addButton(): HTMLButtonElement {
   // While `isAdding` the button also renders ActivityBars, whose aria-label
   // prefixes the accessible name with "Loading". Anchoring the match to the
   // end keeps both states matching while still excluding the dialog's
-  // "Close add job" button.
-  return screen.getByRole("button", { name: /Add job$/ }) as HTMLButtonElement;
+  // dialog's own close button.
+  return screen.getByRole("button", {
+    name: "Create job",
+  }) as HTMLButtonElement;
 }
 
 function scheduleInput(): HTMLInputElement {

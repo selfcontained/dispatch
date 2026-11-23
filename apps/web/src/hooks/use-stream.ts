@@ -415,7 +415,12 @@ export function useStreamFeedSelect<T>(
     }
   ) => T,
   launchReplies: LaunchReplyScope = false
-): { data: T | undefined; isLoading: boolean } {
+): {
+  data: T | undefined;
+  isLoading: boolean;
+  error: Error | null;
+  refetch: () => unknown;
+} {
   const query = useInfiniteQuery<
     StreamFeedResponse,
     Error,
@@ -432,7 +437,12 @@ export function useStreamFeedSelect<T>(
         agentNames: mergeAgentNames(data.pages),
       }),
   });
-  return { data: query.data, isLoading: query.isLoading };
+  return {
+    data: query.data,
+    isLoading: query.isLoading,
+    error: query.error,
+    refetch: query.refetch,
+  };
 }
 
 // ---------------------------------------------------------------------------

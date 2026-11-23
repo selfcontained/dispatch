@@ -13,8 +13,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
+  DialogBody,
+  DialogCancel,
   DialogContent,
   DialogDescription,
+  DialogFooter,
+  DialogForm,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -28,12 +32,9 @@ import {
 import { StatusDot } from "@/components/ui/status-dot";
 import { AssigneeSelect } from "./task-assignee-select";
 import { columnAccent } from "./task-utils";
+import { Alert } from "@/components/ui/alert";
+import { Field } from "@/components/ui/field";
 
-/** Centered on desktop; the whole screen on a phone. */
-export const TASK_DIALOG_MOBILE_SHEET =
-  "max-md:inset-0 max-md:left-0 max-md:top-0 max-md:h-[100dvh] max-md:max-h-none max-md:w-full max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-none";
-
-const LABEL = "block text-body-sm font-medium text-muted-foreground";
 const DESCRIPTION_PLACEHOLDER = `## Deliverable
 What should exist when this is done?
 
@@ -73,7 +74,7 @@ export function TaskCreateDialog({
   const [body, setBody] = useState("");
   const [column, setColumn] = useState("");
   const [assignee, setAssignee] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<unknown>();
   const [saving, setSaving] = useState(false);
   // Created, but the assignment after it failed: retrying only assigns.
   const [created, setCreated] = useState<Task | null>(null);
@@ -87,7 +88,7 @@ export function TaskCreateDialog({
     setBody("");
     setColumn(columnId ?? columns[0]?.id ?? "");
     setAssignee(null);
-    setError(null);
+    setFailure(undefined);
     setCreated(null);
     // Only on opening: a board refetch must not reset the form.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -96,9 +97,7 @@ export function TaskCreateDialog({
   const save = async () => {
     if (!canSave || labelsPendingRef.current) return;
     setSaving(true);
-    setError(null);
-    const message = (err: unknown) =>
-      err instanceof Error ? err.message : String(err);
+    setFailure(undefined);
     let task = created;
     try {
       task ??= await actions.create.mutateAsync({
@@ -116,7 +115,7 @@ export function TaskCreateDialog({
         ...(column ? { columnId: column } : {}),
       });
     } catch (err) {
-      setError(message(err));
+      setFailure(err);
       setSaving(false);
       return;
     }
@@ -129,7 +128,7 @@ export function TaskCreateDialog({
         });
     } catch (err) {
       setCreated(task);
-      setError(`Task created; assigning failed — retry. ${message(err)}`);
+      setFailure(err);
       setSaving(false);
       return;
     }
@@ -157,7 +156,8 @@ export function TaskCreateDialog({
         }}
         onDrop={context.handleStartupDrop}
         data-testid="task-create-dialog"
-        className={`md:w-[min(600px,calc(100vw-2rem))] ${TASK_DIALOG_MOBILE_SHEET} max-md:pt-safe-4`}
+        phone="fill"
+        busy={saving}
       >
         <DialogHeader>
           <DialogTitle>New task</DialogTitle>
@@ -165,9 +165,8 @@ export function TaskCreateDialog({
             Title, description, column and assignee for the new task.
           </DialogDescription>
         </DialogHeader>
-        <form
+        <DialogForm
           ref={formRef}
-          className="-mx-1 -my-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto scroll-p-1 p-1 [&>*]:shrink-0"
           onPaste={(event) => {
             // ContextPicker owns paste inside its own subtree.
             if (
@@ -187,127 +186,125 @@ export function TaskCreateDialog({
             void save();
           }}
         >
-          <div className="space-y-1.5">
-            <label className={LABEL} htmlFor="task-create-title">
-              Title
-            </label>
-            <Input
-              id="task-create-title"
-              autoFocus
-              required
-              placeholder="What needs doing?"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-            />
-          </div>
-          <div className="flex flex-col space-y-1.5">
-            <label className={LABEL} htmlFor="task-create-description">
-              Description
-            </label>
-            <Textarea
-              id="task-create-description"
-              placeholder={DESCRIPTION_PLACEHOLDER}
-              className="min-h-36 resize-none font-mono text-body-md md:min-h-44"
-              value={body}
-              onChange={(event) => setBody(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                  event.preventDefault();
-                  formRef.current?.requestSubmit();
-                }
-              }}
-            />
-          </div>
-          <ContextPicker
-            error={context.attachmentError}
-            files={context.startupFiles}
-            links={context.startupLinks}
-            draggingFiles={context.draggingFiles}
-            filePreviewsRef={context.startupFilePreviewsRef}
-            onAppendFiles={context.appendStartupFiles}
-            onRemoveFile={context.handleRemoveStartupFile}
-            onAddLink={context.handleAddLink}
-            onRemoveLink={context.handleRemoveStartupLink}
-            testIdPrefix="task-context"
-          />
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <label className={LABEL} htmlFor="task-create-column">
-                Column
-              </label>
-              <Select value={column} onValueChange={setColumn}>
-                <SelectTrigger id="task-create-column" aria-label="Column">
-                  <SelectValue placeholder="Choose a column" />
-                </SelectTrigger>
-                <SelectContent>
-                  {columns.map((item, index) => (
-                    <SelectItem key={item.id} value={item.id}>
-                      <span className="flex items-center gap-2">
-                        <StatusDot
-                          color={`hsl(${columnAccent(item, index)})`}
-                        />
-                        {item.name}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <span className={LABEL}>Assignee</span>
-              <AssigneeSelect
-                value={assignee}
-                agents={agents}
-                projectId={projectId}
-                onChange={setAssignee}
-                className="h-9 max-w-none border-input bg-transparent text-body-md"
+          <DialogBody className="space-y-4">
+            <Field label="Title" id="task-create-title">
+              <Input
+                autoFocus
+                required
+                placeholder="What needs doing?"
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
               />
+            </Field>
+            <Field label="Description" id="task-create-description">
+              <Textarea
+                placeholder={DESCRIPTION_PLACEHOLDER}
+                className="min-h-36 resize-none font-mono text-body-md md:min-h-44"
+                value={body}
+                onChange={(event) => setBody(event.target.value)}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === "Enter" &&
+                    (event.metaKey || event.ctrlKey)
+                  ) {
+                    event.preventDefault();
+                    formRef.current?.requestSubmit();
+                  }
+                }}
+              />
+            </Field>
+            <ContextPicker
+              error={context.attachmentError}
+              files={context.startupFiles}
+              links={context.startupLinks}
+              draggingFiles={context.draggingFiles}
+              filePreviewsRef={context.startupFilePreviewsRef}
+              onAppendFiles={context.appendStartupFiles}
+              onRemoveFile={context.handleRemoveStartupFile}
+              onAddLink={context.handleAddLink}
+              onRemoveLink={context.handleRemoveStartupLink}
+              testIdPrefix="task-context"
+            />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Column" id="task-create-column">
+                <Select value={column} onValueChange={setColumn}>
+                  <SelectTrigger aria-label="Column">
+                    <SelectValue placeholder="Choose a column" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {columns.map((item, index) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        <span className="flex items-center gap-2">
+                          <StatusDot
+                            color={`hsl(${columnAccent(item, index)})`}
+                          />
+                          {item.name}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Assignee">
+                <AssigneeSelect
+                  value={assignee}
+                  agents={agents}
+                  projectId={projectId}
+                  onChange={setAssignee}
+                  className="h-9 max-w-none border-input bg-transparent text-body-md"
+                />
+              </Field>
             </div>
-          </div>
-          <TaskLabelPicker
-            key={`${projectId}:${columnId ?? ""}:${open}`}
-            onPendingChange={onLabelsPendingChange}
-            projectId={projectId}
-            value={labels}
-            onChange={setLabels}
-            disabled={saving || !!created}
-          />
-          {columns.some((c) => c.trigger) && (
-            <TaskLaunchTemplatePicker
-              key={open ? "open" : "closed"}
+            <TaskLabelPicker
+              key={`${projectId}:${columnId ?? ""}:${open}`}
+              onPendingChange={onLabelsPendingChange}
               projectId={projectId}
-              value={launchTemplateId}
-              onChange={setLaunchTemplateId}
+              value={labels}
+              onChange={setLabels}
               disabled={saving || !!created}
             />
-          )}
-          {error && (
-            <p role="alert" className="text-body-md text-danger">
-              {error}
-            </p>
-          )}
-          <div className="mt-auto flex items-center justify-end gap-2 pb-safe">
-            <span className="mr-auto hidden text-body-sm text-muted-foreground md:inline">
-              ⌘↵ to create from the description
-            </span>
+            {columns.some((c) => c.trigger) && (
+              <TaskLaunchTemplatePicker
+                key={open ? "open" : "closed"}
+                projectId={projectId}
+                value={launchTemplateId}
+                onChange={setLaunchTemplateId}
+                disabled={saving || !!created}
+              />
+            )}
+          </DialogBody>
+          {failure ? (
+            <Alert
+              title={
+                created
+                  ? "Task created. Couldn’t assign it."
+                  : "Couldn’t create the task."
+              }
+              error={failure}
+            />
+          ) : null}
+          <DialogFooter
+            start={
+              <span className="hidden text-body-sm text-muted-foreground md:inline">
+                ⌘↵ to create from the description
+              </span>
+            }
+          >
+            <DialogCancel />
             <Button
-              type="button"
-              variant="ghost"
-              onClick={() => changeOpen(false)}
+              type="submit"
+              variant="primary"
+              disabled={!canSave}
+              pending={saving}
             >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={!canSave}>
               {labelsPending
                 ? "Restoring label…"
-                : saving
-                  ? "Creating…"
-                  : created
-                    ? "Retry assignment"
-                    : "Create task"}
+                : created
+                  ? "Retry assignment"
+                  : "Create task"}
             </Button>
-          </div>
-        </form>
+          </DialogFooter>
+        </DialogForm>
       </DialogContent>
     </Dialog>
   );

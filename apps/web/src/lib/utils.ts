@@ -34,6 +34,7 @@ const twMerge = extendTailwindMerge({
           ],
         },
       ],
+      "max-w": [{ "max-w": ["page", "reading"] }],
       size: [{ size: ["icon-sm", "icon-md", "icon-lg"] }],
       "font-size": [
         {

@@ -15,6 +15,11 @@ import type { AgentCardProps } from "./agent-card";
 import { AgentListContent, type AgentListContentProps } from "./agent-sidebar";
 import { agentSidebarOrderAtom, agentSidebarPinsAtom } from "@/lib/store";
 
+// The empty list observes the agents request to tell failed from none.
+vi.mock("@tanstack/react-query", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@tanstack/react-query")>()),
+  useQuery: () => ({ data: [], error: null, isFetching: false }),
+}));
 vi.mock("./project-switcher", () => ({
   ProjectSwitcher: () => <span>Project scope</span>,
 }));

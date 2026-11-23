@@ -149,11 +149,6 @@ function renderContent(overrides: Partial<ContentProps> = {}) {
     onLogout: vi.fn(),
     theme: "cool-navy",
     setTheme: vi.fn(),
-    iconColor: "blue",
-    setIconColor: vi.fn(),
-    isIconColorSaving: false,
-    iconColorError: null,
-    clearIconColorError: vi.fn(),
     enabledAgentTypes: ["claude"],
     onEnabledAgentTypesChange: vi.fn(),
     enabledIdes: ["vscode"],
@@ -307,24 +302,17 @@ describe("SettingsContent", () => {
     (lastProps("SecuritySettings")!.onLogout as () => void)();
 
     expect(props.onLogout).toHaveBeenCalledTimes(1);
-    expect(props.clearIconColorError).not.toHaveBeenCalled();
   });
 
-  it("hands the icon-colour reset and its error to the appearance panel", () => {
-    const { props } = renderContent({
-      activeSection: "general",
-      iconColorError: "could not save",
-      isIconColorSaving: true,
-    });
+  it("hands the theme to the appearance panel", () => {
+    const { props } = renderContent({ activeSection: "general" });
 
-    expect(lastProps("AppearanceSettings")!.iconColorError).toBe(
-      "could not save"
+    expect(lastProps("AppearanceSettings")!.theme).toBe("cool-navy");
+    (lastProps("AppearanceSettings")!.setTheme as (id: string) => void)(
+      "daylight"
     );
-    expect(lastProps("AppearanceSettings")!.isIconColorSaving).toBe(true);
-    (lastProps("AppearanceSettings")!.clearIconColorError as () => void)();
 
-    expect(props.clearIconColorError).toHaveBeenCalledTimes(1);
-    expect(props.onLogout).not.toHaveBeenCalled();
+    expect(props.setTheme).toHaveBeenCalledWith("daylight");
   });
 
   it("hands each enablement list to the panel that owns it", () => {
@@ -392,7 +380,6 @@ describe("SettingsContent", () => {
     });
 
     expect(lastProps("DocsContent")!.initialSection).toBe("worktrees");
-    expect(lastProps("DocsContent")!.title).toBe("Help & Docs");
 
     (lastProps("DocsContent")!.onSectionChange as (s: string) => void)(
       "personas"
@@ -401,34 +388,42 @@ describe("SettingsContent", () => {
     expect(props.onSubsectionChange).toHaveBeenCalledWith("personas");
   });
 
-  it("lets the docs pane own its height instead of scrolling as a page", () => {
-    const { rerender, props } = renderContent({ activeSection: "help" });
-    const docsScroller = screen.getByTestId("stub-DocsContent").parentElement!;
+  it.each([
+    ["general", "General"],
+    ["agents", "Agents"],
+    ["workspace", "Workspace"],
+    ["security", "Security"],
+    ["connections", "Connections"],
+    ["notifications", "Notifications"],
+    ["updates", "Updates"],
+    ["help", "Help"],
+  ] as Array<[SettingsSection, string]>)(
+    "heads the %s page with the shared header over contained content",
+    (activeSection, title) => {
+      renderContent({ activeSection });
 
-    expect(docsScroller.className).toContain("overflow-hidden");
-
-    rerender(<SettingsContent {...props} activeSection="notifications" />);
-
-    expect(
-      screen.getByTestId("stub-NotificationSettings").parentElement!.className
-    ).not.toContain("overflow-hidden");
-  });
+      expect(
+        screen.getByRole("heading", { level: 1, name: new RegExp(title) })
+      ).toBeTruthy();
+      expect(
+        document.querySelectorAll('[data-page-content="contained"]')
+      ).toHaveLength(1);
+    }
+  );
 
   it("starts each section at the top rather than inheriting the last scroll", () => {
     const { rerender, props } = renderContent({
       activeSection: "notifications",
     });
-    screen.getByTestId("stub-NotificationSettings").parentElement!.scrollTop =
-      500;
+    const scroller = () =>
+      document.querySelector('[data-page-content="contained"]')!;
+    scroller().scrollTop = 500;
 
     rerender(<SettingsContent {...props} activeSection="connections" />);
 
     // The scroll container is keyed by section, so switching hands over a
     // fresh element; reusing it would carry the previous section's offset.
-    expect(
-      screen.getByTestId("stub-BrowserExtensionSettings").parentElement!
-        .scrollTop
-    ).toBe(0);
+    expect(scroller().scrollTop).toBe(0);
   });
 
   it("keeps the Releases admin panel away from non-admins", () => {

@@ -1,4 +1,3 @@
-import { useId } from "react";
 import { useTaskPersonas } from "@/hooks/use-task-personas";
 import {
   Select,
@@ -7,6 +6,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Field } from "@/components/ui/field";
 
 export function AgentPersonaSelect({
   cwd,
@@ -19,7 +19,6 @@ export function AgentPersonaSelect({
   value: string | null;
   onChange: (value: string | null) => void;
 }) {
-  const id = useId();
   const { data, isLoading, isError, isSuccess } = useTaskPersonas(
     cwd,
     projectId
@@ -27,10 +26,7 @@ export function AgentPersonaSelect({
   const personas = data?.personas ?? [];
   const selected = personas.find((p) => p.slug === value);
   return (
-    <div className="min-w-0 space-y-1">
-      <label htmlFor={id} className="text-body-md text-muted-foreground">
-        Persona <span className="text-faint">(optional)</span>
-      </label>
+    <Field label="Persona" optional>
       <Select
         value={value ?? "__none__"}
         onValueChange={(next) => {
@@ -40,7 +36,6 @@ export function AgentPersonaSelect({
         }}
       >
         <SelectTrigger
-          id={id}
           aria-label="Persona"
           className={!value ? "text-muted-foreground" : undefined}
         >
@@ -57,7 +52,7 @@ export function AgentPersonaSelect({
                 : isLoading || data?.refreshing
                   ? "Loading personas…"
                   : isError
-                    ? "Could not load personas"
+                    ? "Couldn’t load personas"
                     : "No task personas available"}
             </SelectItem>
           )}
@@ -83,6 +78,6 @@ export function AgentPersonaSelect({
           ))}
         </SelectContent>
       </Select>
-    </div>
+    </Field>
   );
 }

@@ -1,6 +1,7 @@
 import { MessageCircleQuestion } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Hint } from "@/components/ui/tooltip";
 import { useStreamFeedSelect } from "@/hooks/use-stream";
 import { isOpenInput } from "@/hooks/use-inbox";
 import { useJumpToTurn } from "@/hooks/use-block-jump";
@@ -25,27 +26,29 @@ export function PendingInputsButton({
   if (!agentId || inputs.length === 0) return null;
   const label = `${inputs.length} open ${inputs.length === 1 ? inputs[0]!.kind : "questions or forms"}. Jump to next`;
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="stream-sm"
-      className="h-8 text-primary shrink-0 gap-1 px-2 text-body-sm max-sm:min-h-11 [@media(pointer:coarse)]:min-h-11"
-      aria-label={label}
-      title={label}
-      data-testid="chat-pending-inputs"
-      onClick={() => {
-        const next =
-          inputs[
-            (inputs.findIndex((input) => input.id === lastId) + 1) %
-              inputs.length
-          ]!;
-        setLastId(next.id);
-        jump(agentId, { blockId: next.id, threadId: null }, "smooth");
-      }}
-    >
-      <MessageCircleQuestion className="h-3.5 w-3.5" />
-      <span>{inputs.length}</span>
-      <span className="hidden md:inline">to answer</span>
-    </Button>
+    <Hint label={label}>
+      <Button
+        type="button"
+        variant="ghost"
+        tone="primary"
+        size="xs"
+        className="shrink-0"
+        aria-label={label}
+        data-testid="chat-pending-inputs"
+        onClick={() => {
+          const next =
+            inputs[
+              (inputs.findIndex((input) => input.id === lastId) + 1) %
+                inputs.length
+            ]!;
+          setLastId(next.id);
+          jump(agentId, { blockId: next.id, threadId: null }, "smooth");
+        }}
+      >
+        <MessageCircleQuestion aria-hidden="true" />
+        <span>{inputs.length}</span>
+        <span className="hidden md:inline">to answer</span>
+      </Button>
+    </Hint>
   );
 }

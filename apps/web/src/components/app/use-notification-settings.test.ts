@@ -99,7 +99,7 @@ describe("useNotificationSettings — initial load", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.webNotifyEnabled).toBe(false);
     expect(result.current.webNotifyEvents).toEqual(ALL_EVENTS);
-    expect(result.current.webError).toBe("");
+    expect(result.current.saveStatus("enabled").state).toBe("idle");
   });
 });
 
@@ -119,11 +119,8 @@ describe("useNotificationSettings — browser notification toggles", () => {
       webNotifyEvents: ["waiting_user"],
     });
     expect(result.current.webNotifyEnabled).toBe(true);
-    expect(result.current.webMessage).toBe(
-      "Browser notification settings saved."
-    );
-    expect(result.current.webError).toBe("");
-    expect(result.current.saving).toBe(false);
+    expect(result.current.saveStatus("enabled").state).toBe("saved");
+    expect(result.current.saveStatus("enabled").error).toBeUndefined();
   });
 
   it("rolls the enable toggle back to the saved value when the save fails", async () => {
@@ -134,17 +131,14 @@ describe("useNotificationSettings — browser notification toggles", () => {
     const pending = deferred<NotificationSettingsResponse>();
     apiMock.mockReturnValueOnce(pending.promise);
 
-    // Toggle in its own act() so the optimistic render commits and the ref
-    // sync runs before the failure lands. That is what makes the rollback
-    // target meaningful: webNotifyEnabledRef now holds the optimistic `true`,
-    // so rolling back to savedWebEnabledRef (`false`) is observably different
-    // from rolling back to the current value.
+    // Toggle in its own act() so the optimistic render commits before the
+    // failure lands, and rolling back is observably different from a no-op.
     let call!: Promise<void>;
     act(() => {
       call = result.current.toggleWebNotifyEnabled(true);
     });
     expect(result.current.webNotifyEnabled).toBe(true);
-    expect(result.current.saving).toBe(true);
+    expect(result.current.saveStatus("enabled").state).toBe("saving");
 
     await act(async () => {
       pending.reject(new Error("disk full"));
@@ -153,9 +147,9 @@ describe("useNotificationSettings — browser notification toggles", () => {
 
     expect(result.current.webNotifyEnabled).toBe(false);
     expect(result.current.webNotifyEvents).toEqual(["waiting_user"]);
-    expect(result.current.webError).toBe("disk full");
-    expect(result.current.webMessage).toBe("");
-    expect(result.current.saving).toBe(false);
+    const status = result.current.saveStatus("enabled");
+    expect(status.state).toBe("failed");
+    expect(status.error).toEqual(new Error("disk full"));
   });
 
   it("persists an event toggle without changing the enabled flag", async () => {
@@ -193,8 +187,8 @@ describe("useNotificationSettings — browser notification toggles", () => {
     act(() => {
       call = result.current.toggleWebEvent("waiting_user");
     });
-    // Optimistic removal is visible, and webNotifyEventsRef has been synced to
-    // it, so restoring savedWebEventsRef is distinguishable from a no-op.
+    // Optimistic removal is visible, so restoring the saved set is
+    // distinguishable from a no-op.
     expect(result.current.webNotifyEvents).toEqual([]);
 
     await act(async () => {
@@ -204,136 +198,92 @@ describe("useNotificationSettings — browser notification toggles", () => {
 
     expect(result.current.webNotifyEvents).toEqual(["waiting_user"]);
     expect(result.current.webNotifyEnabled).toBe(true);
-    expect(result.current.webError).toBe("nope");
-    expect(result.current.saving).toBe(false);
+    expect(result.current.saveStatus("waiting_user").error).toEqual(
+      new Error("nope")
+    );
   });
 
-  /**
-   * Start two overlapping saves the way a user produces them: enable browser
-   * notifications, then toggle an event while the first POST is still in
-   * flight. The two toggles go in separate act() calls so the ref-sync effect
-   * commits in between — exactly as it would between two real clicks. Doing
-   * both in one act() would leave `webNotifyEnabledRef` stale and make the
-   * second request post `webNotifyEnabled: false`, which is not a state the UI
-   * can actually reach.
-   */
+  /** Enable, then pick an event while that first POST is still in flight. */
   async function startOverlappingSaves(
     result: { current: ReturnType<typeof useNotificationSettings> },
-    older: ReturnType<typeof deferred<NotificationSettingsResponse>>,
-    newer: ReturnType<typeof deferred<NotificationSettingsResponse>>
+    first: ReturnType<typeof deferred<NotificationSettingsResponse>>,
+    second: ReturnType<typeof deferred<NotificationSettingsResponse>>
   ) {
     apiMock
-      .mockReturnValueOnce(older.promise)
-      .mockReturnValueOnce(newer.promise);
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
 
-    let first!: Promise<void>;
-    let second!: Promise<void>;
-    act(() => {
-      first = result.current.toggleWebNotifyEnabled(true);
+    let enable!: Promise<void>;
+    let pick!: Promise<void>;
+    await act(async () => {
+      enable = result.current.toggleWebNotifyEnabled(true);
     });
-    act(() => {
-      second = result.current.toggleWebEvent("blocked");
+    await act(async () => {
+      pick = result.current.toggleWebEvent("blocked");
     });
 
-    // Both requests carry the enabled flag the user actually set; the newer one
-    // builds on the older one's optimistic state rather than reverting it.
-    expect(postBody(1)).toEqual({
-      webNotifyEnabled: true,
-      webNotifyEvents: ["waiting_user"],
+    // Both show at once; only the first is sent until it settles, so the two
+    // can never land out of order.
+    expect(result.current.webNotifyEnabled).toBe(true);
+    expect(result.current.webNotifyEvents).toEqual(["waiting_user", "blocked"]);
+    expect(apiMock).toHaveBeenCalledTimes(2);
+    return { enable, pick };
+  }
+
+  it("builds a queued save on what the one before it saved", async () => {
+    const { result } = await renderLoaded(settings());
+    const first = deferred<NotificationSettingsResponse>();
+    const second = deferred<NotificationSettingsResponse>();
+    const { enable, pick } = await startOverlappingSaves(result, first, second);
+
+    await act(async () => {
+      first.resolve(settings({ webNotifyEnabled: true }));
+      await enable;
     });
     expect(postBody(2)).toEqual({
       webNotifyEnabled: true,
       webNotifyEvents: ["waiting_user", "blocked"],
     });
-    return { first, second };
-  }
-
-  const WON: NotificationSettingsResponse = settings({
-    webNotifyEnabled: true,
-    webNotifyEvents: ["waiting_user", "blocked"],
-  });
-  const SUPERSEDED: NotificationSettingsResponse = settings({
-    webNotifyEnabled: false,
-    webNotifyEvents: [],
-  });
-
-  it("keeps saving true when a superseded response lands while a newer save is in flight", async () => {
-    const { result } = await renderLoaded(
-      settings({ webNotifyEnabled: false, webNotifyEvents: ["waiting_user"] })
-    );
-
-    const older = deferred<NotificationSettingsResponse>();
-    const newer = deferred<NotificationSettingsResponse>();
-    const { first, second } = await startOverlappingSaves(result, older, newer);
-
-    // The superseded request settles first: it must neither apply its payload
-    // nor drop the saving flag while the newer request is still outstanding.
-    await act(async () => {
-      older.resolve(SUPERSEDED);
-      await first;
-    });
-    expect(result.current.saving).toBe(true);
-    expect(result.current.webNotifyEnabled).toBe(true);
-    expect(result.current.webNotifyEvents).toEqual(["waiting_user", "blocked"]);
-    expect(result.current.webMessage).toBe("");
+    expect(result.current.saveStatus("blocked").state).toBe("saving");
 
     await act(async () => {
-      newer.resolve(WON);
-      await second;
+      second.resolve(
+        settings({
+          webNotifyEnabled: true,
+          webNotifyEvents: ["waiting_user", "blocked"],
+        })
+      );
+      await pick;
     });
-    expect(result.current.saving).toBe(false);
     expect(result.current.webNotifyEvents).toEqual(["waiting_user", "blocked"]);
+    expect(result.current.saveStatus("blocked").state).toBe("saved");
   });
 
-  it("ignores a slow response that lands after a newer save already won", async () => {
-    const { result } = await renderLoaded(
-      settings({ webNotifyEnabled: false, webNotifyEvents: ["waiting_user"] })
-    );
+  it("rolls back only the failed setting when another is queued behind it", async () => {
+    const { result } = await renderLoaded(settings());
+    const first = deferred<NotificationSettingsResponse>();
+    const second = deferred<NotificationSettingsResponse>();
+    const { enable, pick } = await startOverlappingSaves(result, first, second);
 
-    const older = deferred<NotificationSettingsResponse>();
-    const newer = deferred<NotificationSettingsResponse>();
-    const { first, second } = await startOverlappingSaves(result, older, newer);
-
-    // The newer request settles first and wins.
     await act(async () => {
-      newer.resolve(WON);
-      await second;
+      first.reject(new Error("offline"));
+      await enable;
     });
+    // The queued save doesn't carry the change that failed.
+    expect(postBody(2)).toEqual({
+      webNotifyEnabled: false,
+      webNotifyEvents: ["waiting_user", "blocked"],
+    });
+
+    await act(async () => {
+      second.resolve(
+        settings({ webNotifyEvents: ["waiting_user", "blocked"] })
+      );
+      await pick;
+    });
+    expect(result.current.webNotifyEnabled).toBe(false);
     expect(result.current.webNotifyEvents).toEqual(["waiting_user", "blocked"]);
-    expect(result.current.saving).toBe(false);
-
-    // The stale response must not clobber it, or re-enter the saving state.
-    await act(async () => {
-      older.resolve(SUPERSEDED);
-      await first;
-    });
-    expect(result.current.webNotifyEnabled).toBe(true);
-    expect(result.current.webNotifyEvents).toEqual(["waiting_user", "blocked"]);
-    expect(result.current.saving).toBe(false);
-  });
-
-  it("does not roll back when a stale save rejects after a newer one won", async () => {
-    const { result } = await renderLoaded(
-      settings({ webNotifyEnabled: false, webNotifyEvents: ["waiting_user"] })
-    );
-
-    const older = deferred<NotificationSettingsResponse>();
-    const newer = deferred<NotificationSettingsResponse>();
-    const { first, second } = await startOverlappingSaves(result, older, newer);
-
-    await act(async () => {
-      newer.resolve(WON);
-      await second;
-    });
-
-    await act(async () => {
-      older.reject(new Error("stale failure"));
-      await first;
-    });
-
-    expect(result.current.webError).toBe("");
-    expect(result.current.webNotifyEnabled).toBe(true);
-    expect(result.current.webNotifyEvents).toEqual(["waiting_user", "blocked"]);
+    expect(result.current.saveStatus("enabled").state).toBe("failed");
   });
 });
 

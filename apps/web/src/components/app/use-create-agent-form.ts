@@ -25,7 +25,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { toast } from "sonner";
 
 import {
   createClipboardSuggestionFromText,
@@ -223,6 +222,7 @@ export function useCreateAgentForm({
   } = useStartupAttachments();
   const [contextDraftInvalid, setContextDraftInvalid] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [submitError, setSubmitError] = useState<unknown>();
   const {
     history: cwdHistory,
     removableHistory: removableCwdHistory,
@@ -492,6 +492,7 @@ export function useCreateAgentForm({
   }, []);
 
   const enterContextStep = useCallback(() => {
+    setSubmitError(undefined);
     setStep("context");
   }, []);
 
@@ -503,6 +504,7 @@ export function useCreateAgentForm({
         return;
 
       setCreating(true);
+      setSubmitError(undefined);
       try {
         const latestPathInfo = validatedCwdRef.current;
         const repositoryUrl = managedSession ? repository.trim() : "";
@@ -589,9 +591,7 @@ export function useCreateAgentForm({
         if (!remote) addCwdHistory(cwd);
         await onCreated(payload.agent, createType);
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Failed to create agent.";
-        toast.error(message);
+        setSubmitError(err ?? new Error("The agent wasn’t created."));
       } finally {
         setCreating(false);
       }
@@ -647,6 +647,7 @@ export function useCreateAgentForm({
     selectRunner,
     runnerWorkspace,
     setRunnerWorkspace,
+    submitError,
     createProjectId,
     locationReady:
       locationReady && !runnerEnginesLoading && !runnerEngineBlocked,

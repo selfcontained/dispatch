@@ -6,7 +6,7 @@ turns are never submitted. Explicit template, task and caller names are preserve
 
 The existing Dispatch AI master switch and saved routing API key apply. Routing,
 steering and merge-risk feature switches are independent of the Session naming
-checkbox. Session naming must be enabled; existing installations with no saved
+switch. Session naming must be enabled; existing installations with no saved
 choice start off. First API-key setup enables it alongside the other features.
 Turning Dispatch AI off or removing the key suspends naming while retaining its
 saved preference.

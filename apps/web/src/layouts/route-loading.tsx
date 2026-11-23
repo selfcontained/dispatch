@@ -1,7 +1,6 @@
-import { LoaderCircle } from "lucide-react";
 import { useNavigation } from "react-router-dom";
-
-import { Button } from "@/components/ui/button";
+import { Alert } from "@/components/ui/alert";
+import { Spinner } from "@/components/ui/spinner";
 
 export function RouteLoading(): JSX.Element {
   return (
@@ -9,7 +8,7 @@ export function RouteLoading(): JSX.Element {
       className="flex min-h-screen items-center justify-center gap-2 bg-background text-muted-foreground"
       role="status"
     >
-      <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+      <Spinner className="size-icon-lg" />
       Loading section…
     </div>
   );
@@ -25,7 +24,7 @@ export function RoutePendingIndicator(): JSX.Element | null {
       role="status"
     >
       <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-body-md text-muted-foreground shadow-md">
-        <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+        <Spinner className="size-icon-lg" />
         Loading section…
       </div>
     </div>
@@ -34,15 +33,17 @@ export function RoutePendingIndicator(): JSX.Element | null {
 
 export function RouteLoadError(): JSX.Element {
   return (
-    <div
-      className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background p-6 text-foreground"
-      role="alert"
-    >
-      <p>This section couldn’t be loaded.</p>
-      <p className="text-center text-body-md text-muted-foreground">
+    <div className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
+      <Alert
+        title="Couldn’t load the section."
+        className="w-full max-w-sm"
+        action={{
+          label: "Reload page",
+          onClick: () => window.location.reload(),
+        }}
+      >
         Check your connection, then reload to try again.
-      </p>
-      <Button onClick={() => window.location.reload()}>Reload page</Button>
+      </Alert>
     </div>
   );
 }

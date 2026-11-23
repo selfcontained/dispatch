@@ -21,15 +21,16 @@ import { ServiceStatus } from "@/components/app/service-status";
 import { ServiceResourcesSettings } from "@/components/app/service-resources-settings";
 import { type ServiceState } from "@/components/app/types";
 import { WorktreeLocationSettings } from "@/components/app/worktree-location-settings";
-import { type IconColorId } from "@/hooks/use-icon-color";
 import { useReleaseStream } from "@/hooks/use-release-stream";
 import { type ThemeId } from "@/hooks/use-theme";
 import { type AgentType } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
+import { SettingsPage } from "@/components/app/settings-layout";
 import { type SettingsSection } from "@/components/app/settings-state";
 import { cn } from "@/lib/utils";
 import { RowButton } from "@/components/ui/row-button";
 import { type StatusDotTone } from "@/components/ui/status-dot";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
 
 const UpdatePreview = import.meta.env.DEV
   ? lazy(() => import("./update-preview"))
@@ -129,11 +130,6 @@ export function SettingsContent({
   onLogout,
   theme,
   setTheme,
-  iconColor,
-  setIconColor,
-  isIconColorSaving,
-  iconColorError,
-  clearIconColorError,
   enabledAgentTypes,
   onEnabledAgentTypesChange,
   enabledIdes,
@@ -143,14 +139,9 @@ export function SettingsContent({
   isAdmin,
 }: {
   activeSection: SettingsSection | null;
-  onLogout: () => void;
+  onLogout: () => void | Promise<void>;
   theme: ThemeId;
   setTheme: (id: ThemeId) => void;
-  iconColor: IconColorId;
-  setIconColor: (id: IconColorId) => void;
-  isIconColorSaving: boolean;
-  iconColorError: string | null;
-  clearIconColorError: () => void;
   enabledAgentTypes: AgentType[];
   onEnabledAgentTypesChange: (agentTypes: AgentType[]) => void;
   enabledIdes: IdeType[];
@@ -171,78 +162,69 @@ export function SettingsContent({
   const updateStream = useReleaseStream("update");
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
+      {/* Keyed by page, so each starts at its top. */}
       <div
-        key={activeSection}
-        className={cn(
-          "min-h-0 min-w-0 flex-1 overflow-y-auto",
-          activeSection === "help" && "flex overflow-hidden"
-        )}
+        key={
+          activeSection === "help"
+            ? `help/${initialSubsection ?? ""}`
+            : activeSection
+        }
+        className="flex min-h-0 min-w-0 flex-1 flex-col"
       >
         {activeSection === "general" && (
-          <div className="flex flex-col">
-            <div className="p-4 md:p-6">
-              <InstanceNameSettings />
-            </div>
-            <div className="border-t border-border">
-              <UserAvatarSettings />
-            </div>
-            <div className="border-t border-border">
-              <AppearanceSettings
-                theme={theme}
-                setTheme={setTheme}
-                iconColor={iconColor}
-                setIconColor={setIconColor}
-                isIconColorSaving={isIconColorSaving}
-                iconColorError={iconColorError}
-                clearIconColorError={clearIconColorError}
-              />
-            </div>
-          </div>
+          <SettingsPage page="general">
+            <InstanceNameSettings />
+            <UserAvatarSettings />
+            <AppearanceSettings theme={theme} setTheme={setTheme} />
+          </SettingsPage>
         )}
         {activeSection === "agents" && (
-          <div className="flex flex-col">
+          <SettingsPage page="agents">
             <AgentTypeSettings
               enabledAgentTypes={enabledAgentTypes}
               onChange={onEnabledAgentTypesChange}
             />
             <EngineSignInSettings />
-            <div className="border-t border-border">
-              <RoutingSettings />
-            </div>
-            <div className="border-t border-border">
-              <PersonalitySettings />
-            </div>
-          </div>
+            <RoutingSettings />
+            <PersonalitySettings />
+          </SettingsPage>
         )}
         {activeSection === "workspace" && (
-          <div className="flex flex-col">
-            <div>
-              <IdeSettings
-                enabledIdes={enabledIdes}
-                onChange={onEnabledIdesChange}
-              />
-            </div>
-            <div className="px-6 pb-6">
-              <WorktreeLocationSettings />
-            </div>
-          </div>
+          <SettingsPage page="workspace">
+            <IdeSettings
+              enabledIdes={enabledIdes}
+              onChange={onEnabledIdesChange}
+            />
+            <WorktreeLocationSettings />
+          </SettingsPage>
         )}
         {activeSection === "security" && (
-          <SecuritySettings onLogout={onLogout} />
+          <SettingsPage page="security">
+            <SecuritySettings onLogout={onLogout} />
+          </SettingsPage>
         )}
-        {activeSection === "notifications" && <NotificationSettings />}
-        {activeSection === "connections" && <BrowserExtensionSettings />}
+        {activeSection === "notifications" && (
+          <SettingsPage page="notifications">
+            <NotificationSettings />
+          </SettingsPage>
+        )}
+        {activeSection === "connections" && (
+          <SettingsPage page="connections">
+            <BrowserExtensionSettings />
+          </SettingsPage>
+        )}
         {activeSection === "runners" && <RunnerSettings />}
+        {/* Its header holds the history window, so it draws its own. */}
         {activeSection === "resources" && <ServiceResourcesSettings />}
         {activeSection === "updates" && (
-          <div className="flex flex-col">
+          <SettingsPage page="updates">
             {UpdatePreview &&
             new URLSearchParams(window.location.search).has(
               "simulateUpdate"
             ) ? (
               <Suspense
-                fallback={<div className="p-6">Loading update preview…</div>}
+                fallback={<LoadingSkeleton label="Loading update preview…" />}
               >
                 <UpdatePreview />
               </Suspense>
@@ -250,16 +232,21 @@ export function SettingsContent({
               <UpdatesSection stream={updateStream} />
             )}
             <PluginUpdateSettings />
-          </div>
+          </SettingsPage>
         )}
         {activeSection === "help" && (
-          <DocsContent
-            title="Help & Docs"
-            initialSection={initialSubsection}
-            onSectionChange={onSubsectionChange}
-          />
+          <SettingsPage page="help">
+            <DocsContent
+              initialSection={initialSubsection}
+              onSectionChange={onSubsectionChange}
+            />
+          </SettingsPage>
         )}
-        {activeSection === "releases" && isAdmin && <ReleasesAdmin />}
+        {activeSection === "releases" && isAdmin && (
+          <SettingsPage page="releases">
+            <ReleasesAdmin />
+          </SettingsPage>
+        )}
       </div>
     </div>
   );

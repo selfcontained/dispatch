@@ -309,7 +309,7 @@ export function TaskConversation({
             ref={scrollRef}
             onScroll={onScroll}
             data-testid="task-conversation-scroll"
-            className="stream-surfaces-flat min-h-0 flex-1 overflow-y-auto overscroll-contain py-2"
+            className="stream-surfaces-flat min-h-0 flex-1 overflow-y-auto overscroll-contain py-2 [container:post-column/inline-size]"
           >
             <div ref={contentRef}>
               {feed.error ? (

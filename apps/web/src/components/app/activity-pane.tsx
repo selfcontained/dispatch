@@ -9,7 +9,12 @@ import {
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { AgentHistoryTab } from "@/components/app/agent-history-tab";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { PageContent, PageHeader } from "@/components/ui/page-header";
+import {
+  ChartFrame,
+  DashboardSection,
+  StatGrid,
+} from "@/components/ui/dashboard";
 import {
   Select,
   SelectContent,
@@ -17,14 +22,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { LoadError } from "@/components/app/load-error";
-import { ActivityBars } from "@/components/ui/activity-bars";
 import {
   formatCount,
   formatLongDate,
   formatShortDate,
   formatTokenCount,
 } from "@/lib/format";
+import { Panel } from "@/components/ui/card";
 import { StatCard } from "@/components/app/stat-card";
 import {
   ACTIVITY_RANGES,
@@ -42,6 +46,9 @@ import {
   ProjectBreakdown,
 } from "@/components/app/activity-breakdowns";
 import type { TokenStats } from "@/hooks/use-activity";
+import { AsyncBoundary, combineResults } from "@/components/ui/async-boundary";
+import { EmptyState } from "@/components/ui/empty-state";
+import { LoadingSkeleton, Skeleton } from "@/components/ui/skeleton";
 
 type ActivityTab = "metrics" | "history";
 
@@ -101,6 +108,19 @@ function DatePickerPopover({
   );
 }
 
+function TokenUsageSkeleton() {
+  return (
+    <LoadingSkeleton label="Loading token usage…" className="space-y-6">
+      <StatGrid>
+        {Array.from({ length: 4 }, (_, card) => (
+          <Skeleton key={card} className="h-20" />
+        ))}
+      </StatGrid>
+      <Skeleton className="h-56 sm:h-64" />
+    </LoadingSkeleton>
+  );
+}
+
 // ── Main pane ───────────────────────────────────────────────────────
 
 /** Activity content for the main content area. */
@@ -134,10 +154,16 @@ export function ActivityPane({
   const { data: tokenByProject } = projectQuery;
   // The four requests fill one region: it is empty only once all succeeded.
   const tokenQueries = [statsQuery, dailyQuery, modelQuery, projectQuery];
-  const failedQueries = tokenQueries.filter((query) => query.isError);
-  const tokensFailed = failedQueries.length > 0;
-  const tokensLoading =
-    !tokensFailed && tokenQueries.some((query) => query.isPending);
+  const combined = combineResults(...tokenQueries);
+  // A failed breakdown doesn't hide what the others loaded.
+  const tokenRegion = {
+    ...combined,
+    data:
+      tokenStats &&
+      tokenQueries.every((query) => query.data !== undefined || query.error)
+        ? tokenStats
+        : undefined,
+  };
   const totalTokens = tokenStats
     ? tokenStats.total_input +
       tokenStats.total_cache_creation +
@@ -146,11 +172,16 @@ export function ActivityPane({
     : 0;
   const hasTokenData = totalTokens > 0;
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      {/* Header with range selector */}
-      <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
-        <div className="ml-auto flex items-center gap-2">
-          {tab === "metrics" && (
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
+      <PageHeader
+        title={tab === "history" ? "History" : "Metrics"}
+        description={
+          tab === "history"
+            ? "Finished agent sessions"
+            : "Token use and AI decisions"
+        }
+        actions={
+          tab === "metrics" ? (
             <>
               {isDaily && (
                 <DatePickerPopover
@@ -178,113 +209,109 @@ export function ActivityPane({
                 </SelectContent>
               </Select>
             </>
-          )}
-        </div>
-      </div>
+          ) : null
+        }
+      />
 
       {/* History tab */}
       {tab === "history" && (
-        <ScrollArea className="flex-1 [&>[data-radix-scroll-area-viewport]>div]:!block">
+        <PageContent>
           <AgentHistoryTab range={range} onRangeChange={setRange} />
-        </ScrollArea>
+        </PageContent>
       )}
 
       {/* Metrics tab body */}
       {tab === "metrics" && (
-        <ScrollArea className="flex-1">
-          <div className="mx-auto max-w-5xl min-w-0 overflow-hidden space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-4 sm:pt-6 sm:pb-20 md:px-8">
-            {tokensFailed && (
-              <LoadError
-                message="Couldn't load token usage"
-                error={failedQueries[0].error}
-                retrying={failedQueries.some((query) => query.isFetching)}
-                onRetry={() =>
-                  failedQueries.forEach((query) => void query.refetch())
-                }
+        <PageContent className="space-y-8">
+          <AsyncBoundary
+            query={tokenRegion}
+            thing="token usage"
+            loading={<TokenUsageSkeleton />}
+            isEmpty={() => !hasTokenData}
+            empty={
+              <EmptyState
+                title="No token usage yet."
+                description="Usage from agent sessions in this range shows here."
               />
-            )}
-            {tokensLoading && (
-              <div className="flex items-center justify-center gap-2 py-12 text-body-md text-muted-foreground">
-                <ActivityBars size={16} /> Loading token usage…
-              </div>
-            )}
-            {!hasTokenData && !tokensLoading && !tokensFailed && (
-              <div className="py-12 text-center text-body-md text-muted-foreground">
-                No token usage yet.
-              </div>
-            )}
-            {hasTokenData && tokenStats && (
-              <div className="flex flex-wrap gap-2 sm:gap-3">
-                <StatCard
-                  label="Total tokens"
-                  value={formatTokenCount(totalTokens)}
-                  sub={`${formatTokenCount(tokenStats.total_output)} output`}
-                />
-                <StatCard
-                  label="Cache hit rate"
-                  value={`${cacheHitRate(tokenStats)}%`}
-                  sub="of input from cache"
-                />
-                <StatCard
-                  label="Avg tokens / session"
-                  value={
-                    tokenStats.total_sessions > 0
-                      ? formatTokenCount(
-                          Math.round(totalTokens / tokenStats.total_sessions)
-                        )
-                      : "—"
-                  }
-                />
-                <StatCard
-                  label="Sessions"
-                  value={tokenStats.total_sessions}
-                  sub={formatCount(tokenStats.total_messages, "message")}
-                />
-              </div>
-            )}
-
-            {tokenDaily && tokenDaily.days.length > 0 && (
-              <div>
-                <h2 className="mb-3 text-heading-sm text-foreground">
-                  Token usage (
-                  {isDaily
-                    ? formatShortDate(dailyDate)
-                    : rangeLabel(range).toLowerCase()}
-                  )
-                </h2>
-                <DailyTokenChart
-                  data={tokenDaily.days}
-                  granularity={tokenDaily.granularity}
-                  dailyDate={dailyDateParam}
-                />
-              </div>
-            )}
-
-            {hasTokenData &&
-            (tokenByModel?.length || tokenByProject?.length) ? (
-              <div className="grid gap-6 sm:grid-cols-2">
-                {tokenByModel && tokenByModel.length > 0 && (
-                  <div>
-                    <h2 className="mb-3 text-heading-sm text-foreground">
-                      Tokens by model
-                    </h2>
-                    <ModelBreakdown data={tokenByModel} />
-                  </div>
+            }
+          >
+            {() => (
+              <>
+                {hasTokenData && tokenStats && (
+                  <StatGrid>
+                    <StatCard
+                      label="Total tokens"
+                      value={formatTokenCount(totalTokens)}
+                      sub={`${formatTokenCount(tokenStats.total_output)} output`}
+                    />
+                    <StatCard
+                      label="Cache hit rate"
+                      value={`${cacheHitRate(tokenStats)}%`}
+                      sub="of input from cache"
+                    />
+                    <StatCard
+                      label="Avg tokens / session"
+                      value={
+                        tokenStats.total_sessions > 0
+                          ? formatTokenCount(
+                              Math.round(
+                                totalTokens / tokenStats.total_sessions
+                              )
+                            )
+                          : "—"
+                      }
+                    />
+                    <StatCard
+                      label="Sessions"
+                      value={tokenStats.total_sessions}
+                      sub={formatCount(tokenStats.total_messages, "message")}
+                    />
+                  </StatGrid>
                 )}
-                {tokenByProject && tokenByProject.length > 0 && (
-                  <div>
-                    <h2 className="mb-3 text-heading-sm text-foreground">
-                      By project
-                    </h2>
-                    <ProjectBreakdown data={tokenByProject} />
-                  </div>
-                )}
-              </div>
-            ) : null}
 
-            <DecisionMetricsSection range={range} dailyDate={dailyDateParam} />
-          </div>
-        </ScrollArea>
+                {tokenDaily && tokenDaily.days.length > 0 && (
+                  <DashboardSection
+                    title="Token usage"
+                    range={
+                      isDaily
+                        ? formatShortDate(dailyDate)
+                        : rangeLabel(range).toLowerCase()
+                    }
+                  >
+                    <ChartFrame>
+                      <DailyTokenChart
+                        data={tokenDaily.days}
+                        granularity={tokenDaily.granularity}
+                        dailyDate={dailyDateParam}
+                      />
+                    </ChartFrame>
+                  </DashboardSection>
+                )}
+
+                {hasTokenData &&
+                (tokenByModel?.length || tokenByProject?.length) ? (
+                  <div className="grid gap-8 sm:grid-cols-2 sm:gap-6">
+                    {tokenByModel && tokenByModel.length > 0 && (
+                      <DashboardSection title="Tokens by model">
+                        <Panel>
+                          <ModelBreakdown data={tokenByModel} />
+                        </Panel>
+                      </DashboardSection>
+                    )}
+                    {tokenByProject && tokenByProject.length > 0 && (
+                      <DashboardSection title="Tokens by project">
+                        <Panel>
+                          <ProjectBreakdown data={tokenByProject} />
+                        </Panel>
+                      </DashboardSection>
+                    )}
+                  </div>
+                ) : null}
+              </>
+            )}
+          </AsyncBoundary>
+          <DecisionMetricsSection range={range} dailyDate={dailyDateParam} />
+        </PageContent>
       )}
     </div>
   );

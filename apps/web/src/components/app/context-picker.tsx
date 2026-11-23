@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { panelFrame } from "@/components/ui/card";
 import {
   ChevronLeft,
   Clipboard,
@@ -25,7 +26,7 @@ import {
   ContextLinkItem,
 } from "@/components/app/context-picker-items";
 import { useContextPickerClipboard } from "@/components/app/use-context-picker-clipboard";
-import { ActivityBars } from "@/components/ui/activity-bars";
+import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -85,7 +86,10 @@ function AddContextLinkForm({
 }) {
   return (
     <div className="space-y-1.5 p-1">
-      <label htmlFor={inputId} className="text-body-sm text-muted-foreground">
+      <label
+        htmlFor={inputId}
+        className="text-body-sm font-medium text-foreground"
+      >
         Link URL
       </label>
       <Input
@@ -277,10 +281,10 @@ export function ContextPicker({
     <div
       ref={rootRef}
       className={cn(
-        "space-y-3 rounded-md border bg-surface-subtle px-3 py-3 transition-colors",
-        draggingFiles
-          ? "border-info/line bg-info/tint ring-1 ring-inset ring-info/line"
-          : "border-border-subtle",
+        panelFrame,
+        "space-y-3 p-3 transition-colors",
+        draggingFiles &&
+          "border-info/line bg-info/tint ring-1 ring-inset ring-info/line",
         className
       )}
       onPaste={handleRootPaste}
@@ -324,7 +328,7 @@ export function ContextPicker({
               ? { "data-testid": `${testIdPrefix}-clipboard-action` }
               : {})}
           >
-            {clipboard.checking ? <ActivityBars size={12} /> : <Clipboard />}
+            {clipboard.checking ? <Spinner /> : <Clipboard />}
             Read clipboard
           </Button>
         )}

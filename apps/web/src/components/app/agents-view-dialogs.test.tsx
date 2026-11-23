@@ -199,7 +199,7 @@ describe("AgentsViewDialogs", () => {
       fireEvent.click(screen.getByRole("button", { name: "Open Create" }));
       await waitFor(() =>
         expect(
-          screen.getByRole("button", { name: "Choose project" }).textContent
+          screen.getByRole("combobox", { name: "Choose project" }).textContent
         ).toContain("Project A")
       );
       expect(screen.getByTestId("create-agent-cwd")).toHaveProperty(
@@ -211,26 +211,24 @@ describe("AgentsViewDialogs", () => {
       fireEvent.click(screen.getByRole("button", { name: "Open Create" }));
       await waitFor(() =>
         expect(
-          screen.getByRole("button", { name: "Choose project" }).textContent
+          screen.getByRole("combobox", { name: "Choose project" }).textContent
         ).toContain("Project B")
       );
       expect(screen.getByTestId("create-agent-cwd")).toHaveProperty(
         "value",
         "/repo/b"
       );
-      fireEvent.pointerDown(
-        screen.getByRole("button", { name: "Choose project" }),
-        { button: 0, ctrlKey: false, pointerType: "mouse" }
+      fireEvent.keyDown(
+        screen.getByRole("combobox", { name: "Choose project" }),
+        { key: "ArrowDown" }
       );
-      fireEvent.click(
-        await screen.findByRole("menuitem", { name: /Project A/ })
-      );
+      fireEvent.click(await screen.findByRole("option", { name: /Project A/ }));
       expect(screen.getByTestId("create-agent-cwd")).toHaveProperty(
         "value",
         "/repo/a"
       );
       expect(
-        screen.getByRole("button", { name: "Choose project" }).textContent
+        screen.getByRole("combobox", { name: "Choose project" }).textContent
       ).toContain("Project A");
     } finally {
       cleanup();
@@ -252,7 +250,7 @@ describe("AgentsViewDialogs", () => {
       stopTarget: agentB,
     });
 
-    expect(screen.getByText(/Archive "worker-a"\?/)).toBeTruthy();
+    expect(screen.getByText(/Archive “worker-a”\?/)).toBeTruthy();
     expect(screen.queryByText(/worker-b/)).toBeNull();
 
     fireEvent.click(screen.getByTestId("delete-agent-confirm"));
@@ -273,7 +271,7 @@ describe("AgentsViewDialogs", () => {
       deleteTarget: agentA,
     });
 
-    expect(screen.getByText(/Pause "worker-b"\?/)).toBeTruthy();
+    expect(screen.getByText(/Pause “worker-b”\?/)).toBeTruthy();
     expect(screen.queryByText(/worker-a/)).toBeNull();
 
     fireEvent.click(screen.getByTestId("stop-agent-confirm"));

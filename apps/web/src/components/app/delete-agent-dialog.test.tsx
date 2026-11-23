@@ -127,7 +127,9 @@ describe("DeleteAgentDialog", () => {
 
     await waitFor(() => expect(setOpen).toHaveBeenCalledWith(false));
     expect(onDelete).toHaveBeenCalledWith(agent, "auto");
-    expect(screen.queryByText("Worktree Has Outstanding Changes")).toBeNull();
+    expect(
+      screen.queryByText("Archive “worker-1” with outstanding changes?")
+    ).toBeNull();
   });
 
   it("disables Archive while the worktree status is loading", async () => {
@@ -167,7 +169,7 @@ describe("DeleteAgentDialog", () => {
 
     fireEvent.click(await archiveButtonReady());
 
-    await screen.findByText("Worktree Has Outstanding Changes");
+    await screen.findByText("Archive “worker-1” with outstanding changes?");
     expect(onDelete).not.toHaveBeenCalled();
     expect(setOpen).not.toHaveBeenCalled();
     // The unmerged branch and its files are surfaced so the choice is informed.
@@ -242,7 +244,9 @@ describe("DeleteAgentDialog", () => {
 
     await waitFor(() => expect(setOpen).toHaveBeenCalledWith(false));
     expect(onDelete).toHaveBeenCalledWith(agent, "auto");
-    expect(screen.queryByText("Worktree Has Outstanding Changes")).toBeNull();
+    expect(
+      screen.queryByText("Archive “worker-1” with outstanding changes?")
+    ).toBeNull();
   });
 
   it("shows a failed archive in the dialog and can retry it", async () => {
@@ -288,7 +292,7 @@ describe("DeleteAgentDialog", () => {
     );
 
     fireEvent.click(await archiveButtonReady());
-    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    fireEvent.keyDown(screen.getByRole("alertdialog"), { key: "Escape" });
     expect(setOpen).not.toHaveBeenCalled();
 
     fail(new Error("Archive broke"));

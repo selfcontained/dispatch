@@ -1,8 +1,7 @@
 import { useProjects } from "@/hooks/use-projects";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Copy, Play, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { Copy, FormInput, Play, Trash2 } from "lucide-react";
 
 import { TemplateConfigFields } from "@/components/app/automations-form-fields";
 import { DuplicateTemplateDialog } from "@/components/app/duplicate-template-dialog";
@@ -16,15 +15,14 @@ import { useCwdHistory } from "@/components/app/create-agent-dialog-utils";
 import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import type { AgentType } from "@/lib/agent-types";
 import { shortPath } from "@/lib/format";
-import { ActivityBars } from "@/components/ui/activity-bars";
+import { Alert } from "@/components/ui/alert";
+import { AsyncBoundary } from "@/components/ui/async-boundary";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Card, Panel } from "@/components/ui/card";
+import { PageContent, PageHeader } from "@/components/ui/page-header";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { EmptyState } from "@/components/ui/empty-state";
+import { toast } from "@/components/ui/toast";
 import {
   useTemplates,
   useTemplateActions,
@@ -38,22 +36,37 @@ export function TemplateDetailPane({
   enabledAgentTypes: AgentType[];
 }): JSX.Element {
   const { templateId } = useParams<{ templateId?: string }>();
-  const { data: templates = [] } = useTemplates();
+  const query = useTemplates();
   const template = useMemo(
-    () => templates.find((t) => t.id === templateId) ?? null,
-    [templates, templateId]
+    () => query.data?.find((t) => t.id === templateId) ?? null,
+    [query.data, templateId]
   );
 
-  if (!templateId || !template) {
-    return (
-      <div className="flex h-full items-center justify-center text-body-md text-muted-foreground">
-        Select a template to view details
-      </div>
-    );
-  }
-
   return (
-    <TemplateDetail template={template} enabledAgentTypes={enabledAgentTypes} />
+    <div className="flex h-full min-h-0 min-w-0 flex-col">
+      {template ? null : <PageHeader title="Templates" />}
+      <AsyncBoundary query={query} thing="templates" className="m-4">
+        {() =>
+          template ? (
+            <TemplateDetail
+              template={template}
+              enabledAgentTypes={enabledAgentTypes}
+            />
+          ) : templateId ? (
+            <EmptyState
+              title="Template not found"
+              description="It may have been deleted, or the link may be wrong."
+            />
+          ) : (
+            <EmptyState
+              icon={FormInput}
+              title="Select a template"
+              description="Its settings and launch arguments show here."
+            />
+          )
+        }
+      </AsyncBoundary>
+    </div>
   );
 }
 
@@ -94,14 +107,16 @@ function TemplateDetail({
     [hasLocationEdit, locationEdit, template.projectId, template.directory]
   );
   const { normalizeModel } = useAgentModelCatalog(draft.agentType);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<unknown>();
+  const [saved, setSaved] = useState(false);
   const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
   const [launchDialogOpen, setLaunchDialogOpen] = useState(false);
 
   useEffect(() => {
     setDraft(templateDraftFrom(template));
-    setSaveError(null);
+    setSaveError(undefined);
+    setSaved(false);
     setDuplicateDialogOpen(false);
     setRemoveDialogOpen(false);
     setLaunchDialogOpen(false);
@@ -120,7 +135,8 @@ function TemplateDetail({
   const canSave = !!draft.name.trim() && !!location.directory.trim();
 
   const handleSave = useCallback(() => {
-    setSaveError(null);
+    setSaveError(undefined);
+    setSaved(false);
     updateTemplate
       .mutateAsync({
         id: template.id,
@@ -133,9 +149,9 @@ function TemplateDetail({
       .then(() => {
         addCwdHistory(location.directory);
         setLocationEdit(null);
-        toast.success("Settings saved.");
+        setSaved(true);
       })
-      .catch((err: Error) => setSaveError(err.message));
+      .catch(setSaveError);
   }, [
     updateTemplate,
     template.id,
@@ -146,35 +162,48 @@ function TemplateDetail({
     location,
   ]);
 
-  const handleDelete = useCallback(() => {
-    removeTemplate
-      .mutateAsync(template.id)
-      .then(() => {
-        setRemoveDialogOpen(false);
-        navigate("/automations");
-        toast.success(`Template "${template.name}" deleted.`);
-      })
-      .catch(() => {
-        // The mutation keeps the error, which the open dialog shows.
-      });
+  const handleDelete = useCallback(async () => {
+    await removeTemplate.mutateAsync(template.id);
+    setRemoveDialogOpen(false);
+    navigate("/automations");
+    toast.success(`Template “${template.name}” deleted.`);
   }, [removeTemplate, template, navigate]);
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto">
-      {/* Header with launch */}
-      <div className="border-b border-border px-6 py-4">
-        <h2 className="text-heading-lg text-foreground">{template.name}</h2>
+    <>
+      <PageHeader
+        title={template.name}
+        description={
+          <span title={template.description || template.directory}>
+            {template.description || shortPath(template.directory)}
+          </span>
+        }
+        actions={
+          <>
+            <Button
+              size="sm"
+              variant="primary"
+              pending={launchTemplate.isPending}
+              onClick={handleLaunch}
+            >
+              <Play className="fill-current" />
+              Launch
+            </Button>
+            <Button size="sm" onClick={() => setDuplicateDialogOpen(true)}>
+              <Copy />
+              Duplicate
+            </Button>
+          </>
+        }
+      />
+      <PageContent className="space-y-4">
         {template.description ? (
-          <p className="mt-0.5 text-body-md text-muted-foreground">
-            {template.description}
+          <p className="break-all font-mono text-body-sm text-muted-foreground">
+            {shortPath(template.directory)}
           </p>
         ) : null}
-        <p className="mt-0.5 text-body-sm text-faint">
-          {shortPath(template.directory)}
-        </p>
-
         {savedArgs.length > 0 ? (
-          <div className="mt-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-2 text-body-sm text-muted-foreground">
+          <Panel className="text-body-sm text-muted-foreground">
             <span className="font-medium text-foreground">
               Launch arguments:
             </span>{" "}
@@ -188,133 +217,89 @@ function TemplateDetail({
                 </span>
               </span>
             ))}
-          </div>
+          </Panel>
         ) : null}
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Button disabled={launchTemplate.isPending} onClick={handleLaunch}>
-            {launchTemplate.isPending ? (
-              <ActivityBars size={16} />
-            ) : (
-              <Play className="fill-current" />
-            )}
-            Launch
-          </Button>
-          <Button onClick={() => setDuplicateDialogOpen(true)}>
-            <Copy />
-            Duplicate
-          </Button>
-        </div>
-      </div>
 
-      {/* Inline-editable config form */}
-      <div className="flex-1 px-6 py-4">
-        <div className="grid gap-4">
-          <div className="rounded-md border border-edge bg-fill-inset p-4">
-            <div className="text-body-md font-medium">
-              Template configuration
-            </div>
-            <p className="mt-1 text-body-sm text-muted-foreground">
-              Agent launch settings for this template.
-            </p>
-            <div className="mt-4">
-              <TemplateConfigFields
-                {...fieldProps}
-                projectId={location.projectId}
-                directory={location.directory}
-                onProjectChange={(projectId, directory) =>
-                  setLocationEdit({ id: template.id, projectId, directory })
-                }
-                onDirectoryChange={(directory) =>
-                  setLocationEdit({
-                    id: template.id,
-                    projectId: null,
-                    directory,
-                  })
-                }
-                enabledAgentTypes={enabledAgentTypes}
-              />
-            </div>
-
-            {saveError ? (
-              <div className="mt-4 rounded-md border border-danger/line bg-danger/tint p-3 text-body-md text-danger">
-                {saveError}
-              </div>
-            ) : null}
-            <div className="mt-4 flex justify-end">
-              <Button
-                variant="primary"
-                disabled={!canSave || updateTemplate.isPending}
-                onClick={handleSave}
-              >
-                {updateTemplate.isPending ? <ActivityBars size={16} /> : null}
-                Save
-              </Button>
-            </div>
+        <Card className="p-4">
+          <h2 className="text-heading-sm">Template configuration</h2>
+          <p className="mt-1 text-body-sm text-muted-foreground">
+            Agent launch settings for this template.
+          </p>
+          <div className="mt-4">
+            <TemplateConfigFields
+              {...fieldProps}
+              projectId={location.projectId}
+              directory={location.directory}
+              onProjectChange={(projectId, directory) =>
+                setLocationEdit({ id: template.id, projectId, directory })
+              }
+              onDirectoryChange={(directory) =>
+                setLocationEdit({
+                  id: template.id,
+                  projectId: null,
+                  directory,
+                })
+              }
+              enabledAgentTypes={enabledAgentTypes}
+            />
           </div>
 
-          <div className="rounded-md border border-danger/line bg-danger/wash p-4">
-            <div className="text-body-md font-medium text-danger">
-              Delete template
-            </div>
-            <p className="mt-1 text-body-sm text-muted-foreground">
-              Permanently remove this template. Jobs that reference it will lose
-              their backing template.
-            </p>
-            <div className="mt-3 flex justify-end">
-              <Button
-                variant="danger"
-                size="sm"
-                disabled={removeTemplate.isPending}
-                onClick={() => {
-                  removeTemplate.reset();
-                  setRemoveDialogOpen(true);
-                }}
-              >
-                <Trash2 />
-                Delete
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <Dialog
-        open={removeDialogOpen}
-        onOpenChange={(next) => {
-          if (!removeTemplate.isPending) setRemoveDialogOpen(next);
-        }}
-      >
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Delete template</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete &ldquo;{template.name}&rdquo;?
-              This cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          {removeTemplate.error ? (
-            <p role="alert" className="break-words text-body-md text-danger">
-              Couldn't delete the template: {removeTemplate.error.message}
-            </p>
+          {saveError ? (
+            <Alert
+              title="Couldn’t save the template."
+              error={saveError}
+              className="mt-4"
+            />
           ) : null}
-          <div className="flex justify-end gap-2">
+          <div className="mt-4 flex items-center justify-end gap-3">
+            {saved ? (
+              <span
+                role="status"
+                className="text-body-sm text-muted-foreground"
+              >
+                Saved.
+              </span>
+            ) : null}
             <Button
-              variant="ghost"
-              onClick={() => setRemoveDialogOpen(false)}
-              disabled={removeTemplate.isPending}
+              variant="primary"
+              pending={updateTemplate.isPending}
+              disabled={!canSave}
+              onClick={handleSave}
             >
-              Cancel
+              Save
             </Button>
+          </div>
+        </Card>
+
+        <Card variant="panel" tone="danger" className="p-4">
+          <h2 className="text-heading-sm text-danger">Delete template</h2>
+          <p className="mt-1 text-body-sm text-muted-foreground">
+            Permanently remove this template. Jobs that reference it will lose
+            their backing template.
+          </p>
+          <div className="mt-3 flex justify-end">
             <Button
               variant="danger"
-              onClick={handleDelete}
+              size="sm"
               disabled={removeTemplate.isPending}
+              onClick={() => setRemoveDialogOpen(true)}
             >
-              {removeTemplate.isPending ? "Deleting…" : "Delete"}
+              <Trash2 />
+              Delete
             </Button>
           </div>
-        </DialogContent>
-      </Dialog>
+        </Card>
+      </PageContent>
+
+      <ConfirmDialog
+        open={removeDialogOpen}
+        onOpenChange={setRemoveDialogOpen}
+        title={`Delete “${template.name}”?`}
+        description="This cannot be undone."
+        confirmLabel="Delete template"
+        errorTitle="Couldn’t delete the template."
+        onConfirm={handleDelete}
+      />
       <DuplicateTemplateDialog
         key={template.id}
         template={template}
@@ -327,6 +312,6 @@ function TemplateDetail({
         onOpenChange={setLaunchDialogOpen}
         agentTypes={enabledAgentTypes}
       />
-    </div>
+    </>
   );
 }

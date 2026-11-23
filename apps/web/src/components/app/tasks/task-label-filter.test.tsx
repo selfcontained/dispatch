@@ -1,9 +1,17 @@
 // @vitest-environment jsdom
-import { afterEach, expect, it } from "vitest";
+import { afterEach, beforeAll, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { TaskLabelFilter } from "./task-label-filter";
 afterEach(cleanup);
+beforeAll(() => {
+  Element.prototype.scrollIntoView = () => {};
+  globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+});
 function Location() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -31,11 +39,11 @@ it("selects multiple URL labels, clears only labels and restores selection throu
       <Location />
     </MemoryRouter>
   );
-  fireEvent.click(screen.getByRole("button", { name: "Filter by labels" }));
+  fireEvent.click(screen.getByRole("combobox", { name: "Filter by labels" }));
   expect(
-    screen.getByRole("checkbox", { name: "Bug" }).getAttribute("aria-checked")
+    screen.getByRole("option", { name: "Bug" }).getAttribute("aria-checked")
   ).toBe("true");
-  fireEvent.click(screen.getByRole("checkbox", { name: "Release" }));
+  fireEvent.click(screen.getByRole("option", { name: "Release" }));
   const selected = new URLSearchParams(
     screen.getByTestId("location").textContent!
   );
@@ -57,19 +65,19 @@ it("selects multiple URL labels, clears only labels and restores selection throu
   expect(
     new URLSearchParams(screen.getByTestId("location").textContent!).get("task")
   ).toBe("t1");
-  fireEvent.click(screen.getByRole("button", { name: "Previous filter" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Previous filter", hidden: true })
+  );
   expect(
-    screen.getByRole("checkbox", { name: "Bug" }).getAttribute("aria-checked")
+    screen.getByRole("option", { name: "Bug" }).getAttribute("aria-checked")
   ).toBe("true");
   expect(
-    screen
-      .getByRole("checkbox", { name: "Release" })
-      .getAttribute("aria-checked")
+    screen.getByRole("option", { name: "Release" }).getAttribute("aria-checked")
   ).toBe("true");
-  fireEvent.click(screen.getByRole("button", { name: "Next filter" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Next filter", hidden: true })
+  );
   expect(
-    screen
-      .getByRole("checkbox", { name: "Release" })
-      .getAttribute("aria-checked")
+    screen.getByRole("option", { name: "Release" }).getAttribute("aria-checked")
   ).toBe("false");
 });

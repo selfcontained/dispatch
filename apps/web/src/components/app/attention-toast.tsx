@@ -6,7 +6,6 @@ import {
   MessageCircleQuestion,
   OctagonX,
   ShieldAlert,
-  X,
 } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import {
@@ -15,12 +14,12 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
-import { toast, Toaster } from "sonner";
 
 import { conversationLocation } from "@/components/app/chat/conversation-location-link";
 import { Markdown } from "@/components/ui/markdown";
-import { IconButton } from "@/components/ui/icon-button";
 import { RowButton } from "@/components/ui/row-button";
+import { toast, ToastHost } from "@/components/ui/toast";
+import { ToastCard } from "@/components/ui/toast-card";
 import { useAgentFocus, viewingAgentIdOf } from "@/hooks/use-agent-focus";
 import { formatRelativeTime } from "@/lib/format";
 import { agentRoute } from "@/lib/agent-routes";
@@ -31,8 +30,6 @@ export type AttentionToastEvent = Extract<
 >;
 
 const ATTENTION_TOAST_MS = 10_000;
-/** Its own toaster, so it can sit clear of the composer on desktop. */
-const TOASTER_ID = "attention";
 const EVENT_NAME = "attention-toast";
 
 type ToastKind = AttentionToastEvent["kind"];
@@ -151,7 +148,7 @@ function showAttentionToast(
       state: { blockJump: `${Date.now()}-${event.toastId}` },
     });
   };
-  toast.custom(
+  toast.attention(
     () => (
       <AttentionCard
         event={event}
@@ -159,7 +156,7 @@ function showAttentionToast(
         onDismiss={() => toast.dismiss(id)}
       />
     ),
-    { id, duration: ATTENTION_TOAST_MS, toasterId: TOASTER_ID }
+    { id, duration: ATTENTION_TOAST_MS }
   );
 }
 
@@ -208,16 +205,17 @@ export function AttentionCard({
     title,
   };
   return (
-    <div
-      className={`flex w-full items-stretch border bg-popover text-popover-foreground shadow-elev-popover transition-colors [font-family:var(--font-ui)] ${style.border} ${style.hover} ${settled ? "opacity-50" : ""}`}
-    >
-      <span aria-hidden className={`w-1 shrink-0 ${style.bar}`} />
-      <div
-        className="relative flex min-w-0 flex-1 items-start gap-3 px-3 py-3 text-left"
-        data-testid={createdAt ? "attention-history-card" : "attention-toast"}
-        data-kind={event.kind}
-      >
-        {link ? (
+    <ToastCard
+      Icon={Icon}
+      tone={style}
+      className={`${style.hover} ${settled ? "opacity-50" : ""}`}
+      onDismiss={onDismiss}
+      bodyProps={{
+        "data-testid": createdAt ? "attention-history-card" : "attention-toast",
+        "data-kind": event.kind,
+      }}
+      cover={
+        link ? (
           <Link
             to={attentionToastLocation(event)}
             onClick={(event) => {
@@ -236,67 +234,52 @@ export function AttentionCard({
           />
         ) : (
           <RowButton onClick={onOpen} {...actionProps} />
-        )}
-        <span
-          aria-hidden
-          className={`pointer-events-none flex size-9 shrink-0 items-center justify-center text-background ${style.tile}`}
-        >
-          <Icon className="size-5" strokeWidth={2.25} />
-        </span>
-        <span className="pointer-events-none min-w-0 flex-1">
-          <span className="flex items-baseline justify-between gap-3">
-            <span
-              id={`${ids}-name`}
-              className="truncate text-body-md font-semibold"
-            >
-              {event.agentName}
-            </span>
-            <span
-              id={`${ids}-kind`}
-              className={`shrink-0 section-label ${style.text}`}
-            >
-              {style.label}
-            </span>
+        )
+      }
+    >
+      <span className="pointer-events-none min-w-0 flex-1">
+        <span className="flex items-baseline justify-between gap-3">
+          <span
+            id={`${ids}-name`}
+            className="truncate text-body-md font-semibold"
+          >
+            {event.agentName}
           </span>
           <span
-            id={`${ids}-message`}
-            ref={messageRef}
-            className="mt-1 block text-body-sm leading-snug text-muted-foreground"
+            id={`${ids}-kind`}
+            className={`shrink-0 section-label ${style.text}`}
           >
-            <Markdown
-              variant="compact"
-              className={`[&_a]:pointer-events-auto [&_a]:relative ${createdAt ? "block truncate" : "line-clamp-2"}`}
-            >
-              {event.message}
-            </Markdown>
+            {style.label}
           </span>
-          {settled ? (
-            <span id={`${ids}-settled`} className="sr-only">
-              Settled
-            </span>
-          ) : null}
-          {createdAt ? (
-            <time
-              id={`${ids}-time`}
-              dateTime={createdAt}
-              className="mt-1 block text-label-sm text-muted-foreground"
-            >
-              {formatRelativeTime(createdAt)}
-            </time>
-          ) : null}
         </span>
-      </div>
-
-      {onDismiss ? (
-        <IconButton
-          label="Dismiss"
-          onClick={onDismiss}
-          className="m-1 self-start focus-ring-inset"
+        <span
+          id={`${ids}-message`}
+          ref={messageRef}
+          className="mt-1 block text-body-sm leading-snug text-muted-foreground"
         >
-          <X />
-        </IconButton>
-      ) : null}
-    </div>
+          <Markdown
+            variant="compact"
+            className={`[&_a]:pointer-events-auto [&_a]:relative ${createdAt ? "block truncate" : "line-clamp-2"}`}
+          >
+            {event.message}
+          </Markdown>
+        </span>
+        {settled ? (
+          <span id={`${ids}-settled`} className="sr-only">
+            Settled
+          </span>
+        ) : null}
+        {createdAt ? (
+          <time
+            id={`${ids}-time`}
+            dateTime={createdAt}
+            className="mt-1 block text-label-sm text-muted-foreground"
+          >
+            {formatRelativeTime(createdAt)}
+          </time>
+        ) : null}
+      </span>
+    </ToastCard>
   );
 }
 
@@ -356,26 +339,5 @@ export function AttentionToasts({
     return () => bus.removeEventListener(EVENT_NAME, onToast);
   }, [navigate, viewingAgentId]);
   useVisualViewportTopVar(isMobile);
-  // Pinned to the top edge on every screen, whatever the screen is: top
-  // right on desktop, nearly full width under the status bar on mobile. When the
-  // iPhone keyboard scrolls the page, it follows the top of what's visible,
-  // so it never covers the composer.
-  const mobileTop = "calc(var(--safe-area-top) + var(--vv-top, 0px) + 0.5rem)";
-  return (
-    <Toaster
-      id={TOASTER_ID}
-      position={isMobile ? "top-center" : "top-right"}
-      className="attention-toaster"
-      offset={
-        isMobile
-          ? { top: mobileTop, left: "0.5rem", right: "0.5rem" }
-          : // Below the top inset band (iPad), which #safe-area-top covers.
-            {
-              top: "calc(var(--safe-area-top) + 0.75rem)",
-              right: "0.75rem",
-            }
-      }
-      mobileOffset={{ top: mobileTop, left: "0.5rem", right: "0.5rem" }}
-    />
-  );
+  return <ToastHost isMobile={isMobile} />;
 }

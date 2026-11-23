@@ -1,4 +1,5 @@
 import { AgentConfigRow } from "./agent-config-row";
+import { Panel } from "@/components/ui/card";
 import type { Effort } from "@dispatch/shared";
 import { AgentEffortSelect } from "./agent-effort-select";
 import { ProjectLocation } from "./project-location";
@@ -17,7 +18,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { type AgentType } from "@/lib/agent-types";
 import { parseTemplateArgs } from "@/hooks/use-templates";
-import { cn } from "@/lib/utils";
+import { Field } from "@/components/ui/field";
+import { OptionCard } from "@/components/ui/setting-row";
 
 export function TemplateWorktreeOption({
   checked,
@@ -37,36 +39,34 @@ export function TemplateWorktreeOption({
   onBranchNameChange: (value: string) => void;
 }): JSX.Element {
   return (
-    <div className="space-y-2 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3">
-      <label className="flex cursor-pointer items-start gap-3">
-        <Checkbox
-          checked={checked}
-          onCheckedChange={() => onCheckedChange(!checked)}
-          className="mt-0.5"
-        />
-        <span className="space-y-1">
-          <span className="flex items-center gap-1.5 text-body-md font-medium text-foreground">
-            <GitBranch className="h-3.5 w-3.5" />
-            Run in a git worktree
-          </span>
-          <span className="block text-body-sm text-muted-foreground">
-            Creates an isolated worktree when this template is launched.
-          </span>
+    <OptionCard
+      label={
+        <span className="flex items-center gap-1.5">
+          <GitBranch className="size-icon-md" />
+          Run in a git worktree
         </span>
-      </label>
-      {checked ? (
-        <div className="ml-8 w-[calc(100%-2rem)]">
-          <BranchSelect
-            cwd={cwd}
-            baseBranch={baseBranch}
-            onBaseBranchChange={onBaseBranchChange}
-            worktreeBranch={branchName}
-            onWorktreeBranchChange={onBranchNameChange}
-            testIdPrefix="template-worktree"
-          />
-        </div>
-      ) : null}
-    </div>
+      }
+      description="Creates an isolated worktree when this template is launched."
+      details={
+        checked ? (
+          <div className="ml-8">
+            <BranchSelect
+              cwd={cwd}
+              baseBranch={baseBranch}
+              onBaseBranchChange={onBaseBranchChange}
+              worktreeBranch={branchName}
+              onWorktreeBranchChange={onBranchNameChange}
+              testIdPrefix="template-worktree"
+            />
+          </div>
+        ) : null
+      }
+    >
+      <Checkbox
+        checked={checked}
+        onCheckedChange={() => onCheckedChange(!checked)}
+      />
+    </OptionCard>
   );
 }
 
@@ -78,22 +78,15 @@ export function TemplateFullAccessOption({
   onCheckedChange: (checked: boolean) => void;
 }): JSX.Element {
   return (
-    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3">
+    <OptionCard
+      label="Start in full access mode"
+      description="Starts the selected agent with its most permissive supported execution mode."
+    >
       <Checkbox
         checked={checked}
         onCheckedChange={() => onCheckedChange(!checked)}
-        className="mt-0.5"
       />
-      <span className="space-y-1">
-        <span className="block text-body-md font-medium text-foreground">
-          Start in full access mode
-        </span>
-        <span className="block text-body-sm text-muted-foreground">
-          Starts the selected agent with its most permissive supported execution
-          mode.
-        </span>
-      </span>
-    </label>
+    </OptionCard>
   );
 }
 
@@ -227,38 +220,34 @@ export function TemplateConfigFields({
         />
       </AgentConfigRow>
 
-      <div className="space-y-1">
-        <label className="text-body-md text-muted-foreground">Name</label>
+      <Field label="Name">
         <Input
           autoFocus={autoFocusName}
           value={name}
           onChange={(e) => onNameChange(e.target.value)}
           placeholder="template name"
         />
-      </div>
+      </Field>
 
-      <div className="space-y-1">
-        <label className="text-body-md text-muted-foreground">
-          Description
-        </label>
+      <Field label="Description" optional>
         <Input
           value={description}
           onChange={(e) => onDescriptionChange(e.target.value)}
           placeholder="Optional short description"
         />
-      </div>
+      </Field>
 
       {lockedLocation ? (
-        <div className="space-y-1" data-testid="locked-location">
-          <label className="text-body-md text-muted-foreground">Project</label>
-          <div className="rounded-md border border-edge-subtle bg-fill-track px-3 py-2 text-body-md">
+        <div className="space-y-1.5" data-testid="locked-location">
+          <p className="text-body-sm font-medium">Project</p>
+          <Panel className="py-2 text-body-md">
             {lockedLocation.name ? (
               <div className="truncate">{lockedLocation.name}</div>
             ) : null}
             <div className="truncate text-body-sm text-muted-foreground">
               {lockedLocation.repoRoot}
             </div>
-          </div>
+          </Panel>
         </div>
       ) : (
         <div className="space-y-1">
@@ -306,94 +295,79 @@ export function TemplateConfigFields({
         )}
       </>
 
-      <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3">
+      <OptionCard
+        label="Show in command palette"
+        description={<>Launch this template from the {"⌘"}K palette.</>}
+      >
         <Checkbox
           checked={callable}
           onCheckedChange={() => onCallableChange(!callable)}
-          className="mt-0.5"
         />
-        <span className="space-y-1">
-          <span className="block text-body-md font-medium text-foreground">
-            Show in command palette
-          </span>
-          <span className="block text-body-sm text-muted-foreground">
-            Launch this template from the {"⌘"}K palette.
-          </span>
-        </span>
-      </label>
+      </OptionCard>
 
-      <>
-        <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3">
-          <Checkbox
-            checked={allowFiles}
-            onCheckedChange={() => onAllowFilesChange(!allowFiles)}
-            className="mt-0.5"
-          />
-          <span className="space-y-1">
-            <span className="flex items-center gap-1.5 text-body-md font-medium text-foreground">
-              <Paperclip className="h-3.5 w-3.5" />
-              Allow file attachments on launch
-            </span>
-            <span className="block text-body-sm text-muted-foreground">
-              Show a context area for files and links when launching this
-              template.
-            </span>
+      <OptionCard
+        label={
+          <span className="flex items-center gap-1.5">
+            <Paperclip className="size-icon-md" />
+            Allow file attachments on launch
           </span>
-        </label>
+        }
+        description="Show a context area for files and links when launching this template."
+      >
+        <Checkbox
+          checked={allowFiles}
+          onCheckedChange={() => onAllowFilesChange(!allowFiles)}
+        />
+      </OptionCard>
 
-        <div className="space-y-1">
-          <label className="text-body-md text-muted-foreground">Prompt</label>
-          <Textarea
-            value={prompt}
-            onChange={(e) => onPromptChange(e.target.value)}
-            placeholder="Describe what the agent should do..."
-            className={cn(
-              "min-h-64 resize-y",
-              "ring-offset-background placeholder:text-muted-foreground",
-              "focus-ring"
-            )}
-          />
-          {prompt.trim() ? null : (
-            <p className="text-body-sm text-muted-foreground">
-              Launched from a task it gets the task as its prompt; otherwise it
-              needs a prompt or a persona.
-            </p>
-          )}
-          {detectedArgs.length > 0 ? (
-            <div className="mt-1.5 text-body-sm text-muted-foreground">
-              Detected arguments:{" "}
-              {detectedArgs.map((a) => (
-                <span
-                  key={a.key}
-                  className="mr-1.5 inline-block rounded-sm bg-surface-selected px-1.5 py-0.5 text-primary"
-                >
-                  {a.name}
-                  {a.required ? " *" : ""}
-                  {a.multiline ? " (multiline)" : ""}
-                  {a.error ? ` — ${a.error}` : ""}
-                </span>
-              ))}
-            </div>
-          ) : null}
-        </div>
+      <Field
+        label="Prompt"
+        hint={
+          prompt.trim() && !detectedArgs.length ? null : (
+            <>
+              {prompt.trim() ? null : (
+                <p>
+                  Launched from a task it gets the task as its prompt; otherwise
+                  it needs a prompt or a persona.
+                </p>
+              )}
+              {detectedArgs.length > 0 ? (
+                <div>
+                  Detected arguments:{" "}
+                  {detectedArgs.map((a) => (
+                    <span
+                      key={a.key}
+                      className="mr-1.5 inline-block rounded-sm bg-surface-selected px-1.5 py-0.5 text-primary"
+                    >
+                      {a.name}
+                      {a.required ? " *" : ""}
+                      {a.multiline ? " (multiline)" : ""}
+                      {a.error ? ` — ${a.error}` : ""}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </>
+          )
+        }
+      >
+        <Textarea
+          value={prompt}
+          onChange={(e) => onPromptChange(e.target.value)}
+          placeholder="Describe what the agent should do..."
+          className="min-h-64 resize-y"
+        />
+      </Field>
 
-        <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3">
-          <Checkbox
-            checked={selfImprove}
-            onCheckedChange={() => onSelfImproveChange(!selfImprove)}
-            className="mt-0.5"
-          />
-          <span className="space-y-1">
-            <span className="block text-body-md font-medium text-foreground">
-              Self improve after each run
-            </span>
-            <span className="block text-body-sm text-muted-foreground">
-              Ask the agent to make a conservative saved-prompt improvement when
-              it finds one.
-            </span>
-          </span>
-        </label>
-      </>
+      <OptionCard
+        label="Self improve after each run"
+        description="Ask the agent to make a conservative saved-prompt improvement when it finds one."
+      >
+        <Checkbox
+          checked={selfImprove}
+          onCheckedChange={() => onSelfImproveChange(!selfImprove)}
+        />
+      </OptionCard>
     </div>
   );
 }

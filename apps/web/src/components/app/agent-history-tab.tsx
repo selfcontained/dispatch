@@ -43,6 +43,9 @@ import {
   rangeLabel,
   type ActivityRange,
 } from "@/hooks/use-activity";
+import { AsyncBoundary } from "@/components/ui/async-boundary";
+import { EmptyState } from "@/components/ui/empty-state";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -97,7 +100,8 @@ function AgentHistoryList({
     });
   }, []);
 
-  const { data, isLoading } = useHistoryAgents(filters);
+  const query = useHistoryAgents(filters);
+  const { data } = query;
   const { data: projects } = useHistoryProjects();
   const toggleSort = useCallback(
     (key: SortKey) => {
@@ -111,15 +115,21 @@ function AgentHistoryList({
     [sort]
   );
 
+  const clearFilters = () => {
+    setSearch("");
+    setType("");
+    setProject("");
+    onRangeChange("all");
+  };
   const hasActiveFilters =
     debouncedSearch || type || project || range !== "all";
 
   return (
-    <div className="mx-auto flex h-full max-w-5xl flex-col px-3 sm:px-4 md:px-8">
+    <div className="flex min-w-0 flex-col">
       {/* Search + filters */}
-      <div className="space-y-2 pt-4 pb-2">
+      <div className="space-y-2 pb-2">
         <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Search className="pointer-events-none absolute z-sticky left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search agents..."
             value={search}
@@ -143,7 +153,7 @@ function AgentHistoryList({
             value={type || "__all__"}
             onValueChange={(v) => setType(v === "__all__" ? "" : v)}
           >
-            <SelectTrigger className="h-7 w-[100px] text-label-sm pointer-coarse:h-11">
+            <SelectTrigger className="h-7 w-32 text-label-sm pointer-coarse:h-11">
               <SelectValue placeholder="All types" />
             </SelectTrigger>
             <SelectContent>
@@ -189,16 +199,7 @@ function AgentHistoryList({
           </Select>
 
           {hasActiveFilters && (
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={() => {
-                setSearch("");
-                setType("");
-                setProject("");
-                onRangeChange("all");
-              }}
-            >
+            <Button variant="ghost" size="xs" onClick={clearFilters}>
               Clear filters
             </Button>
           )}
@@ -212,192 +213,218 @@ function AgentHistoryList({
       </div>
 
       {/* Table */}
-      <div className="flex-1 overflow-auto">
-        <table className="w-full text-body-sm">
-          <thead className="sticky top-0 z-sticky bg-fill-inset backdrop-blur-xl">
-            <tr className="border-b border-border text-left text-label-sm text-muted-foreground">
-              <th
-                className="cursor-pointer px-3 py-2 font-medium sm:px-4"
-                onClick={() => toggleSort("name")}
-              >
-                Name{" "}
-                {sort === "name" &&
-                  (order === "desc" ? (
-                    <ChevronDown className="ml-0.5 inline h-3 w-3" />
-                  ) : (
-                    <ChevronUp className="ml-0.5 inline h-3 w-3" />
-                  ))}
-              </th>
-              <th className="hidden px-2 py-2 font-medium sm:table-cell">
-                Project
-              </th>
-              <th className="px-2 py-2 font-medium">Duration</th>
-              <th className="px-2 py-2 font-medium">Tokens</th>
-              <th
-                className="cursor-pointer px-2 py-2 pr-3 font-medium sm:pr-4"
-                onClick={() => toggleSort("updated_at")}
-              >
-                Finished{" "}
-                {sort === "updated_at" &&
-                  (order === "desc" ? (
-                    <ChevronDown className="ml-0.5 inline h-3 w-3" />
-                  ) : (
-                    <ChevronUp className="ml-0.5 inline h-3 w-3" />
-                  ))}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading &&
-              Array.from({ length: 5 }).map((_, i) => (
-                <tr key={i} className="border-b border-border-subtle">
-                  <td className="px-3 py-3 sm:px-4" colSpan={5}>
-                    <div className="h-4 w-full animate-pulse rounded-sm bg-surface-subtle" />
-                  </td>
-                </tr>
-              ))}
-
-            {data?.agents.map((agent) => {
-              const hasChildren = agent.children.length > 0;
-              const isExpanded = expandedIds.has(agent.id);
-              return (
-                <Fragment key={agent.id}>
-                  <tr
-                    className="cursor-pointer border-b border-border-subtle transition-colors hover:bg-surface-hover"
-                    onClick={() => onSelect(agent.id)}
-                  >
-                    <td className="px-3 py-3 sm:px-4">
-                      <div className="flex items-center gap-1.5">
-                        {hasChildren ? (
-                          <IconButton
-                            size="icon-sm"
-                            className="-my-1.5"
-                            label={
-                              isExpanded
-                                ? "Hide child agents"
-                                : "Show child agents"
-                            }
-                            aria-expanded={isExpanded}
-                            onClick={(e) => toggleExpanded(agent.id, e)}
-                          >
-                            {isExpanded ? <ChevronDown /> : <ChevronRight />}
-                          </IconButton>
+      <div className="flex min-w-0 flex-col">
+        <AsyncBoundary
+          query={query}
+          thing="agent history"
+          className="my-2"
+          loading={
+            <LoadingSkeleton
+              label="Loading agent history…"
+              rows={5}
+              className="py-2"
+            />
+          }
+          isEmpty={({ agents }) => agents.length === 0}
+          empty={
+            hasActiveFilters ? (
+              <EmptyState
+                title="No agents match the current filters."
+                action={
+                  <Button size="sm" onClick={clearFilters}>
+                    Clear filters
+                  </Button>
+                }
+              />
+            ) : (
+              <EmptyState
+                title="No agents found."
+                description="Agent sessions show here once they finish."
+              />
+            )
+          }
+        >
+          {(data) => (
+            <>
+              <table className="w-full text-body-sm">
+                <thead className="sticky top-0 z-sticky bg-fill-inset backdrop-blur-xl">
+                  <tr className="border-b border-border text-left text-label-sm text-muted-foreground">
+                    <th
+                      className="cursor-pointer px-3 py-2 font-medium sm:px-4"
+                      onClick={() => toggleSort("name")}
+                    >
+                      Name{" "}
+                      {sort === "name" &&
+                        (order === "desc" ? (
+                          <ChevronDown className="ml-0.5 inline h-3 w-3" />
                         ) : (
-                          <span className="w-7 flex-shrink-0 pointer-coarse:w-11" />
-                        )}
-                        <AgentSessionLink agentId={agent.id} name={agent.name}>
-                          <AgentTypeIcon type={agent.type} />
-                        </AgentSessionLink>
-                        <span className="truncate font-medium text-foreground">
-                          <AgentSessionLink
-                            agentId={agent.id}
-                            name={agent.name}
-                          />
-                        </span>
-                        {hasChildren && (
-                          <CountBubble count={agent.children.length} />
-                        )}
-                      </div>
-                    </td>
-                    <td className="hidden px-2 py-2 text-muted-foreground sm:table-cell">
-                      <span
-                        className="truncate"
-                        title={agent.gitContext?.repoRoot ?? agent.cwd}
-                      >
-                        {shortProjectName(
-                          agent.gitContext?.repoRoot ?? agent.cwd
-                        )}
-                      </span>
-                    </td>
-                    <td className="px-2 py-2 text-muted-foreground">
-                      {formatDuration(agent.durationMs)}
-                    </td>
-                    <td className="px-2 py-2 text-muted-foreground">
-                      {hasChildren ? (
-                        <div>
-                          <span>
-                            {formatTokenCount(agent.groupTotalTokens)}
-                          </span>
-                          <span className="ml-1 text-label-xs text-faint">
-                            ({formatTokenCount(agent.totalTokens)})
-                          </span>
-                        </div>
-                      ) : agent.totalTokens > 0 ? (
-                        formatTokenCount(agent.totalTokens)
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                    <td className="px-2 py-2 pr-3 text-muted-foreground sm:pr-4">
-                      <Hint label={formatDateTime(agent.updatedAt)}>
-                        <span>{formatRelativeTime(agent.updatedAt)}</span>
-                      </Hint>
-                    </td>
+                          <ChevronUp className="ml-0.5 inline h-3 w-3" />
+                        ))}
+                    </th>
+                    <th className="hidden px-2 py-2 font-medium sm:table-cell">
+                      Project
+                    </th>
+                    <th className="hidden px-2 py-2 font-medium sm:table-cell">
+                      Duration
+                    </th>
+                    <th className="px-2 py-2 font-medium">Tokens</th>
+                    <th
+                      className="cursor-pointer px-2 py-2 pr-3 font-medium sm:pr-4"
+                      onClick={() => toggleSort("updated_at")}
+                    >
+                      Finished{" "}
+                      {sort === "updated_at" &&
+                        (order === "desc" ? (
+                          <ChevronDown className="ml-0.5 inline h-3 w-3" />
+                        ) : (
+                          <ChevronUp className="ml-0.5 inline h-3 w-3" />
+                        ))}
+                    </th>
                   </tr>
-                  {hasChildren &&
-                    isExpanded &&
-                    agent.children.map((child) => (
-                      <tr
-                        key={child.id}
-                        className="cursor-pointer border-b border-border-subtle bg-surface-subtle transition-colors hover:bg-surface-hover"
-                        onClick={() => onSelect(child.id)}
-                      >
-                        <td
-                          colSpan={3}
-                          className="py-2 pl-10 pr-3 sm:pl-12 sm:pr-4"
+                </thead>
+                <tbody>
+                  {data.agents.map((agent) => {
+                    const hasChildren = agent.children.length > 0;
+                    const isExpanded = expandedIds.has(agent.id);
+                    return (
+                      <Fragment key={agent.id}>
+                        <tr
+                          className="cursor-pointer border-b border-border-subtle transition-colors hover:bg-surface-hover"
+                          onClick={() => onSelect(agent.id)}
                         >
-                          <div className="flex items-center gap-2">
-                            <Badge size="sm">
-                              {child.persona ??
-                                (child.role === "review" ? "review" : "agent")}
-                            </Badge>
-                            <span className="truncate text-muted-foreground">
+                          <td className="w-full max-w-0 py-3 pl-1 pr-2 sm:w-auto sm:max-w-72 sm:px-4">
+                            <div className="flex items-center gap-1.5">
+                              {hasChildren ? (
+                                <IconButton
+                                  size="icon-sm"
+                                  className="-my-1.5"
+                                  label={
+                                    isExpanded
+                                      ? "Hide child agents"
+                                      : "Show child agents"
+                                  }
+                                  aria-expanded={isExpanded}
+                                  onClick={(e) => toggleExpanded(agent.id, e)}
+                                >
+                                  {isExpanded ? (
+                                    <ChevronDown />
+                                  ) : (
+                                    <ChevronRight />
+                                  )}
+                                </IconButton>
+                              ) : (
+                                <span className="w-7 flex-shrink-0 pointer-coarse:w-11" />
+                              )}
                               <AgentSessionLink
-                                agentId={child.id}
-                                name={child.name}
-                              />
+                                agentId={agent.id}
+                                name={agent.name}
+                              >
+                                <AgentTypeIcon type={agent.type} />
+                              </AgentSessionLink>
+                              <span className="min-w-0 truncate font-medium text-foreground">
+                                <AgentSessionLink
+                                  agentId={agent.id}
+                                  name={agent.name}
+                                />
+                              </span>
+                              {hasChildren && (
+                                <CountBubble count={agent.children.length} />
+                              )}
+                            </div>
+                          </td>
+                          <td className="hidden px-2 py-2 text-muted-foreground sm:table-cell">
+                            <span
+                              className="truncate"
+                              title={agent.gitContext?.repoRoot ?? agent.cwd}
+                            >
+                              {shortProjectName(
+                                agent.gitContext?.repoRoot ?? agent.cwd
+                              )}
                             </span>
-                          </div>
-                        </td>
-                        <td className="px-2 py-2 text-muted-foreground">
-                          {child.totalTokens > 0
-                            ? formatTokenCount(child.totalTokens)
-                            : "—"}
-                        </td>
-                        <td className="px-2 py-2 pr-3 text-muted-foreground sm:pr-4">
-                          <Hint label={formatDateTime(child.updatedAt)}>
-                            <span>{formatRelativeTime(child.updatedAt)}</span>
-                          </Hint>
-                        </td>
-                      </tr>
-                    ))}
-                </Fragment>
-              );
-            })}
+                          </td>
+                          <td className="hidden px-2 py-2 text-muted-foreground sm:table-cell">
+                            {formatDuration(agent.durationMs)}
+                          </td>
+                          <td className="px-2 py-2 text-muted-foreground">
+                            {hasChildren ? (
+                              <div>
+                                <span>
+                                  {formatTokenCount(agent.groupTotalTokens)}
+                                </span>
+                                <span className="ml-1 text-label-xs text-faint">
+                                  ({formatTokenCount(agent.totalTokens)})
+                                </span>
+                              </div>
+                            ) : agent.totalTokens > 0 ? (
+                              formatTokenCount(agent.totalTokens)
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td className="px-2 py-2 pr-3 text-muted-foreground sm:pr-4">
+                            <Hint label={formatDateTime(agent.updatedAt)}>
+                              <span>{formatRelativeTime(agent.updatedAt)}</span>
+                            </Hint>
+                          </td>
+                        </tr>
+                        {hasChildren &&
+                          isExpanded &&
+                          agent.children.map((child) => (
+                            <tr
+                              key={child.id}
+                              className="cursor-pointer border-b border-border-subtle bg-surface-subtle transition-colors hover:bg-surface-hover"
+                              onClick={() => onSelect(child.id)}
+                            >
+                              <td className="max-w-0 py-2 pl-6 pr-2 sm:pl-12 sm:pr-4">
+                                <div className="flex items-center gap-2">
+                                  <Badge size="sm">
+                                    {child.persona ??
+                                      (child.role === "review"
+                                        ? "review"
+                                        : "agent")}
+                                  </Badge>
+                                  <span className="min-w-0 truncate text-muted-foreground">
+                                    <AgentSessionLink
+                                      agentId={child.id}
+                                      name={child.name}
+                                    />
+                                  </span>
+                                </div>
+                              </td>
+                              {/* The columns only its parent fills. */}
+                              <td className="hidden sm:table-cell" />
+                              <td className="hidden sm:table-cell" />
+                              <td className="px-2 py-2 text-muted-foreground">
+                                {child.totalTokens > 0
+                                  ? formatTokenCount(child.totalTokens)
+                                  : "—"}
+                              </td>
+                              <td className="px-2 py-2 pr-3 text-muted-foreground sm:pr-4">
+                                <Hint label={formatDateTime(child.updatedAt)}>
+                                  <span>
+                                    {formatRelativeTime(child.updatedAt)}
+                                  </span>
+                                </Hint>
+                              </td>
+                            </tr>
+                          ))}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
 
-            {data && data.agents.length === 0 && !isLoading && (
-              <tr>
-                <td
-                  colSpan={5}
-                  className="px-4 py-12 text-center text-body-md text-muted-foreground"
-                >
-                  {hasActiveFilters
-                    ? "No agents match the current filters."
-                    : "No agents found."}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-
-        {data && data.agents.length < data.total && (
-          <div className="py-3 text-center">
-            <p className="text-body-sm text-muted-foreground">
-              Showing {data.agents.length} of {data.total} agents — load more
-              coming soon
-            </p>
-          </div>
-        )}
+              {data.agents.length < data.total && (
+                <div className="py-3 text-center">
+                  <p className="text-body-sm text-muted-foreground">
+                    Showing {data.agents.length} of {data.total} agents — load
+                    more coming soon
+                  </p>
+                </div>
+              )}
+            </>
+          )}
+        </AsyncBoundary>
       </div>
     </div>
   );

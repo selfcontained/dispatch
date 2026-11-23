@@ -19,6 +19,8 @@ import {
 import { useChatRowState } from "@/components/app/chat/chat-row-state";
 import { Collapse } from "@/components/app/chat/collapse";
 import { Markdown } from "@/components/ui/markdown";
+import { Badge } from "@/components/ui/badge";
+import { RowButton } from "@/components/ui/row-button";
 import { cn } from "@/lib/utils";
 
 /**
@@ -196,19 +198,16 @@ function SentTo({
       data-open={open ? "true" : "false"}
     >
       <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
-        <button
-          type="button"
+        <RowButton
           onClick={() => openable && setOpen(!open)}
           aria-expanded={openable ? open : undefined}
           className={cn(
-            "flex min-w-0 flex-1 items-center gap-2 text-left",
-            !openable && "cursor-default"
+            "min-w-0 flex-1",
+            !openable && "cursor-default hover:bg-transparent"
           )}
           data-testid="chat-turn-sent-to-toggle"
         >
-          <span className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-label-xs font-semibold uppercase tracking-wide">
-            Sent to
-          </span>
+          <Badge size="sm">Sent to</Badge>
           <span
             className="max-w-[40%] truncate font-medium text-foreground"
             title={recipientName}
@@ -232,7 +231,7 @@ function SentTo({
               aria-hidden="true"
             />
           ) : null}
-        </button>
+        </RowButton>
       </div>
       <div
         className="absolute right-0 top-0 h-4 w-4"

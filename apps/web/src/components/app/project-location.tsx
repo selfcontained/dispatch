@@ -1,12 +1,13 @@
 import { useRef, useState, type ReactNode } from "react";
-import { Check, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { FieldError } from "@/components/ui/field";
 import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-} from "@/components/ui/dropdown-menu";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   SegmentedControl,
   SegmentedControlItem,
@@ -93,64 +94,67 @@ export function ProjectLocation({
       </SegmentedControl>
       {projectId && (
         <div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                variant="field"
-                className="w-full"
-                aria-label="Choose project"
-              >
+          <Select
+            value={project?.id ?? ""}
+            disabled={!projects.length}
+            onValueChange={(id) => {
+              const next = projects.find((p) => p.id === id);
+              if (next) select(next);
+            }}
+          >
+            <SelectTrigger
+              aria-label="Choose project"
+              className="[&>span]:min-w-0"
+            >
+              <SelectValue placeholder="Choose a project">
                 <span className="flex min-w-0 items-center gap-2">
-                  {project && <ProjectIcon project={project} />}
+                  {project && (
+                    <ProjectIcon project={project} className="h-5 w-5" />
+                  )}
                   <span className="truncate">
                     {project?.name ??
                       (isLoading ? "Loading projects…" : "Choose a project")}
                   </span>
                 </span>
-                <ChevronDown />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="start"
-              className="max-h-[clamp(4rem,var(--radix-dropdown-menu-content-available-height),18rem)] w-[var(--radix-dropdown-menu-trigger-width)] min-w-0 overflow-y-auto"
-            >
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent className="max-h-[clamp(4rem,var(--radix-select-content-available-height),18rem)] w-[var(--radix-select-trigger-width)]">
               {projects.map((p) => (
-                <DropdownMenuItem
+                <SelectItem
                   key={p.id}
-                  className="flex min-w-0 items-center gap-3 py-2 text-foreground"
-                  onSelect={() => select(p)}
+                  value={p.id}
+                  textValue={p.name}
+                  className="min-w-0 [&>span:last-child]:min-w-0 [&>span:last-child]:flex-1"
                 >
-                  <ProjectIcon project={p} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate">{p.name}</span>
-                    <span
-                      className="block truncate text-body-sm text-muted-foreground"
-                      title={p.repoRoot ?? undefined}
-                    >
-                      {p.repoRoot}
+                  <span className="flex min-w-0 items-center gap-3">
+                    <ProjectIcon project={p} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">{p.name}</span>
+                      <span
+                        className="block truncate text-body-sm text-muted-foreground"
+                        title={p.repoRoot ?? undefined}
+                      >
+                        {p.repoRoot}
+                      </span>
                     </span>
                   </span>
-                  <span className="flex w-4 shrink-0 justify-center">
-                    {p.id === projectId && <Check className="h-4 w-4" />}
-                  </span>
-                </DropdownMenuItem>
+                </SelectItem>
               ))}
-              {isError && (
-                <DropdownMenuItem
-                  className="text-foreground"
-                  onSelect={() => void refetch()}
-                >
-                  Couldn't load projects. Retry
-                </DropdownMenuItem>
-              )}
-              {!isLoading && !isError && !projects.length && (
-                <div className="px-2 py-2 text-body-md text-muted-foreground">
-                  No projects yet
-                </div>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+            </SelectContent>
+          </Select>
+          {isError && (
+            <FieldError className="mt-1.5">
+              Couldn’t load projects.{" "}
+              <Button
+                type="button"
+                variant="link"
+                size="inline"
+                onClick={() => void refetch()}
+              >
+                Retry
+              </Button>
+            </FieldError>
+          )}
           <div className="flex h-5 items-center justify-end text-body-sm text-muted-foreground">
             <span className="truncate" title={project?.repoRoot ?? undefined}>
               {project?.repoRoot}

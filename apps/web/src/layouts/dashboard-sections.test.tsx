@@ -52,6 +52,10 @@ const { H, record, stubModule } = vi.hoisted(() => {
 
 vi.mock("@/components/app/agents-view", stubModule("AgentsView"));
 vi.mock("@/components/app/activity-pane", stubModule("ActivityPane"));
+vi.mock(
+  "@/components/app/notifications-drawer",
+  stubModule("NotificationsDrawer")
+);
 vi.mock("@/components/app/design-lab", stubModule("DesignLab"));
 
 vi.mock("@/components/app/dashboard-context", () => ({
@@ -92,6 +96,7 @@ vi.mock("@/components/app/automations-pane", async () => {
 
 vi.mock("@/components/app/settings-pane", async () => {
   const React = await import("react");
+  const { PageHeader } = await import("@/components/ui/page-header");
   return {
     SettingsNavContent: (received: Record<string, unknown>) => {
       record("SettingsNavContent", received);
@@ -126,6 +131,8 @@ vi.mock("@/components/app/settings-pane", async () => {
       return React.createElement(
         "div",
         { "data-testid": "stub-SettingsContent" },
+        // A page draws the header; the shell fills in its first and last.
+        React.createElement(PageHeader, { title: "Settings page" }),
         React.createElement("button", {
           "data-testid": "content-subsection-faq",
           onClick: () => onSubsectionChange?.("faq"),
@@ -225,11 +232,6 @@ function defaultContext(): Record<string, unknown> {
     currentNavItem: null,
     theme: "cool-navy",
     setTheme: vi.fn(),
-    iconColor: "blue",
-    setIconColor: vi.fn(),
-    isIconColorSaving: false,
-    iconColorError: null,
-    clearIconColorError: vi.fn(),
   };
 }
 
@@ -343,14 +345,14 @@ describe("SectionShell sidebar open/close wiring", () => {
     expect(H.context.setMobileDrawerOpen).not.toHaveBeenCalled();
   });
 
-  it("shows the floating open-sidebar button only when the left panel is closed", () => {
+  it("shows the header's open-sidebar button only when the left panel is closed", () => {
     Object.assign(H.context, { leftPanelOpen: false });
     renderAt("/settings");
     fireEvent.click(screen.getByRole("button", { name: "Open sidebar" }));
     expect(H.context.handleSetLeftPanelOpen).toHaveBeenCalledWith(true);
   });
 
-  it("hides the floating open-sidebar button when the left panel is already open", () => {
+  it("hides the header's open-sidebar button when the left panel is already open", () => {
     Object.assign(H.context, { leftPanelOpen: true });
     renderAt("/settings");
     expect(screen.queryByRole("button", { name: "Open sidebar" })).toBeNull();

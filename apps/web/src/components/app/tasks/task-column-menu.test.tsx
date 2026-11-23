@@ -62,7 +62,7 @@ const openMenu = async (
     screen.getByRole("button", { name: `${column.name} menu` }),
     { key: "Enter" }
   );
-  await screen.findByRole("menuitem", { name: "Rename" });
+  await screen.findByRole("menuitem", { name: "Rename…" });
 };
 const item = (name: string) => screen.getByRole("menuitem", { name });
 
@@ -171,11 +171,11 @@ it("validates and saves a column limit, then returns focus to its menu", async (
   await screen.findByRole("dialog", { name: "Capacity · Ready" });
   const input = screen.getByRole("spinbutton", { name: "Active task limit" });
   fireEvent.change(input, { target: { value: "1.5" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save capacity" }));
   expect(await screen.findByRole("alert")).toBeTruthy();
   expect(updateColumn).not.toHaveBeenCalled();
   fireEvent.change(input, { target: { value: "1" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save capacity" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(updateColumn).toHaveBeenCalledWith({ id: "Ready", capacity: 1 });
   await waitFor(() =>
@@ -193,11 +193,10 @@ it("removes capacity explicitly and retains a failed edit for correction", async
   fireEvent.click(item("Edit capacity…"));
   await screen.findByRole("dialog");
   updateColumn.mockRejectedValueOnce(new Error("Could not update column."));
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
-  expect(await screen.findByRole("alert")).toHaveProperty(
-    "textContent",
-    "Could not update column."
-  );
+  fireEvent.click(screen.getByRole("button", { name: "Save capacity" }));
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain("Couldn’t save the capacity.");
+  expect(alert.textContent).toContain("Could not update column.");
   fireEvent.click(screen.getByRole("button", { name: "Remove limit" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(updateColumn).toHaveBeenLastCalledWith({

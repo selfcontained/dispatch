@@ -1,4 +1,5 @@
 import { Children, isValidElement, memo, type ReactNode } from "react";
+import { CheckboxMark } from "./checkbox";
 import { CopyButton } from "./copy-button";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -97,6 +98,11 @@ type MarkdownProps = {
   variant?: "default" | "pin" | "caption" | "inline" | "compact" | "snapshot";
   /** Decorate prose text without altering Markdown syntax or code. */
   renderText?: (text: string) => ReactNode;
+  /**
+   * Default variant only. `comfortable`: stream posts, task bodies and
+   * conversations, documents. `compact`: text inside a card or a detail.
+   */
+  density?: "comfortable" | "compact";
   // Colors h1/h2 for skimming a long document (see MarkdownDefault). Off by
   // default: most `default`-variant consumers are compact cards that pass
   // their own dimmed base color (e.g. text-muted-foreground, text-foreground/85)
@@ -117,6 +123,7 @@ export const Markdown = memo(function Markdown({
   variant = "default",
   renderText,
   headingAccents = false,
+  density = "comfortable",
   streaming = false,
   allowedElements,
 }: MarkdownProps): JSX.Element {
@@ -170,6 +177,7 @@ export const Markdown = memo(function Markdown({
     <MarkdownDefault
       className={className}
       headingAccents={headingAccents}
+      density={density}
       renderText={renderText}
       streaming={streaming}
       allowedElements={allowedElements}
@@ -447,9 +455,30 @@ function hasClosingFence(source: string): boolean {
   );
 }
 
+/**
+ * Type-ramp steps per density. Inside a stream, drawer or thread h1 stops at
+ * heading-md, so it never outweighs the panel's own title.
+ */
+const DENSITY = {
+  comfortable: cn(
+    "text-body-md leading-6",
+    "prose-h1:text-heading-md prose-h2:text-heading-sm prose-h3:text-heading-sm prose-h4:text-body-md",
+    "prose-code:text-body-sm prose-pre:text-body-sm prose-table:text-body-sm"
+  ),
+  compact: cn(
+    "text-body-sm leading-5",
+    "prose-h1:text-heading-sm prose-h2:text-heading-sm prose-h3:text-body-sm prose-h4:text-body-sm",
+    "prose-code:text-label-sm prose-pre:text-label-sm prose-table:text-label-sm"
+  ),
+};
+
+/** A document's own scale (the file viewer), where the title is the page's. */
+const DOCUMENT = "prose-code:text-body-sm prose-pre:text-body-sm";
+
 function MarkdownDefault({
   children,
   className,
+  density = "comfortable",
   headingAccents = false,
   renderText,
   streaming = false,
@@ -458,6 +487,7 @@ function MarkdownDefault({
   MarkdownProps,
   | "children"
   | "className"
+  | "density"
   | "headingAccents"
   | "renderText"
   | "streaming"
@@ -473,7 +503,11 @@ function MarkdownDefault({
         // Use theme CSS variables for colors so it works across all themes
         "text-foreground prose-headings:text-foreground prose-strong:text-foreground",
         "prose-p:my-1 prose-p:[overflow-wrap:anywhere] prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-li:[overflow-wrap:anywhere]",
-        "prose-headings:mt-3 prose-headings:mb-1",
+        "prose-headings:mt-3 prose-headings:mb-1 [&>:first-child]:mt-0 [&>:last-child]:mb-0",
+        headingAccents ? DOCUMENT : DENSITY[density],
+        // A quote is a rule and muted text: no slant, no added quote marks.
+        "prose-blockquote:font-normal prose-blockquote:not-italic [&_blockquote_p]:before:content-none [&_blockquote_p]:after:content-none",
+        "[&_.contains-task-list]:list-none [&_.contains-task-list]:pl-0",
         // Color h1/h2 for skimming a long document — a file that's mostly
         // headings and short paragraphs needs more than a size bump,
         // especially at prose-sm sizes where h2/h3 are close together. Uses
@@ -486,8 +520,8 @@ function MarkdownDefault({
         // those two levels.
         headingAccents && "prose-h1:text-heading-accent-1",
         headingAccents && "prose-h2:text-heading-accent-2",
-        "prose-pre:max-w-full prose-pre:overflow-x-auto prose-pre:rounded-md prose-pre:bg-muted prose-pre:p-2 prose-pre:text-body-sm",
-        "prose-code:text-body-sm prose-code:text-foreground prose-code:bg-muted prose-code:rounded-sm prose-code:px-1 prose-code:py-0.5 prose-code:break-words prose-code:[overflow-wrap:anywhere]",
+        "prose-pre:max-w-full prose-pre:overflow-x-auto prose-pre:rounded-md prose-pre:bg-muted prose-pre:p-2",
+        "prose-code:text-foreground prose-code:bg-muted prose-code:rounded-sm prose-code:px-1 prose-code:py-0.5 prose-code:break-words prose-code:[overflow-wrap:anywhere]",
         "prose-code:before:content-none prose-code:after:content-none",
         "prose-a:text-primary prose-a:underline prose-a:[overflow-wrap:anywhere]",
         "prose-li:text-foreground prose-li:marker:text-muted-foreground",
@@ -529,6 +563,15 @@ function MarkdownDefault({
                     child.trim() !== ""
                 )}
               </li>
+            );
+          },
+          input({ checked }) {
+            return (
+              <CheckboxMark
+                checked={!!checked}
+                label={checked ? "Done" : "To do"}
+                className="mr-2 align-[-0.15em]"
+              />
             );
           },
           span({ children }) {

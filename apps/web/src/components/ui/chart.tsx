@@ -3,6 +3,7 @@ import * as RechartsPrimitive from "recharts";
 import type { TooltipValueType } from "recharts";
 
 import { cn } from "@/lib/utils";
+import { Legend } from "./dashboard";
 
 // Format: { THEME_NAME: CSS_SELECTOR }
 const THEMES = { light: "", dark: ".dark" } as const;
@@ -281,40 +282,23 @@ function ChartLegendContent({
     return null;
   }
 
+  const items = payload
+    .filter((item) => item.type !== "none")
+    .map((item, index) => {
+      const key = `${nameKey ?? item.dataKey ?? "value"}`;
+      const itemConfig = getPayloadConfigFromPayload(config, item, key);
+      return {
+        key: `${key}-${index}`,
+        label: itemConfig?.label,
+        color: item.color,
+        icon: hideIcon ? undefined : itemConfig?.icon,
+      };
+    });
   return (
-    <div
-      className={cn(
-        "flex items-center justify-center gap-4",
-        verticalAlign === "top" ? "pb-3" : "pt-3",
-        className
-      )}
-    >
-      {payload
-        .filter((item) => item.type !== "none")
-        .map((item, index) => {
-          const key = `${nameKey ?? item.dataKey ?? "value"}`;
-          const itemConfig = getPayloadConfigFromPayload(config, item, key);
-
-          return (
-            <div
-              key={index}
-              className={cn(
-                "flex items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3 [&>svg]:text-muted-foreground"
-              )}
-            >
-              {itemConfig?.icon && !hideIcon ? (
-                <itemConfig.icon />
-              ) : (
-                <div
-                  className="h-2 w-2 shrink-0 rounded-mark"
-                  style={{ backgroundColor: item.color }}
-                />
-              )}
-              {itemConfig?.label}
-            </div>
-          );
-        })}
-    </div>
+    <Legend
+      items={items}
+      className={cn(verticalAlign === "top" ? "pb-3" : "pt-3", className)}
+    />
   );
 }
 
