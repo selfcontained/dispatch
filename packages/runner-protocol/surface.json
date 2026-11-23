@@ -501,6 +501,11 @@
                     "literal": [true]
                   }
                 },
+                "replayCompleteSupported": {
+                  "optional": {
+                    "literal": [true]
+                  }
+                },
                 "hostInstanceId": {
                   "optional": "string"
                 },

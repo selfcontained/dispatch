@@ -7,10 +7,11 @@ import {
   type Res,
   type RunnerDescription,
 } from "@dispatch/runner-protocol/contract";
-import type {
-  CheckoutCommand,
-  CheckoutCommandFile,
-  CheckoutCommandResult,
+import {
+  RUNNER_WIRE_VERSION,
+  type CheckoutCommand,
+  type CheckoutCommandFile,
+  type CheckoutCommandResult,
 } from "@dispatch/runner-protocol";
 import type {
   CheckoutRunner,
@@ -18,7 +19,7 @@ import type {
   LocalCheckoutRunner,
 } from "./directory.js";
 import { selfCommand, superviseRunner } from "@dispatch/runner-client/launcher";
-import { callLocalSocket } from "@dispatch/runner-client/transport/local-socket";
+import { LocalRunnerSession } from "@dispatch/runner-client/session";
 import { childProcessEnv } from "../shared/process/child-environment.js";
 import { LOCAL_RUNNER_ID } from "./placement.js";
 
@@ -91,7 +92,11 @@ export type LocalRunnerLog = {
   warn(object: object, message: string): void;
 };
 
-export type LocalRunnerProcess = { stop(graceMs?: number): Promise<void> };
+export type LocalRunnerProcess = {
+  /** The child as a `Runner`: one connection, retried while unavailable. */
+  runner: LocalRunnerSession;
+  stop(graceMs?: number): Promise<void>;
+};
 
 /**
  * Start this app's local runner as a child (`<this executable> local-runner`)
@@ -106,6 +111,20 @@ export function startLocalRunnerProcess(options: {
   log: LocalRunnerLog;
 }): LocalRunnerProcess {
   const { log } = options;
+  const runnerId = runnerIdToWire(LOCAL_RUNNER_ID);
+  const runner = new LocalRunnerSession({
+    description: {
+      runnerId: LOCAL_RUNNER_ID,
+      displayName: "Local",
+      build: {
+        version: options.build.version,
+        ...(options.build.revision && { revision: options.build.revision }),
+      },
+      protocol: RUNNER_WIRE_VERSION,
+      engines: [],
+      capabilities: {},
+    },
+  });
   const supervisor = superviseRunner({
     command: selfCommand("local-runner"),
     // Main's child-environment scrub: no database URL, tokens or API keys.
@@ -117,7 +136,7 @@ export function startLocalRunnerProcess(options: {
       },
       roots: { state: options.stateRoot, files: options.filesRoot },
       config: {
-        runnerId: runnerIdToWire(LOCAL_RUNNER_ID),
+        runnerId,
         displayName: "Local",
         engines: [],
       },
@@ -127,10 +146,12 @@ export function startLocalRunnerProcess(options: {
       if (state.state === "ready") {
         const { pid, ready } = state.runner;
         log.info({ pid }, "Local runner ready");
+        runner.setEndpoint({ socket: ready.socket, nonce: ready.nonce });
         // A start-up self-check over the socket; nothing else uses it yet.
+        const signal = AbortSignal.timeout(10_000);
         void Promise.all([
-          callLocalSocket(ready.socket, ready.nonce, "runner.describe", {}),
-          callLocalSocket(ready.socket, ready.nonce, "runner.health", {}),
+          runner.call("runner.describe", {}, { signal }),
+          runner.call("runner.health", {}, { signal }),
         ])
           .then(([description, health]) =>
             log.info(
@@ -150,6 +171,7 @@ export function startLocalRunnerProcess(options: {
             )
           );
       } else if (state.state === "waiting") {
+        runner.setEndpoint(null);
         log.warn(
           {
             reason: (state.error as { reason?: string }).reason,
@@ -161,5 +183,11 @@ export function startLocalRunnerProcess(options: {
       }
     },
   });
-  return { stop: (graceMs = 3_000) => supervisor.stop(graceMs) };
+  return {
+    runner,
+    async stop(graceMs = 3_000) {
+      runner.close();
+      await supervisor.stop(graceMs);
+    },
+  };
 }

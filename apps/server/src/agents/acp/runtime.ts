@@ -10,6 +10,7 @@ import {
   type SessionResult,
 } from "../local-runner.js";
 import type { SessionLifecycleOperation } from "@dispatch/runner-protocol";
+import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 export { selfCommand, hostCommand, loginShellCommand } from "./host-command.js";
 
 import type { FastifyBaseLogger } from "fastify";
@@ -66,6 +67,31 @@ const MAX_LAUNCH_RECONCILES = 5;
  * on into the next turn: nothing is dropped, and no prompt grows without
  * bound. One post larger than the size cap still goes, on its own.
  */
+/**
+ * What a failed reconnect to an agent host means, whatever the placement. A
+ * runner that answers the host is gone settles the agent; a runner that is
+ * unreachable (not sent, or lost before it answered an attach) is retried for
+ * as long as the app runs, keeping the prompt queue. Anything else keeps the
+ * bounded retry (about 25 s) after which the host is recorded as gone.
+ *
+ * Local attaches do not go through the runner child yet: their errors are
+ * plain and still take the bounded path, as on main. They take the
+ * unavailable path once local sessions are routed through the child (T23).
+ */
+export function hostReconnectDisposition(
+  error: unknown
+): "retry" | "gone" | undefined {
+  if (error instanceof RunnerRevoked || error instanceof RunnerHostGone)
+    return "gone";
+  if (error instanceof RunnerUnavailable) return "retry";
+  if (error instanceof RunnerCallError) {
+    if (error.code === "host_gone") return "gone";
+    if (error.code === "unavailable" || error.code === "unknown_outcome")
+      return "retry";
+  }
+  return undefined;
+}
+
 export const COMBINE_MAX_PROMPTS = 8;
 export const COMBINE_MAX_CHARS = 32_000;
 
@@ -929,17 +955,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         entry.channelEpoch = epoch ?? undefined;
         return channel;
       },
+      reconnectError: hostReconnectDisposition,
       ...(placement
         ? {
-            reconnectError: (error: unknown) => {
-              if (
-                error instanceof RunnerRevoked ||
-                error instanceof RunnerHostGone
-              )
-                return "gone";
-              if (error instanceof RunnerUnavailable) return "retry";
-              return undefined;
-            },
             updateDeadline: () => {
               const hold = deps.holds?.current(placement.runner);
               return hold ? Date.parse(hold.expiresAt) : undefined;

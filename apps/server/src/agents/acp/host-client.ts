@@ -53,6 +53,12 @@ export class UpdateAcknowledgementLost extends Error {
 
 export type HostClientDeps = {
   agentId: string;
+  /**
+   * The channel goes through a runner's wire: validate frames strictly, name
+   * the journal on prompts, use the runner's wording for a lost connection.
+   * It does not choose the readiness rule, which comes from the host's own
+   * welcome (see `isReady`).
+   */
   remote: boolean;
   openSocket: () => Promise<Duplex>;
   reconnectError?: (error: unknown) => "retry" | "gone" | undefined;
@@ -137,6 +143,9 @@ export class HostClient {
   }> = [];
   private lastWelcome: HostWelcome | null = null;
   private sentFromSeq = 0;
+  private sentJournalId: string | null = null;
+  /** The newest seq received on the current connection. */
+  private connectionSeq = 0;
   private replayReady = false;
   private reconnectingForLegacyReplay = false;
   private finishUpdateReattach?: (welcome: HostWelcome | null) => void;
@@ -238,16 +247,46 @@ export class HostClient {
   private connected(socket: Duplex): void {
     this.attempts = 0;
     this.lastWelcome = null;
-    this.replayReady = !this.deps.remote;
+    this.replayReady = false;
+    this.connectionSeq = 0;
     this.socket = socket;
     this.wire(socket);
     this.sentFromSeq = this.deps.fromSeq();
+    this.sentJournalId = this.deps.journalId();
+    // Always asked: hosts that lack `replay_complete` ignore the field.
     this.send({
       type: "hello",
       fromSeq: this.sentFromSeq,
-      journalId: this.deps.journalId(),
-      ...(this.deps.remote ? { replayComplete: true } : {}),
+      journalId: this.sentJournalId,
+      replayComplete: true,
     });
+  }
+
+  /**
+   * The readiness rule for a host that does not advertise `replay_complete`
+   * (origin/main, v1.7.28): its replay ends at the welcome's `journalSeq`.
+   * It replays from 0 when the journal changed or `fromSeq` is past its head
+   * (the host's own rule), else after `fromSeq`.
+   */
+  private replayReached(welcome: HostWelcome): boolean {
+    if (welcome.replayCompleteSupported === true) return false;
+    const rotated =
+      !!this.sentJournalId &&
+      !!welcome.journalId &&
+      this.sentJournalId !== welcome.journalId;
+    const from =
+      rotated || this.sentFromSeq > welcome.journalSeq ? 0 : this.sentFromSeq;
+    return (
+      welcome.journalSeq <= from || this.connectionSeq >= welcome.journalSeq
+    );
+  }
+
+  private markReplayed(): void {
+    if (this.replayReady) return;
+    this.replayReady = true;
+    this.resolveWelcomeWaiters();
+    this.finishUpdateReattach?.(this.isReady() ? this.lastWelcome : null);
+    this.deps.onReady?.();
   }
 
   private wire(socket: Duplex): void {
@@ -360,12 +399,10 @@ export class HostClient {
 
         if (this.permissions.length || previousPermissions.length)
           this.deps.onPermissions?.(this.permissions);
+        if (this.replayReached(message)) this.markReplayed();
         return;
       case "replay_complete":
-        this.replayReady = true;
-        this.resolveWelcomeWaiters();
-        this.finishUpdateReattach?.(this.isReady() ? this.lastWelcome : null);
-        this.deps.onReady?.();
+        this.markReplayed();
         return;
       case "event":
         if (this.reconnectingForLegacyReplay) return;
@@ -374,6 +411,9 @@ export class HostClient {
           at: message.at,
           event: message.event,
         });
+        if (message.seq > this.connectionSeq) this.connectionSeq = message.seq;
+        if (this.lastWelcome && this.replayReached(this.lastWelcome))
+          this.markReplayed();
         return;
       case "quiesce_result":
       case "quiesce_shutdown_result":
@@ -886,6 +926,12 @@ export class HostClient {
     this.send({ type: "shutdown", force, idleOnly });
   }
 
+  /**
+   * Connected, the engine running, and this connection's replay finished:
+   * `replay_complete` from a host that advertises it, otherwise the replay
+   * reaching the welcome's `journalSeq`. Negotiated per connection from the
+   * host's welcome, never from placement.
+   */
   isReady(): boolean {
     return (
       this.replayReady && this.isConnected() && !!this.lastWelcome?.running

@@ -138,6 +138,9 @@ type DispatchWelcome = HostWelcome & {
   hostBuild?: BuildIdentity;
   promptReceiptSupported?: true;
   quiesceSupported?: true;
+  /** Answers `hello {replayComplete}` with `replay_complete`. Hosts from
+   * origin/main and v1.7.28 lack it. */
+  replayCompleteSupported?: true;
   hostInstanceId?: string;
   /** The open turn, if one is running. */
   turn: { seq: number; startedAt: string; source?: PromptSource } | null;

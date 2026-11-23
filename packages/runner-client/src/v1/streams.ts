@@ -24,12 +24,23 @@ interface Transfer {
   id: string;
   io: Readable | Writable;
   credit: number;
+  /** False for long-lived channels: an idle channel is not stalled. */
+  stall: boolean;
   phase: "waiting" | "open" | "ended";
   timer?: ReturnType<typeof setTimeout>;
   wake?: () => void;
   cancelWrite?: () => void;
   finish(error?: RunnerCallError): void;
 }
+
+export type TransferOptions = {
+  /**
+   * Cancel with `timeout` when the transfer makes no progress for the stall
+   * period (default). Channels that may sit idle pass false and rely on the
+   * connection closing instead.
+   */
+  stall?: boolean;
+};
 
 type Sender = Transfer & { direction: "send"; io: Readable };
 type Receiver = Transfer & { direction: "receive"; io: Writable };
@@ -89,13 +100,28 @@ export class FlowStreams {
   }
 
   /** Send a blob or stream. The source should produce bounded chunks. */
-  send(id: string, io: Readable, signal?: AbortSignal): Promise<void> {
-    return this.start({ id, io, direction: "send" }, signal);
+  send(
+    id: string,
+    io: Readable,
+    signal?: AbortSignal,
+    options?: TransferOptions
+  ): Promise<void> {
+    return this.start({ id, io, direction: "send" }, signal, options);
   }
 
   /** Receive into a backpressure-aware sink. Credit returns on write callbacks. */
-  receive(id: string, io: Writable, signal?: AbortSignal): Promise<void> {
-    return this.start({ id, io, direction: "receive" }, signal);
+  receive(
+    id: string,
+    io: Writable,
+    signal?: AbortSignal,
+    options?: TransferOptions
+  ): Promise<void> {
+    return this.start({ id, io, direction: "receive" }, signal, options);
+  }
+
+  /** Whether a transfer is registered under this ID. */
+  has(id: string): boolean {
+    return this.active.has(id);
   }
 
   private start(
@@ -103,7 +129,8 @@ export class FlowStreams {
       | { direction: "send"; io: Readable }
       | { direction: "receive"; io: Writable }
     ),
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    options?: TransferOptions
   ): Promise<void> {
     const { id, io } = input;
     if (!this.enabled || this.socket.destroyed)
@@ -128,6 +155,7 @@ export class FlowStreams {
       const entry: Active = {
         ...input,
         credit: 0,
+        stall: options?.stall !== false,
         phase: "waiting",
         finish: (error) => {
           if (!this.active.delete(id)) return;
@@ -162,6 +190,7 @@ export class FlowStreams {
 
   private touch(entry: Active) {
     clearTimeout(entry.timer);
+    if (!entry.stall) return;
     entry.timer = setTimeout(
       () => this.cancel(entry, "timeout", "Stream made no progress"),
       this.stallMs

@@ -6,7 +6,9 @@
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import {
   appendFileSync,
+  existsSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -18,9 +20,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  pathFromWire,
+  runnerIdFromWire,
   runnerIdToWire,
+  sessionFromWire,
   RunnerCallError,
 } from "@dispatch/runner-protocol/contract";
+import { LocalRunnerSession } from "@dispatch/runner-client/session";
 import {
   callLocalSocket,
   jsonLines,
@@ -373,4 +379,117 @@ describe("local runner child (real processes)", () => {
     a.child.kill("SIGKILL");
     await gone(second.pid!, 1_000);
   }, 15_000);
+
+  it("child killed mid-call: callers see unavailable, retries follow each operation's rule, a queued call is delivered once", async () => {
+    const root = temp();
+    const a = startApp({
+      STATE_ROOT: root,
+      BACKOFF_MS: "300",
+      RUNNER_ENTRY: "./counting-runner-entry.ts",
+    });
+    const session = new LocalRunnerSession({
+      description: {
+        runnerId: runnerIdFromWire("local"),
+        displayName: "Local",
+        build: { version: "0.0.0-test" },
+        protocol: 1,
+        engines: [],
+        capabilities: {},
+      },
+    });
+    const states: string[] = [];
+    session.connection.onChange((state) => states.push(state));
+    const first = await a.next(ready);
+    session.setEndpoint({ socket: first.socket!, nonce: first.nonce! });
+
+    const received = () =>
+      existsSync(join(root, "received.jsonl"))
+        ? readFileSync(join(root, "received.jsonl"), "utf8")
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line) as { key: string; pid: number })
+        : [];
+    const effects = () =>
+      existsSync(join(root, "effects.jsonl"))
+        ? readFileSync(join(root, "effects.jsonl"), "utf8")
+            .trim()
+            .split("\n")
+            .map((line) => (JSON.parse(line) as { key: string }).key)
+        : [];
+    const launch = (launchId: string) =>
+      session.call("session.launch", {
+        session: sessionFromWire("s"),
+        launchId,
+        engine: "fixture",
+        model: null,
+        effort: null,
+        access: "default",
+        resume: null,
+        systemText: null,
+        firstText: null,
+        overflowNotice: null,
+        env: {},
+        mcp: [],
+        owner: null,
+      });
+    const exec = (key: string) =>
+      session.call("checkout.exec", {
+        target: { path: pathFromWire("/tmp") },
+        guard: { path: "/tmp", digest: "d" },
+        argv: [key],
+        env: {},
+        timeoutMs: null,
+        maxOutput: null,
+        shell: "direct",
+      });
+
+    // Two calls in flight when the child dies: a keyed one and a `none` one.
+    const keyed = launch("hang-keyed");
+    const unkeyed = exec("hang-unkeyed").catch((error: unknown) => error);
+    await until(() => received().length === 2);
+    process.kill(first.pid!, "SIGKILL");
+    await a.next(waiting);
+    session.setEndpoint(null);
+    expect(session.connection.state).toBe("unavailable");
+    await expect(
+      session.call("runner.describe", {}, { wait: false })
+    ).rejects.toMatchObject({ code: "unavailable" });
+    // Sent after the loss: queued until the runner is back.
+    const queued = launch("queued");
+
+    const second = await a.next(ready);
+    expect(second.pid).not.toBe(first.pid);
+    session.setEndpoint({ socket: second.socket!, nonce: second.nonce! });
+    await expect(keyed).resolves.toEqual({});
+    await expect(queued).resolves.toEqual({});
+    const lost = (await unkeyed) as RunnerCallError;
+    expect(lost).toBeInstanceOf(RunnerCallError);
+    expect(lost.code).toBe("unknown_outcome");
+
+    const byKey = (key: string) => received().filter((r) => r.key === key);
+    // The keyed call was repeated by its rule; the runner applied it once.
+    expect(byKey("hang-keyed").map((r) => r.pid)).toEqual([
+      first.pid,
+      second.pid,
+    ]);
+    // A `none` call is never repeated; a queued call is sent exactly once.
+    expect(byKey("hang-unkeyed").map((r) => r.pid)).toEqual([first.pid]);
+    expect(byKey("queued").map((r) => r.pid)).toEqual([second.pid]);
+    expect(effects().sort()).toEqual(["hang-keyed", "queued"]);
+    expect(states).toContain("unavailable");
+    expect(session.connection.state).toBe("ready");
+    expect(session.connection.epoch).toBe(2);
+
+    session.close();
+    a.child.kill("SIGTERM");
+    await gone(second.pid!, 3_000);
+  }, 15_000);
 });
+
+async function until(condition: () => boolean, ms = 5_000) {
+  const began = Date.now();
+  while (!condition()) {
+    if (Date.now() - began > ms) throw new Error("Condition not met in time");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
