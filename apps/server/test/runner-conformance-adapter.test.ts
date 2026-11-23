@@ -1,8 +1,8 @@
 /*
  * Conformance on the temporary in-app local adapter (`runners/local.ts`),
- * for the operations it routes today. The adapter is a known divergence
- * until the local child serves its family; its red entries are in
- * packages/runner-conformance/baseline.json under the `adapter` lane.
+ * for the operations it routes today: here its in-process workload, the
+ * path a session the child holds no binding for takes (T18). Any red entry
+ * goes in packages/runner-conformance/baseline.json under the `adapter` lane.
  */
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";

@@ -1,5 +1,6 @@
 /*
- * The checkout worker: the workload side of checkout reads, as one entry.
+ * The checkout worker: the workload side of checkout reads and commands, as
+ * one entry.
  *
  * - `checkoutWorkload` is the `posix-user` platform's workload for these
  *   operations: a direct call, in the local runner child's own process.
@@ -24,6 +25,13 @@ import { readWorkspaceView, WorkspaceError } from "../files/workspace-view.js";
 import { getAgentDiff, getAgentFileDiff } from "../shared/git/agent-diff.js";
 import { getDiffStatsComputation } from "../shared/git/diff-stats.js";
 import { inspectCheckout } from "./checkout-inspection.js";
+import { spawn } from "node:child_process";
+import { loginShellCommand } from "./acp/host-command.js";
+import { readCheckoutCommandFile } from "./checkout-inspection.js";
+import {
+  capture,
+  commandBaseEnvironment,
+} from "./checkout-command-executor.js";
 
 type WorkerOp =
   | "checkout.list"
@@ -33,10 +41,11 @@ type WorkerOp =
   | "checkout.stats"
   | "checkout.diff"
   | "checkout.changes";
-type Input<K extends WorkerOp> = {
+type Selector = "current" | "launch" | "moved";
+type Input<K extends WorkerOp | "checkout.exec"> = {
   directory: string;
   request: Omit<Req<K>, "target">;
-};
+} & (K extends "checkout.exec" ? { selector: Selector } : unknown);
 
 /**
  * Compile `exclude` patterns: regular-expression literals, `/source/flags`.
@@ -70,7 +79,10 @@ const STATUS_CODES: Record<number, ErrorCode> = {
  * travels as `details.status`, an OS error code as `details.errno`; the code
  * is the declared one for that status, or `failed`.
  */
-function workerError(op: WorkerOp, error: unknown): RunnerCallError {
+function workerError(
+  op: WorkerOp | "checkout.exec",
+  error: unknown
+): RunnerCallError {
   if (error instanceof RunnerCallError) return error;
   const message = error instanceof Error ? error.message : String(error);
   if (error instanceof WorkspaceError) {
@@ -210,14 +222,141 @@ async function work<K extends WorkerOp>(
   });
 }
 
+/**
+ * A command's guard file, read where the command runs: a command in the
+ * current checkout at that checkout's root, one in a named checkout in it
+ * (main's lifecycle hooks). The digest binds the content to the selector,
+ * directory and root, so a command never runs against a file read
+ * elsewhere.
+ */
+export async function readCommandGuard(
+  directory: string,
+  selector: Selector,
+  file: string
+) {
+  const { root, content } = await readCheckoutCommandFile(directory, file, {
+    exact: selector !== "current",
+  });
+  const digest = createHash("sha256")
+    .update(JSON.stringify([selector, directory, root, file, content]))
+    .digest("hex");
+  return { root, content, digest };
+}
+
+/**
+ * One command, on the caller's terms: no deadline or output limit unless
+ * the request names one, spawned directly unless it asks for a login shell.
+ * A deadline kills only the direct child, as `runCommand` did; cancelling
+ * stops waiting and kills nothing (main ran repo tools without a signal).
+ */
+async function execCheckoutCommand(
+  {
+    directory,
+    selector,
+    request,
+  }: {
+    directory: string;
+    selector: Selector;
+    request: Omit<Req<"checkout.exec">, "target">;
+  },
+  signal?: AbortSignal
+): Promise<Res<"checkout.exec">> {
+  const { guard, argv, env, timeoutMs, maxOutput, shell } = request;
+  const cancelled = () =>
+    new RunnerCallError({
+      code: "cancelled",
+      message: "Checkout command cancelled.",
+    });
+  if (signal?.aborted) throw cancelled();
+  const { root, content, digest } = await readCommandGuard(
+    directory,
+    selector,
+    guard.path
+  );
+  if (content === null || digest !== guard.digest)
+    throw new RunnerCallError({
+      code: "stale",
+      message:
+        "Checkout command authorization is stale. Read the checkout file again.",
+    });
+  if (signal?.aborted) throw cancelled();
+  const [command, ...args] = argv;
+  if (!command)
+    throw new RunnerCallError({ code: "invalid", message: "Empty command." });
+  // The workload's base environment, then the caller's additions.
+  const environment = { ...commandBaseEnvironment(), ...env };
+  const launch =
+    shell === "login"
+      ? loginShellCommand(
+          argv,
+          process.env.SHELL || "/bin/bash",
+          environment.PATH
+        )
+      : { bin: command, args };
+  const child = spawn(launch.bin, launch.args, {
+    cwd: root,
+    env: environment,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const stdout = capture(child.stdout, maxOutput);
+  const stderr = capture(child.stderr, maxOutput);
+  return new Promise((resolve, reject) => {
+    const cancel = () => reject(cancelled());
+    signal?.addEventListener("abort", cancel, { once: true });
+    const timer =
+      timeoutMs === null
+        ? undefined
+        : setTimeout(() => {
+            // Only the direct child, like runCommand: what it started keeps running.
+            child.kill("SIGTERM");
+            setTimeout(() => child.kill("SIGKILL"), 5_000).unref();
+            reject(
+              new RunnerCallError({
+                code: "timeout",
+                message: "Checkout command timed out.",
+              })
+            );
+          }, timeoutMs);
+    const settle = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", cancel);
+    };
+    child.once("error", (error) => {
+      settle();
+      reject(error);
+    });
+    child.once("close", (code) => {
+      settle();
+      const output = stdout();
+      const errors = stderr();
+      resolve({
+        exitCode: code ?? 1,
+        stdout: output.text,
+        stderr: errors.text,
+        ...(maxOutput !== null && {
+          truncated: output.truncated || errors.truncated,
+        }),
+      });
+    });
+  });
+}
+
 export const checkoutWorkload = {
-  async run<K extends WorkerOp>(
+  async run<K extends WorkerOp | "checkout.exec">(
     op: K,
     input: Input<K>,
-    _options: { signal?: AbortSignal }
+    options: { signal?: AbortSignal }
   ): Promise<Res<K>> {
     try {
-      return (await work(op, input)) as Res<K>;
+      if (op === "checkout.exec")
+        return (await execCheckoutCommand(
+          input as unknown as Input<"checkout.exec">,
+          options.signal
+        )) as Res<K>;
+      return (await work(
+        op as WorkerOp,
+        input as unknown as Input<WorkerOp>
+      )) as Res<K>;
     } catch (error) {
       throw workerError(op, error);
     }

@@ -346,12 +346,11 @@ describe("usage callback wiring", () => {
 });
 
 describe("runner-scoped manifests", () => {
-  it.each([
-    [true, /runner version does not support checkout commands/i],
-    [false, /session.* MCP credential or a credential for its active job run/i],
-  ])(
+  // One rule for every runner caller (N15): the credential does not gate tools.
+  it.each([true, false])(
     "explains why a listed runner tool cannot execute (session credential: %s)",
-    async (credential, reason) => {
+    async (credential) => {
+      const reason = /runner version does not support checkout commands/i;
       deps.agentManager.permitsRemoteAgentMcp.mockReturnValue(true);
       deps.getBearerToken.mockReturnValue(credential ? "bearer-token" : "");
       deps.agentManager.getAgent.mockResolvedValue({
@@ -384,9 +383,7 @@ describe("runner-scoped manifests", () => {
       const context = vi.mocked(handleMcpRequest).mock.calls.at(-1)?.[3];
       const [tool] = (await context?.discoverRepoTools?.()) ?? [];
       expect(tool?.name).toBe("repo_proof");
-      expect(deps.agentManager.readRepoManifest).toHaveBeenCalledTimes(
-        Number(credential)
-      );
+      expect(deps.agentManager.readRepoManifest).toHaveBeenCalledTimes(1);
       const invocation = tool!.run({
         agentId: "agt_test1",
         repoRoot: "/work/repo",

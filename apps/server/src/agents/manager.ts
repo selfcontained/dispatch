@@ -1506,7 +1506,7 @@ export class AgentManager {
     this.localRunnerChild = child;
   }
 
-  /** The runners an agent's checkout reads go through. */
+  /** The runners an agent's checkout reads and commands go through. */
   checkoutReadRunners() {
     return {
       local: this.localRunner,
@@ -3820,7 +3820,7 @@ export class AgentManager {
         "stop",
         agent,
         this.logger,
-        { local: this.localRunner, remote: this.remote },
+        this.checkoutReadRunners(),
         (request) =>
           this.whileFenced({ ...agent, status: "stopping" }, request, "stop")
       );
@@ -4073,15 +4073,11 @@ export class AgentManager {
   }
 
   readRepoManifest(agent: AgentRecord) {
-    return requestCheckoutCommand(
-      { local: this.localRunner, remote: this.remote },
-      agent,
-      {
-        kind: "read",
-        checkout: "effective",
-        path: REPO_TOOL_MANIFEST_PATH,
-      }
-    );
+    return requestCheckoutCommand(this.checkoutReadRunners(), agent, {
+      kind: "read",
+      checkout: "effective",
+      path: REPO_TOOL_MANIFEST_PATH,
+    });
   }
 
   runRepoCommand(
@@ -4091,7 +4087,7 @@ export class AgentManager {
     signal?: AbortSignal
   ) {
     return requestCheckoutCommand(
-      { local: this.localRunner, remote: this.remote },
+      this.checkoutReadRunners(),
       agent,
       {
         kind: "run",
@@ -4264,6 +4260,7 @@ export class AgentManager {
       runtime: this.runtime,
       localRunner: this.localRunner,
       remote: this.remote,
+      localRunnerChild: () => this.localRunnerChild(),
       diffStatsRefresher: this.diffStatsRefresher,
       getAgent: (id) => this.getAgent(id),
       getRequiredAgent: (id) => this.getRequiredAgent(id),

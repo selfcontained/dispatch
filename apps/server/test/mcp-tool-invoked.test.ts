@@ -49,8 +49,7 @@ function nativeCatalog(root: string) {
             signal
           ),
       },
-      agent,
-      false
+      agent
     );
 }
 

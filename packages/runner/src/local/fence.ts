@@ -1,5 +1,5 @@
 import { RunnerCallError } from "@dispatch/runner-protocol/contract";
-import { WORKER_OPS } from "../platform/types.js";
+import { EXEC_OPS, WORKER_OPS } from "../platform/types.js";
 
 /**
  * Operations a frozen runner still serves: they read and change nothing. A
@@ -15,6 +15,14 @@ export const SERVED_WHILE_FROZEN: ReadonlySet<string> = new Set([
   // skips its optional index refresh in the checkout (`GIT_OPTIONAL_LOCKS`).
   ...WORKER_OPS,
 ]);
+
+/**
+ * Commands a frozen runner refuses but `freeze` does not wait for. A command
+ * may run for as long as it likes, and a caller that stops waiting leaves it
+ * running (main's repo tools); the caller's own drain waits for the commands
+ * it is still waiting on, as main's update drain waits for its requests.
+ */
+export const NOT_AWAITED: ReadonlySet<string> = new Set(EXEC_OPS);
 
 export const fencedError = () =>
   new RunnerCallError({
@@ -45,7 +53,8 @@ function optionalLocks(on: boolean) {
  * The updater's write fence inside the runner. While frozen, admission
  * refuses every operation outside `SERVED_WHILE_FROZEN` before its handler
  * runs. `freeze` resolves only once the writes admitted before it have
- * finished, so its answer means nothing is writing.
+ * finished (commands excepted, `NOT_AWAITED`), so its answer means none of
+ * the runner's own writes is running.
  */
 export class WriteFence {
   private frozenNow: boolean;
@@ -68,6 +77,7 @@ export class WriteFence {
   enter(op: string): (() => void) | null {
     if (SERVED_WHILE_FROZEN.has(op)) return () => {};
     if (this.frozenNow) return null;
+    if (NOT_AWAITED.has(op)) return () => {};
     this.inFlight += 1;
     let released = false;
     return () => {

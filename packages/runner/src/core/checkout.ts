@@ -1,5 +1,5 @@
 /*
- * Checkout reads and the binding read, served by the core. The core resolves
+ * Checkout reads, commands and the binding read, served by the core. The core resolves
  * a request's target to a directory (a session's target only from the
  * runner's own binding, never from a path in the request) and hands the
  * work to the platform's workload. It never opens the directory itself.
@@ -14,7 +14,13 @@ import {
 } from "@dispatch/runner-protocol/contract";
 import type { CallHandlers } from "../local/socket-server.js";
 import type { BindingStore, StoredBinding } from "../local/bindings.js";
-import { WORKER_OPS, type Platform, type WorkerOp } from "../platform/types.js";
+import {
+  EXEC_OPS,
+  WORKER_OPS,
+  type Platform,
+  type Selector,
+  type WorkloadOp,
+} from "../platform/types.js";
 
 const notBound = () =>
   new RunnerCallError({
@@ -79,14 +85,19 @@ export function checkoutHandlers(
       return described;
     },
   };
-  for (const op of WORKER_OPS) {
+  for (const op of [...WORKER_OPS, ...EXEC_OPS]) {
     const run = async (input: { target: Target }) => {
       const { target, ...request } = input;
       const dir = await directory(target);
+      const selector: Selector =
+        ("session" in target && target.checkout) || "current";
+      const command = (EXEC_OPS as readonly string[]).includes(op);
       try {
         return await platform.workload.run(
-          op as WorkerOp,
-          { directory: dir, request } as never,
+          op as WorkloadOp,
+          (command
+            ? { directory: dir, request, selector }
+            : { directory: dir, request }) as never,
           {}
         );
       } catch (error) {

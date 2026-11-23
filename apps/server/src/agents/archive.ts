@@ -14,8 +14,8 @@ import {
   type ArchiveCheckoutHooks,
   type ArchiveOutcome,
 } from "./archive-policy.js";
+import type { Runner } from "@dispatch/runner-protocol/contract";
 import type { RemoteRunnerService } from "./remote/service.js";
-import type { CheckoutCommandRunners } from "./checkout-commands.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
 import { AgentError, LifecycleSuperseded } from "./errors.js";
 import type { AgentRuntime } from "./runtime.js";
@@ -30,8 +30,10 @@ export type ArchiveDeps = {
   pool: Pool;
   logger: FastifyBaseLogger;
   runtime: AgentRuntime;
-  localRunner: LocalArchiveRunner & CheckoutCommandRunners["local"];
+  localRunner: LocalArchiveRunner;
   remote?: RemoteRunnerService;
+  /** The local runner child: stop hooks run in it when it holds the checkout. */
+  localRunnerChild?: () => Runner | undefined;
   diffStatsRefresher: { clear(agentId: string): void } | null;
   getAgent: (id: string) => Promise<AgentRecord | null>;
   getRequiredAgent: (id: string) => Promise<AgentRecord>;
@@ -221,7 +223,11 @@ export async function executeArchive(
         "stop",
         agent,
         logger,
-        { local: deps.localRunner, remote: deps.remote },
+        {
+          local: deps.localRunner,
+          remote: deps.remote,
+          child: deps.localRunnerChild,
+        },
         deps.whileFenced && ((request) => deps.whileFenced!(agent, request))
       ).catch((err) => {
         if (err instanceof LifecycleSuperseded) throw err;
@@ -374,7 +380,11 @@ export async function deleteAgentDirect(
         "stop",
         agent,
         logger,
-        { local: deps.localRunner, remote: deps.remote },
+        {
+          local: deps.localRunner,
+          remote: deps.remote,
+          child: deps.localRunnerChild,
+        },
         deps.whileFenced &&
           ((request) =>
             deps.whileFenced!({ ...agent, status: "archiving" }, request))

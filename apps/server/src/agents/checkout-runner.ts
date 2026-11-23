@@ -51,15 +51,9 @@ export type CheckoutReadRunners =
 type ReadAgent = ComparisonBaseAgent &
   Partial<Pick<AgentRecord, "id" | "placement">>;
 
-const noCommands: CheckoutCommandRunners["local"] = {
-  requestSession: () => {
-    throw new Error("No checkout command runner was given.");
-  },
-};
-
 function readRunners(runners: CheckoutReadRunners): CheckoutCommandRunners {
-  if (runners && "local" in runners) return runners;
-  return { local: noCommands, remote: runners ?? undefined };
+  if (runners && "local" in runners) return runners as CheckoutCommandRunners;
+  return { remote: (runners as RemoteRunnerService | null) ?? undefined };
 }
 
 /** The agent's checkout runner, by its placement. */

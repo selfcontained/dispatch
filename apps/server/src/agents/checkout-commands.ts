@@ -1,5 +1,4 @@
 import {
-  checkoutCommandTimeoutMs,
   type CheckoutCommand,
   type CheckoutCommandFile,
   type CheckoutCommandResult,
@@ -12,6 +11,9 @@ import {
 } from "../runners/directory.js";
 
 export type { CheckoutCommandRunners } from "../runners/directory.js";
+
+/** Main's lifecycle hook deadline. Repo tools have none. */
+const HOOK_TIMEOUT_MS = 15_000;
 
 export async function requestCheckoutCommand(
   runners: CheckoutCommandRunners,
@@ -44,11 +46,10 @@ export async function requestCheckoutCommand(
       },
       guard: { path: operation.path, digest: operation.state },
       argv: operation.argv,
-      env: {},
-      timeoutMs:
-        operation.checkout === "effective"
-          ? null
-          : checkoutCommandTimeoutMs(operation.checkout),
+      // Dispatch's terms for every runner: main's environment addition and
+      // deadline, no output limit, a direct spawn.
+      env: { DISPATCH_AGENT_ID: agent.id },
+      timeoutMs: operation.checkout === "effective" ? null : HOOK_TIMEOUT_MS,
       maxOutput: null,
       shell: "direct",
     },

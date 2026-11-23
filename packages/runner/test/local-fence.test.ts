@@ -215,7 +215,7 @@ describe("local runner write fence (real processes)", () => {
     const { next } = supervise(root);
     const runner = await next();
     // A write that never finishes is in flight when the freeze arrives.
-    void exec(runner, "hang-write", 30_000).catch(() => {});
+    void launch(runner, "hang-write").catch(() => {});
     const began = Date.now();
     while (received(root).length === 0 && Date.now() - began < 5_000)
       await new Promise((r) => setTimeout(r, 10));
@@ -226,6 +226,19 @@ describe("local runner write fence (real processes)", () => {
     expect(freeze).toMatch(/did not answer the fence/);
     // Refusal starts at once, even before the answer.
     expect(await codeOf(launch(runner, "late"))).toBe("fenced");
+  });
+
+  it("a running command does not hold the freeze; new commands are refused", async () => {
+    const root = temp();
+    const { next } = supervise(root);
+    const runner = await next();
+    // Main's repo tools run as long as they like, waited on or not.
+    void exec(runner, "hang-exec", 30_000).catch(() => {});
+    const began = Date.now();
+    while (received(root).length === 0 && Date.now() - began < 5_000)
+      await new Promise((r) => setTimeout(r, 10));
+    await expect(runner.fence(true, 2_000)).resolves.toBeUndefined();
+    expect(await codeOf(exec(runner, "after-freeze"))).toBe("fenced");
   });
 
   it("starts frozen when asked, says so in ready, and a restart while frozen starts frozen again; no bytes change under the state root until exit", async () => {
