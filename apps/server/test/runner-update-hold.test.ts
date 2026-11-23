@@ -152,6 +152,44 @@ describe("runner update holds", () => {
     });
   });
 
+  it("reads a held create written without startup references, and keeps them when present", async () => {
+    logger.warn.mockClear();
+    const file = await holdFile();
+    const store = fileRunnerHoldStore(file, logger);
+    const launch = (extra: object) => ({
+      id: "33333333-3333-4333-8333-333333333333",
+      agentId: "agt_a",
+      heldAt: "2026-11-21T10:00:00.000Z",
+      kind: "create" as const,
+      create: { ...create, ...extra },
+    });
+    const state = (extra: object) => ({
+      holds: [
+        {
+          runnerId: "r1",
+          attemptId: ATTEMPT,
+          beganAt: "2026-11-21T10:00:00.000Z",
+          expiresAt: "2026-11-21T11:00:00.000Z",
+          launches: [launch(extra)],
+        },
+      ],
+      resuming: [],
+    });
+
+    // As an earlier build writes it: no startupReferences.
+    await store.write(state({}));
+    expect(await store.read()).toEqual(state({}));
+
+    // Uncapped, as an unheld launch's are.
+    const startupReferences = Array.from({ length: 1500 }, (_, i) => ({
+      source: `/files/tasks/tsk_1/a-${i}.png`,
+      name: `a-${i}.png`,
+    }));
+    await store.write(state({ startupReferences }));
+    expect(await store.read()).toEqual(state({ startupReferences }));
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
   it("keeps a released launch's ID and settles only that record", async () => {
     const file = await holdFile();
     const holds = open(file);

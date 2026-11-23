@@ -611,6 +611,47 @@ describe("launches on a runner held for an update", () => {
     expect(put).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps a held task launch's attachments across a restart and names them on the runner when released", async () => {
+    const first = await openHolds();
+    const before = spyRuntime();
+    await first.begin("r1", ATTEMPT);
+    const shot = path.join(dir, "tasks", "tsk_2", "shot.png");
+    const image = Buffer.from("89504e470d0a1a0a", "hex");
+    await mkdir(path.dirname(shot), { recursive: true });
+    await writeFile(shot, image);
+    const held = await managerOn(first, before).createAgent({
+      cwd: HELD,
+      initialPrompt: `Attachments:\n- shot.png (image/png) — ${shot}`,
+      startupReferences: [{ source: shot, name: "shot.png" }],
+    });
+    expect(launchesFor(before, held.id)).toHaveLength(0);
+    first.close();
+
+    const holds = await openHolds();
+    const runtime = spyRuntime();
+    managerOn(holds, runtime);
+    const runnerFiles = await mkdtemp(path.join(dir, "runner-"));
+    const put = vi
+      .spyOn(remote, "putFile")
+      .mockImplementation(async (_placement, agentId, name, file) => {
+        const destination = path.join(runnerFiles, `${agentId}-${name}`);
+        await writeFile(destination, await file.read());
+        return destination;
+      });
+    onTestFinished(() => put.mockRestore());
+    await holds.release("r1", ATTEMPT, "committed");
+    await work.get(holds)!.settled();
+    expect(await statusOf(held.id)).toBe("running");
+    const digest = createHash("sha256").update(image).digest("hex");
+    const opened = path.join(runnerFiles, `${held.id}-reference-${digest}.png`);
+    expect(promptsFor(runtime, held.id)).toEqual([
+      expect.stringContaining(`- shot.png (image/png) — ${opened}`),
+    ]);
+    expect(promptsFor(runtime, held.id)[0]).not.toContain(shot);
+    expect(await readFile(opened)).toEqual(image);
+    expect(put).toHaveBeenCalledTimes(1);
+  });
+
   it("waits out a fence that refuses a new host's files, then delivers them once", async () => {
     const holds = await openHolds();
     const runtime = spyRuntime();

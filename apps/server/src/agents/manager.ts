@@ -745,6 +745,7 @@ export class AgentManager {
           originalCwd: agent.cwd,
           initialPrompt: create.initialPrompt,
           initialFiles: create.initialFiles,
+          startupReferences: create.startupReferences,
           chatLaunchPost: create.chatLaunchPost,
           jobRunId: create.jobRunId,
           launchId,
@@ -2965,7 +2966,6 @@ export class AgentManager {
       originalCwd: string;
       initialPrompt: string | undefined;
       initialFiles: SeededFile[];
-      /** Not kept by a held launch's receipt. */
       startupReferences?: StartupReference[];
       chatLaunchPost: ChatLaunchPost | null;
       jobRunId: string | undefined;
@@ -3112,6 +3112,7 @@ export class AgentManager {
     create?: {
       initialPrompt: string | undefined;
       initialFiles: SeededFile[];
+      startupReferences?: StartupReference[];
       chatLaunchPost: ChatLaunchPost | null;
       jobRunId: string | undefined;
     }
@@ -3132,6 +3133,9 @@ export class AgentManager {
               chatLaunchPost: create.chatLaunchPost,
               ...(create.jobRunId !== undefined && {
                 jobRunId: create.jobRunId,
+              }),
+              ...(create.startupReferences?.length && {
+                startupReferences: create.startupReferences,
               }),
             },
           }
