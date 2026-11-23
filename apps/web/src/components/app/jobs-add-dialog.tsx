@@ -177,7 +177,7 @@ export function AddJobFlow({
                   projectId={projectId}
                   onChange={(p) => {
                     setProjectId(p?.id ?? null);
-                    if (p) setDirectory(p.repoRoot);
+                    if (p) setDirectory(p.repoRoot ?? "");
                   }}
                 >
                   <PathInput

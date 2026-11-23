@@ -133,7 +133,7 @@ export interface TemplateConfigFieldsProps {
   onPromptChange: (value: string) => void;
   autoFocusName?: boolean;
   /** Shows this location read-only instead of the project/folder picker. */
-  lockedLocation?: { name?: string; repoRoot: string };
+  lockedLocation?: { name?: string; repoRoot: string | null };
 }
 
 export function TemplateConfigFields({

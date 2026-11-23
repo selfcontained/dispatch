@@ -496,7 +496,7 @@ function TaskContextCard({
         </span>
         <span
           className="shrink-0 truncate font-mono text-body-sm text-muted-foreground"
-          title={project?.repoRoot}
+          title={project?.repoRoot ?? undefined}
         >
           {project?.name ?? "…"}
         </span>

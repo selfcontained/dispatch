@@ -3,7 +3,12 @@ import { relative, isAbsolute } from "node:path";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import { resolveProjectRoot } from "./resolve-root.js";
 
-type Project = { id: string; name: string; repoRoot: string };
+type Project = {
+  id: string;
+  name: string;
+  repoRoot: string | null;
+  extraRoots?: string[];
+};
 
 /** Match canonical checkouts (including linked worktrees) or contained folders. */
 export async function matchingProjects(
@@ -27,14 +32,22 @@ export async function matchProjectIdentity(
   const matches = await Promise.all(
     projects.map(async (project) => {
       // A stale/offline project must not prevent an unrelated launch.
-      const projectRoot = await canonicalPath(project.repoRoot);
-      if (!projectRoot) return null;
-      const suffix = relative(projectRoot, directory);
-      return projectRoot === root ||
-        suffix === "" ||
-        (!isAbsolute(suffix) && suffix !== ".." && !suffix.startsWith("../"))
-        ? project
-        : null;
+      for (const candidate of [
+        project.repoRoot,
+        ...(project.extraRoots ?? []),
+      ]) {
+        if (!candidate) continue;
+        const projectRoot = await canonicalPath(candidate);
+        if (!projectRoot) continue;
+        const suffix = relative(projectRoot, directory);
+        if (
+          projectRoot === root ||
+          suffix === "" ||
+          (!isAbsolute(suffix) && suffix !== ".." && !suffix.startsWith("../"))
+        )
+          return project;
+      }
+      return null;
     })
   );
   return matches.filter((project): project is Project => project !== null);

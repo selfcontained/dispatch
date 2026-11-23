@@ -126,7 +126,7 @@ export function ProjectLocation({
                     <span className="block truncate">{p.name}</span>
                     <span
                       className="block truncate text-body-sm text-muted-foreground"
-                      title={p.repoRoot}
+                      title={p.repoRoot ?? undefined}
                     >
                       {p.repoRoot}
                     </span>
@@ -152,7 +152,7 @@ export function ProjectLocation({
             </DropdownMenuContent>
           </DropdownMenu>
           <div className="flex h-5 items-center justify-end text-body-sm text-muted-foreground">
-            <span className="truncate" title={project?.repoRoot}>
+            <span className="truncate" title={project?.repoRoot ?? undefined}>
               {project?.repoRoot}
             </span>
           </div>

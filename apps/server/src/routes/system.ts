@@ -3,7 +3,7 @@ import {
   inspectLocalPath,
   listLocalRemoteBranches,
 } from "../agents/local-workspace-probes.js";
-import { remotePlacement, type Placement } from "../agents/remote/protocol.js";
+import { projectRepositoryUrl } from "../agents/remote/repository.js";
 import {
   isAllowedSlackLinkOrigin,
   type SlackLinkOrigins,
@@ -85,7 +85,10 @@ const ModelAvailabilityBodySchema = z.union([
 
 type SystemRouteDeps = {
   localEngines?: Pick<LocalEngineRunner, "readModelCatalog">;
-  runnerWorkspaceAvailable?: (placement: Placement) => boolean;
+  runnerBranches?: (
+    runner: string,
+    target: { repository: string }
+  ) => Promise<{ branches: string[]; defaultBranch?: string }>;
   publishModelsChanged?: (agentType: AgentType) => void;
   notificationLinkOrigins?: () => Promise<SlackLinkOrigins>;
   slackAnswers?: Pick<
@@ -230,16 +233,6 @@ export async function registerSystemRoutes(
         .send({ error: "path query parameter is required." });
     }
     const resolved = resolveTilde(query.path.trim());
-    const placement = remotePlacement(resolved);
-    if (placement) {
-      const available = deps.runnerWorkspaceAvailable?.(placement) ?? false;
-      return {
-        exists: available,
-        isDirectory: available,
-        isGitRepo: false,
-        resolvedPath: resolved,
-      };
-    }
     return inspectLocalPath(resolved);
   });
 
@@ -254,7 +247,39 @@ export async function registerSystemRoutes(
   });
 
   app.get("/api/v1/git/branches", async (request, reply) => {
-    const query = request.query as { cwd?: unknown };
+    const query = request.query as {
+      cwd?: unknown;
+      runnerId?: unknown;
+      repository?: unknown;
+    };
+    if (query?.runnerId !== undefined || query?.repository !== undefined) {
+      if (
+        typeof query.runnerId !== "string" ||
+        !query.runnerId.trim() ||
+        typeof query.repository !== "string" ||
+        query.cwd !== undefined
+      )
+        return reply
+          .code(400)
+          .send({ error: "Choose a runner and repository." });
+      let repository: string;
+      try {
+        repository = projectRepositoryUrl(query.repository);
+      } catch {
+        return reply
+          .code(400)
+          .send({ error: "Choose a valid HTTPS repository URL." });
+      }
+      try {
+        if (deps.runnerBranches)
+          return await deps.runnerBranches(query.runnerId, { repository });
+      } catch {
+        // A runner can become unavailable between opening and using the picker.
+      }
+      return reply
+        .code(503)
+        .send({ error: "Couldn’t load branches from this runner." });
+    }
     if (typeof query?.cwd !== "string" || !query.cwd.trim()) {
       return reply
         .code(400)

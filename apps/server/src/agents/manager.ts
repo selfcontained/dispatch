@@ -2004,6 +2004,7 @@ export class AgentManager {
     const { repository } = admission;
     if (placement) input.useWorktree = admission.useWorktree;
     let projectRoot: string | undefined;
+    let projectRepository: string | null = null;
     if (input.templateId) {
       const template = (
         await this.pool.query("SELECT project_id FROM templates WHERE id=$1", [
@@ -2029,25 +2030,22 @@ export class AgentManager {
     }
     if (input.projectId) {
       const project = (
-        await this.pool.query("SELECT repo_root FROM projects WHERE id=$1", [
+        await this.pool.query<{
+          repo_root: string | null;
+          repository: string | null;
+        }>("SELECT repo_root, repository FROM projects WHERE id=$1", [
           input.projectId,
         ])
       ).rows[0];
       if (!project) throw new AgentError("Project not found.", 404);
-      projectRoot = project.repo_root;
-      if (repository && !repository.url) {
-        try {
-          repository.url = await this.localRunner.inferRepositoryUrl(
-            project.repo_root
-          );
-        } catch (error) {
-          throw new AgentError(errorMessage(error), 400);
-        }
-      }
+      projectRoot = project.repo_root ?? undefined;
+      projectRepository = project.repository;
+      if (repository && !repository.url && projectRepository)
+        repository.url = projectRepository;
 
       // Project membership only supplies a location when none was selected.
-      if (!placement && !input.parentAgentId && !input.cwd) {
-        input.cwd = project.repo_root;
+      if (!placement && !input.parentAgentId && !input.cwd && projectRoot) {
+        input.cwd = projectRoot;
       }
     }
     const directory = placement
@@ -2067,7 +2065,7 @@ export class AgentManager {
     if (directory && !input.projectId && !input.parentAgentId) {
       const projects = (
         await this.pool.query(
-          'SELECT id, name, repo_root AS "repoRoot" FROM projects'
+          'SELECT id, name, repo_root AS "repoRoot", extra_roots AS "extraRoots" FROM projects'
         )
       ).rows;
       const matches = await matchProjectIdentity(
@@ -2103,11 +2101,7 @@ export class AgentManager {
                   kind: "describe",
                 })
               ).origin
-            : projectRoot
-              ? await this.localRunner
-                  .inferRepositoryUrl(projectRoot)
-                  .catch(() => null)
-              : null
+            : projectRepository
         : undefined;
     if (derivedRepositoryUrl === null)
       throw new AgentError(

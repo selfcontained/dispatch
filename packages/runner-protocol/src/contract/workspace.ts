@@ -22,6 +22,7 @@ export const gitContext = object({
   worktreeName: string,
   isWorktree: boolean,
   repoIconPath: optional(nullable(string)),
+  origin: optional(nullable(string)),
 });
 
 /** How to check out a repository (wire v1 `RepositoryCheckout`). */

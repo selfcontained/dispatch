@@ -856,9 +856,9 @@ describe("AgentManager", () => {
 
     it("places project templates and scheduled jobs on their saved runner", async () => {
       const cwd = "runner://runner-test/@session";
-      const projectId = "managed-runner-project";
+      const projectId = "repository-only-runner-project";
       await pool.query(
-        "INSERT INTO projects (id, name, repo_root) VALUES ($1, 'Runner', '/tmp/remote-project') ON CONFLICT DO NOTHING",
+        "INSERT INTO projects (id, name, repository) VALUES ($1, 'Runner', 'https://example.test/owner/repo')",
         [projectId]
       );
       const remote = {

@@ -70,7 +70,7 @@ function CreateTemplateDialogContent({
         ...templateConfigFromDraft(draft),
         ...(projectOverride && {
           projectId: projectOverride.id,
-          directory: projectOverride.repoRoot,
+          directory: projectOverride.repoRoot ?? "",
         }),
       })
       .then((template) => {
@@ -94,7 +94,10 @@ function CreateTemplateDialogContent({
 
   const canCreate =
     draft.name.trim() &&
-    (projectOverride ? projectOverride.repoRoot : draft.directory).trim();
+    (projectOverride
+      ? (projectOverride.repoRoot ?? "")
+      : draft.directory
+    ).trim();
 
   return (
     <DialogContent

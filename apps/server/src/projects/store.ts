@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 export type ProjectRecord = {
   id: string;
   name: string;
-  repoRoot: string;
+  repoRoot: string | null;
   color: string;
   iconOverride: string | null;
   createdAt: string;
@@ -17,6 +17,15 @@ export class ProjectStore {
       await this.pool.query(`SELECT ${columns} FROM projects ORDER BY name, id`)
     ).rows;
   }
+  async listRoots() {
+    const result = await this.pool.query<
+      Pick<ProjectRecord, "id" | "name" | "repoRoot"> & { extraRoots: string[] }
+    >(
+      'SELECT id, name, repo_root AS "repoRoot", extra_roots AS "extraRoots" FROM projects ORDER BY name, id'
+    );
+    return result.rows;
+  }
+
   async get(id: string): Promise<ProjectRecord | null> {
     return (
       (
@@ -26,18 +35,30 @@ export class ProjectStore {
       ).rows[0] ?? null
     );
   }
+  async getRepository(id: string): Promise<{ url: string | null } | null> {
+    const result = await this.pool.query<{ url: string | null }>(
+      "SELECT repository AS url FROM projects WHERE id=$1",
+      [id]
+    );
+    return result.rows[0] ?? null;
+  }
+
   async create(
-    input: Pick<ProjectRecord, "name" | "repoRoot" | "color" | "iconOverride">
+    input: Pick<
+      ProjectRecord,
+      "name" | "repoRoot" | "color" | "iconOverride"
+    > & { repository?: string | null }
   ): Promise<ProjectRecord> {
     return (
       await this.pool.query(
-        `INSERT INTO projects(id,name,repo_root,color,icon_override) VALUES($1,$2,$3,$4,$5) RETURNING ${columns}`,
+        `INSERT INTO projects(id,name,repo_root,color,icon_override,repository) VALUES($1,$2,$3,$4,$5,$6) RETURNING ${columns}`,
         [
           randomUUID(),
           input.name,
           input.repoRoot,
           input.color,
           input.iconOverride,
+          input.repository ?? null,
         ]
       )
     ).rows[0];

@@ -2674,24 +2674,10 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/routes/projects.ts",
-    "kind": "R7 restriction",
-    "detail": "N28 Project creation resolves only controller paths",
-    "task": "T17",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/routes/release.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/shared/lib/run-command",
     "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/system.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(resolved)",
-    "task": "T07",
     "count": 1
   },
   {
