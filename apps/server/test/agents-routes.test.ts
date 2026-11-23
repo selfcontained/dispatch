@@ -829,12 +829,17 @@ it("provides a credential-free project repository origin and null for a plain fo
   }
 });
 
-it("accepts a same-project task runner locator and rejects cross-project input", async () => {
+it("uses a task's default project and accepts explicit project choices on a runner", async () => {
   const { ProjectStore } = await import("../src/projects/store.js");
   const projects = new ProjectStore(ctx.pool);
   const project = await projects.create({
     name: "Task launch",
     repoRoot: "/tmp",
+    color: "#123456",
+  });
+  const other = await projects.create({
+    name: "Explicit launch project",
+    repoRoot: "/var/tmp",
     color: "#123456",
   });
   try {
@@ -847,7 +852,7 @@ it("accepts a same-project task runner locator and rejects cross-project input",
       taskId: created.json().id,
       cwd: "runner://offline/@session",
     };
-    for (const projectId of [undefined, project.id]) {
+    for (const projectId of [undefined, project.id, other.id]) {
       const response = await authedInject("POST", "/api/v1/agents", {
         ...base,
         projectId,
@@ -857,13 +862,8 @@ it("accepts a same-project task runner locator and rejects cross-project input",
         "runner workspace is unavailable"
       );
     }
-    const mismatched = await authedInject("POST", "/api/v1/agents", {
-      ...base,
-      projectId: "other",
-    });
-    expect(mismatched.statusCode).toBe(400);
-    expect(mismatched.json().error).toContain("task’s project");
   } finally {
+    await projects.delete(other.id);
     await projects.delete(project.id);
   }
 });

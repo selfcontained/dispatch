@@ -401,9 +401,7 @@ export class TemplateService {
       templateId: template.id,
       ...(input.projectId ? { projectId: input.projectId } : {}),
     };
-    const agent = input.resolvedTemplate
-      ? await this.agentManager.createAgent(launch, { caller: "task" })
-      : await this.agentManager.createAgent(launch);
+    const agent = await this.agentManager.createAgent(launch);
 
     this.logger.info(
       {

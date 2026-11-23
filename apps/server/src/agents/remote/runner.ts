@@ -28,6 +28,7 @@ import {
   displayPath,
   runnerError,
   sessionFromWire,
+  sessionToWire,
   type Req,
   type Res,
 } from "@dispatch/runner-protocol/contract";
@@ -1127,6 +1128,7 @@ export async function runRemoteRunner(
                   ? { ...command.operation, session }
                   : undefined;
               const preparation = workspacePreparation;
+              const source = prepare?.source;
               const data = await supervisor.withWorkspacePreparation(
                 agentId,
                 prepare !== undefined,
@@ -1139,7 +1141,10 @@ export async function runRemoteRunner(
                   return prepare
                     ? preparation.call("workspace.prepare", prepare, emit)
                     : preparation.call("workspace.resume", { session }, emit);
-                }
+                },
+                source && "session" in source
+                  ? sessionToWire(source.session)
+                  : undefined
               );
               result(JSON.stringify({ data }));
             } catch (error) {
@@ -1995,6 +2000,7 @@ export async function runRemoteRunner(
           ...(workspacePreparation && {
             workspacePrepare: true,
             preparedLaunch: true,
+            sessionWorkspaceSource: true,
           }),
           ...((workspacePreparation || !managedWorkspace) && {
             workspaceRelease: true,

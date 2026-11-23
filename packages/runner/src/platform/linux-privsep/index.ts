@@ -234,6 +234,7 @@ export async function createRemoteWorkspacePreparation(
         const { source } = request as Req<"workspace.prepare">;
         if (
           !("repository" in source) &&
+          !("session" in source) &&
           !(
             "directory" in source &&
             (request as Req<"workspace.prepare">).worktree

@@ -583,22 +583,8 @@
   {
     "file": "apps/server/src/agents/launch-admission.ts",
     "kind": "R7 restriction",
-    "detail": "N3 Runner storage admission restricts launches",
-    "task": "T25",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/launch-admission.ts",
-    "kind": "R7 restriction",
     "detail": "N4 Runner parent binding restrictions",
     "task": "T36",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/launch-admission.ts",
-    "kind": "R7 restriction",
-    "detail": "N7 Managed runner cross-project task refusal",
-    "task": "T25",
     "count": 1
   },
   {
@@ -814,30 +800,9 @@
   {
     "file": "apps/server/src/agents/manager.ts",
     "kind": "R1 placement call",
-    "detail": "remotePlacement(input.cwd)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/manager.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(originalCwd)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/manager.ts",
-    "kind": "R1 placement call",
     "detail": "remotePlacement(row.cwd)",
     "task": "T07",
     "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/manager.ts",
-    "kind": "R1 placement read",
-    "detail": "placement.runner",
-    "task": "T07",
-    "count": 2
   },
   {
     "file": "apps/server/src/agents/manager.ts",
@@ -1929,13 +1894,6 @@
     "kind": "R2 host import",
     "detail": "apps/server/src/shared/git/diff-image",
     "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/agents/crud-routes.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(body.cwd)",
-    "task": "T07",
     "count": 1
   },
   {

@@ -6,13 +6,12 @@ import { admitLaunch } from "../../agents/launch-admission.js";
 import { sameRunner } from "@dispatch/runner-protocol/contract";
 import {
   controllerPlacement,
+  checkoutReadPlacement,
+  launchSessionLocation,
   runnerIdForPlacement,
 } from "../../runners/placement.js";
 import { isCheckoutStateId } from "@dispatch/runner-protocol";
-import {
-  MANAGED_WORKSPACE,
-  remotePlacement,
-} from "../../agents/remote/protocol.js";
+import { MANAGED_WORKSPACE } from "../../agents/remote/protocol.js";
 import { validateAgentEffort } from "../../shared/agent-effort.js";
 import type { Effort } from "@dispatch/shared";
 import path from "node:path";
@@ -257,8 +256,8 @@ export async function registerAgentCrudRoutes(
         runner: runnerIdForPlacement(requestedPlacement!),
       }).directory;
     }
-    const placement =
-      typeof body.cwd === "string" ? remotePlacement(body.cwd) : null;
+    const cwd = typeof body.cwd === "string" ? body.cwd : "";
+    const placement = launchSessionLocation(cwd, checkoutReadPlacement(cwd));
     if (requestedPlacement && !projectTarget && placement)
       return reply.code(400).send({ error: "Invalid folder." });
     const managed = placement?.workspace === MANAGED_WORKSPACE;
@@ -280,11 +279,7 @@ export async function registerAgentCrudRoutes(
     const admission = admitLaunch({
       phase: "api",
       caller: taskBriefing ? "task" : "createAgent",
-      target: !placement
-        ? "folder"
-        : managed
-          ? "managedRepository"
-          : "configuredWorkspace",
+      projectTarget: managed,
       cwd: body.cwd,
       projectId:
         typeof body.projectId === "string" ? body.projectId : undefined,
@@ -294,7 +289,11 @@ export async function registerAgentCrudRoutes(
       return reply
         .code(admission.statusCode)
         .send({ error: admission.message });
-    if (projectTarget && !admission.projectId)
+    if (
+      projectTarget &&
+      !admission.projectId &&
+      !(typeof body.parentAgentId === "string" && body.parentAgentId)
+    )
       return reply
         .code(400)
         .send({ error: "Choose a project to launch on this runner." });
@@ -515,7 +514,6 @@ export async function registerAgentCrudRoutes(
           // or run a turn, so its first task_comment finds it a member.
           ...(taskBriefing && typeof body.taskId === "string"
             ? {
-                caller: "task",
                 beforeLaunch: (agentId: string) =>
                   deps.tasks!.assignCreated(body.taskId as string, agentId),
               }

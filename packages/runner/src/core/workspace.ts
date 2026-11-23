@@ -79,6 +79,8 @@ export type Receipt = {
   sourceIdentity: string;
   cwd: string;
   request: WorktreeRequest;
+  /** Session whose current folder supplied this independent checkout. */
+  parent?: string;
   /** Ignored files to copy from the source; absent in older receipts. */
   copy?: string[];
   /** Whether dependencies are installed; absent means yes. */
@@ -255,7 +257,10 @@ function wireGit(value: CheckoutGit) {
 
 export function workspaceHandlers(
   stateRoot: string,
-  store: Pick<BindingStore, "get" | "origin" | "bindPrepared" | "select"> &
+  store: Pick<
+    BindingStore,
+    "get" | "origin" | "bindPrepared" | "borrow" | "select"
+  > &
     Partial<Pick<BindingStore, "forget">>,
   port: WorkspacePort,
   /** Where cached clones live; the workload account must be able to write it. */
@@ -439,7 +444,8 @@ export function workspaceHandlers(
     copy: string[],
     install: boolean,
     repository?: Receipt["repository"],
-    at?: string
+    at?: string,
+    parent?: string
   ): Promise<Receipt> {
     const source = await port.canonical(cwd);
     if (!source)
@@ -471,6 +477,7 @@ export function workspaceHandlers(
       install,
       ...(repository && { repository }),
       ...(at !== undefined && { at }),
+      ...(parent !== undefined && { parent }),
     };
     await writeReceipt(dir, recorded);
     await syncDirectory(stateRoot);
@@ -631,9 +638,59 @@ export function workspaceHandlers(
       if ("repository" in input.source) {
         const source = input.source;
         copyNames(input.copyIgnored);
-        return serialize(session, () =>
-          fromRepository(session, dir, input, source, emit)
-        );
+        return serialize(session, async () => {
+          if ((await store.get(session))?.borrowedFrom)
+            throw refused("This launch already owns a different worktree.");
+          return fromRepository(session, dir, input, source, emit);
+        });
+      }
+      if ("session" in input.source) {
+        const parent = sessionToWire(input.source.session);
+        if (parent === session)
+          throw refused("A session cannot borrow itself.", 400);
+        const copy = [...copyNames(input.copyIgnored)];
+        const request = input.worktree;
+        if (request) nestedDir(request);
+        return serialize(session, async () => {
+          const receipt = await readReceipt(dir);
+          if (receipt) {
+            if (
+              !request ||
+              receipt.parent !== parent ||
+              !sameRequest(receipt.request, request)
+            )
+              throw refused("This launch already owns a different worktree.");
+            return finish(session, dir, receipt, emit);
+          }
+          const held = await store.get(session);
+          const existing = held?.source === "prepare" ? held : null;
+          if (existing && (request || existing.borrowedFrom !== parent))
+            throw refused("This launch already owns a different worktree.");
+          const source = existing ?? (await store.get(parent));
+          if (!source)
+            throw new RunnerCallError({
+              code: "not_found",
+              message: "No checkout is bound to this session",
+            });
+          const cwd = source.currentPath ?? source.path;
+          if (!request) {
+            const binding =
+              existing ?? (await store.borrow(session, parent, cwd));
+            emit({ phase: "ready" });
+            return bindingResponse(binding, null);
+          }
+          const recorded = await intent(
+            dir,
+            cwd,
+            request,
+            copy,
+            input.installDependencies,
+            undefined,
+            await port.repository?.location?.(session),
+            parent
+          );
+          return finish(session, dir, recorded, emit);
+        });
       }
       if (!("directory" in input.source))
         throw new RunnerCallError({
@@ -646,6 +703,8 @@ export function workspaceHandlers(
       // Checked before anything is recorded.
       if (input.worktree) nestedDir(input.worktree);
       return serialize(session, async () => {
+        if ((await store.get(session))?.borrowedFrom)
+          throw refused("This launch already owns a different worktree.");
         if (!input.worktree) {
           const directory = await port.canonical(cwd);
           if (!directory)

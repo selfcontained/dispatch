@@ -229,6 +229,7 @@ type Peer = {
   workspacePreparation: boolean;
   workspacePrepare: boolean;
   preparedLaunch: boolean;
+  sessionWorkspaceSource: boolean;
   gitQueries: boolean;
   workspaceRelease: boolean;
   /** Reconciles a repeated `launch.launchId` instead of running it again. */
@@ -998,6 +999,7 @@ export class RemoteRunnerService {
           workspacePrepare: ready.workspacePrepare === true,
           preparedLaunch:
             ready.workspacePrepare === true && ready.preparedLaunch === true,
+          sessionWorkspaceSource: ready.sessionWorkspaceSource === true,
           gitQueries: ready.gitQueries === true,
           workspaceRelease: ready.workspaceRelease === true,
           launchReconcile: ready.launchReconcile === true,
@@ -2293,6 +2295,10 @@ export class RemoteRunnerService {
     return this.workspacePeer(placement)?.preparedLaunch === true;
   }
 
+  supportsSessionWorkspaceSource(placement: Placement) {
+    return this.workspacePeer(placement)?.sessionWorkspaceSource === true;
+  }
+
   supportsWorkspaceRelease(placement: Placement) {
     return this.workspacePeer(placement)?.workspaceRelease === true;
   }
@@ -2331,6 +2337,9 @@ export class RemoteRunnerService {
     return {
       managedWorkspace: seen.managedWorkspace,
       preparedLaunch: seen.preparedLaunch,
+      ...(seen.ready.sessionWorkspaceSource && {
+        sessionWorkspaceSource: true,
+      }),
       sessionFiles: seen.sessionFiles,
       sharedWorktree: seen.sharedWorktree,
     };

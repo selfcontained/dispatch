@@ -196,6 +196,8 @@ export type ReadyFrame = {
   workspacePrepare?: true;
   /** A launch starts directly from a workspace preparation receipt. */
   preparedLaunch?: true;
+  /** Workspace preparation can use another session's current folder. */
+  sessionWorkspaceSource?: true;
   gitQueries?: true;
   /** This v1 peer serves session inventory and process samples. */
   sessionObservation?: true;
@@ -240,6 +242,9 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     workspaces: frame.workspaces,
     ...(frame.preparedLaunch === true && { preparedLaunch: true }),
     ...(frame.sessionObservation === true && { sessionObservation: true }),
+    ...(frame.sessionWorkspaceSource === true && {
+      sessionWorkspaceSource: true,
+    }),
     ...(frame.gitQueries === true && { gitQueries: true }),
     ...(frame.workspacePrepare === true && { workspacePrepare: true }),
     ...(frame.workspaceRelease === true && { workspaceRelease: true }),

@@ -413,6 +413,8 @@ export async function createSessionSupervisor(
     path.join(bindings, `${key}.selected-cwd`);
   const borrowedFile = (key: string) =>
     path.join(bindings, `${key}.borrowed-cwd`);
+  const borrowedFromFile = (key: string) =>
+    path.join(bindings, `${key}.borrowed-from`);
   const markerFile = (key: string) => path.join(bindings, `${key}.owner`);
   const identityFile = (key: string) => path.join(bindings, `${key}.host`);
   const launchFile = (key: string) => path.join(bindings, `${key}.launch`);
@@ -840,6 +842,7 @@ export async function createSessionSupervisor(
       cwdFile(key),
       selectedFile(key),
       borrowedFile(key),
+      borrowedFromFile(key),
       launchFile(key),
       path.join(bindings, key),
     ])
@@ -1197,17 +1200,29 @@ export async function createSessionSupervisor(
 
   return {
     stateDirectory: storage,
-    withWorkspacePreparation<T>(
+    async withWorkspacePreparation<T>(
       agentId: string,
       preparing: boolean,
       run: (
         readLegacy: (
           request?: Req<"workspace.prepare">
         ) => Promise<Res<"workspace.resume">>
-      ) => Promise<T>
+      ) => Promise<T>,
+      parentId?: string
     ): Promise<T | null> {
       const key = runnerStorageKey(agentId);
-      return serialize(key, async () => {
+      const parent =
+        parentId === undefined ? undefined : runnerStorageKey(parentId);
+      if (parent === key)
+        throw new RunnerCallError({
+          code: "invalid",
+          message: "A session cannot borrow itself.",
+        });
+      const owner =
+        parent === undefined
+          ? undefined
+          : (checkoutOwner(await readBinding(parent)) ?? parent);
+      const perform = async () => {
         if ((await readOptional(retireFile(key))) !== null) {
           if (!preparing) return null;
           throw new RunnerCallError({
@@ -1215,6 +1230,18 @@ export async function createSessionSupervisor(
             message: "This runner session was discarded.",
           });
         }
+        if (
+          parent !== undefined &&
+          owner !== undefined &&
+          !(await readBinding(key)) &&
+          ((checkoutOwner(await readBinding(parent)) ?? parent) !== owner ||
+            (await readOptional(retireFile(parent))) !== null ||
+            (await readOptional(retireFile(owner))) !== null)
+        )
+          throw new RunnerCallError({
+            code: "conflict",
+            message: "The author checkout has been archived or changed.",
+          });
         return run(async (request) => {
           const encoded = await readOptional(repositoryFile(key));
           const stored =
@@ -1272,7 +1299,10 @@ export async function createSessionSupervisor(
             checkoutRoot: pathFromWire(initial),
           };
         });
-      });
+      };
+      return parent === undefined || owner === undefined
+        ? serialize(key, perform)
+        : withLaunchLocks([...new Set([key, parent, owner])], perform);
     },
     async launch(
       command: LaunchCommand,
@@ -1435,6 +1465,7 @@ export async function createSessionSupervisor(
           cwdFile(key),
           selectedFile(key),
           borrowedFile(key),
+          borrowedFromFile(key),
           launchFile(key),
           path.join(bindings, key),
         ])
@@ -1688,6 +1719,7 @@ export async function createSessionSupervisor(
         await removeGuestDirectory(dir);
         await rm(selectedFile(key), { force: true });
         await rm(borrowedFile(key), { force: true });
+        await rm(borrowedFromFile(key), { force: true });
         await core.removeLaunch(key);
         await rm(path.join(bindings, key), { force: true });
         if (managed) await syncBindings();
