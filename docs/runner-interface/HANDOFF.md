@@ -103,6 +103,10 @@ Three lanes that share no files. A task that must touch another lane's file wait
 - **R1 77 / R2 269** have no single owner. Each family task deletes its own entries; anything left at T40 is either on the controller-machine allow list or moved.
 - **Milestone close:** one full parity run and one owner review, then take main and move the pin.
 
+## Incoming from main
+
+- **Worktree location setting (PR #1541, commit `ec723a30d` on main).** Main gains an external-directory option for where local worktrees are created. `manager.ts` makes one call, `resolveWorktreePathOverride(placement, …)` in `worktree-location-settings.ts`, which returns a path or undefined. On this branch the manager no longer creates worktrees (create goes through `workspace.prepare`), so when you next take main, carry the setting to the local platform's workspace location by calling the same helper there. Enrolled runners never read it: local-only by construction, with no "is remote" check.
+
 ## Lessons that cost us time
 
 - **Builders drift from main.** Pin main's behaviour with a test **before** refactoring, and ask "what does main do?" for every difference. A safer-looking difference is still a regression.
