@@ -3,8 +3,10 @@ import {
   pathFromWire,
   RunnerCallError,
   sessionFromWire,
+  sessionToWire,
   sameRunner,
   type Req,
+  type Res,
   type Placement,
 } from "@dispatch/runner-protocol/contract";
 import { checkoutRunners } from "../runners/directory.js";
@@ -564,7 +566,7 @@ export class AgentManager {
     });
     this.logger = logger;
     this.config = config;
-    this.localRunner = createLocalRunner(config.agentStateRoot, logger);
+    this.localRunner = createLocalRunner(config.agentStateRoot);
     this.remote = options.remote;
     this.holds = options.holds;
     this.recoveredLaunchWaitMs = options.recoveredLaunchWaitMs ?? 10 * 60_000;
@@ -574,10 +576,25 @@ export class AgentManager {
     this.streamStore = new StreamStore(pool);
     this.streamRecorder = new StreamRecorder(this.streamStore, logger);
     const remoteInbox = new RemoteEventInbox(pool);
+    let owner =
+      process.env.DISPATCH_INSTANCE_ID || process.env.DISPATCH_MAC_INSTANCE_ID;
+    const sessionOwner = async () => {
+      if (owner) return owner;
+      // A database-backed identity survives controller restarts and is
+      // distinct across databases even if their host state root is shared.
+      const { rows } = await pool.query<{ value: string }>(
+        `INSERT INTO settings (key, value) VALUES ('runner_session_owner', $1)
+         ON CONFLICT (key) DO UPDATE SET value = settings.value RETURNING value`,
+        [randomUUID()]
+      );
+      owner = rows[0]!.value;
+      return owner;
+    };
     this.runtime =
       options.runtime ??
       createAgentRuntime(config, logger, {
         classifySteering: options.classifySteering,
+        sessionOwner,
         // Read when used: the child is attached after construction.
         localRunner: () => this.localRunnerChild(),
         remote: this.remote,
@@ -1206,9 +1223,44 @@ export class AgentManager {
     }
   }
 
-  /** The agent host's pid when it is alive (resource sampling). */
-  hostPid(id: string): Promise<number | null> {
-    return this.runtime.hostPid(id);
+  /** Sample the hosts of agents counted as running in Service Resources. */
+  async sampleAgentSessions(): Promise<{
+    runningAgentCount: number;
+    samples: Res<"session.sample">["samples"];
+    samplingFailed?: boolean;
+  }> {
+    const groups = new Map<
+      string,
+      { placement: ReturnType<typeof legacySessionLocation>; ids: string[] }
+    >();
+    let runningAgentCount = 0;
+    for (const agent of await this.listAgents()) {
+      if (!["creating", "running", "stopping"].includes(agent.status)) continue;
+      runningAgentCount++;
+      const placement = legacySessionLocation(agent);
+      if (!placement && !sameRunner(agent.placement, controllerPlacement))
+        continue;
+      const key = JSON.stringify(placement);
+      let group = groups.get(key);
+      if (!group) {
+        group = { placement, ids: [] };
+        groups.set(key, group);
+      }
+      group.ids.push(agent.id);
+    }
+    const results = await Promise.allSettled(
+      [...groups.values()].map(
+        async ({ placement, ids }) =>
+          (await this.runtime.sampleSessions?.(placement, ids)) ?? []
+      )
+    );
+    return {
+      runningAgentCount,
+      samples: results.flatMap((result) =>
+        result.status === "fulfilled" ? result.value : []
+      ),
+      samplingFailed: results.some((result) => result.status === "rejected"),
+    };
   }
 
   /**
@@ -1414,6 +1466,9 @@ export class AgentManager {
     const attached: string[] = [];
     const lost: string[] = [];
     const pending: string[] = [];
+    const isAlive =
+      this.runtime.inventoryLiveness?.() ??
+      this.runtime.isAlive.bind(this.runtime);
     const result = await this.pool.query<{
       id: string;
       cwd: string;
@@ -1440,7 +1495,7 @@ export class AgentManager {
       let alive: boolean;
       try {
         attachedToHost = await this.runtime.attach(row.id);
-        alive = attachedToHost || (await this.runtime.isAlive(row.id));
+        alive = attachedToHost || (await isAlive(row.id));
       } catch (err) {
         this.logger.warn(
           { err, agentId: row.id },
@@ -3593,7 +3648,8 @@ export class AgentManager {
   }
 
   /**
-   * The runner's hosts that may still be alive. Legacy identities can be
+   * The runner's live inventory, with attachment state from its channels.
+   * On older runners, legacy identities can be
    * absent from its retained list. A waiting drain passes its connection and
    * what the runner last answered: a host attached on that connection needs
    * no question, and any other is asked only when it has no answer yet.
@@ -3610,6 +3666,23 @@ export class AgentManager {
         host,
       ])
     );
+    const sessionList = await this.runtime.listRunnerSessions?.(runnerId);
+    if (sessionList) {
+      return sessionList.sessions
+        .filter((session) => session.state === "live")
+        .map((session) => {
+          const id = sessionToWire(session.session);
+          const attached = hosts.get(id);
+          const host =
+            session.instanceId === attached?.instanceId ? attached : undefined;
+          if (waiting) {
+            if (host?.attachedEpoch === waiting.epoch)
+              waiting.answers.delete(id);
+            else waiting.answers.set(id, true);
+          }
+          return { id, host };
+        });
+    }
     const selectedRunner = enrolledRunnerId(placementForRunner(runnerId));
     const { rows } = await this.pool.query<{ id: string }>(
       `SELECT id FROM agents
@@ -4233,13 +4306,14 @@ export class AgentManager {
   }
 
   /**
-   * Status-only reconciliation pass — the historical contract. Returns
-   * the records whose status the reconciler changed. Callers that want
-   * the orphan-session cleanup too should call `reconcileAgents()`.
+   * Periodic reconciliation returns the changed records for broadcast.
+   * Enrolled runners can connect after startup, so also retry their sweep.
    */
   async reconcileAgentStatuses(): Promise<AgentRecord[]> {
     this.retryStopsOnReconnect();
     const changed = await this.reconciler.reconcileAgentStatuses();
+    if (this.remote?.connectedRunnerIds?.().length)
+      await this.reconciler.cleanupOrphanedHosts("enrolled");
     void this.retryRunnerCleanup().catch((err) =>
       this.logger.warn({ err }, "Could not retry runner cleanup")
     );

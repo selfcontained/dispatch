@@ -51,6 +51,46 @@ const diffFile = {
 
 export const results: ResultFixture[] = [
   {
+    command: s("sessionObservation", {
+      operation: { op: "session.list", request: { owner: null } },
+    }),
+    value: json({
+      sessions: [
+        {
+          session: agentId,
+          state: "live",
+          launchId: "0b6f3c1e-8f7a-4c2d-9e1b-5a4d3c2b1a00",
+        },
+      ],
+    }),
+  },
+  {
+    command: s("sessionObservation", {
+      operation: { op: "session.sample", request: { sessions: [agentId] } },
+    }),
+    value: json({
+      samples: [
+        {
+          session: agentId,
+          supported: true,
+          cpuPercent: 15.2,
+          rssBytes: 2048,
+          processCount: 2,
+          sampledAt: 1000,
+          error: null,
+        },
+      ],
+    }),
+  },
+  {
+    command: s("stop", {
+      force: true,
+      expectedOwner: "controller-a",
+      expectedLaunchId: "0b6f3c1e-8f7a-4c2d-9e1b-5a4d3c2b1a00",
+    }),
+    value: true,
+  },
+  {
     command: s("launch", {
       launch: {
         agentId,
@@ -68,6 +108,7 @@ export const results: ResultFixture[] = [
         },
         prepareWorkspace: true,
         launchId: "0b6f3c1e-8f7a-4c2d-9e1b-5a4d3c2b1a00",
+        owner: "controller-a",
       },
     }),
     value: true,

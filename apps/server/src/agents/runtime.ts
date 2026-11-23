@@ -1,3 +1,4 @@
+import type { Res } from "@dispatch/runner-protocol/contract";
 import type { BackgroundSnapshot } from "@dispatch/shared";
 import type { AgentMcpInventoryResponse } from "@dispatch/shared";
 import type { AgentInputState } from "@dispatch/shared";
@@ -195,7 +196,8 @@ export type AgentRuntime = {
     agentId: string,
     force: boolean,
     placement: Placement | null,
-    expectedLaunchId?: string
+    expectedLaunchId?: string,
+    ownerOnly?: boolean
   ): Promise<void>;
   /** Local recovery diagnostics. Capabilities are known only after hello. */
   inspectNativeHost?(sessionHandle: string): Promise<{
@@ -214,8 +216,18 @@ export type AgentRuntime = {
   stopIdleHostForRecovery?(agentId: string): Promise<boolean>;
   /** Agents with a live host, for the reconciler. */
   listHosted(): Promise<string[]>;
-  /** The host's pid when it is alive; the root of the agent's process tree. */
-  hostPid(agentId: string): Promise<number | null>;
+  listSessions?(
+    placement: Placement | null,
+    ownerOnly?: boolean
+  ): Promise<Res<"session.list"> | undefined>;
+  listRunnerSessions?(
+    runnerId: string
+  ): Promise<Res<"session.list"> | undefined>;
+  sampleSessions?(
+    placement: Placement | null,
+    agentIds: string[]
+  ): Promise<Res<"session.sample">["samples"]>;
+  inventoryLiveness?(): (agentId: string) => Promise<boolean>;
   /** Events in seq order, each delivered once. Listeners run serially per agent. */
   onEvent(listener: RuntimeEventListener): () => void;
   /** Tail of the host's log, for error messages. */
@@ -242,6 +254,7 @@ export function createAgentRuntime(
     | "placement"
     | "localRunner"
     | "recordLaunch"
+    | "sessionOwner"
   >
 ): AgentRuntime {
   if (config.agentRuntime === "inert") {
@@ -298,9 +311,6 @@ export function createInertRuntime(): AgentRuntime {
     async stop() {},
     async listHosted() {
       return [];
-    },
-    async hostPid() {
-      return null;
     },
     onEvent() {
       return () => {};

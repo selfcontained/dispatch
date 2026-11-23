@@ -269,11 +269,23 @@ export function localSessionHandlers(
       )
     ).some(Boolean);
 
-  async function list() {
+  async function list(owner: string | null = null) {
     const sessions = [];
     for (const key of await core.trackedKeys()) {
+      const launch = await core.readLaunch(key);
+      if (owner !== null && launch?.owner !== owner) continue;
       const { state } = await inspectHostDir(layout.hostDir(key));
-      sessions.push({ session: sessionFromWire(key), state });
+      const identity = await identityOf(key);
+      sessions.push({
+        session: sessionFromWire(key),
+        state,
+        ...(state === "live" &&
+          launch?.stage === "spawning" &&
+          identity &&
+          launch.hostInstanceId === identity.marker && {
+            launchId: launch.launchId,
+          }),
+      });
     }
     return sessions;
   }
@@ -312,7 +324,10 @@ export function localSessionHandlers(
           ) {
             if (
               record?.launchId === request.launchId &&
-              record.stage === "spawning"
+              record.stage === "spawning" &&
+              (record.owner === undefined || record.owner === request.owner) &&
+              (record.hostInstanceId === undefined ||
+                record.hostInstanceId === identity.marker)
             ) {
               if (await started(key, identity.marker, null)) return {};
               throw hostExited();
@@ -331,14 +346,11 @@ export function localSessionHandlers(
           await core.saveLaunch(key, {
             launchId: request.launchId,
             stage: "preparing",
+            ...(request.owner !== null && { owner: request.owner }),
           });
           await entry.prepare(dir, {
             ...request,
             directory: pathFromWire(cwd),
-          });
-          await core.saveLaunch(key, {
-            launchId: request.launchId,
-            stage: "spawning",
           });
           let exited = false;
           try {
@@ -350,7 +362,14 @@ export function localSessionHandlers(
               {},
               () => {
                 exited = true;
-              }
+              },
+              (identity) =>
+                core.saveLaunch(key, {
+                  launchId: request.launchId,
+                  stage: "spawning",
+                  hostInstanceId: identity.marker,
+                  ...(request.owner !== null && { owner: request.owner }),
+                })
             );
           } catch (error) {
             // No process (a missing directory, say): the launch fails as
@@ -373,14 +392,31 @@ export function localSessionHandlers(
        * marked descendants and records. `idleOnly` never signals: a host
        * still running after the grace is `busy`.
        */
-      async "session.stop"({ session, force, idleOnly, expectedLaunchId }) {
+      async "session.stop"({
+        session,
+        force,
+        idleOnly,
+        expectedLaunchId,
+        expectedOwner,
+      }) {
         const key = keyOf(session);
         return core.lock(key, async () => {
-          if (
-            expectedLaunchId !== undefined &&
-            (await core.readLaunch(key))?.launchId !== expectedLaunchId
-          )
+          const identity = await identityOf(key);
+          if (expectedOwner !== undefined && expectedLaunchId === undefined)
             return {};
+          if (expectedLaunchId !== undefined) {
+            const launch = await core.readLaunch(key);
+            if (
+              launch?.launchId !== expectedLaunchId ||
+              (expectedOwner !== undefined &&
+                (launch.owner !== expectedOwner ||
+                  launch.stage !== "spawning" ||
+                  launch.hostInstanceId === undefined)) ||
+              (launch.hostInstanceId !== undefined &&
+                launch.hostInstanceId !== identity?.marker)
+            )
+              return {};
+          }
           const dir = layout.hostDir(key);
           if (idleOnly) {
             const deadline = Date.now() + STOP_GRACE_MS;
@@ -391,7 +427,6 @@ export function localSessionHandlers(
                 message: "The host is still running",
               });
           }
-          const identity = await identityOf(key);
           // A host still starting (its runner died before it answered) has
           // no pid to signal yet: wait for it, so it is not left behind.
           if (
@@ -438,7 +473,28 @@ export function localSessionHandlers(
           });
         return { text: await logTail(file, Math.max(0, lines)) };
       },
-      "session.list": async () => ({ sessions: await list() }),
+      "session.list": async ({ owner }) => ({
+        sessions: await list(owner),
+      }),
+      async "session.sample"({ sessions }) {
+        const entries = await Promise.all(
+          [...new Set(sessions)].map(async (session) => {
+            const { pid } = await inspectHostDir(
+              layout.hostDir(keyOf(session))
+            );
+            return [session, pid] as const;
+          })
+        );
+        return {
+          samples: await core.sample(
+            new Map(
+              entries.flatMap(([session, pid]) =>
+                pid === null ? [] : [[session, pid]]
+              )
+            )
+          ),
+        };
+      },
     },
     opens: {
       /**

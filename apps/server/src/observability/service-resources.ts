@@ -4,7 +4,7 @@ import { monitorEventLoopDelay } from "node:perf_hooks";
 
 import type { Pool, PoolClient } from "pg";
 
-import { runCommand } from "../shared/lib/run-command.js";
+import type { Res } from "@dispatch/runner-protocol/contract";
 import type {
   SubsystemHealthState,
   SubsystemSnapshot,
@@ -79,16 +79,17 @@ export type WorkloadSnapshot = {
 export type ServiceResourcesDeps = {
   pool: Pool;
   probePool: Pool;
-  /** Running agents and the pid of each one's host process, when alive. */
-  listAgentProcesses: () => Promise<Array<{ hostPid: number | null }>>;
+  sampleAgentSessions: () => Promise<{
+    runningAgentCount: number;
+    samples: Res<"session.sample">["samples"];
+    samplingFailed?: boolean;
+  }>;
   getWorkloads: () => WorkloadSnapshot;
   artifactProbePool?: Pool;
   artifactRoots?: string[];
   sampleArtifactStorage?: (signal: AbortSignal) => Promise<number>;
   subsystemTrackers: SubsystemTracker[];
   processTreeSupported?: boolean;
-  /** Override the platform process probes in focused tests. */
-  runProcessCommand?: typeof runCommand;
 };
 
 type AgentProcessSnapshot = {
@@ -847,105 +848,53 @@ export class ServiceResources {
     processes: AgentProcessSnapshot;
     runningAgentCount: number;
   }> {
-    let agents: Array<{ hostPid: number | null }>;
+    let runningAgentCount = this.runningAgentCount;
+    const failed = (error: string) => ({
+      processes: {
+        ...this.agentProcesses,
+        cpuPercent: null,
+        rssBytes: null,
+        processCount: null,
+        error,
+      },
+      runningAgentCount,
+    });
     try {
-      agents = await this.deps.listAgentProcesses();
-    } catch {
-      return {
-        processes: {
-          ...this.agentProcesses,
-          cpuPercent: null,
-          rssBytes: null,
-          processCount: null,
-          error: "Agent session sampling failed",
-        },
-        runningAgentCount: this.runningAgentCount,
-      };
-    }
-
-    // Agent ownership is platform-independent. Commit its fresh value even
-    // when the optional ps process probe below is unavailable or fails.
-    const runningAgentCount = agents.length;
-    if (!this.agentProcesses.supported) {
-      return {
-        processes: { ...this.agentProcesses, error: null },
-        runningAgentCount,
-      };
-    }
-
-    try {
-      const roots = new Set(
-        agents
-          .map((agent) => agent.hostPid)
-          .filter((pid): pid is number => typeof pid === "number" && pid > 0)
-      );
-      if (roots.size === 0) {
+      const sample = await this.deps.sampleAgentSessions();
+      runningAgentCount = sample.runningAgentCount;
+      if (!this.agentProcesses.supported) {
         return {
-          processes: {
-            supported: true,
-            cpuPercent: 0,
-            rssBytes: 0,
-            processCount: 0,
-            sampledAt: Date.now(),
-            error: null,
-          },
+          processes: { ...this.agentProcesses, error: null },
           runningAgentCount,
         };
       }
-
-      const run = this.deps.runProcessCommand ?? runCommand;
-      const processes = await run("ps", ["-axo", "pid=,ppid=,%cpu=,rss="], {
-        timeoutMs: 3_000,
-      });
-
-      const rows = processes.stdout
-        .split("\n")
-        .map((line) => line.trim().split(/\s+/))
-        .filter((parts) => parts.length >= 4)
-        .map(([pid, ppid, cpu, rss]) => ({
-          pid: Number(pid),
-          ppid: Number(ppid),
-          cpu: Number(cpu),
-          rss: Number(rss),
-        }))
-        .filter((row) => Number.isFinite(row.pid) && Number.isFinite(row.ppid));
-      const included = new Set(roots);
-      let changed = true;
-      while (changed) {
-        changed = false;
-        for (const row of rows) {
-          if (!included.has(row.pid) && included.has(row.ppid)) {
-            included.add(row.pid);
-            changed = true;
-          }
-        }
-      }
-      const owned = rows.filter((row) => included.has(row.pid));
+      if (sample.samplingFailed || sample.samples.some((entry) => entry.error))
+        return failed("Process sampling failed");
       return {
         processes: {
           supported: true,
           cpuPercent: round(
-            owned.reduce((sum, row) => sum + (row.cpu || 0), 0),
+            sample.samples.reduce(
+              (sum, entry) => sum + (entry.cpuPercent ?? 0),
+              0
+            ),
             1
           ),
-          rssBytes: owned.reduce((sum, row) => sum + (row.rss || 0) * 1024, 0),
-          processCount: owned.length,
+          rssBytes: sample.samples.reduce(
+            (sum, entry) => sum + (entry.rssBytes ?? 0),
+            0
+          ),
+          processCount: sample.samples.reduce(
+            (sum, entry) => sum + (entry.processCount ?? 0),
+            0
+          ),
           sampledAt: Date.now(),
           error: null,
         },
         runningAgentCount,
       };
     } catch {
-      return {
-        processes: {
-          ...this.agentProcesses,
-          cpuPercent: null,
-          rssBytes: null,
-          processCount: null,
-          error: "Process sampling failed",
-        },
-        runningAgentCount,
-      };
+      return failed("Agent session sampling failed");
     }
   }
 

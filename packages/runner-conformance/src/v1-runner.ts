@@ -171,6 +171,14 @@ export function v1Runner({
       request: Req<K>,
       opts?: CallOptions<K>
     ): Promise<Res<K>> {
+      if (
+        (op === "session.list" || op === "session.sample") &&
+        !ready.sessionObservation
+      )
+        throw fail(
+          "unsupported",
+          "This runner does not serve session observation."
+        );
       if (op === "workspace.release" && !ready.workspaceRelease)
         throw fail(
           "unsupported",
@@ -222,6 +230,10 @@ export function v1Runner({
       let command;
       try {
         command = encodeCommand(frame);
+        if (command.kind === "launch" && !ready.sessionObservation) {
+          const { owner: _owner, ...launch } = command.launch;
+          command = { ...command, launch };
+        }
       } catch (error) {
         if (error instanceof CodecError)
           throw fail("unsupported", error.message);

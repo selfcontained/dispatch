@@ -579,7 +579,11 @@ const SESSION_READ_WAIT_MS = 15_000;
  * a child that cannot start. Not answering in time is `unavailable`.
  */
 export function readLocalSession<
-  K extends "session.alive" | "session.logs" | "session.list",
+  K extends
+    | "session.alive"
+    | "session.logs"
+    | "session.list"
+    | "session.sample",
 >(child: LocalSessionRunner, op: K, input: Req<K>): Promise<Res<K>> {
   return unavailableAfter(SESSION_READ_WAIT_MS, (signal) =>
     child.call(op, input, { signal })

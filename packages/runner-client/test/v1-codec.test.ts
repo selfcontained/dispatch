@@ -60,6 +60,8 @@ function validV1Result(command: Command, value: unknown): boolean {
       return command.operation.kind === "context"
         ? operations["git.context"].response.check(parsed)
         : isSessionCheckout(parsed);
+    case "sessionObservation":
+      return operations[command.operation.op].response.check(parsed);
     case "gitQuery": {
       const reply = parsed as { data?: unknown; error?: unknown };
       return (
@@ -237,6 +239,7 @@ describe("codec coverage", () => {
         "log",
         "stop",
         "sessionFile",
+        "sessionObservation",
         "watchCheckout",
         "openTerminal",
         "viewCheckout",

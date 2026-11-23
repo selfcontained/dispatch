@@ -1046,6 +1046,9 @@
           },
           "expectedLaunchId": {
             "optional": "string"
+          },
+          "expectedOwner": {
+            "optional": "string"
           }
         }
       },
@@ -1122,6 +1125,9 @@
                 },
                 "state": {
                   "literal": ["live", "gone", "stale"]
+                },
+                "launchId": {
+                  "optional": "string"
                 },
                 "instanceId": {
                   "optional": "string"

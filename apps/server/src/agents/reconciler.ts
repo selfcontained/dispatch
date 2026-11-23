@@ -3,6 +3,13 @@ import type { Pool } from "pg";
 
 import type { DiagnosticsRecorder } from "../diagnostics.js";
 
+import { sessionToWire, sameRunner } from "@dispatch/runner-protocol/contract";
+import type { Placement } from "./remote/protocol.js";
+import {
+  legacySessionLocation,
+  placementFromRow,
+  controllerPlacement,
+} from "../runners/placement.js";
 import type { AgentRuntime } from "./runtime.js";
 import type { AgentRecord, AgentStatus } from "./types.js";
 
@@ -64,13 +71,13 @@ export type Reconciler = {
    * Stop hosts whose DB records say the agent is in a terminal state.
    * No-op when the runtime has no processes.
    */
-  cleanupOrphanedHosts(): Promise<void>;
+  cleanupOrphanedHosts(scope?: "all" | "enrolled"): Promise<void>;
 };
 
 export function createReconciler(deps: ReconcilerDeps): Reconciler {
   return {
     reconcileAgentStatuses: () => reconcileAgentStatuses(deps),
-    cleanupOrphanedHosts: () => cleanupOrphanedHosts(deps),
+    cleanupOrphanedHosts: (scope = "all") => cleanupOrphanedHosts(deps, scope),
   };
 }
 
@@ -96,6 +103,8 @@ async function reconcileAgentStatuses(
   );
 
   const reconciled: AgentRecord[] = [];
+  const isAlive =
+    runtime.inventoryLiveness?.() ?? runtime.isAlive.bind(runtime);
 
   // Reattach attempts can each wait for a hello timeout. Probe eligible
   // hosts together so several busy hosts do not stall the whole pass in
@@ -124,7 +133,7 @@ async function reconcileAgentStatuses(
             row.id,
             {
               attached,
-              alive: attached || (await runtime.isAlive(row.id)),
+              alive: attached || (await isAlive(row.id)),
             },
           ] as const;
         })
@@ -172,7 +181,7 @@ async function reconcileAgentStatuses(
     const alive =
       row.status === "running" || row.status === "creating"
         ? (probe?.alive ?? false)
-        : await runtime.isAlive(row.id);
+        : await isAlive(row.id);
     if (!alive) {
       const logTail = await runtime.readLogTail(row.id);
       const launchFailed = row.status === "creating";
@@ -220,44 +229,75 @@ async function reconcileAgentStatuses(
   return reconciled;
 }
 
-async function cleanupOrphanedHosts(deps: ReconcilerDeps): Promise<void> {
+async function cleanupOrphanedHosts(
+  deps: ReconcilerDeps,
+  scope: "all" | "enrolled"
+): Promise<void> {
   const { pool, logger, runtime } = deps;
-  let hosted: string[];
-  try {
-    hosted = await runtime.listHosted();
-  } catch (err) {
-    // The local runner child may be restarting; the next pass cleans up.
-    logger.warn({ err }, "Could not list agent hosts; skipping orphan cleanup");
-    return;
-  }
-  if (hosted.length === 0) return;
-
-  const dbResult = await pool.query<{ id: string; status: string }>(
-    `SELECT id, status FROM agents WHERE deleted_at IS NULL AND id = ANY($1::text[])
-       AND NOT EXISTS (SELECT 1 FROM pending_agent_stops WHERE agent_id = agents.id)`,
-    [hosted]
+  const listSessions = runtime.listSessions?.bind(runtime);
+  const stop = runtime.retryStop?.bind(runtime);
+  if (!listSessions || !stop) return;
+  const { rows } = await pool.query<{
+    id: string;
+    cwd: string;
+    runner_id: string;
+    host_launch_id: string;
+  }>(
+    `SELECT id, cwd, runner_id, host_launch_id FROM agents
+       WHERE deleted_at IS NULL AND status IN ('stopped', 'error')
+         AND host_launch_id IS NOT NULL
+         AND NOT EXISTS (SELECT 1 FROM pending_agent_stops WHERE agent_id = agents.id)`
   );
-  const statuses = new Map(dbResult.rows.map((row) => [row.id, row.status]));
 
-  for (const agentId of hosted) {
-    const status = statuses.get(agentId);
-    // Agent in a terminal state: the host is definitely orphaned.
-    if (status === "stopped" || status === "error") {
-      logger.info(
-        { agentId, status },
-        "Stopping orphaned agent host (agent in terminal state)"
-      );
-      await runtime.stop(agentId, true).catch(() => {});
+  const groups = new Map<
+    string,
+    { placement: Placement | null; ended: Map<string, string> }
+  >();
+  for (const row of rows) {
+    const owner = placementFromRow(row);
+    const placement = legacySessionLocation({ cwd: row.cwd, placement: owner });
+    if (
+      !placement &&
+      (scope === "enrolled" || !sameRunner(owner, controllerPlacement))
+    )
       continue;
+    const key = JSON.stringify(placement);
+    let group = groups.get(key);
+    if (!group) {
+      group = { placement, ended: new Map() };
+      groups.set(key, group);
     }
-    // No DB record: leave it alone. The host may belong to another server
-    // instance sharing the state root; only act on agents this database
-    // knows about.
-    if (!status) {
-      logger.debug(
-        { agentId },
-        "Ignoring agent host with no matching DB record"
-      );
-    }
+    group.ended.set(row.id, row.host_launch_id);
   }
+
+  await Promise.all(
+    [...groups.values()].map(async ({ placement, ended }) => {
+      let inventory;
+      try {
+        inventory = await listSessions(placement, true);
+      } catch (err) {
+        logger.warn(
+          { err, placement },
+          "Could not list agent hosts; skipping orphan cleanup"
+        );
+        return;
+      }
+      for (const session of inventory?.sessions ?? []) {
+        const agentId = sessionToWire(session.session);
+        const launchId = ended.get(agentId);
+        if (
+          session.state !== "live" ||
+          !launchId ||
+          session.launchId !== launchId
+        )
+          continue;
+        logger.info(
+          { agentId, launchId },
+          "Stopping orphaned agent host (agent in terminal state)"
+        );
+        // The runner checks the launch again under its session lock.
+        await stop(agentId, true, placement, launchId, true).catch(() => {});
+      }
+    })
+  );
 }

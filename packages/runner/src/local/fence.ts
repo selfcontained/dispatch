@@ -10,6 +10,7 @@ export const SERVED_WHILE_FROZEN: ReadonlySet<string> = new Set([
   "runner.describe",
   "runner.health",
   "session.list",
+  "session.sample",
   // Session reads, and the attach channel: it relays the app's frames to a
   // host process and writes nothing of the runner's. An update's probation
   // attaches to the hosts that survived it.

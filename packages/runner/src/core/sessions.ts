@@ -7,6 +7,9 @@
  * (`SessionLayout`), and how private state is written (`PrivateStatePort`).
  * Bindings and checkouts stay with their callers, who take the same lock.
  */
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import type { SessionHandle } from "@dispatch/runner-protocol/contract";
 import { closeSync, openSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { createConnection, type Socket } from "node:net";
@@ -106,6 +109,7 @@ export type PrivateRecord = {
 export type LaunchRecord = {
   launchId: string;
   stage: "preparing" | "spawning";
+  owner?: string;
   /** The host this attempt spawned, once it reached `spawning`. */
   hostInstanceId?: string;
   /** Dependency preparation for this attempt. `started` alone is unknown. */
@@ -119,14 +123,17 @@ export function parseLaunchRecord(raw: string | null): LaunchRecord | null {
   try {
     const value = JSON.parse(raw) as Record<string, unknown>;
     if (
+      typeof value.launchId !== "string" ||
+      (value.owner !== undefined && typeof value.owner !== "string") ||
       (value.stage !== "preparing" && value.stage !== "spawning") ||
       (value.hostInstanceId !== undefined &&
         typeof value.hostInstanceId !== "string")
     )
       return null;
     return {
-      launchId: value.launchId as string,
+      launchId: value.launchId,
       stage: value.stage,
+      ...(typeof value.owner === "string" && { owner: value.owner }),
       ...(value.hostInstanceId !== undefined && {
         hostInstanceId: value.hostInstanceId as string,
       }),
@@ -323,6 +330,60 @@ export function createSessionCore<I extends HostRecord>(
   sweep?.unref();
 
   return {
+    async sample(roots: ReadonlyMap<SessionHandle, number>) {
+      if (roots.size === 0) return [];
+      const { stdout } = await promisify(execFile)(
+        "ps",
+        ["-axo", "pid=,ppid=,%cpu=,rss="],
+        { timeout: 3_000, maxBuffer: 32 * 1024 * 1024 }
+      );
+      const rows = new Map<number, { cpu: number; rss: number }>();
+      const children = new Map<number, number[]>();
+      for (const line of stdout.split("\n")) {
+        const [pid, ppid, cpu, rss] = line.trim().split(/\s+/).map(Number);
+        if (
+          !pid ||
+          ppid === undefined ||
+          cpu === undefined ||
+          rss === undefined
+        )
+          continue;
+        const siblings = children.get(ppid) ?? [];
+        siblings.push(pid);
+        children.set(ppid, siblings);
+        rows.set(pid, { cpu: cpu || 0, rss: (rss || 0) * 1024 });
+      }
+      // A process contributes once, even if a root is nested under another.
+      const rootPids = new Set(roots.values());
+      const sampledAt = Date.now();
+      return [...roots].map(([session, pid]) => {
+        const pending = [pid];
+        let cpuPercent = 0,
+          rssBytes = 0,
+          processCount = 0;
+        while (pending.length) {
+          const current = pending.pop()!;
+          const row = rows.get(current);
+          if (row) {
+            cpuPercent += row.cpu;
+            rssBytes += row.rss;
+            processCount++;
+          }
+          for (const child of children.get(current) ?? []) {
+            if (!rootPids.has(child)) pending.push(child);
+          }
+        }
+        return {
+          session,
+          supported: true,
+          cpuPercent,
+          rssBytes,
+          processCount,
+          sampledAt,
+          error: null,
+        };
+      });
+    },
     lock,
     locks,
     readIdentity,
@@ -357,7 +418,8 @@ export function createSessionCore<I extends HostRecord>(
       env: NodeJS.ProcessEnv,
       extra: Record<string, unknown>,
       /** Called when this process sees the host exit. */
-      exited?: () => void
+      exited?: () => void,
+      recorded?: (identity: I) => Promise<void>
     ) {
       const log = openSync(layout.logFile(key), "a", 0o600);
       try {
@@ -368,12 +430,14 @@ export function createSessionCore<I extends HostRecord>(
           cwd,
           env,
           log,
-          (identity) =>
-            state.write(
+          async (identity) => {
+            await state.write(
               layout.identityFile(key),
               processes.formatIdentity?.(identity, extra) ??
                 JSON.stringify({ ...identity, ...extra })
-            ),
+            );
+            await recorded?.(identity);
+          },
           (identity) => {
             exited?.();
             void lock(key, async () => {

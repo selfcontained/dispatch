@@ -31,6 +31,9 @@ import { observeBoundCheckout } from "../checkout-observation.js";
 import {
   displayPath,
   RunnerCallError,
+  sessionFromWire,
+  sessionToWire,
+  type SessionHandle,
   type Req,
   type Res,
   pathFromWire,
@@ -109,6 +112,7 @@ type ContextOperation = Extract<CheckoutOperation, { kind: "context" }>;
 type LaunchRecord = {
   launchId: string;
   stage: "preparing" | "spawning";
+  owner?: string;
   hostInstanceId?: string;
   dependencies?: "started" | "done" | "failed";
 };
@@ -189,6 +193,9 @@ export type SessionCoreFactory = (options: {
   logs(key: string): Promise<{ live: boolean; text: string }>;
   removeLog(key: string): Promise<void>;
   trackedKeys(): Promise<string[]>;
+  sample(
+    roots: ReadonlyMap<SessionHandle, number>
+  ): Promise<Res<"session.sample">["samples"]>;
   inspect(
     key: string,
     verify: (identity: RecordedSessionIdentity) => Promise<boolean>
@@ -903,14 +910,19 @@ export async function createSessionSupervisor(
         displayPath(prepared.checkoutRoot) !== (await managedDirectory(key)))
     )
       throw new Error("The prepared checkout binding changed.");
-    const { launchId } = command.launch;
+    const { launchId, owner: sessionOwner } = command.launch;
     const recorded = launchId === undefined ? null : await core.readLaunch(key);
     // Only the same attempt resumes; another ID is a new launch, as before.
-    const repeat = recorded?.launchId === launchId ? recorded : null;
+    const repeat =
+      recorded?.launchId === launchId &&
+      (recorded?.owner === undefined || recorded.owner === sessionOwner)
+        ? recorded
+        : null;
     let record: LaunchRecord | null = null;
     const saveLaunch = async (next: LaunchRecord) => {
-      record = next;
-      await core.saveLaunch(key, next);
+      record =
+        sessionOwner === undefined ? next : { ...next, owner: sessionOwner };
+      await core.saveLaunch(key, record);
     };
     progress?.({ phase: "workspace" });
     if (owner) {
@@ -1051,6 +1063,7 @@ export async function createSessionSupervisor(
     const {
       repository: _repository,
       useWorktreeOf: _owner,
+      owner: _sessionOwner,
       prepareWorkspace: _preparation,
       launchId: _launchId,
       ...launchOptions
@@ -1532,6 +1545,67 @@ export async function createSessionSupervisor(
         return result;
       });
     },
+    async listSessions(
+      workspace: string,
+      owner: string | null = null
+    ): Promise<Res<"session.list">> {
+      const sessions = await Promise.all(
+        (await core.trackedKeys()).map((key) =>
+          serialize(key, async () => {
+            if (!(await bound(key, workspace))) return null;
+            const identity = await readIdentity(key);
+            if (!identity) return null;
+            const classified = classifySessionIdentity(identity);
+            const agentId =
+              classified.kind === "current"
+                ? classified.record.sessionId
+                : (identity.sessionId ?? (key.startsWith("agt_") ? key : null));
+            if (!agentId || runnerStorageKey(agentId) !== key) return null;
+            const launch = await core.readLaunch(key);
+            if (owner !== null && launch?.owner !== owner) return null;
+            return {
+              session: sessionFromWire(agentId),
+              state: core.isAlive(identity)
+                ? ("live" as const)
+                : ("gone" as const),
+              ...(classified.kind === "current" && {
+                instanceId: classified.record.hostInstanceId,
+                build: {
+                  version: classified.record.hostBuild.version,
+                  ...(classified.record.hostBuild.revision !== null && {
+                    revision: classified.record.hostBuild.revision,
+                  }),
+                },
+              }),
+              ...(classified.kind === "current" &&
+                launch?.stage === "spawning" &&
+                launch.hostInstanceId === classified.record.hostInstanceId && {
+                  launchId: launch.launchId,
+                }),
+            };
+          })
+        )
+      );
+      return { sessions: sessions.filter((session) => session !== null) };
+    },
+    async sampleSessions(
+      workspace: string,
+      sessions: SessionHandle[]
+    ): Promise<Res<"session.sample">> {
+      const roots = new Map<SessionHandle, number>();
+      await Promise.all(
+        [...new Set(sessions)].map(async (session) => {
+          const key = runnerStorageKey(sessionToWire(session));
+          await serialize(key, async () => {
+            if (!(await bound(key, workspace))) return;
+            const identity = await readIdentity(key);
+            if (identity && core.isAlive(identity))
+              roots.set(session, identity.pid);
+          });
+        })
+      );
+      return { samples: await core.sample(roots) };
+    },
     async alive(agentId: string, workspace: string) {
       const key = runnerStorageKey(agentId);
       return serialize(key, async () => {
@@ -1551,15 +1625,28 @@ export async function createSessionSupervisor(
       agentId: string,
       workspace: string,
       force: boolean,
-      expectedLaunchId?: string
+      expectedLaunchId?: string,
+      expectedOwner?: string
     ) {
       const key = runnerStorageKey(agentId);
       return serialize(key, async () => {
-        if (
-          expectedLaunchId !== undefined &&
-          (await core.readLaunch(key))?.launchId !== expectedLaunchId
-        )
+        if (expectedOwner !== undefined && expectedLaunchId === undefined)
           return false;
+        if (expectedLaunchId !== undefined) {
+          const launch = await core.readLaunch(key);
+          if (launch?.launchId !== expectedLaunchId) return false;
+          const identity = await readIdentity(key);
+          if (
+            expectedOwner !== undefined &&
+            (launch.owner !== expectedOwner ||
+              launch.stage !== "spawning" ||
+              launch.hostInstanceId === undefined ||
+              !identity)
+          )
+            return false;
+          if (identity && launch.hostInstanceId !== identity.hostInstanceId)
+            return false;
+        }
         if (!(await bound(key, workspace))) {
           if (expectedLaunchId !== undefined) return false;
           if (managedTarget(workspace) && (await readBinding(key)) === null)

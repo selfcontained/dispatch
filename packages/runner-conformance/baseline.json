@@ -7,12 +7,6 @@
   },
   {
     "lane": "local",
-    "scenario": "session.sample/pending",
-    "task": "T27",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
     "scenario": "terminal.open/pending",
     "task": "T21",
     "reason": "no local runner child yet"
@@ -388,18 +382,6 @@
     "scenario": "session.logs/unknown",
     "task": "T23",
     "reason": "v1 returns failed for an unbound session; expected not_found"
-  },
-  {
-    "lane": "remote",
-    "scenario": "session.list/live",
-    "task": "T27",
-    "reason": "not on wire v1: local-only today (listHosted, inspectHost)"
-  },
-  {
-    "lane": "remote",
-    "scenario": "session.sample/pending",
-    "task": "T27",
-    "reason": "not on wire v1: local-only today (process-tree sampling)"
   },
   {
     "lane": "remote",
