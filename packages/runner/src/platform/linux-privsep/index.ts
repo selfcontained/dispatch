@@ -4,7 +4,7 @@
  * What it adds to the core so far: where a session's checkout goes and how
  * it is removed (`RepositoryPort.location` / `remove`), the invariant that
  * keeps root's paths out of the workload's reach, and the core's binding
- * store over the supervisor's existing files.
+ * store, which keeps the supervisor's existing files for older builds.
  */
 import { dirname, join } from "node:path";
 import {
@@ -29,7 +29,7 @@ import {
   type Ids,
 } from "./layout.js";
 import { sessionLocation, type WorkloadCommand } from "./location.js";
-import { PrivsepBindings } from "./bindings.js";
+import { PrivsepBindings, privsepFiles } from "./bindings.js";
 import type { RepositoryPort, WorkspacePort } from "../types.js";
 
 export { checkoutParentIsProtected, assertProtected } from "./layout.js";
@@ -53,9 +53,12 @@ export async function createLinuxPrivsep(options: PrivsepOptions) {
   await ownedDirectory(fs, ids, paths.bindings, PRIVATE_MODE);
   await ownedDirectory(fs, ids, paths.receipts, PRIVATE_MODE);
   const where = sessionLocation(fs, ids, paths, asWorkload);
+  // The core's binding records, root-only inside `bindings`.
+  const files = privsepFiles(fs, ids, paths);
+  await files.prepare();
   return {
     paths,
-    bindings: new PrivsepBindings(fs, paths, asWorkload),
+    bindings: new PrivsepBindings(fs, paths, asWorkload, files),
     release: where.release,
     /** A clone port with this platform's place for sessions' checkouts. */
     repository(

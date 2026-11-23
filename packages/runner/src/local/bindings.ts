@@ -68,6 +68,11 @@ export type StoredBinding = {
   source: "import" | "prepare";
   /** The session whose current folder this session borrowed. */
   borrowedFrom?: string;
+  /**
+   * linux-privsep only, until T40: a digest of the supervisor's own binding
+   * files as the store last saw them. Never written locally.
+   */
+  legacy?: string;
 };
 
 export type ImportCounts = { added: number; kept: number; invalid: number };

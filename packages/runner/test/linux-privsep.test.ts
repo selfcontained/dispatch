@@ -170,6 +170,10 @@ async function platform() {
   return { ...made, port: made.repository(clones) };
 }
 
+/** The core's record file for a session. */
+const recordName = (session: string) =>
+  `${createHash("sha256").update(session).digest("hex")}.json`;
+
 const session = "agt_abc123";
 const parent = `${STATE}/sessions/${session}`;
 const checkout = `${parent}/checkout`;
@@ -458,9 +462,11 @@ describe("linux-privsep bindings over the supervisor's files", () => {
       currentPath: null,
       worktree: { path: where, branch: "feature", base: "main" },
     });
+    // Today's files first, binding last; then the core's record.
     expect(fs.log).toEqual([
       `write ${bindings}/agt_new.repository`,
       `write ${bindings}/agt_new`,
+      `write ${bindings}/.bindings/${recordName("agt_new")}`,
     ]);
     expect(await fs.read(`${bindings}/agt_new`)).toBe(MANAGED_BINDING);
     expect(
@@ -559,6 +565,146 @@ describe("linux-privsep bindings over the supervisor's files", () => {
       `${MANAGED_BINDING}:agt_owner`
     );
     expect(await fs.read(`${bindings}/agt_child.repository`)).toBeNull();
+  });
+});
+
+describe("linux-privsep binding records", () => {
+  const bindings = `${STATE}/bindings`;
+  const store = `${bindings}/.bindings`;
+  const write = (name: string, content: string) =>
+    fs.file(`${bindings}/${name}`, content);
+  const legacy = () =>
+    [...fs.nodes]
+      .filter(([path]) => dirname(path) === bindings && path !== store)
+      .map(([path, node]) => [path, node.content, node.mode]);
+
+  it("keeps its records root-only inside bindings, a name no binding key takes", async () => {
+    await platform();
+    expect(await fs.lstat(store)).toEqual({
+      uid: ROOT,
+      gid: ROOT,
+      mode: 0o700,
+      kind: "directory",
+    });
+    const key = /^(agt_[a-z0-9]+|opaque-[A-Za-z0-9_-]{43})$/;
+    expect(key.test(".bindings")).toBe(false);
+    for (const handle of [".bindings", "bindings", "agt_x/../.bindings"])
+      expect(storageKey(handle)).not.toBe(".bindings");
+  });
+
+  it("imports a session an older build bound on first read, changing none of its files", async () => {
+    write("agt_owner", MANAGED_BINDING);
+    write("agt_owner.repository", "{}");
+    write("agt_owner.selected-cwd", "/srv/elsewhere");
+    const { bindings: made } = await platform();
+    const before = legacy();
+    fs.log = [];
+    const first = await made.get("agt_owner");
+    expect(fs.log).toEqual([`write ${store}/${recordName("agt_owner")}`]);
+    expect(first).toMatchObject({
+      currentPath: "/srv/elsewhere",
+      checkout: { ownership: "owned" },
+    });
+    expect(first).not.toHaveProperty("legacy");
+    const record = JSON.parse(
+      (await fs.read(`${store}/${recordName("agt_owner")}`))!
+    );
+    expect(record).toMatchObject({
+      session: "agt_owner",
+      currentPath: "/srv/elsewhere",
+      legacy: expect.any(String),
+    });
+    expect(await fs.lstat(`${store}/${recordName("agt_owner")}`)).toEqual({
+      uid: ROOT,
+      gid: ROOT,
+      mode: 0o600,
+      kind: "file",
+    });
+    // Once: a second read is the record, and no file changes.
+    fs.log = [];
+    expect(await made.get("agt_owner")).toEqual(first);
+    expect(fs.log).toEqual([]);
+    expect(legacy()).toEqual(before);
+  });
+
+  it("a crash between today's files and the record reads as the files say", async () => {
+    const { bindings: made, paths } = await platform();
+    const where = `${STATE}/sessions/agt_new/checkout`;
+    fs.dir(`${paths.receipts}/agt_new`, ROOT, ROOT, 0o700);
+    fs.file(
+      `${paths.receipts}/agt_new/workspace-preparation`,
+      JSON.stringify({
+        worktree: {
+          path: where,
+          branch: "feature",
+          base: "main",
+          identity: "1:2:3",
+          complete: true,
+        },
+      })
+    );
+    const writePrivate = fs.writePrivate.bind(fs);
+    fs.writePrivate = async (dir, file, contents) => {
+      if (dir === store) throw new Error("crash");
+      return writePrivate(dir, file, contents);
+    };
+    await expect(
+      made.bindPrepared({
+        session: "agt_new",
+        path: where,
+        currentPath: null,
+        worktree: { path: where, branch: "feature", base: "main" },
+      })
+    ).rejects.toThrow("crash");
+    fs.writePrivate = writePrivate;
+    // Restarted: the files an older build reads are the session.
+    const { bindings: again } = await platform();
+    expect(await again.get("agt_new")).toMatchObject({
+      path: where,
+      checkout: { ownership: "owned", branch: "feature" },
+    });
+  });
+
+  it("removes its record when the files no longer bind the session", async () => {
+    write("agt_owner", MANAGED_BINDING);
+    write("agt_owner.repository", "{}");
+    const { bindings: made } = await platform();
+    await made.get("agt_owner");
+    fs.nodes.delete(`${bindings}/agt_owner`);
+    expect(await made.get("agt_owner")).toBeNull();
+    expect(await fs.read(`${store}/${recordName("agt_owner")}`)).toBeNull();
+  });
+
+  it("refuses a link swapped in for its records, touching nothing", async () => {
+    const { bindings: made } = await platform();
+    fs.nodes.delete(store);
+    fs.dir("/tmp", ids.uid, ids.gid, 0o777);
+    fs.link(store, "/tmp");
+    write("agt_owner", MANAGED_BINDING);
+    write("agt_owner.repository", "{}");
+    fs.log = [];
+    await expect(made.get("agt_owner")).rejects.toMatchObject({
+      code: "forbidden",
+    });
+    expect(fs.log).toEqual([]);
+    await expect(platform()).rejects.toMatchObject({ code: "forbidden" });
+  });
+
+  it("refuses a record directory the workload owns, or a bindings it can enter", async () => {
+    const { bindings: made } = await platform();
+    write("agt_owner", MANAGED_BINDING);
+    write("agt_owner.repository", "{}");
+    fs.nodes.get(store)!.uid = ids.uid;
+    fs.log = [];
+    await expect(made.get("agt_owner")).rejects.toMatchObject({
+      code: "forbidden",
+    });
+    fs.nodes.get(store)!.uid = ROOT;
+    fs.nodes.get(bindings)!.mode = 0o755;
+    await expect(made.get("agt_owner")).rejects.toMatchObject({
+      code: "forbidden",
+    });
+    expect(fs.log).toEqual([]);
   });
 });
 
@@ -721,6 +867,21 @@ describe("linux-privsep bindings across builds", () => {
           kind: "file",
         });
       }
+  });
+
+  it("keeps its records 0600 in a 0700 directory of the supervisor's", async () => {
+    await resume(await preparation(), owner);
+    const store = join(bindings, ".bindings");
+    expect(await nodeFs.lstat(store)).toMatchObject({
+      uid: real.supervisor,
+      mode: 0o700,
+      kind: "directory",
+    });
+    expect(await nodeFs.lstat(join(store, recordName(owner)))).toMatchObject({
+      uid: real.supervisor,
+      mode: 0o600,
+      kind: "file",
+    });
   });
 
   it("forgets exactly today's files", async () => {
