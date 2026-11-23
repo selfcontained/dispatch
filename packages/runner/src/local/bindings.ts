@@ -66,6 +66,8 @@ export type StoredBinding = {
   };
   /** How the runner came to hold it. */
   source: "import" | "prepare";
+  /** The session whose current folder this session borrowed. */
+  borrowedFrom?: string;
 };
 
 export type ImportCounts = { added: number; kept: number; invalid: number };
@@ -238,7 +240,10 @@ export class BindingStore {
    * Replaces an imported binding, never a prepared one, and returns the
    * binding the store holds afterwards.
    */
-  async bindPrepared(input: LauncherBinding): Promise<StoredBinding> {
+  async bindPrepared(
+    input: LauncherBinding,
+    borrowedFrom?: string
+  ): Promise<StoredBinding> {
     await mkdir(this.dir, { recursive: true, mode: 0o700 });
     const target = join(this.dir, fileName(input.session));
     const held = await this.get(input.session);
@@ -246,6 +251,7 @@ export class BindingStore {
     const stored: StoredBinding = {
       ...(await decideBinding(input)),
       source: "prepare",
+      ...(borrowedFrom !== undefined && { borrowedFrom }),
     };
     const temp = join(this.dir, `.${randomUUID()}.tmp`);
     await writeFile(temp, JSON.stringify(stored) + "\n", { mode: 0o600 });
@@ -263,6 +269,17 @@ export class BindingStore {
       await rm(temp, { force: true });
     }
     return stored;
+  }
+
+  borrow(
+    session: string,
+    parent: string,
+    path: string
+  ): Promise<StoredBinding> {
+    return this.bindPrepared(
+      { session, path, currentPath: null, worktree: null },
+      parent
+    );
   }
 
   /**

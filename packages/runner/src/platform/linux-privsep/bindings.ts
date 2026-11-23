@@ -11,6 +11,7 @@
  *   bindings/<key>.cwd            a configured workspace's directory
  *   bindings/<key>.selected-cwd   the folder the session moved into ("" none)
  *   bindings/<key>.borrowed-cwd   where a borrower started
+ *   bindings/<key>.borrowed-from which session supplied that folder
  *   bindings/<key>.checkout-plan  an older build's unfinished preparation
  *
  * A session with a `.repository` or a plan and no core receipt was prepared
@@ -30,7 +31,7 @@ const KEY = /^(agt_[a-z0-9]+|opaque-[A-Za-z0-9_-]{43})$/;
 
 export class PrivsepBindings implements Pick<
   BindingStore,
-  "get" | "origin" | "bindPrepared" | "select" | "forget"
+  "get" | "origin" | "bindPrepared" | "borrow" | "select" | "forget"
 > {
   private readonly origins = new Map<string, Promise<string | null>>();
 
@@ -96,6 +97,8 @@ export class PrivsepBindings implements Pick<
     } else launch = await this.optional(key, ".cwd");
     if (launch === null) return null;
     const borrowed = await this.optional(key, ".borrowed-cwd");
+    const borrowedFrom =
+      borrowed && (await this.optional(key, ".borrowed-from"));
     const worktree = (await this.receipt(session))?.worktree;
     return {
       version: 1,
@@ -109,6 +112,7 @@ export class PrivsepBindings implements Pick<
         base: worktree?.path === launch ? worktree.base : null,
       },
       source: "prepare",
+      ...(borrowedFrom && { borrowedFrom }),
     };
   }
 
@@ -163,6 +167,48 @@ export class PrivsepBindings implements Pick<
     return bound;
   }
 
+  async borrow(
+    session: string,
+    parent: string,
+    path: string
+  ): Promise<StoredBinding> {
+    const key = storageKey(session);
+    const parentKey = storageKey(parent);
+    const binding = await this.optional(parentKey);
+    const prefix = MANAGED_BINDING + ":";
+    const owner =
+      binding === MANAGED_BINDING
+        ? parentKey
+        : binding?.startsWith(prefix)
+          ? binding.slice(prefix.length)
+          : null;
+    if (
+      !owner ||
+      !KEY.test(owner) ||
+      owner === key ||
+      !(await this.managedLaunch(owner))
+    )
+      throw new RunnerCallError({
+        code: "not_found",
+        message: "The author does not own a checkout on this runner.",
+      });
+    await this.fs.writePrivate(
+      this.paths.bindings,
+      `${key}.borrowed-cwd`,
+      path
+    );
+    await this.fs.writePrivate(
+      this.paths.bindings,
+      `${key}.borrowed-from`,
+      parent
+    );
+    await this.fs.writePrivate(this.paths.bindings, key, prefix + owner);
+    const borrowed = await this.get(session);
+    if (!borrowed)
+      throw new Error("The runner session binding is unavailable.");
+    return borrowed;
+  }
+
   async forget(session: string): Promise<void> {
     const key = storageKey(session);
     for (const suffix of [
@@ -172,6 +218,7 @@ export class PrivsepBindings implements Pick<
       ".cwd",
       ".selected-cwd",
       ".borrowed-cwd",
+      ".borrowed-from",
       ".launch",
       "",
     ])

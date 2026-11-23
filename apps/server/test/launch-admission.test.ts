@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { AgentManager } from "../src/agents/manager.js";
+import { checkoutReadPlacement } from "../src/runners/placement.js";
 
 type Launch = Parameters<AgentManager["createAgent"]>[0];
 type Options = NonNullable<Parameters<AgentManager["createAgent"]>[1]>;
@@ -12,8 +13,6 @@ const ownerId = "owner";
 const projectId = "project";
 const templateId = "template";
 
-const standalone =
-  "Runner launches require a standalone agent and runner-managed storage.";
 const shared = "Invalid shared checkout binding.";
 const childBinding = "Invalid child checkout binding.";
 
@@ -53,18 +52,17 @@ const callers: {
   {
     caller: "task with template",
     input: { templateId, projectId },
-    options: { caller: "task" },
     expected: [null, null, null, shared],
   },
   {
     caller: "job",
     input: { jobRunId: "run" },
-    expected: [null, null, standalone, shared],
+    expected: [null, null, null, shared],
   },
   {
     caller: "template",
     input: { templateId },
-    expected: [null, null, standalone, shared],
+    expected: [null, null, null, shared],
   },
   {
     caller: "persona review",
@@ -75,7 +73,7 @@ const callers: {
       launchedByAgentId: ownerId,
       useWorktree: false,
     },
-    expected: [null, standalone, standalone, null],
+    expected: [null, null, null, null],
   },
 ];
 
@@ -98,10 +96,11 @@ async function checkAdmission(
   const owner = {
     id: ownerId,
     cwd: flags.ownerCwd ?? input.cwd,
+    placement: checkoutReadPlacement(flags.ownerCwd ?? input.cwd),
     projectId: null,
     fullAccess: false,
   };
-  const manager = {
+  const manager = Object.assign(Object.create(AgentManager.prototype), {
     getAgent: vi.fn(async (id) => (id === owner.id ? owner : null)),
     remote: {
       available: () => flags.available ?? true,
@@ -111,11 +110,18 @@ async function checkAdmission(
       supportsSharedWorktree: () => flags.sharedWorktree ?? true,
     },
     config: { agentRuntime: "acp" },
-    pool: { query: stop },
+    pool: {
+      query: vi.fn(async (sql: string) => ({
+        rows: sql.includes("FROM templates")
+          ? [{ project_id: null }]
+          : sql.includes("WHERE id=$1")
+            ? [{ repo_root: folder, repository: "https://example.test/repo" }]
+            : [],
+      })),
+    },
     localRunner: { resolveLaunchDirectory: stop },
-    prepareCreateInputs: stop,
-    runnerCheckout: stop,
-  } as unknown as AgentManager;
+    prepareCreate: stop,
+  }) as AgentManager;
   try {
     await AgentManager.prototype.createAgent.call(manager, input, options);
   } catch (error) {
@@ -152,14 +158,10 @@ describe("launch admission compatibility", () => {
   it("admits a standalone task persona on a managed runner", async () => {
     const input = { cwd: managed, persona: "task-persona" };
     expect(await checkAdmission({ ...input, projectId })).toBeNull();
-    expect(await checkAdmission(input)).toBe(
-      'Persona "task-persona" not found.'
-    );
+    expect(await checkAdmission(input)).toBeNull();
   });
 
   it.each([
-    { cwd: configured, input: { projectId }, expected: standalone },
-    { cwd: configured, input: { useWorktree: true }, expected: standalone },
     {
       cwd: configured,
       input: { repository: {} },

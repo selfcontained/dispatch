@@ -7,18 +7,6 @@ import {
 } from "./remote/repository.js";
 import type { AgentRecord, AgentRole } from "./types.js";
 
-type LaunchCaller =
-  | "createAgent"
-  | "mcpChild"
-  | "mcpIndependent"
-  | "task"
-  | "job"
-  | "template"
-  | "review";
-
-type Workspace = "folder" | "managedRepository" | "configuredWorkspace";
-type LaunchTarget = Workspace | { borrowed: Workspace };
-
 type Capabilities = {
   available: boolean;
   sessionFiles: boolean;
@@ -40,7 +28,7 @@ type BindingIntent = {
 type ApiRequest = {
   phase: "api";
   caller: "createAgent" | "task";
-  target: Workspace;
+  projectTarget: boolean;
   cwd: unknown;
   projectId?: string;
   taskProjectId?: string;
@@ -74,16 +62,13 @@ type SharedRequest = {
 
 type ManagerRequest = {
   phase: "manager";
-  caller: LaunchCaller;
-  target: LaunchTarget;
+  remote: boolean;
+  borrowed: boolean;
   /** Runner values come from enrollment and the peer's ready flags. */
   capabilities: Capabilities;
   input: BindingIntent & {
-    templateId?: string;
     initialFiles?: readonly unknown[];
   };
-  hasIndependentBinding: boolean;
-  hasPersonaBody: boolean;
 };
 
 const reasons = {
@@ -98,8 +83,6 @@ const reasons = {
   childBinding: "Invalid child checkout binding.",
   invalidRepository: "Invalid runner repository.",
   runnerUnavailable: "The enrolled runner workspace is unavailable.",
-  runnerStorage:
-    "Runner launches require a standalone agent and runner-managed storage.",
   sessionFiles: "Update the runner to launch with startup files.",
   sharedWorktree:
     "Update the runner to launch an agent in an existing checkout.",
@@ -157,12 +140,13 @@ export function admitLaunch(
   | ManagerAdmission {
   switch (request.phase) {
     case "api": {
-      const managed = request.target === "managedRepository";
+      const { projectTarget } = request;
       let { projectId } = request;
       const { cwd, taskProjectId } = request;
-      if (request.caller === "task" && !projectId && (managed || !cwd))
+      if (request.caller === "task" && !projectId && (projectTarget || !cwd))
         projectId = taskProjectId;
-      if (projectId && cwd && !managed) return reject("projectAndLocation");
+      if (projectId && cwd && !projectTarget)
+        return reject("projectAndLocation");
       if (!projectId && typeof cwd !== "string")
         return reject("missingLocation");
       return { ok: true, projectId };
@@ -242,16 +226,8 @@ export function admitLaunch(
       return { ok: true, owner, parentId: input.parentAgentId };
     }
     case "manager": {
-      const {
-        target,
-        input,
-        capabilities,
-        hasIndependentBinding,
-        hasPersonaBody,
-      } = request;
-      const borrowed = typeof target === "object";
-      const workspace = borrowed ? target.borrowed : target;
-      const managed = workspace === "managedRepository";
+      const { remote, borrowed, input, capabilities } = request;
+      if (!remote) return { ok: true, useWorktree: input.useWorktree };
       let repository: RepositoryTarget | undefined;
       if (input.repository !== undefined) {
         try {
@@ -260,25 +236,7 @@ export function admitLaunch(
           return reject("invalidRepository", 400, errorMessage(error));
         }
       }
-      if (workspace === "folder")
-        return { ok: true, useWorktree: input.useWorktree };
       if (!capabilities.available) return reject("runnerUnavailable", 409);
-      if (
-        (!borrowed && !hasIndependentBinding && input.parentAgentId) ||
-        // A project template selects an existing configured workspace;
-        // the manager verifies project membership after admission.
-        (!managed &&
-          (request.caller === "job" ||
-            input.useWorktree ||
-            Boolean(input.projectId) !== Boolean(input.templateId))) ||
-        (input.persona &&
-          !(managed && input.role !== "review") &&
-          !borrowed &&
-          !hasPersonaBody &&
-          !input.templateId &&
-          request.caller !== "job")
-      )
-        return reject("runnerStorage");
       if (input.initialFiles?.length && !capabilities.sessionFiles)
         return reject("sessionFiles", 409);
       if (borrowed && !capabilities.sharedWorktree)

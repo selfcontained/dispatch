@@ -269,7 +269,7 @@ it("defaults a native Create Agent request to main even when the Git default is 
         throw prepared;
       }
     );
-    const manager = {
+    const manager = Object.assign(Object.create(AgentManager.prototype), {
       config: { agentRuntime: "acp" },
       pool: { query: vi.fn().mockResolvedValue({ rows: [] }) },
       localRunner: {
@@ -280,7 +280,7 @@ it("defaults a native Create Agent request to main even when the Git default is 
         }),
       },
       prepareCreateInputs,
-    } as unknown as AgentManager;
+    }) as AgentManager;
     await expect(
       AgentManager.prototype.createAgent.call(manager, { cwd })
     ).rejects.toBe(prepared);

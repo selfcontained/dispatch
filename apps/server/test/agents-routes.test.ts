@@ -837,6 +837,11 @@ it("uses a task's default project and accepts explicit project choices on a runn
     repoRoot: "/tmp",
     color: "#123456",
   });
+  const other = await projects.create({
+    name: "Explicit launch project",
+    repoRoot: "/var/tmp",
+    color: "#123456",
+  });
   try {
     const created = await authedInject("POST", "/api/v1/tasks", {
       projectId: project.id,
@@ -847,7 +852,7 @@ it("uses a task's default project and accepts explicit project choices on a runn
       taskId: created.json().id,
       cwd: "runner://offline/@session",
     };
-    for (const projectId of [undefined, project.id, "other"]) {
+    for (const projectId of [undefined, project.id, other.id]) {
       const response = await authedInject("POST", "/api/v1/agents", {
         ...base,
         projectId,
@@ -858,6 +863,7 @@ it("uses a task's default project and accepts explicit project choices on a runn
       );
     }
   } finally {
+    await projects.delete(other.id);
     await projects.delete(project.id);
   }
 });

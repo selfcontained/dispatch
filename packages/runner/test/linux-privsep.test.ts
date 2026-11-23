@@ -520,4 +520,28 @@ describe("linux-privsep bindings over the supervisor's files", () => {
       },
     ]);
   });
+
+  it("binds the immediate parent's current folder to its existing checkout owner", async () => {
+    write("agt_owner", MANAGED_BINDING);
+    write("agt_owner.repository", "{}");
+    write("agt_parent", `${MANAGED_BINDING}:agt_owner`);
+    write("agt_parent.borrowed-cwd", "/srv/original");
+    write("agt_parent.selected-cwd", "/srv/current");
+    const { bindings: store } = await platform();
+    const current = (await store.get("agt_parent"))!.currentPath!;
+    expect(
+      await store.borrow("agt_child", "agt_parent", current)
+    ).toMatchObject({
+      path: "/srv/current",
+      borrowedFrom: "agt_parent",
+      checkout: {
+        path: `${STATE}/sessions/agt_owner/checkout`,
+        ownership: "external",
+      },
+    });
+    expect(await fs.read(`${bindings}/agt_child`)).toBe(
+      `${MANAGED_BINDING}:agt_owner`
+    );
+    expect(await fs.read(`${bindings}/agt_child.repository`)).toBeNull();
+  });
 });

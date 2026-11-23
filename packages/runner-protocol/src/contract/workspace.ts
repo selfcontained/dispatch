@@ -41,7 +41,7 @@ export const repositoryCheckout = union(
 export const workspaceSource = union(
   object({ directory: runnerPath }),
   object({ repository: string, checkout: repositoryCheckout }),
-  /** Borrow another session's checkout. */
+  /** Borrow or make an independent worktree from another session's current folder. */
   object({ session: sessionHandle }),
   object({ scratch: literal(true) })
 );

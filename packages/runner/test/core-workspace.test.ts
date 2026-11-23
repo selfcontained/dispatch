@@ -478,6 +478,47 @@ describe("workspace.prepare from a directory", () => {
   });
 });
 
+describe("workspace.prepare from another session", () => {
+  it("uses the parent's current folder, retaining both bindings on retry", async () => {
+    const { root, connection, store } = await harness();
+    const checkout = repository(root);
+    const elsewhere = join(root, "elsewhere");
+    mkdirSync(elsewhere);
+    const current = repository(elsewhere);
+    await connection.call("workspace.prepare", request("parent", checkout));
+    await store.select("parent", current);
+    const source = { session: sessionFromWire("parent") };
+    const borrower = { ...request("borrower", checkout), source };
+    const independent = {
+      ...request("independent", checkout, {
+        name: "independent",
+        branch: "independent",
+        base: "main",
+        create: true,
+      }),
+      source,
+    };
+    expect(await connection.call("workspace.prepare", borrower)).toMatchObject({
+      path: current,
+      worktree: null,
+    });
+    const prepared = await connection.call("workspace.prepare", independent);
+    expect(prepared.worktree).toMatchObject({ branch: "independent" });
+    expect(git(current, "branch", "--list", "independent")).toBe(
+      "+ independent"
+    );
+    expect(git(checkout, "branch", "--list", "independent")).toBe("");
+
+    await store.select("parent", null);
+    expect(await connection.call("workspace.prepare", borrower)).toMatchObject({
+      path: current,
+    });
+    expect(await connection.call("workspace.prepare", independent)).toEqual(
+      prepared
+    );
+  });
+});
+
 describe("workspace.select", () => {
   const select = (session: string, path: string | null) => ({
     session: sessionFromWire(session),

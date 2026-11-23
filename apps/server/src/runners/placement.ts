@@ -64,3 +64,8 @@ export function legacySessionLocation(agent: {
     ? { runner, workspace: locator.workspace }
     : null;
 }
+
+/** A legacy locator identifies the runner transport, never a user folder. */
+export function launchSessionLocation(cwd: string, placement: Placement) {
+  return legacySessionLocation({ cwd, placement }) ?? null;
+}

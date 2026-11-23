@@ -180,6 +180,8 @@ export type ReadyFrame = {
   workspacePrepare?: true;
   /** A launch starts directly from a workspace preparation receipt. */
   preparedLaunch?: true;
+  /** Workspace preparation can use another session's current folder. */
+  sessionWorkspaceSource?: true;
   gitQueries?: true;
   workspaceRelease?: true;
   sessionCheckout?: true;
@@ -221,6 +223,9 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     version: RUNNER_WIRE_VERSION,
     workspaces: frame.workspaces,
     ...(frame.preparedLaunch === true && { preparedLaunch: true }),
+    ...(frame.sessionWorkspaceSource === true && {
+      sessionWorkspaceSource: true,
+    }),
     ...(frame.gitQueries === true && { gitQueries: true }),
     ...(frame.workspacePrepare === true && { workspacePrepare: true }),
     ...(frame.workspaceRelease === true && { workspaceRelease: true }),

@@ -15,6 +15,7 @@ import {
   enrolledRunnerId,
   isOnEnrolledRunner,
   legacySessionLocation,
+  launchSessionLocation,
   placementForRunner,
   placementFromRow,
   runnerIdForPlacement,
@@ -138,6 +139,7 @@ import {
   pullRequestTarget,
   toLocalWorktreeRequest,
   toRunnerCheckout,
+  type PullRequestTarget,
   type ResolvedCheckout,
 } from "./checkout-intent.js";
 import { RemoteEventInbox } from "./remote/event-inbox.js";
@@ -278,14 +280,19 @@ type CreateAgentInput = {
   repository?: unknown;
 };
 
-function callerForLaunch(input: CreateAgentInput, taskCaller?: "task") {
-  if (input.jobRunId) return "job";
-  if (taskCaller) return taskCaller;
-  if (input.role === "review") return "review";
-  if (input.launchedByAgentId)
-    return input.parentAgentId ? "mcpChild" : "mcpIndependent";
-  return input.templateId ? "template" : "createAgent";
-}
+type CreateAgentOptions = {
+  detachLaunch?: boolean;
+  /** Trusted shared-checkout launch, never accepted from an HTTP payload. */
+  useWorktreeOf?: string;
+  /** Trusted MCP launch with its own checkout on the caller's runner. */
+  independentCheckoutOf?: string;
+  taskPersonaBody?: string;
+  /** Commit owner state before the engine can discover tools or run a turn. */
+  beforeLaunch?: (agentId: string) => Promise<void>;
+};
+
+type WorkspacePreparation = Omit<Req<"workspace.prepare">, "session">;
+type RecordedPreparation = WorkspacePreparation & { pending?: true };
 
 type StopAgentInput = {
   force?: boolean;
@@ -1420,9 +1427,11 @@ export class AgentManager {
       workspacePath: string | null;
       worktreePath: string | null;
       gitContext: AgentRecord["gitContext"];
+      preparationPending: boolean | null;
     }>(
       `SELECT id, cwd, workspace_path AS "workspacePath",
-              worktree_path AS "worktreePath", git_context AS "gitContext" FROM agents
+              worktree_path AS "worktreePath", git_context AS "gitContext",
+              (status = 'creating' AND runner_preparation->'pending' = 'true'::jsonb) AS "preparationPending" FROM agents
         WHERE status IN ('running', 'creating') AND deleted_at IS NULL
         ORDER BY created_at`
     );
@@ -1439,8 +1448,11 @@ export class AgentManager {
       let attachedToHost: boolean;
       let alive: boolean;
       try {
-        attachedToHost = await this.runtime.attach(row.id);
-        alive = attachedToHost || (await this.runtime.isAlive(row.id));
+        attachedToHost =
+          !row.preparationPending && (await this.runtime.attach(row.id));
+        alive =
+          !row.preparationPending &&
+          (attachedToHost || (await this.runtime.isAlive(row.id)));
       } catch (err) {
         this.logger.warn(
           { err, agentId: row.id },
@@ -1983,395 +1995,23 @@ export class AgentManager {
    */
   async createAgent(
     input: CreateAgentInput,
-    options: {
-      detachLaunch?: boolean;
-      /** Trusted origin for task launches through the API or templates. */
-      caller?: "task";
-      /** Trusted shared-checkout launch, never accepted from an HTTP launch payload. */
-      useWorktreeOf?: string;
-      /** Trusted MCP launch with its own checkout on the caller's runner. */
-      independentCheckoutOf?: string;
-      taskPersonaBody?: string;
-      /** Commit owner state before the engine can discover tools or run a turn. */
-      beforeLaunch?: (agentId: string) => Promise<void>;
-    } = {}
+    options: CreateAgentOptions = {}
   ): Promise<AgentRecord> {
     input = { ...input };
-    const { useWorktreeOf, independentCheckoutOf } = options;
-    const independentSource = independentCheckoutOf
-      ? await this.getAgent(independentCheckoutOf)
-      : null;
-    const hasPersonaBody = Boolean(options.taskPersonaBody);
-    if (independentCheckoutOf) {
-      const decision = admitLaunch({
-        phase: "independentBinding",
-        input,
-        owner: independentSource,
-        hasPersonaBody,
-        borrowsCheckout: Boolean(useWorktreeOf),
-      });
-      if (!decision.ok)
-        throw new AgentError(decision.message, decision.statusCode);
-    }
-    if (independentSource) input.projectId = independentSource.projectId;
-    if (useWorktreeOf !== undefined) {
-      const candidate = await this.getAgent(useWorktreeOf);
-      const ownerWorkdir = candidate ? reviewerWorkspace(candidate) : undefined;
-      const decision = admitLaunch({
-        phase: "sharedBinding",
-        input,
-        owner: candidate,
-        ownerWorkdir,
-        hasPersonaBody,
-      });
-      if (!decision.ok)
-        throw new AgentError(decision.message, decision.statusCode);
-      const { owner, parentId } = decision;
-      const displayParent =
-        parentId === undefined || parentId === owner.id
-          ? owner
-          : await this.getAgent(parentId);
-      if (!displayParent || displayParent.projectId !== owner.projectId)
-        throw new AgentError(
-          "Display parent must belong to the requester's project.",
-          400
-        );
-      input.cwd = reviewerWorkspace(owner);
-      input.useWorktree = false;
-      input.projectId = owner.projectId;
-    }
-    const locator = remotePlacement(input.cwd);
-    const target =
-      independentSource?.placement ?? checkoutReadPlacement(input.cwd);
-    const placement = sameRunner(target, controllerPlacement) ? null : locator;
-    const runner = placement ? runnerIdForPlacement(target) : undefined;
-    // A runner held for an update may be between supervisors. Admit with
-    // what it last advertised: the launch is held, and checked against the
-    // reconnected runner when it is released. Without a hold, an offline
-    // runner refuses as before.
-    const heldOffline =
-      placement &&
-      this.holds?.isHeld(runner) &&
-      !this.remote?.available(placement)
-        ? this.remote?.lastSeenCapabilities(placement)
-        : undefined;
-    const managed = placement
-      ? heldOffline
-        ? heldOffline.managedWorkspace
-        : (this.remote?.isManagedWorkspace(placement) ?? false)
-      : false;
-    const preparesWorkspace = Boolean(
-      managed &&
-      placement &&
-      (heldOffline?.preparedLaunch ??
-        this.remote?.supportsPreparedLaunch?.(placement))
-    );
-    const projectCheckout =
-      preparesWorkspace && !useWorktreeOf && !independentSource;
-    const workspace = !placement
-      ? "folder"
-      : managed
-        ? "managedRepository"
-        : "configuredWorkspace";
-    const remoteService = this.remote;
-    const runtime = this.config.agentRuntime;
-    const admission = admitLaunch({
-      phase: "manager",
-      caller: callerForLaunch(input, options.caller),
-      target: useWorktreeOf ? { borrowed: workspace } : workspace,
-      input: projectCheckout
-        ? {
-            ...input,
-            repository:
-              input.repository &&
-              typeof input.repository === "object" &&
-              "checkout" in input.repository
-                ? { checkout: input.repository.checkout }
-                : {},
-          }
-        : input,
-      hasIndependentBinding: Boolean(independentSource),
-      hasPersonaBody,
-      capabilities: {
-        get available() {
-          return (
-            !placement ||
-            ((remoteService?.available(placement) === true ||
-              heldOffline !== undefined) &&
-              runtime === "acp")
-          );
-        },
-        get sessionFiles() {
-          return (
-            !placement ||
-            (heldOffline
-              ? heldOffline.sessionFiles
-              : remoteService?.supportsSessionFiles(placement) === true)
-          );
-        },
-        get sharedWorktree() {
-          return (
-            !placement ||
-            (heldOffline
-              ? heldOffline.sharedWorktree
-              : remoteService?.supportsSharedWorktree(placement) === true)
-          );
-        },
-      },
-    });
-    if (!admission.ok)
-      throw new AgentError(admission.message, admission.statusCode);
-    const { repository } = admission;
-    if (placement) {
-      input.useWorktree =
-        projectCheckout && !repository?.checkout
-          ? (input.useWorktree ?? admission.useWorktree)
-          : admission.useWorktree;
-    }
-    let projectRoot: string | undefined;
-    let projectRepository: string | null = null;
-    if (input.templateId) {
-      const template = (
-        await this.pool.query("SELECT project_id FROM templates WHERE id=$1", [
-          input.templateId,
-        ])
-      ).rows[0];
-      if (!template) throw new AgentError("Template not found.", 404);
-      if (!input.parentAgentId) {
-        // A projectless template may launch into a project; a project's
-        // template only into its own.
-        if (
-          template.project_id !== null &&
-          input.projectId !== undefined &&
-          input.projectId !== template.project_id
-        )
-          throw new AgentError("Template and project must match.", 400);
-        input.projectId = template.project_id ?? input.projectId ?? null;
-      }
-    }
-    if (input.parentAgentId) {
-      input.projectId =
-        (await this.getAgent(input.parentAgentId))?.projectId ?? null;
-    }
-    if (input.projectId) {
-      const project = (
-        await this.pool.query<{
-          repo_root: string | null;
-          repository: string | null;
-        }>("SELECT repo_root, repository FROM projects WHERE id=$1", [
-          input.projectId,
-        ])
-      ).rows[0];
-      if (!project) throw new AgentError("Project not found.", 404);
-      projectRoot = project.repo_root ?? undefined;
-      projectRepository = project.repository;
-      if (repository && !repository.url && projectRepository)
-        repository.url = projectRepository;
-
-      // A direct project launch starts at the project root. Children keep
-      // the folder selected by the parent launch.
-      if (!placement && !input.parentAgentId && projectRoot) {
-        input.cwd = projectRoot;
-      }
-    }
-    const directory = placement
-      ? null
-      : await this.localRunner.resolveLaunchDirectory(input.cwd);
-    // A project selected explicitly can represent a folder without Git.
-    if (
-      directory?.git.status === "ok" &&
-      directory.git.value === null &&
-      input.projectId &&
-      !input.parentAgentId &&
-      input.useWorktree === undefined
-    )
-      input.useWorktree = false;
-    // Resolve only new, unscoped launches. Membership inherited from a parent
-    // (including no project) and explicit/template selections remain authoritative.
-    if (directory && !input.projectId && !input.parentAgentId) {
-      const projects = (
-        await this.pool.query(
-          'SELECT id, name, repo_root AS "repoRoot", extra_roots AS "extraRoots" FROM projects'
-        )
-      ).rows;
-      const matches = await matchProjectIdentity(
-        directory.canonicalPath,
-        projects.length
-          ? await this.localRunner.resolveProjectRoot(directory.canonicalPath)
-          : directory.canonicalPath,
-        projects,
-        (candidate) => this.localRunner.canonicalPath(candidate)
-      );
-      if (matches.length > 1)
-        throw new AgentError(
-          `Multiple projects match this directory. Choose a project: ${matches.map((p) => `${p.name} (${p.id})`).join(", ")}.`,
-          409
-        );
-      // Do not replace cwd with the primary checkout: it may be a worktree
-      // or a deliberately selected subdirectory.
-      if (matches.length === 1) input.projectId = matches[0]!.id;
-    }
-    if (projectCheckout && !projectRepository)
-      throw new AgentError(
-        input.projectId
-          ? "The project has no linked repository."
-          : "Choose a project to launch on this runner.",
-        400
-      );
-    if (repository && !repository.url && !independentSource)
-      throw new AgentError(
-        "Enter a repository URL or select a project with a repository origin.",
-        400
-      );
-    const taskPersona = Boolean(input.persona && input.role !== "review");
-    const sourceCheckout =
-      independentSource && input.useWorktree
-        ? await this.runnerCheckout(independentSource, { kind: "describe" })
-        : undefined;
-    const derivedRepositoryUrl =
-      placement && input.useWorktree
-        ? sourceCheckout
-          ? preparesWorkspace
-            ? undefined
-            : (sourceCheckout.origin ?? undefined)
-          : (repository?.url ?? projectRepository ?? undefined)
-        : undefined;
-    if (sourceCheckout && !preparesWorkspace && !derivedRepositoryUrl)
-      throw new AgentError(
-        "The runner could not resolve the checkout repository.",
-        400
-      );
-    const taskPersonaBody = async () =>
-      options.taskPersonaBody ??
-      (
-        await resolvePersona(
-          personaScopeFor({
-            cwd: input.cwd,
-            projectRoot,
-            source: input.personaSource,
-          }),
-          input.persona!,
-          "task"
-        )
-      ).body;
-    if (taskPersona && !options.detachLaunch) {
-      const body = await taskPersonaBody();
-      input = {
-        ...input,
-        agentArgs: [...(input.agentArgs ?? []), PERSONA_CONTEXT_ARG, body],
-      };
-    }
-    let runnerRepository =
-      repository?.url && repository.checkout
-        ? { url: repository.url, checkout: repository.checkout }
-        : null;
-    const localGit =
-      directory && directory.git.status === "ok" && directory.git.value
-        ? directory.canonicalPath
-        : null;
-    const remote = this.remote;
-    // One PR lookup, two executors: the runner's GitHub operation or local gh.
-    const p = await this.prepareCreateInputs(
-      input,
-      directory?.cwd ?? input.cwd,
-      placement
-        ? derivedRepositoryUrl && remote
-          ? {
-              ...(!projectCheckout && {
-                defaultBranch: () =>
-                  runnerDefaultBranch(derivedRepositoryUrl, (owner, repo) =>
-                    remote.listGitHubBranches(placement.runner, owner, repo)
-                  ),
-              }),
-              repository: async () => derivedRepositoryUrl,
-              pullRequestHead: ({ owner, repo, number }) =>
-                remote.lookupGitHubPullRequestHead(
-                  placement.runner,
-                  owner,
-                  repo,
-                  number
-                ),
-            }
-          : sourceCheckout && preparesWorkspace
-            ? { defaultBranch: async () => "main" }
-            : {}
-        : {
-            // Main records `main` even where there is no repository.
-            defaultBranch: async () => "main",
-            ...(localGit && {
-              repository: () =>
-                this.localRunner
-                  .inferRepositoryUrl(localGit)
-                  .catch(() => undefined),
-              pullRequestHead: (target) =>
-                getPullRequestHead({ cwd: localGit, ...target }),
-              // A local worktree checks out branches from its own origin.
-              forkPullRequests: false,
-            }),
-          }
-    );
-    if (derivedRepositoryUrl && p.checkout) {
-      runnerRepository = {
-        // A PR checks out from its head repository, which may be a fork.
-        url:
-          p.checkout.source === "pullRequest"
-            ? p.checkout.repository
-            : derivedRepositoryUrl,
-        checkout: toRunnerCheckout(p.checkout),
-      };
-      try {
-        parseRepository(runnerRepository);
-      } catch (error) {
-        throw new AgentError(errorMessage(error), 400);
-      }
-    }
-    let runnerPreparation: Omit<Req<"workspace.prepare">, "session"> | null =
-      null;
-    if (preparesWorkspace && !useWorktreeOf) {
-      if (sourceCheckout && p.checkout) {
-        runnerPreparation = {
-          source: { directory: pathFromWire(sourceCheckout.path) },
-          worktree: runnerWorktree(
-            toLocalWorktreeRequest(p.checkout, p.name, input.worktreeLocation)
-          ),
-          copyIgnored: [...WORKTREE_LOCAL_CONFIG_FILES],
-          installDependencies: true,
-        };
-      } else if (projectRepository && !independentSource) {
-        const checkout =
-          p.checkout?.source === "pullRequest"
-            ? {
-                kind: "pr" as const,
-                branch: p.checkout.branch,
-                number: pullRequestTarget(input.pullRequest!, projectRepository)
-                  .number,
-              }
-            : (runnerRepository?.checkout ?? { kind: "default" as const });
-        runnerRepository = { url: projectRepository, checkout };
-        runnerPreparation = {
-          source: { repository: projectRepository, checkout },
-          copyIgnored: [...WORKTREE_LOCAL_CONFIG_FILES],
-          installDependencies: true,
-        };
-      }
-    }
-    await mkdir(p.filesDir, { recursive: true });
-    // Restart can see the row before persona and workspace preparation run.
-    // Persist the native request first so restart never treats it as a direct launch.
-    const worktree =
-      directory && p.checkout
-        ? toLocalWorktreeRequest(p.checkout, p.name, input.worktreeLocation)
-        : null;
-    if (directory && worktree)
-      await this.localRunner.bindWorkspace(p.id, directory, worktree);
+    const target = await this.resolveCreateTarget(input, options);
+    const admission = this.admitCreateTarget(input, target);
+    const { p, prepared, taskPersona, taskPersonaBody } =
+      await this.prepareCreate(input, options, target, admission);
+    const { directory, worktree, repository, preparation, managed, owner } =
+      prepared;
     await this.insertAgentRecord(
       p,
       input,
-      runner === undefined ? controllerPlacement : placementForRunner(runner),
-      runnerRepository,
-      runnerPreparation,
+      target.placement,
+      repository,
+      preparation,
       managed,
-      placement ? useWorktreeOf : undefined
+      owner
     );
 
     const createdAgent = await this.getAgent(p.id);
@@ -2444,6 +2084,7 @@ export class AgentManager {
       originalCwd: p.originalCwd,
       directory,
       worktree,
+      preparation,
       initialPrompt: input.initialPrompt,
       initialFiles,
       resolveLaunchPost,
@@ -2610,18 +2251,461 @@ export class AgentManager {
     );
   }
 
+  private async resolveCreateTarget(
+    input: CreateAgentInput,
+    options: CreateAgentOptions
+  ) {
+    const { useWorktreeOf, independentCheckoutOf } = options;
+    const independentSource = independentCheckoutOf
+      ? await this.getAgent(independentCheckoutOf)
+      : null;
+    const hasPersonaBody = Boolean(options.taskPersonaBody);
+    if (independentCheckoutOf) {
+      const decision = admitLaunch({
+        phase: "independentBinding",
+        input,
+        owner: independentSource,
+        hasPersonaBody,
+        borrowsCheckout: Boolean(useWorktreeOf),
+      });
+      if (!decision.ok)
+        throw new AgentError(decision.message, decision.statusCode);
+    }
+    if (independentSource) input.projectId = independentSource.projectId;
+    let checkoutOwner: AgentRecord | null = independentSource;
+    if (useWorktreeOf !== undefined) {
+      const candidate = await this.getAgent(useWorktreeOf);
+      const ownerWorkdir = candidate ? reviewerWorkspace(candidate) : undefined;
+      const decision = admitLaunch({
+        phase: "sharedBinding",
+        input,
+        owner: candidate,
+        ownerWorkdir,
+        hasPersonaBody,
+      });
+      if (!decision.ok)
+        throw new AgentError(decision.message, decision.statusCode);
+      const { owner, parentId } = decision;
+      checkoutOwner = owner;
+      const displayParent =
+        parentId === undefined || parentId === owner.id
+          ? owner
+          : await this.getAgent(parentId);
+      if (!displayParent || displayParent.projectId !== owner.projectId)
+        throw new AgentError(
+          "Display parent must belong to the requester's project.",
+          400
+        );
+      input.cwd = reviewerWorkspace(owner);
+      input.useWorktree = false;
+      input.projectId = owner.projectId;
+    }
+    let projectRoot: string | undefined;
+    let projectRepository: string | null = null;
+    if (input.templateId) {
+      const template = (
+        await this.pool.query("SELECT project_id FROM templates WHERE id=$1", [
+          input.templateId,
+        ])
+      ).rows[0];
+      if (!template) throw new AgentError("Template not found.", 404);
+      if (!input.parentAgentId) {
+        // A projectless template may launch into a project; a project's
+        // template only into its own.
+        if (
+          template.project_id !== null &&
+          input.projectId !== undefined &&
+          input.projectId !== template.project_id
+        )
+          throw new AgentError("Template and project must match.", 400);
+        input.projectId = template.project_id ?? input.projectId ?? null;
+      }
+    }
+    const parent = input.parentAgentId
+      ? await this.getAgent(input.parentAgentId)
+      : null;
+    if (input.parentAgentId) input.projectId = parent?.projectId ?? null;
+    const placement =
+      checkoutOwner?.placement ?? checkoutReadPlacement(input.cwd);
+    let location = launchSessionLocation(input.cwd, placement);
+    if (location && parent && sameRunner(placement, parent.placement)) {
+      checkoutOwner ??= parent;
+      const parentLocation = launchSessionLocation(
+        checkoutOwner.cwd,
+        placement
+      );
+      if (parentLocation) {
+        location = parentLocation;
+        input.cwd = checkoutOwner.cwd;
+      }
+    }
+    if (input.projectId) {
+      const project = (
+        await this.pool.query<{
+          repo_root: string | null;
+          repository: string | null;
+        }>("SELECT repo_root, repository FROM projects WHERE id=$1", [
+          input.projectId,
+        ])
+      ).rows[0];
+      if (!project) throw new AgentError("Project not found.", 404);
+      projectRoot = project.repo_root ?? undefined;
+      projectRepository = project.repository;
+
+      // A direct project launch starts at the project root. Children keep
+      // the folder selected by the parent launch.
+      if (!location && !input.parentAgentId && projectRoot) {
+        input.cwd = projectRoot;
+      }
+    }
+    const unscoped = !input.projectId && !input.parentAgentId;
+    const directory = location
+      ? null
+      : unscoped
+        ? await this.localRunner.resolveLaunchDirectory(input.cwd)
+        : undefined;
+    // Membership inherited from a parent (including no project) and
+    // explicit/template selections remain authoritative.
+    if (directory) {
+      const projects = (
+        await this.pool.query(
+          'SELECT id, name, repo_root AS "repoRoot", extra_roots AS "extraRoots" FROM projects'
+        )
+      ).rows;
+      const matches = await matchProjectIdentity(
+        directory.canonicalPath,
+        projects.length
+          ? await this.localRunner.resolveProjectRoot(directory.canonicalPath)
+          : directory.canonicalPath,
+        projects,
+        (candidate) => this.localRunner.canonicalPath(candidate)
+      );
+      if (matches.length > 1)
+        throw new AgentError(
+          `Multiple projects match this directory. Choose a project: ${matches.map((p) => `${p.name} (${p.id})`).join(", ")}.`,
+          409
+        );
+      // Do not replace cwd with the primary checkout: it may be a worktree
+      // or a deliberately selected subdirectory.
+      if (matches.length === 1) input.projectId = matches[0]!.id;
+    }
+    return {
+      placement,
+      location,
+      directory,
+      projectRoot,
+      projectRepository,
+      checkoutOwner,
+    };
+  }
+
+  private admitCreateTarget(
+    input: CreateAgentInput,
+    {
+      placement,
+      location,
+      checkoutOwner,
+      projectRepository,
+    }: Awaited<ReturnType<AgentManager["resolveCreateTarget"]>>
+  ) {
+    const remote = this.remote;
+    const held =
+      location &&
+      this.holds?.isHeld(runnerIdForPlacement(placement)) &&
+      !remote?.available(location)
+        ? remote?.lastSeenCapabilities(location)
+        : undefined;
+    const managed = Boolean(
+      location &&
+      (held?.managedWorkspace ?? remote?.isManagedWorkspace(location))
+    );
+    const prepares = Boolean(
+      location &&
+      (held?.preparedLaunch ?? remote?.supportsPreparedLaunch?.(location))
+    );
+    const sessionSource = Boolean(
+      prepares &&
+      location &&
+      (held?.sessionWorkspaceSource ??
+        remote?.supportsSessionWorkspaceSource?.(location))
+    );
+    const projectSource = prepares && !checkoutOwner;
+    const borrowed = Boolean(
+      location && checkoutOwner && input.useWorktree === false
+    );
+    const admission = admitLaunch({
+      phase: "manager",
+      remote: location !== null,
+      borrowed: borrowed && !sessionSource,
+      input: checkoutOwner
+        ? { ...input, repository: undefined }
+        : projectSource
+          ? {
+              ...input,
+              repository:
+                input.repository &&
+                typeof input.repository === "object" &&
+                "checkout" in input.repository
+                  ? { checkout: input.repository.checkout }
+                  : {},
+            }
+          : input,
+      capabilities: {
+        available:
+          !location ||
+          ((remote?.available(location) === true || held !== undefined) &&
+            this.config.agentRuntime === "acp"),
+        sessionFiles:
+          !location ||
+          (held?.sessionFiles ??
+            remote?.supportsSessionFiles?.(location) === true),
+        sharedWorktree:
+          !location ||
+          (held?.sharedWorktree ??
+            remote?.supportsSharedWorktree?.(location) === true),
+      },
+    });
+    if (!admission.ok)
+      throw new AgentError(admission.message, admission.statusCode);
+    if (projectSource && !projectRepository)
+      throw new AgentError(
+        input.projectId
+          ? "The project has no linked repository."
+          : "Choose a project to launch on this runner.",
+        400
+      );
+    const repository = admission.repository;
+    if (repository && !repository.url && projectRepository)
+      repository.url = projectRepository;
+    if (repository && !repository.url && !checkoutOwner)
+      throw new AgentError(
+        "Enter a repository URL or select a project with a repository origin.",
+        400
+      );
+    input.useWorktree =
+      location && !sessionSource && !projectSource && !checkoutOwner
+        ? admission.useWorktree
+        : repository?.checkout
+          ? false
+          : input.useWorktree;
+    return {
+      managed,
+      prepares,
+      sessionSource,
+      projectSource,
+      repository,
+      borrowed,
+    };
+  }
+
+  private async prepareCreate(
+    input: CreateAgentInput,
+    options: CreateAgentOptions,
+    {
+      directory: resolvedDirectory,
+      location,
+      placement,
+      projectRoot,
+      projectRepository,
+      checkoutOwner,
+    }: Awaited<ReturnType<AgentManager["resolveCreateTarget"]>>,
+    {
+      managed,
+      prepares,
+      sessionSource,
+      projectSource,
+      repository,
+      borrowed,
+    }: ReturnType<AgentManager["admitCreateTarget"]>
+  ) {
+    const taskPersona = Boolean(input.persona && input.role !== "review");
+    const taskPersonaBody = async () =>
+      options.taskPersonaBody ??
+      (
+        await resolvePersona(
+          personaScopeFor({
+            cwd: input.cwd,
+            projectRoot,
+            source: input.personaSource,
+          }),
+          input.persona!,
+          "task"
+        )
+      ).body;
+    if (taskPersona && !options.detachLaunch) {
+      const body = await taskPersonaBody();
+      input = {
+        ...input,
+        agentArgs: [...(input.agentArgs ?? []), PERSONA_CONTEXT_ARG, body],
+      };
+    }
+    const directory =
+      resolvedDirectory === undefined
+        ? await this.localRunner.resolveLaunchDirectory(input.cwd)
+        : resolvedDirectory;
+    // An explicitly selected plain-folder project does not default to a worktree.
+    if (
+      directory?.git.status === "ok" &&
+      directory.git.value === null &&
+      projectRoot &&
+      !input.parentAgentId &&
+      input.useWorktree === undefined
+    )
+      input.useWorktree = false;
+    const remote = this.remote;
+    const sourceCheckout =
+      checkoutOwner &&
+      location &&
+      input.useWorktree !== false &&
+      (!sessionSource || input.pullRequest)
+        ? await this.runnerCheckout(checkoutOwner, { kind: "describe" })
+        : undefined;
+    const origin =
+      sourceCheckout?.origin ??
+      repository?.url ??
+      projectRepository ??
+      undefined;
+    if (sourceCheckout && !sessionSource && !origin)
+      throw new AgentError(
+        "The runner could not resolve the checkout repository.",
+        400
+      );
+    const localGit =
+      directory?.git.status === "ok" && directory.git.value
+        ? directory.canonicalPath
+        : undefined;
+    const checkoutContext = directory
+      ? {
+          defaultBranch: async () => "main",
+          ...(localGit && {
+            repository: () =>
+              this.localRunner
+                .inferRepositoryUrl(localGit)
+                .catch(() => undefined),
+            pullRequestHead: (target: PullRequestTarget) =>
+              getPullRequestHead({ cwd: localGit, ...target }),
+            forkPullRequests: false,
+          }),
+        }
+      : {
+          ...(checkoutOwner &&
+            sessionSource && { defaultBranch: async () => "main" }),
+          ...(origin &&
+            location &&
+            remote && {
+              ...(!projectSource &&
+                !sessionSource && {
+                  defaultBranch: () =>
+                    runnerDefaultBranch(origin, (owner, repo) =>
+                      remote.listGitHubBranches(
+                        runnerIdForPlacement(placement),
+                        owner,
+                        repo
+                      )
+                    ),
+                }),
+              repository: async () => origin,
+              pullRequestHead: ({ owner, repo, number }: PullRequestTarget) =>
+                remote.lookupGitHubPullRequestHead(
+                  runnerIdForPlacement(placement),
+                  owner,
+                  repo,
+                  number
+                ),
+              ...(checkoutOwner &&
+                sessionSource && { forkPullRequests: false }),
+            }),
+        };
+    const p = await this.prepareCreateInputs(
+      input,
+      directory?.cwd ?? input.cwd,
+      checkoutContext,
+      !directory
+    );
+    const worktree = p.checkout
+      ? toLocalWorktreeRequest(p.checkout, p.name, input.worktreeLocation)
+      : null;
+    let runnerRepository =
+      repository?.url && repository.checkout
+        ? { url: repository.url, checkout: repository.checkout }
+        : null;
+    let preparation: WorkspacePreparation | null = null;
+    if (checkoutOwner && sessionSource) {
+      preparation = {
+        source: { session: sessionFromWire(checkoutOwner.id) },
+        ...(worktree && { worktree: runnerWorktree(worktree) }),
+        copyIgnored: [...WORKTREE_LOCAL_CONFIG_FILES],
+        installDependencies: true,
+      };
+    } else if (
+      origin &&
+      location &&
+      !borrowed &&
+      (p.checkout || projectSource || input.projectId)
+    ) {
+      const checkout =
+        p.checkout?.source === "pullRequest" && prepares
+          ? {
+              kind: "pr" as const,
+              branch: p.checkout.branch,
+              number: pullRequestTarget(input.pullRequest!, origin).number,
+            }
+          : p.checkout
+            ? toRunnerCheckout(p.checkout)
+            : (runnerRepository?.checkout ?? { kind: "default" as const });
+      runnerRepository = {
+        url:
+          !prepares && p.checkout?.source === "pullRequest"
+            ? p.checkout.repository
+            : origin,
+        checkout,
+      };
+      if (prepares) {
+        preparation = {
+          source: { repository: origin, checkout },
+          copyIgnored: [...WORKTREE_LOCAL_CONFIG_FILES],
+          installDependencies: true,
+        };
+      } else {
+        try {
+          parseRepository(runnerRepository);
+        } catch (error) {
+          throw new AgentError(errorMessage(error), 400);
+        }
+      }
+    }
+    await mkdir(p.filesDir, { recursive: true });
+    // Record the local receipt without touching Git. The SQL insert commits
+    // the enrolled runner's equivalent request with its owning row.
+    if (directory && worktree)
+      await this.localRunner.bindWorkspace(p.id, directory, worktree);
+    return {
+      p,
+      taskPersona,
+      taskPersonaBody,
+      prepared: {
+        directory,
+        worktree,
+        preparation,
+        repository: runnerRepository,
+        managed,
+        owner: borrowed ? checkoutOwner?.id : undefined,
+      },
+    };
+  }
+
   private async prepareCreateInputs(
     input: CreateAgentInput,
     originalCwd: string,
     checkoutContext: Omit<
       Parameters<typeof resolveCheckoutIntent>[1],
       "id" | "name"
-    > = {}
+    >,
+    runnerEngine: boolean
   ): Promise<PreparedCreateInputs> {
-    const placement = remotePlacement(originalCwd);
     // Remember the icon of the directory the user chose, before a managed
     // worktree can change the agent's effective cwd.
-    if (!placement) await getDirectoryIconPath(this.pool, originalCwd);
+    if (!runnerEngine) await getDirectoryIconPath(this.pool, originalCwd);
     const id = this.newAgentId();
     const type: AgentType = input.type ?? "claude";
     // Callers checked the target's catalog; a runner engine rechecks at launch.
@@ -2629,7 +2713,7 @@ export class AgentManager {
       type,
       input.effort,
       input.model,
-      placement ? { kind: "engine" } : undefined
+      runnerEngine ? { kind: "engine" } : undefined
     );
     const role: AgentRole = input.role ?? "standard";
     const fullAccess = type === "opencode" || (input.fullAccess ?? false);
@@ -2691,7 +2775,7 @@ export class AgentManager {
     input: CreateAgentInput,
     placement: Placement,
     repository: RunnerRepository | null,
-    preparation: Omit<Req<"workspace.prepare">, "session"> | null,
+    preparation: WorkspacePreparation | null,
     runnerManaged: boolean,
     useWorktreeOf?: string
   ): Promise<void> {
@@ -2726,7 +2810,7 @@ export class AgentManager {
         runnerManaged,
         useWorktreeOf ?? null,
         runnerIdForPlacement(placement),
-        preparation ? JSON.stringify(preparation) : null,
+        preparation ? JSON.stringify({ ...preparation, pending: true }) : null,
       ]
     );
   }
@@ -2741,6 +2825,7 @@ export class AgentManager {
     originalCwd: string;
     directory: LaunchDirectory | null;
     worktree: WorktreeRequest | null;
+    preparation: WorkspacePreparation | null;
     initialPrompt: string | undefined;
     initialFiles: SeededFile[];
     /** Writes the launch post once the workspace is ready; see createAgent. */
@@ -2755,6 +2840,7 @@ export class AgentManager {
       agent: AgentRecord;
       workspace: { effectiveCwd: string } | null;
       chatLaunchPost: ChatLaunchPost | null;
+      runnerPrepared: boolean;
     };
     try {
       await opts.preparePersona?.();
@@ -2771,15 +2857,43 @@ export class AgentManager {
         : null;
       if (workspace) await this.storePreparedWorkspace(id, workspace);
       const agent = await this.getRequiredAgent(id);
+      const runnerId = enrolledRunnerId(agent.placement);
+      let runnerPrepared = false;
+      if (opts.preparation && !(runnerId && this.holds?.isHeld(runnerId))) {
+        try {
+          const steps = this.runnerWorkspaceProgress(agent, true);
+          try {
+            await this.prepareRunnerWorkspace(
+              agent,
+              opts.preparation,
+              false,
+              steps.onEvent
+            );
+            runnerPrepared = true;
+          } finally {
+            await steps.settled();
+          }
+        } catch (error) {
+          if (
+            !(
+              error instanceof RunnerUpdateFenced &&
+              runnerId &&
+              this.holds?.isHeld(runnerId)
+            )
+          )
+            throw error;
+        }
+      }
       const chatLaunchPost = await opts.resolveLaunchPost();
       await opts.beforeLaunch?.(id);
-      prepared = { agent, workspace, chatLaunchPost };
+      prepared = { agent, workspace, chatLaunchPost, runnerPrepared };
     } catch (error) {
       return this.failLaunch(id, error);
     }
     await this.continueLaunch(id, {
       agent: prepared.agent,
       workspace: prepared.workspace,
+      runnerPrepared: prepared.runnerPrepared,
       originalCwd: opts.originalCwd,
       initialPrompt: opts.initialPrompt,
       initialFiles: opts.initialFiles,
@@ -2797,6 +2911,7 @@ export class AgentManager {
     opts: {
       /** The row as the create read it; a released launch reads it again. */
       agent?: AgentRecord;
+      runnerPrepared?: boolean;
       workspace: { effectiveCwd: string } | null;
       originalCwd: string;
       initialPrompt: string | undefined;
@@ -2819,6 +2934,7 @@ export class AgentManager {
           resumeSessionId: null,
           jobRunId: opts.jobRunId,
           recordWorkspaceProgress: true,
+          runnerPrepared: opts.runnerPrepared,
           launchId,
         });
       } catch (error) {
@@ -3089,6 +3205,82 @@ export class AgentManager {
     }
   }
 
+  private runnerWorkspaceProgress(agent: AgentRecord, usesCheckout: boolean) {
+    let progressWrites = Promise.resolve();
+    const onEvent = (step: LaunchProgress) => {
+      const write = this.workspaceProgress(agent.id, agent.type);
+      progressWrites = progressWrites
+        .then(async () => {
+          if (step.phase === "workspace") {
+            if (usesCheckout) await write({ phase: "worktree" });
+          } else if (step.phase === "copy") {
+            await write({ phase: "env" });
+          } else if (step.phase === "ready") {
+            await write({ phase: "session" });
+          } else if ("status" in step) {
+            await write({
+              phase: "deps",
+              status: step.status,
+              ...(step.status === "failed" && {
+                detail:
+                  "The runner could not install dependencies. Launch is continuing.",
+              }),
+            });
+          } else {
+            await write({ phase: "deps" });
+          }
+        })
+        .catch((err) =>
+          this.logger.warn(
+            { err, agentId: agent.id },
+            "Could not record runner preparation"
+          )
+        );
+    };
+    return { onEvent, settled: () => progressWrites };
+  }
+
+  private async prepareRunnerWorkspace(
+    agent: AgentRecord,
+    preparation: WorkspacePreparation,
+    resume: boolean,
+    onEvent?: (step: LaunchProgress) => void
+  ) {
+    const location = launchSessionLocation(agent.cwd, agent.placement);
+    if (location && this.remote?.available(location)) {
+      if (
+        !this.remote.supportsPreparedLaunch(location) ||
+        ("session" in preparation.source &&
+          !this.remote.supportsSessionWorkspaceSource(location))
+      )
+        throw new AgentError(
+          "Update the runner to restart its prepared workspace.",
+          409
+        );
+    }
+    const { directory, placement } = checkoutRunners(
+      this.checkoutReadRunners(),
+      agent
+    );
+    const runner = directory.for(placement);
+    const session = sessionFromWire(agent.id);
+    const existing = resume
+      ? await runner.call("workspace.resume", { session })
+      : null;
+    const prepared =
+      existing ??
+      (await runner.call(
+        "workspace.prepare",
+        { ...preparation, session },
+        { onEvent }
+      ));
+    if (prepared.worktree?.base)
+      await this.pool.query(
+        "UPDATE agents SET base_branch = $2 WHERE id = $1 AND base_branch IS NULL",
+        [agent.id, prepared.worktree.base]
+      );
+  }
+
   /**
    * Start (or resume) the agent's host. Builds everything the engine needs
    * (system prompt, MCP credentials, environment) from the agent record and
@@ -3101,6 +3293,7 @@ export class AgentManager {
       jobRunId: string | undefined;
       previousJobFinished?: boolean;
       recordWorkspaceProgress?: boolean;
+      runnerPrepared?: boolean;
       /** This attempt's durable ID; only a runner launch carries it. */
       launchId?: string;
       recycle?: RecycleRestart;
@@ -3169,86 +3362,45 @@ export class AgentManager {
           await this.pool.query<{
             runner_repository: RunnerRepository | null;
             runner_worktree_owner: string | null;
-            runner_preparation: Omit<
-              Req<"workspace.prepare">,
-              "session"
-            > | null;
+            runner_preparation: RecordedPreparation | null;
           }>(
             "SELECT runner_repository, runner_worktree_owner, runner_preparation FROM agents WHERE id = $1",
             [agent.id]
           )
         ).rows[0]
       : undefined;
-    let progressWrites = Promise.resolve();
-    const onWorkspaceProgress = placement
-      ? (step: LaunchProgress) => {
-          if (!opts.recordWorkspaceProgress) return;
-          const write = this.workspaceProgress(agent.id, agent.type);
-          progressWrites = progressWrites
-            .then(async () => {
-              if (step.phase === "workspace") {
-                if (binding?.runner_repository || binding?.runner_preparation)
-                  await write({ phase: "worktree" });
-              } else if (step.phase === "copy") {
-                await write({ phase: "env" });
-              } else if (step.phase === "ready") {
-                await write({ phase: "session" });
-              } else if ("status" in step) {
-                await write({
-                  phase: "deps",
-                  status: step.status,
-                  ...(step.status === "failed" && {
-                    detail:
-                      "The runner could not install dependencies. Launch is continuing.",
-                  }),
-                });
-              } else {
-                await write({ phase: "deps" });
-              }
-            })
-            .catch((err) =>
-              this.logger.warn(
-                { err, agentId: agent.id },
-                "Could not record runner preparation"
-              )
-            );
-        }
-      : undefined;
+    const steps = this.runnerWorkspaceProgress(
+      agent,
+      Boolean(binding?.runner_repository || binding?.runner_preparation)
+    );
+    const onWorkspaceProgress =
+      placement && opts.recordWorkspaceProgress ? steps.onEvent : undefined;
     try {
       if (opts.recycle && !opts.recycle.mayStart())
         throw new RecycleSuperseded();
       if (binding?.runner_preparation) {
-        if (
-          placement &&
-          this.remote?.available(placement) &&
-          !this.remote.supportsPreparedLaunch(placement)
-        )
-          throw new AgentError(
-            "Update the runner to restart its prepared workspace.",
-            409
+        const { pending, ...preparation } = binding.runner_preparation;
+        if (!opts.runnerPrepared) {
+          await this.prepareRunnerWorkspace(
+            agent,
+            preparation,
+            !opts.recordWorkspaceProgress,
+            onWorkspaceProgress
           );
-        const { directory, placement: selected } = checkoutRunners(
-          this.checkoutReadRunners(),
-          agent
-        );
-        const runner = directory.for(selected);
-        const session = sessionFromWire(agent.id);
-        const existing = opts.recordWorkspaceProgress
-          ? null
-          : await runner.call("workspace.resume", { session });
-        const prepared =
-          existing ??
-          (await runner.call(
-            "workspace.prepare",
-            { ...binding.runner_preparation, session },
-            { onEvent: onWorkspaceProgress }
-          ));
-        if (!agent.baseBranch && prepared.worktree?.base)
-          await this.pool.query(
-            "UPDATE agents SET base_branch = $2 WHERE id = $1 AND base_branch IS NULL",
-            [agent.id, prepared.worktree.base]
+          await steps.settled();
+        }
+        // Until this point a reboot can prove that no host launch was sent,
+        // even if the prepared runner is offline when Dispatch comes back.
+        if (pending) {
+          const claimed = await this.pool.query(
+            "UPDATE agents SET runner_preparation = runner_preparation - 'pending' WHERE id = $1 AND status = 'creating' AND deleted_at IS NULL",
+            [agent.id]
           );
-        await progressWrites;
+          if (!claimed.rowCount)
+            throw new LifecycleSuperseded(
+              "The agent changed during workspace preparation."
+            );
+        }
       }
       return await this.runtime.launch({
         agentId: agent.id,
@@ -3299,7 +3451,7 @@ export class AgentManager {
           !binding?.runner_preparation && { onWorkspaceProgress }),
       });
     } finally {
-      await progressWrites;
+      await steps.settled();
     }
   }
 
