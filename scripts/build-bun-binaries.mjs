@@ -189,7 +189,16 @@ function run(command, args) {
 rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 
-run("pnpm", ["run", "build:web"]);
+if (process.env.DISPATCH_BUN_REUSE_WEB_DIST === "1") {
+  const webDist = path.join(repoRoot, "apps", "web", "dist");
+  for (const file of ["index.html", "dispatch-browser-feedback.zip"]) {
+    if (!existsSync(path.join(webDist, file))) {
+      throw new Error(`Missing ${file} in the existing web build`);
+    }
+  }
+} else {
+  run("pnpm", ["run", "build:web"]);
+}
 run("bun", [
   "scripts/generate-server-runtime-assets.mjs",
   "--write-build-identity",

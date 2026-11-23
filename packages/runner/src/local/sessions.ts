@@ -44,6 +44,7 @@ import {
   posixUserLayout,
   posixUserProcesses,
   posixUserState,
+  scanMarkedHost,
   validKey,
   type PosixHostEntry,
 } from "../platform/posix-user/sessions.js";
@@ -225,7 +226,8 @@ export function localSessionHandlers(
   async function started(
     key: string,
     marker: string,
-    exited: (() => boolean) | null
+    exited: (() => boolean) | null,
+    scan = markedHostRunning
   ) {
     const dir = layout.hostDir(key);
     const deadline = Date.now() + START_WAIT_MS;
@@ -234,11 +236,7 @@ export function localSessionHandlers(
       if (exited?.()) return false;
       // A host this runner did not spawn has no exit event: scan for it,
       // only now and then (the scan reads every process).
-      if (
-        !exited &&
-        polls % 20 === 19 &&
-        !markedHostRunning(entry, marker, dir)
-      )
+      if (!exited && polls % 20 === 19 && !scan(entry, marker, dir))
         return liveHost(dir);
       if (Date.now() > deadline) return true; // Still starting: the caller's connect decides.
       await sleep(50);
@@ -394,9 +392,9 @@ export function localSessionHandlers(
           if (
             identity &&
             !liveHost(dir) &&
-            markedHostRunning(entry, identity.marker, identity.dir)
+            scanMarkedHost(entry, identity.marker, identity.dir)
           )
-            await started(key, identity.marker, null);
+            await started(key, identity.marker, null, scanMarkedHost);
           if (identity) await core.stop(key, force);
           else {
             // A host with no marker record is stopped by its pid alone.

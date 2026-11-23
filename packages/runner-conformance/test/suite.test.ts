@@ -9,13 +9,7 @@ import {
 } from "@dispatch/runner-protocol/contract";
 import { NOT_ON_V1 } from "@dispatch/runner-client/v1";
 import { checked, ContractViolation } from "../src/checked.js";
-import { startLocalLane } from "../src/lanes/local.js";
-import {
-  compareBaseline,
-  readBaseline,
-  runLane,
-  type Result,
-} from "../src/run.js";
+import { compareBaseline, readBaseline, type Result } from "../src/run.js";
 import { scenarios } from "../src/scenarios.js";
 
 const baseline = readBaseline();
@@ -49,15 +43,6 @@ describe("coverage", () => {
       if (scenario.op in NOT_ON_V1)
         expect(remote.has(scenario.id), scenario.id).toBe(true);
   });
-});
-
-describe("local lane", () => {
-  it("matches its baseline", async () => {
-    const results = await runLane(startLocalLane);
-    expect(results).toHaveLength(scenarios.length);
-    expect(compareBaseline("local", results, baseline)).toEqual([]);
-    // The real child and hosts: stops wait main's grace period.
-  }, 240_000);
 });
 
 describe("compareBaseline", () => {

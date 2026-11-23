@@ -27,11 +27,11 @@ and a reference client that uses only `@dispatch/runner-protocol` and
 
 | Lane      | What runs                                                                                                                   | How                                                   |
 | --------- | --------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| `local`   | the local runner child (L1, L2); none exists yet, so every scenario is red                                                  | `pnpm --filter @dispatch/runner-conformance test`     |
+| `local`   | the local runner child and real hosts, with a fixture ACP adapter                                                           | `pnpm run conformance:local`                          |
 | `adapter` | the temporary in-app adapter (`apps/server/src/runners/local.ts`) for the operations it routes                              | `apps/server/test/runner-conformance-adapter.test.ts` |
 | `remote`  | the compiled runner on Linux in Docker, real TLS, workload account, wire v1, fixture ACP adapter; then the reference client | `pnpm run conformance:remote`                         |
 
-The remote lane is not part of `check`, `test` or `ci`. It needs a reachable
+The local and remote lane scripts run on demand. The remote lane needs a reachable
 Docker daemon, `bun`, `openssl` and the `node:22-bookworm` image. Its run
 directory is under `~/.cache/runner-conformance` (override with
 `RUNNER_CONFORMANCE_ROOT`) because Colima does not share the system

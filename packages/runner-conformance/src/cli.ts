@@ -32,11 +32,13 @@ const began = performance.now();
 let started: Lane | undefined;
 const errors: string[] = [];
 const results: Result[] = await runLane(
-  async () => {
-    started = await start();
-    // Kept open for the reference client below.
-    return { ...started, close: async () => {} };
-  },
+  lane === "remote"
+    ? async () => {
+        started = await start();
+        // Kept open for the reference client below.
+        return { ...started, close: async () => {} };
+      }
+    : start,
   lane === "remote" ? remoteScenarios : undefined
 );
 const baseline = readBaseline();

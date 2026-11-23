@@ -585,7 +585,6 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
     });
     const target = "agt_scan";
     const peer = "agt_peer";
-    const originalPath = process.env.PATH;
     const before = execFileSync("git", ["status", "--porcelain"], {
       cwd,
       encoding: "utf8",
@@ -593,12 +592,29 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
     try {
       await runtime.launch(launchFor(target, cwd));
       await runtime.launch(launchFor(peer, cwd));
+      const call = scanChild.session.call.bind(scanChild.session);
+      const calls = vi
+        .spyOn(scanChild.session, "call")
+        .mockImplementation(async (op, input, options) => {
+          if (op === "session.stop") {
+            // Reproduce the race where the host accepts shutdown and exits
+            // before the runner receives the stop request.
+            await vi.waitFor(
+              async () => {
+                expect(await runtime.isAlive(target)).toBe(false);
+              },
+              { timeout: 5_000 }
+            );
+          }
+          return call(op, input, options);
+        });
       writeFileSync(broken, "");
       try {
         await expect(runtime.stop(target, true)).rejects.toThrow(
-          "Unable to enumerate owned processes"
+          "Unable to enumerate owned processes (status=2"
         );
       } finally {
+        calls.mockRestore();
         rmSync(broken, { force: true });
       }
       expect(await runtime.isAlive(target)).toBe(false);
@@ -619,13 +635,15 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
         "preserve user work\n"
       );
     } finally {
-      process.env.PATH = originalPath;
       try {
         await runtime.stop(target, true);
       } finally {
-        await runtime.stop(peer, true);
-        await scanChild.stop();
-        rmSync(scanRoot, { recursive: true, force: true });
+        try {
+          await runtime.stop(peer, true);
+        } finally {
+          await scanChild.stop();
+          rmSync(scanRoot, { recursive: true, force: true });
+        }
       }
     }
   });

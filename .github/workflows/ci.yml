@@ -132,6 +132,9 @@ jobs:
       - name: Build Bun binaries
         if: steps.scope.outputs.scope != 'docs'
         run: node scripts/run-owned.mjs pnpm run build:bun
+        env:
+          # CI checks already produced the web build used by the E2E tests.
+          DISPATCH_BUN_REUSE_WEB_DIST: "1"
 
       - name: Smoke test compiled binary for host platform
         if: steps.scope.outputs.scope != 'docs'

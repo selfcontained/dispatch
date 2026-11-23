@@ -337,18 +337,29 @@ export function markedHostRunning(
   marker: string,
   dir: string
 ) {
-  // A login shell still reading its profile, or any process the host's own
-  // argv names: the environment of a protected shell cannot be read, its
-  // command line can.
-  if (hostArgsRunning(dir) !== false) return true;
   try {
-    // A member `ps` cannot identify counts as the host.
-    return entry.ownership
-      .members(marker)
-      .some((pid) => hostPidState(pid, dir) !== false);
+    return scanMarkedHost(entry, marker, dir);
   } catch {
     return true;
   }
+}
+
+/** Like markedHostRunning, but report a failed scan to the caller. */
+export function scanMarkedHost(
+  entry: PosixHostEntry,
+  marker: string,
+  dir: string
+) {
+  // A login shell still reading its profile, or any process the host's own
+  // argv names: the environment of a protected shell cannot be read, its
+  // command line can.
+  const running = hostArgsRunning(dir);
+  if (running === null) throw new Error("Unable to enumerate owned processes");
+  if (running) return true;
+  // A member `ps` cannot identify counts as the host.
+  return entry.ownership
+    .members(marker)
+    .some((pid) => hostPidState(pid, dir) !== false);
 }
 
 export function posixUserProcesses(
