@@ -38,7 +38,7 @@ import { readWorkspaceView, WorkspaceError } from "../files/workspace-view.js";
 import { getAgentDiff, getAgentFileDiff } from "../shared/git/agent-diff.js";
 import { getDiffStatsComputation } from "../shared/git/diff-stats.js";
 import { getAgentDiffImage } from "../shared/git/diff-image.js";
-import { inspectCheckout } from "./checkout-inspection.js";
+import { inspectCheckout, observeGitCheckout } from "./checkout-inspection.js";
 import { SharedCheckoutWatches, watchCheckout } from "./checkout-watch.js";
 import { spawn } from "node:child_process";
 import { loginShellCommand } from "./acp/host-command.js";
@@ -951,6 +951,8 @@ const repositoryCache = {
 };
 
 export const workspaceWorkload = {
+  /** Main's archive observation of a worktree (`observeGitCheckout`). */
+  observe: (directory: string) => observeGitCheckout(directory),
   async release(
     _session: string,
     checkout: { path: string; identity?: string },
