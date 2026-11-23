@@ -11,7 +11,7 @@ import { createConnection, isIP } from "node:net";
 import path from "node:path";
 import process from "node:process";
 import { connect } from "node:tls";
-import { Duplex, Readable } from "node:stream";
+import { Duplex, PassThrough, Readable, Writable } from "node:stream";
 import { finished } from "node:stream/promises";
 import { terminalEnvironment } from "../../terminal/pty.js";
 import { promisify } from "node:util";
@@ -698,6 +698,7 @@ export async function runRemoteRunner(
       const checkoutCommands = new Map<string, AbortController>();
       let legacyCheckoutCommands = 0;
       let acceptsCheckoutExecStream = false;
+      let acceptsTerminalOpenStream = false;
       const watches = new Map<string, () => void>();
       const sharedWatches = new SharedCheckoutWatches((cwd, changed, closed) =>
         childWatch(
@@ -712,6 +713,20 @@ export async function runRemoteRunner(
       );
       const channels = new Map<string, Duplex>();
       const terminals = new Map<string, symbol>();
+      const streamedTerminals = new Map<
+        string,
+        {
+          agentId: string;
+          workspace: string;
+          controller: AbortController;
+        }
+      >();
+      function closeSessionTerminals(agentId: string, workspace: string) {
+        for (const terminal of streamedTerminals.values()) {
+          if (terminal.agentId === agentId && terminal.workspace === workspace)
+            terminal.controller.abort();
+        }
+      }
       const timeout = setTimeout(() => socket.destroy(), 5000);
       socket.on("error", (error: Error) =>
         console.error("Runner transport:", error.message)
@@ -1089,6 +1104,8 @@ export async function runRemoteRunner(
               workspace,
               command.operation
             );
+            if (observation === "released" || observation === "retained")
+              closeSessionTerminals(agentId, workspace);
             result(
               typeof observation === "string"
                 ? observation
@@ -1116,6 +1133,116 @@ export async function runRemoteRunner(
             );
             break;
           case "openTerminal": {
+            if (command.stream) {
+              if (!acceptsTerminalOpenStream)
+                throw new Error("Terminal streams were not negotiated.");
+              const { input, output, cols, rows } = command.stream;
+              if (
+                streamedTerminals.has(id) ||
+                streams.has(input) ||
+                streams.has(output)
+              )
+                throw new Error("Duplicate terminal channel.");
+              const controller = new AbortController();
+              const signal = AbortSignal.any([
+                connection.signal,
+                controller.signal,
+              ]);
+              streamedTerminals.set(id, { agentId, workspace, controller });
+
+              // Register before looking up the checkout so that a cancelled
+              // open can also stop a worker whose readiness is still pending.
+              const events = new PassThrough();
+              const sent = streams.send(output, events, signal, {
+                stall: "blocked",
+              });
+              void sent.then(
+                () => controller.abort(),
+                () => controller.abort()
+              );
+              let handedOff = false;
+              try {
+                const cwd = await supervisor.checkoutDirectory(
+                  agentId,
+                  workspace,
+                  target?.cwd
+                );
+                signal.throwIfAborted();
+                const child = spawn(
+                  setpriv,
+                  [
+                    ...childArgs,
+                    ...self("runner-terminal"),
+                    cwd,
+                    String(cols),
+                    String(rows),
+                  ],
+                  {
+                    env: terminalEnvironment(env),
+                    stdio: ["pipe", "pipe", "ignore", "pipe"],
+                  }
+                );
+                const stdin = child.stdin!;
+                const stdout = child.stdout!;
+                const readiness = child.stdio[3] as Readable;
+                const stop = () => {
+                  stdin.destroy();
+                  stdout.destroy();
+                  readiness.destroy();
+                  child.kill();
+                };
+                signal.addEventListener("abort", stop, { once: true });
+                child.once("error", () => controller.abort());
+                child.once("close", () => {
+                  signal.removeEventListener("abort", stop);
+                  streamedTerminals.delete(id);
+                });
+                stdin.on("error", () => {}); // The output half may still have an exit event.
+                stdout.on("error", () => controller.abort());
+                // A child can exit before it consumes the next input frame.
+                // Keep that pipe's failure from masking its final output.
+                const controls = new Writable({
+                  write(chunk, _encoding, done) {
+                    if (stdin.destroyed) return done();
+                    stdin.write(chunk, () => done());
+                  },
+                  destroy(error, done) {
+                    stdin.destroy();
+                    done(error);
+                  },
+                  final(done) {
+                    stdin.end(done);
+                  },
+                });
+                void streams
+                  .receive(input, controls, signal, { stall: false })
+                  .catch(() => {
+                    stdin.destroy();
+                  });
+                let ready = "";
+                for await (const chunk of readiness) ready += chunk.toString();
+                signal.throwIfAborted();
+                if (!ready || !isTerminalInfo(JSON.parse(ready)))
+                  throw new Error(
+                    "The runner could not start a terminal in this checkout."
+                  );
+
+                result(ready);
+                stdout.pipe(events);
+                const unfenced = admission.onTerminal(() => {
+                  streams.interrupt(output, "fenced");
+                  controller.abort();
+                });
+                void sent.finally(unfenced).catch(() => {});
+                handedOff = true;
+              } finally {
+                if (!handedOff) {
+                  controller.abort();
+                  streamedTerminals.delete(id);
+                }
+              }
+              break;
+            }
             if (terminals.size >= 16 || terminals.has(id) || channels.has(id))
               throw new Error(
                 "Runner terminal limit reached or duplicate channel."
@@ -1338,10 +1465,12 @@ export async function runRemoteRunner(
             break;
           case "stop":
             await supervisor.stop(agentId, workspace, command.force);
+            closeSessionTerminals(agentId, workspace);
             result(true);
             break;
           case "discard":
             await supervisor.discard(agentId, workspace);
+            closeSessionTerminals(agentId, workspace);
             result(true);
             break;
           case "log":
@@ -1376,6 +1505,7 @@ export async function runRemoteRunner(
         if (socket.destroyed) return;
         if (acceptsStreams(value) && connectedAt !== undefined) {
           acceptsCheckoutExecStream ||= value.checkoutExecStream === true;
+          acceptsTerminalOpenStream ||= value.terminalOpenStream === true;
           streams.enable();
           return;
         }
@@ -1476,7 +1606,7 @@ export async function runRemoteRunner(
           checkoutCommands: true,
           checkoutExecStream: true,
           ...(typeof Bun !== "undefined" && typeof Bun.Terminal === "function"
-            ? { terminals: true }
+            ? { terminals: true, terminalOpenStream: true }
             : {}),
           defaultBranchFiles: true,
           workspacePreparation: true,

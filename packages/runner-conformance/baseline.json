@@ -127,7 +127,7 @@
   },
   {
     "lane": "local",
-    "scenario": "terminal.open/pending",
+    "scenario": "terminal.open/interactive",
     "task": "T21",
     "reason": "no local runner child yet"
   },
@@ -514,12 +514,6 @@
     "scenario": "session.sample/pending",
     "task": "T27",
     "reason": "not on wire v1: local-only today (process-tree sampling)"
-  },
-  {
-    "lane": "remote",
-    "scenario": "terminal.open/pending",
-    "task": "T21",
-    "reason": "scenario not written yet"
   },
   {
     "lane": "remote",

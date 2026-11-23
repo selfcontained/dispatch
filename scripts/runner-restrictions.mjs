@@ -121,6 +121,7 @@ const rules = [
     [protocol + "checkout-command.ts", "REPO_TOOL_TIMEOUT_MS = 5 * 60_000"],
   ],
   [
+    // Applies only to wire peers opening the legacy, uncredited channel.
     "N16",
     "Sixteen terminals per runner",
     "T21",

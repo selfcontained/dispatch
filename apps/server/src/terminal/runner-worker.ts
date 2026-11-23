@@ -1,3 +1,5 @@
+import { closeSync, writeSync } from "node:fs";
+import { pipeline } from "node:stream/promises";
 import { realpath, stat } from "node:fs/promises";
 import { hostname, userInfo } from "node:os";
 import { Duplex, PassThrough } from "node:stream";
@@ -10,6 +12,7 @@ import {
 } from "@dispatch/runner-protocol";
 import {
   displayPath,
+  pathFromWire,
   RunnerCallError,
   type Req,
 } from "@dispatch/runner-protocol/contract";
@@ -113,8 +116,40 @@ export async function runTerminalWorker(cwd: string) {
   }
 }
 
+/** The supervisor gives this workload process a dedicated readiness pipe. Stdin
+ * remains a lifeline, including when the supervisor dies without signalling. */
+export async function runTypedTerminalWorker(
+  cwd: string,
+  cols: number,
+  rows: number
+) {
+  const handlers = localTerminalHandlers(process.env.SHELL);
+  const stop = () => {
+    void handlers.stop();
+  };
+  process.stdin.once("end", stop);
+  process.stdin.once("close", stop);
+  process.stdin.once("error", stop);
+  process.once("SIGTERM", stop);
+  try {
+    const { info, channel } = await handlers.opens["terminal.open"]({
+      target: { path: pathFromWire(cwd) },
+      cols,
+      rows,
+    });
+    writeSync(3, JSON.stringify(info));
+    closeSync(3);
+    process.stdin.pipe(channel);
+    await pipeline(channel, process.stdout).catch(() => {});
+  } finally {
+    await handlers.stop();
+    process.stdin.destroy();
+    process.off("SIGTERM", stop);
+  }
+}
+
 /** The local runner owns the shell and its process session for this channel. */
-export function localTerminalHandlers() {
+export function localTerminalHandlers(shell?: string) {
   let stopping = false;
   const active = new Map<Duplex, Promise<number>>();
 
@@ -182,7 +217,7 @@ export function localTerminalHandlers() {
         (data) =>
           send({ type: "output", data: Buffer.from(data).toString("base64") }),
         undefined,
-        { cols, rows }
+        { cols, rows, shell }
       );
     } catch (error) {
       channel.destroy();

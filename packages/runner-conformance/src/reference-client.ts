@@ -71,6 +71,7 @@ export function acceptRemoteRunner(
                 type: "stream",
                 action: "accept",
                 ...(ready.checkoutExecStream && { checkoutExecStream: true }),
+                ...(ready.terminalOpenStream && { terminalOpenStream: true }),
               });
               streams.enable();
             }

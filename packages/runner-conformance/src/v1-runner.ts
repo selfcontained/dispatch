@@ -4,6 +4,7 @@
  * the result. Operations v1 cannot carry (`NOT_ON_V1`) answer `unsupported`.
  * `checkout.read` uses v1's guarded read, the one v1 read with a digest.
  */
+import { openTerminalStream } from "@dispatch/runner-client/v1/terminal";
 import type { Duplex } from "node:stream";
 import {
   RUNNER_WIRE_VERSION,
@@ -215,6 +216,26 @@ export function v1Runner({
       request: Req<K>,
       opts?: CallOptions<K>
     ) {
+      if (op === "terminal.open" && ready.terminalOpenStream && streams) {
+        const terminal = request as Req<"terminal.open">;
+        if (!("session" in terminal.target))
+          throw fail("unsupported", "Terminal streams need a session binding.");
+        try {
+          return (await openTerminalStream(
+            {
+              kind: "openTerminal",
+              workspace,
+              agentId: sessionToWire(terminal.target.session),
+            },
+            terminal,
+            (command, signal) => connection.request(command, { signal }),
+            streams,
+            opts?.signal
+          )) as { info: Res<K>; channel: CallerChannel<K> };
+        } catch (error) {
+          throw transportError(error, opts?.signal);
+        }
+      }
       if (op !== "session.attach")
         throw fail("unsupported", `${op} channels are not on this client yet.`);
       const frame: Decoded<K> = {

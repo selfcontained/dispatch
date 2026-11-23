@@ -38,6 +38,8 @@ import {
   isRecord,
 } from "./validation.js";
 
+import { isTerminalControl } from "./terminal.js";
+
 export const RUNNER_WIRE_VERSION = 1;
 
 export type RunnerEngine = "claude" | "codex" | "opencode";
@@ -90,7 +92,11 @@ export type SessionOperation =
   | SessionLifecycleOperation
   | { agentId: string; kind: "sessionFile"; operation: SessionFileOperation }
   | { agentId: string; kind: "watchCheckout" }
-  | { agentId: string; kind: "openTerminal" }
+  | {
+      agentId: string;
+      kind: "openTerminal";
+      stream?: { input: string; output: string; cols: number; rows: number };
+    }
   | { agentId: string; kind: "viewCheckout"; query: CheckoutView }
   | { agentId: string; kind: "inspectCheckout"; query: CheckoutQuery }
   | {
@@ -134,6 +140,7 @@ export type ReadyFrame = {
   checkoutCommands?: true;
   checkoutExecStream?: true;
   terminals?: true;
+  terminalOpenStream?: true;
   defaultBranchFiles?: true;
   checkoutViews?: true;
   sharedWorktree?: true;
@@ -177,6 +184,7 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     ...(frame.checkoutCommands === true && { checkoutCommands: true }),
     ...(frame.checkoutExecStream === true && { checkoutExecStream: true }),
     ...(frame.terminals === true && { terminals: true }),
+    ...(frame.terminalOpenStream === true && { terminalOpenStream: true }),
     ...(frame.checkoutMetadata === true && { checkoutMetadata: true }),
     ...(frame.checkoutInspection === true && { checkoutInspection: true }),
     ...(frame.sharedWorktree === true && { sharedWorktree: true }),
@@ -405,6 +413,14 @@ function isCommand(value: unknown): value is Command {
               isCheckoutPath(value.operation.path))))
       );
     case "openTerminal":
+      return (
+        value.stream === undefined ||
+        (isRecord(value.stream) &&
+          isOpaqueId(value.stream.input) &&
+          isOpaqueId(value.stream.output) &&
+          value.stream.input !== value.stream.output &&
+          isTerminalControl({ ...value.stream, type: "resize" }))
+      );
     case "watchCheckout":
       return true;
     case "viewCheckout":
