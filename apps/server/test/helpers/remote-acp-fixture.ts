@@ -27,6 +27,18 @@ const fake = createFakeAcpAgent({
         sessionUpdate: "agent_message_chunk",
         content: { type: "text", text },
       });
+    const namespace = /^proof-conformance-env:(CONFORMANCE_[A-Z_]+)$/.exec(
+      prompt
+    );
+    if (namespace) {
+      await report(
+        JSON.stringify({
+          env: process.env[namespace[1]!] ?? null,
+          mcp: session.mcpServers.map(({ name }) => name),
+        })
+      );
+      return "end_turn";
+    }
     if (
       session.cwd.startsWith("/opt/dispatch-guest-") ||
       prompt.includes("proof-count")

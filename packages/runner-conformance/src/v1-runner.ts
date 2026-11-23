@@ -4,17 +4,22 @@
  * the result. Operations v1 cannot carry (`NOT_ON_V1`) answer `unsupported`.
  * `checkout.read` uses v1's guarded read, the one v1 read with a digest.
  */
+import type { Duplex } from "node:stream";
 import {
   RUNNER_WIRE_VERSION,
   type ReadyFrame,
 } from "@dispatch/runner-protocol";
 import {
   RunnerCallError,
+  clientMessage,
+  hostMessage,
   runnerIdFromWire,
   sessionToWire,
   type CallName,
   type CallOptions,
+  type CallerChannel,
   type ErrorCode,
+  type OpenName,
   type Req,
   type Res,
   type Runner,
@@ -36,11 +41,18 @@ import {
   RunnerUpdateFenced,
   type RunnerConnection,
 } from "@dispatch/runner-client/v1/connection";
+import {
+  decodeHostFrame,
+  type ClientMessage,
+  type HostMessage,
+} from "@dispatch/runner-client/v1/host";
+import { wireFrames } from "@dispatch/runner-client/v1/node";
 
 const fail = (code: ErrorCode, message: string) =>
   new RunnerCallError({ code, message });
 
 function transportError(error: unknown, signal?: AbortSignal) {
+  if (error instanceof RunnerCallError) return error;
   if (error instanceof ResultError) return new RunnerCallError(error.error);
   const message = (error as Error).message ?? String(error);
   if (signal?.aborted) return fail("cancelled", message);
@@ -50,6 +62,53 @@ function transportError(error: unknown, signal?: AbortSignal) {
   if (error instanceof RunnerHostGone) return fail("host_gone", message);
   if (error instanceof RunnerUpdateFenced) return fail("fenced", message);
   return fail("failed", message);
+}
+
+function sessionChannel(socket: Duplex): CallerChannel<"session.attach"> {
+  const events = new Set<(message: HostMessage) => void>();
+  let failure: { code: "failed"; message: string } | undefined;
+  const send = wireFrames<Record<string, unknown>, ClientMessage>(
+    socket,
+    (frame) => {
+      let message;
+      try {
+        message = decodeHostFrame(frame);
+        if (!hostMessage.check(message)) throw new Error();
+      } catch {
+        failure = {
+          code: "failed",
+          message: "Host message is outside its schema.",
+        };
+        socket.destroy();
+        return;
+      }
+      for (const listener of events) listener(message);
+    }
+  );
+  socket.on("error", (error) => {
+    failure ??= { code: "failed", message: error.message };
+  });
+  return {
+    write(message) {
+      if (!clientMessage.check(message))
+        throw fail("invalid", "Client message is outside its schema.");
+      send(message);
+    },
+    onData(listener) {
+      events.add(listener);
+      return () => {
+        events.delete(listener);
+      };
+    },
+    onClose(listener) {
+      const closed = () => listener(failure);
+      socket.on("close", closed);
+      return () => {
+        socket.off("close", closed);
+      };
+    },
+    close: () => socket.destroy(),
+  };
 }
 
 export type V1RunnerOptions = {
@@ -122,8 +181,39 @@ export function v1Runner({
         throw transportError(error, opts?.signal);
       }
     },
-    async open(op) {
-      throw fail("unsupported", `${op} channels are not on this client yet.`);
+    async open<K extends OpenName>(
+      op: K,
+      request: Req<K>,
+      opts?: CallOptions<K>
+    ) {
+      if (op !== "session.attach")
+        throw fail("unsupported", `${op} channels are not on this client yet.`);
+      const frame: Decoded<K> = {
+        op,
+        request,
+        extras: { workspace },
+        absent: [],
+      };
+      try {
+        opts?.signal?.throwIfAborted();
+        const { value, channel } = await connection.request(
+          encodeCommand(frame),
+          {
+            openChannel: true,
+          }
+        );
+        if (!channel) throw fail("failed", "Missing v1 attach channel.");
+        if (opts?.signal?.aborted) {
+          channel.destroy();
+          opts.signal.throwIfAborted();
+        }
+        return {
+          info: decodeResult(frame, value),
+          channel: sessionChannel(channel) as CallerChannel<K>,
+        };
+      } catch (error) {
+        throw transportError(error, opts?.signal);
+      }
     },
   };
 }

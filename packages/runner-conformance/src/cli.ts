@@ -6,6 +6,7 @@
 import { startLocalLane } from "./lanes/local.js";
 import { startRemoteLane } from "./lanes/remote.js";
 import { walkthrough } from "./reference-client.js";
+import { turnText } from "./session.js";
 import {
   compareBaseline,
   readBaseline,
@@ -39,19 +40,33 @@ errors.push(...compareBaseline(lane, results, baseline));
 
 if (started) {
   try {
-    const guard = { path: "reference/guard.txt", content: "reference" };
-    await started.seed(guard.path, guard.content);
-    const { description, exec } = await walkthrough(
-      started.runner,
-      "reference-session",
-      guard
-    );
-    if (exec.exitCode !== 0 || exec.stdout !== guard.content)
-      errors.push(`reference client: unexpected exec ${JSON.stringify(exec)}`);
-    else
-      console.log(
-        `reference client: described ${String(description.displayName)}, exec ok`
+    for (const [namespace, name] of [
+      ["CONFORMANCE_ATLAS", "atlas-tools"],
+      ["CONFORMANCE_ORCHARD", "orchard-tools"],
+    ] as const) {
+      const guard = { path: `reference/${name}.txt`, content: name };
+      await started.seed(guard.path, guard.content);
+      const { description, exec, events } = await walkthrough(
+        started.runner,
+        `reference-${name}`,
+        guard,
+        {
+          env: { [namespace]: name },
+          mcp: [{ name, url: "https://example.invalid/mcp", token: "fixture" }],
+          prompt: `proof-conformance-env:${namespace}`,
+        }
       );
+      if (exec.exitCode !== 0 || exec.stdout !== guard.content)
+        throw new Error(`Unexpected exec ${JSON.stringify(exec)}`);
+      const observed = JSON.parse(turnText(events));
+      if (JSON.stringify(observed.mcp) !== JSON.stringify([name]))
+        throw new Error(
+          `The fixture engine did not receive MCP server ${name}.`
+        );
+      console.log(
+        `reference client: ${description.displayName}, ${namespace}/${name}, turn and exec ok, session discarded`
+      );
+    }
   } catch (error) {
     errors.push(`reference client: ${(error as Error).message}`);
   } finally {
@@ -61,6 +76,14 @@ if (started) {
 
 const green = results.filter((result) => result.ok);
 const red = baseline.filter((entry) => entry.lane === lane);
+const redCases = new Set(red.map((entry) => entry.scenario));
+for (const result of results)
+  if (
+    result.error &&
+    redCases.has(result.id) &&
+    !result.id.endsWith("/pending")
+  )
+    console.log(`${result.id}: ${result.error}`);
 const byTask = new Map<string, number>();
 for (const entry of red)
   byTask.set(entry.task, (byTask.get(entry.task) ?? 0) + 1);

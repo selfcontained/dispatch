@@ -12,7 +12,6 @@
  * not share the system temporary directory.
  */
 import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import {
   chmodSync,
   mkdirSync,
@@ -24,20 +23,17 @@ import {
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  sessionFromWire,
-  type Runner,
-} from "@dispatch/runner-protocol/contract";
+import { sessionFromWire } from "@dispatch/runner-protocol/contract";
 import { acceptRemoteRunner } from "../reference-client.js";
 import { LaneUnavailable, type Lane } from "../run.js";
+import { launchRequest } from "../session.js";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const IMAGE = process.env.RUNNER_CONFORMANCE_IMAGE ?? "node:22-bookworm";
 const WORKSPACE = "conformance";
 const WORKSPACE_DIR = "/opt/conformance-checkout";
 const UID = 1500;
-/** The scenarios' session, and a second one for the reference client. */
-export const REMOTE_SESSIONS = ["conformance-session", "reference-session"];
+const SESSION = sessionFromWire("conformance-session");
 
 const run = (command: string, args: string[], input?: string) =>
   execFileSync(command, args, {
@@ -160,25 +156,6 @@ install -m 600 /etc/runner/runner.json /run/cfg/runner.json
 exec /opt/bin/runner remote-runner /run/cfg/runner.json
 `;
 
-/** v1 binds a session to its workspace when it launches. */
-async function launch(runner: Runner, session: string) {
-  await runner.call("session.launch", {
-    session: sessionFromWire(session),
-    launchId: randomUUID(),
-    engine: "claude",
-    model: null,
-    effort: null,
-    access: "default",
-    resume: null,
-    systemText: null,
-    firstText: null,
-    overflowNotice: null,
-    env: {},
-    mcp: [],
-    owner: null,
-  });
-}
-
 export async function startRemoteLane(): Promise<Lane> {
   const arch = dockerArch();
   const base =
@@ -264,11 +241,10 @@ export async function startRemoteLane(): Promise<Lane> {
     const accepted = await Promise.race([listener.accepted, timeout]).finally(
       () => clearTimeout(timer)
     );
-    for (const session of REMOTE_SESSIONS)
-      await launch(accepted.runner, session);
+    await accepted.runner.call("session.launch", launchRequest(SESSION));
     return {
       runner: accepted.runner,
-      session: sessionFromWire(REMOTE_SESSIONS[0]!),
+      session: SESSION,
       async seed(path, content) {
         run(
           "docker",

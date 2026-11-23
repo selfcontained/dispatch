@@ -74,11 +74,5 @@ export const OPERATION_TASK = {
   "update.cancel": "L3",
 } as const satisfies Record<OpName, string>;
 
-/**
- * Attach and alive have a typed channel since T04b; their scenarios need a
- * launched session with the fixture adapter, which is the proposed T06b.
- */
-export const SCENARIO_TASK: Partial<Record<OpName, string>> = {
-  "session.attach": "T06b",
-  "session.alive": "T06b",
-};
+/** Overrides for operations whose scenarios are owned by a separate task. */
+export const SCENARIO_TASK: Partial<Record<OpName, string>> = {};

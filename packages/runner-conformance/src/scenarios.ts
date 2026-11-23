@@ -8,12 +8,14 @@
 import {
   RunnerCallError,
   operationNames,
+  sessionFromWire,
   type ErrorCode,
   type OpName,
   type Req,
   type Runner,
   type SessionHandle,
 } from "@dispatch/runner-protocol/contract";
+import { launchRequest, promptSession, replay, turnText } from "./session.js";
 import { OPERATION_TASK, SCENARIO_TASK } from "./tasks.js";
 
 export type LaneFixture = {
@@ -60,6 +62,7 @@ async function rejectsWith(
 }
 
 const GUARD = "conformance/guard.txt";
+const UNKNOWN_SESSION = sessionFromWire("unknown-session");
 
 /** Seeds the guard file and reads it back for the digest a guarded command needs. */
 async function guarded(
@@ -153,6 +156,213 @@ const written: Scenario[] = [
       call.catch(() => {});
       await rejectsWith(Promise.race([call, hung]), "cancelled").finally(() =>
         clearTimeout(timer)
+      );
+    },
+  },
+  {
+    id: "session.launch/retry",
+    op: "session.launch",
+    async run({ runner }) {
+      const session = sessionFromWire("launch-retry");
+      const request = launchRequest(session);
+      await runner.call("session.launch", request);
+      try {
+        await runner.call("session.launch", request);
+        expect(
+          (await runner.call("session.alive", { session })).state === "live",
+          "The retried launch did not leave a live session."
+        );
+      } finally {
+        await runner.call("session.stop", { session, force: false });
+        await runner.call("session.discard", { session });
+      }
+    },
+  },
+  {
+    id: "session.launch/conflict",
+    op: "session.launch",
+    async run({ runner, session }) {
+      await rejectsWith(
+        runner.call("session.launch", launchRequest(session)),
+        "conflict"
+      );
+    },
+  },
+  {
+    id: "session.launch/environment",
+    op: "session.launch",
+    async run({ runner }) {
+      const session = sessionFromWire("launch-environment");
+      const key = "CONFORMANCE_SAMPLE";
+      const value = "sample";
+      await runner.call(
+        "session.launch",
+        launchRequest(session, { env: { [key]: value } })
+      );
+      try {
+        const { events } = await promptSession(
+          runner,
+          session,
+          `proof-conformance-env:${key}`
+        );
+        const observed = JSON.parse(turnText(events));
+        expect(
+          observed.env === value,
+          "The fixture engine did not receive the launch environment."
+        );
+      } finally {
+        await runner.call("session.stop", { session, force: false });
+        await runner.call("session.discard", { session });
+      }
+    },
+  },
+  {
+    id: "session.attach/prompt-and-replay",
+    op: "session.attach",
+    async run({ runner, session }) {
+      const { events, journalId, fromSeq } = await promptSession(
+        runner,
+        session,
+        "Say hello."
+      );
+      expect(
+        turnText(events).length > 0,
+        "The engine did not emit a text update."
+      );
+      const [first, ...unseen] = events;
+      expect(first && unseen.length, "The turn did not have a replay suffix.");
+      const { channel } = await runner.open("session.attach", { session });
+      try {
+        const resumed = await replay(channel, first.seq, journalId);
+        expect(
+          first.seq === fromSeq + 1,
+          "The original turn had a journal gap."
+        );
+        expect(
+          JSON.stringify(resumed.events) === JSON.stringify(unseen),
+          "Replay did not match the unseen live events."
+        );
+      } finally {
+        channel.close();
+      }
+    },
+  },
+  {
+    id: "session.attach/unknown",
+    op: "session.attach",
+    async run({ runner }) {
+      await rejectsWith(
+        runner
+          .open("session.attach", { session: UNKNOWN_SESSION })
+          .then(({ channel }) => {
+            channel.close();
+          }),
+        "host_gone"
+      );
+    },
+  },
+  {
+    id: "session.alive/live",
+    op: "session.alive",
+    async run({ runner, session }) {
+      expect(
+        (await runner.call("session.alive", { session })).state === "live",
+        "Expected a live session."
+      );
+    },
+  },
+  {
+    id: "session.logs/success",
+    op: "session.logs",
+    async run({ runner, session }) {
+      const { text } = await runner.call("session.logs", {
+        session,
+        lines: 20,
+      });
+      expect(text.trim().split("\n").length > 1, "Expected host log entries.");
+    },
+  },
+  {
+    id: "session.logs/line-limit",
+    op: "session.logs",
+    async run({ runner, session }) {
+      const { text } = await runner.call("session.logs", { session, lines: 1 });
+      expect(
+        text.trimEnd().split("\n").length === 1,
+        "Expected a one-line session log."
+      );
+    },
+  },
+  {
+    id: "session.logs/unknown",
+    op: "session.logs",
+    async run({ runner }) {
+      await rejectsWith(
+        runner.call("session.logs", { session: UNKNOWN_SESSION, lines: 20 }),
+        "not_found"
+      );
+    },
+  },
+  {
+    id: "session.list/live",
+    op: "session.list",
+    async run({ runner, session }) {
+      const { sessions } = await runner.call("session.list", { owner: null });
+      expect(
+        sessions.some(
+          (entry) => entry.session === session && entry.state === "live"
+        ),
+        "The list omitted the live session."
+      );
+    },
+  },
+  {
+    id: "session.discard/busy",
+    op: "session.discard",
+    async run({ runner, session }) {
+      await rejectsWith(runner.call("session.discard", { session }), "busy");
+    },
+  },
+  // Finish the fixture's lifecycle after the scenarios that need it live.
+  {
+    id: "session.stop/repeat",
+    op: "session.stop",
+    async run({ runner, session }) {
+      const request = { session, force: false };
+      await runner.call("session.stop", request);
+      expect(
+        (await runner.call("session.alive", { session })).state === "gone",
+        "The session survived stop."
+      );
+      await runner.call("session.stop", request);
+    },
+  },
+  {
+    id: "session.attach/stopped",
+    op: "session.attach",
+    async run({ runner, session }) {
+      await rejectsWith(
+        runner.open("session.attach", { session }).then(({ channel }) => {
+          channel.close();
+        }),
+        "host_gone"
+      );
+    },
+  },
+  {
+    id: "session.discard/success",
+    op: "session.discard",
+    async run({ runner, session }) {
+      await runner.call("session.discard", { session });
+    },
+  },
+  {
+    id: "session.alive/discarded",
+    op: "session.alive",
+    async run({ runner, session }) {
+      expect(
+        (await runner.call("session.alive", { session })).state === "gone",
+        "Expected a discarded session to be gone."
       );
     },
   },

@@ -2,7 +2,7 @@
  * A reference client for the runner protocol that uses only the protocol and
  * client packages. It knows nothing about the product that normally drives a
  * runner: it accepts a remote runner's TLS connection (or would spawn a local
- * runner), describes it and runs a guarded command in a session's checkout.
+ * runner), then drives a session through a turn and a guarded command.
  */
 import { createServer, type TLSSocket } from "node:tls";
 import {
@@ -16,10 +16,13 @@ import {
 import {
   sessionFromWire,
   type Res,
+  type Req,
   type Runner,
 } from "@dispatch/runner-protocol/contract";
 import { RunnerConnection } from "@dispatch/runner-client/v1/connection";
 import { wireFrames } from "@dispatch/runner-client/v1/node";
+import { checked } from "./checked.js";
+import { launchRequest, promptSession } from "./session.js";
 import { v1Runner } from "./v1-runner.js";
 
 export type Credentials = { key: string; cert: string; ca: string };
@@ -103,38 +106,46 @@ export async function spawnLocalRunner(): Promise<Runner> {
 export type Walkthrough = {
   description: ReturnType<Runner["describe"]>;
   exec: Res<"checkout.exec">;
+  events: Awaited<ReturnType<typeof promptSession>>["events"];
 };
 
 /**
- * Describe the runner, then run a command in a session's checkout guarded by
- * a file the caller wrote there. `session` is any handle the caller chose.
+ * Run one turn and a command guarded by a file the caller wrote in the checkout.
  */
 export async function walkthrough(
-  runner: Runner,
+  connection: Runner,
   session: string,
-  guard: { path: string; content: string }
+  guard: { path: string; content: string },
+  config: Pick<Req<"session.launch">, "env" | "mcp"> & { prompt: string }
 ): Promise<Walkthrough> {
+  const runner = checked(connection);
   const description = runner.describe();
-  const target = {
-    session: sessionFromWire(session),
-    checkout: "current",
-  } as const;
-  const file = await runner.call("checkout.read", {
-    target,
-    path: guard.path,
-    encoding: "utf8",
-    maxBytes: null,
-  });
-  if (file?.data !== guard.content || !file.digest)
-    throw new Error("The guard file did not read back with a digest.");
-  const exec = await runner.call("checkout.exec", {
-    target,
-    guard: { path: guard.path, digest: file.digest },
-    argv: ["cat", guard.path],
-    env: {},
-    timeoutMs: null,
-    maxOutput: null,
-    shell: "direct",
-  });
-  return { description, exec };
+  const handle = sessionFromWire(session);
+  const { prompt, ...launch } = config;
+  await runner.call("session.launch", launchRequest(handle, launch));
+  try {
+    const { events } = await promptSession(runner, handle, prompt);
+    const target = { session: handle, checkout: "current" } as const;
+    const file = await runner.call("checkout.read", {
+      target,
+      path: guard.path,
+      encoding: "utf8",
+      maxBytes: null,
+    });
+    if (file?.data !== guard.content || !file.digest)
+      throw new Error("The guard file did not read back with a digest.");
+    const exec = await runner.call("checkout.exec", {
+      target,
+      guard: { path: guard.path, digest: file.digest },
+      argv: ["cat", guard.path],
+      env: {},
+      timeoutMs: null,
+      maxOutput: null,
+      shell: "direct",
+    });
+    return { description, exec, events };
+  } finally {
+    await runner.call("session.stop", { session: handle, force: false });
+    await runner.call("session.discard", { session: handle });
+  }
 }
