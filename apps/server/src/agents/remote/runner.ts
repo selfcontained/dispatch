@@ -388,6 +388,7 @@ type WorkspacePreparationFactory = (options: {
   step: (op: string, args: unknown[]) => Promise<unknown>;
 }) => Promise<{
   legacy(session: string): Promise<boolean>;
+  bindingWritten(session: string): Promise<void>;
   hasReceipt(session: string): Promise<boolean>;
   remove(session: string): Promise<boolean>;
   releaseLegacy(
@@ -751,6 +752,8 @@ export async function runRemoteRunner(
     },
     removePreparedCheckout: (session) =>
       workspacePreparation?.remove(session) ?? Promise.resolve(false),
+    bindingWritten: (agentId) =>
+      workspacePreparation?.bindingWritten(agentId) ?? Promise.resolve(),
   });
   workspacePreparation = managedWorkspace
     ? await updateOptions.createWorkspacePreparation?.({

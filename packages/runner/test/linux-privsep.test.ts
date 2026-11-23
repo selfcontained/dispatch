@@ -6,16 +6,32 @@
  * binding adapter over the supervisor's existing files.
  */
 import { createHash } from "node:crypto";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
-import type { Entry, PrivsepFs } from "../src/platform/linux-privsep/fs.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  nodeFs,
+  type Entry,
+  type PrivsepFs,
+} from "../src/platform/linux-privsep/fs.js";
 import {
   assertProtected,
   checkoutParentIsProtected,
   storageKey,
   type Ids,
 } from "../src/platform/linux-privsep/layout.js";
-import { createLinuxPrivsep } from "../src/platform/linux-privsep/index.js";
+import {
+  createLinuxPrivsep,
+  createRemoteWorkspacePreparation,
+} from "../src/platform/linux-privsep/index.js";
 import { MANAGED_BINDING } from "../src/platform/linux-privsep/bindings.js";
 import type { RepositoryPort } from "../src/platform/types.js";
 
@@ -153,6 +169,10 @@ async function platform() {
   });
   return { ...made, port: made.repository(clones) };
 }
+
+/** The core's record file for a session. */
+const recordName = (session: string) =>
+  `${createHash("sha256").update(session).digest("hex")}.json`;
 
 const session = "agt_abc123";
 const parent = `${STATE}/sessions/${session}`;
@@ -442,9 +462,11 @@ describe("linux-privsep bindings over the supervisor's files", () => {
       currentPath: null,
       worktree: { path: where, branch: "feature", base: "main" },
     });
+    // Today's files first, binding last; then the core's record.
     expect(fs.log).toEqual([
       `write ${bindings}/agt_new.repository`,
       `write ${bindings}/agt_new`,
+      `write ${bindings}/.bindings/${recordName("agt_new")}`,
     ]);
     expect(await fs.read(`${bindings}/agt_new`)).toBe(MANAGED_BINDING);
     expect(
@@ -543,5 +565,392 @@ describe("linux-privsep bindings over the supervisor's files", () => {
       `${MANAGED_BINDING}:agt_owner`
     );
     expect(await fs.read(`${bindings}/agt_child.repository`)).toBeNull();
+  });
+});
+
+describe("linux-privsep binding records", () => {
+  const bindings = `${STATE}/bindings`;
+  const store = `${bindings}/.bindings`;
+  const write = (name: string, content: string) =>
+    fs.file(`${bindings}/${name}`, content);
+  const legacy = () =>
+    [...fs.nodes]
+      .filter(([path]) => dirname(path) === bindings && path !== store)
+      .map(([path, node]) => [path, node.content, node.mode]);
+
+  it("keeps its records root-only inside bindings, a name no binding key takes", async () => {
+    await platform();
+    expect(await fs.lstat(store)).toEqual({
+      uid: ROOT,
+      gid: ROOT,
+      mode: 0o700,
+      kind: "directory",
+    });
+    const key = /^(agt_[a-z0-9]+|opaque-[A-Za-z0-9_-]{43})$/;
+    expect(key.test(".bindings")).toBe(false);
+    for (const handle of [".bindings", "bindings", "agt_x/../.bindings"])
+      expect(storageKey(handle)).not.toBe(".bindings");
+  });
+
+  it("imports a session an older build bound on first read, changing none of its files", async () => {
+    write("agt_owner", MANAGED_BINDING);
+    write("agt_owner.repository", "{}");
+    write("agt_owner.selected-cwd", "/srv/elsewhere");
+    const { bindings: made } = await platform();
+    const before = legacy();
+    fs.log = [];
+    const first = await made.get("agt_owner");
+    expect(fs.log).toEqual([`write ${store}/${recordName("agt_owner")}`]);
+    expect(first).toMatchObject({
+      currentPath: "/srv/elsewhere",
+      checkout: { ownership: "owned" },
+    });
+    expect(first).not.toHaveProperty("legacy");
+    const record = JSON.parse(
+      (await fs.read(`${store}/${recordName("agt_owner")}`))!
+    );
+    expect(record).toMatchObject({
+      session: "agt_owner",
+      currentPath: "/srv/elsewhere",
+      legacy: expect.any(String),
+    });
+    expect(await fs.lstat(`${store}/${recordName("agt_owner")}`)).toEqual({
+      uid: ROOT,
+      gid: ROOT,
+      mode: 0o600,
+      kind: "file",
+    });
+    // Once: a second read is the record, and no file changes.
+    fs.log = [];
+    expect(await made.get("agt_owner")).toEqual(first);
+    expect(fs.log).toEqual([]);
+    expect(legacy()).toEqual(before);
+  });
+
+  it("a crash between today's files and the record reads as the files say", async () => {
+    const { bindings: made, paths } = await platform();
+    const where = `${STATE}/sessions/agt_new/checkout`;
+    fs.dir(`${paths.receipts}/agt_new`, ROOT, ROOT, 0o700);
+    fs.file(
+      `${paths.receipts}/agt_new/workspace-preparation`,
+      JSON.stringify({
+        worktree: {
+          path: where,
+          branch: "feature",
+          base: "main",
+          identity: "1:2:3",
+          complete: true,
+        },
+      })
+    );
+    const writePrivate = fs.writePrivate.bind(fs);
+    fs.writePrivate = async (dir, file, contents) => {
+      if (dir === store) throw new Error("crash");
+      return writePrivate(dir, file, contents);
+    };
+    await expect(
+      made.bindPrepared({
+        session: "agt_new",
+        path: where,
+        currentPath: null,
+        worktree: { path: where, branch: "feature", base: "main" },
+      })
+    ).rejects.toThrow("crash");
+    fs.writePrivate = writePrivate;
+    // Restarted: the files an older build reads are the session.
+    const { bindings: again } = await platform();
+    expect(await again.get("agt_new")).toMatchObject({
+      path: where,
+      checkout: { ownership: "owned", branch: "feature" },
+    });
+  });
+
+  it("removes its record when the files no longer bind the session", async () => {
+    write("agt_owner", MANAGED_BINDING);
+    write("agt_owner.repository", "{}");
+    const { bindings: made } = await platform();
+    await made.get("agt_owner");
+    fs.nodes.delete(`${bindings}/agt_owner`);
+    expect(await made.get("agt_owner")).toBeNull();
+    expect(await fs.read(`${store}/${recordName("agt_owner")}`)).toBeNull();
+  });
+
+  it("refuses a link swapped in for its records, touching nothing", async () => {
+    const { bindings: made } = await platform();
+    fs.nodes.delete(store);
+    fs.dir("/tmp", ids.uid, ids.gid, 0o777);
+    fs.link(store, "/tmp");
+    write("agt_owner", MANAGED_BINDING);
+    write("agt_owner.repository", "{}");
+    fs.log = [];
+    await expect(made.get("agt_owner")).rejects.toMatchObject({
+      code: "forbidden",
+    });
+    expect(fs.log).toEqual([]);
+    await expect(platform()).rejects.toMatchObject({ code: "forbidden" });
+  });
+
+  it("refuses a record directory the workload owns, or a bindings it can enter", async () => {
+    const { bindings: made } = await platform();
+    write("agt_owner", MANAGED_BINDING);
+    write("agt_owner.repository", "{}");
+    fs.nodes.get(store)!.uid = ids.uid;
+    fs.log = [];
+    await expect(made.get("agt_owner")).rejects.toMatchObject({
+      code: "forbidden",
+    });
+    fs.nodes.get(store)!.uid = ROOT;
+    fs.nodes.get(bindings)!.mode = 0o755;
+    await expect(made.get("agt_owner")).rejects.toMatchObject({
+      code: "forbidden",
+    });
+    expect(fs.log).toEqual([]);
+  });
+});
+
+/*
+ * What an older build reads after this build wrote, and what this build
+ * reads after an older build wrote (probation rollback, then roll forward):
+ * the same session, through the core's own operations. A real directory,
+ * because the core reads its receipts itself; the ids are this process's.
+ */
+describe("linux-privsep bindings across builds", () => {
+  const owner = "agt_owner";
+  const child = "agt_child";
+  let state: string;
+  let bindings: string;
+  let ownerCheckout: string;
+  let log: string[];
+  const real = {
+    supervisor: process.getuid!(),
+    uid: process.getuid!(),
+    gid: process.getgid!(),
+  };
+  const logged: PrivsepFs = {
+    ...nodeFs,
+    async rm(path) {
+      log.push(`rm ${path}`);
+      return nodeFs.rm(path);
+    },
+    async writePrivate(dir, file, contents) {
+      log.push(`write ${join(dir, file)}`);
+      return nodeFs.writePrivate(dir, file, contents);
+    },
+  };
+  const legacyFiles = (key: string) =>
+    [
+      "",
+      ".repository",
+      ".cwd",
+      ".selected-cwd",
+      ".borrowed-cwd",
+      ".borrowed-from",
+    ].map((suffix) => `${bindings}/${key}${suffix}`);
+  const legacyBytes = async (key: string) =>
+    Object.fromEntries(
+      (
+        await Promise.all(
+          legacyFiles(key).map(async (file) => [file, await nodeFs.read(file)])
+        )
+      ).filter(([, value]) => value !== null)
+    );
+
+  beforeEach(async () => {
+    state = await realpath(await mkdtemp(join(tmpdir(), "privsep-builds-")));
+    await chmod(state, 0o751);
+    bindings = join(state, "bindings");
+    await mkdir(bindings, { mode: 0o700 });
+    await mkdir(join(state, "sessions"), { mode: 0o751 });
+    await chmod(join(state, "sessions"), 0o751);
+    await mkdir(join(state, "repositories"), { mode: 0o711 });
+    ownerCheckout = join(state, "sessions", owner, "checkout");
+    log = [];
+    // The core prepared `owner`'s checkout: a complete receipt, no binding yet.
+    const receipts = join(bindings, "workspace", owner);
+    await mkdir(receipts, { recursive: true, mode: 0o700 });
+    await writeFile(
+      join(receipts, "workspace-preparation"),
+      JSON.stringify({
+        source: "/clone",
+        sourceIdentity: "9:9:9",
+        cwd: "/clone",
+        request: { name: "feature", branch: "feature", create: false },
+        repository: {
+          identity: "example.test/o/r",
+          checkout: { kind: "branch", branch: "feature" },
+          url: "https://example.test/o/r.git",
+        },
+        at: ownerCheckout,
+        worktree: {
+          path: ownerCheckout,
+          branch: "feature",
+          base: "feature",
+          identity: "1:2:3",
+          complete: true,
+        },
+      })
+    );
+  });
+  afterEach(() => rm(state, { recursive: true, force: true }));
+
+  function preparation() {
+    return createRemoteWorkspacePreparation({
+      state,
+      ids: real,
+      asWorkload,
+      fs: logged,
+      async step(method, args) {
+        switch (method) {
+          case "workspace.identity":
+            return args[0] === ownerCheckout ? "1:2:3" : null;
+          case "workspace.git":
+            return null;
+          case "workspace.canonical":
+            return args[0];
+          default:
+            throw new Error(`unexpected ${method}`);
+        }
+      },
+    });
+  }
+  type Made = Awaited<ReturnType<typeof preparation>>;
+  const resume = (made: Made, session: string) =>
+    made.call("workspace.resume", { session: session as never }, () => {});
+  const borrow = (made: Made) =>
+    made.call(
+      "workspace.prepare",
+      {
+        session: child as never,
+        source: { session: owner as never },
+        copyIgnored: [],
+        installDependencies: false,
+      },
+      () => {}
+    );
+  const legacyEntries = (lines: string[]) =>
+    lines.filter((line) => !line.includes("/.bindings/"));
+
+  it("writes the files an older build reads, in today's order, bytes and modes", async () => {
+    const made = await preparation();
+    log = [];
+    await resume(made, owner);
+    expect(legacyEntries(log)).toEqual([
+      `write ${bindings}/${owner}.repository`,
+      `write ${bindings}/${owner}`,
+    ]);
+    expect(await legacyBytes(owner)).toEqual({
+      [`${bindings}/${owner}`]: MANAGED_BINDING,
+      [`${bindings}/${owner}.repository`]: JSON.stringify({
+        url: "https://example.test/o/r.git",
+        checkout: { kind: "branch", branch: "feature" },
+      }),
+    });
+    log = [];
+    await borrow(made);
+    expect(legacyEntries(log)).toEqual([
+      `write ${bindings}/${child}.borrowed-cwd`,
+      `write ${bindings}/${child}.borrowed-from`,
+      `write ${bindings}/${child}`,
+    ]);
+    expect(await legacyBytes(child)).toEqual({
+      [`${bindings}/${child}`]: `${MANAGED_BINDING}:${owner}`,
+      [`${bindings}/${child}.borrowed-cwd`]: ownerCheckout,
+      [`${bindings}/${child}.borrowed-from`]: owner,
+    });
+    for (const key of [owner, child])
+      for (const file of Object.keys(await legacyBytes(key))) {
+        const entry = await nodeFs.lstat(file);
+        expect(entry).toEqual({
+          uid: real.supervisor,
+          gid: entry!.gid,
+          mode: 0o600,
+          kind: "file",
+        });
+      }
+  });
+
+  it("keeps its records 0600 in a 0700 directory of the supervisor's", async () => {
+    await resume(await preparation(), owner);
+    const store = join(bindings, ".bindings");
+    expect(await nodeFs.lstat(store)).toMatchObject({
+      uid: real.supervisor,
+      mode: 0o700,
+      kind: "directory",
+    });
+    expect(await nodeFs.lstat(join(store, recordName(owner)))).toMatchObject({
+      uid: real.supervisor,
+      mode: 0o600,
+      kind: "file",
+    });
+  });
+
+  it("forgets exactly today's files", async () => {
+    const made = await preparation();
+    await resume(made, owner);
+    const { bindings: store } = await createLinuxPrivsep({
+      state,
+      ids: real,
+      asWorkload,
+      fs: logged,
+    });
+    log = [];
+    await store.forget(owner);
+    expect(legacyEntries(log)).toEqual(
+      [
+        ".repository",
+        ".checkout-plan",
+        ".dependencies",
+        ".cwd",
+        ".selected-cwd",
+        ".borrowed-cwd",
+        ".borrowed-from",
+        ".launch",
+        "",
+      ].map((suffix) => `rm ${bindings}/${owner}${suffix}`)
+    );
+    expect(await legacyBytes(owner)).toEqual({});
+    expect(await store.get(owner)).toBeNull();
+  });
+
+  it("after an older build selects, this build borrows and resumes the selected folder", async () => {
+    await resume(await preparation(), owner);
+    // Rolled back: the older build moves the owner, as its select does.
+    await nodeFs.writePrivate(bindings, `${owner}.selected-cwd`, "/srv/moved");
+    // Rolled forward again.
+    const again = await preparation();
+    expect(await resume(again, owner)).toMatchObject({
+      path: "/srv/moved",
+      moved: true,
+      checkoutRoot: ownerCheckout,
+    });
+    expect(await borrow(again)).toMatchObject({ path: "/srv/moved" });
+    expect(await nodeFs.read(`${bindings}/${child}.borrowed-cwd`)).toBe(
+      "/srv/moved"
+    );
+    // The older build moves it back to its checkout: this build agrees.
+    await nodeFs.writePrivate(bindings, `${owner}.selected-cwd`, "");
+    expect(await resume(await preparation(), owner)).toMatchObject({
+      path: ownerCheckout,
+      moved: false,
+    });
+  });
+
+  it("after an older build discards a session, this build holds none", async () => {
+    await resume(await preparation(), owner);
+    // Rolled back: the older build discards the owner, removing its
+    // binding files and its preparation receipt.
+    for (const file of legacyFiles(owner)) await nodeFs.rm(file);
+    await nodeFs.rm(join(bindings, "workspace", owner));
+    const again = await preparation();
+    expect(await resume(again, owner)).toBeNull();
+    await expect(borrow(again)).rejects.toMatchObject({ code: "not_found" });
+    expect(await legacyBytes(child)).toEqual({});
+    const { bindings: store } = await createLinuxPrivsep({
+      state,
+      ids: real,
+      asWorkload,
+      fs: logged,
+    });
+    expect(await store.get(owner)).toBeNull();
   });
 });

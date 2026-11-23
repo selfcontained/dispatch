@@ -1,8 +1,9 @@
 /*
- * The core's binding store over the supervisor's existing files, until one
- * store replaces both (T23). Nothing is migrated: an older build reading
- * these files sees the same session, so a rollback during probation and
- * the agents already running keep their paths.
+ * The core's binding store on `linux-privsep`. Its records are the core's
+ * (`BindingStore`), kept in `bindings/.bindings`, root-only like the rest of
+ * `bindings/`. Until T40 the supervisor's own paths and an older build
+ * (a rollback during probation) still read and write today's files, so the
+ * store keeps them as they are and writes them first:
  *
  *   bindings/<key>                "\0managed", "\0managed:<owner>" or a
  *                                 configured workspace's name
@@ -11,43 +12,134 @@
  *   bindings/<key>.cwd            a configured workspace's directory
  *   bindings/<key>.selected-cwd   the folder the session moved into ("" none)
  *   bindings/<key>.borrowed-cwd   where a borrower started
- *   bindings/<key>.borrowed-from which session supplied that folder
+ *   bindings/<key>.borrowed-from  which session supplied that folder
  *   bindings/<key>.checkout-plan  an older build's unfinished preparation
+ *
+ * Each record carries a digest of those files as the store last saw them.
+ * A read whose files no longer match (only something other than this store
+ * changed them: the supervisor's own paths, or an older build) takes the
+ * files, correcting the record or removing it with the session. The first
+ * read of a session an older build bound is its one-time import; the files
+ * are never changed by it.
+ *
+ * Write order: today's files first, in today's order, then the record. A
+ * crash between them leaves a record whose digest no longer matches, which
+ * the next read corrects from the files: both builds read the same session.
  *
  * A session with a `.repository` or a plan and no core receipt was prepared
  * by an older build and finishes on that path (`legacy`).
  */
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 import type { LauncherBinding } from "@dispatch/runner-client/launcher";
-import type { BindingStore, StoredBinding } from "../../local/bindings.js";
+import {
+  BINDINGS_DIR,
+  BindingStore,
+  bindingFileName,
+  type BindingFiles,
+  type StoredBinding,
+} from "../../local/bindings.js";
 import { RECEIPT_FILE, type Receipt } from "../../core/workspace.js";
 import type { PrivsepFs } from "./fs.js";
-import { storageKey, type Layout } from "./layout.js";
+import {
+  PRIVATE_MODE,
+  assertProtected,
+  isPrivate,
+  ownedDirectory,
+  storageKey,
+  type Ids,
+  type Layout,
+} from "./layout.js";
 import type { WorkloadCommand } from "./location.js";
 
 export const MANAGED_BINDING = "\0managed";
 const KEY = /^(agt_[a-z0-9]+|opaque-[A-Za-z0-9_-]{43})$/;
+/** Today's files a session's binding is read from. */
+const LEGACY = [
+  "",
+  ".repository",
+  ".cwd",
+  ".selected-cwd",
+  ".borrowed-cwd",
+  ".borrowed-from",
+] as const;
 
-export class PrivsepBindings implements Pick<
-  BindingStore,
-  "get" | "origin" | "bindPrepared" | "borrow" | "select" | "forget"
-> {
-  private readonly origins = new Map<string, Promise<string | null>>();
+const forbidden = () =>
+  new RunnerCallError({
+    code: "forbidden",
+    message: "The runner binding store is not the supervisor's own.",
+  });
 
+/**
+ * The store's records in `bindings/.bindings`, as the supervisor. Every
+ * call first checks the way there: `<state>` protected, `bindings` and the
+ * store private to the supervisor, neither a link. One supervisor holds the
+ * state lock and the core prepares one session at a time, so `create` may
+ * look before it writes.
+ */
+export function privsepFiles(
+  fs: PrivsepFs,
+  ids: Ids,
+  paths: Layout
+): BindingFiles & { dir: string } {
+  const dir = join(paths.bindings, BINDINGS_DIR);
+  async function guard() {
+    await assertProtected(fs, ids, paths.state, paths.state);
+    for (const path of [paths.bindings, dir])
+      if (
+        !isPrivate(await fs.lstat(path), ids) ||
+        (await fs.realpath(path).catch(() => null)) !== path
+      )
+        throw forbidden();
+  }
+  const read = async (name: string) => {
+    await guard();
+    return fs.read(join(dir, name));
+  };
+  return {
+    dir,
+    async prepare() {
+      await ownedDirectory(fs, ids, dir, PRIVATE_MODE);
+      await guard();
+    },
+    read,
+    exists: async (name) => (await read(name)) !== null,
+    async create(name, text) {
+      if ((await read(name)) !== null) return false;
+      await fs.writePrivate(dir, name, text);
+      return true;
+    },
+    async replace(name, text) {
+      await guard();
+      await fs.writePrivate(dir, name, text);
+    },
+    async remove(name) {
+      await guard();
+      await fs.rm(join(dir, name));
+    },
+  };
+}
+
+type LegacyFiles = Record<string, string | null>;
+
+const withoutDigest = ({
+  legacy: _legacy,
+  ...binding
+}: StoredBinding): StoredBinding => binding;
+
+export class PrivsepBindings extends BindingStore {
   constructor(
     private readonly fs: PrivsepFs,
     private readonly paths: Layout,
-    private readonly asWorkload: WorkloadCommand
-  ) {}
+    private readonly asWorkload: WorkloadCommand,
+    files: BindingFiles
+  ) {
+    super(paths.bindings, files);
+  }
 
   private file(key: string, suffix = "") {
     return join(this.paths.bindings, key + suffix);
-  }
-
-  private async optional(key: string, suffix = "") {
-    const value = await this.fs.read(this.file(key, suffix));
-    return value === "" ? null : value;
   }
 
   private async receipt(session: string): Promise<Receipt | null> {
@@ -57,14 +149,84 @@ export class PrivsepBindings implements Pick<
     return raw === null ? null : (JSON.parse(raw) as Receipt);
   }
 
+  /**
+   * Today's files for a key as they are now, and for a borrower the
+   * owner's binding and repository its checkout is read from.
+   */
+  private async legacyFiles(key: string): Promise<LegacyFiles> {
+    const files: LegacyFiles = {};
+    for (const suffix of LEGACY)
+      files[key + suffix] = await this.fs.read(this.file(key, suffix));
+    const owner = this.ownerOf(files[key]!);
+    if (owner && owner !== key)
+      for (const suffix of ["", ".repository"])
+        files[owner + suffix] = await this.fs.read(this.file(owner, suffix));
+    return files;
+  }
+
+  private ownerOf(binding: string | null): string | null {
+    if (binding === MANAGED_BINDING) return null;
+    if (!binding?.startsWith(MANAGED_BINDING + ":")) return null;
+    const owner = binding.slice(MANAGED_BINDING.length + 1);
+    return KEY.test(owner) ? owner : null;
+  }
+
+  private static digest(files: LegacyFiles): string {
+    return createHash("sha256")
+      .update(JSON.stringify(Object.entries(files).sort()))
+      .digest("base64url");
+  }
+
   /** The managed checkout a key owns: the session itself for scratch. */
-  private async managedLaunch(key: string): Promise<string | null> {
-    const repository = await this.fs.read(this.file(key, ".repository"));
-    if (repository === null) return null;
+  private managedLaunch(key: string, files: LegacyFiles): string | null {
+    const repository = files[key + ".repository"];
+    if (repository === null || repository === undefined) return null;
     const session = join(this.paths.sessions, key);
     return JSON.parse(repository) === null
       ? session
       : join(session, "checkout");
+  }
+
+  /** The binding today's files describe, as an older build reads them. */
+  private async fromLegacy(
+    session: string,
+    key: string,
+    files: LegacyFiles
+  ): Promise<StoredBinding | null> {
+    const optional = (suffix: string) => {
+      const value = files[key + suffix];
+      return value === "" || value === undefined ? null : value;
+    };
+    const binding = files[key];
+    if (binding === null || binding === undefined) return null;
+    let launch: string | null;
+    let ownership: StoredBinding["checkout"]["ownership"] = "external";
+    if (binding === MANAGED_BINDING) {
+      launch = this.managedLaunch(key, files);
+      ownership = "owned";
+    } else if (binding.startsWith(MANAGED_BINDING + ":")) {
+      const owner = this.ownerOf(binding);
+      if (!owner) return null;
+      launch = this.managedLaunch(owner, files);
+    } else launch = optional(".cwd");
+    if (launch === null) return null;
+    const borrowed = optional(".borrowed-cwd");
+    const borrowedFrom = borrowed && optional(".borrowed-from");
+    const worktree = (await this.receipt(session))?.worktree;
+    return {
+      version: 1,
+      session,
+      path: borrowed ?? launch,
+      currentPath: optional(".selected-cwd"),
+      checkout: {
+        path: launch,
+        ownership,
+        branch: worktree?.path === launch ? worktree.branch : null,
+        base: worktree?.path === launch ? worktree.base : null,
+      },
+      source: "prepare",
+      ...(borrowedFrom && { borrowedFrom }),
+    };
   }
 
   /** The platform's place for a managed session's checkout. */
@@ -81,64 +243,50 @@ export class PrivsepBindings implements Pick<
     return old && (await this.receipt(session)) === null;
   }
 
-  async get(session: string): Promise<StoredBinding | null> {
+  /**
+   * The session's record, unless today's files changed since the store
+   * last saw them: then the files win, and the record follows them.
+   */
+  override async get(session: string): Promise<StoredBinding | null> {
     const key = storageKey(session);
-    const binding = await this.fs.read(this.file(key));
-    if (binding === null) return null;
-    let launch: string | null;
-    let ownership: StoredBinding["checkout"]["ownership"] = "external";
-    if (binding === MANAGED_BINDING) {
-      launch = await this.managedLaunch(key);
-      ownership = "owned";
-    } else if (binding.startsWith(MANAGED_BINDING + ":")) {
-      const owner = binding.slice(MANAGED_BINDING.length + 1);
-      if (!KEY.test(owner)) return null;
-      launch = await this.managedLaunch(owner);
-    } else launch = await this.optional(key, ".cwd");
-    if (launch === null) return null;
-    const borrowed = await this.optional(key, ".borrowed-cwd");
-    const borrowedFrom =
-      borrowed && (await this.optional(key, ".borrowed-from"));
-    const worktree = (await this.receipt(session))?.worktree;
-    return {
-      version: 1,
-      session,
-      path: borrowed ?? launch,
-      currentPath: await this.optional(key, ".selected-cwd"),
-      checkout: {
-        path: launch,
-        ownership,
-        branch: worktree?.path === launch ? worktree.branch : null,
-        base: worktree?.path === launch ? worktree.base : null,
-      },
-      source: "prepare",
-      ...(borrowedFrom && { borrowedFrom }),
-    };
+    const files = await this.legacyFiles(key);
+    const digest = PrivsepBindings.digest(files);
+    const held = await super.get(session);
+    if (held && held.legacy === digest) return withoutDigest(held);
+    const current = await this.fromLegacy(session, key, files);
+    if (!current) {
+      if (held) await this.files.remove(bindingFileName(session));
+      return null;
+    }
+    await this.put({ ...current, legacy: digest });
+    return current;
   }
 
-  /** The checkout's `origin` URL, read once per path as the workload. */
-  origin(path: string): Promise<string | null> {
-    let origin = this.origins.get(path);
-    if (!origin) {
-      origin = this.asWorkload(
-        "git",
-        ["-C", path, "config", "--get", "remote.origin.url"],
-        { git: true }
-      ).then(
-        (out) => out.split("\n")[0] || null,
-        () => null
-      );
-      this.origins.set(path, origin);
-    }
-    return origin;
+  /** The checkout's `origin` URL, read as the workload. */
+  protected override readOrigin(path: string): Promise<string | null> {
+    return this.asWorkload(
+      "git",
+      ["-C", path, "config", "--get", "remote.origin.url"],
+      { git: true }
+    ).then(
+      (out) => out.split("\n")[0] || null,
+      () => null
+    );
+  }
+
+  /** Today's files, then the record (by reading them back). */
+  private async bound(session: string): Promise<StoredBinding> {
+    const bound = await this.get(session);
+    if (!bound) throw new Error("The runner session binding is unavailable.");
+    return bound;
   }
 
   /**
    * Bind a session the core prepared at the platform's place, in the files
    * an older build reads: the checkout's repository first, the binding
-   * last. A bound session keeps its binding.
+   * last, then the record. A bound session keeps its binding.
    */
-  async bindPrepared(input: LauncherBinding): Promise<StoredBinding> {
+  override async bindPrepared(input: LauncherBinding): Promise<StoredBinding> {
     const held = await this.get(input.session);
     if (held) return held;
     const key = storageKey(input.session);
@@ -162,31 +310,28 @@ export class PrivsepBindings implements Pick<
       )
     );
     await this.fs.writePrivate(this.paths.bindings, key, MANAGED_BINDING);
-    const bound = await this.get(input.session);
-    if (!bound) throw new Error("The runner session binding is unavailable.");
-    return bound;
+    return this.bound(input.session);
   }
 
-  async borrow(
+  override async borrow(
     session: string,
     parent: string,
     path: string
   ): Promise<StoredBinding> {
     const key = storageKey(session);
     const parentKey = storageKey(parent);
-    const binding = await this.optional(parentKey);
+    const binding = await this.fs.read(this.file(parentKey));
     const prefix = MANAGED_BINDING + ":";
     const owner =
-      binding === MANAGED_BINDING
-        ? parentKey
-        : binding?.startsWith(prefix)
-          ? binding.slice(prefix.length)
-          : null;
+      binding === MANAGED_BINDING ? parentKey : this.ownerOf(binding);
     if (
       !owner ||
-      !KEY.test(owner) ||
       owner === key ||
-      !(await this.managedLaunch(owner))
+      !this.managedLaunch(owner, {
+        [owner + ".repository"]: await this.fs.read(
+          this.file(owner, ".repository")
+        ),
+      })
     )
       throw new RunnerCallError({
         code: "not_found",
@@ -203,13 +348,11 @@ export class PrivsepBindings implements Pick<
       parent
     );
     await this.fs.writePrivate(this.paths.bindings, key, prefix + owner);
-    const borrowed = await this.get(session);
-    if (!borrowed)
-      throw new Error("The runner session binding is unavailable.");
-    return borrowed;
+    return this.bound(session);
   }
 
-  async forget(session: string): Promise<void> {
+  /** Today's files, then the record. */
+  override async forget(session: string): Promise<void> {
     const key = storageKey(session);
     for (const suffix of [
       ".repository",
@@ -223,10 +366,11 @@ export class PrivsepBindings implements Pick<
       "",
     ])
       await this.fs.rm(this.file(key, suffix));
+    await super.forget(session);
   }
 
   /** Record the folder the session works in (null: its checkout), as today. */
-  async select(
+  override async select(
     session: string,
     currentPath: string | null
   ): Promise<StoredBinding | null> {
@@ -237,6 +381,6 @@ export class PrivsepBindings implements Pick<
       `${storageKey(session)}.selected-cwd`,
       currentPath ?? ""
     );
-    return { ...held, currentPath };
+    return this.bound(session);
   }
 }

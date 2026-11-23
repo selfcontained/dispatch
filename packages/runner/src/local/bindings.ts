@@ -68,6 +68,11 @@ export type StoredBinding = {
   source: "import" | "prepare";
   /** The session whose current folder this session borrowed. */
   borrowedFrom?: string;
+  /**
+   * linux-privsep only, until T40: a digest of the supervisor's own binding
+   * files as the store last saw them. Never written locally.
+   */
+  legacy?: string;
 };
 
 export type ImportCounts = { added: number; kept: number; invalid: number };
@@ -193,30 +198,93 @@ export async function decideBinding(
   };
 }
 
+/**
+ * Where a store keeps its records: one file per session, by name, in one
+ * directory. A platform whose state needs its own guards (linux-privsep,
+ * as root) supplies its own; locally it is Node's, below.
+ */
+export interface BindingFiles {
+  /** Make the directory when it is missing. */
+  prepare(): Promise<void>;
+  /** A record's text, or null when it is missing. */
+  read(name: string): Promise<string | null>;
+  /** Whether anything (even something unreadable) has the name. */
+  exists(name: string): Promise<boolean>;
+  /** Publish a record under a free name; false when the name is taken. */
+  create(name: string, text: string): Promise<boolean>;
+  /** Replace a record (or publish it). */
+  replace(name: string, text: string): Promise<void>;
+  remove(name: string): Promise<void>;
+}
+
+/** The records in `dir` with Node: published with `link`, never replaced by an import. */
+export function directoryFiles(dir: string): BindingFiles {
+  const temporary = async (text: string) => {
+    const temp = join(dir, `.${randomUUID()}.tmp`);
+    await writeFile(temp, text, { mode: 0o600 });
+    return temp;
+  };
+  return {
+    prepare: () => mkdir(dir, { recursive: true, mode: 0o700 }).then(() => {}),
+    async read(name) {
+      try {
+        return await readFile(join(dir, name), "utf8");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+        throw error;
+      }
+    },
+    exists: async (name) => (await presence(join(dir, name))) !== "missing",
+    async create(name, text) {
+      const temp = await temporary(text);
+      try {
+        await link(temp, join(dir, name));
+        return true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        return false;
+      } finally {
+        await rm(temp, { force: true });
+      }
+    },
+    async replace(name, text) {
+      const temp = await temporary(text);
+      try {
+        await rename(temp, join(dir, name));
+      } finally {
+        await rm(temp, { force: true });
+      }
+    },
+    remove: (name) => rm(join(dir, name), { force: true }),
+  };
+}
+
+/** A record's file name: the session hashed, so no handle becomes a path. */
+export const bindingFileName = fileName;
+
+const encode = (stored: StoredBinding) => JSON.stringify(stored) + "\n";
+
 export class BindingStore {
   readonly dir: string;
   private readonly origins = new Map<string, Promise<string | null>>();
+  protected readonly files: BindingFiles;
 
-  constructor(stateRoot: string) {
+  constructor(stateRoot: string, files?: BindingFiles) {
     this.dir = join(stateRoot, BINDINGS_DIR);
+    this.files = files ?? directoryFiles(this.dir);
   }
 
   async get(session: string): Promise<StoredBinding | null> {
-    try {
-      const stored = JSON.parse(
-        await readFile(join(this.dir, fileName(session)), "utf8")
-      ) as StoredBinding;
-      if (!stored || stored.version !== 1 || stored.session !== session)
-        throw new Error("Invalid stored checkout binding.");
-      return stored;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-      throw error;
-    }
+    const text = await this.files.read(fileName(session));
+    if (text === null) return null;
+    const stored = JSON.parse(text) as StoredBinding;
+    if (!stored || stored.version !== 1 || stored.session !== session)
+      throw new Error("Invalid stored checkout binding.");
+    return stored;
   }
 
   async forget(session: string): Promise<void> {
-    await rm(join(this.dir, fileName(session)), { force: true });
+    await this.files.remove(fileName(session));
   }
 
   /**
@@ -227,12 +295,22 @@ export class BindingStore {
   origin(path: string): Promise<string | null> {
     let origin = this.origins.get(path);
     if (!origin) {
-      origin = git(path, ["config", "--get", "remote.origin.url"]).then(
-        (lines) => lines?.[0] ?? null
-      );
+      origin = this.readOrigin(path);
       this.origins.set(path, origin);
     }
     return origin;
+  }
+
+  /** The `origin` URL as this platform reads it. */
+  protected readOrigin(path: string): Promise<string | null> {
+    return git(path, ["config", "--get", "remote.origin.url"]).then(
+      (lines) => lines?.[0] ?? null
+    );
+  }
+
+  /** Replace the session's record with `stored`. */
+  protected async put(stored: StoredBinding): Promise<void> {
+    await this.files.replace(fileName(stored.session), encode(stored));
   }
 
   /**
@@ -244,8 +322,7 @@ export class BindingStore {
     input: LauncherBinding,
     borrowedFrom?: string
   ): Promise<StoredBinding> {
-    await mkdir(this.dir, { recursive: true, mode: 0o700 });
-    const target = join(this.dir, fileName(input.session));
+    await this.files.prepare();
     const held = await this.get(input.session);
     if (held?.source === "prepare") return held;
     const stored: StoredBinding = {
@@ -253,21 +330,12 @@ export class BindingStore {
       source: "prepare",
       ...(borrowedFrom !== undefined && { borrowedFrom }),
     };
-    const temp = join(this.dir, `.${randomUUID()}.tmp`);
-    await writeFile(temp, JSON.stringify(stored) + "\n", { mode: 0o600 });
-    try {
-      if (held) await rename(temp, target);
-      else
-        try {
-          await link(temp, target);
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-          // An import published one meanwhile: this one replaces it.
-          await rename(temp, target);
-        }
-    } finally {
-      await rm(temp, { force: true });
-    }
+    // An import that published one meanwhile is replaced by this one.
+    if (
+      held ||
+      !(await this.files.create(fileName(input.session), encode(stored)))
+    )
+      await this.put(stored);
     return stored;
   }
 
@@ -294,13 +362,7 @@ export class BindingStore {
     const held = await this.get(session);
     if (!held) return null;
     const stored: StoredBinding = { ...held, currentPath };
-    const temp = join(this.dir, `.${randomUUID()}.tmp`);
-    await writeFile(temp, JSON.stringify(stored) + "\n", { mode: 0o600 });
-    try {
-      await rename(temp, join(this.dir, fileName(session)));
-    } finally {
-      await rm(temp, { force: true });
-    }
+    await this.put(stored);
     return stored;
   }
 
@@ -311,29 +373,20 @@ export class BindingStore {
    */
   async import(bindings: unknown[]): Promise<ImportCounts> {
     const counts: ImportCounts = { added: 0, kept: 0, invalid: 0 };
-    await mkdir(this.dir, { recursive: true, mode: 0o700 });
+    await this.files.prepare();
     for (const entry of bindings) {
       if (!launcherBinding.check(entry) || !entry.session) {
         counts.invalid += 1;
         continue;
       }
-      const target = join(this.dir, fileName(entry.session));
-      if (await presence(target).then((p) => p !== "missing")) {
+      const name = fileName(entry.session);
+      if (await this.files.exists(name)) {
         counts.kept += 1;
         continue;
       }
       const stored = await decideBinding(entry);
-      const temp = join(this.dir, `.${randomUUID()}.tmp`);
-      await writeFile(temp, JSON.stringify(stored) + "\n", { mode: 0o600 });
-      try {
-        await link(temp, target);
-        counts.added += 1;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-        counts.kept += 1;
-      } finally {
-        await rm(temp, { force: true });
-      }
+      if (await this.files.create(name, encode(stored))) counts.added += 1;
+      else counts.kept += 1;
     }
     return counts;
   }

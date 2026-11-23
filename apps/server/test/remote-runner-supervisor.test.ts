@@ -244,6 +244,7 @@ describe("runner session supervision", () => {
       | "build"
       | "uid"
       | "gid"
+      | "bindingWritten"
     >
   ) {
     supervisor = await createSessionSupervisor(
@@ -1877,6 +1878,87 @@ describe("runner session supervision", () => {
         id !== reviewerId && id !== nested
       );
     }
+  });
+
+  it("tells the core's binding store after each binding write, and never fails for it", async () => {
+    const workspace = MANAGED_WORKSPACE;
+    const asWorkload = async (bin: string, args: string[]) =>
+      bin === "realpath"
+        ? (await realpath(args.at(-1)!)) + "\n"
+        : execFileSync(bin, args, {
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "ignore"],
+          });
+    let store: Awaited<ReturnType<typeof createLinuxPrivsep>> | undefined;
+    let fail = false;
+    const told: string[] = [];
+    const runner = await start([], asWorkload, undefined, {
+      async bindingWritten(id) {
+        told.push(id);
+        if (fail) throw new Error("store unavailable");
+        await store?.bindings.get(id);
+      },
+    });
+    store = await createLinuxPrivsep({
+      state: await realpath(state),
+      ids: {
+        supervisor: process.getuid!(),
+        uid: process.getuid!(),
+        gid: process.getgid!(),
+      },
+      asWorkload,
+    });
+    // The record as written, not as a read would reconcile it.
+    const record = async () => {
+      const text = await readFile(
+        path.join(
+          await realpath(state),
+          "bindings",
+          ".bindings",
+          createHash("sha256").update(agentId).digest("hex") + ".json"
+        ),
+        "utf8"
+      ).catch(() => null);
+      return text === null ? null : JSON.parse(text);
+    };
+    await runner.launch(launch(workspace), undefined);
+    expect(told).toEqual([agentId, agentId]);
+    const owning = path.join(await realpath(state), "sessions", agentId);
+    expect(await record()).toMatchObject({
+      session: agentId,
+      path: owning,
+      currentPath: null,
+      checkout: { ownership: "owned" },
+    });
+    const subdir = path.join(owning, "subdirectory");
+    await mkdir(subdir);
+    await runner.sessionCheckout(agentId, workspace, {
+      kind: "select",
+      path: subdir,
+    });
+    expect(await record()).toMatchObject({ currentPath: subdir });
+
+    // A store that fails changes nothing the supervisor does.
+    fail = true;
+    await expect(
+      runner.sessionCheckout(agentId, workspace, { kind: "select", path: null })
+    ).resolves.toMatchObject({ moved: false });
+    expect(
+      await readFile(
+        path.join(state, "bindings", `${agentId}.selected-cwd`),
+        "utf8"
+      )
+    ).toBe("");
+    expect(await record()).toMatchObject({ currentPath: subdir });
+    // ...and the store's next read takes the files.
+    fail = false;
+    expect(await store.bindings.get(agentId)).toMatchObject({
+      currentPath: null,
+    });
+
+    await runner.stop(agentId, workspace, false);
+    await runner.discard(agentId, workspace);
+    expect(await record()).toBeNull();
   });
 
   it("lets a managed session select any folder its account can use, like local", async () => {
