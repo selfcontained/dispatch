@@ -1,0 +1,17 @@
+{
+  "launch": "launch.json",
+  "socket": "host.sock",
+  "pid": "host.pid",
+  "journal": "journal.jsonl",
+  "journalId": "journal.id",
+  "session": "session.json",
+  "log": "host.log",
+  "receipts": "prompt-receipts.jsonl",
+  "turnActive": "turn-active",
+  "serviceMcpCa": "service-mcp-ca.pem",
+  "nodeCa": "node-ca.pem",
+  "codexCa": "codex-ca.pem",
+  "curlCa": "curl-ca.pem",
+  "instructions": "dispatch-instructions.md",
+  "personaContext": "persona-context.md"
+}
