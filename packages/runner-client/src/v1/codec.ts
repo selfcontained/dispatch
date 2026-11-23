@@ -277,6 +277,11 @@ function encodeView(op: OpName, r: AnyRecord): CheckoutView {
   };
   switch (op) {
     case "checkout.list":
+      if (r.unfiltered)
+        throw new RunnerCallError({
+          code: "unsupported",
+          message: "This runner lists filtered directories only.",
+        });
       return { kind: "directory", path: r.path as string };
     case "checkout.preview":
       return { kind: "preview", path: r.path as string };

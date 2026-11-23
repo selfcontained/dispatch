@@ -361,6 +361,8 @@ export const operations = {
       path: string,
       /** List regular files at the checkout root, following file and directory symlinks. */
       filesOnly: optional(literal(true)),
+      /** List every entry, as the directory holds them: Git-ignored ones and `.git` included. */
+      unfiltered: optional(literal(true)),
     }),
     response: directoryListing,
     errors: ["not_found", "forbidden"],

@@ -201,6 +201,16 @@ export function createLocalCheckoutRunner(
     options?: CallOptions<K>
   ): Promise<Res<K>> {
     const { target, ...request } = input as Req<ChildRead>;
+    // A directory named by path, before or beside any session: this runner
+    // reads it as it reads a bound checkout, the child first.
+    if ("path" in target)
+      return child
+        ? child.call(op, input, options)
+        : (checkoutWorkload.run(
+            op,
+            { directory: displayPath(target.path), request } as never,
+            { signal: options?.signal }
+          ) as Promise<Res<K>>);
     if (!("session" in target) || sessionToWire(target.session) !== agent?.id)
       throw new RunnerCallError({
         code: "invalid",

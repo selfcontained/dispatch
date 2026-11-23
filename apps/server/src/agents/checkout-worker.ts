@@ -163,7 +163,8 @@ async function work<K extends WorkerOp>(
 ): Promise<unknown> {
   switch (op) {
     case "checkout.list": {
-      const { path, filesOnly } = request as Input<"checkout.list">["request"];
+      const { path, filesOnly, unfiltered } =
+        request as Input<"checkout.list">["request"];
       if (filesOnly) {
         const reply = await inspectCheckout(directory, {
           kind: "listFiles",
@@ -180,7 +181,11 @@ async function work<K extends WorkerOp>(
           truncated: false,
         };
       }
-      return readWorkspaceView(directory, { kind: "directory", path });
+      return readWorkspaceView(
+        directory,
+        { kind: "directory", path },
+        { unfiltered: unfiltered === true }
+      );
     }
     case "checkout.preview": {
       const { path } = request as Input<"checkout.preview">["request"];
@@ -1163,7 +1168,10 @@ async function readRawBytes(
       inside === ".." ||
       path.isAbsolute(inside)
     )
-      return null;
+      throw new RunnerCallError({
+        code: "forbidden",
+        message: "Invalid icon path.",
+      });
     const handle = await open(
       resolved,
       constants.O_RDONLY | constants.O_NONBLOCK

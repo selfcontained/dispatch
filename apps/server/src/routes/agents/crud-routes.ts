@@ -47,7 +47,11 @@ import {
   validateAgentModelChoice,
 } from "../../shared/agent-models.js";
 import { getDirectoryIconPath } from "../../shared/directory-icon-cache.js";
-import { detectAgentIcon, readAgentIcon } from "../../agents/checkout-icon.js";
+import {
+  detectAgentIcon,
+  iconTarget,
+  readAgentIcon,
+} from "../../agents/checkout-icon.js";
 import { sessionRunner } from "../../agents/checkout-runner.js";
 
 export async function registerAgentCrudRoutes(
@@ -167,8 +171,9 @@ export async function registerAgentCrudRoutes(
       deps.agentManager.checkoutReadRunners(),
       agent
     );
+    const target = iconTarget(agent, baseDir);
     const iconRelPath = await getDirectoryIconPath(deps.pool, baseDir, () =>
-      detectAgentIcon(runner, agent)
+      detectAgentIcon(runner, target)
     );
     if (!iconRelPath) {
       return reply.code(404).send({ error: "No repo icon." });
@@ -179,7 +184,17 @@ export async function registerAgentCrudRoutes(
       return reply.code(400).send({ error: "Invalid icon extension." });
     }
 
-    const bytes = await readAgentIcon(runner, agent, iconRelPath);
+    if (
+      path.isAbsolute(iconRelPath) ||
+      iconRelPath.split(/[\\/]/).includes("..")
+    ) {
+      return reply.code(400).send({ error: "Invalid icon path." });
+    }
+
+    const bytes = await readAgentIcon(runner, target, iconRelPath);
+    if (bytes === "outside") {
+      return reply.code(400).send({ error: "Invalid icon path." });
+    }
     if (!bytes) {
       return reply.code(404).send({ error: "Icon file not found." });
     }

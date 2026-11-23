@@ -3,6 +3,7 @@
  * `checkout.read`; its answer must match the host-filesystem scan, and the
  * raw bytes read must stay inside the checkout.
  */
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -10,7 +11,13 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Runner } from "@dispatch/runner-protocol/contract";
 import { checkoutWorkload } from "../src/agents/checkout-worker.js";
-import { detectAgentIcon, readAgentIcon } from "../src/agents/checkout-icon.js";
+import {
+  detectAgentIcon,
+  iconTarget,
+  readAgentIcon,
+} from "../src/agents/checkout-icon.js";
+import { sessionRunner } from "../src/agents/checkout-runner.js";
+import { controllerPlacement } from "../src/runners/placement.js";
 import { detectRepoIcon } from "../src/shared/repo-icon.js";
 
 let dir: string;
@@ -32,7 +39,8 @@ const runner = (root: string) =>
       );
     },
   }) as unknown as Runner;
-const agent = { id: "agt_icon" };
+const agent = { id: "agt_icon", placement: controllerPlacement };
+const at = (root: string) => iconTarget(agent, root);
 const put = async (rel: string, data: string | Buffer = "x") => {
   await mkdir(path.dirname(path.join(dir, rel)), { recursive: true });
   await writeFile(path.join(dir, rel), data);
@@ -52,7 +60,7 @@ describe("agent icon through the runner", () => {
       await rm(dir, { recursive: true, force: true });
       await mkdir(dir);
       for (const file of files) await put(file);
-      expect(await detectAgentIcon(runner(dir), agent)).toBe(
+      expect(await detectAgentIcon(runner(dir), at(dir))).toBe(
         await detectRepoIcon(dir)
       );
     }
@@ -62,7 +70,7 @@ describe("agent icon through the runner", () => {
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 255, 128]);
     await put("logo.png", png);
     await put("empty.svg", "");
-    expect(await readAgentIcon(runner(dir), agent, "logo.png")).toEqual(png);
+    expect(await readAgentIcon(runner(dir), at(dir), "logo.png")).toEqual(png);
     const file = await runner(dir).call("checkout.read", {
       target: { session: "s" },
       path: "logo.png",
@@ -73,10 +81,10 @@ describe("agent icon through the runner", () => {
       data: png.toString("base64"),
       digest: createHash("sha256").update(png).digest("hex"),
     });
-    expect(await readAgentIcon(runner(dir), agent, "empty.svg")).toEqual(
+    expect(await readAgentIcon(runner(dir), at(dir), "empty.svg")).toEqual(
       Buffer.alloc(0)
     );
-    expect(await readAgentIcon(runner(dir), agent, "missing.png")).toBeNull();
+    expect(await readAgentIcon(runner(dir), at(dir), "missing.png")).toBeNull();
 
     const outside = await mkdtemp(path.join(tmpdir(), "checkout-icon-out-"));
     try {
@@ -87,10 +95,12 @@ describe("agent icon through the runner", () => {
       );
       await mkdir(path.join(dir, "inner"));
       await symlink(path.join(dir, "logo.png"), path.join(dir, "inner/in.png"));
-      expect(await readAgentIcon(runner(dir), agent, "out.png")).toBeNull();
-      expect(await readAgentIcon(runner(dir), agent, "../x.png")).toBeNull();
-      expect(await readAgentIcon(runner(dir), agent, "inner")).toBeNull();
-      expect(await readAgentIcon(runner(dir), agent, "inner/in.png")).toEqual(
+      expect(await readAgentIcon(runner(dir), at(dir), "out.png")).toBe(
+        "outside"
+      );
+      expect(await readAgentIcon(runner(dir), at(dir), "../x.png")).toBeNull();
+      expect(await readAgentIcon(runner(dir), at(dir), "inner")).toBeNull();
+      expect(await readAgentIcon(runner(dir), at(dir), "inner/in.png")).toEqual(
         png
       );
     } finally {
@@ -116,7 +126,71 @@ describe("agent icon through the runner", () => {
         throw new Error("offline");
       },
     } as unknown as Runner;
-    expect(await detectAgentIcon(broken, agent)).toBeNull();
-    expect(await readAgentIcon(broken, agent, "logo.png")).toBeNull();
+    expect(await detectAgentIcon(broken, at(dir))).toBeNull();
+    expect(await readAgentIcon(broken, at(dir), "logo.png")).toBeNull();
+  });
+
+  it("finds a Git-ignored icon and counts every entry, as the host scan does", async () => {
+    execFileSync("git", ["init", "-q"], { cwd: dir });
+    await put(".gitignore", "assets/\n");
+    await put("assets/logo.svg");
+    expect(await detectRepoIcon(dir)).toBe(path.join("assets", "logo.svg"));
+    expect(await detectAgentIcon(runner(dir), at(dir))).toBe(
+      path.join("assets", "logo.svg")
+    );
+    // 199 files and `.git` make 200 entries beside the icon: over the limit.
+    await rm(path.join(dir, "assets"), { recursive: true });
+    await put("favicon.svg");
+    for (let i = 0; i < 197; i++) await put(`f${i}.txt`);
+    const host = await detectRepoIcon(dir);
+    expect(await detectAgentIcon(runner(dir), at(dir))).toBe(host);
+    await put("extra.txt");
+    expect(await detectRepoIcon(dir)).toBeNull();
+    expect(await detectAgentIcon(runner(dir), at(dir))).toBeNull();
+  });
+
+  it("reads a worktree agent's icon from the folder it was launched in", async () => {
+    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
+    await put("README.md");
+    const git = (...args: string[]) =>
+      execFileSync("git", args, {
+        cwd: dir,
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: "t",
+          GIT_AUTHOR_EMAIL: "t@e.com",
+          GIT_COMMITTER_NAME: "t",
+          GIT_COMMITTER_EMAIL: "t@e.com",
+        },
+      });
+    git("add", ".");
+    git("commit", "-qm", "init");
+    const worktree = path.join(dir, "..", path.basename(dir) + "-wt");
+    git("worktree", "add", "-q", worktree, "-b", "work");
+    await put("logo.svg"); // untracked, in the launch folder only
+    try {
+      const row = {
+        id: "agt_wt",
+        cwd: worktree,
+        worktreePath: worktree,
+        workspacePath: null,
+        placement: controllerPlacement,
+        launchCwd: dir,
+      };
+      // The route's base directory for this agent, as main computes it.
+      const baseDir = row.launchCwd ?? row.cwd;
+      const through = sessionRunner({}, row);
+      const target = iconTarget(row, baseDir);
+      expect(await detectAgentIcon(through, target)).toBe("logo.svg");
+      expect(await readAgentIcon(through, target, "logo.svg")).toEqual(
+        Buffer.from("x")
+      );
+      // The worktree itself holds no icon: reading it would find none.
+      expect(await detectAgentIcon(through, iconTarget(row, worktree))).toBe(
+        null
+      );
+    } finally {
+      await rm(worktree, { recursive: true, force: true });
+    }
   });
 });
