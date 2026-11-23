@@ -138,6 +138,8 @@ function harness(
     child?: Runner;
     /** The row records no worktree of its own. */
     rowWithoutWorktree?: boolean;
+    /** The row records this path as its worktree instead. */
+    rowWorktree?: string;
   } = {}
 ): Harness {
   const logger = {
@@ -214,6 +216,7 @@ function harness(
       worktreePath: null,
       worktreeBranch: null,
     }),
+    ...(options.rowWorktree && { worktreePath: options.rowWorktree }),
     cwd: row.placement === "runner" ? "runner://test/@session" : repo,
     placement: controllerPlacement,
     runnerManaged: row.placement === "runner",
@@ -831,6 +834,37 @@ describe("local archive against main's outcomes, whatever the child holds", () =
       )
     ).toMatchObject({ pending: false, removed: false });
   });
+
+  // Main hands the row's path to cleanupGitWorktree, which removes the
+  // checkout root Git resolves for it (`rev-parse --show-toplevel`).
+  it.each([
+    ["force", "no child", null],
+    ["auto", "no child", null],
+    ["force", "a child holding the worktree root", "root"],
+  ] as const)(
+    "a row naming a subdirectory of its worktree (%s, %s): the worktree is removed, as main does",
+    async (mode, _child, held) => {
+      const sub = path.join(checkout, "src");
+      execFileSync("mkdir", [sub]);
+      writeFileSync(path.join(sub, ".keep"), "");
+      git(checkout, "add", ".");
+      git(checkout, "commit", "-qm", "src");
+      // Merged, so auto finds nothing outstanding.
+      git(repo, "merge", "-q", "--ff-only", "feature");
+      expect(
+        await archive(
+          { ...auto, mode },
+          {
+            rowWorktree: sub,
+            ...(held && {
+              child: child({ at: atRow, ownership: "owned" }),
+            }),
+          }
+        )
+      ).toMatchObject({ pending: false, removed: true });
+      expect(git(repo, "branch", "--list", "feature")).toBe("");
+    }
+  );
 
   it("dirty under auto: kept", async () => {
     expect(

@@ -396,10 +396,16 @@ export function createLocalCheckoutRunner(
     } catch (error) {
       if (!childUnavailable(error)) throw error;
     }
+    // Main removes the checkout Git resolves for the row's path (its
+    // `rev-parse --show-toplevel`), so a row naming a folder inside its
+    // worktree loses the worktree, as on main.
+    const probed = await workspaceWorkload.git(worktree).catch(() => null);
     return {
       removed: await workspaceWorkload.release(
         session.id,
-        { path: worktree },
+        {
+          path: probed && probed !== "error" ? probed.worktreePath : worktree,
+        },
         {
           deleteBranch: input.deleteBranch,
           originalBranch: input.originalBranch,
