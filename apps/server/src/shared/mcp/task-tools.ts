@@ -253,6 +253,8 @@ export function registerTaskTools(
           trigger: z
             .object({
               templateId: z.string().min(1),
+              runner: z.string().min(1).optional(),
+              directory: z.string().optional(),
               agentType: z
                 .enum(AGENT_TYPES)
                 .nullable()
@@ -299,7 +301,11 @@ export function registerTaskTools(
           const projectId = await projectFor(args.projectId);
           const column = await service.resolveColumnKey(projectId, args.column);
           if (args.trigger !== undefined) {
-            await service.updateColumn(column.id, { trigger: args.trigger });
+            await service.updateColumn(
+              column.id,
+              { trigger: args.trigger },
+              caller
+            );
           }
           const board = await service.getBoard(projectId);
           const persisted = board.columns.find((c) => c.id === column.id);

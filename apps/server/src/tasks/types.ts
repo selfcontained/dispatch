@@ -1,3 +1,4 @@
+import type { Location } from "../runners/saved-location.js";
 import type { Effort } from "@dispatch/shared";
 /**
  * Task wire types — what the API returns and the web client reads. Kept
@@ -14,6 +15,8 @@ export type TaskAgentType = "claude" | "codex" | "opencode";
 /** What a column does when a task enters it: launch a template for it. */
 export type TaskColumnTrigger = {
   templateId: string;
+  /** Absent on legacy triggers, which follow their template. */
+  location?: Location;
   /** Resolved for board reads; absent from the stored trigger. */
   templateName?: string | null;
   /** Override the template's agent type; null keeps the template's. */

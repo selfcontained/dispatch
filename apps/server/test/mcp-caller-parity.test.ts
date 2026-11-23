@@ -555,6 +555,32 @@ it("keeps the MCP caller surface and call outcomes at the recorded parity bounda
       url: "https://github.com/fixture/example/pull/1",
     })) as [Args, Args]
   );
+  // Both callers get the same trigger location schema and accepted inputs.
+  const triggerTemplates = await ctx.pool.query<{ id: string }>(
+    "SELECT id FROM templates WHERE project_id = $1 LIMIT 1",
+    [projectId]
+  );
+  const triggerTemplateId = triggerTemplates.rows[0]!.id;
+  for (const [label, location] of [
+    ["folder", { directory: "/unreachable/trigger-folder" }],
+    ["tilde", { directory: "~" }],
+    ["locator", { directory: runnerCwd }],
+    ["offline", { runner: "offline-trigger-fixture" }],
+    ["controller", { runner: "local" }],
+    ["defaults", {}],
+  ] as const) {
+    await call(
+      `task_column_update/${label}`,
+      "task_column_update",
+      {
+        projectId,
+        column: "ready",
+        trigger: { templateId: triggerTemplateId, ...location },
+      },
+      true
+    );
+  }
+
   await ctx.pool.query(
     "UPDATE agents SET project_id = NULL WHERE id = ANY($1)",
     [callers]

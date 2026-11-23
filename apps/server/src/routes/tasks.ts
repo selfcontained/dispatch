@@ -23,6 +23,8 @@ const USER: TaskActor = { kind: "user" };
 
 const TriggerSchema = z.object({
   templateId: z.string().min(1, "trigger.templateId is required."),
+  runner: z.string().min(1).optional(),
+  directory: z.string().optional(),
   agentType: z.enum(AGENT_TYPES).nullable().optional(),
   model: z.string().nullable().optional(),
   effort: z.string().min(1).max(128).nullable().optional(),
