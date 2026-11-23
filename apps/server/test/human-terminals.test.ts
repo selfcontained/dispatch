@@ -2,13 +2,19 @@ import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
 import { realpath } from "node:fs/promises";
-import { createLocalRunner } from "../src/agents/local-runner.js";
+import { localTerminal } from "../src/runners/local.js";
+import {
+  pathFromWire,
+  type CallerChannel,
+  type Runner,
+} from "@dispatch/runner-protocol/contract";
+import { controllerPlacement } from "../src/runners/placement.js";
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import type { Pool } from "pg";
 import { HumanTerminalManager, REPLAY_BYTES } from "../src/terminal/manager.js";
-import { terminalEnvironment, type PtyProcess } from "../src/terminal/pty.js";
+import { terminalEnvironment } from "../src/terminal/pty.js";
 import {
   registerHumanTerminalRoutes,
   terminalOriginAllowed,
@@ -22,40 +28,43 @@ vi.mock("../src/auth.js", () => ({
 }));
 
 function harness(grace = 60_000) {
-  let output: (data: Uint8Array) => void = () => {};
-  const process: PtyProcess = {
-    pid: 2147483647,
-    terminal: {
-      write: vi.fn((data) => Buffer.byteLength(data)),
-      resize: vi.fn(),
-      close: vi.fn(),
+  let emit: Parameters<CallerChannel<"terminal.open">["onData"]>[0] = () => {};
+  const channel: CallerChannel<"terminal.open"> = {
+    write: vi.fn(),
+    onData: (listener) => {
+      emit = listener;
+      return () => {};
     },
-    exited: new Promise(() => {}),
-    kill: vi.fn(),
+    onClose: () => () => {},
+    close: vi.fn(),
   };
-  const spawn = vi.fn((_cwd, callback) => {
-    output = callback;
-    return process;
-  });
-  const manager = new HumanTerminalManager(grace);
-  const runner = createLocalRunner(
-    "/tmp",
-    Fastify({ logger: false }).log,
-    spawn
+  const open = vi.fn(
+    async (_op: string, request: { target: { path: string } }) => ({
+      info: {
+        cwd: await realpath(request.target.path),
+        host: "test",
+        user: "test",
+      },
+      channel,
+    })
   );
+  const runner = { open } as unknown as Runner;
+  const manager = new HumanTerminalManager(grace);
   const backend = (workspacePath: string | null = null) =>
-    runner.terminalBackend({
+    localTerminal(() => runner, {
       id: "agent",
       cwd: "/tmp",
       worktreePath: null,
       workspacePath,
+      placement: controllerPlacement,
     });
   return {
     manager,
     backend,
-    process,
-    spawn,
-    output: (text: string) => output(Buffer.from(text)),
+    channel,
+    open,
+    output: (text: string) =>
+      emit({ type: "output", data: Buffer.from(text).toString("base64") }),
   };
 }
 function socket() {
@@ -80,7 +89,7 @@ describe("human terminal lifecycle", () => {
     expect(
       await h.manager.open("a", "tab", "agent", h.backend("/other"))
     ).toEqual(first);
-    expect(h.spawn).toHaveBeenCalledTimes(1);
+    expect(h.open).toHaveBeenCalledTimes(1);
     expect(h.manager.resume(first.id, "b", "tab", "agent")).toBeNull();
     expect(h.manager.resume(first.id, "a", "other", "agent")).toBeNull();
     expect(h.manager.attach(first.id, "b", socket())).toBe(false);
@@ -89,7 +98,7 @@ describe("human terminal lifecycle", () => {
     expect(h.manager.attach(first.id, "a", ws)).toBe(true);
     expect(vi.mocked(ws.send).mock.calls[1][0]).toHaveLength(REPLAY_BYTES);
     vi.advanceTimersByTime(120_000);
-    expect(h.process.kill).not.toHaveBeenCalled();
+    expect(h.channel.close).not.toHaveBeenCalled();
     ws.emit("close");
     vi.advanceTimersByTime(59_000);
     const resumed = socket();
@@ -98,7 +107,7 @@ describe("human terminal lifecycle", () => {
     expect(h.manager.owns(first.id, "a")).toBe(true);
     resumed.emit("close");
     vi.advanceTimersByTime(60_001);
-    expect(h.process.kill).toHaveBeenCalledOnce();
+    expect(h.channel.close).toHaveBeenCalledOnce();
     expect(h.manager.owns(first.id, "a")).toBe(false);
   });
   it("limits input, validates dimensions, ends only for its owner and cleans shutdown", async () => {
@@ -111,18 +120,25 @@ describe("human terminal lifecycle", () => {
       Buffer.from(JSON.stringify({ type: "input", data: "\u0003" })),
       false
     );
-    expect(h.process.terminal.write).toHaveBeenCalledWith("\u0003");
+    expect(h.channel.write).toHaveBeenCalledWith({
+      type: "input",
+      data: "\u0003",
+    });
     ws.emit(
       "message",
       Buffer.from(JSON.stringify({ type: "resize", cols: 120, rows: 42 })),
       false
     );
-    expect(h.process.terminal.resize).toHaveBeenCalledWith(120, 42);
+    expect(h.channel.write).toHaveBeenCalledWith({
+      type: "resize",
+      cols: 120,
+      rows: 42,
+    });
     ws.emit("message", Buffer.from("x".repeat(16_385)), false);
     expect(ws.close).toHaveBeenCalledWith(1008, expect.any(String));
     expect(h.manager.end(id, "b")).toBe(false);
     h.manager.shutdown();
-    expect(h.process.terminal.close).toHaveBeenCalledOnce();
+    expect(h.channel.close).toHaveBeenCalledOnce();
     expect(h.manager.owns(id, "a")).toBe(false);
   });
   it("does not inherit credential, identity, startup-hook or arbitrary application environment", () => {
@@ -384,10 +400,11 @@ describe("terminal browser security", () => {
           )
         ).statusCode
       ).toBe(200); // Fastify strips extra fields; never forwards them.
-      expect(h.spawn).toHaveBeenCalledWith(
-        await realpath(process.cwd()),
-        expect.any(Function)
-      );
+      expect(h.open).toHaveBeenCalledWith("terminal.open", {
+        target: { path: pathFromWire(process.cwd()) },
+        cols: 80,
+        rows: 24,
+      });
       const result = await create({ cookie: signed("browser-a") });
       const id = result.json().id;
       expect(

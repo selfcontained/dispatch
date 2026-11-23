@@ -38,15 +38,11 @@ export type PtyProcess = {
   exited: Promise<number>;
   kill(): void;
 };
-export type SpawnTerminal = (
-  cwd: string,
-  output: (data: Uint8Array) => void
-) => PtyProcess;
-
 export function spawnTerminal(
   cwd: string,
   output: (data: Uint8Array) => void,
-  workloadShell?: string
+  workloadShell?: string,
+  { cols, rows } = { cols: 80, rows: 24 }
 ): PtyProcess {
   if (
     typeof Bun === "undefined" ||
@@ -73,7 +69,7 @@ export function spawnTerminal(
   const proc = Bun.spawn([login.bin, ...login.args], {
     cwd,
     env,
-    terminal: { cols: 80, rows: 24, data: (_terminal, data) => output(data) },
+    terminal: { cols, rows, data: (_terminal, data) => output(data) },
   });
   let cleanup: () => void;
   try {

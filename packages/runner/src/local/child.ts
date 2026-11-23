@@ -98,7 +98,10 @@ export async function runLocalRunner(
   own: Build,
   options: {
     /** Operations served beside describe and health, as families move in. */
-    handlers?: (start: LauncherStart, fence: WriteFence) => Handlers;
+    handlers?: (
+      start: LauncherStart,
+      fence: WriteFence
+    ) => Handlers & { stop?(): Promise<void> };
     /** The machine's platform; without one, no checkout family is served. */
     platform?: Platform;
   } = {}
@@ -240,12 +243,21 @@ export async function runLocalRunner(
     fence
   );
 
-  stop = () => {
+  const shutdown = async () => {
     socket.close();
+    await extra?.stop?.();
     if (readHolder(holderPath)?.pid === process.pid)
       rmSync(holderPath, { force: true });
     lock.release();
     process.exit(0);
+  };
+
+  stop = () => {
+    stop = () => {};
+    void shutdown().catch((error) => {
+      log(String(error));
+      process.exit(1);
+    });
   };
 
   const ready: LauncherReady = {

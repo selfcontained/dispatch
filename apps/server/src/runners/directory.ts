@@ -20,7 +20,8 @@ import {
   LOCAL_RUNNER_ID,
   legacySessionLocation,
 } from "./placement.js";
-import { createLocalCheckoutRunner } from "./local.js";
+import { remoteTerminal } from "../terminal/remote.js";
+import { createLocalCheckoutRunner, localTerminal } from "./local.js";
 import { createEnrolledCheckoutRunner } from "./enrolled/checkout.js";
 
 export type CheckoutSession = Pick<
@@ -115,4 +116,14 @@ export function checkoutRunners(
     defaultPlacement: () => controllerPlacement,
   } satisfies CheckoutDirectory;
   return { directory, placement };
+}
+
+export function terminalBackendFor(
+  { remote, child }: CheckoutCommandRunners,
+  agent: CheckoutSession
+) {
+  const location = legacySessionLocation(agent);
+  if (!location) return localTerminal(child, agent);
+  if (!remote) throw new Error("The session runner is unavailable.");
+  return remoteTerminal(remote, location, agent.id);
 }

@@ -95,7 +95,7 @@ import {
   shouldSuggestSessionRename,
 } from "./launch-guidance.js";
 import type { TerminalBackend } from "../terminal/manager.js";
-import { remoteTerminal } from "../terminal/remote.js";
+import { terminalBackendFor } from "../runners/directory.js";
 import { createLocalRunner } from "./local-runner.js";
 import type { LaunchDirectory, WorktreeRequest } from "./workspace.js";
 import { createAgentMcpToken, createJobMcpToken } from "../auth.js";
@@ -1547,10 +1547,7 @@ export class AgentManager {
   async terminalBackend(id: string): Promise<TerminalBackend | null> {
     const agent = await this.getAgent(id);
     if (!agent) return null;
-    const placement = remotePlacement(agent.cwd);
-    if (!placement) return this.localRunner.terminalBackend(agent);
-    if (!this.remote) throw new Error("The session runner is unavailable.");
-    return remoteTerminal(this.remote, placement, agent.id);
+    return terminalBackendFor(this.checkoutReadRunners(), agent);
   }
 
   async getAgent(id: string): Promise<AgentRecord | null> {

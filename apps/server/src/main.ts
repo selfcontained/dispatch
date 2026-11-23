@@ -1,6 +1,8 @@
 import { captureStartupAcpAdapter } from "./startup/acp-adapter.js";
 import { restoreLegacyMacLaunchAgentEnvironment } from "./startup/shell-environment.js";
 
+const loadTerminalWorker = () => import("./terminal/runner-worker.js");
+
 // Modes of this binary, checked before anything else so none of them
 // touches the server's environment restoration, database, or config:
 //
@@ -45,7 +47,7 @@ if (process.argv[2]?.startsWith("recovery-")) {
   const { runRunnerConnect } = await import("./agents/remote/enrollment.js");
   await runRunnerConnect(process.argv.slice(3));
 } else if (process.argv[2] === "runner-terminal") {
-  const { runTerminalWorker } = await import("./terminal/runner-worker.js");
+  const { runTerminalWorker } = await loadTerminalWorker();
   await runTerminalWorker(process.argv[3]!);
 } else if (
   process.argv[2] === "runner-worker" ||
@@ -114,12 +116,14 @@ if (process.argv[2]?.startsWith("recovery-")) {
   const { runCli } = await import("@dispatch/runner/cli");
   // The `posix-user` platform: checkout reads run in the child's process.
   const { checkoutWorkload } = await import("./agents/checkout-worker.js");
+  const { localTerminalHandlers } = await loadTerminalWorker();
   await runCli(process.argv.slice(2), {
     build: {
       version: embeddedBuild.version,
       ...(embeddedBuild.revision && { revision: embeddedBuild.revision }),
     },
     platform: { workload: checkoutWorkload },
+    handlers: localTerminalHandlers,
   });
 } else if (process.argv[2] === "agent-host") {
   await import("./agents/acp/host/main.js");
