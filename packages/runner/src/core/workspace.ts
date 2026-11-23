@@ -23,7 +23,8 @@
  * A repository source is the same preparation from a directory the runner
  * makes itself: a clone cached per repository (keyed by its identity, so
  * every spelling of its URL shares one), fetched on each use, and the
- * session's worktree made from it beside it by the directory steps above,
+ * session's worktree made from it (beside it, or where the platform's
+ * `location` says) by the directory steps above,
  * with main's branch rules. The receipt records the repository too, so a
  * repeat or `resume` finishes the same checkout.
  */
@@ -81,8 +82,17 @@ export type Receipt = {
   copy?: string[];
   /** Whether dependencies are installed; absent means yes. */
   install?: boolean;
-  /** For a repository source: its identity and the checkout asked for. */
-  repository?: { identity: string; checkout: RepositoryCheckout };
+  /**
+   * For a repository source: its identity, the checkout asked for, and the
+   * URL as stored (no credentials; absent in older receipts).
+   */
+  repository?: {
+    identity: string;
+    checkout: RepositoryCheckout;
+    url?: string;
+  };
+  /** The path the platform chose for the worktree (`RepositoryPort.location`). */
+  at?: string;
   /** The path about to be made, recorded before Git runs. */
   pending?: { path: string; branch: string };
   worktree?: {
@@ -195,7 +205,9 @@ function spec(receipt: Receipt): WorktreeSpec {
     branch: request.create ? request.branch : base,
     base,
     create: request.create,
-    nested: nestedDir(request),
+    ...(receipt.at === undefined
+      ? { nested: nestedDir(request) }
+      : { at: receipt.at }),
   };
 }
 
@@ -280,8 +292,8 @@ export function workspaceHandlers(
     let made: { path: string; branch: string } | null = null;
     if (receipt.pending) {
       const { path, branch } = receipt.pending;
-      if (await madeForUs(path, receipt.source, branch))
-        made = { path, branch };
+      const check = port.madeForUs?.bind(port) ?? madeForUs;
+      if (await check(path, receipt.source, branch)) made = { path, branch };
     }
     if (!made) {
       const plan = await port.plan(wanted);
@@ -368,6 +380,13 @@ export function workspaceHandlers(
   ) {
     let worktree = receipt.worktree;
     if (!worktree) {
+      // The platform's place for it is made (or repaired) before Git runs,
+      // and must still be the one recorded.
+      if (
+        receipt.at !== undefined &&
+        (await port.repository?.location?.(session)) !== receipt.at
+      )
+        throw refused("The prepared worktree's location changed.");
       worktree = await makeWorktree(dir, receipt, emit);
       receipt = { ...withoutPending(receipt), worktree };
       await writeReceipt(dir, receipt);
@@ -413,7 +432,8 @@ export function workspaceHandlers(
     request: WorktreeRequest,
     copy: string[],
     install: boolean,
-    repository?: Receipt["repository"]
+    repository?: Receipt["repository"],
+    at?: string
   ): Promise<Receipt> {
     const source = await port.canonical(cwd);
     if (!source)
@@ -444,6 +464,7 @@ export function workspaceHandlers(
       copy,
       install,
       ...(repository && { repository }),
+      ...(at !== undefined && { at }),
     };
     await writeReceipt(dir, recorded);
     await syncDirectory(stateRoot);
@@ -547,13 +568,19 @@ export function workspaceHandlers(
         );
       return wanted;
     });
+    // Where the platform keeps sessions' checkouts, when it says; beside
+    // the clone otherwise.
+    const at = repository.location
+      ? await repository.location(session)
+      : undefined;
     const receipt = await intent(
       dir,
       clone,
       request,
       [...copyNames(input.copyIgnored)],
       input.installDependencies,
-      { identity, checkout: source.checkout }
+      { identity, checkout: source.checkout, url },
+      at
     );
     return finish(session, dir, receipt, emit);
   }
