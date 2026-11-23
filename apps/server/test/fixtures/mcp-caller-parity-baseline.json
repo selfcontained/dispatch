@@ -1,0 +1,201 @@
+{
+  "call/brain_list_objects/no-project": {
+    "rule": "N18",
+    "task": "T34",
+    "local": "accepted",
+    "runner": "tool:MCP error -32602: Tool brain_list_objects not found"
+  },
+  "call/launch_agent/child-worktree": {
+    "rule": "N6",
+    "task": "T18",
+    "local": "accepted",
+    "runner": "tool:An independent runner worktree needs a repository with an HTTPS origin."
+  },
+  "call/launch_agent/explicit-path": {
+    "rule": "N1",
+    "task": "T36",
+    "local": "accepted",
+    "runner": "tool:A child launch cannot select a checkout on another runner or outside the caller's project."
+  },
+  "call/launch_agent/independent-worktree": {
+    "rule": "N6",
+    "task": "T18",
+    "local": "accepted",
+    "runner": "tool:An independent runner worktree needs a repository with an HTTPS origin."
+  },
+  "call/persona_upsert": {
+    "rule": "N23",
+    "task": "T35",
+    "local": "accepted",
+    "runner": "tool:MCP error -32602: Tool persona_upsert not found"
+  },
+  "call/persona_validate": {
+    "rule": "N23",
+    "task": "T35",
+    "local": "accepted",
+    "runner": "tool:MCP error -32602: Tool persona_validate not found"
+  },
+  "call/post/attach-outside": {
+    "rule": "N10",
+    "task": "T11",
+    "local": "accepted",
+    "runner": "tool:File path is outside this session's files and checkout."
+  },
+  "call/repo_fixture/session-cookie": {
+    "rule": "N15",
+    "task": "T14",
+    "local": "accepted",
+    "runner": "tool:Repository tool unavailable. Remote execution requires the selected session’s MCP credential or a credential for its active job run."
+  },
+  "call/set_workspace/outside": {
+    "rule": "N9",
+    "task": "T16",
+    "local": "accepted",
+    "runner": "tool:Directory is outside the bound runner checkout."
+  },
+  "call/task_list/no-project": {
+    "rule": "N18",
+    "task": "T34",
+    "local": "accepted",
+    "runner": "tool:You are not in a Dispatch project (no project's repo holds your workspace), so there is no task board for you."
+  },
+  "call/update/attach-outside": {
+    "rule": "N10",
+    "task": "T11",
+    "local": "accepted",
+    "runner": "tool:File path is outside this session's files and checkout."
+  },
+  "call/usage_unwatch": {
+    "rule": "N17",
+    "task": "T31",
+    "local": "accepted",
+    "runner": "tool:MCP error -32602: Tool usage_unwatch not found"
+  },
+  "call/usage_watch_list": {
+    "rule": "N17",
+    "task": "T31",
+    "local": "accepted",
+    "runner": "tool:MCP error -32602: Tool usage_watch_list not found"
+  },
+  "surface/persona_upsert": {
+    "rule": "N23",
+    "task": "T35",
+    "local": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "slug": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "template": {
+          "description": "Optional template ID returned by persona_templates.",
+          "type": "string"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "instructions": {
+          "type": "string",
+          "maxLength": 20000
+        },
+        "type": {
+          "description": "Review personas report findings; task personas are available on normal launches, templates and jobs. New files default to task; updates preserve the existing type when omitted.",
+          "type": "string",
+          "enum": ["review", "task"]
+        }
+      },
+      "required": ["slug"]
+    },
+    "runner": "absent"
+  },
+  "surface/persona_validate": {
+    "rule": "N23",
+    "task": "T35",
+    "local": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {}
+    },
+    "runner": "absent"
+  },
+  "surface/redeem_codex_reset": {
+    "rule": "N17",
+    "task": "T31",
+    "local": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "idempotencyKey": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "description": "UUID for this deliberate redemption; reuse on retries."
+        }
+      },
+      "required": ["idempotencyKey"]
+    },
+    "runner": "absent"
+  },
+  "surface/usage_unwatch": {
+    "rule": "N17",
+    "task": "T31",
+    "local": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "required": ["id"]
+    },
+    "runner": "absent"
+  },
+  "surface/usage_watch": {
+    "rule": "N17",
+    "task": "T31",
+    "local": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["claude", "codex", "opencode"],
+          "description": "Provider/agent type to watch: claude or codex (opencode does not report subscription limits)."
+        },
+        "comparison": {
+          "type": "string",
+          "enum": ["at_or_below", "at_or_above"],
+          "description": "at_or_below: low-capacity watch. at_or_above: recovery watch."
+        },
+        "remainingPercent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Threshold as percent REMAINING in the tightest window, 0-100."
+        }
+      },
+      "required": ["type", "comparison", "remainingPercent"]
+    },
+    "runner": "absent"
+  },
+  "surface/usage_watch_list": {
+    "rule": "N17",
+    "task": "T31",
+    "local": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {}
+    },
+    "runner": "absent"
+  }
+}
