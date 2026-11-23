@@ -1,5 +1,7 @@
 import {
   isCheckoutCommandFile,
+  isCheckoutReadName,
+  type CheckoutView,
   isCheckoutCommandResult,
   type Placement as V1Placement,
   type ResultFrame,
@@ -19,6 +21,7 @@ import {
   type Decoded,
 } from "@dispatch/runner-client/v1";
 import type { RemoteRunnerService } from "../../agents/remote/service.js";
+import { callCheckoutRead } from "./reads.js";
 import type { CheckoutRunner, CheckoutSession } from "../directory.js";
 
 function parseResult(value: ResultFrame["value"]) {
@@ -36,7 +39,8 @@ export function createEnrolledCheckoutRunner(
   runnerId: string,
   placement: V1Placement | null,
   agent: CheckoutSession | undefined,
-  describe: () => RunnerDescription
+  describe: () => RunnerDescription,
+  legacyView?: CheckoutView
 ): CheckoutRunner {
   return {
     describe,
@@ -80,6 +84,16 @@ export function createEnrolledCheckoutRunner(
       options?: CallOptions<K>
     ): Promise<Res<K>> {
       if (op === "runner.describe") return describe() as Res<K>;
+      if (isCheckoutReadName(op))
+        return callCheckoutRead(
+          service,
+          placement,
+          agent,
+          op,
+          input as never,
+          options?.signal,
+          legacyView
+        ) as Promise<Res<K>>;
       if (op !== "checkout.exec")
         throw new RunnerCallError({
           code: "unsupported",

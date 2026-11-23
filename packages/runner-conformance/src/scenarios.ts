@@ -26,6 +26,8 @@ export type LaneFixture = {
   session: SessionHandle;
   /** Writes a file at a relative path in the session's checkout. */
   seed(path: string, content: string): Promise<void>;
+  /** Older wire command guards also bind the digest to the resolved root. */
+  readGuard?(session: SessionHandle, path: string): Promise<string>;
 };
 
 export type Scenario = {
@@ -83,7 +85,11 @@ async function guarded(
   expect(file.digest, "checkout.read returned no digest to guard with.");
   return {
     target,
-    guard: { path: GUARD, digest: file.digest },
+    guard: {
+      path: GUARD,
+      digest:
+        (await fixture.readGuard?.(fixture.session, GUARD)) ?? file.digest,
+    },
     argv,
     env: {},
     timeoutMs: null,
@@ -406,4 +412,171 @@ export const scenarios: readonly Scenario[] = [
   ...operationNames
     .filter((op) => !written.some((scenario) => scenario.op === op))
     .map(pending),
+];
+
+// These replace the T09 pending cases on the Linux lane. The local lane
+// retains its existing baseline until it has its own fixture.
+const readPath = "checkout-reads/content.txt";
+const readText = "workload café\n".repeat(24_000);
+const checkoutReads: Scenario[] = [
+  {
+    op: "checkout.read",
+    id: "checkout.read/large",
+    async run({ runner, session, seed }) {
+      await seed(readPath, readText);
+      const input = {
+        target: { session },
+        path: readPath,
+        encoding: "utf8",
+        maxBytes: null,
+      } as const;
+      const result = await runner.call("checkout.read", input);
+      expect(result?.data === readText, "The file was cut short or changed.");
+      expect(
+        result.digest === createHash("sha256").update(readText).digest("hex"),
+        "Wrong file digest."
+      );
+      await rejectsWith(
+        runner.call("checkout.read", { ...input, maxBytes: 25 }),
+        "too_large"
+      );
+      const privateFile = await runner
+        .call("checkout.read", { ...input, path: ".root-only" })
+        .catch(() => null);
+      expect(
+        privateFile === null,
+        "A checkout read ran with access to a root-only file."
+      );
+    },
+  },
+  {
+    op: "checkout.list",
+    id: "checkout.list/entries",
+    async run({ runner, session }) {
+      const result = await runner.call("checkout.list", {
+        target: { session },
+        path: "checkout-reads",
+      });
+      expect(
+        result.entries.some(
+          (entry) => entry.path === readPath && entry.kind === "file"
+        ),
+        "The checkout entry was missing."
+      );
+      const files = await runner.call("checkout.list", {
+        target: { session },
+        path: "file-list",
+        filesOnly: true,
+      });
+      expect(
+        !files.truncated && files.entries.length === 1050,
+        "The file-only listing hit a transport cap."
+      );
+    },
+  },
+  {
+    op: "checkout.preview",
+    id: "checkout.preview/text",
+    async run({ runner, session }) {
+      const result = await runner.call("checkout.preview", {
+        target: { session },
+        path: readPath,
+      });
+      expect(
+        result.kind === "text" && result.text === readText,
+        "The preview was incomplete."
+      );
+    },
+  },
+  {
+    op: "checkout.index",
+    id: "checkout.index/paths",
+    async run({ runner, session }) {
+      const result = await runner.call("checkout.index", {
+        target: { session },
+        generation: "checkout-reads",
+      });
+      expect(
+        result.paths.includes(readPath),
+        "The checkout index missed a file."
+      );
+    },
+  },
+  {
+    op: "checkout.stats",
+    id: "checkout.stats/exclusions",
+    async run({ runner, session, seed }) {
+      await seed("checkout-reads/exclude.txt", "excluded\n");
+      const result = await runner.call("checkout.stats", {
+        target: { session },
+        base: "main",
+        uncommitted: true,
+        exclude: ["/exclude[.]txt$/"],
+      });
+      expect(
+        result &&
+          result.files - result.excluded.files === 1 &&
+          result.added - result.excluded.added === 1,
+        "Stats ignored the requested exclusion."
+      );
+    },
+  },
+  {
+    op: "checkout.diff",
+    id: "checkout.diff/exclusions",
+    async run({ runner, session }) {
+      const input = {
+        target: { session },
+        base: "main",
+        uncommitted: true,
+        whitespace: "show",
+        exclude: ["/exclude[.]txt$/"],
+      } as const;
+      const result = await runner.call("checkout.diff", {
+        ...input,
+        exclude: [...input.exclude],
+      });
+      expect(
+        result &&
+          "files" in result &&
+          result.files.some(
+            (file) =>
+              file.path === "checkout-reads/exclude.txt" && file.excluded
+          ) &&
+          result.files.some((file) => file.path === readPath && !file.excluded),
+        "Diff ignored the requested exclusion."
+      );
+      const selected = await runner.call("checkout.diff", {
+        ...input,
+        exclude: [...input.exclude],
+        path: "checkout-reads/exclude.txt",
+      });
+      expect(
+        selected && "diff" in selected && selected.diff.includes("+excluded"),
+        "The single-file patch was missing."
+      );
+    },
+  },
+  {
+    op: "checkout.changes",
+    id: "checkout.changes/files",
+    async run({ runner, session }) {
+      const result = await runner.call("checkout.changes", {
+        target: { session },
+        base: "main",
+      });
+      expect(
+        result.files.includes(readPath) &&
+          /^[a-f0-9]{64}$/.test(result.stateId),
+        "Owner-review changes were incomplete."
+      );
+    },
+  },
+];
+
+export const remoteScenarios: readonly Scenario[] = [
+  ...checkoutReads,
+  ...scenarios.filter(
+    ({ op }) => !checkoutReads.some((scenario) => scenario.op === op)
+  ),
 ];

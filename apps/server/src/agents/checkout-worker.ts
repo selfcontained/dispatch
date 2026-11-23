@@ -1,3 +1,8 @@
+import { json } from "node:stream/consumers";
+import {
+  isCheckoutReadRequest,
+  type CheckoutReadName as WorkerOp,
+} from "@dispatch/runner-protocol";
 /*
  * The checkout worker: the workload side of checkout reads and commands, as
  * one entry.
@@ -33,14 +38,6 @@ import {
   commandBaseEnvironment,
 } from "./checkout-command-executor.js";
 
-type WorkerOp =
-  | "checkout.list"
-  | "checkout.preview"
-  | "checkout.index"
-  | "checkout.read"
-  | "checkout.stats"
-  | "checkout.diff"
-  | "checkout.changes";
 type Selector = "current" | "launch" | "moved";
 type Input<K extends WorkerOp | "checkout.exec"> = {
   directory: string;
@@ -123,7 +120,23 @@ async function work<K extends WorkerOp>(
 ): Promise<unknown> {
   switch (op) {
     case "checkout.list": {
-      const { path } = request as Input<"checkout.list">["request"];
+      const { path, filesOnly } = request as Input<"checkout.list">["request"];
+      if (filesOnly) {
+        const reply = await inspectCheckout(directory, {
+          kind: "listFiles",
+          path,
+        });
+        if (reply.kind !== "listFiles")
+          throw new Error("Invalid checkout file listing.");
+        return {
+          entries: reply.names.map((name) => ({
+            name,
+            path: path + "/" + name,
+            kind: "file",
+          })),
+          truncated: false,
+        };
+      }
       return readWorkspaceView(directory, { kind: "directory", path });
     }
     case "checkout.preview": {
@@ -377,6 +390,29 @@ export const WORKER_ALIASES: Record<string, string> = {
  */
 export async function runCheckoutWorker(argv: string[]): Promise<void> {
   const [op, cwd, flag] = argv;
+  if (op === "read") {
+    const input: unknown = await json(process.stdin);
+    if (!isCheckoutReadRequest(input, "worker") || !cwd)
+      throw new Error("Invalid checkout read request.");
+    let reply;
+    try {
+      reply = {
+        data: await checkoutWorkload.run(
+          input.op,
+          {
+            directory: cwd,
+            request: input.request,
+          },
+          {}
+        ),
+      };
+    } catch (error) {
+      const { code, message, details } = workerError(input.op, error);
+      reply = { error: { code, message, details } };
+    }
+    process.stdout.write(JSON.stringify(reply));
+    return;
+  }
   switch (op) {
     case "view": {
       const { runCheckoutViewCli } = await import("./checkout-view.js");

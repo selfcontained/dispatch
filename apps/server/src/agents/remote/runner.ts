@@ -690,6 +690,7 @@ export async function runRemoteRunner(
       const checkoutCommands = new Map<string, AbortController>();
       let legacyCheckoutCommands = 0;
       let acceptsCheckoutExecStream = false;
+      let acceptsCheckoutReadStream = false;
       const watches = new Map<string, () => void>();
       const sharedWatches = new SharedCheckoutWatches((cwd, changed, closed) =>
         childWatch(
@@ -1216,6 +1217,73 @@ export async function runRemoteRunner(
             result(true);
             break;
           }
+          case "checkoutRead": {
+            if (!acceptsCheckoutReadStream)
+              throw new Error("Checkout read stream was not negotiated.");
+            const controller = new AbortController();
+            const signal = AbortSignal.any([
+              connection.signal,
+              controller.signal,
+            ]);
+            const { streamId, ...read } = command.operation;
+            let child: ReturnType<typeof spawn> | undefined;
+            let exited = false;
+            async function* output() {
+              const cwd = await supervisor.checkoutDirectory(
+                agentId,
+                workspace,
+                target?.cwd
+              );
+              signal.throwIfAborted();
+              const worker = spawn(
+                setpriv,
+                [...childArgs, ...self("runner-worker"), "read", cwd],
+                {
+                  env: {
+                    ...env,
+                    GIT_TERMINAL_PROMPT: "0",
+                    GH_PROMPT_DISABLED: "1",
+                  },
+                  detached: true,
+                  stdio: ["pipe", "pipe", "ignore"],
+                }
+              );
+              child = worker;
+              const status = new Promise<boolean>((resolve) => {
+                worker.once("error", () => resolve(false));
+                worker.once("close", (code) => {
+                  exited = true;
+                  resolve(code === 0);
+                });
+              });
+              worker.stdin.on("error", () => {});
+              worker.stdin.end(JSON.stringify(read));
+              yield* worker.stdout;
+              if (!(await status))
+                throw new Error("The checkout read worker failed.");
+            }
+            try {
+              await streams.send(
+                streamId,
+                Readable.from(output(), { objectMode: false }),
+                signal,
+                {
+                  stall: "blocked",
+                }
+              );
+              result(true);
+            } finally {
+              controller.abort();
+              if (!exited && child?.pid) {
+                try {
+                  process.kill(-child.pid, "SIGKILL");
+                } catch {
+                  // The workload may already have exited.
+                }
+              }
+            }
+            break;
+          }
           case "viewCheckout":
           case "inspectCheckout": {
             const cwd = await supervisor.checkoutDirectory(
@@ -1360,6 +1428,7 @@ export async function runRemoteRunner(
       const send = wireFrames<unknown, RunnerOutput>(socket, (value) => {
         if (socket.destroyed) return;
         if (acceptsStreams(value) && connectedAt !== undefined) {
+          acceptsCheckoutReadStream ||= value.checkoutReadStream === true;
           acceptsCheckoutExecStream ||= value.checkoutExecStream === true;
           streams.enable();
           return;
@@ -1460,6 +1529,7 @@ export async function runRemoteRunner(
           checkoutMetadata: true,
           checkoutCommands: true,
           checkoutExecStream: true,
+          checkoutReadStream: true,
           ...(typeof Bun !== "undefined" && typeof Bun.Terminal === "function"
             ? { terminals: true }
             : {}),

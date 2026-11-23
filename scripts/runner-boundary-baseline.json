@@ -494,7 +494,7 @@
     "kind": "R1 placement call",
     "detail": "remotePlacement(agent.cwd)",
     "task": "T07",
-    "count": 3
+    "count": 2
   },
   {
     "file": "apps/server/src/agents/checkout-runner.ts",

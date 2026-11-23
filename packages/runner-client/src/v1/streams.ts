@@ -17,7 +17,12 @@ type Part =
   | { action: "cancel"; code: Failure };
 
 export type StreamFrame =
-  | { type: "stream"; action: "accept"; checkoutExecStream?: true }
+  | {
+      type: "stream";
+      action: "accept";
+      checkoutExecStream?: true;
+      checkoutReadStream?: true;
+    }
   | ({ type: "stream"; id: string } & Part);
 
 interface Transfer {

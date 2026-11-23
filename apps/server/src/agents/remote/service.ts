@@ -1,3 +1,4 @@
+import type { CheckoutReadName } from "@dispatch/runner-protocol";
 import {
   runnerIdFromWire,
   type RunnerDescription,
@@ -20,6 +21,7 @@ import { createServer, type Server, type TLSSocket } from "node:tls";
 import {
   receiveFile,
   receiveCheckoutExec,
+  receiveCheckoutRead,
   RunnerConnection,
   RunnerUnavailable,
 } from "../../runners/enrolled/v1-framing.js";
@@ -214,6 +216,7 @@ type Peer = {
   checkoutMetadata: boolean;
   checkoutCommands: boolean;
   checkoutExecStream: boolean;
+  checkoutReadStream: boolean;
   terminals: boolean;
   defaultBranchFiles: boolean;
   sessionCheckout: boolean;
@@ -978,6 +981,7 @@ export class RemoteRunnerService {
           checkoutMetadata: ready.checkoutMetadata === true,
           checkoutCommands: ready.checkoutCommands === true,
           checkoutExecStream: ready.checkoutExecStream === true,
+          checkoutReadStream: ready.checkoutReadStream === true,
           terminals: ready.terminals === true,
           checkoutInspection: ready.checkoutInspection === true,
           sharedWorktree: ready.sharedWorktree === true,
@@ -1011,6 +1015,7 @@ export class RemoteRunnerService {
           send({
             type: "stream",
             action: "accept",
+            ...(peer.checkoutReadStream && { checkoutReadStream: true }),
             ...(peer.checkoutExecStream && { checkoutExecStream: true }),
           });
           peer.streams.enable();
@@ -1719,6 +1724,25 @@ export class RemoteRunnerService {
       (command, signal) =>
         this.request(placement, command, false, undefined, signal, peer),
       peer?.filesGetStream ? peer.streams : undefined
+    );
+  }
+
+  streamCheckoutRead<K extends CheckoutReadName>(
+    placement: Placement,
+    op: K,
+    request: Req<K>,
+    signal?: AbortSignal
+  ) {
+    const peer = this.workspacePeer(placement);
+    if (!peer?.checkoutReadStream || !peer.streams) return;
+    return receiveCheckoutRead(
+      op,
+      request,
+      placement.workspace,
+      (command, active) =>
+        this.request(placement, command, false, undefined, active, peer),
+      peer.streams,
+      signal
     );
   }
 

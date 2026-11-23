@@ -2,11 +2,12 @@
  * The contract's `Runner` over one wire v1 connection, built only from the
  * client package: the codec encodes each call as a v1 command and decodes
  * the result. Operations v1 cannot carry (`NOT_ON_V1`) answer `unsupported`.
- * `checkout.read` uses v1's guarded read, the one v1 read with a digest.
  */
 import type { Duplex } from "node:stream";
 import {
   RUNNER_WIRE_VERSION,
+  isCheckoutReadName,
+  isCheckoutCommandFile,
   type ReadyFrame,
 } from "@dispatch/runner-protocol";
 import {
@@ -37,6 +38,7 @@ import {
 import {
   receiveFile,
   receiveCheckoutExec,
+  receiveCheckoutRead,
   RunnerAcknowledgementLost,
   RunnerHostGone,
   RunnerUnavailable,
@@ -113,6 +115,24 @@ function sessionChannel(socket: Duplex): CallerChannel<"session.attach"> {
   };
 }
 
+export async function readV1Guard(
+  connection: RunnerConnection,
+  workspace: string,
+  session: SessionHandle,
+  path: string
+): Promise<string> {
+  const { value } = await connection.request({
+    workspace,
+    agentId: sessionToWire(session),
+    kind: "checkoutCommand",
+    operation: { kind: "read", checkout: "effective", path },
+  });
+  const guard: unknown = typeof value === "string" ? JSON.parse(value) : null;
+  if (guard === null || !isCheckoutCommandFile(guard))
+    throw new Error("Missing checkout command guard.");
+  return guard.state;
+}
+
 export type V1RunnerOptions = {
   connection: RunnerConnection;
   streams?: FlowStreams;
@@ -168,6 +188,20 @@ export function v1Runner({
         },
         absent: [],
       };
+      if (isCheckoutReadName(op) && ready.checkoutReadStream && streams) {
+        try {
+          return (await receiveCheckoutRead(
+            op,
+            request as Req<typeof op>,
+            workspace,
+            (command, signal) => connection.request(command, { signal }),
+            streams,
+            opts?.signal
+          )) as Res<K>;
+        } catch (error) {
+          throw transportError(error, opts?.signal);
+        }
+      }
       let command;
       try {
         command = encodeCommand(frame);

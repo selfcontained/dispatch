@@ -571,55 +571,13 @@
   },
   {
     "lane": "remote",
-    "scenario": "checkout.list/pending",
-    "task": "T09",
-    "reason": "scenario not written yet"
-  },
-  {
-    "lane": "remote",
-    "scenario": "checkout.read/pending",
-    "task": "T09",
-    "reason": "scenario not written yet"
-  },
-  {
-    "lane": "remote",
     "scenario": "checkout.write/pending",
     "task": "T35",
     "reason": "not on wire v1: local-only today (persona authoring)"
   },
   {
     "lane": "remote",
-    "scenario": "checkout.preview/pending",
-    "task": "T09",
-    "reason": "scenario not written yet"
-  },
-  {
-    "lane": "remote",
-    "scenario": "checkout.index/pending",
-    "task": "T09",
-    "reason": "scenario not written yet"
-  },
-  {
-    "lane": "remote",
-    "scenario": "checkout.stats/pending",
-    "task": "T09",
-    "reason": "scenario not written yet"
-  },
-  {
-    "lane": "remote",
-    "scenario": "checkout.diff/pending",
-    "task": "T09",
-    "reason": "scenario not written yet"
-  },
-  {
-    "lane": "remote",
     "scenario": "checkout.image/pending",
-    "task": "T09",
-    "reason": "scenario not written yet"
-  },
-  {
-    "lane": "remote",
-    "scenario": "checkout.changes/pending",
     "task": "T09",
     "reason": "scenario not written yet"
   },
