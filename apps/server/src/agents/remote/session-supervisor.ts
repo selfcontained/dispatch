@@ -19,6 +19,7 @@ import {
 } from "node:fs/promises";
 import { createConnection } from "node:net";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import type { BuildIdentity } from "../build-identity.js";
 import { HOST_FILES, hostFile, type HostLaunch } from "../acp/host-protocol.js";
 import { observeBoundCheckout } from "../checkout-observation.js";
@@ -393,11 +394,14 @@ export async function createSessionSupervisor(
     );
   }
 
+  function untrackedSocketError() {
+    return new Error(
+      "Runner cannot verify ownership of the existing guest host."
+    );
+  }
+
   function checkUntrackedSocket(dir: string) {
-    if (hasNamedSocket(dir))
-      throw new Error(
-        "Runner cannot verify ownership of the existing guest host."
-      );
+    if (hasNamedSocket(dir)) throw untrackedSocketError();
   }
 
   async function removeGuestDirectory(dir: string) {
@@ -1413,7 +1417,17 @@ export async function createSessionSupervisor(
         const identity = await readIdentity(key);
         if (identity) await processes.stop(identity, force);
         await cleanHost(key, identity);
-        checkUntrackedSocket(dir);
+        if (identity) {
+          // The recorded host can exit before the kernel drops its socket row.
+          const deadline = performance.now() + 500;
+          while (hasNamedSocket(dir)) {
+            const remaining = deadline - performance.now();
+            if (remaining <= 0) throw untrackedSocketError();
+            await delay(Math.min(50, remaining));
+          }
+        } else {
+          checkUntrackedSocket(dir);
+        }
         await cleanLegacyHost(key);
       });
     },

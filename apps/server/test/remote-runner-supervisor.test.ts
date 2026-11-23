@@ -39,6 +39,7 @@ import {
   parseProcessStat,
   parseSessionIdentity,
   runnerStateLockError,
+  socketInUse,
   type SessionIdentity,
   type SessionProcesses,
 } from "../src/agents/remote/session-processes.js";
@@ -203,7 +204,7 @@ describe("runner session supervision", () => {
     }),
     cleanup: vi.fn(async (_identity: SessionIdentity) => {}),
     cleanupLegacy: vi.fn(async (_marker: string) => {}),
-    socketInUse: vi.fn(() => false),
+    socketInUse: vi.fn<(socket: string) => boolean>(() => false),
     socketMatchesHost: vi.fn(() => true),
     spawn: vi.fn<SessionProcesses["spawn"]>(),
   } satisfies SessionProcesses;
@@ -748,6 +749,50 @@ describe("runner session supervision", () => {
     await running.stop(agentId, "configured", true);
     expect(kernelHost).toBe(unrelated);
   });
+
+  it.each(["drains", "persists", "untracked"])(
+    "checks the exact socket path when the socket %s after Stop",
+    async (stateAfterStop) => {
+      const running = await start(["configured"]);
+      await running.launch(launch("configured"), root);
+      const recorded = parseSessionIdentity(await readFile(record, "utf8"));
+      if (stateAfterStop === "untracked") await rm(record);
+
+      const socket = path.join(state, "hosts", agentId, HOST_FILES.socket);
+      const row = (pathname: string) =>
+        `0000: 00000002 00000000 00010000 0001 01 12345 ${pathname}\n`;
+      const otherRow = row(socket + ".other");
+      const readUnix = vi.fn(() => row(socket) + otherRow);
+      if (stateAfterStop === "drains")
+        readUnix
+          .mockImplementation(() => otherRow)
+          .mockReturnValueOnce(row(socket) + otherRow);
+      processes.socketInUse.mockImplementation((pathname) =>
+        socketInUse(pathname, readUnix)
+      );
+
+      const stopped = running.stop(agentId, "configured", false);
+      if (stateAfterStop === "drains") {
+        await expect(stopped).resolves.toBeUndefined();
+        expect(readUnix).toHaveBeenCalledTimes(2);
+      } else {
+        await expect(stopped).rejects.toThrow(
+          "Runner cannot verify ownership of the existing guest host."
+        );
+      }
+      expect(readUnix).toHaveBeenCalledWith("/proc/net/unix", "utf8");
+      if (stateAfterStop === "untracked") {
+        expect(readUnix).toHaveBeenCalledTimes(1);
+        expect(processes.stop).not.toHaveBeenCalled();
+        expect(processes.cleanup).not.toHaveBeenCalled();
+      } else {
+        expect(readUnix.mock.calls.length).toBeGreaterThan(1);
+        expect(processes.stop).toHaveBeenCalledWith(recorded, false);
+        expect(processes.cleanup).toHaveBeenCalledWith(recorded);
+        expect(processes.cleanup).toHaveBeenCalledBefore(readUnix);
+      }
+    }
+  );
 
   it("fences a legacy live socket and rejects a second supervisor", async () => {
     const running = await start(["configured"]);

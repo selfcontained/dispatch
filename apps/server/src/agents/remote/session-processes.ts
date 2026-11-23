@@ -224,6 +224,15 @@ export function openHostSocket(socketPath: string, uid: number) {
 
 export type SessionProcesses = ReturnType<typeof createSessionProcesses>;
 
+export function socketInUse(
+  socket: string,
+  read: (file: string, encoding: "utf8") => string = readFileSync
+): boolean {
+  return read("/proc/net/unix", "utf8")
+    .split("\n")
+    .some((line) => /^\S+\s+(?:\S+\s+){6}(.*)$/.exec(line)?.[1] === socket);
+}
+
 export function createSessionProcesses(
   uid: number,
   asWorkload: WorkloadCommand
@@ -436,10 +445,6 @@ export function createSessionProcesses(
         : Promise.resolve();
     },
     cleanupLegacy: cleanup,
-    socketInUse(socket: string) {
-      return readFileSync("/proc/net/unix", "utf8")
-        .split("\n")
-        .some((line) => /^\S+\s+(?:\S+\s+){6}(.*)$/.exec(line)?.[1] === socket);
-    },
+    socketInUse,
   };
 }
