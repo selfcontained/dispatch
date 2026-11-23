@@ -13,7 +13,7 @@ https
     async (req, res) => {
       const url = new URL(req.url, "https://repo.runner.test");
       if (
-        !/^\/[a-f0-9-]+\.git\/(info\/refs|git-(?:upload|receive)-pack)$/.test(
+        !/^\/[a-f0-9-]+(?:\.git)?\/(info\/refs|git-(?:upload|receive)-pack)$/.test(
           url.pathname
         )
       )
@@ -26,7 +26,10 @@ https
           PATH: "/usr/bin:/bin",
           GIT_PROJECT_ROOT: root + "/repos",
           GIT_HTTP_EXPORT_ALL: "1",
-          PATH_INFO: url.pathname,
+          PATH_INFO: url.pathname.replace(
+            /^(\/[a-f0-9-]+)(?:\.git)?\//,
+            "$1.git/"
+          ),
           QUERY_STRING: url.search.slice(1),
           REQUEST_METHOD: req.method,
           CONTENT_TYPE: req.headers["content-type"] || "",

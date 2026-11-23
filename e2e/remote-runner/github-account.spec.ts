@@ -124,6 +124,11 @@ test("GitHub sign-in, private checkout and sign-out belong to the selected runne
     });
     await expect(details.getByText("build", { exact: true })).toBeVisible();
     guest("scratch", "touch /tmp/runner-ci-finished");
+    // Main's background interval is five minutes. Exercise the normal refresh
+    // action rather than asserting a shorter background schedule.
+    await details
+      .getByRole("button", { name: "Refresh pull request checks" })
+      .click();
     await expect(details.getByText("integration", { exact: true })).toBeVisible(
       { timeout: 45_000 }
     );

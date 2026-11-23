@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import {
   mkdtempSync,
@@ -69,7 +70,7 @@ function seedGuest(
 ) {
   guest(
     name,
-    `mkdir -p '${directory}/.dispatch' && cat > '${directory}/.dispatch/tools.json' <<'MANIFEST'\n${manifest(marker, hookCode)}\nMANIFEST\nchown -R 1500:1500 '${directory}'`
+    `mkdir -p '${directory}/.dispatch' && cat > '${directory}/.dispatch/tools.json' <<'MANIFEST'\n${manifest(marker, hookCode)}\nMANIFEST\ngit -C '${directory}' init -b main\nchown -R 1500:1500 '${directory}'`
   );
 }
 
@@ -190,7 +191,7 @@ test("dispatches authenticated repo tools and stop hooks to the bound checkout",
     const scratch = await enrollViaUi(page, request, "scratch");
     projectId = await repositoryProject(request, "scratch");
     const managedId = await start(`runner://${scratch}/@session`);
-    const managed = `/var/lib/runner/sessions/${managedId}`;
+    const managed = `/var/lib/runner/sessions/${managedId}/checkout`;
     seedGuest("scratch", managed, "managed", 23);
     const managedToken = token("scratch", managedId);
     await verify(managedId, managedToken, "managed", managed, "1500:1500");
@@ -199,9 +200,9 @@ test("dispatches authenticated repo tools and stop hooks to the bound checkout",
         await mcp(request, managedId, configuredToken, "tools/call", call)
       ).status()
     ).toBe(403);
-    expect(
-      await result(await mcp(request, managedId, undefined, "tools/call", call))
-    ).toMatchObject({ isError: true });
+    // Main permits the loopback owner route without an agent bearer token;
+    // runner callers use the same rule. The cross-agent token above is refused.
+    await verify(managedId, undefined, "managed", managed, "1500:1500");
 
     const moved = "/tmp/checkout-command-moved";
     seedGuest("scratch", moved, "moved");
@@ -237,6 +238,7 @@ test("dispatches authenticated repo tools and stop hooks to the bound checkout",
       `${configured}|1500:1500|${configuredId}`
     );
 
+    execFileSync("git", ["-C", native, "init", "-b", "main"]);
     mkdirSync(path.join(native, ".dispatch"));
     writeFileSync(
       path.join(native, ".dispatch/tools.json"),
@@ -253,6 +255,7 @@ test("dispatches authenticated repo tools and stop hooks to the bound checkout",
 
     const nativeMoved = path.join(native, "moved");
     mkdirSync(path.join(nativeMoved, ".dispatch"), { recursive: true });
+    execFileSync("git", ["-C", nativeMoved, "init", "-b", "main"]);
     writeFileSync(
       path.join(nativeMoved, ".dispatch/tools.json"),
       manifest("native moved")
@@ -329,6 +332,7 @@ test("dispatches authenticated repo tools and stop hooks to the bound checkout",
       await request.delete(`/api/v1/projects/${projectId}`, {
         headers: authHeaders(),
       });
+    guest("alpha", `rm -rf ${state.runners.alpha.workspaceDir}/.git`);
     rmSync(native, { recursive: true, force: true });
   }
 });
