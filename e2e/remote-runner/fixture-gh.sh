@@ -23,6 +23,7 @@ case "$1 ${2:-}" in
       *) printf 'github.com\n  ✓ Logged in to github.com account %s\n' "$login" ;;
     esac
     ;;
+  'auth token') test -s "$key"; printf 'test-only-%s\n' "$name" ;;
   'auth logout') rm -f "$key" ;;
   'auth setup-git') git config --global credential.https://github.com.helper '!/usr/bin/gh auth git-credential' ;;
   'auth git-credential')

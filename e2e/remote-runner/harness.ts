@@ -187,8 +187,10 @@ export async function runnerRows(request: APIRequestContext) {
   expect(res.ok(), await res.text()).toBe(true);
   return ((await res.json()) as { runners: RunnerRow[] }).runners;
 }
-export const runnerRow = async (request: APIRequestContext, name: string) =>
-  (await runnerRows(request)).find((r) => r.name === name);
+export const runnerRow = async (request: APIRequestContext, name: string) => {
+  const rows = (await runnerRows(request)).filter((row) => row.name === name);
+  return rows.find((row) => row.status !== "revoked") ?? rows[0];
+};
 
 async function connectCommand(page: Page) {
   await page.goto("/settings/runners", { waitUntil: "domcontentloaded" });
@@ -310,10 +312,21 @@ export async function enrollViaUi(
 ) {
   // Independent specs share a fleet. Re-pairing an active name invalidates its
   // credentials before approval fails on the registry's unique-name constraint.
-  const existing = (await runnerRows(request)).find(
+  const rows = await runnerRows(request);
+  const existing = rows.find(
     (row) => row.name === name && row.status === "online"
   );
   if (existing) return existing.id;
+  // Revocation closes the connection, but the disposable supervisor still
+  // owns the state lock. Stop that exact process before re-pairing its name.
+  if (
+    rows.some((row) => row.name === name && row.status === "revoked") &&
+    guestOk(
+      name,
+      "test -f /run/runner-fixture.pid && kill -0 $(cat /run/runner-fixture.pid) 2>/dev/null"
+    )
+  )
+    crashRunner(name);
   const { form, code, finished } = await requestConnection(page, name);
   await form.getByLabel("Runner name").fill(name);
   await form.getByLabel("Pairing code").fill(code);

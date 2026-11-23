@@ -48,6 +48,8 @@ test.beforeAll(() => {
 });
 test.afterAll(async ({ request }) => {
   await cleanupE2EAgents(request);
+  for (const name of ["alpha", "beta"] as const)
+    guest(name, `rm -rf ${state.runners[name].workspaceDir}/.git`);
   for (const id of projects)
     await request.delete(`/api/v1/projects/${id}`, { headers: authHeaders() });
   await Promise.all(
@@ -123,6 +125,12 @@ test("local and runner fixture launches answer from their own side", async ({
   baseURL,
   browser,
 }, testInfo) => {
+  // Repo tools follow main: their manifest is discovered from a Git root.
+  for (const name of ["alpha", "beta"] as const)
+    guest(
+      name,
+      `git -C ${state.runners[name].workspaceDir} init -b main && chown -R 1500:1500 ${state.runners[name].workspaceDir}/.git`
+    );
   for (const [key, prompt] of [
     ["local", "local-start"],
     ["alpha", "prove-marker proof-count"],
@@ -524,9 +532,9 @@ test("managed scratch checkout selection persists across host start and preserve
   });
   expect(stream.ok(), await stream.text()).toBe(true);
   expect(await stream.text()).toContain("Starting Claude");
-  const directory = `/var/lib/runner/sessions/${id}`;
+  const directory = `/var/lib/runner/sessions/${id}/checkout`;
   expect(guest("scratch", `stat -c '%u:%g %a' ${directory}`).trim()).toBe(
-    "1500:1500 700"
+    "1500:1500 755"
   );
   expect(guest("scratch", `cat ${directory}/provider-invocations`).trim()).toBe(
     "called"
@@ -654,11 +662,11 @@ test("managed scratch checkout selection persists across host start and preserve
     await page.getByTestId(`agent-expand-toggle-${id}`).click();
   await archive.click();
   await page.getByTestId("delete-agent-confirm").click();
-  const choice = page.getByRole("dialog", {
-    name: "Worktree Has Outstanding Changes",
+  const choice = page.getByRole("alertdialog").filter({
+    has: page.getByTestId("delete-agent-force-worktree"),
   });
   await expect(
-    choice.getByText("provider-invocations", { exact: true })
+    choice.getByText("?? provider-invocations", { exact: true })
   ).toBeVisible();
   await testInfo.attach("runner-owned scratch archive choice", {
     body: await page.screenshot(),

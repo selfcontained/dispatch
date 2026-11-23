@@ -88,16 +88,42 @@ function seedDefaultBranch(directory: string) {
 
 function copyCheckoutToRunner(directory: string, agentId: string) {
   const container = state.runners.scratch.container;
-  const target = "/var/lib/runner/sessions/" + agentId;
-  execFileSync("docker", ["cp", directory + "/.", container + ":" + target]);
+  const target = "/var/lib/runner/sessions/" + agentId + "/checkout";
+  // A managed checkout has a .git pointer owned by Git worktree. Preserve it
+  // while putting the fixture's unpublished branch and ignored files in place.
   execFileSync("docker", [
     "exec",
-    container,
-    "chown",
-    "-R",
+    "-u",
     "1500:1500",
+    container,
+    "git",
+    "-C",
     target,
+    "switch",
+    "unpublished",
   ]);
+  const files = execFileSync(
+    "tar",
+    ["-C", directory, "--exclude=.git", "-cf", "-", "."],
+    { env: { ...process.env, COPYFILE_DISABLE: "1" } }
+  );
+  execFileSync(
+    "docker",
+    [
+      "exec",
+      "-i",
+      "-u",
+      "1500:1500",
+      container,
+      "tar",
+      "--no-same-owner",
+      "-C",
+      target,
+      "-xf",
+      "-",
+    ],
+    { input: files }
+  );
 }
 
 async function listTools(request: APIRequestContext, id: string) {
@@ -255,7 +281,9 @@ for (const placement of ["This Mac", "Linux runner"] as const) {
               "1500:1500",
               state.runners.scratch.container,
               "tee",
-              "/var/lib/runner/sessions/" + author + "/review-marker.txt",
+              "/var/lib/runner/sessions/" +
+                author +
+                "/checkout/review-marker.txt",
             ],
             { input: value, stdio: ["pipe", "ignore", "pipe"] }
           );
@@ -529,7 +557,7 @@ for (const placement of ["This Mac", "Linux runner"] as const) {
             "tee",
             "/var/lib/runner/sessions/" +
               author +
-              "/.agents/personas/default-review.md",
+              "/checkout/.agents/personas/default-review.md",
           ],
           { input: override, stdio: ["pipe", "ignore", "pipe"] }
         );
@@ -572,6 +600,10 @@ test("identical runner paths yield separate tool catalogs", async ({
         (await runnerRow(request, name))?.id ??
         (await enrollViaUi(page, request, name));
       const directory = state.runners[name].workspaceDir;
+      guest(
+        name,
+        `git -C ${directory} init -b main && chown -R 1500:1500 ${directory}/.git`
+      );
       const writeManifest = (description: string) => {
         const json = JSON.stringify({
           tools: [{ name: "same_path", description, command: ["true"] }],
@@ -608,6 +640,8 @@ test("identical runner paths yield separate tool catalogs", async ({
     }
   } finally {
     for (const id of agents) await deleteAgentViaAPI(request, id);
+    for (const name of ["alpha", "beta"] as const)
+      guest(name, `rm -rf ${state.runners[name].workspaceDir}/.git`);
   }
 });
 
