@@ -16,6 +16,10 @@
 import { afterAll, beforeAll, expect } from "vitest";
 import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
+import {
+  connectEnrolledRunner,
+  type EnrolledRunnerOptions,
+} from "./inject-runner.js";
 import { launchBlockId } from "../../src/chat/service.js";
 
 import {
@@ -38,6 +42,7 @@ export interface InjectAppContext {
    * launch writes). Wait here for the launch to settle first.
    */
   awaitLaunched: (agentId: string) => Promise<void>;
+  runner?: { id: string };
 }
 
 export interface InjectAppOptions {
@@ -45,6 +50,7 @@ export interface InjectAppOptions {
   setupAuth?: boolean;
   /** Extra env vars to set during the test; cleaned up in afterAll. */
   env?: Record<string, string>;
+  enrolledRunner?: EnrolledRunnerOptions;
 }
 
 // The MCP SDK's StreamableHTTP transport schedules a 500ms drain timer
@@ -62,7 +68,16 @@ const uncaughtExceptionFilter = (err: Error): void => {
 
 export function useInjectApp(opts?: InjectAppOptions): InjectAppContext {
   const setupAuth = opts?.setupAuth ?? true;
-  const extraEnv = opts?.env ?? {};
+  const extraEnv = {
+    ...opts?.env,
+    ...(opts?.enrolledRunner && {
+      DISPATCH_RUNNERS: "1",
+      DISPATCH_RUNNER_HOST: "127.0.0.1",
+      DISPATCH_RUNNER_PORT: "0",
+      DISPATCH_RUNNER_ENDPOINT_HOST: "127.0.0.1",
+    }),
+  };
+  let closeRunner: (() => Promise<void>) | undefined;
 
   const ctx = {} as InjectAppContext;
   /** Wait until the asynchronous launch leaves its creation phase. */
@@ -132,10 +147,20 @@ export function useInjectApp(opts?: InjectAppOptions): InjectAppContext {
       const secret = await auth.getOrCreateCookieSecret(pool);
       return `${auth.sessionCookieName(secret)}=${signed}`;
     };
+    if (opts?.enrolledRunner) {
+      const runner = await connectEnrolledRunner(
+        app,
+        await ctx.sessionCookie(),
+        opts.enrolledRunner
+      );
+      ctx.runner = { id: runner.id };
+      closeRunner = runner.close;
+    }
   });
 
   afterAll(async () => {
     const serverModule = await import("../../src/server.js");
+    await closeRunner?.();
     await serverModule.closeApp();
     delete process.env.DISPATCH_AGENT_RUNTIME;
     delete process.env.DATABASE_URL;
