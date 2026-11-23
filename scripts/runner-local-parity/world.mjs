@@ -5,8 +5,8 @@ import { createHash, randomInt } from "node:crypto";
 import {
   chmodSync,
   closeSync,
+  constants,
   copyFileSync,
-  linkSync,
   lstatSync,
   mkdirSync,
   openSync,
@@ -334,7 +334,14 @@ export class World {
   install(which) {
     const temporary = `${this.runtime}.next`;
     rmSync(temporary, { force: true });
-    linkSync(this.builds[which].binary, temporary);
+    // A hard link shares the executable inode with worlds concurrently
+    // installing and removing their own paths. On macOS that can kill a new
+    // process before its first log line. Clone the bytes into a private inode.
+    copyFileSync(
+      this.builds[which].binary,
+      temporary,
+      constants.COPYFILE_FICLONE
+    );
     renameSync(temporary, this.runtime);
   }
 
@@ -344,6 +351,7 @@ export class World {
     this.install(which);
     const offset = lstatSync(this.log, { throwIfNoEntry: false })?.size ?? 0;
     const output = openSync(this.log, "a");
+    const started = Date.now();
     const child = spawn(this.runtime, [], {
       cwd: this.root,
       env: this.environment(env),
@@ -351,19 +359,28 @@ export class World {
     });
     closeSync(output);
     this.child = child;
+    let exitReason;
     this.exited = new Promise((resolve) => {
-      child.once("exit", (code, signal) => resolve(code ?? signal));
-      child.once("error", () => resolve("spawn failed"));
+      child.once("exit", (code, signal) => {
+        exitReason = signal ? `signal ${signal}` : `exit code ${code}`;
+        resolve(code ?? signal);
+      });
+      child.once("error", (error) => {
+        exitReason = `spawn failed (${error.code ?? error.message})`;
+        resolve("spawn failed");
+      });
     });
     const listening = `Dispatch listening on http://127.0.0.1:${this.port}`;
-    const deadline = Date.now() + 45_000;
+    const deadline = started + 45_000;
     for (;;) {
       // Contact the port only after this very process says it owns it.
       const log = readFileSync(this.log).subarray(offset).toString("utf8");
       if (log.includes(listening)) break;
-      if (child.exitCode !== null || child.signalCode || Date.now() > deadline)
+      if (exitReason || Date.now() > deadline)
         throw new HarnessError(
-          `The ${which} build did not start:\n${this.redact(log.slice(-3000))}`
+          this.redact(
+            `The ${which} build did not start after ${Date.now() - started}ms (${exitReason ?? "readiness timeout"}):\n${log.slice(-3000)}`
+          )
         );
       await sleep(50);
     }

@@ -1,11 +1,19 @@
 // Harness unit tests, without building or running any scenarios.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { setImmediate } from "node:timers/promises";
+import { World } from "./runner-local-parity/world.mjs";
 import { scheduleScenarios } from "./runner-local-parity/schedule.mjs";
 import {
   createNormaliser,
@@ -23,6 +31,55 @@ import {
   validateLedgers,
 } from "./runner-local-parity/ledger.mjs";
 import { childProcessEnv } from "../apps/server/src/shared/process/child-environment.js";
+
+test("runtime installs have private executable inodes", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "dispatch-parity-install-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const main = join(root, "dispatch-main");
+  const head = join(root, "dispatch-head");
+  writeFileSync(main, "main", { mode: 0o755 });
+  writeFileSync(head, "head", { mode: 0o755 });
+  const builds = { main: { binary: main }, head: { binary: head } };
+  const worlds = ["m", "h"].map((name) => {
+    const directory = join(root, name);
+    mkdirSync(directory);
+    return new World({ directory, builds });
+  });
+
+  for (const world of worlds) world.install("main");
+  const [first, second] = worlds;
+  const files = [main, first.runtime, second.runtime].map((path) =>
+    statSync(path)
+  );
+  assert.equal(new Set(files.map(({ ino }) => ino)).size, files.length);
+
+  first.install("head");
+  assert.notEqual(statSync(first.runtime).ino, statSync(head).ino);
+  assert.equal(statSync(first.runtime).mode & 0o111, 0o111);
+  assert.equal(readFileSync(first.runtime, "utf8"), "head");
+  assert.equal(readFileSync(second.runtime, "utf8"), "main");
+});
+
+test("early server death reports its signal before the readiness deadline", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "dispatch-parity-start-"));
+  const binary = join(root, "fixture");
+  writeFileSync(binary, '#!/bin/sh\nkill -KILL "$$"\n', { mode: 0o755 });
+  const world = new World({
+    directory: root,
+    side: "main",
+    tools: { fixtures: root },
+    builds: { main: { binary } },
+  });
+  t.after(async () => {
+    await world.stop();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await assert.rejects(
+    world.start(),
+    /did not start after \d+ms \(signal SIGKILL\)/
+  );
+});
 
 test("serial scenarios never overlap either parallel lane", async () => {
   const scenarios = [
