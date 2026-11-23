@@ -25,6 +25,7 @@ import {
 export const sessions = [
   {
     name: "session-lifecycle",
+    serial: true,
     title: "Create, prompt, read, rename, stop, start, archive",
     async run(w) {
       const cwd = await w.repo("repo");

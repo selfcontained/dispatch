@@ -537,6 +537,7 @@ export const checkouts = [
   },
   {
     name: "set-workspace",
+    serial: true,
     title: "set_workspace, and what follows it",
     async run(w) {
       const marker = join(w.root, "tool-ran");
@@ -581,6 +582,7 @@ export const checkouts = [
   },
   {
     name: "git-context",
+    serial: true,
     title: "Branch and repository follow the checkout",
     async run(w) {
       const repo = await w.repo("repo");

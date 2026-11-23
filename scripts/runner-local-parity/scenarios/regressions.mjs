@@ -387,6 +387,7 @@ export const regressions = [
   },
   {
     name: "audit-5-roots",
+    serial: true,
     title: "A slow or odd checkout keeps the roots main still resolves",
     async run(w) {
       const marker = join(w.root, "slow-toplevel");

@@ -34,22 +34,13 @@ import {
   validateLedgers,
 } from "./runner-local-parity/ledger.mjs";
 import { report } from "./runner-local-parity/report.mjs";
+import { scheduleScenarios } from "./runner-local-parity/schedule.mjs";
 import { scenarios } from "./runner-local-parity/scenarios/index.mjs";
 import {
   killUnder,
   prepareTools,
   World,
 } from "./runner-local-parity/world.mjs";
-
-async function inBatches(items, size, work) {
-  const queue = [...items];
-  await Promise.all(
-    Array.from({ length: size }, async () => {
-      for (let item = queue.shift(); item; item = queue.shift())
-        await work(item);
-    })
-  );
-}
 
 function databaseUrl() {
   // Deliberately never DATABASE_URL: that may be somebody's real database.
@@ -230,15 +221,7 @@ async function main() {
         `  ${scenario.name}: ${main === undefined || head === undefined ? "failed to run" : found.length ? `${found.length} differences` : "same"}`
       );
     };
-    // A scenario that only waits for a real timeout has a lane of its own.
-    await Promise.all([
-      inBatches(
-        runnable.filter((scenario) => !scenario.waits),
-        jobs,
-        runScenario
-      ),
-      ...runnable.filter((scenario) => scenario.waits).map(runScenario),
-    ]);
+    await scheduleScenarios(runnable, jobs, runScenario);
     if (interrupted) return;
     results.sort(
       (a, b) =>

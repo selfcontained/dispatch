@@ -1,10 +1,12 @@
-// The comparer and the ledgers, without building or running anything.
+// Harness unit tests, without building or running any scenarios.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { setImmediate } from "node:timers/promises";
+import { scheduleScenarios } from "./runner-local-parity/schedule.mjs";
 import {
   createNormaliser,
   differences,
@@ -21,6 +23,33 @@ import {
   validateLedgers,
 } from "./runner-local-parity/ledger.mjs";
 import { childProcessEnv } from "../apps/server/src/shared/process/child-environment.js";
+
+test("serial scenarios never overlap either parallel lane", async () => {
+  const scenarios = [
+    { name: "parallel-1" },
+    { name: "set-workspace", serial: true },
+    { name: "parallel-2" },
+    { name: "git-context", serial: true },
+    { name: "parallel-3" },
+    { name: "timeout", waits: true },
+  ];
+  const active = new Set();
+  const started = [];
+  let peak = 0;
+  await scheduleScenarios(scenarios, 2, async (scenario) => {
+    if (scenario.serial) assert.equal(active.size, 0);
+    else assert.ok([...active].every((item) => !item.serial));
+    active.add(scenario);
+    started.push(scenario.name);
+    peak = Math.max(peak, active.size);
+    assert.ok([...active].filter((item) => !item.waits).length <= 2);
+    await setImmediate();
+    active.delete(scenario);
+  });
+  assert.deepEqual(started.slice(0, 2), ["set-workspace", "git-context"]);
+  assert.deepEqual(started.sort(), scenarios.map(({ name }) => name).sort());
+  assert.equal(peak, 3);
+});
 
 test("the substitution list is closed", () => {
   // A new entry hides a kind of difference from every later task. Changing
