@@ -1,5 +1,6 @@
 import type { AgentRecord } from "../agents/manager.js";
 import { PERSONA_CONTEXT_ARG } from "../agents/acp/persona-context.js";
+import { enrolledRunnerId } from "../runners/placement.js";
 
 /** API responses and SSE share this projection; launch metadata stays server-side. */
 export function agentForClient<T extends AgentRecord>(
@@ -14,5 +15,10 @@ export function agentForClient<T extends AgentRecord>(
       agentArgs.push(agent.agentArgs[index]!);
     }
   }
-  return { ...agent, agentArgs, hasStream };
+  return {
+    ...agent,
+    agentArgs,
+    hasStream,
+    engineLoginRunnerId: enrolledRunnerId(agent.placement),
+  };
 }

@@ -1,3 +1,4 @@
+import { localAgentPlacement } from "@/test-utils/__fixtures__/agent-placement";
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
@@ -75,6 +76,7 @@ function makeAgent(id: string, name: string): Agent {
     name,
     type: "claude",
     status: "running",
+    placement: localAgentPlacement,
     cwd: "/repo",
     worktreePath: null,
     worktreeBranch: null,

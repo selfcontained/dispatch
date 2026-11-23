@@ -1,3 +1,4 @@
+import { localAgentPlacement } from "@/test-utils/__fixtures__/agent-placement";
 // @vitest-environment jsdom
 import {
   cleanup,
@@ -25,6 +26,7 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     name: "worker-1",
     type: "claude",
     status: "running",
+    placement: localAgentPlacement,
     cwd: "/repo",
     worktreePath: null,
     worktreeBranch: null,

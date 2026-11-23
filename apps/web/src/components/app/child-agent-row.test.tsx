@@ -1,3 +1,4 @@
+import { localAgentPlacement } from "@/test-utils/__fixtures__/agent-placement";
 // @vitest-environment jsdom
 import {
   cleanup,
@@ -53,6 +54,7 @@ const baseAgent: Agent = {
   type: "codex",
   role: "review",
   status: "running",
+  placement: localAgentPlacement,
   cwd: "/repo",
   worktreePath: null,
   worktreeBranch: null,

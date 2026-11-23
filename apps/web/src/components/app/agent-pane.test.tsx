@@ -1,3 +1,4 @@
+import { localAgentPlacement } from "@/test-utils/__fixtures__/agent-placement";
 // @vitest-environment jsdom
 vi.mock(
   "@/components/app/chat/composer-input",
@@ -101,6 +102,7 @@ function agentNamed(id: string): Agent {
     id,
     name: `agent ${id}`,
     status: "running",
+    placement: localAgentPlacement,
     cwd: "/tmp",
     worktreePath: null,
     worktreeBranch: null,

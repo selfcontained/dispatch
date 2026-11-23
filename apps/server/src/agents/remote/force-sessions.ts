@@ -6,7 +6,7 @@ import type { StreamRecorder } from "../acp/stream-recorder.js";
 import type { StreamStore, TurnPayload } from "../acp/stream-store.js";
 import type { AgentRuntime, RunnerHostIdentity } from "../runtime.js";
 import type { AgentRecord } from "../types.js";
-import { remotePlacement } from "./protocol.js";
+import { isOnEnrolledRunner } from "../../runners/placement.js";
 
 /*
  * Dispatch's policy for a forced runner update: which turns it cuts, and
@@ -262,7 +262,7 @@ export class RunnerForceSessions {
 
   private async agentOn(runnerId: string, id: string) {
     const agent = await this.deps.getAgent(id);
-    return agent && remotePlacement(agent.cwd)?.runner === runnerId
+    return agent && isOnEnrolledRunner(agent.placement, runnerId)
       ? agent
       : null;
   }

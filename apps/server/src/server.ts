@@ -1,4 +1,4 @@
-import { remotePlacement } from "@dispatch/runner-protocol";
+import { enrolledRunnerId, isOnEnrolledRunner } from "./runners/placement.js";
 import { CheckoutObservers } from "./agents/checkout-observers.js";
 import { readAgentStats } from "./agents/checkout-runner.js";
 import { discoverSlackLinkOrigins } from "./notifications/slack-link-origins.js";
@@ -434,7 +434,7 @@ const mergeRiskAssessor = new MergeRiskAssessor({
   github: mergeRiskGitHub,
   remoteOwners: async (id, runnerId) => {
     const agent = await agentManager.getAgent(id);
-    if (!agent || remotePlacement(agent.cwd)?.runner !== runnerId) return null;
+    if (!agent || !isOnEnrolledRunner(agent.placement, runnerId)) return null;
     for (const path of [OWNERS_PATH, LEGACY_OWNERS_PATH]) {
       const reply = await agentManager.inspectCheckout(agent, {
         kind: "readFile",
@@ -458,7 +458,7 @@ const pullRequests = new PullRequestRefresher({
   listAgents: async () =>
     (await agentManager.listAgents()).map((agent) => ({
       id: agent.id,
-      runnerId: remotePlacement(agent.cwd)?.runner ?? null,
+      runnerId: enrolledRunnerId(agent.placement) ?? null,
     })),
   read: createRunnerPullRequestReader(
     remoteRunner,

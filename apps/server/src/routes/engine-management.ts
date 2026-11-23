@@ -62,6 +62,17 @@ const operationBodySchema = z.object({
   operation: engineOperationSchema,
 });
 
+// Browser cards look up the current login by engine. The manager resolves
+// its ID before sending the existing login_status operation over the wire.
+const currentRunnerLoginSchema = z.object({
+  scope: scopeSchema,
+  operation: z.object({
+    type: z.literal("login_status"),
+    engine: z.enum(["claude", "codex"]),
+    loginId: z.undefined(),
+  }),
+});
+
 /**
  * Engine install/update/sign-in, scoped to this machine or a named runner.
  * Ordinary `/api` routes — the global auth hook protects them like every
@@ -82,6 +93,15 @@ export async function registerEngineManagementRoutes(
   });
 
   app.post("/api/v1/engine-management/operations", async (request, reply) => {
+    const current = currentRunnerLoginSchema.safeParse(request.body);
+    if (current.success && current.data.scope.kind === "runner") {
+      return {
+        ack: await manager.runnerLoginStatus(
+          current.data.scope,
+          current.data.operation.engine
+        ),
+      };
+    }
     const candidate = (request.body ?? {}) as Record<string, unknown>;
     const operation = candidate.operation;
     if (

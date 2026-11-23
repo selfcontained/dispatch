@@ -10,10 +10,15 @@ import { RunnerConnection } from "@dispatch/runner-client/v1/connection";
 import { wireFrames } from "@dispatch/runner-client/v1/node";
 import { RemoteRunnerService } from "../src/agents/remote/service.js";
 import { checkoutRunners } from "../src/runners/directory.js";
+import {
+  controllerPlacement,
+  placementForRunner,
+} from "../src/runners/placement.js";
 
 const agent = {
   id: "agt_123",
   cwd: "/checkout",
+  placement: controllerPlacement,
   worktreePath: null,
   workspacePath: null,
 };
@@ -99,7 +104,11 @@ describe("checkout.exec", () => {
       await remote.requestSession(placementV1, before);
       const { directory, placement } = checkoutRunners(
         { local: { requestSession: vi.fn() }, remote },
-        { ...agent, cwd: "runner://enrolled/session-workspace" }
+        {
+          ...agent,
+          cwd: "runner://enrolled/session-workspace",
+          placement: placementForRunner(placementV1.runner),
+        }
       );
       const runner: Runner = directory.for(placement);
       await expect(runner.call("checkout.exec", req)).resolves.toEqual(result);

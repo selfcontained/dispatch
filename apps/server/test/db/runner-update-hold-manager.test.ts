@@ -820,6 +820,16 @@ describe("launches on a runner held for an update", () => {
     const held = await manager.createAgent({ cwd: HELD });
     const other = await manager.createAgent({ cwd: OTHER });
     const local = await manager.createAgent({ cwd: "/tmp" });
+    // A recorded path need not encode the runner.
+    await pool.query("UPDATE agents SET cwd = '/checkout' WHERE id = $1", [
+      held.id,
+    ]);
+    expect((await manager.getAgent(held.id))?.placement).toEqual({
+      runner: "r1",
+    });
+    expect((await manager.getAgent(local.id))?.placement).toEqual({
+      runner: "local",
+    });
     await holds.begin("r1", ATTEMPT);
     expect(await manager.isUpdateHeld(held.id)).toBe(true);
     expect(await manager.isUpdateHeld(other.id)).toBe(false);

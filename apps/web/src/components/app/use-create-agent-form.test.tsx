@@ -1,3 +1,4 @@
+import { localAgentPlacement } from "@/test-utils/__fixtures__/agent-placement";
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
@@ -38,6 +39,7 @@ const createdAgent = {
   name: "created",
   type: "claude",
   status: "creating",
+  placement: localAgentPlacement,
   cwd: "/repo/app",
   worktreePath: null,
   worktreeBranch: null,

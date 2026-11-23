@@ -421,7 +421,11 @@ importers:
 
   packages/runner-protocol: {}
 
-  packages/shared: {}
+  packages/shared:
+    dependencies:
+      '@dispatch/runner-protocol':
+        specifier: workspace:*
+        version: link:../runner-protocol
 
 packages:
 

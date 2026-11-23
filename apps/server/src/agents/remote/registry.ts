@@ -216,7 +216,7 @@ export class RunnerRegistry {
           AND (revoked_at IS NULL OR (
             cleared_at IS NOT NULL AND NOT EXISTS (
               SELECT 1 FROM agents
-              WHERE starts_with(cwd, 'runner://' || registration.id || '/')
+              WHERE runner_id = registration.id
             )
           ))`
     );

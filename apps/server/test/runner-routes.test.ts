@@ -205,7 +205,7 @@ describe("runner control API", () => {
     const pending = "rnr_pending_fixture";
     const offline = "rnr_offline_fixture";
     const agentId = "agt_historical_fixture";
-    const cwd = `runner://${revoked}/@session`;
+    const cwd = "/srv/checkout";
     await ctx.pool.query(
       `INSERT INTO runner_registrations
         (id, name, endpoint_host, revoked_at, enrolled_at, code_expires_at)
@@ -216,9 +216,9 @@ describe("runner control API", () => {
       [revoked, otherRevoked, pending, offline]
     );
     await ctx.pool.query(
-      `INSERT INTO agents (id, name, cwd, status)
-       VALUES ($1, 'Historical agent', $2, 'stopped')`,
-      [agentId, cwd]
+      `INSERT INTO agents (id, name, cwd, status, runner_id)
+       VALUES ($1, 'Historical agent', $2, 'stopped', $3)`,
+      [agentId, cwd, revoked]
     );
 
     const clear = () =>
@@ -253,10 +253,10 @@ describe("runner control API", () => {
       url: "/api/runners?includeCleared=true",
       headers: { cookie },
     });
-    const runnerId = new URL(agent.json().agent.cwd).hostname;
+    expect(agent.json().agent.placement).toEqual({ runner: revoked });
     expect(historical.json().runners).toContainEqual(
       expect.objectContaining({
-        id: runnerId,
+        id: revoked,
         name: "History machine",
         status: "revoked",
       })

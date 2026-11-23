@@ -21,11 +21,13 @@ import { isLoginActive, useEngineLogin } from "@/hooks/use-engine-login";
  */
 export function EngineSignIn({
   engine,
+  runnerId,
   since,
   onSignedIn,
   extra,
 }: {
   engine: EngineLoginEngine;
+  runnerId?: string;
   /**
    * Only a login that ended after this shows how it ended (and fires
    * `onSignedIn`); an older one leaves the Sign in button. ISO time.
@@ -38,7 +40,7 @@ export function EngineSignIn({
   /** Shown beside Sign in while nothing is under way. */
   extra?: ReactNode;
 }): JSX.Element {
-  const flow = useEngineLogin(engine);
+  const flow = useEngineLogin(engine, runnerId);
   const { login } = flow;
   const [code, setCode] = useState("");
   const recent =

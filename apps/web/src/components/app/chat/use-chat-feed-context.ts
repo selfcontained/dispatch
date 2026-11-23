@@ -128,6 +128,7 @@ export function useChatFeedContext({
 
   const agentName = agent?.name;
   const agentType = agent?.type ?? null;
+  const engineLoginRunnerId = agent?.engineLoginRunnerId;
   const agentModel = agent?.model ?? null;
   const catalog = useAgentModelCatalogData();
   const modelLabel = useCallback(
@@ -141,6 +142,7 @@ export function useChatFeedContext({
       rootId,
       agentName,
       agentType,
+      engineLoginRunnerId,
       agentModel,
       modelLabel,
       ...(agentSeat != null ? { agentSeat } : {}),
@@ -163,6 +165,7 @@ export function useChatFeedContext({
       rootId,
       agentName,
       agentType,
+      engineLoginRunnerId,
       agentModel,
       modelLabel,
       agentSeat,
