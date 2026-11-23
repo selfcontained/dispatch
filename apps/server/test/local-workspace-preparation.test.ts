@@ -29,6 +29,7 @@ import {
 } from "@dispatch/runner-client/launcher";
 import { LocalRunnerSession } from "@dispatch/runner-client/session";
 import { createLocalRunner } from "../src/agents/local-runner.js";
+import { resolveLaunchDirectory } from "../src/agents/workspace.js";
 import {
   prepareLocalWorkspace,
   resumeLocalWorkspace,
@@ -179,13 +180,13 @@ it("prepares native folders, direct checkouts and independent worktrees in the c
   const hosts = path.join(root, "hosts");
   const app = createLocalRunner(hosts, logger);
   const { session } = await startChild(hosts);
-  const native = await app.resolveLaunchDirectory(checkout);
+  const native = await resolveLaunchDirectory(checkout);
 
   expect(
     await prepareLocalWorkspace(
       session,
       "folder",
-      await app.resolveLaunchDirectory(folder),
+      await resolveLaunchDirectory(folder),
       null,
       progress()
     )
@@ -313,7 +314,7 @@ it("finishes a launch whose runner died after Git made the worktree, without a s
   const { session, pids } = await startChild(hosts, {
     RUNNER_DIE_AFTER_CREATE: marker,
   });
-  const native = await app.resolveLaunchDirectory(checkout);
+  const native = await resolveLaunchDirectory(checkout);
   const request = {
     name: "Crash",
     branch: "session/crash",
@@ -357,7 +358,7 @@ it("binds a launch whose runner died after preparing and before binding", async 
   const { session, pids, child } = await startChild(hosts, {
     RUNNER_DIE_AFTER_INSTALL: marker,
   });
-  const native = await app.resolveLaunchDirectory(checkout);
+  const native = await resolveLaunchDirectory(checkout);
   const request = { name: "Late", branch: "late", createNewBranch: true };
   // The restarted child's import ran first and holds the row's folder as
   // external (the row still names the source folder): the prepared binding
@@ -464,7 +465,7 @@ it("refuses preparation while the child is frozen, and writes nothing", async ()
   const refused = await prepareLocalWorkspace(
     session,
     "frozen",
-    await app.resolveLaunchDirectory(checkout),
+    await resolveLaunchDirectory(checkout),
     { name: "Frozen", branch: "frozen", createNewBranch: true },
     progress()
   ).catch((error: unknown) => error);

@@ -1942,6 +1942,11 @@
                 }
               }
             }
+          },
+          "gitFailed": {
+            "optional": {
+              "literal": [true]
+            }
           }
         }
       },

@@ -84,6 +84,8 @@ export const pathResolution = object({
   privacyRestricted: boolean,
   projectRoot: nullable(runnerPath),
   git: nullable(gitContext),
+  /** Present when the folder exists but its Git probe failed (`git` is null). */
+  gitFailed: optional(literal(true)),
 });
 
 export const pathCompletion = object({
