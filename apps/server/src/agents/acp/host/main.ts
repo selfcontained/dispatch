@@ -253,6 +253,10 @@ async function main(argv: string[], options: AgentHostOptions): Promise<void> {
 
   // One client at a time; the newest connection wins.
   let client: net.Socket | null = null;
+  // Connections that have said hello. A client is welcomed in reply to its
+  // hello; the start-up welcome is only for one that did so before the
+  // engine was up, or it would get two running welcomes.
+  const greeted = new WeakSet<net.Socket>();
   let openTurn: {
     seq: number;
     startedAt: string;
@@ -376,6 +380,7 @@ async function main(argv: string[], options: AgentHostOptions): Promise<void> {
     if (socket !== client || shuttingDown) return;
     switch (message.type) {
       case "hello": {
+        greeted.add(socket);
         send(socket, {
           type: "welcome",
           ...hostIdentity,
@@ -755,8 +760,9 @@ async function main(argv: string[], options: AgentHostOptions): Promise<void> {
       { mode: 0o600 }
     );
     running = driver.isRunning(agentId);
-    // A client that connected before the engine was up gets the session.
-    send(client, {
+    // A client that said hello before the engine was up gets the session;
+    // one that has not yet will get it in reply to its hello.
+    send(client && greeted.has(client) ? client : null, {
       type: "welcome",
       ...hostIdentity,
       agentId,
