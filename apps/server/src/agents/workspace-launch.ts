@@ -21,6 +21,8 @@ import {
   type Res,
   type Runner,
 } from "@dispatch/runner-protocol/contract";
+import path from "node:path";
+import { AgentError } from "./errors.js";
 import type { AgentGitContext } from "./types.js";
 import { WORKTREE_LOCAL_CONFIG_FILES } from "./worktree-local-config-files.js";
 
@@ -35,6 +37,38 @@ export type LaunchDirectory = {
   canonicalPath: string;
   git: GitProbe;
 };
+
+/**
+ * Main's launch folder from the runner's `path.resolve`: an absolute path
+ * to a directory, refused with main's messages; a failed Git probe stays
+ * one (`useWorktree` is left alone, as main leaves it).
+ */
+export function launchDirectory(
+  resolved: Res<"path.resolve">
+): LaunchDirectory {
+  const cwd = displayPath(resolved.resolvedPath);
+  if (!path.isAbsolute(cwd))
+    throw new AgentError("Working directory must be an absolute path.", 400);
+  if (!resolved.exists || !resolved.isDirectory || !resolved.canonicalPath)
+    throw new AgentError(
+      "Working directory does not exist or is not a directory.",
+      400
+    );
+  return {
+    cwd,
+    canonicalPath: displayPath(resolved.canonicalPath),
+    git: resolved.gitFailed
+      ? { status: "error" }
+      : {
+          status: "ok",
+          value: resolved.git && {
+            ...resolved.git,
+            repoRoot: displayPath(resolved.git.repoRoot),
+            worktreePath: displayPath(resolved.git.worktreePath),
+          },
+        },
+  };
+}
 
 /** A launch's own worktree, as Dispatch decided it. */
 export type WorktreeRequest = {

@@ -76,6 +76,19 @@ function port(calls: string[]): WorkspacePort {
           `${basename(spec.directory)}-${spec.branch.replace(/\//g, "-")}`
         );
   return {
+    async resolvePath(path) {
+      calls.push(`resolve ${path}`);
+      return {
+        resolvedPath: pathFromWire(path),
+        canonicalPath: null,
+        exists: false,
+        isDirectory: false,
+        isGitRepo: false,
+        privacyRestricted: false,
+        projectRoot: null,
+        git: null,
+      };
+    },
     async observe(path) {
       calls.push(`observe ${path}`);
       return {
@@ -706,5 +719,15 @@ describe("workspace.observe", () => {
     await expect(
       connection.call("workspace.observe", observe("nobody"))
     ).rejects.toMatchObject({ code: "not_found" });
+  });
+});
+
+describe("path.resolve", () => {
+  it("answers from the platform's port, as the workload", async () => {
+    const { connection, calls } = await harness();
+    expect(
+      await connection.call("path.resolve", { path: "~/somewhere" })
+    ).toMatchObject({ resolvedPath: "~/somewhere", exists: false });
+    expect(calls).toEqual(["resolve ~/somewhere"]);
   });
 });

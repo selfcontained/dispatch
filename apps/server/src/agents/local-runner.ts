@@ -2,10 +2,7 @@ import { realpath } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyBaseLogger } from "fastify";
 
-import {
-  createWorkspacePreparation,
-  resolveLaunchDirectory,
-} from "./workspace.js";
+import { createWorkspacePreparation } from "./workspace.js";
 import { resolveProjectRoot } from "../projects/resolve-root.js";
 import { inferRepositoryUrl } from "./remote/repository.js";
 
@@ -26,7 +23,6 @@ export function createLocalRunner(
   }
   const workspace = createWorkspacePreparation();
   return {
-    resolveLaunchDirectory,
     canonicalPath: (directory: string) => realpath(directory).catch(() => null),
     resolveProjectRoot,
     inferRepositoryUrl,

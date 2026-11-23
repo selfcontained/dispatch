@@ -671,6 +671,15 @@ export function workspaceHandlers(
       };
     },
 
+    async "path.resolve"(input: Req<"path.resolve">) {
+      if (!port.resolvePath)
+        throw new RunnerCallError({
+          code: "unsupported",
+          message: "This runner does not resolve launch folders.",
+        });
+      return port.resolvePath(input.path);
+    },
+
     async "workspace.prepare"(input: Req<"workspace.prepare">, context) {
       const session = sessionToWire(input.session);
       const dir = sessionDir(stateRoot, receiptKey(session));

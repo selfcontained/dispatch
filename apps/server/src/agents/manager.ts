@@ -9,7 +9,7 @@ import {
   type Res,
   type Placement,
 } from "@dispatch/runner-protocol/contract";
-import { checkoutRunners } from "../runners/directory.js";
+import { checkoutRunners, runnerDirectory } from "../runners/directory.js";
 import type { LocalRunner } from "../runners/local.js";
 import {
   controllerPlacement,
@@ -115,6 +115,7 @@ import {
   type PrepareProgress,
   type PreparedWorkspace,
   type WorktreeRequest,
+  launchDirectory,
   localPreparation,
   prepareRecordedWorkspace,
   runnerWorktree,
@@ -2416,7 +2417,7 @@ export class AgentManager {
     const directory = location
       ? null
       : unscoped
-        ? await this.localRunner.resolveLaunchDirectory(input.cwd)
+        ? await this.launchDirectory(placement, input.cwd)
         : undefined;
     // Membership inherited from a parent (including no project) and
     // explicit/template selections remain authoritative.
@@ -2595,7 +2596,7 @@ export class AgentManager {
     }
     const directory =
       resolvedDirectory === undefined
-        ? await this.localRunner.resolveLaunchDirectory(input.cwd)
+        ? await this.launchDirectory(placement, input.cwd)
         : resolvedDirectory;
     // An explicitly selected plain-folder project does not default to a worktree.
     if (
@@ -3607,6 +3608,15 @@ export class AgentManager {
     );
     if (claimed.rows.length === 0) return this.getRequiredAgent(id);
     return this.startAgentClaimed(id, undefined, recycle);
+  }
+
+  /** A launch folder, resolved by the runner the launch goes to. */
+  private async launchDirectory(placement: Placement, cwd: string) {
+    return launchDirectory(
+      await runnerDirectory(this.checkoutReadRunners())
+        .for(placement)
+        .call("path.resolve", { path: cwd })
+    );
   }
 
   /** The worktree request a local launch recorded on its row, if any. */

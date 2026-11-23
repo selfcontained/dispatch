@@ -506,6 +506,24 @@ export function createLocalCheckoutRunner(
     };
   }
 
+  /**
+   * A launch folder (`path.resolve`): in the child when it is ready, else,
+   * and when it dies mid-call, the same port in process (R3, as for reads).
+   */
+  async function resolvePath(
+    input: Req<"path.resolve">,
+    options?: CallOptions<"path.resolve">
+  ): Promise<Res<"path.resolve">> {
+    if (child?.connection.state === "ready")
+      try {
+        return await child.call("path.resolve", input, options);
+      } catch (error) {
+        if (!childUnavailable(error)) throw error;
+        options?.signal?.throwIfAborted();
+      }
+    return workspaceWorkload.resolvePath(input.path);
+  }
+
   /** A folder's default branch: in the child when it serves this session, else in process (R3). */
   async function defaultBranch(
     input: Req<"git.defaultBranch">,
@@ -685,6 +703,11 @@ export function createLocalCheckoutRunner(
         return release(
           input as Req<"workspace.release">,
           options as CallOptions<"workspace.release">
+        ) as Promise<Res<K>>;
+      if (op === "path.resolve")
+        return resolvePath(
+          input as Req<"path.resolve">,
+          options as CallOptions<"path.resolve">
         ) as Promise<Res<K>>;
       if (op === "git.defaultBranch")
         return defaultBranch(

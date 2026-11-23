@@ -187,6 +187,8 @@ export interface WorkspacePort {
     changedFiles: string[];
     uncommittedFiles: string[];
   }>;
+  /** What a folder is for a launch (`path.resolve`), as the workload account. */
+  resolvePath?(path: string): Promise<Res<"path.resolve">>;
   /** The canonical path of an existing directory, else null. */
   canonical(path: string): Promise<string | null>;
   /**

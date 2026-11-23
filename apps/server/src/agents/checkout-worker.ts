@@ -39,6 +39,7 @@ import { getAgentDiff, getAgentFileDiff } from "../shared/git/agent-diff.js";
 import { getDiffStatsComputation } from "../shared/git/diff-stats.js";
 import { getAgentDiffImage } from "../shared/git/diff-image.js";
 import { inspectCheckout, observeGitCheckout } from "./checkout-inspection.js";
+import { resolvePath } from "./workspace.js";
 import { SharedCheckoutWatches, watchCheckout } from "./checkout-watch.js";
 import { spawn } from "node:child_process";
 import { loginShellCommand } from "./acp/host-command.js";
@@ -951,6 +952,8 @@ const repositoryCache = {
 };
 
 export const workspaceWorkload = {
+  /** Main's launch folder resolution (`path.resolve`). */
+  resolvePath,
   /** Main's archive observation of a worktree (`observeGitCheckout`). */
   observe: (directory: string) => observeGitCheckout(directory),
   async release(
