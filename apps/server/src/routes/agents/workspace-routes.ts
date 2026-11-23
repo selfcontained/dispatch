@@ -31,12 +31,11 @@ export async function registerAgentWorkspaceRoutes(
     const workspace = placement ? agent.cwd : agentWorkspaceDir(agent);
     if (!workspace)
       return reply.code(404).send({ error: "This agent has no workspace." });
-    // Older clients identify a runner checkout by its binding. Clients that
-    // use the confirmed effective path still read through the same binding.
-    if (
-      query.workspace !== workspace &&
-      !(placement && query.workspace === agent.workspacePath)
-    )
+    // Accept the row's current path just as the web resolves it, while older
+    // clients can still identify a runner checkout by its binding.
+    const effectiveWorkspace =
+      agent.workspacePath ?? agent.worktreePath ?? agent.cwd;
+    if (query.workspace !== workspace && query.workspace !== effectiveWorkspace)
       return reply
         .code(409)
         .send({ error: "Workspace changed. Reopen Files to continue." });
