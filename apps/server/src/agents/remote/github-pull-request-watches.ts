@@ -5,7 +5,7 @@ import {
   type GitHubPullRequestObservation,
   type GitHubPullRequestTarget,
   type GitHubPullRequestWatchEvent,
-} from "./protocol.js";
+} from "@dispatch/runner-protocol";
 
 type Sample = Extract<GitHubPullRequestWatchEvent, { type: "observation" }>;
 type Receiver = (event: GitHubPullRequestWatchEvent) => void;

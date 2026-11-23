@@ -17,7 +17,10 @@ import {
   isBuildIdentity,
   type BuildIdentity,
 } from "../build-identity.js";
-import type { RunnerInstalledBuild, RunnerUpdateReason } from "./protocol.js";
+import type {
+  RunnerInstalledBuild,
+  RunnerUpdateReason,
+} from "@dispatch/runner-protocol";
 import type { FenceRecord } from "./update-admission.js";
 import {
   fileFenceStore,

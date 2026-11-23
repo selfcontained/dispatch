@@ -42,7 +42,7 @@ import {
   type LaunchProgress,
   type RunnerRepository,
   type RunnerEngine,
-} from "./protocol.js";
+} from "@dispatch/runner-protocol";
 import { parseRepository, repositoryUrl } from "./repository.js";
 import {
   classifySessionIdentity,

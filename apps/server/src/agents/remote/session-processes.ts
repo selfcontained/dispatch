@@ -16,7 +16,7 @@ import {
   isHostInstanceId,
   type BuildIdentity,
 } from "../build-identity.js";
-import { isOpaqueId } from "./protocol.js";
+import { isOpaqueId } from "@dispatch/runner-protocol";
 import type { WorkloadCommand } from "./session-storage.js";
 
 type Kernel = ReturnType<typeof linuxKernel>;

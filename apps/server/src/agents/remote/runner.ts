@@ -43,9 +43,6 @@ import {
   isTerminalEvent,
   isTerminalInfo,
   MAX_TERMINAL_FRAME_LENGTH,
-  isEngineCapabilityOperation,
-  type EngineCapabilityOperation,
-  type EngineOperationAck,
   isGitHubPullRequestObservation,
   MAX_PULL_REQUEST_WATCH_EVENT_BYTES,
   MANAGED_WORKSPACE,
@@ -53,7 +50,6 @@ import {
   MAX_CHECKOUT_VIEW_BYTES,
   checkoutCommandTimeoutMs,
   MAX_CHECKOUT_COMMAND_REPLY_BYTES,
-  wireFrames,
   parseServiceFrame,
   runnerRequestId,
   UPDATE_SERVICE_FRAME_TYPES,
@@ -61,7 +57,13 @@ import {
   MAX_SESSION_FILE_BASE64,
   type RunnerFrame,
   type RunnerEngine,
-} from "./protocol.js";
+} from "@dispatch/runner-protocol";
+import {
+  isEngineCapabilityOperation,
+  type EngineCapabilityOperation,
+  type EngineOperationAck,
+} from "@dispatch/runner-protocol/engine-management";
+import { wireFrames } from "@dispatch/runner-protocol/node";
 import { GitHubPullRequestWatches } from "./github-pull-request-watches.js";
 import { GitHubRunnerExecutor } from "./github-runner-executor.js";
 import {

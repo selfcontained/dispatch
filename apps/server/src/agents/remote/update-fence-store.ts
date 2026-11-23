@@ -6,7 +6,7 @@ import {
   isUpdateAttemptId,
   parseRetainedSessions,
   parseUpdateTarget,
-} from "./protocol.js";
+} from "@dispatch/runner-protocol";
 import type { FenceRecord, FenceStore } from "./update-admission.js";
 
 /** Lives in the root updater's private state directory, beside its floor. */

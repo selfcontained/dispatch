@@ -17,7 +17,7 @@ import {
   type SelfUpdateAdvert,
   type UpdateServiceFrame,
   type UpdateStatusFrame,
-} from "./protocol.js";
+} from "@dispatch/runner-protocol";
 export { trialHelperAvailable } from "./update-trial.js";
 
 import type { FenceRecord, UpdateAdmission } from "./update-admission.js";

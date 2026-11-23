@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { chown, lstat, mkdir } from "node:fs/promises";
 import path from "node:path";
-import type { RunnerRepository } from "./protocol.js";
+import type { RunnerRepository } from "@dispatch/runner-protocol";
 import { validBranch } from "./repository.js";
 import { githubCredentialKey } from "./workload-tools.js";
 

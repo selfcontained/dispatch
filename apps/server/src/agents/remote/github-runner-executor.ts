@@ -14,7 +14,7 @@ import {
   validBranch,
   type GitHubOperation,
   type GitHubStatus,
-} from "./protocol.js";
+} from "@dispatch/runner-protocol";
 import {
   fixedWorkloadTools,
   missingExecutable,
