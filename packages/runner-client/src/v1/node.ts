@@ -28,6 +28,10 @@ export function wireFrames<Incoming = Frame, Outgoing = Frame>(
     }
     if (pending.length > maxLineLength) socket.destroy();
   });
+  return frameWriter<Outgoing>(socket);
+}
+
+export function frameWriter<T>(socket: Duplex): Send<T> {
   return (frame, flushed) => {
     if (socket.destroyed || socket.writableLength > 32 * 1024 * 1024) {
       socket.destroy();
@@ -67,3 +71,6 @@ export function hostChannel(
     },
   });
 }
+
+export { FlowStreams, acceptsStreams } from "./streams.js";
+export type { StreamFrame } from "./streams.js";

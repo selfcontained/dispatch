@@ -11,6 +11,8 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { once } from "node:events";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,7 +21,10 @@ import {
   runnerIdToWire,
   RunnerCallError,
 } from "@dispatch/runner-protocol/contract";
-import { callLocalSocket } from "@dispatch/runner-client/transport/local-socket";
+import {
+  callLocalSocket,
+  jsonLines,
+} from "@dispatch/runner-client/transport/local-socket";
 
 const app = fileURLToPath(new URL("./fixtures/app.ts", import.meta.url));
 const bun = process.env.BUN_BINARY ?? "bun";
@@ -172,6 +177,52 @@ afterEach(async () => {
 });
 
 describe("local runner child (real processes)", () => {
+  it("negotiates stream framing on the authenticated child socket and still serves calls", async () => {
+    const a = startApp({ STATE_ROOT: temp() });
+    const r = await a.next(ready);
+    const socket = connect(r.socket!);
+    const frames: unknown[] = [];
+    try {
+      await once(socket, "connect", { signal: AbortSignal.timeout(2_000) });
+      const replied = new Promise<void>((resolve) => {
+        jsonLines(socket, (frame) => {
+          frames.push(frame);
+          if (frames.length === 3) resolve();
+        });
+      });
+      const requests = [
+        { nonce: r.nonce, streamCredit: true },
+        { type: "stream", action: "open", id: "unregistered" },
+        { id: 1, op: "runner.describe", input: {} },
+      ];
+      socket.write(
+        requests.map((request) => JSON.stringify(request) + "\n").join("")
+      );
+      await Promise.race([
+        replied,
+        once(socket, "close", { signal: AbortSignal.timeout(2_000) }),
+      ]);
+      expect(frames).toEqual([
+        { type: "stream", action: "accept" },
+        {
+          type: "stream",
+          action: "cancel",
+          id: "unregistered",
+          code: "invalid",
+        },
+        {
+          id: 1,
+          ok: true,
+          value: expect.objectContaining({ runnerId: "local" }),
+        },
+      ]);
+    } finally {
+      socket.destroy();
+      a.child.kill("SIGTERM");
+      await gone(r.pid!, 3_000);
+    }
+  });
+
   it("starts, completes the handshake, and serves describe and health to the spawn's nonce only", async () => {
     const root = temp();
     const began = Date.now();

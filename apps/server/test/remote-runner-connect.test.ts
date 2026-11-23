@@ -34,6 +34,7 @@ import {
   type EnrollmentRequest,
   type EnrollmentReply,
 } from "../src/agents/remote/protocol.js";
+import type { StreamFrame } from "../src/runners/enrolled/v1-framing.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 const HOST = "127.0.0.1";
@@ -41,6 +42,7 @@ const HOST = "127.0.0.1";
 type FakeRunner = {
   socket: TLSSocket;
   closed: Promise<void>;
+  send: (frame: Frame | StreamFrame) => void;
 };
 
 function dialRunner(input: {
@@ -49,6 +51,8 @@ function dialRunner(input: {
   cert: string;
   key: string;
   workspaces: string[];
+  streamCredit?: true;
+  onFrame?: (frame: Frame | StreamFrame) => void;
 }): Promise<FakeRunner> {
   const url = new URL(input.endpoint);
   return new Promise((resolve, reject) => {
@@ -62,14 +66,18 @@ function dialRunner(input: {
     });
     const closed = new Promise<void>((done) => socket.on("close", done));
     socket.on("error", reject);
-    const send = wireFrames(socket, () => {});
+    const send = wireFrames<Frame | StreamFrame, Frame | StreamFrame>(
+      socket,
+      (frame) => input.onFrame?.(frame)
+    );
     socket.once("secureConnect", () => {
       send({
         type: "ready",
         version: 1,
         workspaces: input.workspaces,
+        ...(input.streamCredit && { streamCredit: true }),
       } as Frame);
-      resolve({ socket, closed });
+      resolve({ socket, closed, send });
     });
   });
 }
@@ -318,6 +326,38 @@ describe("runner-initiated connect enrollment", () => {
     await waitFor(() =>
       service.available({ runner: approved.id, workspace: "proof" })
     );
+  });
+
+  it("acknowledges stream credit on the enrolled TLS connection", async () => {
+    const service = makeService();
+    const { key, publicKey } = generateRunnerKey();
+    const { id, code } = await service.createConnectRequest(publicKey);
+    await service.approveConnectRequest(id, code, "stream-capable", HOST);
+    const polled = await service.pollConnectRequest(id);
+    if (polled.status !== "approved")
+      throw new Error("Runner approval missing");
+    const { ca, cert, endpoint } = polled;
+    const frames: (Frame | StreamFrame)[] = [];
+    const runner = await dialRunner({
+      endpoint,
+      ca,
+      cert,
+      key,
+      workspaces: ["proof"],
+      streamCredit: true,
+      onFrame: (frame) => frames.push(frame),
+    });
+    runners.push(runner);
+    await waitFor(() => frames.length > 0);
+    expect(frames).toEqual([{ type: "stream", action: "accept" }]);
+    runner.send({ type: "stream", action: "open", id: "unregistered" });
+    await waitFor(() => frames.length > 1);
+    expect(frames[1]).toEqual({
+      type: "stream",
+      action: "cancel",
+      id: "unregistered",
+      code: "invalid",
+    });
   });
 
   it("rejects an unsupported key before any code exists", () => {

@@ -13,6 +13,11 @@ import {
   socketRequest,
   type SocketReply,
 } from "@dispatch/runner-client/transport/local-socket";
+import {
+  FlowStreams,
+  frameWriter,
+  type StreamFrame,
+} from "@dispatch/runner-client/v1/node";
 
 export type CallHandlers = Partial<{
   [K in CallName]: () => Promise<unknown> | unknown;
@@ -35,13 +40,20 @@ export async function serveSocket(
     socket.on("close", () => connections.delete(socket));
     socket.on("error", () => socket.destroy());
     let trusted = false;
+    const send = frameWriter<StreamFrame>(socket);
+    const streams = new FlowStreams(socket, send);
     jsonLines(socket, (message) => {
       if (!trusted) {
         if (!socketHello.check(message) || message.nonce !== nonce)
           return socket.destroy();
         trusted = true;
+        if (message.streamCredit) {
+          send({ type: "stream", action: "accept" });
+          streams.enable();
+        }
         return;
       }
+      if (streams.handle(message)) return;
       if (!socketRequest.check(message)) return socket.destroy();
       void answer(message.op, message.input, handlers).then((result) => {
         const reply: SocketReply =

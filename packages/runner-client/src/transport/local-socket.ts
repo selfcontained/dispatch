@@ -1,8 +1,8 @@
 /*
  * The local socket, first version: one JSON line per message. A connection
  * opens with `{nonce}` (the spawn's nonce) and then carries calls. Only
- * `call` operations; channels, flow control, blobs and reconnect rules come
- * with the full socket transport (L2).
+ * `call` operations. L2 will bind operations and blob paths to the negotiated
+ * stream transport and add reconnect rules.
  */
 import { connect } from "node:net";
 import { StringDecoder } from "node:string_decoder";
@@ -14,6 +14,7 @@ import {
   integer,
   literal,
   object,
+  optional,
   string,
   union,
   type CallName,
@@ -22,7 +23,10 @@ import {
   type Res,
 } from "@dispatch/runner-protocol/contract";
 
-export const socketHello = object({ nonce: string });
+export const socketHello = object({
+  nonce: string,
+  streamCredit: optional(literal(true)),
+});
 export const socketRequest = object({ id: integer, op: string, input: json });
 export const socketReply = union(
   object({ id: integer, ok: literal(true), value: json }),

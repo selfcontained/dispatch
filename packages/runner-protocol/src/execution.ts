@@ -116,6 +116,7 @@ export type ReadyFrame = {
   version: typeof RUNNER_WIRE_VERSION;
   workspaces: string[];
   health?: true;
+  streamCredit?: true;
   managedWorkspace?: true;
   /** Advertises support for the `"engine"` command and inventory push. */
   engineManagement?: true;
@@ -178,6 +179,7 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     ...(frame.checkoutRelease === true && { checkoutRelease: true }),
     ...(frame.sessionCheckout === true && { sessionCheckout: true }),
     ...(frame.workspacePreparation === true && { workspacePreparation: true }),
+    ...(frame.streamCredit === true && { streamCredit: true }),
     ...(frame.health === true && { health: true }),
     ...(frame.engineManagement === true && { engineManagement: true }),
     ...(frame.engineCapabilities === true && { engineCapabilities: true }),
