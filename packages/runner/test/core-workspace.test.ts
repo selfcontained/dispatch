@@ -105,6 +105,20 @@ function port(calls: string[]): WorkspacePort {
       );
       return { path, branch: spec.branch };
     },
+    async release(_session, { path }, { deleteBranch }) {
+      calls.push(`release ${path}`);
+      if (!existsSync(path)) return true;
+      const branch = git(path, "branch", "--show-current");
+      const common = git(
+        path,
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-common-dir"
+      );
+      git(dirname(common), "worktree", "remove", "--force", path);
+      if (deleteBranch) git(dirname(common), "branch", "-D", branch);
+      return true;
+    },
     async copyIgnored(source, destination, names) {
       calls.push(`copy ${names.join(",")}`);
       const copied = names.filter((name) => existsSync(join(source, name)));
@@ -179,6 +193,85 @@ const request = (
   ...(worktree && { worktree }),
   copyIgnored: [".local"],
   installDependencies: true,
+});
+
+describe("workspace.release", () => {
+  const release = (session: string) => ({
+    session: sessionFromWire(session),
+    deleteBranch: true,
+    originalBranch: "feature",
+  });
+
+  it.each([false, true])(
+    "forgets the owned binding and receipt (already gone: %s)",
+    async (gone) => {
+      const { root, state, connection, calls, store } = await harness();
+      const repo = repository(root);
+      const prepared = await connection.call(
+        "workspace.prepare",
+        request("owner", repo, {
+          name: "feature",
+          branch: "feature",
+          base: "main",
+          create: true,
+        })
+      );
+      const tree = String(prepared.worktree!.path);
+      if (gone) rmSync(tree, { recursive: true });
+      else writeFileSync(join(tree, "late"), "written after prepare");
+      expect(
+        await connection.call("workspace.release", release("owner"))
+      ).toEqual({ removed: true });
+      expect(calls.filter((call) => call.startsWith("release "))).toEqual([
+        `release ${tree}`,
+      ]);
+      expect(existsSync(tree)).toBe(false);
+      expect(git(repo, "branch", "--list", "feature")).toBe(
+        gone ? "+ feature" : ""
+      );
+      expect(await store.get("owner")).toBeNull();
+      expect(existsSync(join(state, "owner", "workspace-preparation"))).toBe(
+        false
+      );
+      expect(
+        await connection.call("workspace.release", release("owner"))
+      ).toEqual({ removed: true });
+    }
+  );
+
+  it("preserves an external directory, the primary checkout, and another session's worktree", async () => {
+    const { root, connection, calls, store } = await harness();
+    const repo = repository(root);
+    const folder = join(root, "folder");
+    mkdirSync(folder);
+    const owner = await connection.call(
+      "workspace.prepare",
+      request("owner", repo, {
+        name: "feature",
+        branch: "feature",
+        base: "main",
+        create: true,
+      })
+    );
+    const tree = String(owner.worktree!.path);
+    await store.import([
+      {
+        session: "primary",
+        path: repo,
+        currentPath: null,
+        worktree: { path: repo, branch: "main", base: "main" },
+      },
+    ]);
+    await connection.call("workspace.prepare", request("folder", folder));
+    await connection.call("workspace.prepare", request("borrower", tree));
+    for (const session of ["primary", "folder", "borrower"]) {
+      expect(
+        await connection.call("workspace.release", release(session))
+      ).toEqual({ removed: false });
+    }
+    expect(calls.filter((call) => call.startsWith("release "))).toEqual([]);
+    expect([repo, folder, tree].every(existsSync)).toBe(true);
+  });
 });
 
 describe("workspace.prepare from a directory", () => {

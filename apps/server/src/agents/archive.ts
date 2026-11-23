@@ -32,7 +32,7 @@ export type ArchiveDeps = {
   runtime: AgentRuntime;
   localRunner: LocalArchiveRunner;
   remote?: RemoteRunnerService;
-  /** The local runner child: stop hooks run in it when it holds the checkout. */
+  /** The local runner child serves stop hooks and release for bound checkouts. */
   localRunnerChild?: () => Runner | undefined;
   diffStatsRefresher: { clear(agentId: string): void } | null;
   getAgent: (id: string) => Promise<AgentRecord | null>;
@@ -93,7 +93,8 @@ export async function cleanupAgentWorktree(
   localRunner: LocalArchiveRunner,
   agent: ArchiveCheckoutAgent,
   mode: WorktreeCleanupMode,
-  hooks?: ArchiveCheckoutHooks
+  hooks?: ArchiveCheckoutHooks,
+  child?: Runner
 ): Promise<ArchiveOutcome> {
   if (!agent.worktreePath) return { kind: "kept", reason: "notManaged" };
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -104,7 +105,7 @@ export async function cleanupAgentWorktree(
         logger,
         agent,
         mode,
-        localArchiveExecutor(pool, agent, localRunner),
+        localArchiveExecutor(pool, agent, localRunner, child),
         hooks
       ),
       new Promise<never>((_, reject) => {
@@ -165,7 +166,8 @@ export async function finishCheckout(
         deps.localRunner,
         agent,
         mode,
-        hooks
+        hooks,
+        deps.localRunnerChild?.()
       );
   return outcome.kind === "pending";
 }

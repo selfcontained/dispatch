@@ -99,6 +99,12 @@ export type WorktreeSpec = {
  * session; the platform does each step on the machine.
  */
 export interface WorkspacePort {
+  /** Carry out an authorized release of the bound checkout. */
+  release?(
+    session: string,
+    checkout: { path: string; identity?: string },
+    request: Pick<Req<"workspace.release">, "deleteBranch" | "originalBranch">
+  ): Promise<boolean>;
   /** The canonical path of an existing directory, else null. */
   canonical(path: string): Promise<string | null>;
   /**

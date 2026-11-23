@@ -263,6 +263,7 @@ describe("one-time binding import (real child, real Git)", () => {
         ownership: "owned",
         branch: "b-created",
         base: "main",
+        identity: expect.stringMatching(/^\d+:\d+:\d+$/),
       },
       source: "import",
     });
