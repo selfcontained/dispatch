@@ -559,6 +559,12 @@ export function ChatPane({
   /** Turns whose message has already landed, so a settle is noticed once. */
   const settledTurnIdsRef = useRef<Set<string>>(new Set());
   /**
+   * Turns whose answer was on screen while it streamed. A reader who
+   * followed one down has already read its start; its settling must not
+   * send them back up to it.
+   */
+  const streamedTurnIdsRef = useRef<Set<string>>(new Set());
+  /**
    * When the reader was last put at the start of a tall reply, or 0. The
    * content observer must not drag them back to the bottom while that
    * reply's body is still easing open, and the scroll handler must not
@@ -627,12 +633,18 @@ export function ChatPane({
   }, [scrollToBottom]);
   useEffect(() => {
     const el = scrollRef.current;
+    // The reader taking the wheel also ends the hold at a reply's start:
+    // re-aligning as its body settles would pull them back up to it.
+    const interrupt = () => {
+      cancelTail();
+      anchorTurnRef.current = null;
+    };
     for (const type of JUMP_INTERRUPTS)
-      el?.addEventListener(type, cancelTail, { passive: true });
+      el?.addEventListener(type, interrupt, { passive: true });
     return () => {
       cancelTail();
       for (const type of JUMP_INTERRUPTS)
-        el?.removeEventListener(type, cancelTail);
+        el?.removeEventListener(type, interrupt);
     };
   }, [cancelTail]);
 
@@ -902,6 +914,12 @@ export function ChatPane({
     // Reading growth off the tail alone would then stop following the turn
     // itself, which is the thing still getting taller.
     const liveTurn = newestTurnEntry(visibleEntries);
+    if (
+      liveTurn?.block.turn &&
+      !liveTurn.block.turn.settled &&
+      turnAnswerText(liveTurn.block, liveTurn.block.turn).trim()
+    )
+      streamedTurnIdsRef.current.add(liveTurn.id);
     const growth = [
       last ? entryGrowthKey(last) : null,
       liveTurn && !liveTurn.block.turn?.settled
@@ -951,8 +969,9 @@ export function ChatPane({
     // A turn's message landing. A long one would push its own start off the
     // top if the bottom stayed pinned, so the reader lands at the start of
     // the reply instead and reads down; following resumes when they reach
-    // the bottom. A reply that fits under the fold pins the bottom as usual.
-    if (tailing && landed) {
+    // the bottom. A reply that fits under the fold pins the bottom as usual,
+    // and so does one the reader already followed down as it streamed.
+    if (tailing && landed && !streamedTurnIdsRef.current.has(landed.id)) {
       if (replyStartIfTall(el, landed.id) !== null) {
         cancelTail();
         anchoredRef.current = Date.now();
@@ -1001,6 +1020,7 @@ export function ChatPane({
     lastEntryKeyRef.current = null;
     seenEntryIdsRef.current = new Set();
     settledTurnIdsRef.current = new Set();
+    streamedTurnIdsRef.current = new Set();
     anchoredRef.current = 0;
     olderLoadRef.current = null;
   }, [agentId, updateFollowing]);
