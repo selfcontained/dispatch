@@ -27,6 +27,7 @@
         "apps/server/src/shared/directory-icon-cache.ts",
         "apps/server/src/shared/repo-icon.ts",
         "apps/server/test/checkout-icon.test.ts",
+        "apps/server/test/service-resources.test.ts",
         "apps/server/src/runners/**",
         "apps/server/src/db/seed/agents.ts",
         "apps/server/src/main.ts",

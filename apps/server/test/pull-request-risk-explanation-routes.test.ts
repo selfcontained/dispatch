@@ -2,13 +2,20 @@ import Fastify from "fastify";
 import { it, expect, vi } from "vitest";
 import { registerAgentPullRequestRoutes } from "../src/routes/agents/pull-request-routes.js";
 import type { AgentRouteDeps } from "../src/routes/agents/shared.js";
+import { placementForRunner } from "../src/runners/placement.js";
 it("validates the click contract, rejects agent bearer requests and scopes calls to the route agent", async () => {
   const app = Fastify();
   const explain = vi.fn().mockResolvedValue({ state: "unavailable" });
   await registerAgentPullRequestRoutes(app, {
     agentManager: {
       getAgent: async (id: string) =>
-        id === "owner" ? { id, cwd: "runner://runner-a/workspace" } : null,
+        id === "owner"
+          ? {
+              id,
+              cwd: "runner://runner-a/workspace",
+              placement: placementForRunner("runner-a"),
+            }
+          : null,
     },
     riskExplanations: { explain },
   } as unknown as AgentRouteDeps);
