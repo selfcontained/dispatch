@@ -22,13 +22,20 @@ import { LocalRunnerSession } from "@dispatch/runner-client/session";
 import { serveSocket } from "../../../packages/runner/src/local/socket-server.js";
 import { BindingStore } from "../../../packages/runner/src/local/bindings.js";
 import { WriteFence } from "../../../packages/runner/src/local/fence.js";
-import { checkoutHandlers } from "../../../packages/runner/src/core/checkout.js";
+import {
+  checkoutHandlers,
+  checkoutOpens,
+} from "../../../packages/runner/src/core/checkout.js";
 import { checkoutWorkload } from "../src/agents/checkout-worker.js";
 import {
   inspectAgentCheckout,
   readAgentStats,
   readAgentView,
+  sessionRunner,
+  target,
 } from "../src/agents/checkout-runner.js";
+import { readCheckoutView } from "../src/agents/checkout-view.js";
+import { inspectCheckout } from "../src/agents/checkout-inspection.js";
 import { controllerPlacement } from "../src/runners/placement.js";
 import type { AgentRecord } from "../src/agents/types.js";
 
@@ -58,6 +65,8 @@ let session: LocalRunnerSession;
 let fence: WriteFence;
 let childRuns = 0;
 const bound = "agt_bound";
+const PNG_OLD = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+const PNG_NEW = Buffer.from([0x89, 0x50, 0x4e, 0x47, 4, 5, 6, 7]);
 
 const agent = (id: string, extra: Partial<AgentRecord> = {}) =>
   ({
@@ -87,10 +96,21 @@ beforeAll(async () => {
   await mkdir(path.join(repo, "src"));
   await writeFile(path.join(repo, "src", "a.ts"), "export const a = 1;\n");
   await writeFile(path.join(repo, ".gitignore"), "ignored/\n");
+  await writeFile(path.join(repo, "pixel.png"), PNG_OLD);
+  await mkdir(path.join(repo, ".agents", "personas"), { recursive: true });
+  await writeFile(
+    path.join(repo, ".agents", "personas", "critic.md"),
+    "---\nname: Critic\n---\nReview it.\n"
+  );
   git(repo, "add", ".");
   git(repo, "commit", "-q", "-m", "base");
+  const origin = temp("child-reads-origin-");
+  git(origin, "init", "-q", "--bare", "-b", "main");
+  git(repo, "remote", "add", "origin", origin);
+  git(repo, "push", "-q", "origin", "main");
   git(repo, "checkout", "-q", "-b", "work");
   await writeFile(path.join(repo, "src", "a.ts"), "export const a = 2;\n");
+  await writeFile(path.join(repo, "pixel.png"), PNG_NEW);
   await mkdir(path.join(repo, "src", "__tests__"));
   await writeFile(path.join(repo, "src", "__tests__", "a.test.ts"), "t\n");
   await writeFile(path.join(repo, "src", "b.spec.ts"), "s\n");
@@ -113,6 +133,10 @@ beforeAll(async () => {
       childRuns += 1;
       return checkoutWorkload.run(...args);
     }) as typeof checkoutWorkload.run,
+    watch: (...args: Parameters<typeof checkoutWorkload.watch>) => {
+      childRuns += 1;
+      return checkoutWorkload.watch(...args);
+    },
   };
   const runtime = temp("child-reads-sock-");
   const socketPath = path.join(runtime, "s");
@@ -120,7 +144,10 @@ beforeAll(async () => {
   socket = await serveSocket(
     socketPath,
     nonce,
-    { calls: checkoutHandlers(store, { workload }) },
+    {
+      calls: checkoutHandlers(store, { workload }),
+      opens: checkoutOpens(store, { workload }),
+    },
     fence
   );
   session = new LocalRunnerSession({
@@ -262,11 +289,12 @@ describe("checkout reads through the local runner child", () => {
     const strip = (c: typeof viaChild) =>
       JSON.stringify({ ...c, stats: c.stats && { ...c.stats, computedAt: 0 } });
     expect(strip(viaChild)).toBe(strip(inProcess));
-    // a.ts, notes.md and the untracked link; the two test files are left out.
+    // a.ts, pixel.png, notes.md and the untracked link; the two test files
+    // are left out.
     expect(viaChild.stats?.excludingTests).toEqual({
-      files: 3,
-      added: 2,
-      deleted: 1,
+      files: 4,
+      added: 3,
+      deleted: 2,
     });
   });
 
@@ -342,6 +370,107 @@ describe("checkout reads through the local runner child", () => {
       );
     } finally {
       rmSync(big);
+    }
+  });
+
+  it.each<[string, CheckoutView]>([
+    [
+      "new image",
+      {
+        kind: "image",
+        path: "pixel.png",
+        side: "new",
+        baseBranch: "main",
+        includeUncommitted: true,
+      },
+    ],
+    [
+      "old image",
+      {
+        kind: "image",
+        path: "pixel.png",
+        side: "old",
+        baseBranch: "main",
+        includeUncommitted: false,
+      },
+    ],
+    [
+      "missing image",
+      {
+        kind: "image",
+        path: "none.png",
+        side: "new",
+        baseBranch: "main",
+        includeUncommitted: true,
+      },
+    ],
+  ])("%s matches main's in-process read", async (_, view) => {
+    const before = childRuns;
+    const viaChild = await outcome(() =>
+      readAgentView(agent(bound), view, runners(), "main")
+    );
+    expect(childRuns).toBe(before + 1);
+    expect(viaChild).toBe(await outcome(() => readCheckoutView(repo, view)));
+  });
+
+  it("image bytes are the file's bytes", async () => {
+    const view = {
+      kind: "image",
+      path: "pixel.png",
+      side: "new",
+      baseBranch: "main",
+      includeUncommitted: true,
+    } as const;
+    const bytes = await readAgentView(agent(bound), view, runners(), "main");
+    expect(Buffer.from(bytes as string, "base64")).toEqual(PNG_NEW);
+  });
+
+  it("default-branch files match main's in-process read", async () => {
+    const query: CheckoutQuery = {
+      kind: "defaultBranchFiles",
+      directories: [".agents/personas"],
+      waitForRefresh: true,
+    };
+    const before = childRuns;
+    const viaChild = await inspectAgentCheckout(agent(bound), query, runners());
+    expect(childRuns).toBe(before + 1);
+    expect(viaChild).toMatchObject({
+      kind: "defaultBranchFiles",
+      hasOrigin: true,
+      files: [
+        {
+          path: ".agents/personas/critic.md",
+          content: "---\nname: Critic\n---\nReview it.\n",
+        },
+      ],
+    });
+    expect(JSON.stringify(viaChild)).toBe(
+      JSON.stringify(
+        await inspectCheckout(repo, query, {
+          recordedBase: false,
+          unresolvedBase: "origin/main",
+        })
+      )
+    );
+  });
+
+  it("watches the checkout through the child, a pulse per burst", async () => {
+    const before = childRuns;
+    const { channel } = await sessionRunner(runners(), agent(bound)).open(
+      "checkout.watch",
+      { target: target(agent(bound)) }
+    );
+    expect(childRuns).toBe(before + 1);
+    let pulses = 0;
+    channel.onData(() => pulses++);
+    try {
+      // One pulse once the watch is set up, then one for this write.
+      await expect.poll(() => pulses, { timeout: 5_000 }).toBe(1);
+      await writeFile(path.join(repo, "watched.txt"), "changed\n");
+      await expect.poll(() => pulses, { timeout: 5_000 }).toBe(2);
+    } finally {
+      channel.close();
+      rmSync(path.join(repo, "watched.txt"), { force: true });
     }
   });
 

@@ -12,6 +12,8 @@ const checkoutReadNames = [
   "checkout.stats",
   "checkout.diff",
   "checkout.changes",
+  "checkout.image",
+  "checkout.defaultFiles",
 ] as const;
 
 export type CheckoutReadName = (typeof checkoutReadNames)[number];
@@ -46,6 +48,14 @@ export function isCheckoutReadRequest(
       baseBranch: value.request.base,
       includeUncommitted: value.request.uncommitted,
       ignoreWhitespace: value.request.whitespace === "ignore",
+    });
+  if (value.op === "checkout.image")
+    return isCheckoutView({
+      kind: "image",
+      path: value.request.path,
+      side: value.request.side,
+      baseBranch: value.request.base,
+      includeUncommitted: value.request.uncommitted,
     });
   return true;
 }

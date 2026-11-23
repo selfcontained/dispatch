@@ -286,4 +286,55 @@ describe("legacy checkout reads", () => {
       ],
     ]);
   });
+  it("keeps the legacy image frame and its bytes for a peer without streams", async () => {
+    const bytes = Buffer.from("png bytes").toString("base64");
+    const requestSession = vi
+      .fn()
+      .mockResolvedValue({ value: JSON.stringify({ data: bytes }) });
+    const remote = { requestSession } as unknown as RemoteRunnerService;
+    const query: CheckoutView = {
+      kind: "image",
+      path: "a.png",
+      side: "new",
+      baseBranch: null,
+      includeUncommitted: true,
+    };
+    await expect(readAgentView(enrolled, query, remote, "main")).resolves.toBe(
+      bytes
+    );
+    expect(JSON.stringify(requestSession.mock.calls[0]![1])).toBe(
+      JSON.stringify({
+        kind: "viewCheckout",
+        agentId: enrolled.id,
+        query: { ...query, baseBranch: "main" },
+      })
+    );
+  });
+
+  it("keeps the legacy default-branch files frame for a peer without streams", async () => {
+    const reply = {
+      kind: "defaultBranchFiles",
+      hasOrigin: true,
+      files: [{ path: ".agents/personas/a.md", content: "a" }],
+      warnings: [],
+      refreshing: false,
+      updatedAt: 1,
+      truncated: false,
+    };
+    const requestSession = vi
+      .fn()
+      .mockResolvedValue({ value: JSON.stringify(reply) });
+    const remote = { requestSession } as unknown as RemoteRunnerService;
+    const query = {
+      kind: "defaultBranchFiles",
+      directories: [".agents/personas"],
+      waitForRefresh: false,
+    } as const;
+    await expect(
+      inspectAgentCheckout(enrolled as AgentRecord, query, remote)
+    ).resolves.toEqual(reply);
+    expect(requestSession.mock.calls).toEqual([
+      [placement, { kind: "inspectCheckout", agentId: enrolled.id, query }],
+    ]);
+  });
 });

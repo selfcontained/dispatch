@@ -497,10 +497,13 @@ const diffStatsRefresher = new DiffStatsRefresher({
   logger: app.log,
   tracker: gitRefreshTracker,
 });
-const checkoutObservers = new CheckoutObservers(remoteRunner, (id) => {
-  uiEventBroker.publish({ type: "agent.checkout_changed", agentId: id });
-  void diffStatsRefresher.signal(id);
-});
+const checkoutObservers = new CheckoutObservers(
+  () => agentManager.checkoutReadRunners(),
+  (id) => {
+    uiEventBroker.publish({ type: "agent.checkout_changed", agentId: id });
+    void diffStatsRefresher.signal(id);
+  }
+);
 agentManager.attachDiffStatsRefresher(diffStatsRefresher);
 const loginLinkStore = new LoginLinkStore();
 const jobService = new JobService(pool, agentManager, app.log, config);

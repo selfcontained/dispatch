@@ -4,6 +4,7 @@
  * the result. Operations v1 cannot carry (`NOT_ON_V1`) answer `unsupported`.
  */
 import { openTerminalStream } from "@dispatch/runner-client/v1/terminal";
+import { watchChannel } from "@dispatch/runner-client/v1/watch";
 import { Readable, type Duplex } from "node:stream";
 import {
   RUNNER_WIRE_VERSION,
@@ -304,6 +305,27 @@ export function v1Runner({
             streams,
             opts?.signal
           )) as { info: Res<K>; channel: CallerChannel<K> };
+        } catch (error) {
+          throw transportError(error, opts?.signal);
+        }
+      }
+      if (op === "checkout.watch") {
+        const frame: Decoded<"checkout.watch"> = {
+          op,
+          request: request as Req<"checkout.watch">,
+          extras: { workspace },
+          absent: [],
+        };
+        try {
+          opts?.signal?.throwIfAborted();
+          const { channel } = await connection.request(encodeCommand(frame), {
+            openChannel: true,
+          });
+          if (!channel) throw fail("failed", "Missing v1 watch channel.");
+          return {
+            info: {} as Res<K>,
+            channel: watchChannel(channel) as CallerChannel<K>,
+          };
         } catch (error) {
           throw transportError(error, opts?.signal);
         }

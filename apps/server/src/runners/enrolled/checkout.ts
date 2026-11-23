@@ -19,7 +19,9 @@ import {
   sessionToWire,
   sessionFromWire,
   type CallName,
+  type CallerChannel,
   type CallOptions,
+  type OpenName,
   type Req,
   type Res,
   type RunnerDescription,
@@ -30,6 +32,7 @@ import {
   ResultError,
   type Decoded,
 } from "@dispatch/runner-client/v1";
+import { watchChannel } from "@dispatch/runner-client/v1/watch";
 import type { RemoteRunnerService } from "../../agents/remote/service.js";
 import { callCheckoutRead } from "./reads.js";
 import type { CheckoutRunner, CheckoutSession } from "../directory.js";
@@ -362,11 +365,45 @@ export function createEnrolledCheckoutRunner(
         throw new Error("Invalid runner checkout command response.");
       return decodeResult(frame, value) as Res<K>;
     },
-    async open(op) {
-      throw new RunnerCallError({
-        code: "unsupported",
-        message: `Unsupported operation: ${op}`,
-      });
+    async open<K extends OpenName>(
+      op: K,
+      input: Req<K>,
+      options?: CallOptions<K>
+    ): Promise<{ info: Res<K>; channel: CallerChannel<K> }> {
+      if (op !== "checkout.watch")
+        throw new RunnerCallError({
+          code: "unsupported",
+          message: `Unsupported operation: ${op}`,
+        });
+      const { target } = input as Req<"checkout.watch">;
+      if (!service) throw new Error("The session runner is unavailable.");
+      if (
+        !placement ||
+        !agent ||
+        !("session" in target) ||
+        sessionToWire(target.session) !== agent.id ||
+        (target.checkout ?? "current") !== "current"
+      )
+        throw new RunnerCallError({
+          code: "invalid",
+          message: "Invalid checkout watch binding.",
+        });
+      // v1 carries the watch on its own channel, one byte per burst.
+      const { channel } = await service.requestSession(
+        placement,
+        { kind: "watchCheckout", agentId: agent.id },
+        undefined,
+        options?.signal
+      );
+      if (!channel)
+        throw new RunnerCallError({
+          code: "failed",
+          message: "Missing runner checkout watch channel.",
+        });
+      return {
+        info: {} as Res<K>,
+        channel: watchChannel(channel) as CallerChannel<K>,
+      };
     },
   };
 }

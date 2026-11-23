@@ -1,6 +1,5 @@
 import type { DiffStats } from "@dispatch/shared";
 import type { DiffStatsComputation } from "../shared/git/diff-stats.js";
-import { readCheckoutView } from "./checkout-view.js";
 import {
   isCheckoutView,
   type CheckoutView,
@@ -26,13 +25,12 @@ import {
   agentComparisonBase,
   type ComparisonBaseAgent,
 } from "./effective-base.js";
-import { agentWorkspaceDir, agentDiffPath } from "./workspace-target.js";
+import { agentWorkspaceDir } from "./workspace-target.js";
 import {
   checkoutRunners,
   type CheckoutCommandRunners,
   type CheckoutSession,
 } from "../runners/directory.js";
-import { readLegacyCheckoutView } from "../runners/enrolled/reads.js";
 import { checkoutReadPlacement } from "../runners/placement.js";
 import { TEST_FILE_PATTERNS } from "../shared/lib/test-file-rule.js";
 import { WorkspaceError } from "../shared/lib/workspace-error.js";
@@ -56,7 +54,7 @@ function readRunners(runners: CheckoutReadRunners): CheckoutCommandRunners {
 }
 
 /** The agent's checkout runner, by its placement. */
-function sessionRunner(
+export function sessionRunner(
   runners: CheckoutReadRunners,
   agent: ReadAgent,
   legacyView?: CheckoutView
@@ -78,7 +76,7 @@ function remoteOf(runners: CheckoutReadRunners) {
   return readRunners(runners).remote;
 }
 
-const target = (agent: { id?: string }) =>
+export const target = (agent: { id?: string }) =>
   ({ session: sessionFromWire(agent.id ?? ""), checkout: "current" }) as const;
 
 /**
@@ -187,7 +185,12 @@ export async function inspectAgentCheckout(
       names: listing.entries.map(({ name }) => name),
     };
   }
-  if (placement && query.kind !== "readFile" && query.kind !== "changes") {
+  if (
+    placement &&
+    query.kind !== "readFile" &&
+    query.kind !== "changes" &&
+    query.kind !== "defaultBranchFiles"
+  ) {
     const remote = remoteOf(runners);
     if (!remote)
       throw new AgentError("The agent’s runner is unavailable.", 409);
@@ -215,6 +218,16 @@ export async function inspectAgentCheckout(
       })
     );
     return { kind: "readFile", content: file?.data ?? null };
+  }
+  if (query.kind === "defaultBranchFiles") {
+    const files = await readThrough(() =>
+      sessionRunner(runners, agent).call("checkout.defaultFiles", {
+        target: target(agent),
+        dirs: query.directories,
+        wait: query.waitForRefresh,
+      })
+    );
+    return { kind: "defaultBranchFiles", ...files };
   }
   if (query.kind === "changes") {
     const base = query.baseBranch;
@@ -267,11 +280,11 @@ function decodeStats(data: unknown): DiffStatsComputation {
     : { kind: "success", stats };
 }
 
-/** A view through the session's runner: every view except image bytes. */
+/** A view through the session's runner. */
 async function readRunnerView(
   runner: Runner,
   agent: { id?: string },
-  query: Exclude<CheckoutView, { kind: "image" }>
+  query: CheckoutView
 ): Promise<unknown> {
   const at = target(agent);
   switch (query.kind) {
@@ -305,6 +318,16 @@ async function readRunnerView(
           ...(query.kind === "fileDiff" && { path: query.path }),
         })
       );
+    case "image":
+      return (
+        await runner.call("checkout.image", {
+          target: at,
+          base: query.baseBranch,
+          uncommitted: query.includeUncommitted,
+          path: query.path,
+          side: query.side,
+        })
+      ).bytes;
   }
 }
 
@@ -320,21 +343,9 @@ async function readAgentViewData(
     "baseBranch" in view
       ? { ...view, baseBranch: view.baseBranch ?? comparisonBase }
       : view;
-  if (query.kind !== "image")
-    return readThrough(() =>
-      readRunnerView(sessionRunner(runners, agent, query), agent, query)
-    );
-  const placement = agent.cwd && remotePlacement(agent.cwd);
-  if (placement)
-    return readLegacyCheckoutView(
-      remoteOf(runners),
-      placement,
-      agent.id!,
-      query
-    );
-  const cwd = agentDiffPath(agent);
-  if (!cwd) throw new AgentError("This agent has no workspace.", 404);
-  return readCheckoutView(cwd, query);
+  return readThrough(() =>
+    readRunnerView(sessionRunner(runners, agent, query), agent, query)
+  );
 }
 
 export async function readAgentStats(

@@ -308,48 +308,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/checkout-observers.ts",
-    "kind": "R1 placement call",
-    "detail": "agentWorkspaceDir(agent)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/checkout-observers.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(agent.cwd)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/checkout-observers.ts",
-    "kind": "R1 placement read",
-    "detail": "item.runner",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/checkout-observers.ts",
-    "kind": "R1 placement read",
-    "detail": "placement.runner",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/checkout-observers.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/checkout-watch",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/checkout-runner.ts",
-    "kind": "R1 placement call",
-    "detail": "agentDiffPath(agent)",
-    "task": "T07",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/checkout-runner.ts",
     "kind": "R1 placement call",
     "detail": "agentWorkspaceDir(agent)",
@@ -368,19 +326,12 @@
     "kind": "R1 placement call",
     "detail": "remotePlacement(agent.cwd)",
     "task": "T07",
-    "count": 2
-  },
-  {
-    "file": "apps/server/src/agents/checkout-runner.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/checkout-inspection",
-    "task": "T04",
     "count": 1
   },
   {
     "file": "apps/server/src/agents/checkout-runner.ts",
     "kind": "R2 host import",
-    "detail": "apps/server/src/agents/checkout-view",
+    "detail": "apps/server/src/agents/checkout-inspection",
     "task": "T04",
     "count": 1
   },

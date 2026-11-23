@@ -36,7 +36,9 @@ import {
 import { readWorkspaceView, WorkspaceError } from "../files/workspace-view.js";
 import { getAgentDiff, getAgentFileDiff } from "../shared/git/agent-diff.js";
 import { getDiffStatsComputation } from "../shared/git/diff-stats.js";
+import { getAgentDiffImage } from "../shared/git/diff-image.js";
 import { inspectCheckout } from "./checkout-inspection.js";
+import { SharedCheckoutWatches, watchCheckout } from "./checkout-watch.js";
 import { spawn } from "node:child_process";
 import { loginShellCommand } from "./acp/host-command.js";
 import { readCheckoutCommandFile } from "./checkout-inspection.js";
@@ -267,6 +269,32 @@ async function work<K extends WorkerOp>(
         files: diff.files.map((file) => marked(file, excluded)),
       };
     }
+    case "checkout.image": {
+      const { base, uncommitted, path, side } =
+        request as Input<"checkout.image">["request"];
+      const result = await getAgentDiffImage(directory, base, path, side, {
+        includeUncommitted: uncommitted,
+      });
+      if (!result.ok)
+        throw new WorkspaceError(
+          "Image not available.",
+          result.reason === "too-large" ? 413 : 404
+        );
+      return { bytes: result.buffer.toString("base64") };
+    }
+    case "checkout.defaultFiles": {
+      const { dirs, wait } =
+        request as Input<"checkout.defaultFiles">["request"];
+      const reply = await inspectCheckout(directory, {
+        kind: "defaultBranchFiles",
+        directories: dirs,
+        waitForRefresh: wait,
+      });
+      if (reply.kind !== "defaultBranchFiles")
+        throw new Error("Invalid default-branch files reply.");
+      const { kind: _kind, ...files } = reply;
+      return files;
+    }
   }
   throw new RunnerCallError({
     code: "unsupported",
@@ -459,7 +487,13 @@ async function readGitQuery<K extends GitQueryName>(
   } as Res<K>;
 }
 
+/** One OS watch per checkout in this process, however many sessions watch it. */
+const watches = new SharedCheckoutWatches(watchCheckout);
+
 export const checkoutWorkload = {
+  watch(directory: string, changed: () => void, closed: () => void) {
+    return watches.subscribe(directory, changed, closed);
+  },
   async run<K extends WorkerOp | "checkout.exec">(
     op: K,
     input: Input<K>,
