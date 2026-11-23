@@ -27,6 +27,10 @@ export {
   RunnerAcknowledgementLost,
 } from "../../runners/enrolled/v1-framing.js";
 import type { Pool } from "pg";
+import {
+  FlowStreams,
+  type StreamFrame,
+} from "../../runners/enrolled/v1-framing.js";
 import type { FastifyBaseLogger } from "fastify";
 import {
   parseRunnerHealth,
@@ -188,6 +192,7 @@ export type RunnerUpdateEvent = {
 type Peer = {
   socket: TLSSocket;
   connection: RunnerConnection;
+  streams?: FlowStreams;
   /** The raw frame sender for this connection. */
   send: (frame: ServiceFrame) => void;
   epoch: number;
@@ -985,7 +990,10 @@ export class RemoteRunnerService {
           .seen(gate.registrationId)
           .catch(() => {});
     });
-    const send = wireFrames<RunnerFrame, ServiceFrame>(socket, (frame) => {
+    const send = wireFrames<
+      RunnerFrame | StreamFrame,
+      ServiceFrame | StreamFrame
+    >(socket, (frame) => {
       if (!gate.approved()) return socket.destroy();
       if (!peer) {
         const ready = parseReadyFrame(frame);
@@ -1014,6 +1022,7 @@ export class RemoteRunnerService {
           workspacePreparation: ready.workspacePreparation === true,
           launchReconcile: ready.launchReconcile === true,
           connection: new RunnerConnection(send),
+          ...(ready.streamCredit && { streams: new FlowStreams(socket, send) }),
           send,
           epoch: ++this.peerEpoch,
           ...(ready.selfUpdate && { selfUpdate: ready.selfUpdate }),
@@ -1036,6 +1045,10 @@ export class RemoteRunnerService {
           engines: this.lastSeen.get(gate.key)?.engines,
         });
         previous?.socket.destroy();
+        if (peer.streams) {
+          send({ type: "stream", action: "accept" });
+          peer.streams.enable();
+        }
         gate.ready?.(ready.workspaces, peer.managedWorkspace);
         for (const notify of this.connectionListeners) notify(gate.key);
         if (peer.reportsHealth) {
@@ -1047,6 +1060,7 @@ export class RemoteRunnerService {
         return;
       }
       if (this.peers.get(gate.key) !== peer) return socket.destroy();
+      if (peer.streams?.handle(frame)) return;
       if (frame.type === "health" && peer.reportsHealth) {
         const sample = parseRunnerHealth(frame.sample);
         if (!sample) return socket.destroy();

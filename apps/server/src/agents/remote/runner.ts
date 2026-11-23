@@ -63,7 +63,12 @@ import {
   type EngineCapabilityOperation,
   type EngineOperationAck,
 } from "@dispatch/runner-protocol/engine-management";
-import { wireFrames } from "../../runners/enrolled/v1-framing.js";
+import {
+  wireFrames,
+  FlowStreams,
+  acceptsStreams,
+  type StreamFrame,
+} from "../../runners/enrolled/v1-framing.js";
 import { GitHubPullRequestWatches } from "./github-pull-request-watches.js";
 import { GitHubRunnerExecutor } from "./github-runner-executor.js";
 import {
@@ -245,6 +250,8 @@ export type RunnerUpdateOptions = {
   updateIdentity?: UpdateIdentity | null;
   terminalGraceMs?: number;
 };
+
+type RunnerOutput = RunnerFrame | StreamFrame;
 
 export async function runRemoteRunner(
   filename: string,
@@ -1165,8 +1172,13 @@ export async function runRemoteRunner(
         }
       }
 
-      const send = wireFrames<unknown, RunnerFrame>(socket, (value) => {
+      const send = wireFrames<unknown, RunnerOutput>(socket, (value) => {
         if (socket.destroyed) return;
+        if (acceptsStreams(value) && connectedAt !== undefined) {
+          streams.enable();
+          return;
+        }
+        if (streams.handle(value)) return;
         const frame = parseServiceFrame(value);
         if (!frame) {
           const id = runnerRequestId(value);
@@ -1237,6 +1249,7 @@ export async function runRemoteRunner(
           else terminals.delete(frame.id);
         } else socket.destroy();
       });
+      const streams = new FlowStreams(socket, send);
       socket.once("secureConnect", () => {
         advert = updates.advert();
         connectedAt = performance.now();
@@ -1245,6 +1258,7 @@ export async function runRemoteRunner(
           type: "ready",
           version: RUNNER_WIRE_VERSION,
           health: true,
+          streamCredit: true,
           workspaces: managedWorkspace
             ? [MANAGED_WORKSPACE]
             : configuredHandles,
