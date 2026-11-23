@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import {
-  mkdir,
   open,
   readFile,
   realpath,
@@ -12,7 +11,6 @@ import {
 import path from "node:path";
 
 import { probeGitContext } from "../shared/git/git-context.js";
-import { GitWorktreeError } from "../shared/git/worktree.js";
 import { AgentError } from "./errors.js";
 import { WORKTREE_LOCAL_CONFIG_FILES } from "./worktree-local-config-files.js";
 import {
@@ -49,9 +47,9 @@ export type { LaunchDirectory, WorktreeRequest };
 /*
  * The preparation receipt in the session's state directory. The runner owns
  * it: it reads and finishes it (`packages/runner/src/core/workspace.ts`).
- * The app writes only the first record, before the agent row exists, so a
- * restart never mistakes the launch for a direct one, and upgrades a receipt
- * an earlier build of this branch wrote (its request in the app's shape).
+ * The app writes none: a launch's worktree request is recorded on its row.
+ * It upgrades a receipt an earlier build of this branch wrote (its request
+ * in the app's shape), and tells whether an earlier build left one.
  */
 const RECEIPT_FILE = "workspace-preparation";
 type RunnerWorktree = ReturnType<typeof runnerWorktree>;
@@ -94,56 +92,11 @@ async function writeReceipt(dir: string, receipt: Receipt) {
   }
 }
 
-async function directoryIdentity(cwd: string) {
-  const evidence = await stat(cwd, { bigint: true });
-  return `${evidence.dev}:${evidence.ino}:${evidence.birthtimeNs}`;
-}
-
 const legacy = (request: Receipt["request"]): request is WorktreeRequest =>
   "createNewBranch" in request;
 
 export function createWorkspacePreparation() {
-  async function bind(
-    dir: string,
-    directory: LaunchDirectory,
-    request: WorktreeRequest
-  ) {
-    const source = directory.canonicalPath;
-    const wanted = runnerWorktree(request);
-    const receipt = await readReceipt(dir);
-    if (receipt) {
-      const recorded = legacy(receipt.request)
-        ? runnerWorktree(receipt.request)
-        : receipt.request;
-      if (
-        receipt.source !== source ||
-        JSON.stringify(recorded) !== JSON.stringify(wanted)
-      )
-        throw new GitWorktreeError(
-          "This launch already owns a different worktree.",
-          409
-        );
-      return;
-    }
-    await mkdir(dir, { recursive: true, mode: 0o700 });
-    await writeReceipt(dir, {
-      cwd: directory.cwd,
-      source,
-      sourceIdentity: await directoryIdentity(source),
-      request: wanted,
-      copy: [...WORKTREE_LOCAL_CONFIG_FILES],
-      install: true,
-    });
-    const parent = await open(path.dirname(dir), "r");
-    try {
-      await parent.sync();
-    } finally {
-      await parent.close();
-    }
-  }
-
   return {
-    bind,
     /** True once a launch asked for its own worktree in this state dir. */
     async requested(dir: string) {
       return (await readReceipt(dir)) !== null;

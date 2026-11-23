@@ -560,34 +560,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/local-runner-checkout.ts",
-    "kind": "R2 host access",
-    "detail": "fs/promises",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner-checkout.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/checkout-inspection",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner-checkout.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/worktree",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner-checkout.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/lib/run-command",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/local-runner-engine.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/engine-availability",
@@ -653,13 +625,6 @@
   {
     "file": "apps/server/src/agents/local-runner.ts",
     "kind": "R2 host import",
-    "detail": "apps/server/src/agents/local-runner-checkout",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner.ts",
-    "kind": "R2 host import",
     "detail": "apps/server/src/agents/workspace",
     "task": "T04",
     "count": 1
@@ -688,21 +653,7 @@
   {
     "file": "apps/server/src/agents/local-runner.ts",
     "kind": "R3 local method",
-    "detail": "checkoutRelease",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner.ts",
-    "kind": "R3 local method",
     "detail": "inferRepositoryUrl",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner.ts",
-    "kind": "R3 local method",
-    "detail": "requestedWorktree",
     "task": "T04",
     "count": 1
   },
@@ -1389,13 +1340,6 @@
     "file": "apps/server/src/agents/workspace.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/shared/git/git-context",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/workspace.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/worktree",
     "task": "T04",
     "count": 1
   },

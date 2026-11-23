@@ -23,8 +23,18 @@ import type { Pool } from "pg";
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./setup.js";
 
 // Silence shell side effects (git, hooks) from AgentManager.
+// A worktree is its own top level, as the local runner's removal checks.
 vi.mock("../../src/shared/lib/run-command.js", () => ({
-  runCommand: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
+  runCommand: vi.fn(async (_command: string, args: string[] = []) => ({
+    exitCode: 0,
+    stdout:
+      args[0] === "-C" &&
+      args[2] === "rev-parse" &&
+      args[3] === "--show-toplevel"
+        ? args[1]
+        : "",
+    stderr: "",
+  })),
 }));
 
 vi.mock("../../src/agents/checkout-inspection.js", () => ({

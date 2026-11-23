@@ -174,6 +174,19 @@ export interface WorkspacePort {
     checkout: { path: string; identity?: string },
     request: Pick<Req<"workspace.release">, "deleteBranch" | "originalBranch">
   ): Promise<boolean>;
+  /**
+   * The state of a bound checkout an archive decides on: its branch, Git's
+   * outstanding work against its base, and a fingerprint of all of it.
+   * Throws when it cannot be read.
+   */
+  observe?(path: string): Promise<{
+    path: string;
+    branch: string | null;
+    stateId: string;
+    unmerged: boolean;
+    changedFiles: string[];
+    uncommittedFiles: string[];
+  }>;
   /** The canonical path of an existing directory, else null. */
   canonical(path: string): Promise<string | null>;
   /**

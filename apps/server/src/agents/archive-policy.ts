@@ -7,11 +7,11 @@ import {
   type CheckoutReleaseResult,
 } from "@dispatch/runner-protocol";
 import {
-  RunnerCallError,
   sessionFromWire,
   type Runner,
 } from "@dispatch/runner-protocol/contract";
 import {
+  archiveObservation,
   archiveReleaseState,
   authorizesArchiveRelease,
   parseRemoteArchiveObservation,
@@ -203,12 +203,17 @@ async function localCoOwner(
   return rows[0]?.id ?? null;
 }
 
+/**
+ * Local archive through the agent's runner, which applies main's rule: the
+ * worktree the row records is the agent's own.
+ */
 export function localArchiveExecutor(
   pool: Pool,
   agent: ArchiveCheckoutAgent,
   localRunner: LocalArchiveRunner,
-  child?: Runner
+  runner: Runner
 ): ArchiveExecutor {
+  const session = sessionFromWire(agent.id);
   return {
     placement: "local",
     ready: true,
@@ -221,37 +226,22 @@ export function localArchiveExecutor(
           borrowers: [],
           checkout: null,
         };
-      return localRunner.checkoutRelease(agent, { kind: "observe" });
+      return archiveObservation(
+        await runner.call("workspace.observe", { session })
+      );
     },
     borrowers: () => [],
     coOwner: () => localCoOwner(pool, agent, localRunner),
     async release(expectedState) {
       if (expectedState === null) return "retained";
-      const session = sessionFromWire(agent.id);
-      if (child) {
-        const bound = await child.call("workspace.describe", { session }).then(
-          () => true,
-          (error: unknown) => {
-            if (error instanceof RunnerCallError && error.code === "not_found")
-              return false;
-            throw error;
-          }
-        );
-        if (bound) {
-          const { removed } = await child.call("workspace.release", {
-            session,
-            deleteBranch: Boolean(
-              agent.worktreeBranch && agent.worktreeBranch !== agent.baseBranch
-            ),
-            originalBranch: agent.worktreeBranch,
-          });
-          return removed ? "released" : "retained";
-        }
-      }
-      return localRunner.checkoutRelease(agent, {
-        kind: "release",
-        expectedState,
+      const { removed } = await runner.call("workspace.release", {
+        session,
+        deleteBranch: Boolean(
+          agent.worktreeBranch && agent.worktreeBranch !== agent.baseBranch
+        ),
+        originalBranch: agent.worktreeBranch,
       });
+      return removed ? "released" : "retained";
     },
     onError: {
       outcome: { kind: "kept", reason: "failed" },

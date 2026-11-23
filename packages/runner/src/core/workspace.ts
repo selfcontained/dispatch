@@ -631,6 +631,46 @@ export function workspaceHandlers(
       });
     },
 
+    /**
+     * What the session's binding says it may remove, and the checkout's
+     * state for the caller's decision. Owned (or owned and gone): the
+     * session's own checkout; borrowed: another session's folder; external:
+     * never the runner's to remove. The caller decides; nothing changes.
+     */
+    async "workspace.observe"(input: Req<"workspace.observe">) {
+      const session = sessionToWire(input.session);
+      const held = await store.get(session);
+      if (!held)
+        throw new RunnerCallError({
+          code: "not_found",
+          message: "No checkout is bound to this session",
+        });
+      if (held.borrowedFrom)
+        return {
+          ownership: "borrowed" as const,
+          owner: held.borrowedFrom,
+          borrowers: [],
+          checkout: null,
+        };
+      if (held.checkout.ownership === "external")
+        return {
+          ownership: "external" as const,
+          owner: null,
+          borrowers: [],
+          checkout: null,
+        };
+      const state =
+        held.checkout.ownership === "owned" && port.observe
+          ? await port.observe(held.checkout.path).catch(() => null)
+          : null;
+      return {
+        ownership: "owned" as const,
+        owner: session,
+        borrowers: [],
+        checkout: state && { ...state, path: pathFromWire(state.path) },
+      };
+    },
+
     async "workspace.prepare"(input: Req<"workspace.prepare">, context) {
       const session = sessionToWire(input.session);
       const dir = sessionDir(stateRoot, receiptKey(session));

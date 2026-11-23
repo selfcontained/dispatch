@@ -34,6 +34,15 @@ import { agentComparisonBase } from "../src/agents/effective-base.js";
 import type { AgentRecord } from "../src/agents/types.js";
 import type { DiffResponse } from "@dispatch/shared";
 import { createLocalRunner } from "../src/agents/local-runner.js";
+import {
+  archiveObservation,
+  archiveRunner,
+} from "../src/agents/archive-checkout.js";
+import { controllerPlacement } from "../src/runners/placement.js";
+import {
+  sessionFromWire,
+  type Runner,
+} from "@dispatch/runner-protocol/contract";
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 import { releaseRemoteCheckout } from "../src/agents/archive-checkout.js";
@@ -630,6 +639,34 @@ it("rejects malformed and oversized stdin with stderr and no reply", () => {
   }
 });
 
+/** The local runner's session for a row, with no child: the port in process. */
+function localSession(row: {
+  id: string;
+  worktreePath: string;
+  worktreeBranch: string;
+  baseBranch: string;
+}) {
+  return archiveRunner(undefined, { ...row, cwd: repo }, controllerPlacement);
+}
+
+async function observeThrough(runner: Runner, id: string) {
+  return archiveObservation(
+    await runner.call("workspace.observe", { session: sessionFromWire(id) })
+  );
+}
+
+async function releaseThrough(
+  runner: Runner,
+  row: { id: string; worktreeBranch: string; baseBranch: string }
+) {
+  const { removed } = await runner.call("workspace.release", {
+    session: sessionFromWire(row.id),
+    deleteBranch: row.worktreeBranch !== row.baseBranch,
+    originalBranch: row.worktreeBranch,
+  });
+  return removed ? ("released" as const) : ("retained" as const);
+}
+
 describe("native runner checkout release", () => {
   function adapter() {
     const binding = {
@@ -638,14 +675,10 @@ describe("native runner checkout release", () => {
       worktreeBranch: "feature",
       baseBranch: "main",
     };
-    const runner = createLocalRunner(
-      path.join(fixture, "hosts"),
-      {} as FastifyBaseLogger
-    );
+    const runner = localSession(binding);
     return {
-      observe: () => runner.checkoutRelease(binding, { kind: "observe" }),
-      release: (expectedState: string) =>
-        runner.checkoutRelease(binding, { kind: "release", expectedState }),
+      observe: () => observeThrough(runner, binding.id),
+      release: (_expectedState: string) => releaseThrough(runner, binding),
     };
   }
 
@@ -742,9 +775,8 @@ describe("archive checkout parity", () => {
         git(checkout, "add", "draft.txt");
         git(checkout, "commit", "-m", "Unmerged change");
       }
-      const observation = await local.checkoutRelease(agent, {
-        kind: "observe",
-      });
+      const runner = localSession(agent);
+      const observation = await observeThrough(runner, agent.id);
       expect(observation.checkout).toBeTruthy();
       let expectedState = state === "changed" ? "1".repeat(64) : null;
       const pool = {
@@ -759,17 +791,31 @@ describe("archive checkout parity", () => {
       const shouldRelease =
         mode === "force" || (mode === "auto" && state === "clean");
       if (placement === "local") {
-        await cleanupAgentWorktree(pool, logger, local, agent, mode, {});
+        await cleanupAgentWorktree(
+          pool,
+          logger,
+          local,
+          agent,
+          mode,
+          {},
+          runner
+        );
       } else {
         const remote = {
           requestSession: async (
             _placement: unknown,
-            request: { operation: Parameters<typeof local.checkoutRelease>[1] }
+            request: {
+              operation:
+                | { kind: "observe" }
+                | { kind: "release"; expectedState: string | null };
+            }
           ) => ({
             value:
               request.operation.kind === "observe"
                 ? JSON.stringify(observation)
-                : await local.checkoutRelease(agent, request.operation),
+                : request.operation.expectedState === null
+                  ? "retained"
+                  : await releaseThrough(runner, agent),
           }),
         } as unknown as RemoteRunnerService;
         expect(

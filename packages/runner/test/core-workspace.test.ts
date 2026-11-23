@@ -76,6 +76,17 @@ function port(calls: string[]): WorkspacePort {
           `${basename(spec.directory)}-${spec.branch.replace(/\//g, "-")}`
         );
   return {
+    async observe(path) {
+      calls.push(`observe ${path}`);
+      return {
+        path,
+        branch: git(path, "branch", "--show-current"),
+        stateId: "state",
+        unmerged: false,
+        changedFiles: [],
+        uncommittedFiles: [],
+      };
+    },
     async canonical(path) {
       return existsSync(path) && statSync(path).isDirectory()
         ? realpathSync(path)
@@ -614,5 +625,86 @@ describe("workspace.select", () => {
       connection.call("workspace.select", select("f", root))
     ).rejects.toMatchObject({ code: "fenced" });
     expect((await store.get("f"))?.currentPath).toBeNull();
+  });
+});
+
+describe("workspace.observe", () => {
+  const observe = (session: string) => ({ session: sessionFromWire(session) });
+
+  it("answers what the binding may remove, observing only an owned checkout", async () => {
+    const { root, connection, calls, store } = await harness();
+    const repo = repository(root);
+    const folder = join(root, "folder");
+    mkdirSync(folder);
+    const owner = await connection.call(
+      "workspace.prepare",
+      request("owner", repo, {
+        name: "feature",
+        branch: "feature",
+        base: "main",
+        create: true,
+      })
+    );
+    const tree = String(owner.worktree!.path);
+    await connection.call("workspace.prepare", request("folder", folder));
+    await connection.call("workspace.prepare", {
+      ...request("borrower", folder),
+      source: { session: sessionFromWire("owner") },
+    });
+    calls.length = 0;
+    expect(
+      await connection.call("workspace.observe", observe("owner"))
+    ).toEqual({
+      ownership: "owned",
+      owner: "owner",
+      borrowers: [],
+      checkout: {
+        path: tree,
+        branch: "feature",
+        stateId: "state",
+        unmerged: false,
+        changedFiles: [],
+        uncommittedFiles: [],
+      },
+    });
+    expect(
+      await connection.call("workspace.observe", observe("folder"))
+    ).toEqual({
+      ownership: "external",
+      owner: null,
+      borrowers: [],
+      checkout: null,
+    });
+    expect(
+      await connection.call("workspace.observe", observe("borrower"))
+    ).toEqual({
+      ownership: "borrowed",
+      owner: "owner",
+      borrowers: [],
+      checkout: null,
+    });
+    expect(calls).toEqual([`observe ${tree}`]);
+    // Gone: still the session's own, with nothing to observe.
+    rmSync(tree, { recursive: true });
+    await store.forget("owner");
+    await store.import([
+      {
+        session: "owner",
+        path: tree,
+        currentPath: null,
+        worktree: { path: tree, branch: "feature", base: "main" },
+      },
+    ]);
+    expect(
+      await connection.call("workspace.observe", observe("owner"))
+    ).toEqual({
+      ownership: "owned",
+      owner: "owner",
+      borrowers: [],
+      checkout: null,
+    });
+    await expect(
+      connection.call("workspace.observe", observe("nobody"))
+    ).rejects.toMatchObject({ code: "not_found" });
   });
 });

@@ -320,9 +320,6 @@ it("finishes a launch whose runner died after Git made the worktree, without a s
     createNewBranch: true,
     location: "nested" as const,
   };
-  // The intent is recorded before the row exists, as createAgent does.
-  await app.bindWorkspace("crash", native, request);
-
   // The call is sent again to the restarted child (its retry is by key).
   const prepared = await prepareLocalWorkspace(
     session,
@@ -346,8 +343,8 @@ it("finishes a launch whose runner died after Git made the worktree, without a s
   expect(await stored(hosts, "crash")).toMatchObject({
     checkout: { path: nested, ownership: "owned" },
   });
-  // Archive's borrower rule still sees the launch asked for its own worktree.
-  expect(await app.requestedWorktree("crash")).toBe(true);
+  // The runner's receipt is there, as an earlier build's Start looks for it.
+  expect(await app.bindWorkspace("crash")).toBe(true);
 });
 
 it("binds a launch whose runner died after preparing and before binding", async () => {
@@ -362,7 +359,6 @@ it("binds a launch whose runner died after preparing and before binding", async 
   });
   const native = await app.resolveLaunchDirectory(checkout);
   const request = { name: "Late", branch: "late", createNewBranch: true };
-  await app.bindWorkspace("late", native, request);
   // The restarted child's import ran first and holds the row's folder as
   // external (the row still names the source folder): the prepared binding
   // replaces it.
@@ -416,7 +412,7 @@ it("resumes a receipt an earlier build of this branch wrote", async () => {
       },
     })
   );
-  await app.bindWorkspace("legacy");
+  expect(await app.bindWorkspace("legacy")).toBe(true);
   const resumed = await resumeLocalWorkspace(session, "legacy", progress());
   const nested = path.join(checkout, ".dispatch", "worktrees", "legacy-work");
   expect(resumed).toMatchObject({
@@ -473,7 +469,7 @@ it("refuses preparation while the child is frozen, and writes nothing", async ()
     progress()
   ).catch((error: unknown) => error);
   expect(refused).toMatchObject({ code: "fenced" });
-  expect(await app.requestedWorktree("frozen")).toBe(false);
+  expect(await app.bindWorkspace("frozen")).toBe(false);
   expect(await worktrees(checkout)).toBe(1);
   await child().fence(false, 10_000);
 });

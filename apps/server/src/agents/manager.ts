@@ -71,6 +71,7 @@ import {
   type ArchiveDeps,
 } from "./archive.js";
 import {
+  archiveRunner,
   observeArchiveCheckout,
   releaseRemoteCheckout,
   type ArchiveCheckoutAgent,
@@ -114,6 +115,8 @@ import {
   type PrepareProgress,
   type PreparedWorkspace,
   type WorktreeRequest,
+  localPreparation,
+  prepareRecordedWorkspace,
   runnerWorktree,
 } from "./workspace-launch.js";
 import { createAgentMcpToken, createJobMcpToken } from "../auth.js";
@@ -2051,6 +2054,8 @@ export class AgentManager {
       await this.prepareCreate(input, options, target, admission);
     const { directory, worktree, repository, preparation, managed, owner } =
       prepared;
+    // A local worktree request commits with its row, without touching Git,
+    // so Start can finish it after a restart; as the enrolled runner's.
     await this.insertAgentRecord(
       p,
       input,
@@ -2058,7 +2063,8 @@ export class AgentManager {
       repository,
       preparation,
       managed,
-      owner
+      owner,
+      directory && worktree ? localPreparation(directory, worktree) : null
     );
 
     const createdAgent = await this.getAgent(p.id);
@@ -2723,10 +2729,6 @@ export class AgentManager {
       }
     }
     await mkdir(p.filesDir, { recursive: true });
-    // Record the local receipt without touching Git. The SQL insert commits
-    // the enrolled runner's equivalent request with its owning row.
-    if (directory && worktree)
-      await this.localRunner.bindWorkspace(p.id, directory, worktree);
     return {
       p,
       taskPersona,
@@ -2825,7 +2827,9 @@ export class AgentManager {
     repository: RunnerRepository | null,
     preparation: WorkspacePreparation | null,
     runnerManaged: boolean,
-    useWorktreeOf?: string
+    useWorktreeOf?: string,
+    /** A local launch's worktree request: no `pending`, the local child prepares it. */
+    local?: WorkspacePreparation | null
   ): Promise<void> {
     await this.pool.query(
       `
@@ -2858,7 +2862,11 @@ export class AgentManager {
         runnerManaged,
         useWorktreeOf ?? null,
         runnerIdForPlacement(placement),
-        preparation ? JSON.stringify({ ...preparation, pending: true }) : null,
+        preparation
+          ? JSON.stringify({ ...preparation, pending: true })
+          : local
+            ? JSON.stringify(local)
+            : null,
       ]
     );
   }
@@ -3594,6 +3602,17 @@ export class AgentManager {
     return this.startAgentClaimed(id, undefined, recycle);
   }
 
+  /** The worktree request a local launch recorded on its row, if any. */
+  private async localPreparation(
+    id: string
+  ): Promise<WorkspacePreparation | null> {
+    const { rows } = await this.pool.query<{
+      runner_preparation: RecordedPreparation | null;
+    }>("SELECT runner_preparation FROM agents WHERE id = $1", [id]);
+    const recorded = rows[0]?.runner_preparation;
+    return recorded && "directory" in recorded.source ? recorded : null;
+  }
+
   private async startAgentClaimed(
     id: string,
     /** A released start keeps the attempt's ID. */
@@ -3613,21 +3632,26 @@ export class AgentManager {
     try {
       // A stopped host must never be adopted as the result of Start.
       await this.retryPendingStop(id);
-      if (
-        !remotePlacement(agent.cwd) &&
-        !agent.worktreePath &&
-        (await this.localRunner.requestedWorktree(id))
-      ) {
-        // A worktree launch a restart interrupted: the local runner finishes it.
-        await this.localRunner.bindWorkspace(id);
-        const workspace = await resumeLocalWorkspace(
-          this.localRunnerChild(),
-          id,
-          this.workspaceProgress(id, agent.type)
-        ).catch(asWorktreeError);
-        if (workspace) {
-          await this.storePreparedWorkspace(id, workspace);
-          agent = await this.getRequiredAgent(id);
+      if (!remotePlacement(agent.cwd) && !agent.worktreePath) {
+        // A worktree launch a restart interrupted: the local runner finishes
+        // it, from its receipt, else from the request the row recorded. An
+        // earlier build recorded the request in the receipt only.
+        const recorded = await this.localPreparation(id);
+        if (recorded || (await this.localRunner.bindWorkspace(id))) {
+          const child = this.localRunnerChild();
+          const progress = this.workspaceProgress(id, agent.type);
+          const workspace = await resumeLocalWorkspace(child, id, progress)
+            .then(
+              (resumed) =>
+                resumed ??
+                (recorded &&
+                  prepareRecordedWorkspace(child, id, recorded, progress))
+            )
+            .catch(asWorktreeError);
+          if (workspace) {
+            await this.storePreparedWorkspace(id, workspace);
+            agent = await this.getRequiredAgent(id);
+          }
         }
       }
       // A stopped job still needs its run-scoped tools and launch rules when
@@ -4426,7 +4450,8 @@ export class AgentManager {
         this.pool,
         agent,
         this.localRunner,
-        this.remote
+        this.remote,
+        this.localRunnerChild
       );
     } catch {
       throw new AgentError(
@@ -4507,10 +4532,11 @@ export class AgentManager {
       const { rows } = await this.pool.query<
         ArchiveCheckoutAgent & {
           mode: WorktreeCleanupMode | null;
+          runner_id: string;
         }
       >(
         `SELECT id, cwd, worktree_path AS "worktreePath", base_branch AS "baseBranch",
-                worktree_branch AS "worktreeBranch", archive_cleanup_mode AS mode
+                worktree_branch AS "worktreeBranch", archive_cleanup_mode AS mode, runner_id
          FROM agents WHERE runner_cleanup_pending AND deleted_at IS NOT NULL ORDER BY id`
       );
       for (const agent of rows) {
@@ -4538,7 +4564,11 @@ export class AgentManager {
               agent,
               mode ?? "auto",
               undefined,
-              this.localRunnerChild()
+              archiveRunner(
+                this.localRunnerChild,
+                agent,
+                placementFromRow(agent)
+              )
             );
           }
           if (outcome.kind === "pending") continue;

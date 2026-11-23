@@ -4,6 +4,7 @@ import type { Pool } from "pg";
 
 import { MANAGED_WORKSPACE, remotePlacement } from "@dispatch/runner-protocol";
 import {
+  archiveRunner,
   releaseRemoteCheckout,
   type ArchiveCheckoutAgent,
   type LocalArchiveRunner,
@@ -94,8 +95,8 @@ export async function cleanupAgentWorktree(
   localRunner: LocalArchiveRunner,
   agent: ArchiveCheckoutAgent,
   mode: WorktreeCleanupMode,
-  hooks?: ArchiveCheckoutHooks,
-  child?: Runner
+  hooks: ArchiveCheckoutHooks | undefined,
+  runner: Runner
 ): Promise<ArchiveOutcome> {
   if (!agent.worktreePath) return { kind: "kept", reason: "notManaged" };
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -106,7 +107,7 @@ export async function cleanupAgentWorktree(
         logger,
         agent,
         mode,
-        localArchiveExecutor(pool, agent, localRunner, child),
+        localArchiveExecutor(pool, agent, localRunner, runner),
         hooks
       ),
       new Promise<never>((_, reject) => {
@@ -168,7 +169,7 @@ export async function finishCheckout(
         agent,
         mode,
         hooks,
-        deps.localRunnerChild?.()
+        archiveRunner(deps.localRunnerChild, agent, agent.placement)
       );
   return outcome.kind === "pending";
 }
