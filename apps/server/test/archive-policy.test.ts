@@ -28,6 +28,7 @@ import {
 } from "../src/agents/archive.js";
 import { releaseRemoteCheckout } from "../src/agents/archive-checkout.js";
 import { workspaceWorkload } from "../src/agents/checkout-worker.js";
+import { observeGitCheckout } from "../src/agents/checkout-inspection.js";
 import { createLocalRunner } from "../src/agents/local-runner.js";
 import type { RemoteRunnerService } from "../src/agents/remote/service.js";
 import type { AgentRecord, WorktreeCleanupMode } from "../src/agents/types.js";
@@ -120,6 +121,8 @@ function harness(
     branchCoOwner?: boolean;
     releaseError?: boolean;
     child?: Runner;
+    /** The row records no worktree of its own. */
+    rowWithoutWorktree?: boolean;
   } = {}
 ): Harness {
   const logger = {
@@ -196,6 +199,10 @@ function harness(
   } as unknown as RemoteRunnerService;
   const agent = {
     ...binding,
+    ...(options.rowWithoutWorktree && {
+      worktreePath: null,
+      worktreeBranch: null,
+    }),
     cwd: row.placement === "runner" ? "runner://test/@session" : repo,
     runnerManaged: row.placement === "runner",
   } as unknown as AgentRecord;
@@ -676,5 +683,184 @@ describe("pending release retry", () => {
     free.db.checkoutState = borrowed.db.checkoutState;
     expect((await retry(free, row)).kind).toBe("released");
     expect(existsSync(checkout)).toBe(false);
+  });
+});
+
+/*
+ * Local archive by main's rule (`git show origin/main:apps/server/src/agents/
+ * archive.ts`): the row's `worktree_path` is the agent's worktree; with no
+ * co-owner it is removed when the mode authorizes it (force, or auto with no
+ * outstanding work), whatever the local runner child holds. The child acts
+ * only when its binding agrees with the row; otherwise the same removal runs
+ * in process. Cases today's branch gets wrong are marked `fails`.
+ */
+describe("local archive against main's outcomes, whatever the child holds", () => {
+  type Held = {
+    at: () => string;
+    ownership: "owned" | "gone" | "external";
+  } | null;
+
+  /** A local runner child holding `held` for the session, or dying on every call. */
+  function child(held: Held, dies = false) {
+    const call = vi.fn(async (op: string, input: never) => {
+      if (dies)
+        throw new RunnerCallError({
+          code: "unavailable",
+          message: "The local runner is unavailable",
+        });
+      if (!held)
+        throw new RunnerCallError({
+          code: "not_found",
+          message: "No checkout is bound to this session",
+        });
+      const at = held.at();
+      switch (op) {
+        case "workspace.describe":
+          return {
+            path: at,
+            moved: false,
+            origin: null,
+            checkoutRoot: at,
+            branch: null,
+            worktree: null,
+          };
+        case "workspace.observe":
+          return held.ownership === "external"
+            ? {
+                ownership: "external",
+                owner: null,
+                borrowers: [],
+                checkout: null,
+              }
+            : {
+                ownership: "owned",
+                owner: "agent-fixture",
+                borrowers: [],
+                checkout:
+                  held.ownership === "gone"
+                    ? null
+                    : await observeGitCheckout(at).catch(() => null),
+              };
+        case "workspace.release":
+          if (held.ownership === "external") return { removed: false };
+          if (held.ownership === "gone") return { removed: true };
+          return {
+            removed: await workspaceWorkload.release(
+              "agent-fixture",
+              { path: at },
+              input
+            ),
+          };
+      }
+      throw new Error(`unexpected ${op}`);
+    });
+    return {
+      call,
+      connection: { state: "ready", epoch: 1, onChange: () => () => {} },
+    } as unknown as Runner;
+  }
+  const auto = {
+    placement: "local",
+    mode: "auto",
+    state: "clean",
+    borrowed: false,
+  } as const;
+  const atRow = () => checkout;
+
+  it("owned at the row's worktree: removed", async () => {
+    expect(
+      await archive(auto, { child: child({ at: atRow, ownership: "owned" }) })
+    ).toMatchObject({ pending: false, removed: true });
+    expect(git(repo, "branch", "--list", "feature")).toBe("");
+  });
+
+  it("gone at the row's worktree: released", async () => {
+    expect(
+      await archive(
+        { ...auto, state: "missing" },
+        { child: child({ at: atRow, ownership: "gone" }) }
+      )
+    ).toMatchObject({ pending: false, removed: true });
+  });
+
+  // Branch versus main: the child's import said external, so the branch
+  // keeps a real worktree that main removes.
+  it.fails(
+    "external at the row's worktree: removed, as main does",
+    async () => {
+      expect(
+        await archive(auto, {
+          child: child({ at: atRow, ownership: "external" }),
+        })
+      ).toMatchObject({ pending: false, removed: true });
+    }
+  );
+
+  it.fails(
+    "a binding elsewhere than the row's worktree: the row's worktree is removed",
+    async () => {
+      expect(
+        await archive(auto, {
+          child: child({ at: () => repo, ownership: "external" }),
+        })
+      ).toMatchObject({ pending: false, removed: true });
+      expect(existsSync(repo)).toBe(true);
+    }
+  );
+
+  it("a row without a worktree of its own: nothing is removed, even if the child owns one", async () => {
+    expect(
+      await archive(
+        { ...auto, mode: "force" },
+        {
+          child: child({ at: atRow, ownership: "owned" }),
+          rowWithoutWorktree: true,
+        }
+      )
+    ).toMatchObject({ pending: false, removed: false });
+  });
+
+  it("dirty under auto: kept", async () => {
+    expect(
+      await archive(
+        { ...auto, state: "dirty" },
+        { child: child({ at: atRow, ownership: "owned" }) }
+      )
+    ).toMatchObject({ pending: false, removed: false });
+  });
+
+  it("shared with a live sibling: kept", async () => {
+    expect(
+      await archive(
+        { ...auto, mode: "force" },
+        {
+          child: child({ at: atRow, ownership: "owned" }),
+          branchCoOwner: true,
+        }
+      )
+    ).toMatchObject({ pending: false, removed: false });
+  });
+
+  it("no child yet: removed in process", async () => {
+    expect(await archive(auto)).toMatchObject({
+      pending: false,
+      removed: true,
+    });
+  });
+
+  it("no binding in the child: removed in process", async () => {
+    expect(await archive(auto, { child: child(null) })).toMatchObject({
+      pending: false,
+      removed: true,
+    });
+  });
+
+  // Branch versus main: a child that dies mid-call fails the cleanup.
+  it.fails("a child that dies mid-call: removed in process", async () => {
+    expect(
+      await archive(auto, {
+        child: child({ at: atRow, ownership: "owned" }, true),
+      })
+    ).toMatchObject({ pending: false, removed: true });
   });
 });
