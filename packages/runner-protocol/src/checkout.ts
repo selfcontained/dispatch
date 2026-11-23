@@ -189,7 +189,7 @@ export type SessionCheckout = {
 
 /** Observe the bound checkout, or finalize the session with a conditional removal. */
 export type CheckoutRelease =
-  | { kind: "observe" }
+  | { kind: "observe"; policy?: "ownership" | "changes" }
   | { kind: "release"; expectedState: string | null };
 
 export type CheckoutObservation = {
@@ -221,7 +221,10 @@ export function isCheckoutStateId(value: unknown): value is string {
 export function isCheckoutRelease(value: unknown): value is CheckoutRelease {
   return (
     isRecord(value) &&
-    (value.kind === "observe" ||
+    ((value.kind === "observe" &&
+      (value.policy === undefined ||
+        value.policy === "ownership" ||
+        value.policy === "changes")) ||
       (value.kind === "release" &&
         (value.expectedState === null ||
           isCheckoutStateId(value.expectedState))))

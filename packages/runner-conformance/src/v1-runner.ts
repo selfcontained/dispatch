@@ -170,6 +170,11 @@ export function v1Runner({
       request: Req<K>,
       opts?: CallOptions<K>
     ): Promise<Res<K>> {
+      if (op === "workspace.release" && !ready.workspaceRelease)
+        throw fail(
+          "unsupported",
+          "This runner does not serve workspace release."
+        );
       if (
         (op === "workspace.prepare" || op === "workspace.resume") &&
         !ready.workspacePrepare

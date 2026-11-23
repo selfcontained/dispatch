@@ -72,6 +72,8 @@ function validV1Result(command: Command, value: unknown): boolean {
         runnerError.check(reply.error)
       );
     }
+    case "workspaceRelease":
+      return operations["workspace.release"].response.check(parsed);
     case "checkoutRelease":
       return command.operation.kind === "observe"
         ? isCheckoutObservation(parsed)
@@ -235,6 +237,7 @@ describe("codec coverage", () => {
         "sessionCheckout",
         "workspacePrepare",
         "workspaceResume",
+        "workspaceRelease",
         "checkoutCommand",
         "checkoutRelease",
         "repo",

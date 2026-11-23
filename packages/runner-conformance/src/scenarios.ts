@@ -34,6 +34,10 @@ export type LaneFixture = {
     repository: string;
     interrupt(session: SessionHandle): Promise<void>;
     proveIsolation(session: SessionHandle, path: string): Promise<void>;
+    proveRelease(
+      external: Runner,
+      externalSession: SessionHandle
+    ): Promise<void>;
   };
 };
 
@@ -789,7 +793,17 @@ const workspacePreparation: Scenario[] = [
   },
 ];
 
+const workspaceRelease: Scenario = {
+  op: "workspace.release",
+  id: "workspace.release/owned-and-protected",
+  async run({ runner, session, workspace }) {
+    expect(workspace, "Missing managed runner fixture.");
+    await workspace.proveRelease(runner, session);
+  },
+};
+
 export const remoteScenarios: readonly Scenario[] = [
+  workspaceRelease,
   ...checkoutReads,
   ...workspacePreparation,
   interactiveTerminal,
@@ -798,6 +812,7 @@ export const remoteScenarios: readonly Scenario[] = [
     ({ op }) =>
       op !== interactiveTerminal.op &&
       op !== putFile.op &&
+      op !== workspaceRelease.op &&
       !checkoutReads.some((scenario) => scenario.op === op) &&
       !workspacePreparation.some((scenario) => scenario.op === op)
   ),

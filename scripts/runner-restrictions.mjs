@@ -255,6 +255,7 @@ const rules = [
       "No managed ${kind} command is configured",
     ],
   ],
+  // These anchors remain only in the legacy checkoutRelease wire handler.
   [
     "N35",
     "Runner archive conditionally releases and defers to borrowers",

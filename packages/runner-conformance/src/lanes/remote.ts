@@ -411,6 +411,315 @@ export async function startRemoteLane(): Promise<Lane> {
             `${MANAGED_STATE}/bindings/${key(session)}`
           );
         },
+        async proveRelease(external, externalSession) {
+          const runner = checked(managed.runner);
+          const check = (condition: unknown, message: string) => {
+            if (!condition) throw new Error(message);
+          };
+          const owner = sessionFromWire("release-owner");
+          const other = sessionFromWire("release-other");
+          const missing = sessionFromWire("release-missing");
+          const borrower = sessionFromWire("release-borrower");
+          const prepare = async (session: typeof owner, branch: string) => {
+            await runner.call("workspace.prepare", {
+              session,
+              source: {
+                repository: `file://${BARE_REMOTE}`,
+                checkout: { kind: "new", branch },
+              },
+              copyIgnored: [],
+              installDependencies: false,
+            });
+          };
+          const release = (
+            session: typeof owner,
+            originalBranch: string | null,
+            deleteBranch = true
+          ) =>
+            runner.call("workspace.release", {
+              session,
+              deleteBranch,
+              originalBranch,
+            });
+          const binding = (session: typeof owner) =>
+            `${MANAGED_STATE}/bindings/${key(session)}`;
+          const parent = (session: typeof owner) =>
+            checkout(session).slice(0, -"/checkout".length);
+          const absent = (path: string) =>
+            rootExec(
+              "sh",
+              "-c",
+              'test ! -e "$1" && test ! -L "$1" && printf yes',
+              "sh",
+              path
+            ) === "yes";
+          const refuses = async (session: typeof owner, message: string) => {
+            const result = await release(session, "release-original").catch(
+              (error: unknown) => {
+                if (!(error instanceof RunnerCallError)) throw error;
+                return error;
+              }
+            );
+            check(
+              result instanceof RunnerCallError || !result.removed,
+              message
+            );
+          };
+
+          check(
+            !(
+              await external.call("workspace.release", {
+                session: externalSession,
+                deleteBranch: true,
+                originalBranch: "main",
+              })
+            ).removed,
+            "A configured checkout was accepted for removal."
+          );
+          check(
+            rootExec("cat", WORKSPACE_DIR + "/.root-only") === "private",
+            "Configured checkout changed."
+          );
+
+          await prepare(owner, "release-original");
+          await prepare(other, "release-other");
+          const own = checkout(owner);
+          const foreign = checkout(other);
+          workload("touch", foreign + "/sentinel");
+          const git = (...args: string[]) =>
+            workload("git", "-C", own, ...args).trim();
+          git("branch", "--set-upstream-to=origin/main", "release-original");
+          git("switch", "-c", "release-current");
+          git(
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "unmerged current"
+          );
+          rootExec(
+            "sh",
+            "-c",
+            'printf "\\000managed:%s" "$2" > "$1"',
+            "sh",
+            binding(borrower),
+            key(owner)
+          );
+          check(
+            !(await release(borrower, "release-original")).removed,
+            "A borrower released its owner's worktree."
+          );
+          check(
+            rootExec("ls", own + "/.git").trim() !== "",
+            "Borrower removed owner files."
+          );
+
+          rootExec("mv", parent(owner), parent(owner) + "-saved");
+          rootExec("ln", "-s", parent(other), parent(owner));
+          try {
+            await refuses(owner, "A symlinked session parent was accepted.");
+            rootExec("test", "-f", foreign + "/sentinel");
+            rootExec("test", "-f", parent(owner) + "-saved/checkout/.git");
+          } finally {
+            rootExec("unlink", parent(owner));
+            rootExec("mv", parent(owner) + "-saved", parent(owner));
+          }
+          rootExec("mv", own, own + "-saved");
+          rootExec("ln", "-s", WORKSPACE_DIR, own);
+          try {
+            await refuses(
+              owner,
+              "An outside checkout replacement was accepted."
+            );
+            check(
+              rootExec("cat", WORKSPACE_DIR + "/.root-only") === "private",
+              "Outside checkout changed."
+            );
+          } finally {
+            rootExec("unlink", own);
+            rootExec("mv", own + "-saved", own);
+          }
+
+          workload("ln", "-s", foreign, own + "/outside");
+          const hold = own + "/root-only";
+          rootExec("mkdir", "-m", "700", hold);
+          rootExec("touch", hold + "/sentinel");
+          try {
+            await refuses(
+              owner,
+              "Release traversed a directory accessible only to root."
+            );
+            rootExec("test", "-f", hold + "/sentinel");
+          } finally {
+            rootExec("rm", "-f", hold + "/sentinel");
+            rootExec("rmdir", hold);
+          }
+          check(
+            (await release(owner, "release-original")).removed,
+            "Authorized release was refused."
+          );
+          check(
+            absent(parent(owner)) && absent(binding(owner)),
+            "Release left its directory or binding."
+          );
+          rootExec("test", "-f", foreign + "/sentinel");
+          const branches = () =>
+            workload(
+              "git",
+              "-C",
+              foreign,
+              "branch",
+              "--format=%(refname:short)"
+            ).split("\n");
+          check(
+            !branches().includes("release-current"),
+            "The current unmerged branch was not force deleted."
+          );
+          check(
+            !branches().includes("release-original"),
+            "The original branch with zero commits ahead survived."
+          );
+          check(
+            (await release(owner, "release-original")).removed,
+            "Repeating release failed."
+          );
+
+          for (const tracked of [false, true]) {
+            const session = sessionFromWire(`release-retain-${tracked}`);
+            const branch = `retain-original-${tracked}`;
+            await prepare(session, branch);
+            const git = (...args: string[]) =>
+              workload("git", "-C", checkout(session), ...args);
+            git("branch", "--set-upstream-to=origin/main", branch);
+            if (tracked) {
+              git(
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "ahead of upstream"
+              );
+            }
+            // New branches may already track their start point.
+            if (!tracked) git("branch", "--unset-upstream", branch);
+            git("switch", "-c", `retain-current-${tracked}`);
+            check(
+              (await release(session, branch)).removed,
+              "Branch-policy release failed."
+            );
+            check(
+              branches().includes(branch),
+              "Release deleted an original branch without a fully merged upstream."
+            );
+          }
+
+          await prepare(missing, "release-missing");
+          rootExec("rm", "-rf", parent(missing));
+          check(
+            (await release(missing, "release-missing", false)).removed,
+            "Missing checkout was not treated as removed."
+          );
+          check(absent(binding(missing)), "Missing checkout kept its binding.");
+          check(
+            branches().includes("release-missing"),
+            "Release with deleteBranch=false deleted the branch."
+          );
+
+          // Lay out a repository binding from before workspace receipts.
+          const legacyRepo = sessionFromWire("release-legacy-repository");
+          const legacyUrl = "https://example.invalid/conformance.git";
+          const legacyCache = `${MANAGED_STATE}/repositories/${createHash("sha256").update(legacyUrl).digest("hex")}`;
+          rootExec(
+            "install",
+            "-d",
+            "-m",
+            "700",
+            "-o",
+            String(UID),
+            "-g",
+            String(UID),
+            legacyCache
+          );
+          workload("git", "clone", "--bare", BARE_REMOTE, legacyCache);
+          rootExec(
+            "install",
+            "-d",
+            "-m",
+            "751",
+            "-g",
+            String(UID),
+            parent(legacyRepo)
+          );
+          rootExec(
+            "install",
+            "-d",
+            "-m",
+            "755",
+            "-o",
+            String(UID),
+            "-g",
+            String(UID),
+            checkout(legacyRepo)
+          );
+          workload(
+            "git",
+            "-C",
+            legacyCache,
+            "worktree",
+            "add",
+            "-b",
+            "legacy-release",
+            checkout(legacyRepo)
+          );
+          rootExec(
+            "sh",
+            "-c",
+            'printf "\\000managed" > "$1"; printf "%s" "$2" > "$1.repository"',
+            "sh",
+            binding(legacyRepo),
+            JSON.stringify({
+              url: legacyUrl,
+              checkout: { kind: "new", branch: "legacy-release" },
+            })
+          );
+          check(
+            (await release(legacyRepo, "legacy-release")).removed,
+            "Legacy repository release failed."
+          );
+          check(
+            absent(parent(legacyRepo)) && absent(binding(legacyRepo)),
+            "Legacy repository release left its directory or binding."
+          );
+          check(
+            !workload(
+              "git",
+              "-C",
+              legacyCache,
+              "branch",
+              "--list",
+              "legacy-release"
+            ).trim(),
+            "Legacy release did not remove the branch."
+          );
+
+          const legacy = sessionFromWire("release-legacy-scratch");
+          await runner.call("session.launch", launchRequest(legacy));
+          await runner.call("session.stop", { session: legacy, force: true });
+          check(
+            (await release(legacy, null, false)).removed,
+            "Legacy scratch release failed."
+          );
+          check(
+            absent(parent(legacy)) && absent(binding(legacy)),
+            "Legacy release left its directory or binding."
+          );
+        },
         async proveIsolation(session, path) {
           const expected = checkout(session);
           if (path !== expected)

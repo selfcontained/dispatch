@@ -1,9 +1,13 @@
 import {
   isCheckoutCommandFile,
+  remotePlacement,
   isCheckoutReadName,
   type CheckoutView,
+  type CheckoutRelease,
+  type CheckoutReleaseResult,
   isCheckoutCommandResult,
   type Placement as V1Placement,
+  type SessionOperation,
   type ResultFrame,
   type LaunchProgress,
 } from "@dispatch/runner-protocol";
@@ -11,6 +15,7 @@ import {
   RunnerCallError,
   operations,
   sessionToWire,
+  sessionFromWire,
   type CallName,
   type CallOptions,
   type Req,
@@ -35,6 +40,64 @@ function parseResult(value: ResultFrame["value"]) {
   } catch {
     throw new Error("Invalid runner checkout command response.");
   }
+}
+
+export function usesBoundArchiveRelease(
+  service: RemoteRunnerService,
+  cwd: string
+): boolean {
+  const placement = remotePlacement(cwd);
+  return (
+    placement !== null && service.supportsWorkspaceRelease?.(placement) === true
+  );
+}
+
+export function enrolledArchiveCheckout(
+  service: RemoteRunnerService,
+  placement: V1Placement,
+  agentId: string
+) {
+  const epoch = service.connectionEpoch?.(placement.runner);
+  const capable = service.supportsWorkspaceRelease?.(placement) === true;
+  const send = (operation: SessionOperation) =>
+    epoch === undefined
+      ? service.requestSession(placement, operation)
+      : service.requestSession(
+          placement,
+          operation,
+          undefined,
+          undefined,
+          epoch
+        );
+  const request = (operation: CheckoutRelease) =>
+    send({ kind: "checkoutRelease", agentId, operation });
+  return {
+    capable,
+    observe(policy: "ownership" | "changes" = "changes") {
+      return request({ kind: "observe", ...(capable && { policy }) });
+    },
+    async release(
+      expectedState: string | null
+    ): Promise<CheckoutReleaseResult> {
+      const { value } = await request({ kind: "release", expectedState });
+      if (value !== "released" && value !== "retained" && value !== "inUse")
+        throw new Error("Invalid checkout release result from the runner.");
+      return value;
+    },
+    async releaseBound(operation: Omit<Req<"workspace.release">, "session">) {
+      const frame: Decoded<"workspace.release"> = {
+        op: "workspace.release",
+        request: { session: sessionFromWire(agentId), ...operation },
+        absent: [],
+        extras: { workspace: placement.workspace },
+      };
+      const command = encodeCommand(frame);
+      if (command.kind !== "workspaceRelease")
+        throw new Error("Invalid workspace release command.");
+      const { value } = await send(command);
+      return decodeResult(frame, value).removed;
+    },
+  };
 }
 
 export function createEnrolledCheckoutRunner(

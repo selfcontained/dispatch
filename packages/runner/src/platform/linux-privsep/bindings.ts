@@ -30,7 +30,7 @@ const KEY = /^(agt_[a-z0-9]+|opaque-[A-Za-z0-9_-]{43})$/;
 
 export class PrivsepBindings implements Pick<
   BindingStore,
-  "get" | "origin" | "bindPrepared" | "select"
+  "get" | "origin" | "bindPrepared" | "select" | "forget"
 > {
   private readonly origins = new Map<string, Promise<string | null>>();
 
@@ -159,6 +159,21 @@ export class PrivsepBindings implements Pick<
     const bound = await this.get(input.session);
     if (!bound) throw new Error("The runner session binding is unavailable.");
     return bound;
+  }
+
+  async forget(session: string): Promise<void> {
+    const key = storageKey(session);
+    for (const suffix of [
+      ".repository",
+      ".checkout-plan",
+      ".dependencies",
+      ".cwd",
+      ".selected-cwd",
+      ".borrowed-cwd",
+      ".launch",
+      "",
+    ])
+      await this.fs.rm(this.file(key, suffix));
   }
 
   /** Record the folder the session works in (null: its checkout), as today. */

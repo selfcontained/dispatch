@@ -370,7 +370,10 @@ async function verifyExecutionIdentity(
 const FENCE_EXEMPT = new Set<Command["kind"]>(["attach", "alive", "log"]);
 
 /** Test seams. Production uses the installed root updater layout. */
-type WorkspaceOp = "workspace.prepare" | "workspace.resume";
+type WorkspaceOp =
+  | "workspace.prepare"
+  | "workspace.resume"
+  | "workspace.release";
 type WorkspacePreparationFactory = (options: {
   state: string;
   ids: { supervisor: number; uid: number; gid: number };
@@ -379,6 +382,11 @@ type WorkspacePreparationFactory = (options: {
 }) => Promise<{
   legacy(session: string): Promise<boolean>;
   remove(session: string): Promise<boolean>;
+  releaseLegacy(
+    session: string,
+    source: string | null,
+    request: Omit<Req<"workspace.release">, "session">
+  ): Promise<boolean>;
   call<K extends WorkspaceOp>(
     op: K,
     request: Req<K>,
@@ -684,7 +692,7 @@ export async function runRemoteRunner(
       );
       return JSON.parse(stdout);
     },
-    async observeCheckout(cwd, scratch) {
+    async observeCheckout(cwd, scratch, policyOnly) {
       const { stdout } = await execute(
         setpriv,
         [
@@ -693,6 +701,7 @@ export async function runRemoteRunner(
           "observe",
           cwd,
           ...(scratch ? ["--scratch"] : []),
+          ...(policyOnly ? ["--policy-only"] : []),
         ],
         { env, timeout: 90_000, maxBuffer: 4 * 1024 * 1024 }
       );
@@ -1334,6 +1343,33 @@ export async function runRemoteRunner(
             );
             break;
           }
+          case "workspaceRelease": {
+            const removed = await supervisor.releaseWorkspace(
+              agentId,
+              workspace,
+              async (legacySource) => {
+                if (!workspacePreparation)
+                  throw new Error(
+                    "This runner does not serve workspace release."
+                  );
+                if (await workspacePreparation.legacy(agentId))
+                  return workspacePreparation.releaseLegacy(
+                    agentId,
+                    legacySource,
+                    command.operation
+                  );
+                const reply = await workspacePreparation.call(
+                  "workspace.release",
+                  { ...command.operation, session: sessionFromWire(agentId) },
+                  () => {}
+                );
+                return reply.removed;
+              }
+            );
+            if (removed) closeSessionTerminals(agentId, workspace);
+            result(JSON.stringify({ removed }));
+            break;
+          }
           case "checkoutRelease": {
             const observation = await supervisor.checkoutRelease(
               agentId,
@@ -1905,6 +1941,9 @@ export async function runRemoteRunner(
           defaultBranchFiles: true,
           workspacePreparation: true,
           ...(workspacePreparation && { workspacePrepare: true }),
+          ...((workspacePreparation || !managedWorkspace) && {
+            workspaceRelease: true,
+          }),
           sessionCheckout: true,
           checkoutRelease: true,
           sessionFiles: true,

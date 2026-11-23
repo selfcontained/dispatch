@@ -108,7 +108,11 @@ type SupervisorOptions = {
   asWorkload: WorkloadCommand;
   probeCheckoutGit?: (cwd: string) => Promise<Res<"git.context">>;
   githubCredentialHelper?: () => Promise<string>;
-  observeCheckout?: (cwd: string, scratch: boolean) => Promise<CheckoutState>;
+  observeCheckout?: (
+    cwd: string,
+    scratch: boolean,
+    policyOnly?: boolean
+  ) => Promise<CheckoutState>;
   prepareDependencies?: (cwd: string) => Promise<boolean>;
   removePreparedCheckout?: (session: string) => Promise<boolean>;
   /** False while the update fence holds process admission closed. */
@@ -637,17 +641,21 @@ export async function createSessionSupervisor(
     return borrowers.sort();
   }
 
-  async function describeOwnedState(key: string): Promise<CheckoutState> {
+  async function describeOwnedState(
+    key: string,
+    policyOnly?: boolean
+  ): Promise<CheckoutState> {
     const dir = await managedDirectory(key);
     if (!config.observeCheckout)
       throw new Error("Checkout observation is unavailable.");
     const scratch = (await readOptional(repositoryFile(key))) === "null";
-    return config.observeCheckout(dir, scratch);
+    return config.observeCheckout(dir, scratch, policyOnly);
   }
 
   async function observeRelease(
     key: string,
-    workspace: string
+    workspace: string,
+    policy?: "ownership" | "changes"
   ): Promise<CheckoutObservation> {
     const binding = await readBinding(key);
     if (binding === null) {
@@ -673,7 +681,11 @@ export async function createSessionSupervisor(
       key,
       owner,
       await checkoutBorrowers(owner),
-      await describeOwnedState(owner).catch(() => null)
+      policy === "ownership"
+        ? null
+        : await describeOwnedState(owner, policy === "changes").catch(
+            () => null
+          )
     );
   }
 
@@ -683,6 +695,7 @@ export async function createSessionSupervisor(
     workspace: string,
     expectedState: string | null
   ): Promise<CheckoutReleaseResult> {
+    // Only v1 peers using checkoutRelease use snapshot and borrower checks.
     const binding = await readBinding(key);
     const receipt = await readOptional(releaseFile(key));
     if (receipt === "retained") return "retained";
@@ -1329,6 +1342,65 @@ export async function createSessionSupervisor(
         return transfer(kind, checkout, operation.path);
       });
     },
+    async releaseWorkspace(
+      agentId: string,
+      workspace: string,
+      release: (legacySource: string | null) => Promise<boolean>
+    ): Promise<boolean> {
+      const key = runnerStorageKey(agentId);
+      return serialize(key, async () => {
+        const binding = await readBinding(key);
+        if (binding === null) {
+          if (managedTarget(workspace))
+            await writePrivateState(retireFile(key), "");
+          return true;
+        }
+        if (!matchesWorkspace(binding, workspace))
+          throw new Error("Agent is not bound to this workspace");
+        if (!managedTarget(workspace) || binding !== managedBinding)
+          return false;
+        const identity = await readIdentity(key);
+        if (identity && processes.alive(identity))
+          throw new Error("Stop the guest host before releasing it");
+        checkUntrackedSocket(path.join(hostRoot, key));
+        const retiring = (await readOptional(retireFile(key))) !== null;
+        const stored = await readOptional(repositoryFile(key));
+        if (
+          stored === null &&
+          (!retiring ||
+            (await lstat(path.join(sessions, key)).catch(missingPath)))
+        )
+          throw new Error("The runner checkout repository is unavailable.");
+        await writePrivateState(retireFile(key), "");
+        const repository =
+          stored === null
+            ? null
+            : (JSON.parse(stored) as RunnerRepository | null);
+        const removed =
+          stored === null ||
+          (repository
+            ? await repositories.inCache(repository.url, release)
+            : await release(null));
+        if (!removed) return false;
+        await cleanHost(key, identity);
+        await cleanLegacyHost(key);
+        await removeGuestDirectory(path.join(hostRoot, key));
+        await rm(path.join(logs, key), { force: true });
+        for (const file of [
+          repositoryFile(key),
+          planFile(key),
+          dependenciesFile(key),
+          cwdFile(key),
+          selectedFile(key),
+          borrowedFile(key),
+          launchFile(key),
+          path.join(bindings, key),
+        ])
+          await rm(file, { force: true });
+        await syncBindings();
+        return true;
+      });
+    },
     async checkoutRelease(
       agentId: string,
       workspace: string,
@@ -1340,7 +1412,7 @@ export async function createSessionSupervisor(
         if ((checkoutOwner(await readBinding(key)) ?? key) !== owner)
           throw new Error("The checkout binding changed; retry the request.");
         return operation.kind === "observe"
-          ? observeRelease(key, workspace)
+          ? observeRelease(key, workspace, operation.policy)
           : releaseCheckout(key, agentId, workspace, operation.expectedState);
       });
     },

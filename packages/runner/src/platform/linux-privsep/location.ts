@@ -62,6 +62,35 @@ export function sessionLocation(
   }
 
   return {
+    async release(
+      session: string,
+      repository: boolean,
+      verify?: (checkout: string) => Promise<boolean>
+    ): Promise<boolean> {
+      await assertProtected(fs, ids, paths.state, paths.sessions);
+      const parent = parentOf(session);
+      const entry = await fs.lstat(parent);
+      if (!entry) return true;
+      if (!repository) {
+        if (entry.kind !== "directory" || entry.uid !== ids.uid)
+          throw forbidden("Invalid runner session directory.");
+        await removeDirectory(parent);
+        return true;
+      }
+      await assertProtected(fs, ids, paths.state, parent);
+      const checkout = join(parent, "checkout");
+      const child = await fs.lstat(checkout);
+      if (child) {
+        if (child.kind !== "directory" || child.uid !== ids.uid)
+          throw forbidden("Invalid runner session checkout.");
+        if (verify && !(await verify(checkout))) return false;
+        await removeDirectory(checkout);
+      }
+      // The parent itself is protected. Never recurse through other entries.
+      await fs.rmdir(parent);
+      return true;
+    },
+
     /**
      * Create or repair `sessions/<key>` and an empty workload-owned
      * `checkout` in it; return the checkout's path. Refuses a parent that

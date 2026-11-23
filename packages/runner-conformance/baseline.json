@@ -535,12 +535,6 @@
   },
   {
     "lane": "remote",
-    "scenario": "workspace.release/pending",
-    "task": "T20",
-    "reason": "scenario not written yet"
-  },
-  {
-    "lane": "remote",
     "scenario": "path.resolve/pending",
     "task": "T17",
     "reason": "not on wire v1: controller-machine probe today (D7)"

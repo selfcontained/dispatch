@@ -314,14 +314,43 @@ export async function cleanupGitWorktree(
   worktreeRemoveArgs.push(worktreePath);
   await commandRunner("git", worktreeRemoveArgs);
 
+  const deletedBranch = await cleanupWorktreeBranches(
+    repoRoot,
+    branchName,
+    input,
+    commandRunner
+  );
+
+  return {
+    repoRoot,
+    worktreePath,
+    worktreeName: path.basename(worktreePath),
+    branchName,
+    baseBranch,
+    updatedBaseBranch,
+    deletedBranch,
+  };
+}
+
+/** Apply the branch policy after the worktree registration has been removed. */
+export async function cleanupWorktreeBranches(
+  repoRoot: string,
+  branchName: string | null,
+  {
+    deleteBranch,
+    originalBranch: original,
+    force,
+  }: Pick<CleanupGitWorktreeInput, "deleteBranch" | "originalBranch" | "force">,
+  commandRunner: CommandRunner
+): Promise<boolean> {
   let deletedBranch = false;
-  if ((input.deleteBranch ?? false) && branchName) {
+  if (deleteBranch && branchName) {
     await ensureBranchExists(repoRoot, branchName, commandRunner);
     await commandRunner("git", [
       "-C",
       repoRoot,
       "branch",
-      input.force ? "-D" : "--delete",
+      force ? "-D" : "--delete",
       branchName,
     ]);
     deletedBranch = true;
@@ -330,12 +359,8 @@ export async function cleanupGitWorktree(
   // If the agent switched branches, the originally-created worktree branch
   // is still sitting around. Delete it too, but only if it has zero commits
   // ahead of its upstream so we never destroy actual work.
-  const originalBranch = input.originalBranch?.trim() || null;
-  if (
-    originalBranch &&
-    originalBranch !== branchName &&
-    (input.deleteBranch ?? false)
-  ) {
+  const originalBranch = original?.trim() || null;
+  if (originalBranch && originalBranch !== branchName && deleteBranch) {
     const exists = await commandRunner(
       "git",
       [
@@ -373,15 +398,7 @@ export async function cleanupGitWorktree(
     }
   }
 
-  return {
-    repoRoot,
-    worktreePath,
-    worktreeName: path.basename(worktreePath),
-    branchName,
-    baseBranch,
-    updatedBaseBranch,
-    deletedBranch,
-  };
+  return deletedBranch;
 }
 
 async function resolveCommonRepoRoot(

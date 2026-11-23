@@ -60,7 +60,7 @@ export class RunnerRepositories {
     private readonly githubCredentialHelper?: () => Promise<string>
   ) {}
 
-  private async inCache<T>(
+  async inCache<T>(
     url: string,
     operation: (dir: string) => Promise<T>
   ): Promise<T> {

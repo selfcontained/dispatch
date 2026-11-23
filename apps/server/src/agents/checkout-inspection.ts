@@ -296,10 +296,11 @@ async function inspectChanges(
 }
 
 export async function observeScratchCheckout(
-  dir: string
+  dir: string,
+  fingerprint = true
 ): Promise<CheckoutState> {
   const root = await realpath(dir);
-  const identity = await lstat(root);
+  const identity = fingerprint ? await lstat(root) : null;
   const directories: string[] = [];
   const files: string[] = [];
   let entriesSeen = 0;
@@ -321,15 +322,17 @@ export async function observeScratchCheckout(
     }
   }
   await collect("");
-  const stateId = await fingerprintCheckout(
-    root,
-    JSON.stringify([root, identity.dev, identity.ino, directories.sort()]),
-    "",
-    "",
-    "",
-    [],
-    files
-  );
+  const stateId = identity
+    ? await fingerprintCheckout(
+        root,
+        JSON.stringify([root, identity.dev, identity.ino, directories.sort()]),
+        "",
+        "",
+        "",
+        [],
+        files
+      )
+    : UNOBSERVED_STATE;
   return {
     path: root,
     branch: null,
@@ -388,7 +391,10 @@ async function readArchiveChanges(root: string) {
   return { baseRef, changedFiles: diff.stdout.split("\n").filter(Boolean) };
 }
 
-export async function observeGitCheckout(dir: string): Promise<CheckoutState> {
+export async function observeGitCheckout(
+  dir: string,
+  fingerprint = true
+): Promise<CheckoutState> {
   const root = await realpath(dir);
   const cwd = { cwd: root, trimOutput: false };
   const [branch, status, { baseRef, changedFiles }] = await Promise.all([
@@ -405,51 +411,53 @@ export async function observeGitCheckout(dir: string): Promise<CheckoutState> {
 
   // The archive checks are independent. An unreadable index, for example,
   // prevents a fingerprint but still leaves the committed comparison usable.
-  const stateId = await (async () => {
-    const top = await run("git", ["rev-parse", "--show-toplevel"], cwd);
-    if (top.stdout.replace(/\n$/, "") !== root)
-      throw new Error("The bound directory is not a Git checkout root");
-    const identity = await lstat(root);
-    const { stdout: head } = await run(
-      "git",
-      ["rev-parse", "--verify", "HEAD"],
-      { cwd: root }
-    );
-    const { stdout: base } = baseRef
-      ? await run("git", ["rev-parse", "--verify", `${baseRef}^{commit}`], {
-          cwd: root,
-        })
-      : { stdout: head };
-    const [changes, staged, conflicts] = await Promise.all([
-      collectOwnerReviewChanges(root, base, run, head),
-      run(
-        "git",
-        ["diff", "--cached", "--raw", "--no-abbrev", "-z", head, "--"],
-        cwd
-      ),
-      run("git", ["ls-files", "--unmerged", "-z"], cwd),
-    ]);
-    const state = await fingerprintCheckout(
-      root,
-      base,
-      head,
-      staged.stdout,
-      conflicts.stdout,
-      changes.unstaged,
-      changes.untracked
-    );
-    return createHash("sha256")
-      .update(
-        JSON.stringify([
+  const stateId = fingerprint
+    ? await (async () => {
+        const top = await run("git", ["rev-parse", "--show-toplevel"], cwd);
+        if (top.stdout.replace(/\n$/, "") !== root)
+          throw new Error("The bound directory is not a Git checkout root");
+        const identity = await lstat(root);
+        const { stdout: head } = await run(
+          "git",
+          ["rev-parse", "--verify", "HEAD"],
+          { cwd: root }
+        );
+        const { stdout: base } = baseRef
+          ? await run("git", ["rev-parse", "--verify", `${baseRef}^{commit}`], {
+              cwd: root,
+            })
+          : { stdout: head };
+        const [changes, staged, conflicts] = await Promise.all([
+          collectOwnerReviewChanges(root, base, run, head),
+          run(
+            "git",
+            ["diff", "--cached", "--raw", "--no-abbrev", "-z", head, "--"],
+            cwd
+          ),
+          run("git", ["ls-files", "--unmerged", "-z"], cwd),
+        ]);
+        const state = await fingerprintCheckout(
           root,
-          identity.dev,
-          identity.ino,
-          branch?.stdout,
-          state,
-        ])
-      )
-      .digest("hex");
-  })().catch(() => UNOBSERVED_STATE);
+          base,
+          head,
+          staged.stdout,
+          conflicts.stdout,
+          changes.unstaged,
+          changes.untracked
+        );
+        return createHash("sha256")
+          .update(
+            JSON.stringify([
+              root,
+              identity.dev,
+              identity.ino,
+              branch?.stdout,
+              state,
+            ])
+          )
+          .digest("hex");
+      })().catch(() => UNOBSERVED_STATE)
+    : UNOBSERVED_STATE;
   return {
     path: root,
     branch: branch?.exitCode === 0 ? branch.stdout : null,

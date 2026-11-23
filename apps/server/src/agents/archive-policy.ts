@@ -13,11 +13,13 @@ import {
 } from "@dispatch/runner-protocol/contract";
 import {
   archiveReleaseState,
-  observeRemoteCheckout,
+  authorizesArchiveRelease,
+  parseRemoteArchiveObservation,
   rememberArchiveCheckoutState,
   type ArchiveCheckoutAgent,
   type LocalArchiveRunner,
 } from "./archive-checkout.js";
+import { enrolledArchiveCheckout } from "../runners/enrolled/checkout.js";
 import type { RemoteRunnerService } from "./remote/service.js";
 import type { WorktreeCleanupMode } from "./types.js";
 
@@ -59,6 +61,11 @@ export type ArchiveExecutor = {
    * `expectedState` before removing. Null keeps the checkout.
    */
   release(expectedState: string | null): Promise<CheckoutReleaseResult>;
+  /** Capable peers carry out the caller's decision without a snapshot. */
+  releaseBound?: () => Promise<boolean>;
+  observedCoOwner?: (
+    observation: CheckoutObservation
+  ) => Promise<string | null>;
   /** What an error anywhere in the sequence means. */
   onError: { outcome: ArchiveOutcome; message: string };
 };
@@ -98,6 +105,38 @@ export async function finishArchiveCheckout(
       return { kind: "kept", reason: "coOwner" };
     }
     const observation = mode === "keep" ? null : await executor.observe(mode);
+    if (executor.releaseBound) {
+      if (hooks.durations && observation)
+        hooks.durations.outstandingChangesCheck = Date.now() - started;
+      if (
+        observation?.ownership === "owned" &&
+        (await executor.observedCoOwner?.(observation))
+      )
+        return { kind: "kept", reason: "coOwner" };
+      if (
+        !observation ||
+        !(
+          observation.ownership === "none" ||
+          (observation.ownership === "owned" &&
+            authorizesArchiveRelease(mode, observation.checkout))
+        )
+      ) {
+        if (observation?.ownership === "owned")
+          await pool.query(
+            "UPDATE agents SET archive_cleanup_mode = 'keep' WHERE id = $1",
+            [agent.id]
+          );
+        return { kind: "kept", reason: "notAuthorized" };
+      }
+      await hooks.onCleanupStart?.();
+      const releaseStarted = Date.now();
+      const removed = await executor.releaseBound();
+      if (hooks.durations)
+        hooks.durations.worktreeCleanup = Date.now() - releaseStarted;
+      return removed
+        ? { kind: "released" }
+        : { kind: "kept", reason: "changed" };
+    }
     const owned = observation?.ownership === "owned";
     const expectedState = owned
       ? archiveReleaseState(mode, observation.checkout)
@@ -225,31 +264,54 @@ export function runnerArchiveExecutor(
   agent: ArchiveCheckoutAgent,
   remote: RemoteRunnerService | undefined,
   /** The guest host stopped; the runner refuses to release a live host. */
-  stopped: boolean
+  stopped: boolean,
+  pool: Pool
 ): ArchiveExecutor {
   const placement = remotePlacement(agent.cwd);
+  const transport =
+    placement && remote
+      ? enrolledArchiveCheckout(remote, placement, agent.id)
+      : undefined;
   return {
     placement: "runner",
     ready: Boolean(stopped && remote),
-    observe() {
-      if (!placement || !remote)
-        throw new Error("Missing remote runner placement.");
-      return observeRemoteCheckout(agent, remote, placement);
+    async observe(mode) {
+      if (!transport) throw new Error("Missing remote runner placement.");
+      const { value } = await transport.observe(
+        mode === "force" ? "ownership" : "changes"
+      );
+      return parseRemoteArchiveObservation(value);
     },
-    // The runner checks borrowers atomically when it releases.
     borrowers: () => [],
     async release(expectedState) {
-      if (!placement || !remote)
-        throw new Error("Missing remote runner placement.");
-      const { value } = await remote.requestSession(placement, {
-        kind: "checkoutRelease",
-        agentId: agent.id,
-        operation: { kind: "release", expectedState },
-      });
-      if (value !== "released" && value !== "retained" && value !== "inUse")
-        throw new Error("Invalid checkout release result from the runner.");
-      return value;
+      if (!transport) throw new Error("Missing remote runner placement.");
+      return transport.release(expectedState);
     },
+    ...(transport?.capable && {
+      releaseBound: () =>
+        transport.releaseBound({
+          deleteBranch: Boolean(
+            agent.worktreeBranch && agent.worktreeBranch !== agent.baseBranch
+          ),
+          originalBranch: agent.worktreeBranch,
+        }),
+      async observedCoOwner(observation: CheckoutObservation) {
+        const { rows } = await pool.query<{ id: string }>(
+          `SELECT id FROM agents WHERE deleted_at IS NULL AND id <> $1
+            AND ((role = 'review' AND id = ANY($2::text[])) OR (cwd = $3 AND
+              (worktree_path = $4 OR workspace_path = $4 OR worktree_branch = $5)))
+            LIMIT 1`,
+          [
+            agent.id,
+            observation.borrowers,
+            agent.cwd,
+            agent.worktreePath,
+            agent.worktreeBranch,
+          ]
+        );
+        return rows[0]?.id ?? null;
+      },
+    }),
     onError: {
       outcome: { kind: "pending", reason: "unavailable" },
       message: "Runner checkout release remains pending.",

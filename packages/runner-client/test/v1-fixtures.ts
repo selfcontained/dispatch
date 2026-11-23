@@ -329,6 +329,12 @@ export const results: ResultFixture[] = [
     value: json({ path: "/srv/work/app", moved: false, origin: null }),
   },
   {
+    command: s("workspaceRelease", {
+      operation: { deleteBranch: true, originalBranch: "feature" },
+    }),
+    value: json({ removed: true }),
+  },
+  {
     command: s("checkoutRelease", { operation: { kind: "observe" } }),
     value: json({
       ownership: "owned",
