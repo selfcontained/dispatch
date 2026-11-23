@@ -81,16 +81,6 @@ export function useRunners(
   });
 }
 
-export function useRunnerName(runnerId: string | undefined) {
-  const { data } = useRunners({
-    enabled: Boolean(runnerId),
-    includeCleared: true,
-  });
-  return runnerId
-    ? (data?.find((runner) => runner.id === runnerId)?.name ?? "Remote runner")
-    : undefined;
-}
-
 export function useRunnerUpdatePolicy(runnerId: string) {
   const queryClient = useQueryClient();
   return useMutation({

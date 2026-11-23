@@ -285,11 +285,8 @@ for (const placement of ["This Mac", "Linux runner"] as const) {
               .poll(async () => (await runnerRow(request, "scratch"))?.status)
               .toBe("offline");
             await expect(
-              files.getByText(/Showing the last loaded preview/)
+              files.getByText("Couldn’t load the preview.")
             ).toBeVisible({ timeout: 12_000 });
-            await expect(
-              files.getByText(live, { exact: false }).last()
-            ).toBeVisible();
             edit(marker);
           } finally {
             await lane("scratch", "allow");

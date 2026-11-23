@@ -10,6 +10,10 @@ if ! command -v ps >/dev/null || ! command -v setpriv >/dev/null; then
 fi
 install -d -m 700 /run/cfg /var/lib/runner
 install -d -m 755 /home/guest /etc/dispatch-runner
+# The runner reads the workload account (uid/gid 1500, home /home/guest in
+# runner.json) from passwd at start, as a real install provides it.
+getent group 1500 >/dev/null || groupadd -g 1500 guest
+getent passwd 1500 >/dev/null || useradd -u 1500 -g 1500 -M -d /home/guest guest
 cp /etc/runner/runner.json /run/cfg/runner.json && chmod 600 /run/cfg/runner.json
 if [ "$NAME" != scratch ]; then
   WS="/opt/dispatch-guest-proof"

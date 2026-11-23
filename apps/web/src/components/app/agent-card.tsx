@@ -1,5 +1,3 @@
-import { remotePlacement } from "@dispatch/runner-protocol";
-import { useRunnerName } from "@/hooks/use-runners";
 import React from "react";
 import { Pin, PinOff } from "lucide-react";
 
@@ -110,12 +108,6 @@ function AgentCardImpl({
   const isStopped = state === "stopped";
   const isExpanded = expandedAgentId === agent.id;
   const fullAccessEnabled = isFullAccessEnabled(agent);
-  const placement = remotePlacement(agent.cwd);
-  const runnerName = useRunnerName(placement?.runner);
-  const remoteLocation =
-    placement && runnerName && !agent.runnerManaged
-      ? `${runnerName} · ${placement.workspace}`
-      : runnerName;
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   // Sub agent rows reuse the same rename dialog; tracking which row opened it
   // keeps one dialog instance instead of one per row.
@@ -187,7 +179,6 @@ function AgentCardImpl({
         )}
       >
         <AgentCardHeader
-          remoteLocation={remoteLocation}
           agent={agent}
           childAgents={childAgents}
           isExpanded={isExpanded}
@@ -203,7 +194,6 @@ function AgentCardImpl({
         />
 
         <AgentCardActivity
-          remoteLocation={remoteLocation}
           agent={agent}
           // Expanded cards list each sub agent's activity in its own row.
           childAgents={isExpanded ? undefined : childAgents}
@@ -222,7 +212,6 @@ function AgentCardImpl({
               <div className="flex flex-col gap-3 px-0 pb-0.5 pt-0.5">
                 <div className="space-y-1.5">
                   <AgentCardDetails
-                    remoteLocation={remoteLocation}
                     agent={agent}
                     personaParentName={
                       agent.parentAgentId
