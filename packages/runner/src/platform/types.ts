@@ -133,4 +133,27 @@ export interface WorkspacePort {
   ): Promise<void>;
   /** The checkout's Git facts: null outside Git, "error" when the probe failed. */
   git(directory: string): Promise<CheckoutGit | null | "error">;
+  /** Cached clones of repositories; without it, a repository source is unsupported. */
+  repository?: RepositoryPort;
+}
+
+/**
+ * One cached clone per repository, as the workload account with its own Git
+ * configuration, transports, credentials and hooks; tags are fetched. The
+ * core serialises the calls for one cache directory.
+ */
+export interface RepositoryPort {
+  /**
+   * Clone `url` into `clone` (inside `cache`, which may not exist yet), or
+   * reuse the clone there and fetch from `url`. The clone has no checked-out
+   * branch, so every branch can be a worktree. Returns the remote's default
+   * branch, or null when it has none.
+   */
+  cache(
+    url: string,
+    cache: string,
+    clone: string
+  ): Promise<{ defaultBranch: string | null }>;
+  /** Fetch pull request `number`'s head into local branch `branch` of the clone, unless it already has diverged work. */
+  pullRequest(clone: string, number: number, branch: string): Promise<void>;
 }

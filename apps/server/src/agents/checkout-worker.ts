@@ -20,7 +20,7 @@ import {
  * This is runner code that has not moved to `packages/runner` yet; it runs
  * only inside a runner process, never in the app.
  */
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   RunnerCallError,
   pathFromWire,
@@ -41,7 +41,15 @@ import {
   capture,
   commandBaseEnvironment,
 } from "./checkout-command-executor.js";
-import { realpath, stat, access } from "node:fs/promises";
+import {
+  access,
+  lstat,
+  mkdir,
+  realpath,
+  rename,
+  rm,
+  stat,
+} from "node:fs/promises";
 import path from "node:path";
 import {
   createGitWorktree,
@@ -50,6 +58,7 @@ import {
   worktreePathSlug,
 } from "../shared/git/worktree.js";
 import { installWorkspaceDependencies } from "./workspace-prep.js";
+import { runCommand } from "../shared/lib/run-command.js";
 import { copyLocalConfigFiles } from "./worktree-local-config.js";
 
 import {
@@ -549,6 +558,173 @@ const stepLine = (...args: unknown[]) => {
 };
 const stepLog = { info: stepLine, warn: stepLine };
 
+/*
+ * The `repository` part of the workspace port: one cached clone per
+ * repository, made and fetched with the account's own Git (its config,
+ * transports, credential helpers and hooks), tags on. The runner core
+ * decides where the clone lives and serialises its use; this does the Git.
+ */
+
+const cacheFailed = (message: string) =>
+  new RunnerCallError({ code: "failed", message });
+const cacheConflict = (message: string) =>
+  new RunnerCallError({
+    code: "conflict",
+    message,
+    details: { status: 409 },
+  });
+
+async function repositoryGit(args: string[], allowedExitCodes = [0]) {
+  return runCommand("git", args, { allowedExitCodes });
+}
+
+async function isClone(clone: string) {
+  const entry = await lstat(clone).catch(() => null);
+  if (!entry) return false;
+  if (!entry.isDirectory())
+    throw cacheFailed("The repository cache holds something else.");
+  const probed = await repositoryGit(
+    ["-C", clone, "rev-parse", "--path-format=absolute", "--git-dir"],
+    [0, 128]
+  );
+  return probed.exitCode === 0;
+}
+
+/** No branch checked out in the clone, so each one can be a worktree. */
+async function detach(clone: string) {
+  const head = await repositoryGit(
+    ["-C", clone, "rev-parse", "-q", "--verify", "HEAD"],
+    [0, 1, 128]
+  );
+  if (head.exitCode !== 0) return; // An empty repository.
+  const branch = await repositoryGit(
+    ["-C", clone, "symbolic-ref", "-q", "--short", "HEAD"],
+    [0, 1, 128]
+  );
+  await repositoryGit([
+    "-C",
+    clone,
+    "update-ref",
+    "--no-deref",
+    "HEAD",
+    head.stdout,
+  ]);
+  // The default branch then comes from the remote like every other one.
+  if (branch.exitCode === 0 && branch.stdout)
+    await repositoryGit(["-C", clone, "branch", "-D", "--", branch.stdout]);
+}
+
+async function defaultBranch(clone: string) {
+  const ref = await repositoryGit(
+    ["-C", clone, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"],
+    [0, 1, 128]
+  );
+  return ref.exitCode === 0 && ref.stdout.startsWith("origin/")
+    ? ref.stdout.slice("origin/".length) || null
+    : null;
+}
+
+const repositoryCache = {
+  async cache(url: string, cache: string, clone: string) {
+    await mkdir(cache, { recursive: true, mode: 0o700 });
+    if (await isClone(clone)) {
+      await repositoryGit(["-C", clone, "remote", "set-url", "origin", url]);
+      await repositoryGit([
+        "-C",
+        clone,
+        "fetch",
+        "--prune",
+        "--quiet",
+        "origin",
+        "+refs/heads/*:refs/remotes/origin/*",
+        "+refs/tags/*:refs/tags/*",
+      ]).catch(() => {
+        throw cacheFailed("Could not fetch the repository.");
+      });
+      // The remote's default branch may have moved; keep the old one offline.
+      await repositoryGit(
+        ["-C", clone, "remote", "set-head", "origin", "--auto"],
+        [0, 1, 2, 128]
+      );
+    } else {
+      // Cloned aside and renamed, so a crash never leaves a half clone here.
+      const partial = `${clone}.partial-${randomUUID()}`;
+      try {
+        await repositoryGit([
+          "clone",
+          "--quiet",
+          "--no-checkout",
+          "--origin",
+          "origin",
+          "--",
+          url,
+          partial,
+        ]).catch(() => {
+          throw cacheFailed("Could not clone the repository.");
+        });
+        await detach(partial);
+        await rename(partial, clone);
+      } finally {
+        await rm(partial, { recursive: true, force: true });
+      }
+    }
+    return { defaultBranch: await defaultBranch(clone) };
+  },
+
+  async pullRequest(clone: string, number: number, branch: string) {
+    await repositoryGit([
+      "-C",
+      clone,
+      "fetch",
+      "--quiet",
+      "origin",
+      `refs/pull/${number}/head`,
+    ]).catch(() => {
+      throw cacheFailed("Could not fetch the pull request head.");
+    });
+    const head = (
+      await repositoryGit([
+        "-C",
+        clone,
+        "rev-parse",
+        "--verify",
+        "FETCH_HEAD^{commit}",
+      ])
+    ).stdout;
+    const local = await repositoryGit(
+      ["-C", clone, "rev-parse", "-q", "--verify", `refs/heads/${branch}`],
+      [0, 1, 128]
+    );
+    if (local.exitCode !== 0) {
+      await repositoryGit([
+        "-C",
+        clone,
+        "branch",
+        "--no-track",
+        "--",
+        branch,
+        head,
+      ]);
+      return;
+    }
+    if (local.stdout === head) return;
+    const behind = await repositoryGit(
+      ["-C", clone, "merge-base", "--is-ancestor", local.stdout, head],
+      [0, 1, 128]
+    );
+    if (behind.exitCode !== 0)
+      throw cacheConflict("The branch has local work; choose another branch.");
+    await repositoryGit([
+      "-C",
+      clone,
+      "update-ref",
+      `refs/heads/${branch}`,
+      head,
+      local.stdout,
+    ]);
+  },
+};
+
 export const workspaceWorkload = {
   canonical: async (directory: string) => {
     const found = await stat(directory).catch(() => null);
@@ -620,4 +796,5 @@ export const workspaceWorkload = {
     const probed = await probeGitContext(directory);
     return probed.status === "error" ? ("error" as const) : probed.value;
   },
+  repository: repositoryCache,
 };
