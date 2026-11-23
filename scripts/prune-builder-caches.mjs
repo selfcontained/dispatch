@@ -210,8 +210,9 @@ function profileLocked(profile) {
     if (!pid) return false;
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    // EPERM: the process exists but belongs to someone else.
+    return error?.code === "EPERM";
   }
 }
 
