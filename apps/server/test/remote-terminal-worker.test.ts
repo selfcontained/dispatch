@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,6 +41,15 @@ it
   "reaps the workload shell and its background job on %s",
   async (reason) => {
     const cwd = await mkdtemp(join(tmpdir(), "terminal-worker-"));
+    const shell = join(cwd, "fixture-shell");
+    // Keep login profiles and the CI account's shell syntax out of the fixture.
+    await writeFile(
+      shell,
+      '#!/bin/sh\nexec /bin/bash --noprofile --norc "$@"\n',
+      {
+        mode: 0o700,
+      }
+    );
     const supervisor = spawn(
       process.execPath,
       ["-e", supervisorScript, process.env.BUN_BINARY ?? "bun", entry, cwd],
@@ -49,13 +58,15 @@ it
           PATH: process.env.PATH,
           HOME: cwd,
           USER: userInfo().username,
-          SHELL: userInfo().shell ?? "/bin/sh",
+          SHELL: shell,
+          BUN_RUNTIME_TRANSPILER_CACHE_PATH:
+            process.env.BUN_RUNTIME_TRANSPILER_CACHE_PATH,
         },
         stdio: ["pipe", "pipe", "inherit", "pipe"],
       }
     );
     const exited = once(supervisor, "close");
-    const pids = new Set<number>();
+    const pids = new Map<string, number>();
     let lines = "";
     try {
       const ready = supervisor.stdio[3]!;
@@ -74,8 +85,8 @@ it
           if (event.type === "output")
             lines += Buffer.from(event.data, "base64").toString();
         }
-        for (const match of lines.matchAll(/PTY_(?:SHELL|JOB)=(\d+)[\r\n]/g))
-          pids.add(Number(match[1]));
+        for (const match of lines.matchAll(/PTY_(SHELL|JOB)=(\d+)[\r\n]/g))
+          pids.set(match[1]!, Number(match[2]));
       });
       supervisor.stdin!.write(
         JSON.stringify({
@@ -84,16 +95,18 @@ it
         }) + "\n"
       );
       await expect.poll(() => pids.size).toBe(2);
-      expect([...pids].every(isLive)).toBe(true);
+      const workloadPids = [...pids.values()];
+      expect(new Set(workloadPids).size).toBe(2);
+      expect(workloadPids.filter(isLive)).toEqual(workloadPids);
       if (reason === "channel EOF") supervisor.stdin!.end();
       else supervisor.kill("SIGKILL");
       await exited;
-      await expect.poll(() => [...pids].filter(isLive)).toEqual([]);
+      await expect.poll(() => workloadPids.filter(isLive)).toEqual([]);
     } finally {
       supervisor.stdin!.destroy();
       supervisor.kill("SIGKILL");
       await exited;
-      for (const pid of pids) {
+      for (const pid of pids.values()) {
         if (isLive(pid)) process.kill(pid, "SIGKILL");
       }
       await rm(cwd, { recursive: true, force: true });

@@ -101,6 +101,7 @@ import {
   runnerStorageKey,
   runRemoteRunner,
   runnerReconnectDelay,
+  type RunnerUpdateOptions,
 } from "../src/agents/remote/runner.js";
 
 it("preserves prototype storage while keeping opaque wire IDs out of paths", () => {
@@ -129,6 +130,7 @@ describe("remote runner startup", () => {
   let config: string;
   let state: string;
   let key: string;
+  let updateOptions: RunnerUpdateOptions;
 
   beforeEach(async () => {
     vi.resetAllMocks();
@@ -137,6 +139,15 @@ describe("remote runner startup", () => {
     config = path.join(root, "runner.json");
     state = path.join(root, "state");
     key = path.join(root, "key");
+    updateOptions = {
+      updateLayout: {
+        config,
+        installed: path.join(root, "dispatch"),
+        staging: path.join(root, "staging"),
+        state: path.join(root, "update-state"),
+      },
+      updateIdentity: null,
+    };
     await writeFile(key, "unused test credential", { mode: 0o600 });
     await writeFile(
       config,
@@ -176,7 +187,7 @@ describe("remote runner startup", () => {
     reportIdentity.mockImplementation((_command, _args, _options, callback) =>
       callback(null, unprivilegedStatus.replace(from, to), "")
     );
-    await expect(runRemoteRunner(config)).rejects.toThrow(
+    await expect(runRemoteRunner(config, updateOptions)).rejects.toThrow(
       "cannot verify unprivileged execution"
     );
     expect(dial).not.toHaveBeenCalled();
@@ -187,7 +198,7 @@ describe("remote runner startup", () => {
     reportIdentity.mockImplementation((_command, _args, _options, callback) =>
       callback(new Error("Operation not permitted"))
     );
-    await expect(runRemoteRunner(config)).rejects.toThrow(
+    await expect(runRemoteRunner(config, updateOptions)).rejects.toThrow(
       "cannot verify unprivileged execution"
     );
     expect(dial).not.toHaveBeenCalled();
@@ -226,7 +237,9 @@ describe("remote runner startup", () => {
         throw end;
       });
       vi.useFakeTimers();
-      const running = runRemoteRunner(config).catch((error) => error);
+      const running = runRemoteRunner(config, updateOptions).catch(
+        (error) => error
+      );
       try {
         await vi.waitFor(() => expect(dial).toHaveBeenCalledTimes(1));
         socket.emit("secureConnect");
@@ -303,7 +316,9 @@ describe("remote runner startup", () => {
       throw end;
     });
     vi.useFakeTimers();
-    const running = runRemoteRunner(config).catch((error) => error);
+    const running = runRemoteRunner(config, updateOptions).catch(
+      (error) => error
+    );
     const timer = vi.spyOn(globalThis, "setTimeout");
     try {
       await vi.waitFor(() => expect(dial).toHaveBeenCalledTimes(1));
@@ -372,7 +387,9 @@ describe("remote runner startup", () => {
         throw stopAtDial;
       });
 
-      await expect(runRemoteRunner(config)).rejects.toBe(stopAtDial);
+      await expect(runRemoteRunner(config, updateOptions)).rejects.toBe(
+        stopAtDial
+      );
       const supervisor = supervisorConfig.mock.calls[0]![0];
       expect(supervisor.env).toMatchObject({
         HOME: root,
@@ -409,7 +426,9 @@ describe("remote runner startup", () => {
       throw stopAtDial;
     });
 
-    await expect(runRemoteRunner(config)).rejects.toBe(stopAtDial);
+    await expect(runRemoteRunner(config, updateOptions)).rejects.toBe(
+      stopAtDial
+    );
     expect(dial).toHaveBeenCalledWith(
       expect.objectContaining({ host: "192.0.2.1", rejectUnauthorized: true })
     );
