@@ -1100,6 +1100,72 @@ mock.module("node:fs/promises", () => ({
     }
   }, 15_000);
 
+  it("answers a client that connects before the engine is up only through its hello", async () => {
+    // The client claims the host on connect but says hello a moment later.
+    // If the engine comes up in between, the startup welcome must not reach
+    // it as well as the hello's: a second running welcome replaces the one
+    // in-flight requests were made under, and they answer "unavailable".
+    const dir = mkdtempSync("/tmp/dispatch-acp-welcome-");
+    const preload = path.join(dir, "hold-session-write.mjs");
+    const pending = path.join(dir, "write-pending");
+    const release = path.join(dir, "release-write");
+    const started = path.join(dir, "start-finished");
+    writeFileSync(
+      preload,
+      `import { mock } from "bun:test";
+import { existsSync, writeFileSync } from "node:fs";
+import * as fs from "node:fs/promises";
+const { writeFile } = fs;
+mock.module("node:fs/promises", () => ({
+  ...fs,
+  async writeFile(file, ...args) {
+    if (file !== ${JSON.stringify(path.join(dir, "session.json"))})
+      return writeFile(file, ...args);
+    writeFileSync(${JSON.stringify(pending)}, "");
+    while (!existsSync(${JSON.stringify(release)})) await Bun.sleep(10);
+    await writeFile(file, ...args);
+    // A timer runs after the start-up continuation that follows this write.
+    setTimeout(() => writeFileSync(${JSON.stringify(started)}, ""), 0);
+  },
+}));
+`
+    );
+    writeFileSync(
+      path.join(dir, "launch.json"),
+      JSON.stringify(hostLaunchFor("agt_starting", cwd))
+    );
+    const host = spawn(
+      "bun",
+      ["--preload", preload, mainTs, "agent-host", "--state", dir],
+      { stdio: "ignore" }
+    );
+    const exited = once(host, "exit");
+    let socket: net.Socket | undefined;
+    try {
+      await until(() => existsSync(pending), 5000);
+      socket = net.createConnection(path.join(dir, "host.sock"));
+      const messages: HostMessage[] = [];
+      const decode = ndjsonDecoder<HostMessage>();
+      socket.on("data", (chunk) => messages.push(...decode(chunk)));
+      await once(socket, "connect");
+
+      writeFileSync(release, "");
+      await until(() => existsSync(started), 5000);
+      socket.write(
+        encodeMessage({ type: "hello", fromSeq: 0, replayComplete: true })
+      );
+      await until(() => messages.some((m) => m.type === "replay_complete"));
+      expect(
+        messages.filter((m) => m.type === "welcome").map((m) => m.running)
+      ).toEqual([true]);
+    } finally {
+      socket?.destroy();
+      host.kill();
+      await exited;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 15_000);
+
   it("lists every file a host writes into its directory", async () => {
     const ca = path.join(cwd, "host-files-ca.pem");
     writeFileSync(ca, rootCertificates[0]!);
