@@ -1,6 +1,11 @@
 import type { Effort } from "@dispatch/shared";
 import { randomUUID } from "node:crypto";
-import { resolveLaunchLocation } from "../agents/workspace-target.js";
+import {
+  mapSavedLocation,
+  normalizeSavedDirectory,
+  storedLocation,
+  type Location,
+} from "../runners/saved-location.js";
 
 import type { Pool } from "pg";
 
@@ -15,6 +20,7 @@ export { parseTemplateArgs, substituteArgs } from "./arg-parser.js";
 export type TemplateRecord = {
   id: string;
   directory: string;
+  [storedLocation]?: Location;
   projectId?: string | null;
   name: string;
   description: string | null;
@@ -35,6 +41,7 @@ export type TemplateRecord = {
 };
 
 export type AddTemplateInput = {
+  runner?: string;
   name: string;
   directory: string;
   projectId?: string | null;
@@ -54,6 +61,7 @@ export type AddTemplateInput = {
 };
 
 export type TemplateConfigUpdate = {
+  [storedLocation]?: Location;
   name?: string;
   description?: string | null;
   directory?: string;
@@ -75,35 +83,38 @@ export type TemplateConfigUpdate = {
 export class TemplateStore {
   constructor(private readonly pool: Pick<Pool, "query">) {}
 
-  async createTemplate(input: {
-    name: string;
-    directory: string;
-    projectId?: string | null;
-    description: string | null;
-    prompt: string | null;
-    agentType: AgentType;
-    model?: string | null;
-    effort?: Effort | null;
-    persona?: string | null;
-    useWorktree: boolean;
-    baseBranch: string | null;
-    branchName: string | null;
-    fullAccess: boolean;
-    callable: boolean;
-    allowFiles: boolean;
-    selfImprove?: boolean;
-  }): Promise<TemplateRecord> {
+  async createTemplate(
+    input: {
+      name: string;
+      directory: string;
+      projectId?: string | null;
+      description: string | null;
+      prompt: string | null;
+      agentType: AgentType;
+      model?: string | null;
+      effort?: Effort | null;
+      persona?: string | null;
+      useWorktree: boolean;
+      baseBranch: string | null;
+      branchName: string | null;
+      fullAccess: boolean;
+      callable: boolean;
+      allowFiles: boolean;
+      selfImprove?: boolean;
+    },
+    location?: Location
+  ): Promise<TemplateRecord> {
     const id = randomUUID();
     try {
       const result = await this.pool.query(
         `
-        INSERT INTO templates (id, directory, name, description, prompt, agent_type, model, use_worktree, base_branch, branch_name, full_access, callable, allow_files, self_improve, project_id, persona, effort)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+        INSERT INTO templates (id, directory, name, description, prompt, agent_type, model, use_worktree, base_branch, branch_name, full_access, callable, allow_files, self_improve, project_id, persona, effort, location)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
         RETURNING ${this.columns()}
         `,
         [
           id,
-          resolveLaunchLocation(input.directory),
+          normalizeSavedDirectory(input.directory),
           input.name,
           input.description,
           input.prompt,
@@ -119,6 +130,7 @@ export class TemplateStore {
           input.projectId ?? null,
           input.persona ?? null,
           input.effort ?? null,
+          location,
         ]
       );
       return mapTemplate(result.rows[0]);
@@ -146,7 +158,7 @@ export class TemplateStore {
   ): Promise<TemplateRecord | null> {
     const result = await this.pool.query(
       `SELECT ${this.columns()} FROM templates WHERE directory = $1 AND name = $2`,
-      [resolveLaunchLocation(directory), name]
+      [normalizeSavedDirectory(directory), name]
     );
     return result.rows[0] ? mapTemplate(result.rows[0]) : null;
   }
@@ -194,7 +206,7 @@ export class TemplateStore {
         "branchName"
       );
       const resolvedDir = input.directory
-        ? resolveLaunchLocation(input.directory)
+        ? normalizeSavedDirectory(input.directory)
         : undefined;
       const result = await this.pool.query(
         `
@@ -215,6 +227,7 @@ export class TemplateStore {
             project_id = CASE WHEN $20 THEN $21 ELSE project_id END,
             persona = CASE WHEN $22 THEN $23 ELSE persona END,
             effort = CASE WHEN $24 THEN $25 ELSE effort END,
+            location = COALESCE($26, location),
             updated_at = NOW()
         WHERE id = $1
         RETURNING ${this.columns()}
@@ -245,6 +258,7 @@ export class TemplateStore {
           input.persona ?? null,
           input.effort !== undefined,
           input.effort ?? null,
+          input[storedLocation],
         ]
       );
       if (!result.rows[0]) throw new Error(`Template ${id} not found.`);
@@ -284,6 +298,7 @@ export class TemplateStore {
     return `
       id,
       directory,
+      location,
       project_id AS "projectId",
       name,
       description,
@@ -306,5 +321,5 @@ export class TemplateStore {
 }
 
 function mapTemplate(row: Record<string, unknown>): TemplateRecord {
-  return row as TemplateRecord;
+  return mapSavedLocation<TemplateRecord>(row);
 }

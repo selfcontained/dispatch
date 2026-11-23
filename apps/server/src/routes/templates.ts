@@ -28,6 +28,7 @@ const directoryField = z
 const AddTemplateBodySchema = z.object({
   name: z.string().trim().min(1, "Template name is required."),
   directory: directoryField,
+  runner: z.string().min(1).optional(),
   projectId: z.string().min(1).nullable().optional(),
   description: z.string().nullable().optional(),
   prompt: z.string().nullable().optional(),
@@ -47,6 +48,7 @@ const AddTemplateBodySchema = z.object({
 const UpdateTemplateBodySchema = z.object({
   name: z.string().min(1).optional(),
   directory: directoryField.optional(),
+  runner: z.string().min(1).optional(),
   projectId: z.string().min(1).nullable().optional(),
   description: z.string().nullable().optional(),
   prompt: z.string().nullable().optional(),

@@ -18,10 +18,15 @@ import { createProviderPlansReporter } from "../agents/provider-plans.js";
 import type { UsageCallbacks } from "../shared/mcp/usage-tools.js";
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import { remotePlacement } from "../agents/remote/protocol.js";
+import { agentWorkspaceDir } from "../agents/workspace-target.js";
+import { sameRunner } from "@dispatch/runner-protocol/contract";
+import { controllerPlacement } from "../runners/placement.js";
 import {
-  agentWorkspaceDir,
-  resolveLaunchLocation,
-} from "../agents/workspace-target.js";
+  defaultSavedTarget,
+  normalizeSavedDirectory,
+  sameSavedCheckout,
+  targetPlacement,
+} from "../runners/saved-location.js";
 import * as telemetry from "../agents/telemetry.js";
 import type { LoginLinkStore } from "../auth.js";
 import type { BrainStore } from "../brain/store.js";
@@ -182,29 +187,27 @@ function buildCrudCallbacks(
   agent: AgentRecord
 ): CrudToolCallbacks {
   const callerFullAccess = agent.fullAccess === true;
-  const placement = remotePlacement(agent.cwd);
-  const personaScope: SavedPersonaScope | undefined = placement
-    ? (target) => {
-        const workspace = remotePlacement(target.cwd);
-        return workspace?.runner === placement.runner &&
-          workspace.workspace === placement.workspace
-          ? personaScopeFor({ manager: deps.agentManager, agent })
-          : personaScopeFor(target);
-      }
-    : undefined;
+  const callerPlacement =
+    agent.placement ?? targetPlacement({ directory: agent.cwd });
+  const personaScope: SavedPersonaScope = (target) =>
+    !sameRunner(callerPlacement, controllerPlacement) &&
+    sameSavedCheckout({ directory: agent.cwd }, { directory: target.cwd })
+      ? personaScopeFor({ manager: deps.agentManager, agent })
+      : personaScopeFor(target);
+
   return {
     listJobs: async (directory) => {
       const jobs = await deps.jobService.listJobs();
       if (!directory) return jobs;
-      const resolved = resolveLaunchLocation(directory);
+      const resolved = normalizeSavedDirectory(directory);
       return jobs.filter((j) => j.directory === resolved);
     },
     getJobById: (jobId) => deps.jobService.getJobById(jobId),
     getJobByName: (directory, name) =>
       deps.jobService.getJobByName(directory, name),
-    createJob: (input) =>
+    createJob: (input, defaultDirectory) =>
       deps.jobService.addJob(
-        input as AddJobInput,
+        defaultSavedTarget(input, agent, defaultDirectory) as AddJobInput,
         callerFullAccess,
         personaScope
       ),
@@ -224,16 +227,16 @@ function buildCrudCallbacks(
     listTemplates: async (directory) => {
       const templates = await deps.templateService.listTemplates();
       if (!directory) return templates;
-      const resolved = resolveLaunchLocation(directory);
+      const resolved = normalizeSavedDirectory(directory);
       return templates.filter((t) => t.directory === resolved);
     },
     getTemplateById: (templateId) =>
       deps.templateService.getTemplate(templateId),
     getTemplateByName: (directory, name) =>
       deps.templateService.getTemplateByName(directory, name),
-    createTemplate: (input) =>
+    createTemplate: (input, defaultDirectory) =>
       deps.templateService.addTemplate(
-        input as AddTemplateInput,
+        defaultSavedTarget(input, agent, defaultDirectory) as AddTemplateInput,
         callerFullAccess,
         personaScope
       ),

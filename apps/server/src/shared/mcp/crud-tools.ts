@@ -158,33 +158,38 @@ export type CrudToolCallbacks = {
   listJobs: (directory?: string) => Promise<unknown>;
   getJobById: (jobId: string) => Promise<unknown>;
   getJobByName: (directory: string, name: string) => Promise<unknown>;
-  createJob: (input: {
-    name: string;
-    directory: string;
-    projectId?: string | null;
-    persona?: string | null;
-    prompt?: string | null;
-    schedule?: string | null;
-    timeoutMs?: number;
-    needsInputTimeoutMs?: number;
-    agentType?: string;
-    model?: string | null;
-    effort?: Effort | null;
-    useWorktree?: boolean;
-    baseBranch?: string | null;
-    branchName?: string | null;
-    fullAccess?: boolean;
-    autoArchive?: boolean;
-    callable?: boolean;
-    singleton?: boolean;
-    enabled?: boolean;
-    selfImprove?: boolean;
-    continuationEnabled?: boolean;
-    maxIterations?: number | null;
-    completionCriteria?: string[] | null;
-    recoveryInstructions?: string | null;
-  }) => Promise<unknown>;
+  createJob: (
+    input: {
+      runner?: string;
+      name: string;
+      directory: string;
+      projectId?: string | null;
+      persona?: string | null;
+      prompt?: string | null;
+      schedule?: string | null;
+      timeoutMs?: number;
+      needsInputTimeoutMs?: number;
+      agentType?: string;
+      model?: string | null;
+      effort?: Effort | null;
+      useWorktree?: boolean;
+      baseBranch?: string | null;
+      branchName?: string | null;
+      fullAccess?: boolean;
+      autoArchive?: boolean;
+      callable?: boolean;
+      singleton?: boolean;
+      enabled?: boolean;
+      selfImprove?: boolean;
+      continuationEnabled?: boolean;
+      maxIterations?: number | null;
+      completionCriteria?: string[] | null;
+      recoveryInstructions?: string | null;
+    },
+    defaultDirectory?: boolean
+  ) => Promise<unknown>;
   updateJob: (input: {
+    runner?: string;
     jobId: string;
     name?: string;
     directory?: string;
@@ -219,26 +224,31 @@ export type CrudToolCallbacks = {
     directory: string,
     name: string
   ) => Promise<TemplateRecord | null>;
-  createTemplate: (input: {
-    name: string;
-    directory: string;
-    projectId?: string | null;
-    description?: string | null;
-    prompt?: string | null;
-    agentType?: string;
-    model?: string | null;
-    effort?: Effort | null;
-    useWorktree?: boolean;
-    baseBranch?: string | null;
-    branchName?: string | null;
-    fullAccess?: boolean;
-    callable?: boolean;
-    allowFiles?: boolean;
-    selfImprove?: boolean;
-  }) => Promise<unknown>;
+  createTemplate: (
+    input: {
+      runner?: string;
+      name: string;
+      directory: string;
+      projectId?: string | null;
+      description?: string | null;
+      prompt?: string | null;
+      agentType?: string;
+      model?: string | null;
+      effort?: Effort | null;
+      useWorktree?: boolean;
+      baseBranch?: string | null;
+      branchName?: string | null;
+      fullAccess?: boolean;
+      callable?: boolean;
+      allowFiles?: boolean;
+      selfImprove?: boolean;
+    },
+    defaultDirectory?: boolean
+  ) => Promise<unknown>;
   updateTemplate: (
     templateId: string,
     input: {
+      runner?: string;
       name?: string;
       directory?: string;
       projectId?: string | null;
@@ -361,6 +371,11 @@ export function registerCrudTools(
         description:
           "Create a new job. Only name is required; everything else has sensible defaults.",
         inputSchema: {
+          runner: z
+            .string()
+            .min(1)
+            .optional()
+            .describe("Runner ID for the saved target."),
           name: z.string().min(1).describe("Job name."),
           directory: dirSchema(),
           projectId: z
@@ -471,14 +486,17 @@ export function registerCrudTools(
         try {
           const { loopEnabled, maxRuns, doneWhen, recoverySteps, ...jobArgs } =
             args;
-          const result = await callbacks.createJob({
-            ...jobArgs,
-            directory: resolveDir(args.directory),
-            continuationEnabled: loopEnabled,
-            maxIterations: maxRuns,
-            completionCriteria: normalizeLoopItems(doneWhen),
-            recoveryInstructions: loopItemsToText(recoverySteps),
-          });
+          const result = await callbacks.createJob(
+            {
+              ...jobArgs,
+              directory: resolveDir(args.directory),
+              continuationEnabled: loopEnabled,
+              maxIterations: maxRuns,
+              completionCriteria: normalizeLoopItems(doneWhen),
+              recoveryInstructions: loopItemsToText(recoverySteps),
+            },
+            !args.directory?.trim()
+          );
           return {
             content: [{ type: "text", text: jsonText(toWriteAck(result)) }],
           };
@@ -497,6 +515,11 @@ export function registerCrudTools(
         description:
           "Update an existing job by jobId. Name and directory are editable configuration. Only pass fields you want to change.",
         inputSchema: {
+          runner: z
+            .string()
+            .min(1)
+            .optional()
+            .describe("Runner ID for the saved target."),
           jobId: z
             .string()
             .min(1)
@@ -769,6 +792,11 @@ export function registerCrudTools(
         description:
           "Create a new template. Only name is required; everything else has sensible defaults.",
         inputSchema: {
+          runner: z
+            .string()
+            .min(1)
+            .optional()
+            .describe("Runner ID for the saved target."),
           name: z.string().min(1).describe("Template name."),
           projectId: z
             .string()
@@ -839,10 +867,13 @@ export function registerCrudTools(
       },
       async (args) => {
         try {
-          const result = await callbacks.createTemplate({
-            ...args,
-            directory: resolveDir(args.directory),
-          });
+          const result = await callbacks.createTemplate(
+            {
+              ...args,
+              directory: resolveDir(args.directory),
+            },
+            !args.directory?.trim()
+          );
           return {
             content: [{ type: "text", text: jsonText(toWriteAck(result)) }],
           };
@@ -861,6 +892,11 @@ export function registerCrudTools(
         description:
           "Update an existing template. Only pass fields you want to change.",
         inputSchema: {
+          runner: z
+            .string()
+            .min(1)
+            .optional()
+            .describe("Runner ID for the saved target."),
           templateId: z.string().describe("Template ID."),
           projectId: z
             .string()

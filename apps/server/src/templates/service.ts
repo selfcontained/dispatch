@@ -1,4 +1,14 @@
-import { remotePlacement } from "@dispatch/runner-protocol";
+import { sameRunner } from "@dispatch/runner-protocol/contract";
+import {
+  controllerPlacement,
+  runnerIdForPlacement,
+} from "../runners/placement.js";
+import {
+  resolveSavedTarget,
+  savedLaunchTarget,
+  storedLocation,
+  targetPlacement,
+} from "../runners/saved-location.js";
 import type { Effort } from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import { ProjectStore } from "../projects/store.js";
@@ -89,36 +99,42 @@ export class TemplateService {
       const project = await this.projects.get(input.projectId);
       if (!project) throw new Error("Project not found.");
       projectRoot = project.repoRoot;
-      if (!remotePlacement(input.directory))
-        input = { ...input, directory: project.repoRoot };
     }
+    const target = resolveSavedTarget(input.directory, {
+      ...input,
+      projectId: input.projectId,
+      projectRoot,
+    });
     if (input.persona)
       await resolvePersona(
-        personaScope({ cwd: input.directory, projectRoot }),
+        personaScope({ cwd: target.directory, projectRoot }),
         input.persona,
         "task"
       );
     const scope = await modelScopeFor(
-      input.directory,
+      target.directory,
       input.agentType ?? "claude"
     );
-    const template = await this.store.createTemplate({
-      projectId: input.projectId ?? null,
-      name: input.name.trim(),
-      directory: input.directory,
-      description: input.description ?? null,
-      prompt: input.prompt ?? null,
-      ...applyAgentConfigDefaults(input, savedModel, scope),
-      effort: validateAgentEffort(
-        input.agentType ?? "claude",
-        input.effort,
-        input.model,
-        scope
-      ),
-      callable: input.callable ?? true,
-      allowFiles: input.allowFiles ?? true,
-      selfImprove: input.selfImprove ?? false,
-    });
+    const template = await this.store.createTemplate(
+      {
+        projectId: input.projectId ?? null,
+        name: input.name.trim(),
+        directory: target.directory,
+        description: input.description ?? null,
+        prompt: input.prompt ?? null,
+        ...applyAgentConfigDefaults(input, savedModel, scope),
+        effort: validateAgentEffort(
+          input.agentType ?? "claude",
+          input.effort,
+          input.model,
+          scope
+        ),
+        callable: input.callable ?? true,
+        allowFiles: input.allowFiles ?? true,
+        selfImprove: input.selfImprove ?? false,
+      },
+      target[storedLocation]
+    );
     this.logger.info(
       { templateId: template.id, name: template.name },
       "Template added"
@@ -144,7 +160,11 @@ export class TemplateService {
       ...config
     } = source;
     return this.addTemplate(
-      { ...config, name },
+      {
+        ...config,
+        name,
+        runner: runnerIdForPlacement(targetPlacement(source)),
+      },
       callerFullAccess,
       undefined,
       source.model
@@ -172,21 +192,30 @@ export class TemplateService {
       const project = await this.projects.get(projectId);
       if (!project) throw new Error("Project not found.");
       projectRoot = project.repoRoot;
-      if (!remotePlacement(input.directory ?? existing.directory))
-        input = { ...input, directory: project.repoRoot };
     }
+    const target = resolveSavedTarget(input.directory || existing.directory, {
+      ...input,
+      previous: existing,
+      directorySupplied: Boolean(input.directory),
+      projectId,
+      projectRoot,
+    });
+    const targetChanged =
+      Boolean(input.directory) ||
+      projectId !== existing.projectId ||
+      target.directory !== existing.directory;
     const persona =
       input.persona !== undefined ? input.persona : existing.persona;
     if (
       persona &&
       (persona !== existing.persona ||
         projectId !== existing.projectId ||
-        (input.directory !== undefined &&
-          input.directory !== existing.directory))
+        target.directory !== existing.directory ||
+        !sameRunner(targetPlacement(target), targetPlacement(existing)))
     )
       await resolvePersona(
         personaScope({
-          cwd: input.directory ?? existing.directory,
+          cwd: target.directory,
           projectRoot,
         }),
         persona,
@@ -198,10 +227,10 @@ export class TemplateService {
     if (input.name !== undefined) updates.name = input.name.trim();
     if (input.description !== undefined)
       updates.description = input.description;
-    if (input.directory !== undefined) updates.directory = input.directory;
+    if (targetChanged) Object.assign(updates, target);
     if (input.prompt !== undefined) updates.prompt = input.prompt;
     const scope = await modelScopeFor(
-      input.directory ?? existing.directory,
+      target.directory,
       input.agentType ?? existing.agentType
     );
     const nextModel = resolveAgentModelForUpdate({
@@ -340,17 +369,28 @@ export class TemplateService {
       template.projectId &&
       input.directory &&
       input.directory !== template.directory &&
-      !remotePlacement(input.directory)
+      sameRunner(
+        targetPlacement({ directory: input.directory }),
+        controllerPlacement
+      )
     )
       throw new Error("Project template directory cannot be overridden.");
-    const cwd = input.directory ?? template.directory;
+    const target =
+      input.directory && input.directory !== template.directory
+        ? {
+            ...template,
+            ...resolveSavedTarget(input.directory, {
+              projectId: template.projectId,
+            }),
+          }
+        : template;
     const launch = {
       name: input.name?.trim() || sanitizeAgentName(template.name),
       type: resolvedType,
       model: resolvedModel,
       effort: template.effort,
       persona: template.persona ?? undefined,
-      cwd,
+      ...savedLaunchTarget(target),
       initialPrompt: finalPrompt,
       launchContext: {
         links: input.startupLinks ?? [],
