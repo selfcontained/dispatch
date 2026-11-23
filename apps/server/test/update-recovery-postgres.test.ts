@@ -166,6 +166,25 @@ describe("PostgreSQL logical recovery (real isolated PostgreSQL)", () => {
     }
   });
   it("creates a private custom archive and verifies an actual disposable restore", async () => {
+    // The previous test closed its client, but the server may still be
+    // processing that disconnect. Observe readiness from the admin database.
+    const admin = new pg.Client({
+      connectionString: process.env.TEST_DATABASE_URL,
+    });
+    try {
+      await admin.connect();
+      await expect
+        .poll(async () => {
+          const { rows } = await admin.query(
+            "SELECT pid FROM pg_stat_activity WHERE datname = $1",
+            [policy.database]
+          );
+          return rows;
+        })
+        .toEqual([]);
+    } finally {
+      await admin.end();
+    }
     metadata = await createPostgresBackup({
       databaseUrl,
       policy,
