@@ -102,6 +102,20 @@ function copyCheckoutToRunner(directory: string, agentId: string) {
     "switch",
     "unpublished",
   ]);
+  // Match the native fixture's branch with no upstream. The repository fixture
+  // published this commit, so its auto-assigned upstream would hide the change.
+  execFileSync("docker", [
+    "exec",
+    "-u",
+    "1500:1500",
+    container,
+    "git",
+    "-C",
+    target,
+    "branch",
+    "--unset-upstream",
+    "unpublished",
+  ]);
   const files = execFileSync(
     "tar",
     ["-C", directory, "--exclude=.git", "-cf", "-", "."],
@@ -364,6 +378,7 @@ for (const placement of ["This Mac", "Linux runner"] as const) {
       const plan = (
         review.result as {
           structuredContent: {
+            baseRef: string;
             owners: { persona: string; files: string[] }[];
             failures: unknown[];
             launched: { agentId: string }[];
@@ -371,6 +386,7 @@ for (const placement of ["This Mac", "Linux runner"] as const) {
         }
       ).structuredContent;
       expect(plan.failures).toEqual([]);
+      if (remote) expect(plan.baseRef).toBe("origin/main");
       expect(plan.owners).toEqual([
         {
           persona: "code-review",
