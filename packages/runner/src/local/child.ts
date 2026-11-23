@@ -31,6 +31,7 @@ import {
 } from "./lock.js";
 import { serveSocket, type Handlers } from "./socket-server.js";
 import { checkoutHandlers } from "../core/checkout.js";
+import { workspaceHandlers } from "../core/workspace.js";
 import type { Platform } from "../platform/types.js";
 
 export type Build = { version: string; revision?: string };
@@ -228,12 +229,16 @@ export async function runLocalRunner(
   const checkout = options.platform
     ? checkoutHandlers(store!, options.platform)
     : {};
+  const workspace = options.platform?.workspace
+    ? workspaceHandlers(message.roots.state, store!, options.platform.workspace)
+    : {};
   const socket = await serveSocket(
     socketPath,
     message.nonce,
     {
       calls: {
         ...checkout,
+        ...workspace,
         ...extra?.calls,
         "runner.describe": () => description,
         "runner.health": () => health(),

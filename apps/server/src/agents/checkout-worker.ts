@@ -9,6 +9,9 @@ import {
  *
  * - `checkoutWorkload` is the `posix-user` platform's workload for these
  *   operations: a direct call, in the local runner child's own process.
+ * - `workspaceWorkload` is that platform's `workspace` port: each step of
+ *   preparing a checkout from a directory, which the runner core orders,
+ *   records and binds.
  *   `main.ts` hands it to the runner (`@dispatch/runner/cli`), which types
  *   it structurally; nothing here imports the runner.
  * - `runCheckoutWorker` is the self-exec entry (`runner-worker <op>`) the
@@ -38,6 +41,16 @@ import {
   capture,
   commandBaseEnvironment,
 } from "./checkout-command-executor.js";
+import { realpath, stat, access } from "node:fs/promises";
+import path from "node:path";
+import {
+  createGitWorktree,
+  GitWorktreeError,
+  planGitWorktree,
+  worktreePathSlug,
+} from "../shared/git/worktree.js";
+import { installWorkspaceDependencies } from "./workspace-prep.js";
+import { copyLocalConfigFiles } from "./worktree-local-config.js";
 
 import {
   buildGitContextForWorktree,
@@ -482,3 +495,112 @@ export async function runCheckoutWorker(argv: string[]): Promise<void> {
   process.stderr.write(`Unknown worker operation: ${op ?? "(none)"}\n`);
   process.exitCode = 2;
 }
+
+/** A worktree refusal main answers with its own status, as a runner error. */
+function worktreeError(error: unknown): never {
+  if (error instanceof GitWorktreeError)
+    throw new RunnerCallError({
+      code: error.statusCode === 409 ? "conflict" : "invalid",
+      message: error.message,
+      details: { status: error.statusCode },
+    });
+  throw error;
+}
+
+type WorktreeSpec = {
+  directory: string;
+  name: string;
+  branch: string;
+  base: string;
+  create: boolean;
+  nested?: string;
+};
+
+/** `createGitWorktree`'s input for a spec, as main's launch built it. */
+function worktreeInput(spec: WorktreeSpec, worktreePath?: string) {
+  return {
+    cwd: spec.directory,
+    name: spec.name,
+    branchName: spec.create ? spec.branch : undefined,
+    baseBranch: spec.base,
+    worktreePath:
+      worktreePath ??
+      (spec.nested === undefined
+        ? undefined
+        : path.join(
+            spec.directory,
+            spec.nested,
+            worktreePathSlug(spec.branch, { createNewBranch: spec.create })
+          )),
+    createNewBranch: spec.create,
+  };
+}
+
+/** Dependency and copy logs go to the runner's output, which the app logs. */
+const stepLine = (...args: unknown[]) => {
+  const [object, message] = args;
+  process.stderr.write(`${String(message)} ${JSON.stringify(object)}\n`);
+};
+const stepLog = { info: stepLine, warn: stepLine };
+
+export const workspaceWorkload = {
+  canonical: async (directory: string) => {
+    const found = await stat(directory).catch(() => null);
+    return found?.isDirectory() ? realpath(directory) : null;
+  },
+  async identity(directory: string) {
+    const evidence = await stat(directory, { bigint: true }).catch(() => null);
+    return evidence
+      ? `${evidence.dev}:${evidence.ino}:${evidence.birthtimeNs}`
+      : null;
+  },
+  async plan(spec: WorktreeSpec) {
+    const plan = await planGitWorktree(worktreeInput(spec)).catch(
+      worktreeError
+    );
+    const taken = await access(plan.worktreePath).then(
+      () => true,
+      () => false
+    );
+    return { path: plan.worktreePath, branch: plan.branchName, taken };
+  },
+  async create(spec: WorktreeSpec, worktreePath: string) {
+    const result = await createGitWorktree(
+      worktreeInput(spec, worktreePath)
+    ).catch(worktreeError);
+    stepLog.info(
+      { worktreePath: result.worktreePath, worktreeBranch: result.branchName },
+      "Created worktree."
+    );
+    return { path: result.worktreePath, branch: result.branchName };
+  },
+  async copyIgnored(
+    source: string,
+    destination: string,
+    names: readonly string[]
+  ) {
+    const copied = await copyLocalConfigFiles(source, destination, names);
+    if (copied.length > 0)
+      stepLog.info(
+        { worktreePath: destination, files: copied },
+        `Copied ${copied.length} local config file(s) into worktree.`
+      );
+    return copied;
+  },
+  async installDependencies(
+    directory: string,
+    report: (step: {
+      status: "done" | "failed";
+      detail: string;
+    }) => Promise<void>
+  ) {
+    await installWorkspaceDependencies(directory, stepLog, async (step) => {
+      if (step.status)
+        await report({ status: step.status, detail: step.detail ?? "" });
+    });
+  },
+  async git(directory: string) {
+    const probed = await probeGitContext(directory);
+    return probed.status === "error" ? ("error" as const) : probed.value;
+  },
+};

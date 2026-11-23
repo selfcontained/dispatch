@@ -3,7 +3,6 @@ import { BLOCK_TEXT_MAX_CHARS } from "@dispatch/shared";
 import { AgentManager } from "../src/agents/manager.js";
 import { StreamService } from "../src/chat/service.js";
 import { WorkspaceError } from "../src/files/workspace-view.js";
-import * as agentDiff from "../src/shared/git/agent-diff.js";
 
 import { useInjectApp } from "./helpers/inject-app.js";
 
@@ -314,22 +313,26 @@ describe("POST /api/v1/agents/:id/diff/comment", () => {
     },
   ])("posts selected code as an attachment ($label)", async (selection) => {
     const agent = await createAgent({ name: "snippet-comment" });
-    const diff = vi.spyOn(agentDiff, "getAgentFileDiff").mockResolvedValue({
-      path: "example.ts",
-      status: "modified",
-      added: 2,
-      deleted: 1,
-      diff: [
-        "diff --git a/example.ts b/example.ts",
-        "--- a/example.ts",
-        "+++ b/example.ts",
-        "@@ -1,3 +1,3 @@",
-        "-const first = 0;",
-        `+${selection.source ?? "const first = 1;"}`,
-        " ",
-        " const last = 3;",
-      ].join("\n"),
-    });
+    // The file diff is read where the session's checkout is bound (the local
+    // runner child), so the read is stubbed at the manager, not in Git.
+    const diff = vi
+      .spyOn(AgentManager.prototype, "viewCheckout")
+      .mockResolvedValue({
+        path: "example.ts",
+        status: "modified",
+        added: 2,
+        deleted: 1,
+        diff: [
+          "diff --git a/example.ts b/example.ts",
+          "--- a/example.ts",
+          "+++ b/example.ts",
+          "@@ -1,3 +1,3 @@",
+          "-const first = 0;",
+          `+${selection.source ?? "const first = 1;"}`,
+          " ",
+          " const last = 3;",
+        ].join("\n"),
+      });
     // Persist normally while using the isolated test runtime's inert agent.
     const sendUserPost = StreamService.prototype.sendUserPost;
     const send = vi

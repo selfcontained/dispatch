@@ -101,10 +101,22 @@ export async function resolveHeadSha(cwd: string): Promise<string | null> {
   }
 }
 
-export async function createGitWorktree(
+export type GitWorktreePlan = {
+  repoRoot: string;
+  worktreePath: string;
+  branchName: string;
+  baseBranch: string;
+};
+
+/**
+ * Where `createGitWorktree` will put a worktree and which branch it will
+ * check out, with the same validation and errors, before anything is
+ * written. A caller that must survive a crash records the path first.
+ */
+export async function planGitWorktree(
   input: CreateGitWorktreeInput,
   commandRunner: CommandRunner = runCommand
-): Promise<CreateGitWorktreeResult> {
+): Promise<GitWorktreePlan> {
   const cwd = input.cwd.trim();
   if (!cwd) {
     throw new GitWorktreeError("cwd is required.", 400);
@@ -140,6 +152,16 @@ export async function createGitWorktree(
       400
     );
   }
+  return { repoRoot, worktreePath, branchName, baseBranch };
+}
+
+export async function createGitWorktree(
+  input: CreateGitWorktreeInput,
+  commandRunner: CommandRunner = runCommand
+): Promise<CreateGitWorktreeResult> {
+  const { repoRoot, worktreePath, branchName, baseBranch } =
+    await planGitWorktree(input, commandRunner);
+  const createNewBranch = input.createNewBranch ?? false;
 
   await ensurePathDoesNotExist(worktreePath);
 

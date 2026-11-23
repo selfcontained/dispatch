@@ -1,3 +1,4 @@
+import { withTestWorkspaceRunner } from "../helpers/test-workspace-runner.js";
 /**
  * Launch acknowledgements across a runner update: each attempt carries one
  * launch ID wherever it is held, refused or driven again; a launch released
@@ -43,10 +44,12 @@ vi.mock("../../src/shared/git/worktree.js", async () => {
   };
 });
 vi.mock("../../src/agents/workspace-prep.js", () => ({
-  setupAgentWorkspace: vi.fn(async () => {}),
+  installWorkspaceDependencies: vi.fn(async () => {}),
 }));
 
-const { AgentManager } = await import("../../src/agents/manager.js");
+const { AgentManager: HostAgentManager } =
+  await import("../../src/agents/manager.js");
+const AgentManager = withTestWorkspaceRunner(HostAgentManager);
 const { createInertRuntime } = await import("../../src/agents/runtime.js");
 const { RunnerUpdateFenced, RunnerCapabilityUnavailable } =
   await import("../../src/agents/remote/service.js");

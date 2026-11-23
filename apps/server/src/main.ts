@@ -84,13 +84,11 @@ if (process.argv[2]?.startsWith("recovery-")) {
 } else if (process.argv[2] === "runner-checkout-command") {
   const { runCheckoutCommandCli } =
     await import("./agents/remote/checkout-command.js");
-  const { writeSync } = await import("node:fs");
   await runCheckoutCommandCli(
     process.argv[3]!,
     process.argv[4]!,
     process.argv[5] || undefined,
-    process.argv[6] || undefined,
-    (status) => writeSync(3, JSON.stringify(status))
+    process.argv[6] || undefined
   );
 } else if (process.argv[2] === "runner-engine-capability") {
   const { runEngineCapabilityWorker } =
@@ -120,15 +118,17 @@ if (process.argv[2]?.startsWith("recovery-")) {
   // This app's local runner child: same binary, same build.
   const { embeddedBuild } = await import("./agents/build-identity.js");
   const { runCli } = await import("@dispatch/runner/cli");
-  // The `posix-user` platform: checkout reads run in the child's process.
-  const { checkoutWorkload } = await import("./agents/checkout-worker.js");
+  // The `posix-user` platform: checkout reads and preparation steps run in
+  // the child's process.
+  const { checkoutWorkload, workspaceWorkload } =
+    await import("./agents/checkout-worker.js");
   const { localTerminalHandlers } = await loadTerminalWorker();
   await runCli(process.argv.slice(2), {
     build: {
       version: embeddedBuild.version,
       ...(embeddedBuild.revision && { revision: embeddedBuild.revision }),
     },
-    platform: { workload: checkoutWorkload },
+    platform: { workload: checkoutWorkload, workspace: workspaceWorkload },
     handlers: () => localTerminalHandlers(),
   });
 } else if (process.argv[2] === "agent-host") {

@@ -1,3 +1,4 @@
+import { withTestWorkspaceRunner } from "../helpers/test-workspace-runner.js";
 import * as checkoutIntent from "../../src/agents/checkout-intent.js";
 import { createMcpHandlers } from "../../src/server/mcp-handlers.js";
 import { JobService } from "../../src/jobs/service.js";
@@ -53,17 +54,18 @@ vi.mock("../../src/shared/git/worktree.js", async () => {
 });
 
 vi.mock("../../src/agents/workspace-prep.js", () => ({
-  setupAgentWorkspace: vi.fn(async () => {}),
+  installWorkspaceDependencies: vi.fn(async () => {}),
 }));
 
 // We need to dynamically import AgentManager AFTER the mocks are in place
 const {
-  AgentManager,
+  AgentManager: HostAgentManager,
   AgentError,
   LAUNCH_CONTEXT_RESOLVE_TIMEOUT_MS,
   LAUNCH_CONTEXT_WRITE_TIMEOUT_MS,
   UPDATE_RESUME_MESSAGE,
 } = await import("../../src/agents/manager.js");
+const AgentManager = withTestWorkspaceRunner(HostAgentManager);
 const { StreamService, launchBlockId } =
   await import("../../src/chat/service.js");
 const { createAgentMcpToken } = await import("../../src/auth.js");
@@ -219,11 +221,16 @@ function promptsFor(agentId: string, spy: SpyRuntime = runtime): string[] {
 }
 
 beforeAll(async () => {
+  testConfig.agentStateRoot = await mkdtemp(
+    path.join(os.tmpdir(), "dispatch-agent-manager-")
+  );
+  inertTestConfig.agentStateRoot = testConfig.agentStateRoot;
   pool = await setupTestDb();
   await runTestMigrations();
 });
 
 afterAll(async () => {
+  await rm(testConfig.agentStateRoot, { recursive: true, force: true });
   await teardownTestDb();
 });
 

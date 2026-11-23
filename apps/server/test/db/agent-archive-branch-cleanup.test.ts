@@ -74,8 +74,11 @@ vi.mock("../../src/shared/git/worktree.js", async () => {
   };
 });
 
-const { AgentManager, AgentError } =
+const { AgentManager: HostAgentManager, AgentError } =
   await import("../../src/agents/manager.js");
+const { withTestWorkspaceRunner } =
+  await import("../helpers/test-workspace-runner.js");
+const AgentManager = withTestWorkspaceRunner(HostAgentManager);
 
 let pool: Pool;
 

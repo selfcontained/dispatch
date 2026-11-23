@@ -145,7 +145,7 @@ export function createLocalRunner(
     return readFile(source);
   }
 
-  const workspace = createWorkspacePreparation(logger);
+  const workspace = createWorkspacePreparation();
   async function launch(input: HostLaunch) {
     const dir = stateDir(input.agentId);
     await mkdir(dir, { recursive: true, mode: 0o700 });
@@ -310,23 +310,26 @@ export function createLocalRunner(
     resolveWorkspace,
     resolveProjectRoot,
     inferRepositoryUrl,
+    /**
+     * Record a launch's worktree request before its row exists, in the
+     * receipt the local runner prepares from. Without a request, bring a
+     * receipt an earlier build of this branch wrote into the runner's shape
+     * before the runner resumes it.
+     */
     bindWorkspace: (
       agentId: string,
-      directory: Parameters<typeof workspace.bind>[1],
-      request: Parameters<typeof workspace.bind>[2]
-    ) => workspace.bind(stateDir(agentId), directory, request),
-    prepareWorkspace: (
-      agentId: string,
-      directory: Parameters<typeof workspace.prepare>[1],
-      request: Parameters<typeof workspace.prepare>[2],
-      progress: Parameters<typeof workspace.prepare>[3]
-    ) => workspace.prepare(stateDir(agentId), directory, request, progress),
+      ...intent:
+        | [
+            directory: Parameters<typeof workspace.bind>[1],
+            request: Parameters<typeof workspace.bind>[2],
+          ]
+        | []
+    ) =>
+      intent.length
+        ? workspace.bind(stateDir(agentId), ...intent)
+        : workspace.upgrade(stateDir(agentId)),
     requestedWorktree: (agentId: string) =>
       workspace.requested(stateDir(agentId)),
-    resumeWorkspace: (
-      agentId: string,
-      progress: Parameters<typeof workspace.resume>[1]
-    ) => workspace.resume(stateDir(agentId), progress),
     async inspectHost(sessionHandle: string): Promise<NativeHostProcess> {
       const { processState } = await inspectHostProcess(
         stateDir(sessionHandle)

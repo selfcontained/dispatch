@@ -13,6 +13,10 @@
  *     sessionCookie = await ctx.sessionCookie();
  *   });
  */
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, expect } from "vitest";
 import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
@@ -78,6 +82,10 @@ export function useInjectApp(opts?: InjectAppOptions): InjectAppContext {
     }),
   };
   let closeRunner: (() => Promise<void>) | undefined;
+  // Each file's agents get their own state root, so its local runner child
+  // (which prepares local launches, as in the app) holds a lock nobody else
+  // takes; set before the server module reads its config.
+  let agentStateRoot: string | undefined;
 
   const ctx = {} as InjectAppContext;
   /** Wait until the asynchronous launch leaves its creation phase. */
@@ -119,12 +127,27 @@ export function useInjectApp(opts?: InjectAppOptions): InjectAppContext {
     for (const [k, v] of Object.entries(extraEnv)) {
       process.env[k] = v;
     }
+    if (!process.env.DISPATCH_AGENT_STATE_ROOT) {
+      agentStateRoot = realpathSync(
+        mkdtempSync(path.join(os.tmpdir(), "dispatch-test-agents-"))
+      );
+      process.env.DISPATCH_AGENT_STATE_ROOT = agentStateRoot;
+    }
 
     const auth = await import("../../src/auth.js");
     const serverModule = await import("../../src/server.js");
     const app = await serverModule.initializeApp({
       runMigrations: false,
       reconcileState: false,
+      localRunner: {
+        command: [
+          process.versions.bun ? process.execPath : "bun",
+          fileURLToPath(
+            new URL("../fixtures/local-runner-entry.ts", import.meta.url)
+          ),
+          "local-runner",
+        ],
+      },
     });
 
     if (setupAuth) {
@@ -168,6 +191,10 @@ export function useInjectApp(opts?: InjectAppOptions): InjectAppContext {
     delete process.env.DISPATCH_HOST;
     for (const k of Object.keys(extraEnv)) {
       delete process.env[k];
+    }
+    if (agentStateRoot) {
+      delete process.env.DISPATCH_AGENT_STATE_ROOT;
+      rmSync(agentStateRoot, { recursive: true, force: true });
     }
     await teardownTestDb();
     await new Promise((resolve) => setTimeout(resolve, 600));

@@ -1,3 +1,4 @@
+import { withTestWorkspaceRunner } from "../helpers/test-workspace-runner.js";
 /**
  * Launches, starts and stops for agents on a runner held for an update:
  * held before anything is attempted, persisted across a controller restart,
@@ -43,10 +44,12 @@ vi.mock("../../src/shared/git/worktree.js", async () => {
   };
 });
 vi.mock("../../src/agents/workspace-prep.js", () => ({
-  setupAgentWorkspace: vi.fn(async () => {}),
+  installWorkspaceDependencies: vi.fn(async () => {}),
 }));
 
-const { AgentManager } = await import("../../src/agents/manager.js");
+const { AgentManager: HostAgentManager } =
+  await import("../../src/agents/manager.js");
+const AgentManager = withTestWorkspaceRunner(HostAgentManager);
 type Manager = InstanceType<typeof AgentManager>;
 const { deleteAgentDirect } = await import("../../src/agents/archive.js");
 const { createInertRuntime } = await import("../../src/agents/runtime.js");

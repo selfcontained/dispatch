@@ -6,6 +6,7 @@ import {
 import {
   executeCheckoutCommand,
   executeStreamedCheckoutCommand,
+  reportCheckoutWorkerStatus,
 } from "../checkout-command-executor.js";
 import { readCheckoutCommandFile } from "../checkout-inspection.js";
 
@@ -13,10 +14,7 @@ export async function runCheckoutCommandCli(
   cwd: string,
   session: string,
   configuredRoot: string | undefined,
-  loginPath: string | undefined,
-  reportStatus: (
-    status: { exitCode: number } | { error: string; code?: "stale" }
-  ) => void
+  loginPath: string | undefined
 ) {
   let streamed = false;
   try {
@@ -46,7 +44,7 @@ export async function runCheckoutCommandCli(
         loginPath,
         read
       );
-      reportStatus({ exitCode });
+      await reportCheckoutWorkerStatus({ exitCode });
       return;
     }
     process.stdout.write(
@@ -62,7 +60,7 @@ export async function runCheckoutCommandCli(
       error instanceof Error ? error.message : "Checkout command failed."
     ).slice(0, 1024);
     if (streamed)
-      reportStatus({
+      await reportCheckoutWorkerStatus({
         error: message,
         ...(error instanceof RunnerCallError &&
           error.code === "stale" && { code: "stale" }),

@@ -12,7 +12,7 @@ import path from "node:path";
 import process from "node:process";
 import { connect } from "node:tls";
 import { Duplex, PassThrough, Readable, Writable } from "node:stream";
-import { finished } from "node:stream/promises";
+import { checkoutWorkerStderr } from "../checkout-command-executor.js";
 import { terminalEnvironment } from "../../terminal/pty.js";
 import { promisify } from "node:util";
 import type { HostLaunch } from "../acp/host-protocol.js";
@@ -216,12 +216,12 @@ async function streamCheckoutWorker(
   const child = spawn(setpriv, args, {
     detached: true,
     env,
-    stdio: ["pipe", "pipe", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
   });
   let truncated = false;
-  async function* limitOutput(source: Readable) {
+  async function* limitOutput(source: AsyncIterable<Buffer>) {
     let remaining = execution.maxOutput ?? Infinity;
-    for await (const chunk of source as AsyncIterable<Buffer>) {
+    for await (const chunk of source) {
       if (chunk.length > remaining) truncated = true;
       const kept = chunk.subarray(0, remaining);
       remaining -= kept.length;
@@ -229,19 +229,18 @@ async function streamCheckoutWorker(
     }
   }
   let status = "";
-  const control = child.stdio[3] as Readable;
-  control.setEncoding("utf8").on("data", (chunk: string) => {
-    status = (status + chunk).slice(0, 8192);
+  const stderr = checkoutWorkerStderr(child.stderr, (value) => {
+    status = value;
   });
   const exited = new Promise<string>((resolve, reject) => {
     child.once("error", reject);
-    child.once("close", (code, signal) => resolve(String(code ?? signal)));
+    child.once("exit", (code, signal) => resolve(String(code ?? signal)));
   });
   child.stdin.on("error", () => {});
   child.stdin.end(input);
   const controller = new AbortController();
   const transfer = AbortSignal.any([signal, controller.signal]);
-  const send = (id: string, source: Readable) =>
+  const send = (id: string, source: AsyncIterable<Buffer>) =>
     streams.send(
       id,
       Readable.from(limitOutput(source), { objectMode: false }),
@@ -252,15 +251,14 @@ async function streamCheckoutWorker(
   try {
     const [workerStatus] = await Promise.all([
       exited,
-      finished(control, { cleanup: true }),
       send(execution.stdout, child.stdout),
-      send(execution.stderr, child.stderr),
+      send(execution.stderr, stderr),
     ]);
     completed = true;
     const value = JSON.parse(status || "null");
-    if (value?.code === "stale")
+    if (workerStatus === "1" && value?.code === "stale")
       throw new RunnerCallError({ code: "stale", message: value.error });
-    if (!isCheckoutCommandStatus(value))
+    if (workerStatus !== "0" || !isCheckoutCommandStatus(value))
       throw new Error(
         value?.error || `Checkout worker failed (status ${workerStatus}).`
       );

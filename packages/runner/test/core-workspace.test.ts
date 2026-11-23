@@ -1,0 +1,366 @@
+/*
+ * The core's preparation from a directory, over the real socket with a
+ * platform port that runs real Git on temp repositories: the steps and
+ * their events, what is recorded and bound, and what is refused.
+ */
+import { execFileSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, dirname, join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  pathFromWire,
+  sessionFromWire,
+  type Req,
+} from "@dispatch/runner-protocol/contract";
+import { LocalSocketConnection } from "@dispatch/runner-client/transport/local-socket";
+import { BindingStore } from "../src/local/bindings.js";
+import { WriteFence } from "../src/local/fence.js";
+import { serveSocket } from "../src/local/socket-server.js";
+import { workspaceHandlers } from "../src/core/workspace.js";
+import type { WorkspacePort, WorktreeSpec } from "../src/platform/types.js";
+
+const cleanups: Array<() => void> = [];
+afterEach(() => {
+  for (const run of cleanups.splice(0).reverse()) run();
+});
+const temp = () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "core-workspace-")));
+  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+  return dir;
+};
+const git = (cwd: string, ...args: string[]) =>
+  execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
+
+function repository(root: string) {
+  const checkout = join(root, "repo");
+  mkdirSync(checkout);
+  git(checkout, "init", "-q", "-b", "main");
+  git(
+    checkout,
+    "-c",
+    "user.name=T",
+    "-c",
+    "user.email=t@example.test",
+    "commit",
+    "-q",
+    "--allow-empty",
+    "-m",
+    "main"
+  );
+  writeFileSync(join(checkout, ".local"), "secret\n");
+  return checkout;
+}
+
+/** A small real port: Git worktrees beside or nested, plain copies. */
+function port(calls: string[]): WorkspacePort {
+  const where = (spec: WorktreeSpec) =>
+    spec.nested
+      ? join(spec.directory, spec.nested, spec.branch.replace(/\//g, "-"))
+      : join(
+          dirname(spec.directory),
+          `${basename(spec.directory)}-${spec.branch.replace(/\//g, "-")}`
+        );
+  return {
+    async canonical(path) {
+      return existsSync(path) && statSync(path).isDirectory()
+        ? realpathSync(path)
+        : null;
+    },
+    async identity(path) {
+      if (!existsSync(path)) return null;
+      const s = statSync(path, { bigint: true });
+      return `${s.dev}:${s.ino}:${s.birthtimeNs}`;
+    },
+    async plan(spec) {
+      calls.push(`plan ${spec.branch} ${spec.base} ${spec.create}`);
+      const path = where(spec);
+      return { path, branch: spec.branch, taken: existsSync(path) };
+    },
+    async create(spec, path) {
+      calls.push(`create ${path}`);
+      if (existsSync(path)) throw new Error(`exists: ${path}`);
+      git(
+        spec.directory,
+        "worktree",
+        "add",
+        "-q",
+        ...(spec.create
+          ? ["-b", spec.branch, path, spec.base]
+          : [path, spec.base])
+      );
+      return { path, branch: spec.branch };
+    },
+    async copyIgnored(source, destination, names) {
+      calls.push(`copy ${names.join(",")}`);
+      const copied = names.filter((name) => existsSync(join(source, name)));
+      for (const name of copied)
+        copyFileSync(join(source, name), join(destination, name));
+      return copied;
+    },
+    async installDependencies(_directory, report) {
+      calls.push("install");
+      await report({ status: "done", detail: "nothing to install" });
+    },
+    async git(directory) {
+      if (!existsSync(join(directory, ".git"))) return null;
+      return {
+        repoRoot: directory,
+        branch: git(directory, "branch", "--show-current"),
+        worktreePath: directory,
+        worktreeName: basename(directory),
+        isWorktree: true,
+      };
+    },
+  };
+}
+
+async function harness() {
+  const root = temp();
+  const state = join(root, "state");
+  mkdirSync(state);
+  const store = new BindingStore(state);
+  const calls: string[] = [];
+  const fence = new WriteFence(false);
+  const socket = join(root, "r.sock");
+  const nonce = randomBytes(8).toString("hex");
+  const server = await serveSocket(
+    socket,
+    nonce,
+    { calls: workspaceHandlers(state, store, port(calls)) },
+    fence
+  );
+  const connection = await LocalSocketConnection.connect({ socket, nonce });
+  cleanups.push(() => {
+    connection.close();
+    server.close();
+  });
+  return { root, state, store, calls, fence, connection };
+}
+
+const request = (
+  session: string,
+  directory: string,
+  worktree?: Req<"workspace.prepare">["worktree"]
+): Req<"workspace.prepare"> => ({
+  session: sessionFromWire(session),
+  source: { directory: pathFromWire(directory) },
+  ...(worktree && { worktree }),
+  copyIgnored: [".local"],
+  installDependencies: true,
+});
+
+describe("workspace.prepare from a directory", () => {
+  it("binds a folder as external and reports ready", async () => {
+    const { root, connection, store } = await harness();
+    const folder = join(root, "folder");
+    mkdirSync(folder);
+    const events: unknown[] = [];
+    const binding = await connection.call(
+      "workspace.prepare",
+      request("f", folder),
+      {
+        onEvent: (event) => events.push(event),
+      }
+    );
+    expect(binding).toMatchObject({
+      path: folder,
+      worktree: null,
+      moved: false,
+    });
+    expect(events).toEqual([{ phase: "ready" }]);
+    expect(await store.get("f")).toMatchObject({
+      path: folder,
+      checkout: { path: folder, ownership: "external" },
+      source: "prepare",
+    });
+  });
+
+  it("makes, prepares and binds a worktree, with events in order before the answer", async () => {
+    const { root, connection, store, calls, state } = await harness();
+    const checkout = repository(root);
+    const events: unknown[] = [];
+    const binding = await connection.call(
+      "workspace.prepare",
+      request("w", checkout, {
+        name: "W",
+        branch: "feature/w",
+        create: true,
+        location: { nested: "nest/here" },
+      }),
+      { onEvent: (event) => events.push(event) }
+    );
+    const made = join(checkout, "nest", "here", "feature-w");
+    expect(binding).toMatchObject({
+      path: made,
+      worktree: { path: made, branch: "feature/w", base: "main" },
+      git: { branch: "feature/w" },
+    });
+    expect(events).toEqual([
+      { phase: "workspace" },
+      { phase: "copy" },
+      { phase: "dependencies" },
+      { phase: "dependencies", status: "done", detail: "nothing to install" },
+      { phase: "ready" },
+    ]);
+    // Main's rule: the base defaults to main.
+    expect(calls[0]).toBe("plan feature/w main true");
+    expect(readFileSync(join(made, ".local"), "utf8")).toBe("secret\n");
+    expect(await store.get("w")).toMatchObject({
+      checkout: {
+        path: made,
+        ownership: "owned",
+        branch: "feature/w",
+        base: "main",
+      },
+    });
+    const receipt = JSON.parse(
+      readFileSync(join(state, "w", "workspace-preparation"), "utf8")
+    );
+    expect(receipt).toMatchObject({
+      copy: [".local"],
+      install: true,
+      worktree: { path: made, complete: true },
+    });
+    expect(receipt).not.toHaveProperty("pending");
+
+    // A repeat answers from the record; a different request is a conflict.
+    calls.length = 0;
+    await connection.call(
+      "workspace.prepare",
+      request("w", checkout, {
+        name: "W",
+        branch: "feature/w",
+        create: true,
+        location: { nested: "nest/here" },
+      })
+    );
+    expect(calls).toEqual([]);
+    await expect(
+      connection.call(
+        "workspace.prepare",
+        request("w", checkout, { name: "W", branch: "other", create: true })
+      )
+    ).rejects.toMatchObject({
+      code: "conflict",
+      details: { status: 409 },
+      message: "This launch already owns a different worktree.",
+    });
+  });
+
+  it("checks out the base itself when not creating a branch", async () => {
+    const { root, connection, calls } = await harness();
+    const checkout = repository(root);
+    git(checkout, "branch", "topic");
+    const binding = await connection.call(
+      "workspace.prepare",
+      request("t", checkout, {
+        name: "T",
+        branch: "",
+        base: "topic",
+        create: false,
+      })
+    );
+    expect(calls[0]).toBe("plan topic topic false");
+    expect(binding.worktree).toMatchObject({ branch: "topic", base: "topic" });
+  });
+
+  it("never records a path that was already there as its own", async () => {
+    const { root, connection, state } = await harness();
+    const checkout = repository(root);
+    mkdirSync(join(root, "repo-taken"));
+    await expect(
+      connection.call(
+        "workspace.prepare",
+        request("x", checkout, { name: "X", branch: "taken", create: true })
+      )
+    ).rejects.toMatchObject({ message: expect.stringContaining("exists") });
+    const receipt = JSON.parse(
+      readFileSync(join(state, "x", "workspace-preparation"), "utf8")
+    );
+    expect(receipt).not.toHaveProperty("pending");
+    expect(receipt).not.toHaveProperty("worktree");
+  });
+
+  it("replaces a binding the import wrote for the session, never a prepared one", async () => {
+    const { root, connection, store } = await harness();
+    const checkout = repository(root);
+    await store.import([
+      { session: "r", path: checkout, currentPath: null, worktree: null },
+    ]);
+    await connection.call(
+      "workspace.prepare",
+      request("r", checkout, { name: "R", branch: "r", create: true })
+    );
+    expect(await store.get("r")).toMatchObject({
+      checkout: { ownership: "owned", branch: "r" },
+      source: "prepare",
+    });
+    expect(
+      await store.import([
+        { session: "r", path: checkout, currentPath: null, worktree: null },
+      ])
+    ).toMatchObject({ kept: 1, added: 0 });
+  });
+
+  it("refuses bad input and other sources", async () => {
+    const { root, connection } = await harness();
+    const checkout = repository(root);
+    for (const nested of ["", "../out", "/abs", "a/../../b"])
+      await expect(
+        connection.call(
+          "workspace.prepare",
+          request("n", checkout, {
+            name: "N",
+            branch: "n",
+            create: true,
+            location: { nested },
+          })
+        )
+      ).rejects.toMatchObject({ code: "invalid" });
+    await expect(
+      connection.call("workspace.prepare", {
+        ...request("c", checkout),
+        copyIgnored: ["a/b"],
+      })
+    ).rejects.toMatchObject({ code: "invalid" });
+    await expect(
+      connection.call("workspace.prepare", {
+        ...request("s", checkout),
+        source: { scratch: true },
+      })
+    ).rejects.toMatchObject({ code: "unsupported" });
+    await expect(
+      connection.call("workspace.prepare", request("..", checkout))
+    ).rejects.toMatchObject({ code: "invalid" });
+  });
+
+  it("is refused while frozen, and resume answers null without a receipt", async () => {
+    const { root, connection, fence } = await harness();
+    const checkout = repository(root);
+    expect(
+      await connection.call("workspace.resume", {
+        session: sessionFromWire("none"),
+      })
+    ).toBeNull();
+    await fence.freeze();
+    cleanups.push(() => fence.thaw());
+    await expect(
+      connection.call("workspace.prepare", request("z", checkout))
+    ).rejects.toMatchObject({ code: "fenced" });
+    await expect(
+      connection.call("workspace.resume", { session: sessionFromWire("z") })
+    ).rejects.toMatchObject({ code: "fenced" });
+  });
+});

@@ -192,3 +192,36 @@ export async function executeStreamedCheckoutCommand(
   ]);
   return code;
 }
+
+// Bun may close the parent end of an extra stdio pipe while the worker
+// still needs it. Send status on the worker's stderr after command output.
+const STATUS_TRAILER_BYTES = 8192;
+
+export function reportCheckoutWorkerStatus(
+  status: { exitCode: number } | { error: string; code?: "stale" }
+) {
+  const trailer = Buffer.alloc(STATUS_TRAILER_BYTES);
+  trailer.write(JSON.stringify(status));
+  return new Promise<void>((resolve, reject) => {
+    process.stderr.write(trailer, (error) =>
+      error ? reject(error) : resolve()
+    );
+  });
+}
+
+/** Forward stderr, holding only the final status trailer off the wire. */
+export async function* checkoutWorkerStderr(
+  source: AsyncIterable<Buffer>,
+  report: (status: string) => void
+) {
+  let tail = Buffer.alloc(0);
+  for await (const chunk of source) {
+    const bytes = Buffer.concat([tail, chunk]);
+    const length = Math.max(0, bytes.length - STATUS_TRAILER_BYTES);
+    if (length > 0) yield bytes.subarray(0, length);
+    tail = bytes.subarray(length);
+  }
+  const end = tail.indexOf(0);
+  if (tail.length === STATUS_TRAILER_BYTES && end >= 0)
+    report(tail.toString("utf8", 0, end));
+}
