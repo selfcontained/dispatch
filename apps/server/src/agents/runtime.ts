@@ -185,7 +185,18 @@ export type AgentRuntime = {
   inputState?(agentId: string): AgentInputState;
   cancel(agentId: string): Promise<void>;
   /** Shut the host down; `force` skips the graceful ACP close. */
-  stop(agentId: string, force: boolean): Promise<void>;
+  stop(
+    agentId: string,
+    force: boolean,
+    expectedLaunchId?: string
+  ): Promise<void>;
+  /** Retry a persisted stop without touching the current live channel. */
+  retryStop?(
+    agentId: string,
+    force: boolean,
+    placement: Placement | null,
+    expectedLaunchId?: string
+  ): Promise<void>;
   /** Local recovery diagnostics. Capabilities are known only after hello. */
   inspectNativeHost?(sessionHandle: string): Promise<{
     sessionHandle: string;
@@ -230,6 +241,7 @@ export function createAgentRuntime(
     | "holds"
     | "placement"
     | "localRunner"
+    | "recordLaunch"
   >
 ): AgentRuntime {
   if (config.agentRuntime === "inert") {

@@ -194,6 +194,8 @@ export const operations = {
        * running answers `busy`.
        */
       idleOnly: optional(boolean),
+      /** A delayed stop applies only to this launch. */
+      expectedLaunchId: optional(string),
     }),
     response: empty,
     errors: ["busy"],

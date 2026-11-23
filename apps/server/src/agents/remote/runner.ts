@@ -1874,11 +1874,17 @@ export async function runRemoteRunner(
           case "alive":
             result(await supervisor.alive(agentId, workspace));
             break;
-          case "stop":
-            await supervisor.stop(agentId, workspace, command.force);
-            closeSessionTerminals(agentId, workspace);
+          case "stop": {
+            const stopped = await supervisor.stop(
+              agentId,
+              workspace,
+              command.force,
+              command.expectedLaunchId
+            );
+            if (stopped !== false) closeSessionTerminals(agentId, workspace);
             result(true);
             break;
+          }
           case "discard":
             await supervisor.discard(agentId, workspace);
             closeSessionTerminals(agentId, workspace);
@@ -2039,6 +2045,7 @@ export async function runRemoteRunner(
           checkoutViews: true,
           sharedWorktree: true,
           launchReconcile: true,
+          scopedStop: true,
           ...(advert ? { selfUpdate: advert } : {}),
         });
         updateConnection = updates.connect((frame) => {

@@ -145,6 +145,7 @@ import {
   MANAGED_WORKSPACE,
   isSessionCheckout,
   remotePlacement,
+  type Placement as SessionLocation,
   type RunnerRepository,
   type LaunchProgress,
   type CheckoutQuery,
@@ -155,10 +156,10 @@ import { parseRepository } from "./remote/repository.js";
 import {
   RunnerResumeRefused,
   RunnerRevoked,
-  RunnerUnavailable,
   RunnerUpdateFenced,
   type RemoteRunnerService,
 } from "./remote/service.js";
+import { isStopDeferred } from "./acp/runtime.js";
 import {
   RunnerHostRecycler,
   type ConfirmedRunnerUpdate,
@@ -419,6 +420,13 @@ function asWorktreeError(error: unknown): never {
   throw refusal ? new GitWorktreeError(refusal.message, refusal.status) : error;
 }
 
+type PendingAgentStop = {
+  agent_id: string;
+  placement: SessionLocation | null;
+  launch_id: string | null;
+  force: boolean;
+};
+
 export class AgentManager {
   /** A forced runner update's steps on this manager's sessions. */
   readonly runnerForce: RunnerForceSessions;
@@ -595,6 +603,12 @@ export class AgentManager {
               })
             : null;
         },
+        recordLaunch: async (id, launchId) => {
+          await pool.query(
+            "UPDATE agents SET host_launch_id = $2 WHERE id = $1",
+            [id, launchId]
+          );
+        },
         hostSeq: async (agentId) => {
           const result = await pool.query<{
             host_seq: number;
@@ -657,9 +671,10 @@ export class AgentManager {
         updateResumePending: (id: string) => this.hasRunnerDrainReceipt(id),
       }),
     });
-    this.holds?.onRelease((release) =>
-      this.resumeHeldLaunches(release.launches)
-    );
+    this.holds?.onRelease((release) => {
+      this.retryStopsOnReconnect();
+      return this.resumeHeldLaunches(release.launches);
+    });
     // Released before a restart but never settled: drive the same attempt.
     this.holds?.onResume((launches) =>
       this.resumeHeldLaunches(launches, { recovered: true })
@@ -3355,7 +3370,7 @@ export class AgentManager {
   ): Promise<AgentRecord> {
     const launchId = heldLaunchId ?? randomUUID();
     let agent = await this.getRequiredAgent(id);
-    if (await this.runtime.attach(id)) {
+    if (!(await this.pendingStop(id)) && (await this.runtime.attach(id))) {
       this.streamRecorder.setCwd(id, agentStreamDirectory(agent));
       await this.setAgentStatus(id, "running", null);
 
@@ -3364,6 +3379,8 @@ export class AgentManager {
 
     if (!recycle?.drain) await this.setAgentStatus(id, "creating", null);
     try {
+      // A stopped host must never be adopted as the result of Start.
+      await this.retryPendingStop(id);
       if (
         !remotePlacement(agent.cwd) &&
         !agent.worktreePath &&
@@ -3876,21 +3893,17 @@ export class AgentManager {
     id: string,
     input: StopAgentInput = {}
   ): Promise<AgentRecord> {
-    // The coordinator may prune the receipt as soon as it sees the stop claim.
-    const stoppingDuringResume = [...this.runnerDrainReceipts].some(
-      ([runnerId, ids]) => ids.has(id) && this.holds?.isResuming(runnerId)
-    );
     return this.terminateLifecycle(id, () =>
-      this.stopAgentSerialized(id, input, stoppingDuringResume)
+      this.stopAgentSerialized(id, input)
     );
   }
+
   private async stopAgentSerialized(
     id: string,
-    input: StopAgentInput,
-    stoppingDuringResume: boolean
+    input: StopAgentInput
   ): Promise<AgentRecord> {
     let agent = await this.getRequiredAgent(id);
-    const location = stoppingDuringResume ? legacySessionLocation(agent) : null;
+    const location = legacySessionLocation(agent);
     const runnerId = enrolledRunnerId(agent.placement);
     const guard = runnerId && this.holds ? agent.status : undefined;
     await this.cancelSchedules?.(id).catch((err) =>
@@ -3932,7 +3945,12 @@ export class AgentManager {
     // The stop hook and the stop run on the runner; its update fence would
     // refuse both. Wait for it first, with the agent untouched. A drain that
     // is waiting or resuming lets both through.
-    if (runnerId && this.holds) {
+    if (
+      runnerId &&
+      this.holds &&
+      location &&
+      this.remote?.available(location)
+    ) {
       await this.holds.wait(runnerId, "stop");
       agent = await this.getRequiredAgent(id);
       if (agent.status === "archiving" || agent.status === "stopped")
@@ -3968,17 +3986,27 @@ export class AgentManager {
     }
 
     try {
+      const result = await this.pool.query<{ launch_id: string | null }>(
+        `INSERT INTO pending_agent_stops (agent_id, placement, launch_id, force)
+         SELECT id, $2::jsonb, host_launch_id, $3 FROM agents WHERE id = $1
+         ON CONFLICT (agent_id) DO UPDATE SET
+           placement = EXCLUDED.placement, launch_id = EXCLUDED.launch_id,
+           force = EXCLUDED.force RETURNING launch_id`,
+        [id, location, force]
+      );
+      const launchId = result.rows[0]?.launch_id;
       this.streamRecorder.beginStop(id);
-      await this.runtime.stop(id, force).catch((error: unknown) => {
-        // Commit the Stop locally if the runner is offline. This invalidates
-        // the resume receipt and reconciliation can stop any surviving host.
-        if (
-          !(error instanceof RunnerUnavailable) ||
-          !location ||
-          this.remote?.available(location)
-        )
+      let deferred = false;
+      try {
+        if (launchId) await this.runtime.stop(id, force, launchId);
+        else await this.runtime.stop(id, force);
+      } catch (error) {
+        if (!isStopDeferred(error)) {
+          await this.clearPendingStop(id);
           throw error;
-      });
+        }
+        deferred = true;
+      }
       await this.streamRecorder.settleStopped(id);
       await this.setAgentStatus(
         id,
@@ -3987,6 +4015,8 @@ export class AgentManager {
         undefined,
         guard && "stopping"
       );
+
+      if (!deferred) await this.clearPendingStop(id);
 
       this.notifyStreamWrite(id, true);
     } catch (error) {
@@ -4011,6 +4041,92 @@ export class AgentManager {
     }
 
     return (await this.getAgent(id)) as AgentRecord;
+  }
+
+  private async pendingStop(id: string): Promise<PendingAgentStop | undefined> {
+    return (
+      await this.pool.query<PendingAgentStop>(
+        "SELECT agent_id, placement, launch_id, force FROM pending_agent_stops WHERE agent_id = $1",
+        [id]
+      )
+    ).rows[0];
+  }
+
+  private async clearPendingStop(id: string): Promise<void> {
+    await this.pool.query(
+      "DELETE FROM pending_agent_stops WHERE agent_id = $1",
+      [id]
+    );
+  }
+
+  /** Called under the same lifecycle lock as Start and Stop. */
+  private async retryPendingStop(id: string): Promise<void> {
+    const intent = await this.pendingStop(id);
+    if (!intent || !this.runtime.retryStop) return;
+
+    // If Dispatch restarted mid-Stop, finish the user-facing transition even
+    // if the runner is still unavailable. An already newer launch owns its
+    // own status and stream.
+    const agent = await this.getAgent(id);
+    if (agent?.status === "stopping") {
+      this.streamRecorder.beginStop(id);
+      await this.streamRecorder.settleStopped(id);
+      await this.setAgentStatus(id, "stopped", null, undefined, "stopping");
+      this.notifyStreamWrite(id, true);
+    }
+    if (!intent.launch_id) {
+      // Legacy hosts have no persisted launch identity. Start drains their
+      // stop first; if the row has moved on, an unscoped retry is unsafe.
+      const current = await this.pool.query<{ host_launch_id: string | null }>(
+        "SELECT host_launch_id FROM agents WHERE id = $1",
+        [id]
+      );
+      if (current.rows[0]?.host_launch_id || agent?.status === "running") {
+        await this.clearPendingStop(id);
+        return;
+      }
+    }
+    await this.runtime.retryStop(
+      id,
+      intent.force,
+      intent.placement,
+      intent.launch_id ?? undefined
+    );
+    await this.clearPendingStop(id);
+  }
+
+  private retryingStops = false;
+
+  private async retryPendingStops(): Promise<void> {
+    if (this.retryingStops || !this.runtime.retryStop) return;
+    this.retryingStops = true;
+    try {
+      const { rows } = await this.pool.query<{ agent_id: string }>(
+        "SELECT agent_id FROM pending_agent_stops"
+      );
+      await Promise.all(
+        rows.map(async ({ agent_id: id }) => {
+          if (this.lifecycleOperations.has(id)) return;
+          await this.serializeLifecycle(id, () =>
+            this.retryPendingStop(id)
+          ).catch((err) => {
+            if (!isStopDeferred(err))
+              this.logger.warn(
+                { err, agentId: id },
+                "Could not retry agent stop"
+              );
+          });
+        })
+      );
+    } finally {
+      this.retryingStops = false;
+    }
+  }
+
+  retryStopsOnReconnect(): void {
+    void this.retryPendingStops().catch((err) =>
+      this.logger.warn({ err }, "Could not load pending agent stops")
+    );
   }
 
   async beginArchive(
@@ -4108,6 +4224,7 @@ export class AgentManager {
   }
 
   async reconcileAgents(): Promise<void> {
+    this.retryStopsOnReconnect();
     // Two passes: status reconciliation + orphan-session cleanup. The
     // SSE broadcaster doesn't need the changed-record list at this
     // entry point, so we drop the return value.
@@ -4121,6 +4238,7 @@ export class AgentManager {
    * the orphan-session cleanup too should call `reconcileAgents()`.
    */
   async reconcileAgentStatuses(): Promise<AgentRecord[]> {
+    this.retryStopsOnReconnect();
     const changed = await this.reconciler.reconcileAgentStatuses();
     void this.retryRunnerCleanup().catch((err) =>
       this.logger.warn({ err }, "Could not retry runner cleanup")

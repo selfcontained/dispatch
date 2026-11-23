@@ -487,7 +487,11 @@ const pullRequests = new PullRequestRefresher({
   },
   warn: (error) => app.log.warn({ err: error }, "PR status refresh failed"),
 });
-remoteRunner?.onConnectionChange((id) => pullRequests.invalidateRunner(id));
+remoteRunner?.onConnectionChange((id) => {
+  pullRequests.invalidateRunner(id);
+  if (remoteRunner.connectionEpoch(id) !== undefined)
+    agentManager.retryStopsOnReconnect();
+});
 const diffStatsRefresher = new DiffStatsRefresher({
   getAgent: (id) => agentManager.getAgent(id),
   comparisonBase: (id, agent) =>
@@ -1645,6 +1649,7 @@ function startLocalRunnerChild(command?: string[]) {
     log: app.log,
     frozen: updateRecoveryRuntime.localRunnerStartsFrozen(),
     bindings: () => readLocalBindings(pool),
+    onReady: () => agentManager.retryStopsOnReconnect(),
     ...(command && { command }),
   });
   agentManager.attachLocalRunner(() => localRunnerOf(localRunnerProcess));

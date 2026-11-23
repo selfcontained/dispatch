@@ -373,9 +373,14 @@ export function localSessionHandlers(
        * marked descendants and records. `idleOnly` never signals: a host
        * still running after the grace is `busy`.
        */
-      async "session.stop"({ session, force, idleOnly }) {
+      async "session.stop"({ session, force, idleOnly, expectedLaunchId }) {
         const key = keyOf(session);
         return core.lock(key, async () => {
+          if (
+            expectedLaunchId !== undefined &&
+            (await core.readLaunch(key))?.launchId !== expectedLaunchId
+          )
+            return {};
           const dir = layout.hostDir(key);
           if (idleOnly) {
             const deadline = Date.now() + STOP_GRACE_MS;

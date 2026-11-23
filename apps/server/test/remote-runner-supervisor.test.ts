@@ -2251,6 +2251,20 @@ describe("runner session supervision", () => {
       expect(mode).toBe(0o600);
     });
 
+    it("ignores a stop for an older launch and stops the requested launch once", async () => {
+      const runner = await start([]);
+      await runner.launch(withId(MANAGED_WORKSPACE, OTHER_LAUNCH), root);
+      expect(await runner.stop(agentId, MANAGED_WORKSPACE, true, LAUNCH)).toBe(
+        false
+      );
+      expect(processes.stop).not.toHaveBeenCalled();
+      expect(
+        await runner.stop(agentId, MANAGED_WORKSPACE, true, OTHER_LAUNCH)
+      ).toBeUndefined();
+      await runner.stop(agentId, MANAGED_WORKSPACE, true, OTHER_LAUNCH);
+      expect(processes.stop).toHaveBeenCalledTimes(1);
+    });
+
     it("writes no launch record for an older controller", async () => {
       const runner = await start([]);
       await runner.launch(withId(MANAGED_WORKSPACE), root);

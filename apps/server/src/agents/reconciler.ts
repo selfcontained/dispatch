@@ -89,7 +89,10 @@ async function reconcileAgentStatuses(
   }>(
     `SELECT id, status, updated_at AS "updatedAt", last_error AS "lastError" FROM agents
       WHERE deleted_at IS NULL
-        AND status IN ('running', 'stopping', 'creating', 'archiving')`
+        AND status IN ('running', 'stopping', 'creating', 'archiving')
+        AND NOT (status = 'stopping' AND EXISTS (
+          SELECT 1 FROM pending_agent_stops WHERE agent_id = agents.id
+        ))`
   );
 
   const reconciled: AgentRecord[] = [];
@@ -230,7 +233,8 @@ async function cleanupOrphanedHosts(deps: ReconcilerDeps): Promise<void> {
   if (hosted.length === 0) return;
 
   const dbResult = await pool.query<{ id: string; status: string }>(
-    `SELECT id, status FROM agents WHERE deleted_at IS NULL AND id = ANY($1::text[])`,
+    `SELECT id, status FROM agents WHERE deleted_at IS NULL AND id = ANY($1::text[])
+       AND NOT EXISTS (SELECT 1 FROM pending_agent_stops WHERE agent_id = agents.id)`,
     [hosted]
   );
   const statuses = new Map(dbResult.rows.map((row) => [row.id, row.status]));

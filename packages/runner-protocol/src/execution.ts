@@ -94,7 +94,7 @@ export type RemoteLaunch = {
 export type SessionLifecycleOperation = { agentId: string } & (
   | { kind: "launch"; launch: RemoteLaunch }
   | { kind: "attach" | "alive" | "discard" | "log" }
-  | { kind: "stop"; force: boolean }
+  | { kind: "stop"; force: boolean; expectedLaunchId?: string }
 );
 
 export type GitQueryName = "git.defaultBranch" | "git.branches" | "git.base";
@@ -190,6 +190,8 @@ export type ReadyFrame = {
   filesPutStream?: true;
   /** A repeated `launch.launchId` is reconciled rather than run again. */
   launchReconcile?: true;
+  /** Stop can compare the expected launch ID while holding the session lock. */
+  scopedStop?: true;
   /** Supervisor self-update support and the installed identity. */
   selfUpdate?: SelfUpdateAdvert;
 };
@@ -236,6 +238,7 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     ...(frame.filesGetStream === true && { filesGetStream: true }),
     ...(frame.filesPutStream === true && { filesPutStream: true }),
     ...(frame.launchReconcile === true && { launchReconcile: true }),
+    ...(frame.scopedStop === true && { scopedStop: true }),
     ...(frame.checkoutRelease === true && { checkoutRelease: true }),
     ...(frame.sessionCheckout === true && { sessionCheckout: true }),
     ...(frame.workspacePreparation === true && { workspacePreparation: true }),
@@ -520,7 +523,11 @@ function isCommand(value: unknown): value is Command {
     case "repo":
       return true;
     case "stop":
-      return typeof value.force === "boolean";
+      return (
+        typeof value.force === "boolean" &&
+        (value.expectedLaunchId === undefined ||
+          isUpdateAttemptId(value.expectedLaunchId))
+      );
     case "engine":
       return isEngineOperation(value.operation);
     case "github":

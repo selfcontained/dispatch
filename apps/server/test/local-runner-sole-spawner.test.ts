@@ -355,6 +355,7 @@ describe("the local runner child is the only spawner", () => {
     const stop2 = requestLocalSession(runner.session, "session.stop", {
       session: sessionFromWire(agentId),
       force: true,
+      expectedLaunchId: "launch-2",
     }).then(() => order2.push("stop"));
     const launch2 = requestLocalSession(
       runner.session,
@@ -366,6 +367,13 @@ describe("the local runner child is the only spawner", () => {
     expect(order2).toEqual(["stop", "launch"]);
     expect(pidAlive(first!)).toBe(false);
     expect(hostProcesses(dir)).toHaveLength(1);
+    const newest = hostProcesses(dir);
+    await requestLocalSession(runner.session, "session.stop", {
+      session: sessionFromWire(agentId),
+      force: true,
+      expectedLaunchId: "launch-2",
+    });
+    expect(hostProcesses(dir)).toEqual(newest);
   }, 90_000);
 
   it("a second app's child on the same root is refused; the first child and its host are untouched", async () => {

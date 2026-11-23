@@ -678,6 +678,7 @@ export function startLocalRunnerProcess(options: {
    * keeps any binding it already holds, so repeating is safe.
    */
   bindings?: () => Promise<LauncherBinding[]>;
+  onReady?: () => void;
   /** The child's argv; default this executable's own `local-runner` mode. */
   command?: string[];
 }): LocalRunnerProcess {
@@ -765,7 +766,8 @@ export function startLocalRunnerProcess(options: {
           runner.call("runner.describe", {}, { signal }),
           runner.call("runner.health", {}, { signal }),
         ])
-          .then(([description, health]) =>
+          .then(([description, health]) => {
+            options.onReady?.();
             log.info(
               {
                 pid,
@@ -774,8 +776,8 @@ export function startLocalRunnerProcess(options: {
                 memoryUsed: health.memoryUsed,
               },
               "Local runner answered describe and health"
-            )
-          )
+            );
+          })
           .catch((err: unknown) =>
             log.warn(
               { pid, err },

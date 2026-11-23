@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 
 import type { Pool } from "pg";
+import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 import {
   afterAll,
   afterEach,
@@ -51,7 +52,7 @@ const { AgentManager: HostAgentManager } =
   await import("../../src/agents/manager.js");
 const AgentManager = withTestWorkspaceRunner(HostAgentManager);
 const { createInertRuntime } = await import("../../src/agents/runtime.js");
-const { RunnerUpdateFenced, RunnerCapabilityUnavailable } =
+const { RunnerUpdateFenced, RunnerCapabilityUnavailable, RunnerUnavailable } =
   await import("../../src/agents/remote/service.js");
 const { RunnerUpdateHolds, fileRunnerHoldStore } =
   await import("../../src/agents/remote/update-hold.js");
@@ -588,4 +589,65 @@ describe("a new launch while a held runner is between supervisors", () => {
     await manager.createAgent(review, { useWorktreeOf: author.id });
     expect(holds.counts("r1").launches).toBe(1);
   });
+});
+
+describe("durable agent stop", () => {
+  it.each([
+    {
+      cwd: "/tmp",
+      target: null,
+      error: new RunnerCallError({ code: "unavailable", message: "offline" }),
+      superseded: false,
+    },
+    {
+      cwd: HELD,
+      target: { runner: "r1", workspace: "@session" },
+      error: new RunnerUnavailable("offline"),
+      superseded: true,
+    },
+  ])(
+    "replays the same launch after restarting Dispatch ($cwd)",
+    async ({ cwd, target, error, superseded }) => {
+      const holds = await openHolds();
+      const firstRuntime = spyRuntime();
+      const first = managerOn(holds, firstRuntime);
+      const agent = await first.createAgent({ cwd });
+      await pool.query("UPDATE agents SET host_launch_id = $2 WHERE id = $1", [
+        agent.id,
+        ATTEMPT,
+      ]);
+      firstRuntime.stop.mockRejectedValueOnce(error);
+      expect((await first.stopAgent(agent.id, { force: true })).status).toBe(
+        "stopped"
+      );
+
+      if (superseded) {
+        await pool.query(
+          "UPDATE agents SET status = 'running', host_launch_id = 'newer-launch' WHERE id = $1",
+          [agent.id]
+        );
+      }
+      const restarted = Object.assign(spyRuntime(), {
+        retryStop: vi.fn(async () => {}),
+      });
+      if (superseded) restarted.attach.mockResolvedValue(true);
+      const manager = managerOn(holds, restarted);
+      await manager.reconcileAgentStatuses();
+      await vi.waitFor(async () => {
+        const { rowCount } = await pool.query(
+          "SELECT 1 FROM pending_agent_stops WHERE agent_id = $1",
+          [agent.id]
+        );
+        expect(rowCount).toBe(0);
+      });
+      expect(restarted.retryStop).toHaveBeenCalledExactlyOnceWith(
+        agent.id,
+        true,
+        target,
+        ATTEMPT
+      );
+      expect(restarted.stop).not.toHaveBeenCalled();
+      expect(await statusOf(agent.id)).toBe(superseded ? "running" : "stopped");
+    }
+  );
 });

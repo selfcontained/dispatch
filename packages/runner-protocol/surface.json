@@ -1043,6 +1043,9 @@
           "force": "boolean",
           "idleOnly": {
             "optional": "boolean"
+          },
+          "expectedLaunchId": {
+            "optional": "string"
           }
         }
       },
