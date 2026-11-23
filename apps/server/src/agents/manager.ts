@@ -124,7 +124,7 @@ import type {
   PromptOptions,
   PromptImage,
 } from "./acp/prompt-source.js";
-import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
+import { isAcpEngine } from "./acp/engine-spec.js";
 import {
   agentStreamDirectory,
   settleWorkspace,
@@ -167,7 +167,6 @@ import {
 import { RunnerForceSessions } from "./remote/force-sessions.js";
 import type { HeldLaunch, RunnerUpdateHolds } from "./remote/update-hold.js";
 import type { RunnerResumeAgent } from "../update-recovery/resume-receipt.js";
-import { buildLaunchEnv } from "./acp/launch-env.js";
 import { dispatchMcpUrl } from "./acp/mcp-url.js";
 import {
   INTERRUPTED_BY_RESTART,
@@ -176,11 +175,6 @@ import {
   type TurnBlocks,
 } from "./acp/stream-recorder.js";
 import { OPEN_INPUT_SQL } from "../chat/store.js";
-import {
-  engineStatuses,
-  engineVersion,
-  missingEngineMessage,
-} from "./engine-availability.js";
 import { StreamStore } from "./acp/stream-store.js";
 import { personaScopeFor } from "../personas/persona-scope.js";
 import { resolvePersona } from "../personas/resolve.js";
@@ -3102,12 +3096,6 @@ export class AgentManager {
         400
       );
     }
-    const filesDir = resolveFilesDir(
-      agent.id,
-      agent.filesDir,
-      this.config.filesRoot
-    );
-    await mkdir(filesDir, { recursive: true });
     const personality =
       agent.role === "review" || opts.jobRunId
         ? null
@@ -3137,55 +3125,7 @@ export class AgentManager {
         "could not record the agent's system prompt"
       );
     }
-    const { env, pathPrefix } = buildLaunchEnv({
-      agentId: agent.id,
-      filesDir,
-      engine: agent.type,
-      config: this.config,
-    });
-    // The adapter ships in this binary, but the engine itself is the
-    // person's: say so plainly here rather than letting the spawn fail with
-    // ENOENT once the host is already up. The inert runtime spawns nothing,
-    // so it needs no engine.
     const placement = remotePlacement(agent.cwd) ?? undefined;
-    const engine =
-      !placement && this.runtime.tracksProcesses()
-        ? (
-            await engineStatuses({
-              claude: this.config.claudeBin,
-              codex: this.config.codexBin ?? undefined,
-              opencode: this.config.opencodeBin,
-            })
-          ).find((status) => status.id === agent.type)
-        : undefined;
-    if (engine && !engine.installed) {
-      throw new AgentError(missingEngineMessage(engine), 422);
-    }
-    // The engine this agent runs takes the path we just resolved (a
-    // service's PATH rarely has it); the other keeps its configured value.
-    const bins: EngineBins = {
-      opencodeBin:
-        agent.type === "opencode"
-          ? (engine?.path ?? this.config.opencodeBin ?? "opencode")
-          : this.config.opencodeBin,
-      claudeBin:
-        agent.type === "claude"
-          ? (engine?.path ?? this.config.claudeBin)
-          : this.config.claudeBin,
-      codexBin:
-        agent.type === "codex" ? (engine?.path ?? null) : this.config.codexBin,
-    };
-    if (engine?.path) {
-      this.logger.info(
-        {
-          agentId: agent.id,
-          engine: agent.type,
-          cli: engine.path,
-          version: await engineVersion(engine.path),
-        },
-        "launching agent on engine CLI"
-      );
-    }
     this.streamRecorder.setCwd(agent.id, agentStreamDirectory(agent));
     // Rows a previous host left open (a crash mid-turn) settle first, so the
     // feed never shows a turn that can no longer finish.
@@ -3306,7 +3246,6 @@ export class AgentManager {
         placement,
         engine: agent.type,
         fullAccess: agent.type === "opencode" || agent.fullAccess,
-        bins,
         model: agent.model ?? null,
         effort: agent.effort ?? null,
         systemPrompt,
@@ -3323,8 +3262,16 @@ export class AgentManager {
                 : createAgentMcpToken(this.config.authToken, agent.id),
             }
           : undefined,
-        env,
-        pathPrefix,
+        // Retain the recorded directory for sessions created under older files roots.
+        ...(agent.filesDir != null && {
+          env: {
+            DISPATCH_FILES_DIR: resolveFilesDir(
+              agent.id,
+              agent.filesDir,
+              this.config.filesRoot
+            ),
+          },
+        }),
         resumeSessionId: opts.resumeSessionId,
         ...(placement &&
           opts.launchId && {

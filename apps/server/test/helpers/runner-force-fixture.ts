@@ -3,6 +3,7 @@
  * real ACP runtime, holds and coordinator, over scripted hosts that keep
  * their journal and prompt receipts across a relaunch as a runner's do.
  */
+import { localLaunchSettings } from "../../src/agents/acp/launch-env.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import path from "node:path";
@@ -404,33 +405,31 @@ export async function forceWorld(pool: Pool) {
       now,
     });
     const work = trackHoldWork(holds);
-    const manager = new AgentManager(
-      pool,
-      logger,
-      {
-        host: "127.0.0.1",
-        port: 6767,
-        databaseUrl: "",
-        authToken: "test-token",
-        filesRoot: path.join(dir, "files"),
-        dispatchBinDir: path.join(dir, "bin"),
-        codexBin: "/bin/echo",
-        claudeBin: "/bin/echo",
-        opencodeBin: "/bin/opencode",
-        agentStateRoot: path.join(dir, "agents"),
-        agentRuntime: "acp",
-        acpAdapter: {
-          bin: "bun",
-          args: [
-            fileURLToPath(new URL("./recycle-acp-fixture.ts", import.meta.url)),
-          ],
-        },
-        tls: null,
+    const config = {
+      host: "127.0.0.1",
+      port: 6767,
+      databaseUrl: "",
+      authToken: "test-token",
+      filesRoot: path.join(dir, "files"),
+      dispatchBinDir: path.join(dir, "bin"),
+      codexBin: "/bin/echo",
+      claudeBin: "/bin/echo",
+      opencodeBin: "/bin/opencode",
+      agentStateRoot: path.join(dir, "agents"),
+      agentRuntime: "acp",
+      acpAdapter: {
+        bin: "bun",
+        args: [
+          fileURLToPath(new URL("./recycle-acp-fixture.ts", import.meta.url)),
+        ],
       },
-      { remote, holds }
-    );
+      tls: null,
+    } satisfies ConstructorParameters<typeof AgentManager>[2];
+    const manager = new AgentManager(pool, logger, config, { remote, holds });
     manager.attachLocalRunner(
-      () => localRunnerFor(path.join(dir, "agents")).session
+      () =>
+        localRunnerFor(config.agentStateRoot, localLaunchSettings(config))
+          .session
     );
     let receive: ((event: RunnerUpdateEvent) => unknown) | undefined;
     let connected: ((runnerId: string) => unknown) | undefined;

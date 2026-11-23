@@ -22,6 +22,10 @@ const webDistDir = path.join(repoRoot, "apps", "web", "dist");
 const legacyPublicDir = path.join(repoRoot, "public");
 const sourceStaticDir = existsSync(webDistDir) ? webDistDir : legacyPublicDir;
 const releaseNotesSource = path.join(repoRoot, "release-notes", "current.md");
+const streamHelper = readFileSync(
+  path.join(repoRoot, "bin", "dispatch-stream"),
+  "utf8"
+);
 const migrationsSourceDir = path.join(serverSrcDir, "db", "migrations");
 const rootPackageJson = path.join(repoRoot, "package.json");
 
@@ -160,6 +164,7 @@ lines.push("");
 lines.push(`export const packageVersion = ${JSON.stringify(packageVersion)};`);
 lines.push(`export const gitSha = ${JSON.stringify(gitSha)};`);
 lines.push(`export const buildRevision = ${JSON.stringify(buildRevision)};`);
+lines.push(`export const streamHelper = ${JSON.stringify(streamHelper)};`);
 lines.push("");
 
 mkdirSync(generatedDir, { recursive: true });

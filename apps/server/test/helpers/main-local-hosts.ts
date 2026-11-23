@@ -19,7 +19,7 @@ import {
   hostCommand,
   loginShellCommand,
 } from "../../src/agents/acp/host-command.js";
-import { preparePersonaContext } from "../../src/agents/acp/persona-context.js";
+import { preparePersonaContext } from "../../src/agents/acp/host-env.js";
 import {
   hostFile,
   type HostLaunch,

@@ -1,3 +1,4 @@
+import { localLaunchSettings } from "../../src/agents/acp/launch-env.js";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
@@ -263,27 +264,27 @@ async function fixture({ periodicRescan = false } = {}) {
       return { value: true, channel: link };
     },
   } satisfies Partial<RemoteRunnerService>;
-  const manager = new AgentManager(
-    pool,
-    logger,
-    {
-      host: "127.0.0.1",
-      port: 51800,
-      databaseUrl: "",
-      authToken: "test",
-      filesRoot: path.join(directory, "files"),
-      dispatchBinDir: path.join(directory, "bin"),
-      claudeBin: "/bin/echo",
-      codexBin: null,
-      opencodeBin: "/bin/echo",
-      agentStateRoot: state,
-      agentRuntime: "acp",
-      acpAdapter: { bin: "bun", args: [adapter] },
-      tls: null,
-    },
-    { remote: remote as unknown as RemoteRunnerService }
+  const config = {
+    host: "127.0.0.1",
+    port: 51800,
+    databaseUrl: "",
+    authToken: "test",
+    filesRoot: path.join(directory, "files"),
+    dispatchBinDir: path.join(directory, "bin"),
+    claudeBin: "/bin/echo",
+    codexBin: null,
+    opencodeBin: "/bin/echo",
+    agentStateRoot: state,
+    agentRuntime: "acp",
+    acpAdapter: { bin: "bun", args: [adapter] },
+    tls: null,
+  } satisfies ConstructorParameters<typeof AgentManager>[2];
+  const manager = new AgentManager(pool, logger, config, {
+    remote: remote as unknown as RemoteRunnerService,
+  });
+  manager.attachLocalRunner(
+    () => localRunnerFor(state, localLaunchSettings(config)).session
   );
-  manager.attachLocalRunner(() => localRunnerFor(state).session);
 
   if (!periodicRescan) {
     const recycler = manager["hostRecycler"];

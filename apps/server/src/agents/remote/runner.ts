@@ -409,6 +409,7 @@ export type RunnerUpdateOptions = {
   createWorkspacePreparation?: WorkspacePreparationFactory;
   /** The runner's session core; the supervisor needs it to start. */
   createSessions?: SessionCoreFactory;
+  streamHelper?: string;
 };
 
 type RunnerOutput = RunnerFrame | StreamFrame;
@@ -698,6 +699,7 @@ export async function runRemoteRunner(
         throw new Error("Runner session core is missing.");
       }),
     build: embeddedBuild,
+    streamHelper: updateOptions.streamHelper,
     resolveBins,
     env,
     workspaces: new Set(configuredHandles),

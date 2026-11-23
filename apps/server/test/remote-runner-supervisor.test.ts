@@ -767,6 +767,41 @@ describe("runner session supervision", () => {
     }
   );
 
+  it("delivers 1 MiB of first text and exposes Dispatch helpers on PATH", async () => {
+    const workspace = "configured";
+    const command = launch(workspace);
+    const context = "🙂".repeat((1024 * 1024) / 4);
+    const runner = await start([workspace]);
+    await runner.launch(
+      {
+        ...command,
+        launch: { ...command.launch, personaContext: context },
+      },
+      root
+    );
+
+    const dir = path.join(state, "hosts", agentId);
+    const file = path.join(dir, HOST_FILES.personaContext);
+    const payload: HostLaunch = JSON.parse(
+      await readFile(path.join(dir, HOST_FILES.launch), "utf8")
+    );
+    expect(payload.personaContext).toContain(JSON.stringify(file));
+    expect(await readFile(file, "utf8")).toBe(context);
+    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    const env = buildHostEnv(payload, dir, {
+      HOME: root,
+      PATH: "/usr/bin:/bin",
+    });
+    const helper = path.join(payload.pathPrefix[0]!, "dispatch-stream");
+    expect((await stat(helper)).mode & 0o777).toBe(0o755);
+    const { stdout } = await promisify(execFile)(
+      "dispatch-stream",
+      ["--help"],
+      { env }
+    );
+    expect(stdout).toContain("dispatch-stream start --playwright");
+  });
+
   it.each(["discard", "archive"] as const)(
     "keeps shared files through stop/start, restart, update resume and reconciliation until %s",
     async (cleanup) => {
@@ -780,16 +815,28 @@ describe("runner session supervision", () => {
       await mkdir(path.dirname(report));
       await writeFile(report, "agent report");
 
+      const journal = path.join(hostDir, HOST_FILES.journal);
+      const journalId = path.join(hostDir, HOST_FILES.journalId);
+      const receipts = path.join(hostDir, HOST_FILES.receipts);
+      const retained = [
+        [journal, "journal event"],
+        [journalId, "journal id"],
+        [receipts, "prompt receipt"],
+      ] as const;
+      for (const [file, contents] of retained) await writeFile(file, contents);
       await runner.stop(agentId, workspace, false);
       expect(await readFile(report, "utf8")).toBe("agent report");
       await runner.launch(command, root);
       expect(await readFile(report, "utf8")).toBe("agent report");
+      for (const [file, contents] of retained)
+        expect(await readFile(file, "utf8")).toBe(contents);
 
       const sentinel = path.join(root, "outside");
       await writeFile(sentinel, "untouched");
-      await symlink(sentinel, path.join(hostDir, "journal.jsonl"));
+      await rm(journal);
+      await symlink(sentinel, journal);
       const staleFiles = Object.values(HOST_FILES).filter(
-        (name) => name !== "launch.json" && name !== "journal.jsonl"
+        (name) => name !== HOST_FILES.launch && name !== HOST_FILES.journal
       );
       for (const name of staleFiles)
         await writeFile(path.join(hostDir, name), "stale host state");

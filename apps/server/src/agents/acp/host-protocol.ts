@@ -42,8 +42,8 @@ export type HostLaunch = RemoteLaunch & {
 
 /**
  * Every file the host, or whoever launches it, writes into an agent's state
- * directory. A runner unlinks each of them before a launch, so name a new
- * file here and write it through `hostFile`.
+ * directory. Name new files here so the runner can decide which state to
+ * retain on relaunch.
  */
 export const HOST_FILES = {
   launch: "launch.json",

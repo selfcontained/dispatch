@@ -21,6 +21,11 @@ import type { Socket } from "node:net";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import type { BuildIdentity } from "../build-identity.js";
+import {
+  agentLaunchBindings,
+  prepareHostLaunch,
+  writeHostLaunch,
+} from "../acp/host-env.js";
 import { HOST_FILES, hostFile, type HostLaunch } from "../acp/host-protocol.js";
 import { observeBoundCheckout } from "../checkout-observation.js";
 import {
@@ -83,6 +88,12 @@ export function runnerStorageKey(agentId: string): string {
     ? agentId
     : `opaque-${createHash("sha256").update(agentId).digest("base64url")}`;
 }
+
+const retainedHostFiles = new Set<string>([
+  HOST_FILES.journal,
+  HOST_FILES.journalId,
+  HOST_FILES.receipts,
+]);
 
 type LaunchCommand = Extract<Command, { kind: "launch" }> & {
   launch: { useWorktreeOf?: unknown };
@@ -190,6 +201,7 @@ type SupervisorOptions = {
   /** The session core, injected by the runner entry. */
   sessions: SessionCoreFactory;
   state: string;
+  streamHelper?: string;
   uid: number;
   gid: number;
   ca: string;
@@ -280,12 +292,14 @@ export async function createSessionSupervisor(
   const logs = path.join(bindings, "logs");
   const sessions = path.join(storage, "sessions");
   const cache = path.join(storage, "repositories");
+  const helperBin = path.join(storage, "bin");
   try {
     for (const [root, mode] of [
       [logs, 0o700],
       [hostRoot, 0o711],
       [sessions, checkoutAncestorMode],
       [cache, 0o711],
+      [helperBin, 0o755],
     ] as const) {
       await mkdir(root, { mode, recursive: true });
       await ownedDirectory(
@@ -294,6 +308,14 @@ export async function createSessionSupervisor(
         root === sessions ? config.gid : undefined
       );
     }
+    const streamHelper = path.join(helperBin, "dispatch-stream");
+    const helper =
+      config.streamHelper ??
+      (await readFile(
+        new URL("../../../../../bin/dispatch-stream", import.meta.url),
+        "utf8"
+      ));
+    await writePrivateState(streamHelper, helper, 0o755);
     // Idle hosts can survive an upgrade. Repair existing protected parents
     // before those hosts resume work, leaving workload-owned scratch alone.
     for (const key of await readdir(sessions)) {
@@ -349,12 +371,17 @@ export async function createSessionSupervisor(
     }
   }
 
-  async function writePrivateState(file: string, contents: string) {
+  async function writePrivateState(
+    file: string,
+    contents: string,
+    mode = 0o600
+  ) {
     const temp = path.join(bindings, `.pending-${randomUUID()}`);
     try {
       const handle = await open(temp, "wx", 0o600);
       try {
         await handle.writeFile(contents);
+        if (mode !== 0o600) await handle.chmod(mode);
         await handle.sync();
       } finally {
         await handle.close();
@@ -475,6 +502,15 @@ export async function createSessionSupervisor(
     await rmdir(dir);
   }
 
+  function canRetain(entry: Stats | null) {
+    return (
+      entry?.isFile() &&
+      entry.uid === config.uid &&
+      entry.gid === config.gid &&
+      entry.nlink === 1
+    );
+  }
+
   async function resetGuestHost(dir: string, files: string) {
     const entry = await lstat(dir).catch(missingPath);
     if (entry) {
@@ -485,8 +521,17 @@ export async function createSessionSupervisor(
       const uid = process.getuid!();
       if (entry.uid !== uid) await chown(dir, uid, process.getgid!());
       await chmod(dir, 0o700);
+      const journal = await lstat(hostFile(dir, "journal")).catch(missingPath);
+      const retainJournal = canRetain(journal);
       for (const name of Object.values(HOST_FILES)) {
-        await unlink(path.join(dir, name)).catch(missingPath);
+        const file = path.join(dir, name);
+        if (
+          retainJournal &&
+          retainedHostFiles.has(name) &&
+          canRetain(await lstat(file).catch(missingPath))
+        )
+          continue;
+        await unlink(file).catch(missingPath);
       }
     } else {
       await mkdir(dir, { mode: 0o700 });
@@ -1016,36 +1061,53 @@ export async function createSessionSupervisor(
       hostBuild: config.build,
       hostInstanceId: randomUUID(),
     };
-    const launch: HostLaunch = {
-      ...launchOptions,
-      agentId,
-      cwd,
-      bins: config.resolveBins
-        ? await config.resolveBins(launchOptions.engine)
-        : config.bins,
-      env: {
-        DISPATCH_AGENT_ID: agentId,
-        DISPATCH_FILES_DIR: files,
-        ...(mcpUrl
-          ? {
-              DISPATCH_API_URL: mcpUrl.origin,
-              DISPATCH_LOCAL_CA_CERTIFICATE: mcpCaPath,
-            }
-          : { NODE_EXTRA_CA_CERTS: config.ca }),
-      },
-      pathPrefix: [],
-      reportTurnActivity: true,
-      hostInstanceId: hostIdentity.hostInstanceId,
-    };
     await resetGuestHost(dir, files);
+    const launch = await prepareHostLaunch(
+      dir,
+      {
+        ...launchOptions,
+        agentId,
+        cwd,
+        bins: config.resolveBins
+          ? await config.resolveBins(launchOptions.engine)
+          : config.bins,
+        reportTurnActivity: true,
+        hostInstanceId: hostIdentity.hostInstanceId,
+      },
+      {
+        filesDir: files,
+        helperBin,
+        home: env.HOME,
+        mcpOrigin: mcpUrl?.origin,
+        mcpCaFile: mcpCaPath,
+        env: {
+          ...agentLaunchBindings(launchOptions.engine),
+          ...(mcpUrl
+            ? {
+                DISPATCH_API_URL: { from: "mcp.origin" },
+                DISPATCH_API_BASE: { from: "mcp.origin" },
+                DISPATCH_PORT: mcpUrl.port || "443",
+                DISPATCH_SCHEME: "https",
+                DISPATCH_LOCAL_CA_CERTIFICATE: { from: "mcp.caFile" },
+              }
+            : { NODE_EXTRA_CA_CERTS: config.ca }),
+        },
+      }
+    );
+    if (
+      launchOptions.personaContext &&
+      launch.personaContext !== launchOptions.personaContext
+    )
+      await chown(
+        hostFile(dir, "personaContext"),
+        config.uid,
+        config.gid
+      ).catch(missingPath);
     if (mcpCa) {
       await writeFile(mcpCaPath, mcpCa, { mode: 0o600, flag: "wx" });
       await chown(mcpCaPath, config.uid, config.gid);
     }
-    await writeFile(hostFile(dir, "launch"), JSON.stringify(launch), {
-      mode: 0o600,
-      flag: "wx",
-    });
+    await writeHostLaunch(dir, launch, "wx");
     await chown(hostFile(dir, "launch"), config.uid, config.gid);
     await chown(dir, config.uid, config.gid);
 

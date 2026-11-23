@@ -25,9 +25,11 @@ import { createAcpRuntime, type AcpRuntimeDeps } from "./acp/runtime.js";
  * Native preparation supplies an effective cwd before launch. Enrolled
  * runners prepare their own session workspace as part of launch.
  */
-export type RuntimeLaunch = Omit<HostLaunch, "bins"> & {
+export type RuntimeLaunch = Omit<HostLaunch, "bins" | "env" | "pathPrefix"> & {
   /** The adapter is the runtime's own setting, never a launch's. */
-  bins: Omit<HostLaunch["bins"], "adapter">;
+  bins?: Omit<HostLaunch["bins"], "adapter">;
+  env?: HostLaunch["env"];
+  pathPrefix?: HostLaunch["pathPrefix"];
   placement?: Placement;
   repository?: RunnerRepository;
   onWorkspaceProgress?: (progress: LaunchProgress) => void;

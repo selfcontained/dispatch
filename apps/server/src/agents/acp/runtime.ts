@@ -1,3 +1,4 @@
+import { AgentError } from "../errors.js";
 import { isPromptImageMimeType } from "./prompt-source.js";
 import type { RuntimeLaunch } from "../runtime.js";
 import { sameConversation, type PromptConversation } from "@dispatch/shared";
@@ -308,7 +309,9 @@ type SessionResult = {
 
 /** The engine bins as launch programs; the inverse of `programsToBins`. */
 function binsToPrograms(
-  bins: RuntimeLaunch["bins"] & { adapter?: { bin: string; args?: string[] } }
+  bins: NonNullable<RuntimeLaunch["bins"]> & {
+    adapter?: { bin: string; args?: string[] };
+  }
 ): NonNullable<Req<"session.launch">["programs"]> {
   const program = (bin: string | null | undefined) =>
     bin === null ? null : { path: bin! };
@@ -351,9 +354,7 @@ function launchRequest(
     | "resumeSessionId"
     | "launchId"
   > & {
-    bins: RuntimeLaunch["bins"] & {
-      adapter?: { bin: string; args?: string[] };
-    };
+    programs?: Req<"session.launch">["programs"];
   }
 ): Req<"session.launch"> {
   return {
@@ -367,7 +368,7 @@ function launchRequest(
     systemText: input.systemPrompt,
     firstText: input.personaContext ?? null,
     overflowNotice: null,
-    env: input.env,
+    env: input.env ?? {},
     mcp: input.mcp
       ? [
           {
@@ -379,8 +380,8 @@ function launchRequest(
       : [],
     owner: null,
     directory: pathFromWire(input.cwd),
-    programs: binsToPrograms(input.bins),
-    pathPrefix: input.pathPrefix.map(pathFromWire),
+    ...(input.programs && { programs: input.programs }),
+    ...(input.pathPrefix && { pathPrefix: input.pathPrefix.map(pathFromWire) }),
   };
 }
 
@@ -1500,6 +1501,12 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
    * says so, so the agent's error names it.
    */
   async function localLaunchFailed(agentId: string, err: unknown) {
+    if (
+      err instanceof RunnerCallError &&
+      err.code === "unsupported" &&
+      err.details === "engine_missing"
+    )
+      return new AgentError(err.message, 422);
     if (err instanceof RunnerCallError && err.code === "unavailable")
       return new Error(
         "The local runner did not come back in time; the agent was not started. Try again."
@@ -1770,7 +1777,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       }
       const request = launchRequest({
         ...input,
-        bins: { ...bins, adapter: config.acpAdapter },
+        programs:
+          bins && binsToPrograms({ ...bins, adapter: config.acpAdapter }),
       });
       let launched: SessionResult | undefined;
       try {

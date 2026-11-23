@@ -112,10 +112,12 @@ if (process.argv[2]?.startsWith("recovery-")) {
     await import("./agents/remote/update-stage-cli.js");
   await runRunnerUpdateStage(process.argv.slice(3));
 } else if (process.argv[2] === "remote-runner") {
+  const { streamHelper } = await import("./generated/runtime-assets.js");
   const { runRemoteRunner } = await import("./agents/remote/runner.js");
   const { createRemoteWorkspacePreparation, createSessionCore } =
     await import("@dispatch/runner/cli");
   await runRemoteRunner(process.argv[3]!, {
+    streamHelper,
     createWorkspacePreparation: createRemoteWorkspacePreparation,
     createSessions: createSessionCore,
   });
