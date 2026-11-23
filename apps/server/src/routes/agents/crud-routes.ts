@@ -171,7 +171,7 @@ export async function registerAgentCrudRoutes(
       deps.agentManager.checkoutReadRunners(),
       agent
     );
-    const target = iconTarget(agent, baseDir);
+    const target = iconTarget(agent);
     const iconRelPath = await getDirectoryIconPath(deps.pool, baseDir, () =>
       detectAgentIcon(runner, target)
     );
@@ -194,6 +194,9 @@ export async function registerAgentCrudRoutes(
     const bytes = await readAgentIcon(runner, target, iconRelPath);
     if (bytes === "outside") {
       return reply.code(400).send({ error: "Invalid icon path." });
+    }
+    if (bytes === "unreadable") {
+      return reply.code(404).send({ error: "Icon file not readable." });
     }
     if (!bytes) {
       return reply.code(404).send({ error: "Icon file not found." });

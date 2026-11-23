@@ -108,7 +108,9 @@ export async function callCheckoutRead<K extends CheckoutReadName>(
     !agent ||
     !("session" in request.target) ||
     sessionToWire(request.target.session) !== agent.id ||
-    (request.target.checkout ?? "current") !== "current"
+    // A runner holds one checkout per session, so its launch checkout is the
+    // one it reads.
+    (request.target.checkout ?? "current") === "moved"
   )
     throw new RunnerCallError({
       code: "invalid",

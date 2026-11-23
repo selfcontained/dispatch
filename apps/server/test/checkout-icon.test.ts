@@ -5,7 +5,14 @@
  */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdtemp,
+  mkdir,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -39,8 +46,8 @@ const runner = (root: string) =>
       );
     },
   }) as unknown as Runner;
-const agent = { id: "agt_icon", placement: controllerPlacement };
-const at = (root: string) => iconTarget(agent, root);
+const agent = { id: "agt_icon" };
+const at = (_root: string) => iconTarget(agent);
 const put = async (rel: string, data: string | Buffer = "x") => {
   await mkdir(path.dirname(path.join(dir, rel)), { recursive: true });
   await writeFile(path.join(dir, rel), data);
@@ -178,19 +185,37 @@ describe("agent icon through the runner", () => {
         launchCwd: dir,
       };
       // The route's base directory for this agent, as main computes it.
-      const baseDir = row.launchCwd ?? row.cwd;
       const through = sessionRunner({}, row);
-      const target = iconTarget(row, baseDir);
+      const target = iconTarget(row);
       expect(await detectAgentIcon(through, target)).toBe("logo.svg");
       expect(await readAgentIcon(through, target, "logo.svg")).toEqual(
         Buffer.from("x")
       );
-      // The worktree itself holds no icon: reading it would find none.
-      expect(await detectAgentIcon(through, iconTarget(row, worktree))).toBe(
-        null
-      );
+      // Without a recorded launch folder, the repository root is read.
+      const noLaunch = {
+        ...row,
+        launchCwd: null,
+        gitContext: { worktreePath: worktree, isWorktree: true, repoRoot: dir },
+      };
+      expect(
+        await detectAgentIcon(sessionRunner({}, noLaunch), iconTarget(noLaunch))
+      ).toBe("logo.svg");
+      // With neither, the agent's own folder: the worktree holds no icon.
+      const plain = { ...row, launchCwd: null, gitContext: null };
+      expect(
+        await detectAgentIcon(sessionRunner({}, plain), iconTarget(plain))
+      ).toBeNull();
     } finally {
       await rm(worktree, { recursive: true, force: true });
     }
+  });
+
+  it("reports a file the runner may not open as unreadable", async () => {
+    if (process.getuid?.() === 0) return;
+    await put("logo.png", "x");
+    await chmod(path.join(dir, "logo.png"), 0o000);
+    expect(await readAgentIcon(runner(dir), at(dir), "logo.png")).toBe(
+      "unreadable"
+    );
   });
 });

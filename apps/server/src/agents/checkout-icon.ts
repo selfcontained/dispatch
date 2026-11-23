@@ -1,26 +1,20 @@
 import {
-  pathFromWire,
-  samePlacement,
   sessionFromWire,
-  type Placement,
   RunnerCallError,
   type Runner,
   type Target,
 } from "@dispatch/runner-protocol/contract";
-import { controllerPlacement } from "../runners/placement.js";
 import { detectIconFrom, type IconSource } from "../shared/icon-scan.js";
 
-type IconAgent = { id: string; placement: Placement };
+type IconAgent = { id: string };
 
 /**
- * The directory main reads an agent's icon from: where it was launched, else
- * its repository root, else its folder. A local folder is read by path; a
- * runner's checkout is the session's launch checkout.
+ * An agent's launch checkout, for every placement: the runner resolves it
+ * (a local session's is where main reads its icon: `launchCwd`, else the
+ * repository root, else the folder).
  */
-export function iconTarget(agent: IconAgent, baseDir: string): Target {
-  return samePlacement(agent.placement, controllerPlacement)
-    ? { path: pathFromWire(baseDir) }
-    : { session: sessionFromWire(agent.id), checkout: "launch" };
+export function iconTarget(agent: IconAgent): Target {
+  return { session: sessionFromWire(agent.id), checkout: "launch" };
 }
 
 /** An agent's checkout as the runner holds it: what the icon scan reads. */
@@ -78,12 +72,15 @@ export async function detectAgentIcon(
   }
 }
 
-/** The icon's bytes; "outside" when it is a link out of the checkout. */
+/**
+ * The icon's bytes; "outside" when it is a link out of the checkout and
+ * "unreadable" when the runner may not open it.
+ */
 export async function readAgentIcon(
   runner: Runner,
   target: Target,
   rel: string
-): Promise<Buffer | "outside" | null> {
+): Promise<Buffer | "outside" | "unreadable" | null> {
   try {
     const file = await runner.call("checkout.read", {
       target,
@@ -93,8 +90,11 @@ export async function readAgentIcon(
     });
     return file ? Buffer.from(file.data, "base64") : null;
   } catch (error) {
-    return error instanceof RunnerCallError && error.code === "forbidden"
-      ? "outside"
-      : null;
+    if (!(error instanceof RunnerCallError) || error.code !== "forbidden")
+      return null;
+    return (error.details as { reason?: unknown } | undefined)?.reason ===
+      "unreadable"
+      ? "unreadable"
+      : "outside";
   }
 }

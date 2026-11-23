@@ -1171,11 +1171,20 @@ async function readRawBytes(
       throw new RunnerCallError({
         code: "forbidden",
         message: "Invalid icon path.",
+        details: { reason: "outside" },
       });
     const handle = await open(
       resolved,
       constants.O_RDONLY | constants.O_NONBLOCK
-    );
+    ).catch((error: NodeJS.ErrnoException) => {
+      throw error.code === "EACCES" || error.code === "EPERM"
+        ? new RunnerCallError({
+            code: "forbidden",
+            message: "Icon file not readable.",
+            details: { reason: "unreadable" },
+          })
+        : error;
+    });
     try {
       const info = await handle.stat();
       if (!info.isFile()) return null;
