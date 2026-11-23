@@ -3,13 +3,8 @@ import {
   useRunnerModelCatalog,
 } from "@/hooks/use-runner-engines";
 import { isLocalFolder } from "./path-input-utils";
-import {
-  MANAGED_WORKSPACE,
-  parseRunnerRepositoryUrl,
-  validBranch,
-  type GitHubStatus,
-} from "@dispatch/runner-protocol";
-import { useQuery } from "@tanstack/react-query";
+import { MANAGED_WORKSPACE, validBranch } from "@dispatch/runner-protocol";
+import { useQueries } from "@tanstack/react-query";
 
 import type { Effort } from "@dispatch/shared";
 import { useAtom } from "jotai";
@@ -83,97 +78,78 @@ export function useCreateAgentForm({
   task = null,
   onCreated,
 }: UseCreateAgentFormOptions) {
-  // null runner = this computer (the default). A runner swaps the folder for one
-  // of its approved workspaces, addressed by a runner:// locator.
+  // A null runner selects this computer.
   const { data: runners = [] } = useRunners({ poll: true });
   const [runnerId, setRunnerId] = useState<string | null>(null);
-  const [pickedWorkspace, setRunnerWorkspace] = useState<string | null>(null);
   const runner = runners.find((r) => r.id === runnerId);
   // A remote choice never silently becomes local: a revoked or missing runner
   // stays selected as unavailable and blocks launch until the user switches.
   const remote = Boolean(runnerId);
   const runnerUnavailable = remote && (!runner || runner.status === "revoked");
-  // Only a workspace the runner reports now, on an online runner, can submit.
-  const managedSession = runner?.managedWorkspace === true;
-  const runnerWorkspace = managedSession
-    ? MANAGED_WORKSPACE
-    : runner && pickedWorkspace && runner.workspaces.includes(pickedWorkspace)
-      ? pickedWorkspace
-      : null;
+  const online = runner?.status === "online";
+  // Persona lookup still uses the runner's internal session locator.
   const remoteCwd =
-    runner?.status === "online" && runnerWorkspace
-      ? runnerLocator(runner.id, runnerWorkspace)
-      : "";
+    runnerId && online ? runnerLocator(runnerId, MANAGED_WORKSPACE) : "";
   const selectRunner = (id: string | null) => {
     if (id === runnerId) return;
     setCreateEffort(null);
-    setChosenRepo(null);
-    setRunnerProjectId(undefined);
+    setRunnerProjectId(null);
     resetRepositoryCheckout();
     setRunnerId(id);
-    setRunnerWorkspace(null);
   };
   const [locationPref, setLocationPref] = useAtom(createAgentLocationPrefAtom);
-  const { data: projects = [], isSuccess: projectsLoaded } = useProjects();
+  const {
+    data: projects = [],
+    isSuccess: projectsLoaded,
+    isError: projectsError,
+  } = useProjects();
   // The scope seeds this opening, but a picker choice (including Folder)
   // belongs to the mounted form and must survive preference hydration/rerenders.
   const [locationChoice, setLocationChoice] = useState<{
     projectId: string | null;
   } | null>(null);
-  const [runnerProjectId, setRunnerProjectId] = useState<
-    string | null | undefined
-  >(undefined);
+  const [runnerProjectId, setRunnerProjectId] = useState<string | null>(null);
   const selectedProjectId = task
     ? task.projectId
-    : managedSession && runnerProjectId !== undefined
+    : remote
       ? runnerProjectId
       : locationChoice
         ? locationChoice.projectId
         : (initialProjectId ??
           (locationPref?.mode === "project" ? locationPref.projectId : null));
   const project = projects.find((p) => p.id === selectedProjectId);
-  // Keep a pending choice while loading, but never submit an unavailable ID.
-  const createProjectId =
-    remote && !managedSession
-      ? null
-      : projectsLoaded
-        ? (project?.id ?? null)
-        : selectedProjectId;
-  const projectRepository = useQuery({
-    queryKey: ["runner-project-origin", createProjectId],
-    queryFn: () =>
-      api<{ url: string | null }>(
-        `/api/v1/projects/${encodeURIComponent(createProjectId!)}/repository`
-      ),
-    enabled: managedSession && Boolean(createProjectId),
-    retry: false,
+  const projectCandidates =
+    remote && !runnerUnavailable
+      ? projects.filter((p) => !task || p.id === task.projectId)
+      : [];
+  const origins = useQueries({
+    queries: projectCandidates.map(({ id }) => ({
+      queryKey: ["runner-project-origin", id],
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        api<{ url: string | null }>(
+          `/api/v1/projects/${encodeURIComponent(id)}/repository`,
+          { signal }
+        ),
+      staleTime: 30_000,
+    })),
   });
-  const [chosenRepo, setChosenRepo] = useState<string | null>(null);
-  const repository = chosenRepo ?? projectRepository.data?.url ?? "";
-  const chooseRepo = (url: string) => {
-    if (task || !parseRunnerRepositoryUrl(url)) return;
-    setRunnerProjectId(null);
-    setChosenRepo(url);
-    resetRepositoryCheckout();
-  };
-  const repoStatus =
-    !managedSession || !selectedProjectId
-      ? null
-      : projectRepository.isError
-        ? "Couldn’t look up the project’s linked repository."
-        : !projectsLoaded || projectRepository.isLoading
-          ? "Checking the project’s linked repository…"
-          : !project
-            ? "This project is unavailable."
-            : !repository && task
-              ? null
-              : !parseRunnerRepositoryUrl(repository)
-                ? "This project has no supported HTTPS repository linked."
-                : null;
+  const runnerProjects = projectCandidates.flatMap((candidate, index) =>
+    origins[index]?.data?.url ? [candidate] : []
+  );
+  const repository = project
+    ? (origins[projectCandidates.indexOf(project)]?.data?.url ?? "")
+    : "";
+  const createProjectId = remote
+    ? repository
+      ? (project?.id ?? null)
+      : null
+    : projectsLoaded
+      ? (project?.id ?? null)
+      : selectedProjectId;
   const setCreateProjectId = (id: string | null) => {
-    if (managedSession) {
+    if (remote) {
+      if (id === runnerProjectId) return;
       setRunnerProjectId(id);
-      setChosenRepo(null);
       resetRepositoryCheckout();
       return;
     }
@@ -256,18 +232,16 @@ export function useCreateAgentForm({
     setCreateWorktreeBranch("");
   };
   // A managed repository checkout always uses a worktree.
-  const worktreeOptional = !managedSession;
+  const worktreeOptional = !remote;
   const createUseWorktree = worktreeOptional ? savedUseWorktree : true;
   const selectedBaseBranch = worktreeOptional
-    ? remote
-      ? savedBaseBranch
-      : savedBaseBranch || "main"
+    ? savedBaseBranch || "main"
     : repositoryChoice.baseBranch;
   const createNewBranch = worktreeOptional
     ? savedCreateNewBranch
     : repositoryChoice.createNewBranch;
   const createBaseBranch =
-    managedSession && createNewBranch && isPullRequestUrl(selectedBaseBranch)
+    remote && createNewBranch && isPullRequestUrl(selectedBaseBranch)
       ? ""
       : selectedBaseBranch;
   const setCreateBaseBranch = (baseBranch: string) =>
@@ -278,20 +252,14 @@ export function useCreateAgentForm({
     worktreeOptional
       ? setSavedCreateNewBranch(createNewBranch)
       : setRepositoryChoice((choice) => ({ ...choice, createNewBranch }));
-  const repoReady =
-    !managedSession ||
-    (!repoStatus &&
-      (!repository ||
-        (createNewBranch
-          ? (!createBaseBranch || validBranch(createBaseBranch.trim())) &&
-            (!createWorktreeBranch.trim() ||
-              validBranch(createWorktreeBranch.trim()))
-          : // An empty choice opens the repository default, as locally.
-            !createBaseBranch.trim() ||
-            validBranch(createBaseBranch.trim()) ||
-            isPullRequestUrl(createBaseBranch.trim()))));
+  const branchReady = createNewBranch
+    ? (!createBaseBranch || validBranch(createBaseBranch.trim())) &&
+      (!createWorktreeBranch.trim() || validBranch(createWorktreeBranch.trim()))
+    : !createBaseBranch.trim() ||
+      validBranch(createBaseBranch.trim()) ||
+      (runner?.githubManagement === true && isPullRequestUrl(createBaseBranch));
   const locationReady = runnerId
-    ? Boolean(remoteCwd) && repoReady && (!selectedProjectId || projectsLoaded)
+    ? online && Boolean(createProjectId) && branchReady
     : isLocalFolder(createCwd) && (!selectedProjectId || projectsLoaded);
   const createFullAccess = createType === "opencode" || savedCreateFullAccess;
   const {
@@ -300,7 +268,6 @@ export function useCreateAgentForm({
     loaded: nativeLoaded,
     defaultModel: nativeDefault,
   } = useAgentModelCatalog(createType, !remote);
-  const online = runner?.status === "online";
   const inventory = useRunnerEngineInventory(
     runnerId ? { kind: "runner", runnerId } : { kind: "local" },
     online && runner?.engineManagement === true
@@ -324,22 +291,6 @@ export function useCreateAgentForm({
   >({});
   const modelKey = JSON.stringify([runnerId, createType]);
   const createModel = remote ? (runnerModels[modelKey] ?? null) : nativeModel;
-  const account = useQuery({
-    queryKey: ["runner-github-account", runnerId],
-    queryFn: ({ signal }) =>
-      api<GitHubStatus>(
-        `/api/v1/runners/${encodeURIComponent(runnerId!)}/github`,
-        {
-          signal,
-          cache: "no-store",
-        }
-      ),
-    enabled:
-      managedSession && online && runner?.githubManagement === true && !task,
-    retry: false,
-    gcTime: 0,
-  });
-
   const catalog = useRunnerModelCatalog(runnerId, createType, online);
   const currentCatalog = online && !catalog.isError ? catalog.data : undefined;
   const modelOptions = useMemo(
@@ -500,32 +451,34 @@ export function useCreateAgentForm({
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
       const cwd = createCwd.trim();
-      if (!cwd || !locationReady || runnerEnginesLoading || runnerEngineBlocked)
+      if (
+        (!remote && !cwd) ||
+        !locationReady ||
+        runnerEnginesLoading ||
+        runnerEngineBlocked
+      )
         return;
 
       setCreating(true);
       setSubmitError(undefined);
       try {
         const latestPathInfo = validatedCwdRef.current;
-        const repositoryUrl = managedSession ? repository.trim() : "";
         const base = createBaseBranch.trim();
         // A pull request URL opens its source branch; the server resolves it.
         const pullRequest =
-          managedSession && !createNewBranch && isPullRequestUrl(base);
-        const submitUseWorktree = repositoryUrl
-          ? true
-          : !remote &&
-            latestPathInfo?.cwd === cwd &&
+          remote && !createNewBranch && isPullRequestUrl(base);
+        const submitUseWorktree =
+          remote ||
+          (latestPathInfo?.cwd === cwd &&
             latestPathInfo.isGitRepo &&
-            createUseWorktree;
+            createUseWorktree);
         const submitCreateNewBranch = submitUseWorktree && createNewBranch;
         const contextInitialPrompt =
           step === "context" ? initialPrompt.trim() || undefined : undefined;
-        const checkout = repositoryUrl ? { url: repositoryUrl } : undefined;
         const payloadBase = {
           name: createName.trim(),
-          cwd: createProjectId && !remote ? undefined : cwd,
-          repository: checkout,
+          cwd: remote || createProjectId ? undefined : cwd,
+          runner: runnerId ?? undefined,
           projectId: createProjectId ?? undefined,
           type: createType,
           persona: createPersona ?? undefined,
@@ -598,8 +551,7 @@ export function useCreateAgentForm({
     },
     [
       createBaseBranch,
-      managedSession,
-      repository,
+      runnerId,
       locationReady,
       runnerEngineBlocked,
       runnerEnginesLoading,
@@ -634,19 +586,14 @@ export function useCreateAgentForm({
     runnerId,
     runnerEnginesLoading,
     runnerUnavailable,
-    runnerGitHubAvailable:
-      online &&
-      runner?.githubManagement === true &&
-      !account.isError &&
-      account.data?.status === "signed-in",
-    managedSession,
     repository,
-    chooseRepo,
-    runner,
-    repoStatus,
+    runnerProjects,
+    runnerProjectsLoading:
+      (!projectsLoaded && !projectsError) ||
+      origins.some((origin) => origin.isPending),
+    runnerProjectsError:
+      projectsError || origins.some((origin) => origin.isError),
     selectRunner,
-    runnerWorkspace,
-    setRunnerWorkspace,
     submitError,
     createProjectId,
     locationReady:
@@ -708,20 +655,10 @@ export function useCreateAgentForm({
     removeCwdHistory,
     worktreeAvailable,
     worktreeOptional,
-    // The checkout controls show for a local folder, or once a runner
-    // repository is chosen and its origin is known.
-    checkoutVisible: runnerId
-      ? managedSession && Boolean(repository) && !repoStatus
-      : true,
-    pullRequests: managedSession && runner?.githubManagement === true,
+    checkoutVisible: !remote || Boolean(repository),
+    pullRequests: remote && runner?.githubManagement === true,
     branchSource:
-      managedSession && runner
-        ? {
-            id: runner.id,
-            repository,
-            browse: Boolean(runner.repositoryPicker),
-          }
-        : undefined,
+      runnerId && repository ? { id: runnerId, repository } : undefined,
     startupFilePreviewsRef,
     handlePathInfoChange,
     appendStartupFiles,

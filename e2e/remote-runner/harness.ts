@@ -274,8 +274,7 @@ export async function launchViaUi(
     name: string;
     cwd?: string;
     runnerId?: string;
-    managedScratch?: boolean;
-    repository?: string;
+    projectName?: string;
     pullRequest?: string;
     prompt: string;
     restricted?: boolean;
@@ -290,43 +289,24 @@ export async function launchViaUi(
     });
   await page.getByTestId("create-agent-name").fill(opts.name);
   if (opts.runnerId) {
-    // Runner picker (runner-picker.tsx): "Runs on" then "Workspace".
     await page.getByTestId("create-agent-runner").click();
     await page
       .getByTestId(`create-agent-runner-option-${opts.runnerId}`)
       .click();
-    if (opts.managedScratch || opts.repository) {
-      await expect(
-        page.getByTestId("create-agent-runner-workspace")
-      ).toHaveCount(0);
-      const picker = page.getByTestId("runner-repository");
-      await expect(picker).toContainText("No repository");
-      if (opts.repository) {
-        await picker.click();
-        await page
-          .getByRole("combobox", { name: "Search projects or repositories" })
-          .fill(opts.repository);
-        await page
-          .getByRole("option", { name: opts.repository, exact: true })
-          .click();
-        if (opts.pullRequest) {
-          await page.getByTestId("create-agent-new-branch").click();
-          await page.getByTestId("create-agent-base-branch").click();
-          await page
-            .getByPlaceholder("Branch name or GitHub PR URL")
-            .fill(opts.pullRequest);
-          await page
-            .getByRole("option", {
-              name: `Use ${opts.pullRequest}`,
-              exact: true,
-            })
-            .click();
-        }
-      }
-    } else {
-      await page.getByTestId("create-agent-runner-workspace").click();
+    if (!opts.projectName)
+      throw new Error("Runner UI launches need a project.");
+    await page.getByTestId("create-agent-runner-project").click();
+    await page
+      .getByRole("option", { name: opts.projectName, exact: true })
+      .click();
+    if (opts.pullRequest) {
+      await page.getByTestId("create-agent-new-branch").click();
+      await page.getByTestId("create-agent-base-branch").click();
       await page
-        .getByRole("option", { name: state.workspace, exact: true })
+        .getByPlaceholder("Branch name or GitHub PR URL")
+        .fill(opts.pullRequest);
+      await page
+        .getByRole("option", { name: `Use ${opts.pullRequest}`, exact: true })
         .click();
     }
   } else await page.getByTestId("create-agent-cwd").fill(opts.cwd ?? "/tmp");

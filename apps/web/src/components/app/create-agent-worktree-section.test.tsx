@@ -158,7 +158,7 @@ describe("WorktreeSection", () => {
   });
 
   it("labels the runner picker for the branch it will check out", () => {
-    const branchSource = { id: "runner", repository: "", browse: false };
+    const branchSource = { id: "runner", repository: "" };
     const { rerender } = render(
       <WorktreeSection {...defaultProps} branchSource={branchSource} />
     );

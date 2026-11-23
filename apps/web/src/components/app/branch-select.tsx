@@ -21,7 +21,7 @@ const PULL_REQUEST_URL =
 export type BranchSelectProps = {
   cwd: string;
   /** Lists a runner repository's branches instead of the local folder's. */
-  runner?: { id: string; repository: string; browse: boolean };
+  runner?: { id: string; repository: string };
   /** Accept a GitHub pull request URL as the branch to open. */
   allowPullRequest?: boolean;
   baseBranch: string;
@@ -54,14 +54,8 @@ export function branchListEndpoint(
     return cwd.trim()
       ? `/api/v1/git/branches?cwd=${encodeURIComponent(cwd.trim())}`
       : "";
-  // Runners list GitHub branches only when they can browse repositories.
-  const repo =
-    runner.browse &&
-    /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/.exec(
-      runner.repository
-    );
-  return repo
-    ? `/api/v1/runners/${encodeURIComponent(runner.id)}/repositories/${repo[1]}/${repo[2]}/branches`
+  return runner.repository
+    ? `/api/v1/git/branches?runnerId=${encodeURIComponent(runner.id)}&repository=${encodeURIComponent(runner.repository)}`
     : "";
 }
 
