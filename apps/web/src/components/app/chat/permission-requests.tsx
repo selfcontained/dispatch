@@ -266,7 +266,7 @@ function optionVariant(
   option: AgentPermissionRequest["options"][number],
   options: AgentPermissionRequest["options"]
 ): ButtonProps["variant"] {
-  if (option.kind.startsWith("reject")) return "ghost";
+  if (option.kind.startsWith("reject")) return "secondary";
   return option === options.find((item) => item.kind === "allow_once")
     ? "primary"
     : "secondary";
@@ -310,7 +310,7 @@ function PermissionRequest({
           <RequestDetails agentId={agentId} details={request.details} />
         ) : null}
       </BlockBody>
-      <BlockFooter>
+      <BlockFooter className="flex-col items-stretch sm:flex-row sm:items-center">
         {request.options.map((option) => (
           <Button
             key={option.optionId}
@@ -318,7 +318,7 @@ function PermissionRequest({
             size="xs"
             variant={optionVariant(option, request.options)}
             wrap
-            className="max-w-full break-words"
+            className="w-full max-w-full break-words sm:w-auto"
             disabled={!connected || answer.isPending}
             onClick={() => answer.mutate(option.optionId)}
           >
@@ -329,7 +329,9 @@ function PermissionRequest({
           <Button
             type="button"
             size="xs"
-            variant="ghost"
+            variant="secondary"
+            wrap
+            className="w-full max-w-full break-words sm:w-auto"
             disabled={!connected || answer.isPending}
             onClick={() => answer.mutate(null)}
           >
