@@ -23,7 +23,10 @@ import {
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { sessionFromWire } from "@dispatch/runner-protocol/contract";
+import {
+  RunnerCallError,
+  sessionFromWire,
+} from "@dispatch/runner-protocol/contract";
 import { acceptRemoteRunner } from "../reference-client.js";
 import { LaneUnavailable, type Lane } from "../run.js";
 import { launchRequest } from "../session.js";
@@ -153,6 +156,16 @@ install -d -m 700 /run/cfg /var/lib/runner
 install -d -o ${UID} -g ${UID} -m 755 ${WORKSPACE_DIR}
 install -m 755 /etc/runner/fixture-engine /usr/local/bin/fixture-engine
 install -m 600 /etc/runner/runner.json /run/cfg/runner.json
+install -d /opt/profile-tools
+cat > /etc/profile.d/conformance.sh <<'PROFILE'
+export PATH="/opt/profile-tools:$PATH"
+PROFILE
+cat > /opt/profile-tools/fixture-checkout <<'TOOL'
+#!/bin/sh
+printf '%s:%s' "$(id -u)" "$FIXTURE_VALUE"
+TOOL
+chmod 755 /opt/profile-tools/fixture-checkout
+printf guard > ${WORKSPACE_DIR}/.exec-probe
 exec /opt/bin/runner remote-runner /run/cfg/runner.json
 `;
 
@@ -242,6 +255,70 @@ export async function startRemoteLane(): Promise<Lane> {
       () => clearTimeout(timer)
     );
     await accepted.runner.call("session.launch", launchRequest(SESSION));
+    if (accepted.ready.checkoutExecStream) {
+      const target = { session: SESSION, checkout: "current" } as const;
+      const path = ".exec-probe";
+      const file = await accepted.runner.call("checkout.read", {
+        target,
+        path,
+        encoding: "utf8",
+        maxBytes: null,
+      });
+      if (!file?.digest) throw new Error("Missing exec probe guard.");
+      const exec = {
+        target,
+        guard: { path, digest: file.digest },
+        shell: "direct",
+        env: { FIXTURE_VALUE: "literal ; $HOME" },
+        timeoutMs: 15_000,
+        maxOutput: null,
+      } as const;
+      const call = (argv: string[]) =>
+        accepted.runner.call("checkout.exec", { ...exec, argv });
+      const profile = await call(["fixture-checkout"]);
+      if (profile.exitCode !== 0 || profile.stdout !== `${UID}:literal ; $HOME`)
+        throw new Error(
+          "Direct checkout exec did not use the workload login PATH and request environment."
+        );
+      const bytes = 33 * 1024 * 1024;
+      const { stdout, stderr, exitCode, truncated } = await call([
+        "/bin/sh",
+        "-c",
+        `head -c ${bytes} /dev/zero | tr '\\000' x; printf tail >&2`,
+      ]);
+      if (
+        exitCode !== 0 ||
+        stdout.length !== bytes ||
+        stderr !== "tail" ||
+        truncated !== undefined
+      )
+        throw new Error("Checkout exec lost output above the v1 frame limit.");
+      const bounded = await accepted.runner.call("checkout.exec", {
+        ...exec,
+        argv: ["/bin/sh", "-c", "printf 12345; printf abcde >&2"],
+        maxOutput: 4,
+      });
+      if (
+        bounded.exitCode !== 0 ||
+        bounded.stdout !== "1234" ||
+        bounded.stderr !== "abcd" ||
+        !bounded.truncated
+      )
+        throw new Error(
+          "Checkout exec did not honor its requested output limit."
+        );
+      try {
+        await accepted.runner.call("checkout.exec", {
+          ...exec,
+          argv: ["/bin/sleep", "5"],
+          timeoutMs: 30,
+        });
+        throw new Error("Checkout exec ignored its requested timeout.");
+      } catch (error) {
+        if (!(error instanceof RunnerCallError) || error.code !== "timeout")
+          throw error;
+      }
+    }
     return {
       runner: accepted.runner,
       session: SESSION,

@@ -279,7 +279,6 @@ export type McpRequestContext = UsageCallbacks & {
   discoverRepoTools?: () => Promise<RepoToolDefinition[]>;
   toolsRoot?: string;
   brainRepoRoot?: string | null;
-  remoteRepoOperation?: () => Promise<string>;
   worktreeRoot: string | null;
   /**
    * Publishes `agent.tool_invoked` for every tool call on this server
@@ -633,33 +632,13 @@ export async function createDispatchMcpServer(
     registerJobTools(server, context.agent.id, context.jobTools);
   }
 
-  if (context.remoteRepoOperation) {
-    const run = context.remoteRepoOperation;
-    server.registerTool(
-      "repo_runner_workspace",
-      {
-        description:
-          "Run the enrolled workspace's approved repository operation.",
-      },
-      async () => {
-        try {
-          return { content: [{ type: "text", text: await run() }] };
-        } catch (error) {
-          return toToolError(error);
-        }
-      }
-    );
-  }
   const toolsRoot =
     context.toolsRoot ?? context.worktreeRoot ?? context.repoRoot;
   if (context.agent && toolsRoot && context.discoverRepoTools) {
     const allRepoTools = await context.discoverRepoTools();
     const scope = context.toolScope ?? "agent";
     const repoTools = allRepoTools.filter(
-      (tool) =>
-        (tool.name !== "repo_runner_workspace" ||
-          !context.remoteRepoOperation) &&
-        (!tool.scope || tool.scope.includes(scope))
+      (tool) => !tool.scope || tool.scope.includes(scope)
     );
     for (const tool of repoTools) {
       const inputSchema = buildParamSchema(tool.params);

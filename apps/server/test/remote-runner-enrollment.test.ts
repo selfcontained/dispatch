@@ -171,14 +171,13 @@ describe("runner enrollment service", () => {
   const services: RemoteRunnerService[] = [];
   const runners: FakeRunner[] = [];
 
-  const makeService = (repoTool?: boolean | string[]) => {
+  const makeService = () => {
     const service = new RemoteRunnerService(
       undefined,
       {
         registry: new RunnerRegistry(pool),
         host: HOST,
         endpointHost: HOST,
-        repoTool,
       },
       {
         host: HOST,
@@ -507,7 +506,7 @@ describe("runner enrollment service", () => {
   });
 
   it("rejects checkout commands on an older peer while preserving the workspace operation", async () => {
-    const service = makeService(true);
+    const service = makeService();
     const enrolled = await enroll(service, "legacy-checkout");
     const placement = { runner: enrolled.created.id, workspace: "work" };
     const peer = await dialRunner({
@@ -525,7 +524,6 @@ describe("runner enrollment service", () => {
         operation: { kind: "read", checkout: "effective", path: "tools.json" },
       })
     ).rejects.toThrow(/update.*checkout commands/i);
-    expect(service.repoToolFor(placement)).toBe(true);
     await expect(
       service.requestSession(placement, {
         kind: "repo",
@@ -797,13 +795,12 @@ describe("runner enrollment service", () => {
   });
 
   it("never routes an old placement to a re-paired runner with the same name", async () => {
-    const service = makeService(true);
+    const service = makeService();
     const old = await enroll(service, "lima");
     const oldPlace = { runner: old.id, workspace: "proof" };
     expect(service.permitsAgentMcp(oldPlace)).toBe(true);
     await service.revoke(old.id);
     expect(service.permitsAgentMcp(oldPlace)).toBe(false);
-    expect(service.repoToolFor(oldPlace)).toBe(false);
 
     const fresh = await enroll(service, "lima");
     expect(fresh.id).not.toBe(old.id);
@@ -900,28 +897,6 @@ describe("runner enrollment service", () => {
     await expect(service.reissueRegistration(a.id)).rejects.toMatchObject({
       status: 404,
     });
-  });
-
-  it("scopes the repo operation to approved placements", async () => {
-    const service = makeService();
-    const a = await enroll(service, "alpha");
-    const b = await enroll(service, "beta");
-    const scoped = makeService([`${a.id}/proof`, b.id]);
-    await scoped.startEnrolled();
-    expect(service.repoToolFor({ runner: a.id, workspace: "proof" })).toBe(
-      false
-    );
-    expect(scoped.repoToolFor({ runner: a.id, workspace: "proof" })).toBe(true);
-    expect(scoped.repoToolFor({ runner: a.id, workspace: "other" })).toBe(
-      false
-    );
-    expect(scoped.repoToolFor({ runner: b.id, workspace: "anything" })).toBe(
-      true
-    );
-    await scoped.revoke(b.id);
-    expect(scoped.repoToolFor({ runner: b.id, workspace: "anything" })).toBe(
-      false
-    );
   });
 
   it("gates worktree reuse, inspection and terminals before sending requests to older peers", async () => {
@@ -1610,11 +1585,9 @@ describe("legacy runner config", () => {
       approval,
       workspaces: ["proof"],
       endpointHost: "host.lima.internal",
-      repoTool: true,
     });
     const place = { runner: "lima", workspace: "proof" };
     expect(service.permitsAgentMcp(place)).toBe(true);
-    expect(service.repoToolFor(place)).toBe(true);
     expect(service.permitsAgentMcp({ runner: "lima", workspace: "x" })).toBe(
       false
     );
@@ -1626,7 +1599,6 @@ describe("legacy runner config", () => {
     await expect(service.revoke("lima")).rejects.toMatchObject({ status: 409 });
     await writeFile(approval, "");
     expect(service.permitsAgentMcp(place)).toBe(false);
-    expect(service.repoToolFor(place)).toBe(false);
   });
 });
 

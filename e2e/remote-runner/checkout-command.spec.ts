@@ -41,14 +41,9 @@ function manifest(marker: string, hookCode = 0) {
         ],
       },
       {
-        name: "bounded",
-        description: "Return more output than the runner retains.",
+        name: "large",
+        description: "Return more output than the legacy runner limit.",
         command: ["sh", "-c", "yes x | head -c 70000; exit 17"],
-      },
-      {
-        name: "deadline",
-        description: "Start a child and wait for the runner deadline.",
-        command: ["sh", "-c", 'sleep 60 & echo "$!" > deadline.pid; wait'],
       },
     ],
     hooks: {
@@ -189,15 +184,6 @@ test("dispatches authenticated repo tools and stop hooks to the bound checkout",
       "1500:1500"
     );
 
-    const approved = await result(
-      await mcp(request, configuredId, configuredToken, "tools/call", {
-        name: "repo_runner_workspace",
-        arguments: {},
-      })
-    );
-    expect(approved.isError).toBeUndefined();
-    expect(guest("alpha", `cat '${configured}/repo-op'`).trim()).toBe("ran");
-
     const scratch = await enrollViaUi(page, request, "scratch");
     const managedId = await start(`runner://${scratch}/@session`);
     const managed = `/var/lib/runner/sessions/${managedId}`;
@@ -229,24 +215,12 @@ test("dispatches authenticated repo tools and stop hooks to the bound checkout",
         name,
         arguments: {},
       }).then(result);
-    const bounded = await invokeMoved("repo_bounded");
-    expect(bounded.structuredContent).toMatchObject({
-      exitCode: 17,
-      truncated: true,
-    });
-    expect(
-      Buffer.byteLength(bounded.structuredContent.stdout)
-    ).toBeLessThanOrEqual(64 * 1024);
-    const timedOut = await invokeMoved("repo_deadline");
-    expect(timedOut).toMatchObject({
-      isError: true,
-      content: [{ text: expect.stringMatching(/timed out/i) }],
-    });
-    const processState = guest(
-      "scratch",
-      `ps -o stat= -p "$(cat '${moved}/deadline.pid')" || true`
-    ).trim();
-    expect(processState).toMatch(/^(?:Z.*)?$/);
+    const large = await invokeMoved("repo_large");
+    expect(large.structuredContent).toMatchObject({ exitCode: 17 });
+    expect(large.structuredContent.truncated).toBeUndefined();
+    expect(Buffer.byteLength(large.structuredContent.stdout) > 64 * 1024).toBe(
+      true
+    );
     await stop(managedId);
     await stop(managedId);
     for (const dir of [managed, moved]) {

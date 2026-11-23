@@ -13,7 +13,10 @@ install -d -m 755 /home/guest /etc/dispatch-runner
 cp /etc/runner/runner.json /run/cfg/runner.json && chmod 600 /run/cfg/runner.json
 if [ "$NAME" != scratch ]; then
   WS="/opt/dispatch-guest-proof"
-  mkdir -p "$WS"
+  mkdir -p "$WS/.dispatch"
+  cat > "$WS/.dispatch/tools.json" <<'EOF'
+{"tools":[{"name":"proof","description":"Write the runner acceptance marker","command":["/bin/sh","-c","echo ran > repo-op"]}]}
+EOF
   echo "marker-$NAME-$(cat /proc/sys/kernel/random/uuid)" > "$WS/marker.txt"
   chown -R 1500:1500 "$WS"
 fi

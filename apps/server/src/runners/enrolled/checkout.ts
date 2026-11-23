@@ -116,7 +116,19 @@ export function createEnrolledCheckoutRunner(
       const command = encodeCommand(frame);
       if (command.kind !== "checkoutCommand")
         throw new Error("Invalid v1 checkout command.");
-      // Keep the envelope's existing field order as well as its values.
+      const result = await service.streamCheckoutExec?.(
+        placement,
+        {
+          kind: command.kind,
+          agentId: command.agentId,
+          operation: command.operation,
+          workspace: placement.workspace,
+        },
+        request,
+        options?.signal
+      );
+      if (result?.streamed) return result.result as Res<K>;
+      // Preserve the original legacy envelope, including field order.
       const { value } = await service.requestSession(
         placement,
         {
@@ -127,7 +139,6 @@ export function createEnrolledCheckoutRunner(
         undefined,
         options?.signal
       );
-      // Retain the v1 response limits and error wording at the enrolled boundary.
       if (!isCheckoutCommandResult(parseResult(value)))
         throw new Error("Invalid runner checkout command response.");
       return decodeResult(frame, value) as Res<K>;

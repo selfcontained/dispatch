@@ -610,10 +610,12 @@ export function decodeCommand(
           target,
           guard: { path: o.path, digest: o.state },
           argv: o.argv,
-          env: {},
-          timeoutMs: checkoutCommandTimeoutMs(o.checkout),
-          maxOutput: null,
-          shell: "login",
+          env: o.execution?.env ?? {},
+          timeoutMs: o.execution
+            ? o.execution.timeoutMs
+            : checkoutCommandTimeoutMs(o.checkout),
+          maxOutput: o.execution?.maxOutput ?? null,
+          shell: o.execution?.shell ?? "login",
         })
       );
     }

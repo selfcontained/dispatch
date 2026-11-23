@@ -11,7 +11,7 @@ import { createConnection, isIP } from "node:net";
 import path from "node:path";
 import process from "node:process";
 import { connect } from "node:tls";
-import { Duplex } from "node:stream";
+import { Duplex, Readable } from "node:stream";
 import { terminalEnvironment } from "../../terminal/pty.js";
 import { promisify } from "node:util";
 import type { HostLaunch } from "../acp/host-protocol.js";
@@ -19,7 +19,11 @@ import type { WorkloadCommand } from "./session-storage.js";
 import { createSessionSupervisor } from "./session-supervisor.js";
 export { runnerStorageKey } from "./session-supervisor.js";
 import { hostCommand, selfCommand } from "../acp/host-command.js";
-import { runnerReplyTimeoutMs } from "../../runners/enrolled/v1-framing.js";
+import { RunnerCallError } from "@dispatch/runner-protocol/contract";
+import {
+  runnerReplyTimeoutMs,
+  scheduleDeadline,
+} from "../../runners/enrolled/v1-framing.js";
 import {
   TERMINAL_UPDATE_MESSAGE,
   UPDATE_FENCED_MESSAGE,
@@ -50,6 +54,8 @@ import {
   RUNNER_WIRE_VERSION,
   MAX_CHECKOUT_VIEW_BYTES,
   checkoutCommandTimeoutMs,
+  isCheckoutCommandStatus,
+  type CheckoutExecution,
   MAX_CHECKOUT_COMMAND_REPLY_BYTES,
   parseServiceFrame,
   runnerRequestId,
@@ -74,6 +80,8 @@ import { GitHubPullRequestWatches } from "./github-pull-request-watches.js";
 import { GitHubRunnerExecutor } from "./github-runner-executor.js";
 import {
   WorkloadTools,
+  cacheWorkloadPath,
+  workloadPathProbe,
   githubCredentialHelper,
   githubCredentialKey,
   missingExecutable,
@@ -193,6 +201,79 @@ function runCheckoutWorker(
   });
 }
 
+/** The workload process owns the command. Its parent only forwards bounded
+ * chunks and kills the process group when any part of the transfer fails. */
+async function streamCheckoutWorker(
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  input: string,
+  execution: CheckoutExecution,
+  streams: FlowStreams,
+  signal: AbortSignal
+) {
+  signal.throwIfAborted();
+  const child = spawn(setpriv, args, {
+    detached: true,
+    env,
+    stdio: ["pipe", "pipe", "pipe", "pipe"],
+  });
+  let truncated = false;
+  async function* limitOutput(source: Readable) {
+    let remaining = execution.maxOutput ?? Infinity;
+    for await (const chunk of source as AsyncIterable<Buffer>) {
+      if (chunk.length > remaining) truncated = true;
+      const kept = chunk.subarray(0, remaining);
+      remaining -= kept.length;
+      if (kept.length) yield kept;
+    }
+  }
+  let status = "";
+  const control = child.stdio[3] as Readable;
+  control.setEncoding("utf8").on("data", (chunk: string) => {
+    status = (status + chunk).slice(0, 8192);
+  });
+  const exited = new Promise<void>((resolve, reject) => {
+    child.once("error", reject);
+    control.once("error", reject);
+    child.once("close", () => resolve());
+  });
+  child.stdin.on("error", () => {});
+  child.stdin.end(input);
+  const controller = new AbortController();
+  const transfer = AbortSignal.any([signal, controller.signal]);
+  const send = (id: string, source: Readable) =>
+    streams.send(
+      id,
+      Readable.from(limitOutput(source), { objectMode: false }),
+      transfer,
+      { stall: "blocked" }
+    );
+  let completed = false;
+  try {
+    await Promise.all([
+      send(execution.stdout, child.stdout),
+      send(execution.stderr, child.stderr),
+      exited,
+    ]);
+    completed = true;
+    const value = JSON.parse(status || "null");
+    if (value?.code === "stale")
+      throw new RunnerCallError({ code: "stale", message: value.error });
+    if (!isCheckoutCommandStatus(value))
+      throw new Error(value?.error || "Checkout worker failed.");
+    return JSON.stringify({ exitCode: value.exitCode, truncated });
+  } finally {
+    controller.abort();
+    if (!completed && child.pid) {
+      try {
+        process.kill(-child.pid, "SIGKILL");
+      } catch {
+        // The process group may already have exited.
+      }
+    }
+  }
+}
+
 async function verifyExecutionIdentity(
   uid: number,
   gid: number,
@@ -305,6 +386,18 @@ export async function runRemoteRunner(
   };
   const childArgs = executionArgs(config.uid, config.gid);
   await verifyExecutionIdentity(config.uid, config.gid, childArgs, env);
+  const loginPath = cacheWorkloadPath(async () => {
+    const { stdout } = await execute(
+      setpriv,
+      workloadLogin(workloadPathProbe),
+      {
+        env,
+        timeout: 5000,
+        maxBuffer: 64 * 1024,
+      }
+    );
+    return stdout;
+  });
   // Read a persisted fence before anything can be admitted, so a restarted
   // supervisor or a candidate build in its trial starts fenced.
   const updateLayout = updateOptions.updateLayout ?? RUNNER_UPDATE_LAYOUT;
@@ -592,6 +685,8 @@ export async function runRemoteRunner(
         }
       };
       const checkoutCommands = new Map<string, AbortController>();
+      let legacyCheckoutCommands = 0;
+      let acceptsCheckoutExecStream = false;
       const watches = new Map<string, () => void>();
       const sharedWatches = new SharedCheckoutWatches((cwd, changed, closed) =>
         childWatch(
@@ -799,24 +894,42 @@ export async function runRemoteRunner(
         if (socket.destroyed) return;
         switch (command.kind) {
           case "checkoutCommand": {
-            if (checkoutCommands.has(id) || checkoutCommands.size >= 32)
+            const operation = command.operation;
+            const execution =
+              operation.kind === "run" ? operation.execution : undefined;
+            const legacy = !acceptsCheckoutExecStream;
+            if (execution && legacy)
+              throw new Error("Checkout exec stream was not negotiated.");
+            if (
+              checkoutCommands.has(id) ||
+              (legacy && legacyCheckoutCommands >= 32)
+            )
               throw new Error(
                 "Too many checkout commands or duplicate request ID."
               );
             const controller = new AbortController();
             checkoutCommands.set(id, controller);
-            const timeoutMs = checkoutCommandTimeoutMs(
-              command.operation.checkout
-            );
-            const deadline = setTimeout(
-              () =>
-                controller.abort(
-                  new Error(
-                    `Runner checkout command timed out after ${timeoutMs / 1000} seconds.`
-                  )
-                ),
-              timeoutMs
-            );
+            if (legacy) legacyCheckoutCommands++;
+            const timeoutMs = execution
+              ? execution.timeoutMs
+              : checkoutCommandTimeoutMs(operation.checkout);
+            let timedOut = false;
+            const cancelDeadline =
+              timeoutMs === null
+                ? undefined
+                : scheduleDeadline(timeoutMs, () => {
+                    const message = `Runner checkout command timed out after ${timeoutMs / 1000} seconds.`;
+                    if (execution) {
+                      timedOut = true;
+                      safeSend({
+                        type: "result",
+                        id,
+                        code: "timeout",
+                        error: message,
+                      });
+                    }
+                    controller.abort(new Error(message));
+                  });
             const signal = AbortSignal.any([
               connection.signal,
               controller.signal,
@@ -825,28 +938,58 @@ export async function runRemoteRunner(
               const value = await supervisor.withCommandCheckout(
                 agentId,
                 workspace,
-                command.operation.checkout,
+                operation.checkout,
                 target?.cwd,
                 signal,
-                (cwd, configuredRoot) =>
-                  runCheckoutWorker(
-                    [
-                      ...childArgs,
-                      ...self("runner-checkout-command"),
-                      cwd,
-                      agentId,
-                      ...(configuredRoot ? [configuredRoot] : []),
-                    ],
+                async (cwd, configuredRoot) => {
+                  const args = [
+                    ...childArgs,
+                    ...self("runner-checkout-command"),
+                    cwd,
+                    agentId,
+                    ...(configuredRoot ? [configuredRoot] : []),
+                  ];
+                  const input = JSON.stringify(operation);
+                  if (!execution)
+                    return runCheckoutWorker(args, env, input, signal);
+                  if (execution.shell === "direct") {
+                    if (!configuredRoot) args.push("");
+                    args.push(await loginPath());
+                  }
+                  return streamCheckoutWorker(
+                    args,
                     env,
-                    JSON.stringify(command.operation),
+                    input,
+                    execution,
+                    streams,
                     signal
-                  )
+                  );
+                }
               );
-              if (value === null && command.operation.kind === "run")
-                throw new Error("The moved checkout is no longer selected.");
+              if (value === null && operation.kind === "run") {
+                const message = "The moved checkout is no longer selected.";
+                if (execution)
+                  throw new RunnerCallError({ code: "stale", message });
+                throw new Error(message);
+              }
               result(value ?? "null");
+            } catch (error) {
+              if (timedOut) break;
+              if (
+                !execution ||
+                !(error instanceof RunnerCallError) ||
+                error.code !== "stale"
+              )
+                throw error;
+              safeSend({
+                type: "result",
+                id,
+                code: "stale",
+                error: error.message,
+              });
             } finally {
-              clearTimeout(deadline);
+              cancelDeadline?.();
+              if (legacy) legacyCheckoutCommands--;
               checkoutCommands.delete(id);
             }
             break;
@@ -1186,6 +1329,7 @@ export async function runRemoteRunner(
           case "log":
             result(await supervisor.log(agentId, workspace));
             break;
+          // Older controllers can still send this configured workspace operation.
           case "repo": {
             if (!(await supervisor.isBound(agentId, workspace)))
               throw new Error("Agent is not bound to this workspace");
@@ -1213,6 +1357,7 @@ export async function runRemoteRunner(
       const send = wireFrames<unknown, RunnerOutput>(socket, (value) => {
         if (socket.destroyed) return;
         if (acceptsStreams(value) && connectedAt !== undefined) {
+          acceptsCheckoutExecStream ||= value.checkoutExecStream === true;
           streams.enable();
           return;
         }
@@ -1311,6 +1456,7 @@ export async function runRemoteRunner(
           checkoutInspection: true,
           checkoutMetadata: true,
           checkoutCommands: true,
+          checkoutExecStream: true,
           ...(typeof Bun !== "undefined" && typeof Bun.Terminal === "function"
             ? { terminals: true }
             : {}),

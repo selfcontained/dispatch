@@ -838,11 +838,5 @@
     "scenario": "update.cancel/pending",
     "task": "L3",
     "reason": "scenario not written yet"
-  },
-  {
-    "lane": "remote",
-    "scenario": "checkout.exec/stale",
-    "task": "T14",
-    "reason": "v1 reports a changed guard as failed, not stale"
   }
 ]

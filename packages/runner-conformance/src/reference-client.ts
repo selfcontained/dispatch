@@ -67,7 +67,11 @@ export function acceptRemoteRunner(
             connection = new RunnerConnection(send);
             if (ready.streamCredit) {
               streams = new FlowStreams(socket, send);
-              send({ type: "stream", action: "accept" });
+              send({
+                type: "stream",
+                action: "accept",
+                ...(ready.checkoutExecStream && { checkoutExecStream: true }),
+              });
               streams.enable();
             }
             socket.on("close", () => connection?.close());

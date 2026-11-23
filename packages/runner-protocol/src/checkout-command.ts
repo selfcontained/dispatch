@@ -1,4 +1,5 @@
 import { isCheckoutQuery } from "./checkout.js";
+import { isOpaqueId } from "./placement.js";
 import { isRecord } from "./validation.js";
 
 const REPO_TOOL_TIMEOUT_MS = 5 * 60_000;
@@ -10,7 +11,47 @@ export const MAX_CHECKOUT_COMMAND_REPLY_BYTES = 4 * 1024 * 1024;
 export type CheckoutCommand = {
   checkout: "effective" | "launch" | "moved";
   path: string;
-} & ({ kind: "read" } | { kind: "run"; state: string; argv: string[] });
+} & (
+  | { kind: "read" }
+  | {
+      kind: "run";
+      state: string;
+      argv: string[];
+      execution?: CheckoutExecution;
+    }
+);
+
+export type CheckoutExecution = {
+  timeoutMs: number | null;
+  maxOutput: number | null;
+  shell: "direct" | "login";
+  env: Record<string, string>;
+  stdout: string;
+  stderr: string;
+};
+
+function isCheckoutExecution(value: unknown): value is CheckoutExecution {
+  const limit = (n: unknown) =>
+    n === null || (typeof n === "number" && Number.isSafeInteger(n) && n >= 0);
+  return (
+    isRecord(value) &&
+    Object.keys(value).length === 6 &&
+    limit(value.timeoutMs) &&
+    limit(value.maxOutput) &&
+    (value.shell === "direct" || value.shell === "login") &&
+    isRecord(value.env) &&
+    Object.entries(value.env).every(
+      ([key, entry]) =>
+        key.length > 0 &&
+        !/[=\0]/.test(key) &&
+        typeof entry === "string" &&
+        !entry.includes("\0")
+    ) &&
+    isOpaqueId(value.stdout) &&
+    isOpaqueId(value.stderr) &&
+    value.stdout !== value.stderr
+  );
+}
 
 export function checkoutCommandTimeoutMs(
   checkout: CheckoutCommand["checkout"]
@@ -52,7 +93,9 @@ export function isCheckoutCommand(value: unknown): value is CheckoutCommand {
   if (value.kind === "read") return Object.keys(value).length === 3;
   return (
     value.kind === "run" &&
-    Object.keys(value).length === 5 &&
+    (Object.hasOwn(value, "execution")
+      ? Object.keys(value).length === 6 && isCheckoutExecution(value.execution)
+      : Object.keys(value).length === 5) &&
     digest(value.state) &&
     Array.isArray(value.argv) &&
     value.argv.length > 0 &&
@@ -82,16 +125,25 @@ export function isCheckoutCommandResult(
   value: unknown
 ): value is CheckoutCommandResult {
   return (
+    isCheckoutCommandStatus(value) &&
+    [value.stdout, value.stderr].every(
+      (output) =>
+        typeof output === "string" &&
+        fits(output, MAX_CHECKOUT_COMMAND_OUTPUT_BYTES)
+    )
+  );
+}
+
+export function isCheckoutCommandStatus(
+  value: unknown
+): value is Pick<CheckoutCommandResult, "exitCode" | "truncated"> &
+  Record<string, unknown> {
+  return (
     isRecord(value) &&
     typeof value.exitCode === "number" &&
     Number.isInteger(value.exitCode) &&
     value.exitCode >= 0 &&
     value.exitCode <= 255 &&
-    [value.stdout, value.stderr].every(
-      (output) =>
-        typeof output === "string" &&
-        fits(output, MAX_CHECKOUT_COMMAND_OUTPUT_BYTES)
-    ) &&
     (value.truncated === undefined || typeof value.truncated === "boolean")
   );
 }

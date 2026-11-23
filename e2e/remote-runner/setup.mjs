@@ -115,7 +115,6 @@ async function up(run) {
             : {
                 [WORKSPACE]: {
                   cwd: WORKSPACE_DIR,
-                  repoTool: ["/bin/sh", "-c", "echo ran > repo-op"],
                 },
               },
       })
@@ -176,7 +175,6 @@ async function up(run) {
     path.join(run, "env"),
     [
       "export DISPATCH_RUNNER_HOST=0.0.0.0",
-      "export DISPATCH_RUNNER_REPO_TOOL=1", // approved repo operation for every placement
       `export DISPATCH_RUNNER_PORT=${runnerPort}`,
       "export DISPATCH_RUNNER_ENDPOINT_HOST=host.docker.internal",
       `export CLAUDE_CONFIG_DIR='${providerFixture}'`,
