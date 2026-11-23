@@ -1,4 +1,12 @@
-import { remotePlacement } from "@dispatch/runner-protocol";
+import { sameRunner } from "@dispatch/runner-protocol/contract";
+import { controllerPlacement } from "../runners/placement.js";
+import {
+  hasSavedLocator,
+  resolveSavedTarget,
+  savedLaunchTarget,
+  storedLocation,
+  targetPlacement,
+} from "../runners/saved-location.js";
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import { ProjectStore } from "../projects/store.js";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -180,7 +188,13 @@ export class JobService {
     let run = await this.store.createRun(
       job.id,
       buildRunConfig(
-        { ...job, directory: template?.directory ?? job.directory },
+        {
+          ...job,
+          ...(template && {
+            directory: template.directory,
+            [storedLocation]: template[storedLocation],
+          }),
+        },
         input.triggerSource ?? "manual",
         input.chainId ?? (job.continuationEnabled ? randomUUID() : undefined),
         input.iteration ?? (job.continuationEnabled ? 1 : undefined),
@@ -205,7 +219,7 @@ export class JobService {
           model: agentConfig.model ?? undefined,
           effort: agentConfig.effort,
           persona: agentConfig.persona ?? undefined,
-          cwd: template?.directory ?? job.directory,
+          ...savedLaunchTarget(agentConfig),
           agentArgs: buildAgentArgs(agentType, prompt, agentConfig.fullAccess),
           // The CLI receives generated job-run scaffolding through agentArgs;
           // Chat shows only the user-authored job prompt.
@@ -497,7 +511,7 @@ export class JobService {
         model: agentConfig.model ?? undefined,
         effort: agentConfig.effort,
         persona: agentConfig.persona ?? undefined,
-        cwd: template?.directory ?? job.directory,
+        ...savedLaunchTarget(agentConfig),
         agentArgs: buildAgentArgs(
           agentConfig.agentType as JobAgentType,
           prompt,
@@ -551,7 +565,10 @@ export class JobService {
     const job = await this.store.getJob(run.jobId);
     if (!job?.continuationEnabled) return;
     const directory = destinationDirectory ?? run.config.directory;
-    const repoRoot = remotePlacement(directory)
+    const repoRoot = !sameRunner(
+      targetPlacement({ directory }),
+      controllerPlacement
+    )
       ? directory
       : await resolveRepoRoot(directory).catch(() => normalizePath(directory));
     const key = continuationBrainKey(job.id);
@@ -664,17 +681,20 @@ export class JobService {
       const project = await new ProjectStore(this.pool).get(input.projectId);
       if (!project) throw new Error("Project not found.");
       projectRoot = project.repoRoot;
-      if (!remotePlacement(input.directory))
-        input = { ...input, directory: project.repoRoot };
     }
+    const target = resolveSavedTarget(input.directory, {
+      ...input,
+      projectId: input.projectId,
+      projectRoot,
+    });
     if (input.persona)
       await resolvePersona(
-        personaScope({ cwd: input.directory, projectRoot }),
+        personaScope({ cwd: target.directory, projectRoot }),
         input.persona,
         "task"
       );
     const scope = await modelScopeFor(
-      input.directory,
+      target.directory,
       input.agentType ?? "claude"
     );
     const agentConfig = {
@@ -689,17 +709,20 @@ export class JobService {
 
     // Create a backing template for this job (hidden from Cmd+K by default).
     // If job creation fails, clean up the template to avoid orphans.
-    const template = await this.templateStore.createTemplate({
-      name: displayName,
-      projectId: input.projectId ?? null,
-      directory: input.directory,
-      description: null,
-      prompt: input.prompt ?? null,
-      ...agentConfig,
-      callable: false,
-      allowFiles: false,
-      selfImprove: input.selfImprove ?? false,
-    });
+    const template = await this.templateStore.createTemplate(
+      {
+        name: displayName,
+        projectId: input.projectId ?? null,
+        directory: target.directory,
+        description: null,
+        prompt: input.prompt ?? null,
+        ...agentConfig,
+        callable: false,
+        allowFiles: false,
+        selfImprove: input.selfImprove ?? false,
+      },
+      target[storedLocation]
+    );
 
     const webhookEnabled = input.webhookEnabled ?? false;
     const webhookSecret = webhookEnabled ? generateWebhookSecret() : null;
@@ -708,7 +731,7 @@ export class JobService {
     try {
       job = await this.store.createJob({
         name: displayName,
-        directory: input.directory,
+        ...target,
         prompt: input.prompt ?? null,
         schedule,
         timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
@@ -811,9 +834,15 @@ export class JobService {
       input.directory === undefined
         ? previousDirectory
         : normalizeJobDirectory(input.directory);
-    const directory = remotePlacement(requestedDirectory)
-      ? requestedDirectory
-      : (projectDirectory ?? requestedDirectory);
+    const previousTarget = backingTemplate ?? existing;
+    const target = resolveSavedTarget(requestedDirectory, {
+      ...input,
+      previous: previousTarget,
+      directorySupplied: input.directory !== undefined,
+      projectId,
+      projectRoot: projectDirectory,
+    });
+    const { directory } = target;
     const branchName = normalizeNullableString(input.branchName);
     const baseBranch = normalizeNullableString(input.baseBranch);
     if (name !== existing.name || directory !== existing.directory) {
@@ -827,12 +856,13 @@ export class JobService {
         );
       }
       config.name = name;
-      config.directory = directory;
+      Object.assign(config, target);
     } else if (
       input.directory !== undefined ||
-      projectDirectory !== undefined
+      projectDirectory !== undefined ||
+      input.projectId !== undefined
     ) {
-      config.directory = directory;
+      Object.assign(config, target);
     }
     if (input.prompt !== undefined) config.prompt = input.prompt;
     if (input.schedule !== undefined) config.schedule = schedule;
@@ -877,6 +907,7 @@ export class JobService {
       persona &&
       (persona !== previousPersona ||
         directory !== previousDirectory ||
+        !sameRunner(targetPlacement(target), targetPlacement(previousTarget)) ||
         projectId !== backingTemplate?.projectId)
     )
       await resolvePersona(
@@ -930,7 +961,8 @@ export class JobService {
       config,
       async (client, updated) => {
         if (!updated.templateId) return;
-        const templateUpdates: Record<string, unknown> = {};
+        const templateUpdates: Parameters<TemplateStore["updateTemplate"]>[1] =
+          {};
         if (input.projectId !== undefined) {
           templateUpdates.projectId = input.projectId;
           if (projectDirectory) templateUpdates.directory = directory;
@@ -955,6 +987,7 @@ export class JobService {
         if (config.name !== undefined) templateUpdates.name = config.name;
         if (config.directory !== undefined)
           templateUpdates.directory = config.directory;
+        templateUpdates[storedLocation] = config[storedLocation];
         if (Object.keys(templateUpdates).length > 0) {
           await new TemplateStore(client).updateTemplate(
             updated.templateId,
@@ -1439,6 +1472,7 @@ function buildRunConfig(
 ): JobRunConfig {
   return {
     directory: job.directory,
+    [storedLocation]: job[storedLocation],
     name: job.name,
     schedule: job.schedule,
     timeoutMs: job.timeoutMs ?? DEFAULT_TIMEOUT_MS,
@@ -1554,7 +1588,7 @@ function normalizeNullableString(
 function normalizeJobDirectory(directory: string): string {
   if (!directory.trim()) throw new Error("Job directory is required.");
   const trimmed = directory.trim();
-  return remotePlacement(trimmed)
+  return hasSavedLocator(trimmed)
     ? trimmed
     : normalizePath(resolveTilde(trimmed));
 }

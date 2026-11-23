@@ -20,6 +20,10 @@
     "decision": "Owner 2026-11-22: worktree status ownership, borrowers and checkoutState are intended"
   },
   {
+    "field": "runner",
+    "decision": "Owner 2026-11-22: jobs and templates accept an optional runner selection (T08)."
+  },
+  {
     "consequence": "migrations",
     "decision": "Owner 2026-11-22: the branch's own migrations are a direct consequence of the feature"
   }

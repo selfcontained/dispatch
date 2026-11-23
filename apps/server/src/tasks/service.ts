@@ -1,4 +1,9 @@
-import { remotePlacement } from "@dispatch/runner-protocol";
+import { sameRunner } from "@dispatch/runner-protocol/contract";
+import { controllerPlacement } from "../runners/placement.js";
+import {
+  savedLaunchTarget,
+  targetPlacement,
+} from "../runners/saved-location.js";
 import { TASK_LABEL_NAME_MAX_LENGTH } from "@dispatch/shared";
 import { taskLabelsSchema } from "./labels.js";
 import type { Effort } from "@dispatch/shared";
@@ -657,12 +662,13 @@ export class TaskService {
       throw invalid(RESTRICTED_LAUNCH_REASON);
     if (template.persona) {
       const project =
-        template.projectId && remotePlacement(template.directory)
+        template.projectId &&
+        !sameRunner(targetPlacement(template), controllerPlacement)
           ? await this.projects.get(template.projectId)
           : null;
       await resolvePersona(
         personaScopeFor({
-          cwd: template.directory,
+          cwd: savedLaunchTarget(template).cwd,
           projectRoot: project?.repoRoot,
         }),
         template.persona,

@@ -14,6 +14,8 @@ import {
   vi,
 } from "vitest";
 
+import type { AgentManager } from "../src/agents/manager.js";
+import { placementForRunner } from "../src/runners/placement.js";
 import { JobService } from "../src/jobs/service.js";
 import { registerMcpRoutes } from "../src/routes/mcp.js";
 import { TemplateService } from "../src/templates/service.js";
@@ -69,6 +71,9 @@ let projectId: string;
 let otherProjectId: string;
 let caller: { cwd: string; projectId: string | null };
 let inRun: boolean;
+let jobService: JobService;
+let templateService: TemplateService;
+const createAgent = vi.fn<AgentManager["createAgent"]>();
 const inspectCheckout = vi.fn();
 
 function persona(body: string) {
@@ -170,22 +175,20 @@ beforeAll(async () => {
       fullAccess: false,
       worktreePath: null,
       workspacePath: null,
+      placement: placementForRunner(caller.cwd === HOME ? "rnr_test" : "local"),
       ...caller,
     }),
     permitsRemoteAgentMcp: () => true,
     remoteRepoOperation: () => undefined,
     readRepoManifest: async () => null,
     inspectCheckout,
+    createAgent,
   };
-  const jobService = new JobService(
-    pool,
-    manager as never,
-    logger,
-    {} as never
-  );
+  jobService = new JobService(pool, manager as never, logger, {} as never);
   vi.spyOn(jobService, "getActiveRunForAgent").mockImplementation(async () =>
     inRun ? ({ id: "run_1" } as never) : null
   );
+  templateService = new TemplateService(pool, manager as never, logger);
   app = Fastify();
   await registerMcpRoutes(app, {
     pool,
@@ -193,7 +196,7 @@ beforeAll(async () => {
     getBearerToken: () => null,
     agentManager: manager,
     jobService,
-    templateService: new TemplateService(pool, manager as never, logger),
+    templateService,
     mcpMethodNotAllowed: () => ({}),
   } as unknown as Parameters<typeof registerMcpRoutes>[1]);
   origin = await app.listen({ host: "127.0.0.1", port: 0 });
@@ -218,6 +221,7 @@ beforeEach(() => {
 
 afterAll(async () => {
   await app.close();
+  await jobService.shutdown();
   await teardownTestDb();
   await rm(root, { recursive: true, force: true });
 });
@@ -281,5 +285,74 @@ it.each(["update_job", "update_template"])(
       directory: folder,
       persona: "secret",
     });
+  }
+);
+
+it.each(["job", "template"])(
+  "saves and launches a runner caller's %s on its project",
+  async (kind) => {
+    caller.projectId = projectId;
+    const name = `creator-${kind}`;
+    const reply = await call(`create_${kind}`, { name, prompt: "Work." });
+    expect(reply.error, reply.text).toBe(false);
+    const table = kind === "job" ? "jobs" : "templates";
+    const {
+      rows: [saved],
+    } = await pool.query(
+      `SELECT id, directory, location FROM ${table} WHERE name = $1`,
+      [name]
+    );
+    expect(saved).toMatchObject({
+      directory: HOME,
+      location: { runner: "rnr_test", projectId },
+    });
+    createAgent.mockRejectedValueOnce(new Error("launch captured"));
+    const launch =
+      kind === "job"
+        ? jobService.runJob({ jobId: saved.id, wait: false })
+        : templateService.launchTemplate({ templateId: saved.id });
+    await expect(launch).rejects.toThrow("launch captured");
+    expect(createAgent.mock.lastCall?.[0]).toMatchObject({
+      cwd: HOME,
+      projectId,
+      repository: expect.any(Object),
+    });
+  }
+);
+
+it.each(["job", "template"])(
+  "accepts controller and offline runner selections for a %s",
+  async (kind) => {
+    caller.projectId = projectId;
+    const table = kind === "job" ? "jobs" : "templates";
+    for (const runner of ["local", "offline-runner"]) {
+      const name = `${runner}-${kind}`;
+      const reply = await call(`create_${kind}`, {
+        name,
+        runner,
+        prompt: "Work.",
+      });
+      expect(reply.error, reply.text).toBe(false);
+      const directory =
+        runner === "local"
+          ? path.join(root, "project")
+          : "runner://offline-runner/@session";
+      expect(
+        (
+          await pool.query(
+            `SELECT directory, location FROM ${table} WHERE name = $1`,
+            [name]
+          )
+        ).rows
+      ).toEqual([
+        {
+          directory,
+          location:
+            runner === "local"
+              ? { runner, path: directory }
+              : { runner, projectId },
+        },
+      ]);
+    }
   }
 );

@@ -23,6 +23,7 @@ const JobEnableDisableBodySchema = JobIdentitySchema;
 const AddJobBodySchema = z.object({
   name: z.string().trim().min(1, "Job name is required."),
   directory: directoryField,
+  runner: z.string().min(1).optional(),
   projectId: z.string().min(1).nullable().optional(),
   displayName: z.string().optional(),
   prompt: z.string().nullable().optional(),

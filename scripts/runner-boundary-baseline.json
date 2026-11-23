@@ -2157,34 +2157,6 @@
   },
   {
     "file": "apps/server/src/jobs/service.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(directory)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/jobs/service.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(input.directory)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/jobs/service.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(requestedDirectory)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/jobs/service.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(trimmed)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/jobs/service.ts",
     "kind": "R2 host access",
     "detail": "fs/promises",
     "task": "T04",
@@ -2203,20 +2175,6 @@
     "detail": "apps/server/src/shared/lib/run-command",
     "task": "T04",
     "count": 1
-  },
-  {
-    "file": "apps/server/src/jobs/store.ts",
-    "kind": "R1 placement call",
-    "detail": "resolveLaunchLocation(directory)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/jobs/store.ts",
-    "kind": "R1 placement call",
-    "detail": "resolveLaunchLocation(input.directory)",
-    "task": "T07",
-    "count": 2
   },
   {
     "file": "apps/server/src/local-tls.ts",
@@ -2622,35 +2580,14 @@
     "kind": "R1 placement call",
     "detail": "remotePlacement(agent.cwd)",
     "task": "T07",
-    "count": 5
-  },
-  {
-    "file": "apps/server/src/routes/mcp.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(target.cwd)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/mcp.ts",
-    "kind": "R1 placement call",
-    "detail": "resolveLaunchLocation(directory)",
-    "task": "T07",
-    "count": 2
+    "count": 4
   },
   {
     "file": "apps/server/src/routes/mcp.ts",
     "kind": "R1 placement read",
     "detail": "placement.runner",
     "task": "T07",
-    "count": 3
-  },
-  {
-    "file": "apps/server/src/routes/mcp.ts",
-    "kind": "R1 placement read",
-    "detail": "workspace?.runner",
-    "task": "T07",
-    "count": 1
+    "count": 2
   },
   {
     "file": "apps/server/src/routes/mcp.ts",
@@ -3347,13 +3284,6 @@
   },
   {
     "file": "apps/server/src/tasks/service.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(template.directory)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/tasks/service.ts",
     "kind": "R2 host access",
     "detail": "fs/promises",
     "task": "T04",
@@ -3365,34 +3295,6 @@
     "detail": "apps/server/src/shared/git/worktree",
     "task": "T04",
     "count": 1
-  },
-  {
-    "file": "apps/server/src/templates/service.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(input.directory ?? existing.directory)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/templates/service.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(input.directory)",
-    "task": "T07",
-    "count": 2
-  },
-  {
-    "file": "apps/server/src/templates/store.ts",
-    "kind": "R1 placement call",
-    "detail": "resolveLaunchLocation(directory)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/templates/store.ts",
-    "kind": "R1 placement call",
-    "detail": "resolveLaunchLocation(input.directory)",
-    "task": "T07",
-    "count": 2
   },
   {
     "file": "apps/server/src/terminal/manager.ts",
