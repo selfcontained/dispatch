@@ -1,3 +1,7 @@
+import {
+  runnerIdFromWire,
+  type RunnerDescription,
+} from "@dispatch/runner-protocol/contract";
 import { isEngineCapabilityOperation } from "@dispatch/runner-protocol/engine-management";
 import {
   githubPullRequestUrl,
@@ -28,6 +32,8 @@ import {
   parseRunnerHealth,
   type RunnerHealth,
   parseReadyFrame,
+  type ReadyFrame,
+  RUNNER_WIRE_VERSION,
   type ConnectCreated,
   type ConnectPoll,
   type ServiceFrame,
@@ -391,7 +397,8 @@ export class RemoteRunnerService {
       | "sessionFiles"
       | "sharedWorktree"
       | "engines"
-    >
+      | "epoch"
+    > & { ready: ReadyFrame; build?: RunnerDescription["build"] }
   >();
   private peerEpoch = 0;
   private readonly updateListeners = new Set<
@@ -1019,6 +1026,9 @@ export class RemoteRunnerService {
         this.peers.set(gate.key, peer);
         this.lastSeen.set(gate.key, {
           gate,
+          ready,
+          epoch: peer.epoch,
+          build: ready.selfUpdate,
           workspaces: peer.workspaces,
           managedWorkspace: peer.managedWorkspace,
           sessionFiles: peer.sessionFiles,
@@ -1044,6 +1054,10 @@ export class RemoteRunnerService {
         // The latest sample is served: an update's commit can follow the
         // connection's first one within a second.
         peer.health = { sample, receivedAt };
+        this.lastSeen.get(gate.key)!.build = {
+          version: sample.version,
+          revision: sample.revision,
+        };
         // Bound storage writes from an over-eager peer.
         if (
           peer.healthStoredAt !== undefined &&
@@ -1740,6 +1754,37 @@ export class RemoteRunnerService {
   connectionEpoch(runnerId: string): number | undefined {
     const peer = this.peers.get(runnerId);
     return peer?.gate.approved() ? peer.epoch : undefined;
+  }
+
+  lastConnectionEpoch(runnerId: string): number | undefined {
+    return this.lastSeen.get(runnerId)?.epoch;
+  }
+
+  runnerDescriptions(): RunnerDescription[] {
+    const registrations = [...this.enrolled.values()].map(({ id, name }) => ({
+      id,
+      name,
+    }));
+    if (this.legacy)
+      registrations.unshift({ id: this.legacy.id, name: this.legacy.id });
+    return registrations.map(({ id, name }) => {
+      const seen = this.lastSeen.get(id);
+      const advert = seen?.ready.selfUpdate;
+      const build = this.peers.get(id)?.health?.sample ?? seen?.build;
+      return {
+        runnerId: runnerIdFromWire(id),
+        displayName: name,
+        build: {
+          version: build?.version ?? "",
+          ...(build?.revision && { revision: build.revision }),
+        },
+        protocol: seen?.ready.version ?? RUNNER_WIRE_VERSION,
+        engines: (seen?.engines ?? [])
+          .filter(({ installed }) => installed)
+          .map(({ id }) => id),
+        capabilities: advert ? { selfUpdate: advert } : {},
+      };
+    });
   }
 
   connectedRunnerIds(): string[] {

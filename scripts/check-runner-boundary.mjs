@@ -553,6 +553,16 @@ export function scanSource(file, source, declared = new Set()) {
       ["LocalLaunchSettings", "NativeHostProcess"].includes(node.name.text)
     )
       hit("R3 local side channel", node.name.text);
+    if (
+      relative === "runners/local.ts" &&
+      ts.isCallExpression(node) &&
+      node.expression.getText() === "local.requestSession"
+    )
+      hit(
+        "R3 local adapter delegation",
+        "checkout.exec and manifest read",
+        "L3"
+      );
     ts.forEachChild(node, visit);
   }
   visit(tree);
@@ -652,8 +662,28 @@ export function compareHistory(previous, next) {
   const restoresArchiveDialog = retiredDialogHitIds.every(
     (id) => before.has(id) && !after.has(id)
   );
+  const legacyCheckoutPlacement = key({
+    file: server + "agents/checkout-commands.ts",
+    kind: "R1 placement call",
+    detail: "remotePlacement(agent.cwd)",
+  });
+  const checkoutDelegation = key({
+    file: server + "runners/local.ts",
+    kind: "R3 local adapter delegation",
+    detail: "checkout.exec and manifest read",
+  });
   for (const [id, entry] of after) {
     const parent = before.get(id);
+    // T05 replaces the checkout placement fork with one temporary delegation.
+    if (
+      !parent &&
+      id === checkoutDelegation &&
+      entry.count === 1 &&
+      entry.task === "L3" &&
+      before.has(legacyCheckoutPlacement) &&
+      !after.has(legacyCheckoutPlacement)
+    )
+      continue;
     // P7 records the existing runner release boundary as T20 debt.
     if (
       !parent &&
