@@ -1,5 +1,5 @@
 import { firstPromptContext } from "../src/agents/acp/host/first-prompt.js";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
@@ -13,6 +13,7 @@ import {
   AcpDriver,
   type DriverEvent,
   type DriverLaunch,
+  resolveExecutable,
   unstableSessionCapabilities,
 } from "../src/agents/acp/driver.js";
 import { selfCommand } from "../src/agents/acp/runtime.js";
@@ -1769,5 +1770,33 @@ describe("read-only MCP driver extension", () => {
     await driver.stop("agt_1");
     finish({ version: 1, servers: [] });
     expect((await request).status).not.toBe("ok");
+  });
+});
+
+describe("engine CLI lookup", () => {
+  it("skips relative and package-manager bin directories on PATH, as main does", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "dispatch-resolve-"));
+    try {
+      const packageBin = path.join(root, "project/node_modules/.bin");
+      const installed = path.join(root, "installed/bin");
+      for (const dir of [packageBin, installed]) {
+        await mkdir(dir, { recursive: true });
+        await writeFile(path.join(dir, "engine-cli"), "#!/bin/sh\n");
+        await chmod(path.join(dir, "engine-cli"), 0o755);
+      }
+      const env = {
+        PATH: ["relative/bin", `${packageBin}/`, installed].join(
+          path.delimiter
+        ),
+      };
+      await expect(resolveExecutable("engine-cli", env)).resolves.toBe(
+        path.join(installed, "engine-cli")
+      );
+      await expect(
+        resolveExecutable("engine-cli", { PATH: packageBin })
+      ).rejects.toThrow(/engine-cli was not found on PATH/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
