@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { checkoutCommandTimeoutMs } from "@dispatch/runner-protocol";
 
 import { createLocalRunner } from "../src/agents/local-runner.js";
+import { requestCheckoutCommand } from "../src/agents/checkout-commands.js";
 import { runLifecycleHook } from "../src/agents/lifecycle-hooks.js";
 import type { RemoteRunnerService } from "../src/agents/remote/service.js";
 import type { AgentRecord } from "../src/agents/types.js";
@@ -54,33 +55,26 @@ describe("runLifecycleHook", () => {
       };
       const dir = selection === "launch" ? root : checkout.workspacePath;
       await repoWithStopHook(dir);
-      const runner = createLocalRunner(root, logger);
+      const runners = { local: createLocalRunner(root, logger) };
+      const agent = { ...checkout, placement: controllerPlacement };
       const target = {
         checkout: selection,
         path: ".dispatch/tools.json",
       } as const;
-      const read = await runner.requestSession(
-        {
-          kind: "checkoutCommand",
-          agentId: checkout.id,
-          operation: { ...target, kind: "read" },
-        },
-        { checkout }
-      );
-      const { state } = JSON.parse(String(read.value)) as { state: string };
+      const read = await requestCheckoutCommand(runners, agent, {
+        ...target,
+        kind: "read",
+      });
+      const state = read!.state;
       const timer = vi.spyOn(globalThis, "setTimeout");
       try {
-        const result = await runner.requestSession(
-          {
-            kind: "checkoutCommand",
-            agentId: checkout.id,
-            operation: { ...target, kind: "run", state, argv: ["true"] },
-          },
-          { checkout }
-        );
-        expect(JSON.parse(String(result.value))).toMatchObject({
-          exitCode: 0,
+        const result = await requestCheckoutCommand(runners, agent, {
+          ...target,
+          kind: "run",
+          state,
+          argv: ["true"],
         });
+        expect(result).toMatchObject({ exitCode: 0 });
         const delays = timer.mock.calls.map(([, delay]) => delay);
         if (selection === "effective")
           expect(delays.filter((delay) => (delay ?? 0) >= 1_000)).toEqual([]);

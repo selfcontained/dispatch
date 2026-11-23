@@ -30,25 +30,20 @@ export type CheckoutSession = Pick<
   /** Older rows found their worktree through Git; Changes reads it. */
   gitContext?: { worktreePath: string; isWorktree: boolean } | null;
 };
-export type LocalCheckoutRunner = {
-  requestSession(
-    request: {
-      kind: "checkoutCommand";
-      agentId: string;
-      operation: CheckoutCommand;
-    },
-    binding: { checkout: CheckoutSession }
-  ): Promise<{ value?: string | boolean }>;
-};
 export type CheckoutCommandRunners = {
-  local: LocalCheckoutRunner;
+  /**
+   * The app's local runner. Checkout commands no longer go through it (T14):
+   * they run in the child or the workload. Callers still pass it; it leaves
+   * with the in-process fallback (T18).
+   */
+  local?: unknown;
   remote?: RemoteRunnerService;
   /** The local runner child, once the app has started it. */
   child?: () => Runner | undefined;
 };
 
 export interface CheckoutRunner extends Runner {
-  /** Guarded manifest reads stay on the existing checkout-command family until T14. */
+  /** A command guard read: v1's checkout-command family, or the local workload. */
   readManifest(
     operation: Extract<CheckoutCommand, { kind: "read" }>,
     signal?: AbortSignal
@@ -69,7 +64,7 @@ const localDescription: RunnerDescription = {
 };
 
 export function checkoutRunners(
-  { local, remote, child }: CheckoutCommandRunners,
+  { remote, child }: CheckoutCommandRunners,
   agent: CheckoutSession
 ): {
   directory: CheckoutDirectory;
@@ -82,7 +77,6 @@ export function checkoutRunners(
       const boundAgent = samePlacement(selected, placement) ? agent : undefined;
       if (samePlacement(selected, controllerPlacement))
         return createLocalCheckoutRunner(
-          local,
           boundAgent,
           localDescription,
           child?.()

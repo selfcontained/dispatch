@@ -102,11 +102,18 @@ const CONNECT_TIMEOUT_MS = 5_000;
 const DEFAULT_DEADLINE_MS = 20_000;
 const LONG_DEADLINE_MS = 300_000;
 
-/** The reply deadline of a call: its contract class, or its own timeout plus 5 s. */
-export function localDeadlineMs(spec: OperationSpec, input?: unknown): number {
+/**
+ * The reply deadline of a call: its contract class, or its own timeout plus
+ * 5 s. A call whose request sets no timeout (`timeoutMs: null`) has none.
+ */
+export function localDeadlineMs(
+  spec: OperationSpec,
+  input?: unknown
+): number | null {
   if (spec.timeout === "request") {
     const requested = (input as { timeoutMs?: unknown } | null)?.timeoutMs;
     if (typeof requested === "number") return requested + 5_000;
+    if (requested === null) return null;
   }
   return spec.timeout === "long" ? LONG_DEADLINE_MS : DEFAULT_DEADLINE_MS;
 }
@@ -347,7 +354,7 @@ export class LocalSocketConnection {
     op: string,
     input: unknown,
     signal: AbortSignal | undefined,
-    timeoutMs: number,
+    timeoutMs: number | null,
     before?: (id: number) => void
   ): { id: number; reply: Promise<unknown> } {
     const id = this.nextId++;
@@ -360,11 +367,14 @@ export class LocalSocketConnection {
         clearTimeout(timer);
         signal?.removeEventListener("abort", abort);
       };
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        done();
-        reject(fail("timeout", `No ${op} reply in ${timeoutMs} ms`));
-      }, timeoutMs);
+      const timer =
+        timeoutMs === null
+          ? undefined
+          : setTimeout(() => {
+              this.pending.delete(id);
+              done();
+              reject(fail("timeout", `No ${op} reply in ${timeoutMs} ms`));
+            }, timeoutMs);
       const abort = () => {
         this.pending.delete(id);
         done();

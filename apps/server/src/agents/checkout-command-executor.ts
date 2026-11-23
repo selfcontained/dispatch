@@ -9,12 +9,14 @@ import {
 import type { Readable } from "node:stream";
 import { repoCommandEnvironment } from "../shared/lib/tool-environment.js";
 
-function capture(stream: Readable, limit = Infinity) {
+/** A child's output, trimmed, and cut at `limit` bytes when one is given. */
+export function capture(stream: Readable, limit: number | null) {
+  const max = limit ?? Infinity;
   const chunks: Buffer[] = [];
   let used = 0;
   let truncated = false;
   stream.on("data", (chunk: Buffer) => {
-    const kept = chunk.subarray(0, limit - used);
+    const kept = chunk.subarray(0, max - used);
     if (kept.length < chunk.length) truncated = true;
     used += kept.length;
     chunks.push(kept);
@@ -22,9 +24,9 @@ function capture(stream: Readable, limit = Infinity) {
   return () => {
     const text = Buffer.concat(chunks).toString("utf8").trim();
     const encoded = Buffer.from(text);
-    if (encoded.length <= limit) return { text, truncated };
+    if (encoded.length <= max) return { text, truncated };
     return {
-      text: new TextDecoder().decode(encoded.subarray(0, limit), {
+      text: new TextDecoder().decode(encoded.subarray(0, max), {
         stream: true,
       }),
       truncated: true,
@@ -32,6 +34,16 @@ function capture(stream: Readable, limit = Infinity) {
   };
 }
 
+/**
+ * The workload's base environment for a command: main's repo command
+ * environment without its agent identity, which the caller adds.
+ */
+export function commandBaseEnvironment(): NodeJS.ProcessEnv {
+  const { DISPATCH_AGENT_ID: _agent, ...base } = repoCommandEnvironment("");
+  return base;
+}
+
+/** The v1 runner's command executor (`runner-checkout-command`). */
 export async function executeCheckoutCommand(
   cwd: string,
   session: string,
@@ -73,8 +85,8 @@ export async function executeCheckoutCommand(
     env,
     stdio: ["ignore", "pipe", "pipe"],
   });
-  const stdout = capture(child.stdout, outputLimit);
-  const stderr = capture(child.stderr, outputLimit);
+  const stdout = capture(child.stdout, outputLimit ?? null);
+  const stderr = capture(child.stderr, outputLimit ?? null);
   return new Promise((resolve, reject) => {
     const timer =
       timeoutMs === undefined

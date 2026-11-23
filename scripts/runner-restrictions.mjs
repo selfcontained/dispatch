@@ -129,12 +129,6 @@ const rules = [
     [protocol + "checkout-command.ts", "REPO_TOOL_TIMEOUT_MS = 5 * 60_000"],
   ],
   [
-    "N15",
-    "Runner repo tools require additional credentials",
-    "T14",
-    [server + "server/mcp-checkout.ts", "if (!remote || allowRemoteCommands)"],
-  ],
-  [
     "N16",
     "Sixteen terminals per runner",
     "T21",

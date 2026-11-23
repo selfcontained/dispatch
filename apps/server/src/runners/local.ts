@@ -10,17 +10,8 @@ import {
   type Runner,
   type RunnerDescription,
 } from "@dispatch/runner-protocol/contract";
-import {
-  RUNNER_WIRE_VERSION,
-  type CheckoutCommand,
-  type CheckoutCommandFile,
-  type CheckoutCommandResult,
-} from "@dispatch/runner-protocol";
-import type {
-  CheckoutRunner,
-  CheckoutSession,
-  LocalCheckoutRunner,
-} from "./directory.js";
+import { RUNNER_WIRE_VERSION } from "@dispatch/runner-protocol";
+import type { CheckoutRunner, CheckoutSession } from "./directory.js";
 import {
   selfCommand,
   superviseRunner,
@@ -30,7 +21,10 @@ import {
 import { LocalRunnerSession } from "@dispatch/runner-client/session";
 import { childProcessEnv } from "../shared/process/child-environment.js";
 import { LOCAL_RUNNER_ID } from "./placement.js";
-import { checkoutWorkload } from "../agents/checkout-worker.js";
+import {
+  checkoutWorkload,
+  readCommandGuard,
+} from "../agents/checkout-worker.js";
 import {
   agentDiffPath,
   agentWorkspaceDir,
@@ -58,38 +52,47 @@ type ChildRead =
 /** How long a read waits for a child that is restarting. */
 const CHILD_WAIT_MS = 15_000;
 
+type Selector = "current" | "launch" | "moved";
+type ChildBinding = { path: string; launch: string | null; moved: boolean };
+
 /**
  * Each child's answers to `workspace.describe`, per connection epoch. A
  * binding the child holds never changes (import never replaces one), so a
- * found path is kept until the child reconnects; not found is asked again.
+ * found binding is kept until the child reconnects; not found is asked again.
  */
 const bound = new WeakMap<
   Runner,
-  { epoch: number; paths: Map<string, string> }
+  { epoch: number; bindings: Map<string, ChildBinding> }
 >();
 
 async function childBinding(
   child: Runner,
   session: Req<"workspace.describe">["session"],
   signal: AbortSignal
-): Promise<string | null> {
+): Promise<ChildBinding | null> {
   let cache = bound.get(child);
   if (!cache || cache.epoch !== child.connection.epoch)
     bound.set(
       child,
-      (cache = { epoch: child.connection.epoch, paths: new Map() })
+      (cache = { epoch: child.connection.epoch, bindings: new Map() })
     );
-  const known = cache.paths.get(sessionToWire(session));
+  const known = cache.bindings.get(sessionToWire(session));
   if (known !== undefined) return known;
   try {
-    const binding = await child.call(
+    const described = await child.call(
       "workspace.describe",
       { session },
       { signal }
     );
-    const path = displayPath(binding.path);
-    cache.paths.set(sessionToWire(session), path);
-    return path;
+    const binding = {
+      path: displayPath(described.path),
+      launch: described.checkoutRoot
+        ? displayPath(described.checkoutRoot)
+        : null,
+      moved: described.moved,
+    };
+    cache.bindings.set(sessionToWire(session), binding);
+    return binding;
   } catch (error) {
     if (error instanceof RunnerCallError && error.code === "not_found")
       return null;
@@ -97,12 +100,51 @@ async function childBinding(
   }
 }
 
+/** Whether the child's binding names `directory` for `selector`. */
+function names(binding: ChildBinding | null, selector: Selector, dir: string) {
+  if (!binding) return false;
+  if (selector === "launch") return binding.launch === dir;
+  if (selector === "moved") return binding.moved && binding.path === dir;
+  return binding.path === dir;
+}
+
+/**
+ * The directory a command selector names for the agent row: the launch
+ * checkout, the moved workspace (null when none is selected), or the
+ * effective one (moved, else launch).
+ */
+function commandDirectory(agent: CheckoutSession, selector: Selector) {
+  const launch = agent.worktreePath ?? agent.cwd;
+  const moved = agent.workspacePath;
+  if (selector === "launch") return launch;
+  if (selector === "moved") return moved && moved !== launch ? moved : null;
+  return moved ?? launch;
+}
+
 export function createLocalCheckoutRunner(
-  local: LocalCheckoutRunner,
   agent: CheckoutSession | undefined,
   description: RunnerDescription,
   child?: Runner
 ): CheckoutRunner {
+  /** Whether the child holds this session's checkout at `directory`. */
+  async function childHolds(
+    session: Req<"workspace.describe">["session"],
+    selector: Selector,
+    directory: string,
+    options?: { signal?: AbortSignal }
+  ) {
+    if (!child) return false;
+    const signal = AbortSignal.any([
+      AbortSignal.timeout(CHILD_WAIT_MS),
+      ...(options?.signal ? [options.signal] : []),
+    ]);
+    return names(
+      await childBinding(child, session, signal),
+      selector,
+      directory
+    );
+  }
+
   /**
    * A checkout read for the bound session: through the child when it holds
    * this session's checkout at the directory the agent row names, else in
@@ -137,50 +179,83 @@ export function createLocalCheckoutRunner(
         details: { status: views ? 404 : 409, class: "agent" },
       });
     }
-    if (child) {
-      const signal = AbortSignal.any([
-        AbortSignal.timeout(CHILD_WAIT_MS),
-        ...(options?.signal ? [options.signal] : []),
-      ]);
-      if ((await childBinding(child, target.session, signal)) === directory)
-        return child.call(
-          op,
-          {
-            ...input,
-            target: { session: target.session, checkout: "current" },
-          },
-          options
-        );
-    }
+    if (
+      child &&
+      (await childHolds(target.session, "current", directory, options))
+    )
+      return child.call(
+        op,
+        {
+          ...input,
+          target: { session: target.session, checkout: "current" },
+        },
+        options
+      );
     return checkoutWorkload.run(op, { directory, request } as never, {
       signal: options?.signal,
     });
   }
 
-  async function requestCheckout(operation: CheckoutCommand) {
-    if (!agent)
+  /**
+   * A command for the bound session, by the same rule as reads: in the
+   * child when it holds the selected checkout at the directory the agent row
+   * names, else in process with the same workload (R3, T18). The child
+   * refuses it with `fenced` while frozen for an update.
+   */
+  async function exec(
+    input: Req<"checkout.exec">,
+    options?: CallOptions<"checkout.exec">
+  ): Promise<Res<"checkout.exec">> {
+    const { target, ...request } = input;
+    if (!("session" in target) || sessionToWire(target.session) !== agent?.id)
       throw new RunnerCallError({
         code: "invalid",
         message: "Invalid native checkout command binding.",
       });
-    const { value } = await local.requestSession(
-      { kind: "checkoutCommand", agentId: agent.id, operation },
-      { checkout: agent }
+    const selector = target.checkout ?? "current";
+    const directory = commandDirectory(agent, selector);
+    if (!directory)
+      throw new RunnerCallError({
+        code: "not_found",
+        message: "The moved checkout is no longer selected.",
+      });
+    if (
+      child &&
+      (await childHolds(target.session, selector, directory, options))
+    )
+      return child.call(
+        "checkout.exec",
+        { ...input, target: { session: target.session, checkout: selector } },
+        options
+      );
+    return checkoutWorkload.run(
+      "checkout.exec",
+      { directory, selector, request },
+      { signal: options?.signal }
     );
-    try {
-      return typeof value === "string"
-        ? (JSON.parse(value) as unknown)
-        : undefined;
-    } catch {
-      throw new Error("Invalid runner checkout command response.");
-    }
   }
 
   return {
     describe: () => description,
     connection: { state: "ready", epoch: 0, onChange: () => () => {} },
+    // In process with the workload's guard read: the contract's
+    // `checkout.read` resolves a checkout's root, not a command's (T14 gap).
     async readManifest(operation) {
-      return (await requestCheckout(operation)) as CheckoutCommandFile | null;
+      if (!agent)
+        throw new RunnerCallError({
+          code: "invalid",
+          message: "Invalid native checkout command binding.",
+        });
+      const selector =
+        operation.checkout === "effective" ? "current" : operation.checkout;
+      const directory = commandDirectory(agent, selector);
+      if (!directory) return null;
+      const { content, digest } = await readCommandGuard(
+        directory,
+        selector,
+        operation.path
+      );
+      return content === null ? null : { content, state: digest };
     },
     async call<K extends CallName>(
       op: K,
@@ -194,28 +269,15 @@ export function createLocalCheckoutRunner(
           input as Req<ChildRead>,
           options as CallOptions<ChildRead>
         ) as Promise<Res<K>>;
-      if (op !== "checkout.exec")
-        throw new RunnerCallError({
-          code: "unsupported",
-          message: `Unsupported operation: ${op}`,
-        });
-
-      const { target, guard, argv } = input as Req<"checkout.exec">;
-      if (!("session" in target) || sessionToWire(target.session) !== agent?.id)
-        throw new RunnerCallError({
-          code: "invalid",
-          message: "Invalid native checkout command binding.",
-        });
-      return (await requestCheckout({
-        checkout:
-          target.checkout === "current"
-            ? "effective"
-            : (target.checkout ?? "effective"),
-        path: guard.path,
-        kind: "run",
-        state: guard.digest,
-        argv,
-      })) as CheckoutCommandResult as Res<K>;
+      if (op === "checkout.exec")
+        return exec(
+          input as Req<"checkout.exec">,
+          options as CallOptions<"checkout.exec">
+        ) as Promise<Res<K>>;
+      throw new RunnerCallError({
+        code: "unsupported",
+        message: `Unsupported operation: ${op}`,
+      });
     },
     async open(op) {
       throw new RunnerCallError({

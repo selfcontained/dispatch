@@ -850,17 +850,5 @@
     "scenario": "checkout.exec/stale",
     "task": "T14",
     "reason": "v1 reports a changed guard as failed, not stale"
-  },
-  {
-    "lane": "adapter",
-    "scenario": "checkout.exec/stale",
-    "task": "T14",
-    "reason": "the in-app executor throws a plain error for a changed guard"
-  },
-  {
-    "lane": "adapter",
-    "scenario": "checkout.exec/cancelled",
-    "task": "L3",
-    "reason": "the temporary in-app adapter does not pass the signal"
   }
 ]

@@ -1,4 +1,3 @@
-import { remotePlacement } from "@dispatch/runner-protocol";
 import { RunnerCapabilityUnavailable } from "../agents/remote/service.js";
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import {
@@ -34,49 +33,42 @@ export async function mcpCheckoutRoots(
   return null;
 }
 
+/**
+ * The session's repo tools, on the same rule for every runner: the guarded
+ * manifest read, then commands against that read. A runner too old for
+ * checkout commands keeps its tool list (read as a plain file) and reports
+ * its capability error when a tool is called.
+ */
 export async function discoverRepoTools(
   manager: Pick<
     AgentManager,
     "inspectCheckout" | "readRepoManifest" | "runRepoCommand"
   >,
-  agent: AgentRecord,
-  allowRemoteCommands: boolean
+  agent: AgentRecord
 ) {
-  const remote = remotePlacement(agent.cwd);
-  let unavailable: RunnerCapabilityUnavailable | undefined;
-  if (!remote || allowRemoteCommands) {
-    let file;
-    try {
-      file = await manager.readRepoManifest(agent);
-    } catch (error) {
-      if (!remote || !(error instanceof RunnerCapabilityUnavailable)) return [];
-      // Keep discovery on older peers and surface their capability error on call.
-      unavailable = error;
-    }
-    if (file) {
-      return parseRepoTools(
-        parseRepoToolFile(file.content),
-        (argv, _cwd, _id, signal) =>
-          manager.runRepoCommand(agent, file.state, argv, signal)
-      );
-    }
-    if (!unavailable) return [];
-  }
-
-  let content: string | null;
+  let file;
   try {
-    content = await readAgentCheckoutFile(
-      manager,
-      agent,
-      REPO_TOOL_MANIFEST_PATH
-    );
-  } catch {
-    return [];
+    file = await manager.readRepoManifest(agent);
+  } catch (error) {
+    if (!(error instanceof RunnerCapabilityUnavailable)) return [];
+    let content: string | null;
+    try {
+      content = await readAgentCheckoutFile(
+        manager,
+        agent,
+        REPO_TOOL_MANIFEST_PATH
+      );
+    } catch {
+      return [];
+    }
+    return parseRepoTools(parseRepoToolFile(content), async () => {
+      throw new Error(`Repository tool unavailable. ${error.message}`);
+    });
   }
-  return parseRepoTools(parseRepoToolFile(content), async () => {
-    const reason =
-      unavailable?.message ??
-      "Remote execution requires the selected session’s MCP credential or a credential for its active job run.";
-    throw new Error(`Repository tool unavailable. ${reason}`);
-  });
+  if (!file) return [];
+  return parseRepoTools(
+    parseRepoToolFile(file.content),
+    (argv, _cwd, _id, signal) =>
+      manager.runRepoCommand(agent, file.state, argv, signal)
+  );
 }

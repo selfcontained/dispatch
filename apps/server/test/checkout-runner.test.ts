@@ -1,7 +1,11 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import type { CheckoutCommand, Command } from "@dispatch/runner-protocol";
 import {
+  pathFromWire,
   sessionFromWire,
   type Req,
   type Runner,
@@ -43,21 +47,99 @@ const operation: CheckoutCommand = {
 };
 
 describe("checkout.exec", () => {
-  it("delegates a local call with its native binding and no wire output cap", async () => {
-    const result = { exitCode: 0, stdout: "x".repeat(70_000), stderr: "" };
-    const requestSession = vi.fn(async () => ({
-      value: JSON.stringify(result),
-    }));
+  it("runs a local call in the workload, on the request's terms", async () => {
+    const root = await mkdtemp(join(tmpdir(), "checkout-runner-"));
+    try {
+      await mkdir(join(root, ".dispatch"));
+      await writeFile(join(root, path), "{}");
+      const local = { ...agent, cwd: root };
+      const { directory, placement } = checkoutRunners({}, local);
+      const runner = directory.for(placement);
+      const file = await runner.readManifest({
+        checkout: "effective",
+        path,
+        kind: "read",
+      });
+      expect(file?.content).toBe("{}");
+      const call = (patch: Partial<Req<"checkout.exec">>) =>
+        runner.call("checkout.exec", {
+          ...req,
+          guard: { path, digest: file!.state },
+          argv: [
+            "sh",
+            "-c",
+            'printf %70000s "" | tr " " x; printf "$DISPATCH_AGENT_ID" >&2',
+          ],
+          env: { DISPATCH_AGENT_ID: agent.id },
+          ...patch,
+        });
+      // No output limit unless the request names one, as main ran repo tools.
+      const result = await call({});
+      expect(result.stdout).toHaveLength(70_000);
+      expect(result.stderr).toBe(agent.id);
+      expect(result).not.toHaveProperty("truncated");
+      await expect(call({ maxOutput: 10 })).resolves.toMatchObject({
+        stdout: "x".repeat(10),
+        truncated: true,
+      });
+      await expect(
+        call({ guard: { path, digest: state } })
+      ).rejects.toMatchObject({ code: "stale" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("runs a local call in the child only when it holds the selected checkout", async () => {
+    const child = {
+      connection: { state: "ready", epoch: 1, onChange: () => () => {} },
+      call: vi.fn(async (op: string) => {
+        if (op === "workspace.describe")
+          return {
+            path: pathFromWire("/moved"),
+            moved: true,
+            origin: null,
+            checkoutRoot: pathFromWire("/checkout"),
+            worktree: null,
+          };
+        return { exitCode: 0, stdout: "child", stderr: "" };
+      }),
+    } as unknown as Runner;
+    const moved = { ...agent, workspacePath: "/moved" };
     const { directory, placement } = checkoutRunners(
-      { local: { requestSession } },
-      agent
+      { child: () => child },
+      moved
     );
-    const runner: Runner = directory.for(placement);
-    await expect(runner.call("checkout.exec", req)).resolves.toEqual(result);
-    expect(requestSession).toHaveBeenCalledExactlyOnceWith(
-      { kind: "checkoutCommand", agentId: agent.id, operation },
-      { checkout: agent }
+    const runner = directory.for(placement);
+    for (const checkout of ["current", "launch", "moved"] as const)
+      await expect(
+        runner.call("checkout.exec", {
+          ...req,
+          target: { session: req.target.session, checkout } as never,
+        })
+      ).resolves.toMatchObject({ stdout: "child" });
+    expect(
+      child.call.mock.calls
+        .filter(([op]) => op === "checkout.exec")
+        .map(([, input]) => (input as Req<"checkout.exec">).target)
+    ).toEqual(
+      ["current", "launch", "moved"].map((checkout) => ({
+        session: req.target.session,
+        checkout,
+      }))
     );
+
+    // A binding elsewhere: the workload runs it here, against its own guard.
+    const elsewhere = checkoutRunners(
+      { child: () => child },
+      { ...agent, cwd: "/other" }
+    );
+    await expect(
+      elsewhere.directory.for(elsewhere.placement).call("checkout.exec", req)
+    ).rejects.toThrow();
+    expect(
+      child.call.mock.calls.filter(([op]) => op === "checkout.exec")
+    ).toHaveLength(3);
   });
 
   it("sends the same v1 wire bytes for the agent's stored workspace", async () => {
@@ -103,7 +185,7 @@ describe("checkout.exec", () => {
       } as const;
       await remote.requestSession(placementV1, before);
       const { directory, placement } = checkoutRunners(
-        { local: { requestSession: vi.fn() }, remote },
+        { remote },
         {
           ...agent,
           cwd: "runner://enrolled/session-workspace",

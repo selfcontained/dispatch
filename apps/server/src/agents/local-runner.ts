@@ -16,12 +16,7 @@ import path from "node:path";
 import type { Duplex } from "node:stream";
 import { promisify } from "node:util";
 import type { FastifyBaseLogger } from "fastify";
-import {
-  checkoutCommandTimeoutMs,
-  remotePlacement,
-  type SessionOperation,
-  type SessionLifecycleOperation,
-} from "@dispatch/runner-protocol";
+import { type SessionLifecycleOperation } from "@dispatch/runner-protocol";
 import {
   killOwnedProcesses,
   ownedEnvironment,
@@ -38,8 +33,6 @@ import {
 import { resolveWorkspace } from "./workspace-target.js";
 import { resolveProjectRoot } from "../projects/resolve-root.js";
 import { localCheckoutRelease } from "./local-runner-checkout.js";
-import { executeCheckoutCommand } from "./checkout-command-executor.js";
-import { readCheckoutCommandFile } from "./checkout-inspection.js";
 import type { AgentRecord } from "./types.js";
 import { inferRepositoryUrl } from "./remote/repository.js";
 import type { TerminalBackend } from "../terminal/manager.js";
@@ -49,13 +42,6 @@ export type LocalLaunchSettings = Pick<
   HostLaunch,
   "cwd" | "env" | "bins" | "pathPrefix"
 >;
-type CheckoutCommandOperation = Extract<
-  SessionOperation,
-  { kind: "checkoutCommand" }
->;
-type LocalCheckoutSettings = {
-  checkout: Pick<AgentRecord, "id" | "cwd" | "worktreePath" | "workspacePath">;
-};
 
 export type SessionResult = {
   value?: string | boolean;
@@ -294,8 +280,8 @@ export function createLocalRunner(
   }
 
   async function requestSession(
-    operation: SessionLifecycleOperation | CheckoutCommandOperation,
-    settings?: LocalLaunchSettings | LocalCheckoutSettings
+    operation: SessionLifecycleOperation,
+    settings?: LocalLaunchSettings
   ): Promise<SessionResult> {
     const { agentId } = operation;
     const dir = stateDir(agentId);
@@ -308,42 +294,6 @@ export function createLocalRunner(
         )
           throw new Error("Missing or mismatched native launch settings");
         return launch({ ...operation.launch, ...settings });
-      case "checkoutCommand": {
-        if (
-          !settings ||
-          !("checkout" in settings) ||
-          settings.checkout.id !== agentId ||
-          remotePlacement(settings.checkout.cwd)
-        )
-          throw new Error("Invalid native checkout command binding.");
-        const { checkout } = settings;
-        const { operation: command } = operation;
-        const launch = checkout.worktreePath ?? checkout.cwd;
-        const moved = checkout.workspacePath;
-        const cwd = command.checkout === "launch" ? launch : (moved ?? launch);
-        if (command.checkout === "moved" && (!moved || moved === launch)) {
-          if (command.kind === "run")
-            throw new Error("The moved checkout is no longer selected.");
-          return { value: "null" };
-        }
-        return {
-          value: JSON.stringify(
-            await executeCheckoutCommand(
-              cwd,
-              agentId,
-              command,
-              (file) =>
-                readCheckoutCommandFile(cwd, file, {
-                  exact: command.checkout !== "effective",
-                }),
-              // Main bounds lifecycle hooks only.
-              command.checkout === "effective"
-                ? {}
-                : { timeoutMs: checkoutCommandTimeoutMs(command.checkout) }
-            )
-          ),
-        };
-      }
       case "attach": {
         const channel = await new Promise<net.Socket>((resolve, reject) => {
           const socket = net.createConnection(hostFile(dir, "socket"));

@@ -12,6 +12,7 @@ import {
   pathFromWire,
   RunnerCallError,
   sessionFromWire,
+  type Req,
 } from "@dispatch/runner-protocol/contract";
 import { LocalSocketConnection } from "@dispatch/runner-client/transport/local-socket";
 import { BindingStore } from "../src/local/bindings.js";
@@ -68,12 +69,67 @@ async function harness(reply: (op: string, input: unknown) => unknown) {
   return { connection, calls, fence };
 }
 
-const listing = { truncated: false, entries: [] };
 const target = (session: string, checkout?: "current" | "launch" | "moved") =>
   ({
     session: sessionFromWire(session),
     ...(checkout && { checkout }),
   }) as const;
+
+const listing = { truncated: false, entries: [] };
+
+describe("core checkout commands", () => {
+  const exec: Omit<Req<"checkout.exec">, "target"> = {
+    guard: { path: ".dispatch/tools.json", digest: "d" },
+    argv: ["true"],
+    env: { EXTRA: "1" },
+    timeoutMs: null,
+    maxOutput: null,
+    shell: "direct",
+  };
+  const result = { exitCode: 0, stdout: "", stderr: "" };
+
+  it("runs a command in the selected checkout, on the request's terms", async () => {
+    const { connection, calls } = await harness(() => result);
+    for (const checkout of ["current", "launch", "moved"] as const)
+      await connection.call("checkout.exec", {
+        target: target("moved", checkout),
+        ...exec,
+      });
+    expect(calls.map(({ input }) => input)).toEqual([
+      { directory: "/moved", selector: "current", request: exec },
+      { directory: "/launch", selector: "launch", request: exec },
+      { directory: "/moved", selector: "moved", request: exec },
+    ]);
+  });
+
+  it("refuses a command with fenced while frozen, before the workload runs", async () => {
+    const { connection, calls, fence } = await harness((op) =>
+      op === "checkout.list" ? listing : result
+    );
+    await fence.freeze();
+    cleanups.push(() => fence.thaw());
+    await expect(
+      connection.call("checkout.exec", { target: target("plain"), ...exec })
+    ).rejects.toMatchObject({ code: "fenced" });
+    // Reads stay served.
+    await connection.call("checkout.list", {
+      target: target("plain"),
+      path: "",
+    });
+    expect(calls.map(({ op }) => op)).toEqual(["checkout.list"]);
+  });
+
+  it("passes a workload's stale and cancelled answers through unchanged", async () => {
+    for (const code of ["stale", "cancelled", "timeout"] as const) {
+      const { connection } = await harness(() => {
+        throw new RunnerCallError({ code, message: code });
+      });
+      await expect(
+        connection.call("checkout.exec", { target: target("plain"), ...exec })
+      ).rejects.toMatchObject({ code, message: code });
+    }
+  });
+});
 
 describe("core checkout reads", () => {
   it("resolves a session's target from its binding, by selector", async () => {
