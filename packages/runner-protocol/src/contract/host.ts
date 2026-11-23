@@ -119,6 +119,8 @@ export const hostWelcome = object({
   backgroundWorkSupported: optional(boolean),
   promptReceiptSupported: optional(literal(true)),
   quiesceSupported: optional(literal(true)),
+  /** The host answers `hello {replayComplete}` with `replay_complete`. */
+  replayCompleteSupported: optional(literal(true)),
   hostInstanceId: optional(string),
   hostBuild: optional(object({ version: string, revision: nullable(string) })),
   /** The open turn, if one is running. */

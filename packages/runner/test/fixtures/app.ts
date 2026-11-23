@@ -7,7 +7,9 @@
 import { fileURLToPath } from "node:url";
 import { superviseRunner } from "@dispatch/runner-client/launcher";
 
-const entry = fileURLToPath(new URL("./runner-entry.ts", import.meta.url));
+const entry = fileURLToPath(
+  new URL(process.env.RUNNER_ENTRY ?? "./runner-entry.ts", import.meta.url)
+);
 const build = JSON.parse(process.env.APP_BUILD ?? '{"version":"0.0.0-test"}');
 const print = (value: object) =>
   process.stdout.write(JSON.stringify({ app: process.pid, ...value }) + "\n");

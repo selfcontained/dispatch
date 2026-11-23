@@ -25,7 +25,7 @@ import {
   writeHolder,
   type HeldLock,
 } from "./lock.js";
-import { serveSocket } from "./socket-server.js";
+import { serveSocket, type Handlers } from "./socket-server.js";
 
 export type Build = { version: string; revision?: string };
 
@@ -71,7 +71,13 @@ function runtimeDirectory(): string {
  * take the state lock, serve the socket and answer `ready`. EOF on stdin (the
  * lifeline) or SIGTERM ends it. It never stops detached hosts.
  */
-export async function runLocalRunner(own: Build): Promise<void> {
+export async function runLocalRunner(
+  own: Build,
+  options: {
+    /** Operations served beside describe and health, as families move in. */
+    handlers?: (start: LauncherStart) => Handlers;
+  } = {}
+): Promise<void> {
   let start: LauncherStart | undefined;
   let stop: () => void = () => process.exit(0);
 
@@ -130,9 +136,14 @@ export async function runLocalRunner(own: Build): Promise<void> {
     engines: message.config.engines,
     capabilities: {},
   };
+  const extra = options.handlers?.(message);
   const socket = await serveSocket(socketPath, message.nonce, {
-    "runner.describe": () => description,
-    "runner.health": () => health(),
+    calls: {
+      ...extra?.calls,
+      "runner.describe": () => description,
+      "runner.health": () => health(),
+    },
+    opens: extra?.opens,
   });
 
   stop = () => {

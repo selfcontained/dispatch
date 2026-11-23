@@ -9,7 +9,8 @@
     "./v1/connection": "./src/v1/connection.ts",
     "./v1/node": "./src/v1/node.ts",
     "./launcher": "./src/launcher/index.ts",
-    "./transport/local-socket": "./src/transport/local-socket.ts"
+    "./transport/local-socket": "./src/transport/local-socket.ts",
+    "./session": "./src/session/local-runner.ts"
   },
   "files": [
     "src"
