@@ -5,7 +5,7 @@ import { withTestWorkspaceRunner } from "../helpers/test-workspace-runner.js";
  * cancelled by a stop, re-held after a fence refusal, run once on release.
  * Agents on other runners and local agents are untouched.
  */
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -524,6 +524,41 @@ describe("launches on a runner held for an update", () => {
       text: `- file: /runner/files/notes.txt (text/plain)\n- file: ${gone} (image/png)`,
     });
     expect(put).toHaveBeenCalledTimes(2);
+  });
+
+  it("puts family references once per digest and recipient, and retries failed puts", async () => {
+    const manager = managerOn(await openHolds(), spyRuntime());
+    const parent = await manager.createAgent({ cwd: HELD });
+    const child = await manager.createAgent({ cwd: HELD });
+    const source = path.join(dir, "report.txt");
+    const runnerFiles = await mkdtemp(path.join(dir, "runner-"));
+    await writeFile(source, "first report");
+    const put = vi
+      .spyOn(remote, "putFile")
+      .mockImplementation(async (_placement, agentId, name, file) => {
+        const destination = path.join(runnerFiles, `${agentId}-${name}`);
+        await writeFile(destination, await file.read());
+        return destination;
+      });
+    onTestFinished(() => put.mockRestore());
+    const deliver = (agent = parent) =>
+      manager.deliverSessionFile(agent, source, "report.txt", "reference");
+
+    const [first, repeat] = await Promise.all([deliver(), deliver()]);
+    expect(repeat).toBe(first);
+    expect(await readFile(first, "utf8")).toBe("first report");
+    expect(put).toHaveBeenCalledTimes(1);
+    expect(await deliver(child)).not.toBe(first);
+    expect(put).toHaveBeenCalledTimes(2);
+
+    await writeFile(source, "updated report");
+    put.mockRejectedValueOnce(new Error("Put interrupted"));
+    await expect(deliver()).rejects.toThrow("Put interrupted");
+    const updated = await deliver();
+    expect(updated).not.toBe(first);
+    expect(await readFile(updated, "utf8")).toBe("updated report");
+    expect(await readFile(first, "utf8")).toBe("first report");
+    expect(put).toHaveBeenCalledTimes(4);
   });
 
   it("waits out a fence that refuses a new host's files, then delivers them once", async () => {

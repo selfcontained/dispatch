@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { Readable } from "node:stream";
 import path from "node:path";
 import {
   isSessionFilePath,
@@ -51,22 +53,49 @@ export async function readSessionFile(root: string, relative: string) {
   }
 }
 
+export async function digestSessionFile(source: string): Promise<string> {
+  const file = await openSourceFile(source);
+  const hash = createHash("sha256");
+  for await (const chunk of file.createReadStream()) hash.update(chunk);
+  return hash.digest("hex");
+}
+
+const changedFile = () =>
+  new Error("Session file changed during transfer. Retry when it is stable.");
+
 /**
  * A file to hand to a runner: streamed as it is where the peer supports it,
  * or read whole under today's v1 limits where it does not. Used once.
  */
-export async function sessionFileSource(source: string) {
+export async function sessionFileSource(source: string, digest?: string) {
   const file = await openSourceFile(source);
   const { size } = await file.stat();
   return {
     size,
-    open: () => file.createReadStream(),
+    open: () => {
+      const stream = file.createReadStream();
+      if (!digest) return stream;
+      return Readable.from(
+        (async function* () {
+          const hash = createHash("sha256");
+          for await (const chunk of stream) {
+            hash.update(chunk);
+            yield chunk;
+          }
+          if (hash.digest("hex") !== digest) throw changedFile();
+        })(),
+        { objectMode: false }
+      );
+    },
     read: async () => {
       await file.close();
-      return readSessionFile(
+      const bytes = await readSessionFile(
         await realDirectory(path.dirname(source)),
         path.basename(source)
       );
+      if (digest && createHash("sha256").update(bytes).digest("hex") !== digest)
+        throw changedFile();
+      return bytes;
     },
   };
 }

@@ -120,6 +120,9 @@ function createMockDeps() {
     pool: { query: vi.fn(async () => ({ rows: [] })) } as any,
     filesRoot: "/tmp/files",
     agentManager: {
+      deliverSessionFile: vi.fn(
+        async (_agent, source, _name, _purpose) => source
+      ),
       collectSessionFile: vi.fn(async (_agent, _source) =>
         Buffer.from("file-content")
       ),
@@ -472,6 +475,40 @@ describe("createMcpHandlers", () => {
         "agt_test1",
         null,
         "/tmp/files"
+      );
+    });
+
+    it("returns the family file path from the recipient's put", async () => {
+      mockFamilyRows();
+      deps.agentManager.deliverSessionFile.mockResolvedValueOnce(
+        "/runner/files/shot.png"
+      );
+      const items = await handlers.listFiles("agt_test1", {
+        ownerAgentId: "agt_child",
+      });
+      expect(items[0].filePath).toBe("/runner/files/shot.png");
+      expect(deps.agentManager.deliverSessionFile).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "agt_test1" }),
+        "/tmp/files/agt_test1/shot.png",
+        "shot.png",
+        "reference"
+      );
+    });
+
+    it("warns and omits a reference when the recipient's put fails", async () => {
+      mockFamilyRows();
+      deps.agentManager.deliverSessionFile.mockRejectedValueOnce(
+        new Error("Failed to put")
+      );
+      expect(
+        await handlers.listFiles("agt_test1", { ownerAgentId: "agt_child" })
+      ).toEqual([]);
+      expect(deps.appLog.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentId: "agt_test1",
+          ownerAgentId: "agt_child",
+        }),
+        "Shared file is unavailable"
       );
     });
 
