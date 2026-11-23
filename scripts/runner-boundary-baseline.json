@@ -1871,13 +1871,6 @@
   {
     "file": "apps/server/src/routes/mcp.ts",
     "kind": "R7 restriction",
-    "detail": "N19 Runner repository scope unavailable for listing and risk",
-    "task": "T34",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/mcp.ts",
-    "kind": "R7 restriction",
     "detail": "N23 Runner persona authoring root is absent",
     "task": "T35",
     "count": 1
@@ -2025,21 +2018,7 @@
   {
     "file": "apps/server/src/server/mcp-handlers.ts",
     "kind": "R1 placement call",
-    "detail": "remotePlacement(a.cwd)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/server/mcp-handlers.ts",
-    "kind": "R1 placement call",
     "detail": "remotePlacement(parent.cwd)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/server/mcp-handlers.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(sender.cwd)",
     "task": "T07",
     "count": 1
   },
