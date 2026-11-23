@@ -74,27 +74,40 @@ const changedFile = () =>
  * or read whole under today's v1 limits where it does not. Used once.
  */
 export async function sessionFileSource(source: string, digest?: string) {
-  const file = await openSourceFile(source);
-  const { size } = await file.stat();
+  // Checked now and opened again only when read, so a source nobody reads
+  // (a put refused before it sends) holds no file handle.
+  const checked = await openSourceFile(source);
+  let identity: { dev: number; ino: number; size: number };
+  try {
+    identity = await checked.stat();
+  } finally {
+    await checked.close();
+  }
   return {
-    size,
-    open: () => {
-      const stream = file.createReadStream();
-      if (!digest) return stream;
-      return Readable.from(
+    size: identity.size,
+    open: () =>
+      Readable.from(
         (async function* () {
-          const hash = createHash("sha256");
-          for await (const chunk of stream) {
-            hash.update(chunk);
-            yield chunk;
+          const file = await openSourceFile(source);
+          try {
+            const { dev, ino } = await file.stat();
+            if (dev !== identity.dev || ino !== identity.ino)
+              throw changedFile();
+            const hash = digest ? createHash("sha256") : null;
+            for await (const chunk of file.createReadStream({
+              autoClose: false,
+            })) {
+              hash?.update(chunk);
+              yield chunk;
+            }
+            if (hash && hash.digest("hex") !== digest) throw changedFile();
+          } finally {
+            await file.close();
           }
-          if (hash.digest("hex") !== digest) throw changedFile();
         })(),
         { objectMode: false }
-      );
-    },
+      ),
     read: async () => {
-      await file.close();
       const bytes = await readSessionFile(
         await realDirectory(path.dirname(source)),
         path.basename(source)
