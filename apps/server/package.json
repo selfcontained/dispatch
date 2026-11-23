@@ -41,6 +41,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@dispatch/runner-conformance": "workspace:*",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^24.10.0",
     "@types/pg": "^8.18.0",

@@ -1,0 +1,818 @@
+[
+  {
+    "lane": "local",
+    "scenario": "runner.describe/success",
+    "task": "L1",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "checkout.exec/success",
+    "task": "L3",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "checkout.exec/stale",
+    "task": "L3",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "checkout.exec/cancelled",
+    "task": "L3",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "runner.health/pending",
+    "task": "L1",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "session.launch/pending",
+    "task": "T23",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "session.attach/pending",
+    "task": "T23",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "session.alive/pending",
+    "task": "T23",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "session.stop/pending",
+    "task": "T26",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "session.discard/pending",
+    "task": "T26",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "session.logs/pending",
+    "task": "T23",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "session.list/pending",
+    "task": "T27",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "session.sample/pending",
+    "task": "T27",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "terminal.open/pending",
+    "task": "T21",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "workspace.prepare/pending",
+    "task": "T18",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "workspace.resume/pending",
+    "task": "T26",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "workspace.describe/pending",
+    "task": "T16",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "workspace.select/pending",
+    "task": "T16",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "workspace.observe/pending",
+    "task": "T16",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "workspace.release/pending",
+    "task": "T20",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "path.resolve/pending",
+    "task": "T17",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "path.complete/pending",
+    "task": "T17",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "checkout.list/pending",
+    "task": "T09",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "checkout.read/pending",
+    "task": "T09",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "checkout.write/pending",
+    "task": "T35",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "checkout.preview/pending",
+    "task": "T09",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "checkout.index/pending",
+    "task": "T09",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "checkout.stats/pending",
+    "task": "T09",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "checkout.diff/pending",
+    "task": "T09",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "checkout.image/pending",
+    "task": "T09",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "checkout.changes/pending",
+    "task": "T09",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "checkout.defaultFiles/pending",
+    "task": "T09",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "checkout.watch/pending",
+    "task": "T09",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "files.put/pending",
+    "task": "T12",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "files.get/pending",
+    "task": "T11",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "git.context/pending",
+    "task": "T15",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "git.defaultBranch/pending",
+    "task": "T16",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "git.branches/pending",
+    "task": "T16",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "git.base/pending",
+    "task": "T16",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "github.account/pending",
+    "task": "T32",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "github.login.start/pending",
+    "task": "T32",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "github.login.cancel/pending",
+    "task": "T32",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "github.logout/pending",
+    "task": "T32",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "github.repositories/pending",
+    "task": "T32",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "github.branches/pending",
+    "task": "T32",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "github.pr.head/pending",
+    "task": "T32",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "github.pr.status/pending",
+    "task": "T32",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "github.pr.details/pending",
+    "task": "T33",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "github.pr.diff/pending",
+    "task": "T33",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "engine.list/pending",
+    "task": "T28",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "engine.install/pending",
+    "task": "T29",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "engine.update/pending",
+    "task": "T29",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "engine.operation/pending",
+    "task": "T29",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "engine.login.start/pending",
+    "task": "T28",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "engine.login.submit/pending",
+    "task": "T28",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "engine.login.status/pending",
+    "task": "T28",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "engine.login.cancel/pending",
+    "task": "T28",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "engine.models/pending",
+    "task": "T30",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "engine.usage/pending",
+    "task": "T31",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "engine.quota.reset/pending",
+    "task": "T31",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "engine.plugin.status/pending",
+    "task": "T29",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "engine.plugin.apply/pending",
+    "task": "T29",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "port.connect/pending",
+    "task": "T39",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "update.offer/pending",
+    "task": "L3",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "update.fence/pending",
+    "task": "L3",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "update.activate/pending",
+    "task": "L3",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "update.confirm/pending",
+    "task": "L3",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "update.cancel/pending",
+    "task": "L3",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "runner.describe/success",
+    "task": "L1",
+    "reason": "not on wire v1: derived from the v1 ready frame plus registry fields"
+  },
+  {
+    "lane": "remote",
+    "scenario": "runner.health/pending",
+    "task": "L1",
+    "reason": "not on wire v1: v1 pushes health frames after accept_health"
+  },
+  {
+    "lane": "remote",
+    "scenario": "session.launch/pending",
+    "task": "T23",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "session.attach/pending",
+    "task": "T06b",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "session.alive/pending",
+    "task": "T06b",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "session.stop/pending",
+    "task": "T26",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "session.discard/pending",
+    "task": "T26",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "session.logs/pending",
+    "task": "T23",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "session.list/pending",
+    "task": "T27",
+    "reason": "not on wire v1: local-only today (listHosted, inspectHost)"
+  },
+  {
+    "lane": "remote",
+    "scenario": "session.sample/pending",
+    "task": "T27",
+    "reason": "not on wire v1: local-only today (process-tree sampling)"
+  },
+  {
+    "lane": "remote",
+    "scenario": "terminal.open/pending",
+    "task": "T21",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "workspace.prepare/pending",
+    "task": "T18",
+    "reason": "not on wire v1: carried inside v1 launch (see EXTRAS)"
+  },
+  {
+    "lane": "remote",
+    "scenario": "workspace.resume/pending",
+    "task": "T26",
+    "reason": "not on wire v1: local-only today"
+  },
+  {
+    "lane": "remote",
+    "scenario": "workspace.describe/pending",
+    "task": "T16",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "workspace.select/pending",
+    "task": "T16",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "workspace.observe/pending",
+    "task": "T16",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "workspace.release/pending",
+    "task": "T20",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "path.resolve/pending",
+    "task": "T17",
+    "reason": "not on wire v1: controller-machine probe today (D7)"
+  },
+  {
+    "lane": "remote",
+    "scenario": "path.complete/pending",
+    "task": "T17",
+    "reason": "not on wire v1: controller-machine probe today (D7)"
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.list/pending",
+    "task": "T09",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.read/pending",
+    "task": "T09",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.write/pending",
+    "task": "T35",
+    "reason": "not on wire v1: local-only today (persona authoring)"
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.preview/pending",
+    "task": "T09",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.index/pending",
+    "task": "T09",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.stats/pending",
+    "task": "T09",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.diff/pending",
+    "task": "T09",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.image/pending",
+    "task": "T09",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.changes/pending",
+    "task": "T09",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.defaultFiles/pending",
+    "task": "T09",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.watch/pending",
+    "task": "T09",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "files.put/pending",
+    "task": "T12",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "files.get/pending",
+    "task": "T11",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "git.context/pending",
+    "task": "T15",
+    "reason": "not on wire v1: local probe today; v1 roots and sessionCheckout carry parts"
+  },
+  {
+    "lane": "remote",
+    "scenario": "git.defaultBranch/pending",
+    "task": "T16",
+    "reason": "not on wire v1: local-only today"
+  },
+  {
+    "lane": "remote",
+    "scenario": "git.branches/pending",
+    "task": "T16",
+    "reason": "not on wire v1: local-only today; v1 has github.branches"
+  },
+  {
+    "lane": "remote",
+    "scenario": "git.base/pending",
+    "task": "T16",
+    "reason": "not on wire v1: decided inside Dispatch today"
+  },
+  {
+    "lane": "remote",
+    "scenario": "github.account/pending",
+    "task": "T32",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "github.login.start/pending",
+    "task": "T32",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "github.login.cancel/pending",
+    "task": "T32",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "github.logout/pending",
+    "task": "T32",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "github.repositories/pending",
+    "task": "T32",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "github.branches/pending",
+    "task": "T32",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "github.pr.head/pending",
+    "task": "T32",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "github.pr.status/pending",
+    "task": "T32",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "github.pr.details/pending",
+    "task": "T33",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "github.pr.diff/pending",
+    "task": "T33",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "engine.list/pending",
+    "task": "T28",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "engine.install/pending",
+    "task": "T29",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "engine.update/pending",
+    "task": "T29",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "engine.operation/pending",
+    "task": "T29",
+    "reason": "not on wire v1: no lookup by operation ID on either side"
+  },
+  {
+    "lane": "remote",
+    "scenario": "engine.login.start/pending",
+    "task": "T28",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "engine.login.submit/pending",
+    "task": "T28",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "engine.login.status/pending",
+    "task": "T28",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "engine.login.cancel/pending",
+    "task": "T28",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "engine.models/pending",
+    "task": "T30",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "engine.usage/pending",
+    "task": "T31",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "engine.quota.reset/pending",
+    "task": "T31",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "engine.plugin.status/pending",
+    "task": "T29",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "engine.plugin.apply/pending",
+    "task": "T29",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "port.connect/pending",
+    "task": "T39",
+    "reason": "not on wire v1: missing from both (D6)"
+  },
+  {
+    "lane": "remote",
+    "scenario": "update.offer/pending",
+    "task": "L3",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "update.fence/pending",
+    "task": "L3",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "update.activate/pending",
+    "task": "L3",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "update.confirm/pending",
+    "task": "L3",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "update.cancel/pending",
+    "task": "L3",
+    "reason": "scenario not written yet"
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.exec/stale",
+    "task": "T14",
+    "reason": "v1 reports a changed guard as failed, not stale"
+  },
+  {
+    "lane": "adapter",
+    "scenario": "checkout.exec/stale",
+    "task": "T14",
+    "reason": "the in-app executor throws a plain error for a changed guard"
+  },
+  {
+    "lane": "adapter",
+    "scenario": "checkout.exec/cancelled",
+    "task": "L3",
+    "reason": "the temporary in-app adapter does not pass the signal"
+  }
+]
