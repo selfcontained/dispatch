@@ -87,7 +87,9 @@ function entry(cleaned: string[] = []): PosixHostEntry {
       cleanup: (marker) => {
         cleaned.push(marker);
       },
+      members: () => [],
     },
+    prepare: async () => {},
   };
 }
 
@@ -337,7 +339,7 @@ describe("the local runner's session family", () => {
     await until(() => host.connections.every((socket) => socket.destroyed));
   });
 
-  it("refuses a session no build recorded as gone, and a recorded host that does not answer as an ordinary failure", async () => {
+  it("refuses a session no build recorded, or whose host runs nowhere, as gone, and a running host that does not answer as an ordinary failure", async () => {
     const dir = root();
     const handlers = localSessionHandlers({ root: dir, entry: entry() });
     cleanups.push(() => handlers.stop());
@@ -351,10 +353,57 @@ describe("the local runner's session family", () => {
     });
     mkdirSync(join(dir, "agt_dead"));
     writeFileSync(join(dir, "agt_dead", "ownership"), "TEST_OWNED_1=1");
-    const failure = await attach("agt_dead").catch((error: unknown) => error);
+    await expect(attach("agt_dead")).rejects.toMatchObject({
+      code: "host_gone",
+    });
+    // Running (its command line is the host's) but not listening yet.
+    const quiet = join(dir, "agt_quiet");
+    mkdirSync(quiet);
+    writeFileSync(join(quiet, "ownership"), "TEST_OWNED_2=1");
+    const host = fakeHost(quiet);
+    await until(() => !!host.pid);
+    writeFileSync(join(quiet, "host.pid"), `${host.pid}\n`);
+    const failure = await attach("agt_quiet").catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(Error);
     expect(failure).not.toBeInstanceOf(RunnerCallError);
     await expect(attach("..")).rejects.toMatchObject({ code: "invalid" });
+  });
+
+  it("while frozen, drops frames that write on an open attach channel and passes reads and idle stops", async () => {
+    const dir = root();
+    const key = "agt_fenced";
+    mkdirSync(join(dir, key));
+    const host = await v1Host(join(dir, key, "host.sock"), key);
+    const fence = { frozen: false };
+    const handlers = localSessionHandlers({
+      root: dir,
+      entry: entry(),
+      fence,
+      sweepMs: null,
+    });
+    cleanups.push(() => handlers.stop());
+    const { channel } = await handlers.opens!["session.attach"]!(
+      { session: sessionFromWire(key) },
+      context
+    );
+    const send = (frame: object) => channel.write(JSON.stringify(frame) + "\n");
+    send({ type: "hello", fromSeq: 0, journalId: null });
+    await until(() => host.received.length === 1);
+    fence.frozen = true;
+    send({ type: "prompt", id: "p1", text: "work" });
+    send({ type: "shutdown", force: true });
+    send({ type: "ping" });
+    send({ type: "shutdown", idleOnly: true });
+    await until(() => host.received.length === 3);
+    fence.frozen = false;
+    send({ type: "prompt", id: "p2", text: "after thaw" });
+    await until(() => host.received.length === 4);
+    expect(
+      host.received.map((frame) => (frame as { type: string }).type)
+    ).toEqual(["hello", "ping", "shutdown", "prompt"]);
+    expect(host.received[2]).toEqual({ type: "shutdown", idleOnly: true });
+    expect(host.received[3]).toMatchObject({ id: "p2" });
+    channel.destroy();
   });
 
   it("answers alive, logs and list from the records, without touching them", async () => {

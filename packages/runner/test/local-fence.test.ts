@@ -263,3 +263,21 @@ describe("local runner write fence (real processes)", () => {
     expect(received(root)).toEqual([]);
   });
 });
+
+describe("fence admission by request", () => {
+  it("admits an idle-only stop while frozen, uncounted; any other stop or launch is refused", async () => {
+    const { WriteFence } = await import("../src/local/fence.js");
+    const fence = new WriteFence(true);
+    expect(fence.enter("session.stop", { idleOnly: true })).not.toBeNull();
+    expect(fence.enter("session.stop", { force: false })).toBeNull();
+    expect(fence.enter("session.stop", { idleOnly: false })).toBeNull();
+    expect(fence.enter("session.launch", {})).toBeNull();
+    expect(fence.enter("session.discard", {})).toBeNull();
+    // Uncounted: a freeze does not wait for it.
+    fence.thaw();
+    const release = fence.enter("session.stop", { idleOnly: true })!;
+    await fence.freeze();
+    release();
+    fence.thaw();
+  });
+});

@@ -270,6 +270,34 @@
           },
           "owner": {
             "nullable": "string"
+          },
+          "directory": {
+            "optional": {
+              "opaque": "RunnerPath"
+            }
+          },
+          "programs": {
+            "optional": {
+              "record": {
+                "nullable": {
+                  "object": {
+                    "path": "string",
+                    "args": {
+                      "optional": {
+                        "array": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "pathPrefix": {
+            "optional": {
+              "array": {
+                "opaque": "RunnerPath"
+              }
+            }
           }
         }
       },
@@ -1012,13 +1040,16 @@
           "session": {
             "opaque": "SessionHandle"
           },
-          "force": "boolean"
+          "force": "boolean",
+          "idleOnly": {
+            "optional": "boolean"
+          }
         }
       },
       "response": {
         "object": {}
       },
-      "errors": [],
+      "errors": ["busy"],
       "retry": {
         "kind": "read"
       },

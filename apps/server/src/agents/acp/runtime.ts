@@ -3,23 +3,22 @@ import type { RuntimeLaunch } from "../runtime.js";
 import { sameConversation, type PromptConversation } from "@dispatch/shared";
 import { appendFile, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
-import {
-  createLocalRunner,
-  STOP_GRACE_MS,
-  type LocalLaunchSettings,
-  type SessionResult,
-} from "../local-runner.js";
+import type { Duplex } from "node:stream";
 import type { SessionLifecycleOperation } from "@dispatch/runner-protocol";
 import {
+  pathFromWire,
   RunnerCallError,
   sessionFromWire,
   sessionToWire,
+  type Req,
 } from "@dispatch/runner-protocol/contract";
 import {
   localHostChannel,
   readLocalSession,
+  requestLocalSession as callLocalSession,
   type LocalSessionRunner,
 } from "../../runners/local.js";
+import { createLocalRunner } from "../local-runner.js";
 export { selfCommand, hostCommand, loginShellCommand } from "./host-command.js";
 
 import type { FastifyBaseLogger } from "fastify";
@@ -298,6 +297,93 @@ function sourceBlockIds(source?: PromptSource): string[] {
 
 const LOG_TAIL_LINES = 20;
 
+type SessionResult = {
+  value?: string | boolean;
+  channel?: Duplex;
+  /** After a launch: whether its host has exited since. */
+  launchExited?: () => boolean;
+  /** After a launch: stop watching for its host's exit. */
+  launchSettled?: () => void;
+};
+
+/** The engine bins as launch programs; the inverse of `programsToBins`. */
+function binsToPrograms(
+  bins: RuntimeLaunch["bins"] & { adapter?: { bin: string; args?: string[] } }
+): NonNullable<Req<"session.launch">["programs"]> {
+  const program = (bin: string | null | undefined) =>
+    bin === null ? null : { path: bin! };
+  return {
+    ...(bins.claudeBin !== undefined && { claude: program(bins.claudeBin) }),
+    ...(bins.codexBin !== undefined && { codex: program(bins.codexBin) }),
+    ...(bins.opencodeBin !== undefined && {
+      opencode: program(bins.opencodeBin),
+    }),
+    ...(bins.adapter && {
+      adapter: {
+        path: bins.adapter.bin,
+        ...(bins.adapter.args !== undefined && { args: bins.adapter.args }),
+      },
+    }),
+  };
+}
+
+/** How often a launch checks that its host is still running while it connects. */
+const LAUNCH_EXIT_POLL_MS = 250;
+
+/**
+ * The launch as the contract carries it: the same request for every runner.
+ * A runner that resolves its own directory, programs and PATH ignores them.
+ */
+function launchRequest(
+  input: Pick<
+    RuntimeLaunch,
+    | "agentId"
+    | "cwd"
+    | "engine"
+    | "model"
+    | "effort"
+    | "fullAccess"
+    | "systemPrompt"
+    | "personaContext"
+    | "mcp"
+    | "env"
+    | "pathPrefix"
+    | "resumeSessionId"
+    | "launchId"
+  > & {
+    bins: RuntimeLaunch["bins"] & {
+      adapter?: { bin: string; args?: string[] };
+    };
+  }
+): Req<"session.launch"> {
+  return {
+    session: sessionFromWire(input.agentId),
+    launchId: input.launchId ?? crypto.randomUUID(),
+    engine: input.engine,
+    model: input.model,
+    effort: input.effort ?? null,
+    access: input.fullAccess === false ? "default" : "full",
+    resume: input.resumeSessionId,
+    systemText: input.systemPrompt,
+    firstText: input.personaContext ?? null,
+    overflowNotice: null,
+    env: input.env,
+    mcp: input.mcp
+      ? [
+          {
+            name: input.mcp.name ?? "dispatch",
+            url: input.mcp.url,
+            token: input.mcp.token,
+          },
+        ]
+      : [],
+    owner: null,
+    directory: pathFromWire(input.cwd),
+    programs: binsToPrograms(input.bins),
+    pathPrefix: input.pathPrefix.map(pathFromWire),
+  };
+}
+
 export type AcpRuntimeDeps = {
   /** Put the prompt's files; the text names the paths the agent opens. */
   preparePromptFiles?: (
@@ -426,13 +512,13 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
   async function requestLaunch(
     placement: Placement | null | undefined,
     operation: Extract<SessionLifecycleOperation, { kind: "launch" }>,
-    settings: LocalLaunchSettings,
+    request: Req<"session.launch">,
     onProgress?: RuntimeLaunch["onWorkspaceProgress"],
     beforeReconcile?: RuntimeLaunch["beforeLaunchReconcile"]
   ): Promise<SessionResult> {
     for (let attempt = 1; ; attempt++) {
       try {
-        return await requestSession(placement, operation, settings, onProgress);
+        return await requestSession(placement, operation, request, onProgress);
       } catch (error) {
         const hold = placement && deps.holds?.current(placement.runner);
         if (
@@ -465,16 +551,17 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     }
   }
 
+  // Reads the recorded host pid for resource sampling; it signals nothing.
   const local = createLocalRunner(config.agentStateRoot, logger);
   function requestSession(
     placement: Placement | null | undefined,
     operation: SessionLifecycleOperation,
-    settings?: LocalLaunchSettings,
+    request?: Req<"session.launch">,
     onProgress?: RuntimeLaunch["onWorkspaceProgress"]
   ): Promise<SessionResult> {
     return placement
       ? remoteService().requestSession(placement, operation, onProgress)
-      : requestLocalSession(operation, settings);
+      : requestLocalSession(operation, request);
   }
 
   function localChild(): LocalSessionRunner {
@@ -488,16 +575,60 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
   }
 
   /**
-   * Local hosts are attached, checked and read through the runner child,
-   * which waits while it restarts. The app still starts and stops them.
+   * Local hosts are started, stopped, attached, checked and read only
+   * through the runner child; the app never spawns or signals one.
    */
   async function requestLocalSession(
     operation: SessionLifecycleOperation,
-    settings?: LocalLaunchSettings
+    request?: Req<"session.launch">
   ): Promise<SessionResult> {
     const { agentId } = operation;
     const session = sessionFromWire(agentId);
     switch (operation.kind) {
+      case "launch": {
+        if (!request || sessionToWire(request.session) !== agentId)
+          throw new Error("Missing or mismatched launch request");
+        const child = localChild();
+        await callLocalSession(child, "session.launch", request);
+        // The child answers once the host runs; it may still exit before
+        // it answers the app, which fails the launch at once, as before.
+        let exited = false;
+        let watching = true;
+        const deadline = Date.now() + LAUNCH_TIMEOUT_MS;
+        void (async () => {
+          while (watching && !exited && Date.now() < deadline) {
+            await new Promise((r) => setTimeout(r, LAUNCH_EXIT_POLL_MS));
+            if (!watching) return;
+            try {
+              const { state } = await child.call(
+                "session.alive",
+                { session },
+                { wait: false }
+              );
+              if (state === "gone") exited = true;
+            } catch {
+              // Unavailable is not gone.
+            }
+          }
+        })();
+        return {
+          launchExited: () => exited,
+          launchSettled: () => {
+            watching = false;
+          },
+        };
+      }
+      case "stop": {
+        await callLocalSession(localChild(), "session.stop", {
+          session,
+          force: operation.force === true,
+        });
+        return {};
+      }
+      case "discard": {
+        await callLocalSession(localChild(), "session.discard", { session });
+        return {};
+      }
       case "attach": {
         return { channel: await localHostChannel(localChild(), agentId) };
       }
@@ -522,8 +653,6 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
             : "",
         };
       }
-      default:
-        return local.requestSession(operation, settings);
     }
   }
 
@@ -1365,6 +1494,23 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       );
   }
 
+  /**
+   * A local launch that failed: the error with the host's log tail, after
+   * the host (if any) is stopped. A child that did not come back in time
+   * says so, so the agent's error names it.
+   */
+  async function localLaunchFailed(agentId: string, err: unknown) {
+    if (err instanceof RunnerCallError && err.code === "unavailable")
+      return new Error(
+        "The local runner did not come back in time; the agent was not started. Try again."
+      );
+    const message = err instanceof Error ? err.message : String(err);
+    const tail = await readLogTail(agentId);
+    // A host whose engine never came up has nothing to serve.
+    await runtime.stop(agentId, true).catch(() => {});
+    return new Error(`${message}${tail}`);
+  }
+
   const identify = (entry: Live): RunnerHostIdentity => {
     const welcome = entry.client.welcome;
     return {
@@ -1622,24 +1768,30 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           await previous.events;
         }
       }
-      const { launchExited } = await requestLaunch(
-        placement,
-        { kind: "launch", agentId: input.agentId, launch },
-        {
-          cwd,
-          bins: { ...bins, adapter: config.acpAdapter },
-          env,
-          pathPrefix,
-        },
-        onWorkspaceProgress,
-        beforeLaunchReconcile
-      );
+      const request = launchRequest({
+        ...input,
+        bins: { ...bins, adapter: config.acpAdapter },
+      });
+      let launched: SessionResult | undefined;
+      try {
+        launched = await requestLaunch(
+          placement,
+          { kind: "launch", agentId: input.agentId, launch },
+          request,
+          onWorkspaceProgress,
+          beforeLaunchReconcile
+        );
+      } catch (err) {
+        if (placement) throw err;
+        throw await localLaunchFailed(input.agentId, err);
+      }
+      const { launchExited } = launched;
       try {
         const entry = await connect(
           input.agentId,
           LAUNCH_TIMEOUT_MS,
           launchExited
-        );
+        ).finally(() => launched.launchSettled?.());
         const welcome = entry.client.welcome;
         if (!welcome) throw new Error("no welcome from the agent host");
         const recycle = recycleHolds.get(input.agentId);
@@ -1665,11 +1817,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         return { sessionId: welcome.sessionId, resumed: welcome.resumed };
       } catch (err) {
         if (placement) throw err; // A disconnected remote host may still be running.
-        const message = err instanceof Error ? err.message : String(err);
-        const tail = await readLogTail(input.agentId);
-        // A host whose engine never came up has nothing to serve.
-        await runtime.stop(input.agentId, true).catch(() => {});
-        throw new Error(`${message}${tail}`);
+        throw await localLaunchFailed(input.agentId, err);
       }
     },
 
@@ -2006,17 +2154,26 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         )
           return false;
         client.shutdown(false, true);
-        const deadline = Date.now() + STOP_GRACE_MS;
-        const pid = await local.recordedHostPid(agentId);
-        while (
-          pid &&
-          (await local.isHostPid(agentId, pid)) &&
-          Date.now() < deadline
-        ) {
-          await new Promise((resolve) => setTimeout(resolve, 100));
+        // The child waits for it to exit and never signals it (served while
+        // the runner is frozen for an update's probation).
+        try {
+          await callLocalSession(localChild(), "session.stop", {
+            session: sessionFromWire(agentId),
+            force: false,
+            idleOnly: true,
+          });
+        } catch (error) {
+          if (error instanceof RunnerCallError && error.code === "busy")
+            return false;
+          throw error;
         }
-        if (pid && (await local.isHostPid(agentId, pid))) return false;
-        await runtime.stop(agentId, false);
+        const entry = live.get(agentId);
+        if (entry) {
+          live.delete(agentId);
+          if (!preserving(entry))
+            failWaiting(entry, new Error("The agent stopped before delivery."));
+          entry.client.close();
+        }
         return true;
       } catch {
         return false;

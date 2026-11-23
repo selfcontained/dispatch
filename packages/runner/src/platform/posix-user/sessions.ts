@@ -32,7 +32,7 @@ import {
 import { readFileSync, unlinkSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { RunnerCallError } from "@dispatch/runner-protocol/contract";
+import { RunnerCallError, type Req } from "@dispatch/runner-protocol/contract";
 import type {
   HostRecord,
   PrivateStatePort,
@@ -48,9 +48,10 @@ export const POSIX_HOST_FILES = {
   log: "host.log",
   /** The host's launch file, written before it starts. */
   launch: "launch.json",
-  /** This runner's launch record; older builds never read it. */
-  launchRecord: "runner-launch.json",
 } as const;
+
+/** This runner's launch records, one per session; older builds never read them. */
+export const POSIX_LAUNCHES_DIR = ".launches";
 
 /** How long a stop waits for the host to exit by itself, then after SIGTERM. */
 export const STOP_GRACE_MS = 8_000;
@@ -69,11 +70,18 @@ export type PosixHostEntry = {
   wrap(command: string[]): { bin: string; args: string[] };
   /** The environment a host starts with, before its marker. */
   env(): NodeJS.ProcessEnv;
+  /**
+   * Write what the host reads at start into its directory, from the launch
+   * request. The host's file format is the embedding app's.
+   */
+  prepare(dir: string, launch: Req<"session.launch">): Promise<void>;
   ownership: {
     /** A fresh marker and the environment that carries it. */
     create(env: NodeJS.ProcessEnv): { marker: string; env: NodeJS.ProcessEnv };
     /** Remove every process that still carries the marker. */
     cleanup(marker: string): void;
+    /** The pids of every process that carries the marker now. */
+    members(marker: string): number[];
   };
 };
 
@@ -104,7 +112,10 @@ export function posixUserLayout(root: string): SessionLayout {
     identityFile: (key) => file(key, POSIX_HOST_FILES.ownership),
     // The bare marker is the record itself; there is no older format.
     markerFile: (key) => file(key, POSIX_HOST_FILES.ownership),
-    launchFile: (key) => file(key, POSIX_HOST_FILES.launchRecord),
+    // Outside the host's directory, which stays exactly as older builds
+    // leave it; a dot name no host directory takes.
+    launchFile: (key) =>
+      join(root, POSIX_LAUNCHES_DIR, `${checkedKey(key)}.json`),
     logFile: (key) => file(key, POSIX_HOST_FILES.log),
     async trackedKeys() {
       const keys: string[] = [];
@@ -241,18 +252,27 @@ export async function isHostPid(pid: number, dir: string) {
 }
 
 function isHostPidSync(pid: number, dir: string) {
+  return hostPidState(pid, dir) === true;
+}
+
+/** Whether `pid` is the host for `dir`; null when `ps` could not tell. */
+function hostPidState(pid: number, dir: string): boolean | null {
   if (!pidAlive(pid)) return false;
+  let stdout: string;
   try {
-    const stdout = execFileSync("/bin/ps", ["-p", String(pid), "-o", "args="], {
+    stdout = execFileSync("/bin/ps", ["-p", String(pid), "-o", "args="], {
       env: { PATH: process.env.PATH },
       encoding: "utf8",
       timeout: PS_TIMEOUT_MS,
       stdio: ["ignore", "pipe", "ignore"],
     });
-    return hostCommandOf(stdout, dir);
-  } catch {
-    return false;
+  } catch (error) {
+    // `ps -p` exits 1 for a process that is gone.
+    return (error as { status?: number }).status === 1 && !pidAlive(pid)
+      ? false
+      : null;
   }
+  return hostCommandOf(stdout, dir);
 }
 
 /**
@@ -281,17 +301,66 @@ export async function inspectHostDir(
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Whether any process's command line is the host's for `dir`; null when
+ * `ps` could not tell.
+ */
+function hostArgsRunning(dir: string): boolean | null {
+  let stdout: string;
+  try {
+    stdout = execFileSync("/bin/ps", ["-axo", "args="], {
+      env: { PATH: process.env.PATH },
+      encoding: "utf8",
+      timeout: PS_TIMEOUT_MS,
+      maxBuffer: 32 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    return null;
+  }
+  return stdout.split("\n").some((line) => hostCommandOf(line, dir));
+}
+
+/** Whether the recorded host of `dir` is running now. */
+export function liveHost(dir: string) {
+  const pid = recordedPid(dir);
+  return pid !== null && isHostPidSync(pid, dir);
+}
+
+/**
+ * Whether a host for `dir` carrying `marker` is running, recorded or not
+ * (a starting host writes its pid only once it runs). A failed scan is yes:
+ * nothing is cleaned on a guess.
+ */
+export function markedHostRunning(
+  entry: PosixHostEntry,
+  marker: string,
+  dir: string
+) {
+  // A login shell still reading its profile, or any process the host's own
+  // argv names: the environment of a protected shell cannot be read, its
+  // command line can.
+  if (hostArgsRunning(dir) !== false) return true;
+  try {
+    // A member `ps` cannot identify counts as the host.
+    return entry.ownership
+      .members(marker)
+      .some((pid) => hostPidState(pid, dir) !== false);
+  } catch {
+    return true;
+  }
+}
+
 export function posixUserProcesses(
   layout: SessionLayout,
   entry: PosixHostEntry
 ): SessionProcessPort<PosixHost> {
   const dirOfSocket = (socket: string) => dirname(socket);
-  const live = (dir: string) => {
-    const pid = recordedPid(dir);
-    return pid !== null && isHostPidSync(pid, dir);
-  };
+  const live = liveHost;
   return {
     alive: (identity) => live(identity.dir),
+    starting: (identity) =>
+      markedHostRunning(entry, identity.marker, identity.dir),
     async spawn(command, cwd, env, log, record, onExit) {
       // The marker is the identity, known before the process exists: it is
       // recorded first, so a runner killed right after spawning still finds

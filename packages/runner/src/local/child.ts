@@ -240,7 +240,13 @@ export async function runLocalRunner(
     ? localSessionHandlers({
         root: message.roots.state,
         entry: options.sessions.entry,
+        command: message.config.hostCommand,
         createSessions: options.sessions.createSessions,
+        fence: fence!,
+        boundDirectory: async (key) => {
+          const binding = await store!.get(key).catch(() => null);
+          return binding ? (binding.currentPath ?? binding.path) : null;
+        },
       })
     : undefined;
   const checkout = options.platform
@@ -259,7 +265,11 @@ export async function runLocalRunner(
         ...sessions?.calls,
         ...extra?.calls,
         "runner.describe": () => description,
-        "runner.health": () => health(),
+        // `sessions` counts the live hosts this runner tracks.
+        "runner.health": async () => ({
+          ...health(),
+          ...(sessions && { sessions: await sessions.liveCount() }),
+        }),
       },
       opens: { ...sessions?.opens, ...extra?.opens },
     },

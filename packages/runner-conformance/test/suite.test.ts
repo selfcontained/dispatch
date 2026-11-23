@@ -56,7 +56,8 @@ describe("local lane", () => {
     const results = await runLane(startLocalLane);
     expect(results).toHaveLength(scenarios.length);
     expect(compareBaseline("local", results, baseline)).toEqual([]);
-  });
+    // The real child and hosts: stops wait main's grace period.
+  }, 240_000);
 });
 
 describe("compareBaseline", () => {

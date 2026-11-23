@@ -28,6 +28,20 @@ export const SERVED_WHILE_FROZEN: ReadonlySet<string> = new Set([
  * running (main's repo tools); the caller's own drain waits for the commands
  * it is still waiting on, as main's update drain waits for its requests.
  */
+/**
+ * A stop that only waits for an idle host to exit by itself, as an update's
+ * probation stops the idle hosts that survived it: served while frozen. It
+ * signals nothing that is still running.
+ */
+function idleStop(op: string, request: unknown) {
+  return (
+    op === "session.stop" &&
+    typeof request === "object" &&
+    request !== null &&
+    (request as { idleOnly?: unknown }).idleOnly === true
+  );
+}
+
 export const NOT_AWAITED: ReadonlySet<string> = new Set(EXEC_OPS);
 
 export const fencedError = () =>
@@ -80,8 +94,8 @@ export class WriteFence {
    * Admit one operation. Returns its release (call when it has finished), or
    * null when it is refused because the runner is frozen.
    */
-  enter(op: string): (() => void) | null {
-    if (SERVED_WHILE_FROZEN.has(op)) return () => {};
+  enter(op: string, request?: unknown): (() => void) | null {
+    if (SERVED_WHILE_FROZEN.has(op) || idleStop(op, request)) return () => {};
     if (this.frozenNow) return null;
     if (NOT_AWAITED.has(op)) return () => {};
     this.inFlight += 1;

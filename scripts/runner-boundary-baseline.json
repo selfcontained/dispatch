@@ -786,13 +786,6 @@
   {
     "file": "apps/server/src/agents/local-runner.ts",
     "kind": "R2 host access",
-    "detail": "fs",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner.ts",
-    "kind": "R2 host access",
     "detail": "fs/promises",
     "task": "T04",
     "count": 1
@@ -801,13 +794,6 @@
     "file": "apps/server/src/agents/local-runner.ts",
     "kind": "R2 host access",
     "detail": "process.kill",
-    "task": "T04",
-    "count": 3
-  },
-  {
-    "file": "apps/server/src/agents/local-runner.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/acp/host-command",
     "task": "T04",
     "count": 1
   },
@@ -836,13 +822,6 @@
     "file": "apps/server/src/agents/local-runner.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/shared/process/child-environment",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/process/owned-processes",
     "task": "T04",
     "count": 1
   },
@@ -898,20 +877,6 @@
   {
     "file": "apps/server/src/agents/local-runner.ts",
     "kind": "R3 local method",
-    "detail": "isHostPid",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner.ts",
-    "kind": "R3 local method",
-    "detail": "recordedHostPid",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner.ts",
-    "kind": "R3 local method",
     "detail": "requestedWorktree",
     "task": "T04",
     "count": 1
@@ -927,13 +892,6 @@
     "file": "apps/server/src/agents/local-runner.ts",
     "kind": "R3 local method",
     "detail": "resolveProjectRoot",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner.ts",
-    "kind": "R3 local side channel",
-    "detail": "LocalLaunchSettings",
     "task": "T04",
     "count": 1
   },

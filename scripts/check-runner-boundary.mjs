@@ -81,13 +81,17 @@ const scopedHostImports = new Map([
         "shared/process/child-environment",
         "main's environment scrub applies to the local runner child it starts",
       ],
+      [
+        "agents/acp/host-command",
+        "the host's argv is read from the app's environment, which the child's scrub drops",
+      ],
     ]),
   ],
 ]);
 
 // These exact legacy runner implementations have not moved to packages/runner yet.
 const legacyRunner =
-  /^agents\/(checkout-worker\.ts$|acp\/(host\/|driver\.ts$|engine-spec\.ts$|host-env\.ts$|host-command\.ts$|opencode-instructions\.ts$|permissions\.ts$|background-[^/]+\.ts$)|remote\/(runner|session-(supervisor|storage|processes|files)|engine-(capability-worker|runner-executor)|github-(runner-executor|pull-request-watches)|update-(agent|trial|probe|verify|stage-cli|fence-store)|workload-(identity|tools))\.ts$)|^terminal\/runner-worker\.ts$/;
+  /^agents\/(checkout-worker\.ts$|acp\/(host\/|driver\.ts$|engine-spec\.ts$|host-env\.ts$|host-command\.ts$|local-host-entry\.ts$|opencode-instructions\.ts$|permissions\.ts$|background-[^/]+\.ts$)|remote\/(runner|session-(supervisor|storage|processes|files)|engine-(capability-worker|runner-executor)|github-(runner-executor|pull-request-watches)|update-(agent|trial|probe|verify|stage-cli|fence-store)|workload-(identity|tools))\.ts$)|^terminal\/runner-worker\.ts$/;
 const hostModule =
   /^(shared\/(git\/|github\/pr$|process\/|lib\/run-command$|repo-icon$|plugin-status$)|agents\/(workspace(?:-prep)?$|worktree-local-config$|checkout-(?:view|watch|inspection|observation|command-executor)$|default-branch-files$|engine-(?:availability|login|updates)$|provider-plans$|local-runner(?:-[^/]+)?$|acp\/host-client$)|files\/(?:workspace-[^/]+|session-file)$|projects\/resolve-root$|terminal\/(?:pty|process-session)$)/;
 const hostBuiltins = new Map([
