@@ -78,16 +78,6 @@ const rules = [
     [supervisor, "Directory is outside the bound runner checkout."],
   ],
   [
-    "N10",
-    "Attach by path has runner-only bounds",
-    "T11",
-    [supervisor, "File path is outside this session's files and checkout."],
-    [
-      protocol + "session-files.ts",
-      "MAX_SESSION_FILE_BYTES = 20 * 1024 * 1024",
-    ],
-  ],
-  [
     "N11",
     "Delivery filename and path rules",
     "T12",

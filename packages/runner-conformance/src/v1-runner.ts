@@ -35,6 +35,7 @@ import {
   type Decoded,
 } from "@dispatch/runner-client/v1";
 import {
+  receiveFile,
   RunnerAcknowledgementLost,
   RunnerHostGone,
   RunnerUnavailable,
@@ -46,7 +47,7 @@ import {
   type ClientMessage,
   type HostMessage,
 } from "@dispatch/runner-client/v1/host";
-import { wireFrames } from "@dispatch/runner-client/v1/node";
+import { wireFrames, type FlowStreams } from "@dispatch/runner-client/v1/node";
 
 const fail = (code: ErrorCode, message: string) =>
   new RunnerCallError({ code, message });
@@ -113,6 +114,7 @@ function sessionChannel(socket: Duplex): CallerChannel<"session.attach"> {
 
 export type V1RunnerOptions = {
   connection: RunnerConnection;
+  streams?: FlowStreams;
   ready: ReadyFrame;
   runnerId: string;
   displayName: string;
@@ -122,6 +124,7 @@ export type V1RunnerOptions = {
 
 export function v1Runner({
   connection,
+  streams,
   ready,
   runnerId,
   displayName,
@@ -173,6 +176,17 @@ export function v1Runner({
         throw error;
       }
       try {
+        if (
+          command.kind === "sessionFile" &&
+          command.operation.kind === "collect"
+        ) {
+          const bytes = await receiveFile(
+            { ...command, operation: command.operation },
+            (command, signal) => connection.request(command, { signal }),
+            ready.filesGetStream ? streams : undefined
+          );
+          return decodeResult(frame, bytes.toString("base64"));
+        }
         const { value } = await connection.request(command, {
           signal: opts?.signal,
         });

@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 import type { PromptSource } from "../src/agents/acp/prompt-source.js";
@@ -355,7 +356,7 @@ const replyWith = (
 ) =>
   lastReplies!.reply(
     { id: agentId, name: agentId === A ? "builder-7" : "reviewer-2" },
-    { replyTo, message, images }
+    { replyTo, message, images, readSessionImage: readFile }
   );
 let lastReplies: SlackThreadReplies | null = null;
 
@@ -671,7 +672,7 @@ describe("notify({ replyTo }): the agent answers in the Slack thread", () => {
       /Not a png, jpg or gif/
     );
     expect((await replyWith(reply, A, post.id, "x", [linkPng])).reason).toMatch(
-      /png, jpg or gif images only/
+      /Not a png, jpg or gif/
     );
     expect(calls.posted).toHaveLength(0);
     calls.scopes = ["chat:write"];

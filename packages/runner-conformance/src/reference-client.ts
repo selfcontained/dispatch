@@ -20,7 +20,11 @@ import {
   type Runner,
 } from "@dispatch/runner-protocol/contract";
 import { RunnerConnection } from "@dispatch/runner-client/v1/connection";
-import { wireFrames } from "@dispatch/runner-client/v1/node";
+import {
+  FlowStreams,
+  wireFrames,
+  type StreamFrame,
+} from "@dispatch/runner-client/v1/node";
 import { checked } from "./checked.js";
 import { launchRequest, promptSession } from "./session.js";
 import { v1Runner } from "./v1-runner.js";
@@ -53,36 +57,49 @@ export function acceptRemoteRunner(
       sockets.add(socket);
       socket.on("error", () => {});
       let connection: RunnerConnection | undefined;
-      const send = wireFrames<unknown, ServiceFrame>(socket, (frame) => {
-        if (!connection) {
-          const ready = parseReadyFrame(frame);
-          if (!ready) return socket.destroy();
-          connection = new RunnerConnection(send);
-          socket.on("close", () => connection?.close());
-          const selected = workspace || ready.workspaces[0];
-          if (!selected)
-            return reject(new Error("The runner has no workspace."));
-          resolve({
-            ready,
-            runner: v1Runner({
-              connection,
+      let streams: FlowStreams | undefined;
+      const send = wireFrames<unknown, ServiceFrame | StreamFrame>(
+        socket,
+        (frame) => {
+          if (!connection) {
+            const ready = parseReadyFrame(frame);
+            if (!ready) return socket.destroy();
+            connection = new RunnerConnection(send);
+            if (ready.streamCredit) {
+              streams = new FlowStreams(socket, send);
+              send({ type: "stream", action: "accept" });
+              streams.enable();
+            }
+            socket.on("close", () => connection?.close());
+            const selected = workspace || ready.workspaces[0];
+            if (!selected)
+              return reject(new Error("The runner has no workspace."));
+            resolve({
               ready,
-              runnerId,
-              displayName: runnerId,
-              workspace: selected,
-            }),
-            close: () => connection?.close(),
-          });
-          return;
+              runner: v1Runner({
+                connection,
+                streams,
+                ready,
+                runnerId,
+                displayName: runnerId,
+                workspace: selected,
+              }),
+              close: () => connection?.close(),
+            });
+            return;
+          }
+          if (streams?.handle(frame)) return;
+          const reply = frame as
+            | ChannelFrame
+            | ResultFrame
+            | LaunchProgressFrame
+            | { type: string };
+          if (
+            ["result", "data", "close", "launch_progress"].includes(reply.type)
+          )
+            connection.receive(reply as ResultFrame);
         }
-        const reply = frame as
-          | ChannelFrame
-          | ResultFrame
-          | LaunchProgressFrame
-          | { type: string };
-        if (["result", "data", "close", "launch_progress"].includes(reply.type))
-          connection.receive(reply as ResultFrame);
-      });
+      );
     });
   });
   const port = new Promise<number>((resolve) =>

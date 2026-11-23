@@ -10,7 +10,7 @@ import {
   type ServiceFrame,
 } from "@dispatch/runner-protocol";
 import { describe, expect, it } from "vitest";
-import { RunnerConnection } from "../src/v1/connection.js";
+import { receiveFile, RunnerConnection } from "../src/v1/connection.js";
 import { wireFrames, FlowStreams, acceptsStreams } from "../src/v1/node.js";
 import {
   STREAM_CHUNK,
@@ -18,7 +18,7 @@ import {
   type StreamFrame,
 } from "../src/v1/streams.js";
 
-async function loopback(advertise = true, stallMs?: number) {
+async function loopback(advertise = true, stallMs?: number, file?: Buffer) {
   const server = createServer();
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -75,6 +75,35 @@ async function loopback(advertise = true, stallMs?: number) {
       const frame = parseServiceFrame(value);
       if (frame?.type === "request" && frame.command.kind === "attach")
         reply({ type: "result", id: frame.id, value: true });
+      if (
+        frame?.type === "request" &&
+        frame.command.kind === "sessionFile" &&
+        frame.command.operation.kind === "collect" &&
+        file
+      ) {
+        const { streamId } = frame.command.operation;
+        if (streamId) {
+          const chunks = function* () {
+            for (let offset = 0; offset < file.length; offset += STREAM_CHUNK)
+              yield file.subarray(offset, offset + STREAM_CHUNK);
+          };
+          void runner.send(streamId, Readable.from(chunks())).then(
+            () => reply({ type: "result", id: frame.id, value: true }),
+            () =>
+              reply({
+                type: "result",
+                id: frame.id,
+                error: "File transfer failed.",
+              })
+          );
+        } else {
+          reply({
+            type: "result",
+            id: frame.id,
+            value: file.toString("base64"),
+          });
+        }
+      }
       if (frame?.type === "data") reply(frame);
     }
   );
@@ -104,6 +133,42 @@ async function loopback(advertise = true, stallMs?: number) {
 }
 
 describe("v1 credit streams", () => {
+  it.each([true, false])(
+    "reads attachments and preserves the old request shape without streams (%s)",
+    async (streamed) => {
+      const bytes = streamed
+        ? Buffer.alloc(21 * 1024 * 1024, 0xa6)
+        : Buffer.from([0, 255, 128]);
+      const link = await loopback(streamed, undefined, bytes);
+      const command = {
+        kind: "sessionFile",
+        agentId: "agent",
+        workspace: "test",
+        operation: { kind: "collect", path: "/tmp/attachment" },
+      } as const;
+      try {
+        const result = await receiveFile(
+          command,
+          (command, signal) => link.connection.request(command, { signal }),
+          streamed ? link.client : undefined
+        );
+        expect(result.length).toBe(bytes.length);
+        expect(result.equals(bytes)).toBe(true);
+        const request = streamed
+          ? {
+              ...command,
+              operation: { ...command.operation, streamId: expect.any(String) },
+            }
+          : command;
+        expect(link.received).toEqual([
+          { type: "request", id: expect.any(String), command: request },
+        ]);
+      } finally {
+        await link.close();
+      }
+    }
+  );
+
   it("streams 100 MiB to a slow sink while another session stays attached", async () => {
     const link = await loopback();
     const total = 100 * 1024 * 1024;

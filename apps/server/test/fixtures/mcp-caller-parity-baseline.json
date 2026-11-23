@@ -35,12 +35,6 @@
     "local": "accepted",
     "runner": "tool:MCP error -32602: Tool persona_validate not found"
   },
-  "call/post/attach-outside": {
-    "rule": "N10",
-    "task": "T11",
-    "local": "accepted",
-    "runner": "tool:File path is outside this session's files and checkout."
-  },
   "call/repo_fixture/session-cookie": {
     "rule": "N15",
     "task": "T14",
@@ -58,12 +52,6 @@
     "task": "T34",
     "local": "accepted",
     "runner": "tool:You are not in a Dispatch project (no project's repo holds your workspace), so there is no task board for you."
-  },
-  "call/update/attach-outside": {
-    "rule": "N10",
-    "task": "T11",
-    "local": "accepted",
-    "runner": "tool:File path is outside this session's files and checkout."
   },
   "call/usage_unwatch": {
     "rule": "N17",

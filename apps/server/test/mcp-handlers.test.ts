@@ -347,11 +347,13 @@ describe("createMcpHandlers", () => {
         expect(uploadImage).toHaveBeenCalledTimes(1);
 
         deps.agentManager.getAgent.mockResolvedValue(localAgent);
+        collect.mockImplementationOnce((_agent, file) => fs.readFile(file));
         expect(await send(controllerPath)).toMatchObject({ sent: true });
-        expect(realpath).toHaveBeenCalledWith(controllerPath);
-        expect(collect).toHaveBeenCalledTimes(4);
+        expect(realpath).not.toHaveBeenCalled();
+        expect(collect).toHaveBeenLastCalledWith(localAgent, controllerPath);
+        expect(collect).toHaveBeenCalledTimes(5);
         expect(uploadImage).toHaveBeenLastCalledWith(
-          new Uint8Array(PNG_BYTES),
+          PNG_BYTES,
           "controller.png"
         );
       } finally {

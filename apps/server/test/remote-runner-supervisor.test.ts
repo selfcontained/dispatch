@@ -44,6 +44,7 @@ import {
   type SessionProcesses,
 } from "../src/agents/remote/session-processes.js";
 import { readSessionFile } from "../src/files/session-file.js";
+import { sessionFileCommand } from "../src/agents/remote/session-files.js";
 import { createSessionSupervisor } from "../src/agents/remote/session-supervisor.js";
 
 import {
@@ -673,7 +674,7 @@ describe("runner session supervision", () => {
     );
   });
 
-  it("bounds collection and rejects symlinks and hard links on disk", async () => {
+  it("preserves the bounded reader for startup file delivery", async () => {
     const dir = await realpath(root);
     const original = path.join(dir, "original.txt");
     await writeFile(original, "complete");
@@ -695,49 +696,129 @@ describe("runner session supervision", () => {
     await expect(readSessionFile(dir, "large.txt")).rejects.toThrow("20 MiB");
   });
 
-  it("collects only from the bound session, including when the configured checkout contains runner state", async () => {
+  it("passes file paths unchanged to the workload and propagates its OS denial", async () => {
     const runner = await start(["configured"]);
     const cwd = await realpath(root);
     const transfer = vi.fn(async () => "YWJj");
     const first = launch("configured");
     await runner.launch(first, cwd);
-    kernelHost = undefined;
-    const other = "agt_other";
-    record = path.join(state, "bindings", other + ".host");
-    await runner.launch({ ...first, agentId: other }, cwd);
-    const own = path.join(state, "hosts", agentId, "files", "input.txt");
-    const foreign = path.join(state, "hosts", other, "files", "input.txt");
-    const collect = (id: string, file: string, workspace = first.workspace) =>
+    const privateFile = path.join(state, "private.txt");
+    await writeFile(privateFile, "supervisor only", { mode: 0o600 });
+    const collect = (id: string, file: string, streamId?: string) =>
       runner.sessionFile(
         id,
-        workspace,
-        { kind: "collect", path: file },
+        first.workspace,
+        { kind: "collect", path: file, streamId },
         transfer,
         cwd
       );
-    expect(await collect(agentId, own)).toBe("YWJj");
-    expect(await collect(agentId, "generated/report.txt")).toBe("YWJj");
-    expect(transfer).toHaveBeenNthCalledWith(
-      1,
-      "collect",
-      path.dirname(own),
-      "input.txt"
+
+    expect(await collect(agentId, "/tmp/shot.png", "stream-id")).toBe("YWJj");
+    expect(transfer).toHaveBeenLastCalledWith("stream", "", "/tmp/shot.png");
+    const foreign = path.join(state, "hosts", "other", "files", "input.txt");
+    expect(await collect(agentId, foreign)).toBe("YWJj");
+    expect(transfer).toHaveBeenLastCalledWith("collect", "", foreign);
+    expect(await collect(agentId, "../input.txt")).toBe("YWJj");
+    expect(transfer).toHaveBeenLastCalledWith("collect", cwd, "../input.txt");
+
+    transfer.mockRejectedValueOnce(
+      new Error("Session file is unavailable (EACCES).")
     );
-    expect(transfer).toHaveBeenNthCalledWith(
-      2,
-      "collect",
-      cwd,
-      "generated/report.txt"
+    await expect(collect(agentId, privateFile)).rejects.toThrow("EACCES");
+    expect(transfer).toHaveBeenLastCalledWith("collect", "", privateFile);
+    await expect(collect("unbound/session", privateFile)).rejects.toThrow(
+      "unbound"
     );
-    for (const [id, file] of [
-      [agentId, foreign],
-      [other, own],
-      [agentId, "../input.txt"],
-      ["unbound/session", own],
-    ] as const)
-      await expect(collect(id, file)).rejects.toThrow();
-    expect(transfer).toHaveBeenCalledTimes(2);
+    expect(transfer).toHaveBeenCalledTimes(4);
   });
+
+  const helper = [
+    "bun",
+    "--no-env-file",
+    fileURLToPath(new URL("../src/main.ts", import.meta.url)),
+    "runner-session-file",
+  ];
+
+  it("runs file reads through setpriv with the workload UID and GID", () => {
+    const [bin, args] = sessionFileCommand(
+      1234,
+      2345,
+      helper,
+      "stream",
+      "",
+      "/tmp/file"
+    );
+    expect(bin).toBe("/usr/bin/setpriv");
+    expect(args).toEqual([
+      "--reuid=1234",
+      "--regid=2345",
+      "--init-groups",
+      "--no-new-privs",
+      "--inh-caps=-all",
+      "--ambient-caps=-all",
+      "--bounding-set=-all",
+      "--",
+      ...helper,
+      "stream",
+      "",
+      "/tmp/file",
+    ]);
+  });
+
+  it("reads hard links, symlinks and a large file with the actual workload helper", async () => {
+    const execute = promisify(execFile);
+    const file = path.join(root, "ordinary");
+    const hard = path.join(root, "hard");
+    const soft = path.join(root, "soft");
+    const contents = Buffer.alloc(21 * 1024 * 1024, 0xa6);
+    await writeFile(file, contents);
+    await link(file, hard);
+    await symlink(hard, soft);
+    const { stdout } = await execute(
+      helper[0]!,
+      [...helper.slice(1), "stream", "", soft],
+      {
+        encoding: "buffer",
+        maxBuffer: contents.length + 1024,
+        timeout: 15_000,
+      }
+    );
+    expect(stdout.length).toBe(contents.length);
+    expect(stdout.equals(contents)).toBe(true);
+    await expect(
+      execute(helper[0]!, [...helper.slice(1), "collect", "", soft], {
+        timeout: 15_000,
+      })
+    ).rejects.toHaveProperty("stderr", "Session files are limited to 20 MiB.");
+  });
+
+  it.skipIf(process.platform !== "linux" || process.getuid?.() !== 0)(
+    "gets EACCES from the kernel for a root-owned file after dropping privileges",
+    async () => {
+      const execute = promisify(execFile);
+      await chmod(root, 0o755);
+      const publicFile = path.join(root, "public.txt");
+      const privateFile = path.join(root, "private.txt");
+      await writeFile(publicFile, "public", { mode: 0o644 });
+      await writeFile(privateFile, "private", { mode: 0o600 });
+      const collect = (file: string) => {
+        const [bin, args] = sessionFileCommand(
+          65534,
+          65534,
+          helper,
+          "stream",
+          "",
+          file
+        );
+        return execute(bin, args, { timeout: 15_000 });
+      };
+      expect((await collect(publicFile)).stdout).toBe("public");
+      await expect(collect(privateFile)).rejects.toMatchObject({
+        stderr: "Session file is unavailable (EACCES).",
+        stdout: "",
+      });
+    }
+  );
 
   it("treats a recycled PID as stale and leaves an unrelated host running", async () => {
     const running = await start(["configured"]);

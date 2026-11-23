@@ -1215,7 +1215,7 @@ export async function createSessionSupervisor(
       workspace: string,
       operation: SessionFileOperation,
       transfer: (
-        kind: SessionFileOperation["kind"],
+        kind: "deliver" | "collect" | "stream",
         root: string,
         name: string,
         data?: string
@@ -1234,31 +1234,15 @@ export async function createSessionSupervisor(
           await transfer("deliver", files, operation.name, operation.data);
           return path.join(files, operation.name);
         }
-        const source = path.isAbsolute(operation.path)
-          ? path.normalize(operation.path)
-          : null;
-        if (source && containsDirectory(files, source))
-          return transfer("collect", files, path.relative(files, source));
+        const kind = operation.streamId === undefined ? "collect" : "stream";
+        if (path.isAbsolute(operation.path))
+          return transfer(kind, "", operation.path);
         const checkout = await selectedDirectory(
           key,
           workspace,
           await initialDirectory(key, workspace, configuredCwd)
         );
-        const requested = source ?? path.join(checkout, operation.path);
-        const owner = checkoutOwner(await readBinding(key)) ?? key;
-        if (
-          !containsDirectory(checkout, requested) ||
-          (containsDirectory(storage, requested) &&
-            !containsDirectory(path.join(sessions, owner), requested))
-        )
-          throw new Error(
-            "File path is outside this session's files and checkout."
-          );
-        return transfer(
-          "collect",
-          checkout,
-          path.relative(checkout, requested)
-        );
+        return transfer(kind, checkout, operation.path);
       });
     },
     async checkoutRelease(

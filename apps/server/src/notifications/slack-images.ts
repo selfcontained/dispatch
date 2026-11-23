@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, extname, isAbsolute } from "node:path";
 import {
   IMAGE_SCOPES,
@@ -51,21 +50,10 @@ export async function loadImages(
       return { error: `Slack shows png, jpg or gif images only: ${name}.` };
     let bytes: Uint8Array;
     try {
-      if (readSessionImage) {
-        bytes = await readSessionImage(path);
-        if (bytes.byteLength > IMAGE_LIMITS.bytes)
-          return { error: `Image over 5 MB: ${name}.` };
-      } else {
-        // Checks apply to the file actually read, not a name or a symlink.
-        const real = await realpath(path);
-        if (!TYPES.has(extname(real).toLowerCase()))
-          return { error: `Slack shows png, jpg or gif images only: ${name}.` };
-        const info = await stat(real);
-        if (!info.isFile()) return { error: `Not a file: ${name}.` };
-        if (info.size > IMAGE_LIMITS.bytes)
-          return { error: `Image over 5 MB: ${name}.` };
-        bytes = new Uint8Array(await readFile(real));
-      }
+      if (!readSessionImage) throw new Error("Image reader unavailable.");
+      bytes = await readSessionImage(path);
+      if (bytes.byteLength > IMAGE_LIMITS.bytes)
+        return { error: `Image over 5 MB: ${name}.` };
     } catch {
       return { error: `Can't read image: ${name}.` };
     }

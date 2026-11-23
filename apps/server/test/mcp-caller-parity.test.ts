@@ -15,7 +15,6 @@ import {
   createSessionSupervisor,
   runnerStorageKey,
 } from "../src/agents/remote/session-supervisor.js";
-import { readSessionFile } from "../src/files/session-file.js";
 import { inspectCheckout } from "../src/agents/checkout-inspection.js";
 import { REPO_TOOL_MANIFEST_PATH } from "../src/shared/mcp/repo-tools.js";
 import baseline from "./fixtures/mcp-caller-parity-baseline.json";
@@ -135,7 +134,9 @@ const ctx = useInjectApp({
             async (kind, dir, name) => {
               if (kind !== "collect")
                 throw new Error("Unexpected file delivery");
-              return (await readSessionFile(dir, name)).toString("base64");
+              return (
+                await readFile(dir ? path.join(dir, name) : name)
+              ).toString("base64");
             }
           );
       }

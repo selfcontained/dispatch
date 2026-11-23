@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 /*
  * One scenario set for every implementation of the contract. A scenario talks
  * to a `Runner` only; the lane supplies the runner and a session whose
@@ -92,6 +93,26 @@ async function guarded(
 }
 
 const written: Scenario[] = [
+  {
+    id: "files.get/bytes",
+    op: "files.get",
+    async run({ runner, session, seed }) {
+      const path = "conformance/attachment.txt";
+      const contents = "file contents ✓\n";
+      await seed(path, contents);
+      const file = await runner.call("files.get", { session, path });
+      expect(file.name === "attachment.txt", "Wrong file name.");
+      expect(file.size === Buffer.byteLength(contents), "Wrong file size.");
+      expect(
+        file.digest === createHash("sha256").update(contents).digest("hex"),
+        "Wrong digest."
+      );
+      expect(
+        file.blob === Buffer.from(contents).toString("base64"),
+        "Wrong file bytes."
+      );
+    },
+  },
   {
     id: "runner.describe/success",
     op: "runner.describe",

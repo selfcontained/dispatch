@@ -126,7 +126,6 @@ import {
   isCheckoutPath,
   isSessionCheckout,
   remotePlacement,
-  isSessionFileData,
   isSessionFilePath,
   type RunnerRepository,
   type LaunchProgress,
@@ -975,16 +974,8 @@ export class AgentManager {
     if (!placement) {
       return this.localRunner.collectSessionFile(agent.id, filePath);
     }
-    if (!this.remote || !isSessionFilePath(filePath))
-      throw new AgentError("Invalid runner session file path.", 400);
-    const { value } = await this.remote.requestSession(placement, {
-      agentId: agent.id,
-      kind: "sessionFile",
-      operation: { kind: "collect", path: filePath },
-    });
-    if (!isSessionFileData(value))
-      throw new Error("Invalid runner file response.");
-    return Buffer.from(value, "base64");
+    if (!this.remote) throw new Error("Runner session is unavailable.");
+    return this.remote.getFile(placement, agent.id, filePath);
   }
 
   private async deliverSessionFile(

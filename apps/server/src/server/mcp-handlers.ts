@@ -225,11 +225,9 @@ async function handleSendNotify(
 ): Promise<NotifyResult> {
   const agent = await deps.agentManager.getAgent(agentId);
   if (!agent) throw new Error("Agent not found.");
-  if (remotePlacement(agent.cwd))
-    return deps.slackNotifier.sendNotification(agent, input, (filePath) =>
-      deps.agentManager.collectSessionFile(agent, filePath)
-    );
-  return deps.slackNotifier.sendNotification(agent, input);
+  return deps.slackNotifier.sendNotification(agent, input, (filePath) =>
+    deps.agentManager.collectSessionFile(agent, filePath)
+  );
 }
 
 type ReadableOwner = {
