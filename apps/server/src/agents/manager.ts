@@ -3359,12 +3359,19 @@ export class AgentManager {
         { ...preparation, session },
         { onEvent }
       ));
+    // The checkout's folder on its runner, shown as a local worktree's is.
     if (prepared.worktree)
       await this.pool.query(
         `UPDATE agents SET worktree_branch = $2,
-          base_branch = COALESCE(base_branch, $3), updated_at = NOW()
+          base_branch = COALESCE(base_branch, $3), worktree_path = $4,
+          updated_at = NOW()
          WHERE id = $1 AND deleted_at IS NULL`,
-        [agent.id, prepared.worktree.branch, prepared.worktree.base]
+        [
+          agent.id,
+          prepared.worktree.branch,
+          prepared.worktree.base,
+          displayPath(prepared.worktree.path),
+        ]
       );
   }
 

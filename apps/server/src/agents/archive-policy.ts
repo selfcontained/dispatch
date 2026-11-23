@@ -295,7 +295,8 @@ export function runnerArchiveExecutor(
             agent.id,
             observation.borrowers,
             agent.cwd,
-            agent.worktreePath,
+            // Shown on the row only: this legacy rule (N35) is decided at T40.
+            null,
             agent.worktreeBranch,
           ]
         );
