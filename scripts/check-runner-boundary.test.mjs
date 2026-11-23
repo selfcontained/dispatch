@@ -246,6 +246,61 @@ test("the P7 runner release restriction is recorded only with the archive dialog
   );
 });
 
+test("T09 records its in-process read fallback once, beside the adapter delegation", () => {
+  const delegation = {
+    file: app + "runners/local.ts",
+    kind: "R3 local adapter delegation",
+    detail: "checkout.exec and manifest read",
+    task: "L3",
+    count: 1,
+  };
+  const fallback = {
+    file: app + "runners/local.ts",
+    kind: "R3 local adapter delegation",
+    detail: "checkout reads in process without a current child binding",
+    task: "T18",
+    count: 1,
+  };
+  assert.deepEqual(compareHistory([delegation], [delegation, fallback]), []);
+  assert.equal(compareHistory([], [fallback]).length, 1);
+  assert.equal(
+    compareHistory([delegation], [delegation, { ...fallback, count: 2 }])
+      .length,
+    1
+  );
+  assert.deepEqual(
+    scanSource(
+      app + "runners/local.ts",
+      'import { checkoutWorkload } from "../agents/checkout-worker.js";'
+    ).map(({ kind, detail, task }) => [kind, detail, task]),
+    [["R3 local adapter delegation", fallback.detail, "T18"]]
+  );
+});
+
+test("T09's worker entry replaces main's checkout subcommand imports only as they go", () => {
+  const entry = (module, count) => ({
+    file: app + "main.ts",
+    kind: "R2 host import",
+    detail: app + "agents/" + module,
+    task: "T04",
+    count,
+  });
+  const before = [entry("checkout-inspection", 2), entry("checkout-watch", 1)];
+  assert.deepEqual(compareHistory(before, [entry("checkout-worker", 2)]), []);
+  assert.equal(
+    compareHistory(before, [entry("checkout-worker", 3)]).length,
+    1
+  );
+  assert.equal(
+    compareHistory(before, [
+      entry("checkout-inspection", 2),
+      entry("checkout-worker", 1),
+    ]).length,
+    1
+  );
+  assert.equal(compareHistory([], [entry("checkout-worker", 1)]).length, 1);
+});
+
 test("CI rejects an intermediate addition even when the final baseline shrinks", () => {
   const cwd = mkdtempSync(join(tmpdir(), "runner-boundary-history-"));
   const git = (...args) =>
