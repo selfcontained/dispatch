@@ -1,6 +1,6 @@
 ---
 name: Agent Runtime Owner
-description: Agent launch, worktrees, ACP engine processes, restart, cancellation, and cleanup.
+description: Agent launch, worktrees, ACP engine processes, runner protocol and execution, restart, cancellation, and cleanup.
 type: review
 ---
 

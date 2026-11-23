@@ -1,6 +1,6 @@
 ---
 name: Authentication and Local Trust Owner
-description: Session authentication, browser origin protection, scoped credentials, and local TLS trust boundaries.
+description: Session authentication, browser origin protection, scoped credentials, runner enrollment, and TLS trust boundaries.
 type: review
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: Release and Update Owner
-description: Release artifacts, update channels, migration compatibility, and recovery.
+description: Release artifacts, runner signing and installation, update channels, migration compatibility, and recovery.
 type: review
 ---
 
