@@ -3820,6 +3820,37 @@ describe("AgentManager", () => {
       expect(lost!.lastError).toContain("not running when Dispatch restarted");
     });
 
+    it("keeps restoring the other agents when one agent's runner answers with an error", async () => {
+      const broken = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      const alive = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      const gone = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      runtime.attach.mockImplementation(async (id) => {
+        if (id === broken.id) throw new Error("Unsupported operation");
+        return id === alive.id;
+      });
+      runtime.isAlive.mockImplementation(async (id) => id !== gone.id);
+
+      const result = await manager.restoreRunningAgents();
+
+      expect(result).toEqual({
+        attached: [alive.id],
+        lost: [gone.id],
+        resumes: [],
+      });
+      // Unknown, not exited: left for the reconciler to check again.
+      expect((await manager.getAgent(broken.id))!.status).toBe("running");
+      expect((await manager.getAgent(gone.id))!.status).toBe("stopped");
+    });
+
     it("stops a running row when its native host PID belongs to another process", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",

@@ -101,6 +101,31 @@ describe("PostgreSQL logical recovery (real isolated PostgreSQL)", () => {
     }
   }
 
+  /**
+   * `client.end()` resolves before the server has dropped the backend, so a
+   * recovery step right after `sourceQuery` can still see it. Observe
+   * readiness from the admin database.
+   */
+  async function sourceSessionsGone() {
+    const admin = new pg.Client({
+      connectionString: process.env.TEST_DATABASE_URL,
+    });
+    try {
+      await admin.connect();
+      await expect
+        .poll(async () => {
+          const { rows } = await admin.query(
+            "SELECT pid FROM pg_stat_activity WHERE datname = $1",
+            [policy.database]
+          );
+          return rows;
+        })
+        .toEqual([]);
+    } finally {
+      await admin.end();
+    }
+  }
+
   beforeAll(async () => {
     if (!process.env.TEST_DATABASE_URL)
       throw new Error("Run via the isolated server-test script");
@@ -167,24 +192,8 @@ describe("PostgreSQL logical recovery (real isolated PostgreSQL)", () => {
   });
   it("creates a private custom archive and verifies an actual disposable restore", async () => {
     // The previous test closed its client, but the server may still be
-    // processing that disconnect. Observe readiness from the admin database.
-    const admin = new pg.Client({
-      connectionString: process.env.TEST_DATABASE_URL,
-    });
-    try {
-      await admin.connect();
-      await expect
-        .poll(async () => {
-          const { rows } = await admin.query(
-            "SELECT pid FROM pg_stat_activity WHERE datname = $1",
-            [policy.database]
-          );
-          return rows;
-        })
-        .toEqual([]);
-    } finally {
-      await admin.end();
-    }
+    // processing that disconnect.
+    await sourceSessionsGone();
     metadata = await createPostgresBackup({
       databaseUrl,
       policy,
@@ -221,6 +230,7 @@ describe("PostgreSQL logical recovery (real isolated PostgreSQL)", () => {
     await sourceQuery(
       "UPDATE settings SET value='failed-new-version' WHERE key='recovery-test'; ALTER TABLE agents ADD COLUMN failed_migration text"
     );
+    await sourceSessionsGone();
     const result = await restorePostgresBackup({
       databaseUrl,
       policy,
