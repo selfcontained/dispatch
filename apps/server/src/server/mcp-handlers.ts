@@ -67,7 +67,7 @@ import {
   updatePersonality,
 } from "../db/personalities.js";
 import { errorMessage } from "../shared/lib/error-message.js";
-import { getWorktreeLocation } from "../worktree-location-settings.js";
+import { getWorktreePlacement } from "../worktree-location-settings.js";
 
 function buildLaunchedAgentInitialPrompt(
   launcherAgentId: string,
@@ -472,7 +472,7 @@ async function handleLaunchAgent(
 
   // Placement is an instance-wide setting the web UI already honours; without
   // this the MCP path silently forced "sibling".
-  const worktreeLocation = await getWorktreeLocation(deps.pool);
+  const worktreePlacement = await getWorktreePlacement(deps.pool);
 
   const templateModel =
     template?.agentType === agentType ? template.model : undefined;
@@ -525,7 +525,7 @@ async function handleLaunchAgent(
     createNewBranch,
     baseBranch,
     worktreeBranch,
-    worktreeLocation,
+    ...worktreePlacement,
     ...(child ? { parentAgentId: agentId } : {}),
     launchedByAgentId: agentId,
     initialPrompt: buildLaunchedAgentInitialPrompt(agentId, prompt, child),

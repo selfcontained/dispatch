@@ -1,3 +1,7 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 /**
  * Schema-validation tests for API routes that accept untyped JSON bodies.
  *
@@ -144,6 +148,54 @@ describe("POST /api/v1/agents/settings", () => {
       payload: { worktreeLocation: "invalid" },
     });
     expect(res.statusCode).toBe(400);
+  });
+
+  it("refuses a worktree folder that does not exist", async () => {
+    const missing = path.join(os.tmpdir(), `absent-drive-${Date.now()}`);
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/agents/settings",
+      payload: { worktreeLocation: "directory", worktreeDirectory: missing },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("does not exist");
+    const settings = await ctx.app.inject({
+      method: "GET",
+      url: "/api/v1/agents/settings",
+    });
+    expect(settings.json().worktreeLocation).not.toBe("directory");
+  });
+
+  it("saves an existing worktree folder and keeps it when switching away", async () => {
+    const folder = await mkdtemp(path.join(os.tmpdir(), "worktree-folder-"));
+    try {
+      const res = await ctx.app.inject({
+        method: "POST",
+        url: "/api/v1/agents/settings",
+        payload: { worktreeLocation: "directory", worktreeDirectory: folder },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({
+        worktreeLocation: "directory",
+        worktreeDirectory: folder,
+      });
+      const back = await ctx.app.inject({
+        method: "POST",
+        url: "/api/v1/agents/settings",
+        payload: { worktreeLocation: "sibling" },
+      });
+      expect(back.json()).toMatchObject({
+        worktreeLocation: "sibling",
+        worktreeDirectory: folder,
+      });
+    } finally {
+      await ctx.app.inject({
+        method: "POST",
+        url: "/api/v1/agents/settings",
+        payload: { worktreeLocation: "sibling" },
+      });
+      await rm(folder, { recursive: true, force: true });
+    }
   });
 });
 

@@ -42,9 +42,12 @@ import {
   withEngineVersions,
 } from "../agents/engine-availability.js";
 import {
-  getWorktreeLocation,
+  assertWorktreeDirectoryUsable,
+  getWorktreePlacement,
   isWorktreeLocation,
+  WORKTREE_DIRECTORY_KEY,
   WORKTREE_LOCATION_KEY,
+  WorktreeDirectoryError,
 } from "../worktree-location-settings.js";
 
 import {
@@ -361,28 +364,60 @@ export async function registerSystemRoutes(
     }
   });
 
-  app.get("/api/v1/agents/settings", async () => {
-    const worktreeLocation = await getWorktreeLocation(deps.pool);
+  const readAgentSettings = async () => {
+    const { worktreeLocation } = await getWorktreePlacement(deps.pool);
     const instanceName = (await getSetting(deps.pool, INSTANCE_NAME_KEY)) ?? "";
+    // The stored directory is returned even while another location is chosen,
+    // so switching back to "directory" offers the folder used last time.
+    const worktreeDirectory =
+      (await getSetting(deps.pool, WORKTREE_DIRECTORY_KEY)) ?? "";
     return {
       worktreeLocation,
+      worktreeDirectory,
       iconColor: deps.getCachedIconColor(),
       instanceName,
     };
-  });
+  };
+
+  app.get("/api/v1/agents/settings", readAgentSettings);
 
   app.post("/api/v1/agents/settings", async (request, reply) => {
     const body = request.body as {
       worktreeLocation?: unknown;
+      worktreeDirectory?: unknown;
       iconColor?: unknown;
       instanceName?: unknown;
     };
 
     if (body.worktreeLocation !== undefined) {
       if (!isWorktreeLocation(body.worktreeLocation)) {
+        return reply.code(400).send({
+          error: 'worktreeLocation must be "sibling", "nested" or "directory".',
+        });
+      }
+      if (
+        body.worktreeDirectory !== undefined &&
+        typeof body.worktreeDirectory !== "string"
+      ) {
         return reply
           .code(400)
-          .send({ error: 'worktreeLocation must be "sibling" or "nested".' });
+          .send({ error: "worktreeDirectory must be a string." });
+      }
+      if (body.worktreeLocation === "directory") {
+        const requested =
+          (body.worktreeDirectory as string | undefined) ??
+          (await getSetting(deps.pool, WORKTREE_DIRECTORY_KEY)) ??
+          "";
+        let directory: string;
+        try {
+          directory = await assertWorktreeDirectoryUsable(requested);
+        } catch (err) {
+          if (err instanceof WorktreeDirectoryError) {
+            return reply.code(400).send({ error: err.message });
+          }
+          throw err;
+        }
+        await setSetting(deps.pool, WORKTREE_DIRECTORY_KEY, directory);
       }
       await setSetting(deps.pool, WORKTREE_LOCATION_KEY, body.worktreeLocation);
     }
@@ -414,13 +449,7 @@ export async function registerSystemRoutes(
       }
     }
 
-    const worktreeLocation = await getWorktreeLocation(deps.pool);
-    const instanceName = (await getSetting(deps.pool, INSTANCE_NAME_KEY)) ?? "";
-    return {
-      worktreeLocation,
-      iconColor: deps.getCachedIconColor(),
-      instanceName,
-    };
+    return readAgentSettings();
   });
 
   const notificationLinkOrigins = () =>

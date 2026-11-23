@@ -7,10 +7,17 @@ import { RowButton } from "@/components/ui/row-button";
 import { SettingsGroup } from "@/components/app/settings-layout";
 import { SettingRow } from "@/components/ui/setting-row";
 import { useAutoSave } from "@/hooks/use-auto-save";
+import { useTextSetting } from "@/hooks/use-text-setting";
+import { Input } from "@/components/ui/input";
 import { AsyncBoundary } from "@/components/ui/async-boundary";
 import { LoadingSkeleton } from "@/components/ui/skeleton";
 
-type WorktreeLocation = "sibling" | "nested";
+type WorktreeLocation = "sibling" | "nested" | "directory";
+
+type AgentSettings = {
+  worktreeLocation: WorktreeLocation;
+  worktreeDirectory?: string;
+};
 
 const OPTIONS: Array<{
   value: WorktreeLocation;
@@ -29,21 +36,32 @@ const OPTIONS: Array<{
     description:
       "Worktrees are created inside the repo in .dispatch/worktrees/",
   },
+  {
+    value: "directory",
+    label: "Another folder",
+    description:
+      "Worktrees are created in a folder you choose, such as one on an external drive. Launches fail while that folder is missing.",
+  },
 ];
 
 export function WorktreeLocationSettings(): JSX.Element {
   const [worktreeLocation, setWorktreeLocation] =
     useState<WorktreeLocation>("sibling");
+  const [worktreeDirectory, setWorktreeDirectory] = useState("");
+  // "Another folder" picked before any folder was saved: show the field and
+  // wait for a path rather than saving a placement that cannot work.
+  const [pickingDirectory, setPickingDirectory] = useState(false);
   const [loadError, setLoadError] = useState<unknown>();
   const [loaded, setLoaded] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    void api<{ worktreeLocation: WorktreeLocation }>("/api/v1/agents/settings")
+    void api<AgentSettings>("/api/v1/agents/settings")
       .then((data) => {
         if (cancelled) return;
         setWorktreeLocation(data.worktreeLocation);
+        setWorktreeDirectory(data.worktreeDirectory ?? "");
         setLoadError(undefined);
         setLoaded(true);
       })
@@ -57,17 +75,37 @@ export function WorktreeLocationSettings(): JSX.Element {
 
   const autoSave = useAutoSave<WorktreeLocation, "location">(
     async (_, value) => {
-      await api<{ worktreeLocation: WorktreeLocation }>(
-        "/api/v1/agents/settings",
-        {
-          method: "POST",
-          body: JSON.stringify({ worktreeLocation: value }),
-        }
-      );
-      setWorktreeLocation(value);
+      const data = await api<AgentSettings>("/api/v1/agents/settings", {
+        method: "POST",
+        body: JSON.stringify({ worktreeLocation: value }),
+      });
+      setWorktreeLocation(data.worktreeLocation);
+      setPickingDirectory(false);
     }
   );
-  const shown = autoSave.value("location", worktreeLocation);
+  const directorySave = useAutoSave<string, "directory">(
+    async (_, directory) => {
+      const data = await api<AgentSettings>("/api/v1/agents/settings", {
+        method: "POST",
+        body: JSON.stringify({
+          worktreeLocation: "directory",
+          worktreeDirectory: directory,
+        }),
+      });
+      setWorktreeLocation(data.worktreeLocation);
+      setWorktreeDirectory(data.worktreeDirectory ?? directory);
+      setPickingDirectory(false);
+    }
+  );
+  const directoryField = useTextSetting({
+    name: "directory",
+    saved: worktreeDirectory,
+    autoSave: directorySave,
+    validate: (value) =>
+      value.startsWith("/") ? undefined : "Enter an absolute path.",
+  });
+  const savedShown = autoSave.value("location", worktreeLocation);
+  const shown = pickingDirectory ? "directory" : savedShown;
 
   return (
     <SettingsGroup title="Worktrees">
@@ -101,8 +139,13 @@ export function WorktreeLocationSettings(): JSX.Element {
                   selected={shown === opt.value}
                   aria-pressed={shown === opt.value}
                   onClick={() => {
-                    if (opt.value !== shown)
-                      void autoSave.save("location", opt.value);
+                    if (opt.value === shown) return;
+                    if (opt.value === "directory" && !worktreeDirectory) {
+                      setPickingDirectory(true);
+                      return;
+                    }
+                    setPickingDirectory(false);
+                    void autoSave.save("location", opt.value);
                   }}
                   className={cn(
                     "items-start gap-3 border p-3",
@@ -126,6 +169,25 @@ export function WorktreeLocationSettings(): JSX.Element {
           )}
         </AsyncBoundary>
       </SettingRow>
+      {loaded && shown === "directory" ? (
+        <SettingRow
+          id="worktree-directory"
+          layout="field"
+          label="Worktree folder"
+          description="An existing folder. New worktrees go in it as repo-branch folders; existing worktrees stay where they are."
+          status={directoryField.status}
+          error={directoryField.problem}
+        >
+          <Input
+            type="text"
+            {...directoryField.inputProps}
+            autoFocus={pickingDirectory}
+            spellCheck={false}
+            autoComplete="off"
+            placeholder="/Volumes/storage/Developer/Projects/worktrees"
+          />
+        </SettingRow>
+      ) : null}
     </SettingsGroup>
   );
 }

@@ -55,6 +55,9 @@ jobs:
       - name: Test owned command cleanup
         run: node --test scripts/run-owned.test.mjs
 
+      - name: Test builder cache retention
+        run: node --test scripts/prune-builder-caches.test.mjs
+
       - uses: pnpm/action-setup@v6
         with:
           version: 9.15.9

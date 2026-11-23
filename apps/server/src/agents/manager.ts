@@ -114,6 +114,11 @@ import type {
 } from "./types.js";
 import { StreamWriteThrottle } from "./stream-write-throttle.js";
 import * as telemetry from "./telemetry.js";
+import {
+  assertWorktreeDirectoryUsable,
+  WorktreeDirectoryError,
+  type WorktreeLocation,
+} from "../worktree-location-settings.js";
 
 export { AgentError } from "./errors.js";
 export type {
@@ -133,8 +138,6 @@ const ENGINE_LABELS: Record<AgentType, string> = {
   opencode: "OpenCode",
 };
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
-
-type WorktreeLocation = "sibling" | "nested";
 
 /** The question or form an attention event is about. */
 export type AttentionTarget = {
@@ -163,6 +166,8 @@ type CreateAgentInput = {
   worktreeBranch?: string;
   baseBranch?: string;
   worktreeLocation?: WorktreeLocation;
+  /** The folder for "directory" placement; required with it. */
+  worktreeDirectory?: string;
   persona?: string;
   /** Existing agents use workspace overrides; UI/templates/jobs use the catalog. */
   personaSource?: "catalog" | "workspace";
@@ -1762,6 +1767,24 @@ export class AgentManager {
           ".dispatch",
           "worktrees",
           worktreePathSlug(worktreeBranchName, { createNewBranch })
+        );
+      } else if (worktreeLocation === "directory") {
+        // No fallback: an absent drive fails the launch instead of filling
+        // the internal disk with a sibling worktree.
+        let directory: string;
+        try {
+          directory = await assertWorktreeDirectoryUsable(
+            input.worktreeDirectory ?? ""
+          );
+        } catch (err) {
+          if (err instanceof WorktreeDirectoryError) {
+            throw new AgentError(err.message, err.statusCode);
+          }
+          throw err;
+        }
+        worktreePathOverride = path.join(
+          directory,
+          `${path.basename(originalCwd)}-${worktreePathSlug(worktreeBranchName, { createNewBranch })}`
         );
       }
     }
