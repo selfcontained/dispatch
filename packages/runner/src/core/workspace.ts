@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 /*
  * Preparing a session's checkout from a directory (`workspace.prepare`,
  * `workspace.resume`), served by the core. The core decides the steps and
@@ -254,7 +255,8 @@ export function workspaceHandlers(
   store: Pick<BindingStore, "get" | "origin" | "bindPrepared" | "select">,
   port: WorkspacePort,
   /** Where cached clones live; the workload account must be able to write it. */
-  repositories = join(stateRoot, "repositories")
+  repositories = join(stateRoot, "repositories"),
+  receiptKey = (session: string) => session
 ): CallHandlers {
   const pending = new Map<string, Promise<unknown>>();
 
@@ -541,7 +543,7 @@ export function workspaceHandlers(
       });
     const sameCheckout = (r: Receipt) =>
       r.repository?.identity === identity &&
-      JSON.stringify(r.repository.checkout) === JSON.stringify(source.checkout);
+      isDeepStrictEqual(r.repository.checkout, source.checkout);
     const recorded = await readReceipt(dir);
     if (recorded) {
       if (!sameCheckout(recorded))
@@ -593,7 +595,7 @@ export function workspaceHandlers(
   return {
     async "workspace.prepare"(input: Req<"workspace.prepare">, context) {
       const session = sessionToWire(input.session);
-      const dir = sessionDir(stateRoot, session);
+      const dir = sessionDir(stateRoot, receiptKey(session));
       const emit = emitter(context);
       if ("repository" in input.source) {
         const source = input.source;
@@ -692,7 +694,7 @@ export function workspaceHandlers(
 
     async "workspace.resume"(input: Req<"workspace.resume">, context) {
       const session = sessionToWire(input.session);
-      const dir = sessionDir(stateRoot, session);
+      const dir = sessionDir(stateRoot, receiptKey(session));
       const emit = emitter(context);
       return serialize(session, async () => {
         const receipt = await readReceipt(dir);

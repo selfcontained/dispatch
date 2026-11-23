@@ -29,6 +29,12 @@ export type LaneFixture = {
   seed(path: string, content: string): Promise<void>;
   /** Older wire command guards also bind the digest to the resolved root. */
   readGuard?(session: SessionHandle, path: string): Promise<string>;
+  workspace?: {
+    runner: Runner;
+    repository: string;
+    interrupt(session: SessionHandle): Promise<void>;
+    proveIsolation(session: SessionHandle, path: string): Promise<void>;
+  };
 };
 
 export type Scenario = {
@@ -656,14 +662,143 @@ const putFile: Scenario = {
   },
 };
 
+const workspacePreparation: Scenario[] = [
+  {
+    op: "workspace.prepare",
+    id: "workspace.prepare/repository",
+    async run({ runner: configured, workspace }) {
+      expect(workspace, "Missing managed runner fixture.");
+      const { runner, repository } = workspace;
+      const session = sessionFromWire("prepare-new");
+      await rejectsWith(
+        configured.call("workspace.resume", { session }),
+        "unsupported"
+      );
+      const request = {
+        session,
+        source: { repository, checkout: { kind: "new", branch: "feature" } },
+        copyIgnored: [],
+        installDependencies: true,
+      } satisfies Req<"workspace.prepare">;
+      const phases: string[] = [];
+      let installed = false;
+      const result = await runner.call("workspace.prepare", request, {
+        onEvent: (event) => {
+          phases.push(event.phase);
+          if (event.phase === "dependencies" && event.status === "done")
+            installed = event.detail === "npm install completed";
+        },
+      });
+      expect(
+        result.branch === "feature" && result.worktree?.base === "main",
+        "Wrong branch or base."
+      );
+      expect(
+        phases.includes("copy") && installed && phases.at(-1) === "ready",
+        "Missing preparation progress."
+      );
+      phases.length = 0;
+      const repeat = await runner.call("workspace.prepare", request, {
+        onEvent: (event) => {
+          phases.push(event.phase);
+        },
+      });
+      expect(
+        repeat.path === result.path && phases.join() === "ready",
+        "Repeat did not reuse its receipt."
+      );
+      await rejectsWith(
+        runner.call("workspace.prepare", {
+          ...request,
+          source: { repository, checkout: { kind: "branch", branch: "main" } },
+        }),
+        "conflict"
+      );
+      await workspace.proveIsolation(session, displayPath(result.path));
+      const reused = await runner.call("workspace.prepare", {
+        ...request,
+        session: sessionFromWire("prepare-reuse"),
+        source: { repository, checkout: { kind: "branch", branch: "feature" } },
+        installDependencies: false,
+      });
+      expect(
+        reused.branch === "feature" && reused.path !== result.path,
+        "Removal left the branch registered to the old worktree."
+      );
+    },
+  },
+  {
+    op: "workspace.resume",
+    id: "workspace.resume/interrupted",
+    async run({ workspace }) {
+      expect(workspace, "Missing managed runner fixture.");
+      const { runner, repository } = workspace;
+      const session = sessionFromWire("prepare-existing");
+      expect(
+        (await runner.call("workspace.resume", { session })) === null,
+        "An unknown session unexpectedly resumed."
+      );
+      const result = await runner.call("workspace.prepare", {
+        session,
+        source: { repository, checkout: { kind: "branch", branch: "main" } },
+        copyIgnored: [],
+        installDependencies: false,
+      });
+      expect(result.branch === "main", "Wrong existing branch.");
+      await workspace.interrupt(session);
+      const phases: string[] = [];
+      const resumed = await runner.call(
+        "workspace.resume",
+        { session },
+        {
+          onEvent: (event) => {
+            phases.push(event.phase);
+          },
+        }
+      );
+      expect(
+        resumed?.path === result.path && resumed.branch === "main",
+        "Resume did not recover the checkout."
+      );
+      expect(
+        phases.includes("copy") && phases.at(-1) === "ready",
+        "Resume did not finish its recorded worktree."
+      );
+
+      // A session launched by the original wire command still uses its old binding.
+      const legacy = sessionFromWire("legacy-scratch");
+      await runner.call("session.launch", launchRequest(legacy));
+      try {
+        const legacyBinding = await runner.call("workspace.resume", {
+          session: legacy,
+        });
+        expect(
+          legacyBinding?.worktree === undefined && !!legacyBinding?.path,
+          "Legacy binding was replaced."
+        );
+        expect(
+          (await runner.call("session.alive", { session: legacy })).state ===
+            "live",
+          "Legacy host stopped during resume."
+        );
+      } finally {
+        await runner.call("session.stop", { session: legacy, force: true });
+        await runner.call("session.discard", { session: legacy });
+      }
+    },
+  },
+];
+
 export const remoteScenarios: readonly Scenario[] = [
   ...checkoutReads,
+  ...workspacePreparation,
   interactiveTerminal,
   putFile,
   ...scenarios.filter(
     ({ op }) =>
       op !== interactiveTerminal.op &&
       op !== putFile.op &&
-      !checkoutReads.some((scenario) => scenario.op === op)
+      !checkoutReads.some((scenario) => scenario.op === op) &&
+      !workspacePreparation.some((scenario) => scenario.op === op)
   ),
 ];

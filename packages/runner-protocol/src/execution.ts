@@ -44,6 +44,8 @@ import {
 
 import { isTerminalControl } from "./terminal.js";
 
+import { operations, type Req } from "./contract/index.js";
+
 export const RUNNER_WIRE_VERSION = 1;
 
 export type RunnerEngine = "claude" | "codex" | "opencode";
@@ -116,6 +118,12 @@ export type SessionOperation =
         | { kind: "select"; path: string | null }
         | { kind: "context"; checkout?: "current" | "launch" | "moved" };
     }
+  | {
+      agentId: string;
+      kind: "workspacePrepare";
+      operation: Omit<Req<"workspace.prepare">, "session">;
+    }
+  | { agentId: string; kind: "workspaceResume" }
   | { agentId: string; kind: "checkoutCommand"; operation: CheckoutCommand }
   | { agentId: string; kind: "checkoutRelease"; operation: CheckoutRelease }
   | { agentId: string; kind: "repo" };
@@ -155,6 +163,7 @@ export type ReadyFrame = {
   checkoutViews?: true;
   sharedWorktree?: true;
   workspacePreparation?: true;
+  workspacePrepare?: true;
   sessionCheckout?: true;
   checkoutRelease?: true;
   sessionFiles?: true;
@@ -191,6 +200,7 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     type: "ready",
     version: RUNNER_WIRE_VERSION,
     workspaces: frame.workspaces,
+    ...(frame.workspacePrepare === true && { workspacePrepare: true }),
     ...(frame.checkoutViews === true && { checkoutViews: true }),
     ...(frame.defaultBranchFiles === true && { defaultBranchFiles: true }),
     ...(frame.checkoutCommands === true && { checkoutCommands: true }),
@@ -243,8 +253,8 @@ export type ResultFrame = {
 };
 
 export type LaunchProgress =
-  | { phase: "workspace" | "dependencies" | "ready" }
-  | { phase: "dependencies"; status: "done" | "failed" };
+  | { phase: "workspace" | "copy" | "dependencies" | "ready" }
+  | { phase: "dependencies"; status: "done" | "failed"; detail?: string };
 
 export type LaunchProgressFrame = {
   type: "launch_progress";
@@ -262,12 +272,23 @@ export function parseLaunchProgress(
     !isRecord(value.progress)
   )
     return null;
-  const { phase, status } = value.progress;
+  const { phase, status, detail } = value.progress;
   if (phase === "dependencies" && (status === "done" || status === "failed"))
-    return { type: value.type, id: value.id, progress: { phase, status } };
+    return {
+      type: value.type,
+      id: value.id,
+      progress: {
+        phase,
+        status,
+        ...(typeof detail === "string" && { detail }),
+      },
+    };
   if (
     status === undefined &&
-    (phase === "workspace" || phase === "dependencies" || phase === "ready")
+    (phase === "workspace" ||
+      phase === "copy" ||
+      phase === "dependencies" ||
+      phase === "ready")
   )
     return { type: value.type, id: value.id, progress: { phase } };
   return null;
@@ -407,6 +428,16 @@ function isCommand(value: unknown): value is Command {
         (value.launch.useWorktreeOf === undefined ||
           value.agentId === value.launch.agentId)
       );
+    case "workspacePrepare":
+      return (
+        isRecord(value.operation) &&
+        operations["workspace.prepare"].request.check({
+          ...value.operation,
+          session: value.agentId,
+        })
+      );
+    case "workspaceResume":
+      return true;
     case "sessionFile":
       return isSessionFileOperation(value.operation);
     case "checkoutRead":

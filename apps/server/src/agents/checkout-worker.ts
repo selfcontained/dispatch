@@ -2,6 +2,7 @@ import { json } from "node:stream/consumers";
 import {
   isCheckoutReadRequest,
   type CheckoutReadName,
+  validBranch,
 } from "@dispatch/runner-protocol";
 /*
  * The checkout worker: the workload side of checkout reads and commands, as
@@ -46,6 +47,7 @@ import {
   lstat,
   mkdir,
   realpath,
+  readdir,
   rename,
   rm,
   stat,
@@ -454,6 +456,30 @@ export const WORKER_ALIASES: Record<string, string> = {
  */
 export async function runCheckoutWorker(argv: string[]): Promise<void> {
   const [op, cwd, flag] = argv;
+  if (op && Object.hasOwn(workspaceSteps, op)) {
+    const args: unknown = await json(process.stdin);
+    if (!Array.isArray(args)) throw new Error("Invalid workspace step.");
+    const step = workspaceSteps[op as keyof typeof workspaceSteps] as (
+      ...input: unknown[]
+    ) => Promise<unknown>;
+    let reply;
+    try {
+      reply = { data: (await step(...args)) ?? null };
+    } catch (error) {
+      reply = {
+        error:
+          error instanceof RunnerCallError
+            ? {
+                code: error.code,
+                message: error.message,
+                details: error.details,
+              }
+            : { code: "failed", message: "Workspace step failed." },
+      };
+    }
+    process.stdout.write(JSON.stringify(reply));
+    return;
+  }
   if (op === "read") {
     const input: unknown = await json(process.stdin);
     if (!isCheckoutReadRequest(input, "worker") || !cwd)
@@ -797,4 +823,131 @@ export const workspaceWorkload = {
     return probed.status === "error" ? ("error" as const) : probed.value;
   },
   repository: repositoryCache,
+};
+
+/** Worktrees in a managed checkout use the empty directory the supervisor
+ * created. Its parent stays root-owned throughout preparation. */
+async function planManagedWorktree(spec: WorktreeSpec & { at: string }) {
+  if (!validBranch(spec.branch) || !validBranch(spec.base))
+    throw new RunnerCallError({
+      code: "invalid",
+      message: "Invalid checkout branch.",
+    });
+  const entries = await readdir(spec.at);
+  return { path: spec.at, branch: spec.branch, taken: entries.length !== 0 };
+}
+
+async function createManagedWorktree(spec: WorktreeSpec & { at: string }) {
+  const { path: at, branch, taken } = await planManagedWorktree(spec);
+  if (taken) throw cacheConflict("The session checkout is already in use.");
+  const git = (...args: string[]) =>
+    repositoryGit(["-C", spec.directory, ...args]);
+  if (spec.create) {
+    const remoteBranch = await repositoryGit(
+      [
+        "-C",
+        spec.directory,
+        "show-ref",
+        "--verify",
+        "--quiet",
+        `refs/remotes/origin/${branch}`,
+      ],
+      [0, 1]
+    );
+    if (remoteBranch.exitCode === 0)
+      throw cacheConflict("The new session branch already exists.");
+    const base = `refs/remotes/origin/${spec.base}`;
+    await git(
+      "worktree",
+      "add",
+      "--no-track",
+      "-b",
+      branch,
+      "--",
+      at,
+      base
+    ).catch(() => {
+      throw cacheConflict("Could not create the requested session branch.");
+    });
+  } else {
+    await git("worktree", "add", "--", at, branch).catch(() => {
+      throw cacheConflict("Could not check out the requested session branch.");
+    });
+  }
+  return { path: at, branch };
+}
+
+async function madeForUs(at: string, source: string, branch: string) {
+  if (!(await lstat(path.join(at, ".git")).catch(() => null))?.isFile())
+    return false;
+  try {
+    const [root, mine, theirs, head] = await Promise.all([
+      repositoryGit(["-C", at, "rev-parse", "--show-toplevel"]),
+      repositoryGit([
+        "-C",
+        at,
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-common-dir",
+      ]),
+      repositoryGit([
+        "-C",
+        source,
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-common-dir",
+      ]),
+      repositoryGit(["-C", at, "symbolic-ref", "--short", "HEAD"]),
+    ]);
+    return (
+      root.stdout === at &&
+      mine.stdout === theirs.stdout &&
+      head.stdout === branch
+    );
+  } catch {
+    return false;
+  }
+}
+
+const workspaceSteps = {
+  "workspace.canonical": workspaceWorkload.canonical,
+  "workspace.locate": workspaceWorkload.locate,
+  "workspace.identity": workspaceWorkload.identity,
+  "workspace.plan": planManagedWorktree,
+  "workspace.create": createManagedWorktree,
+  "workspace.madeForUs": madeForUs,
+  "workspace.copyIgnored": workspaceWorkload.copyIgnored,
+  "workspace.git": workspaceWorkload.git,
+  "workspace.cache": repositoryCache.cache,
+  "workspace.pullRequest": repositoryCache.pullRequest,
+  async "workspace.forgetWorktree"(source: string, at: string) {
+    if (!(await isClone(source))) return;
+    const result = await repositoryGit([
+      "-C",
+      source,
+      "worktree",
+      "list",
+      "--porcelain",
+      "-z",
+    ]);
+    if (result.stdout.split("\0").includes(`worktree ${at}`))
+      await repositoryGit([
+        "-C",
+        source,
+        "worktree",
+        "remove",
+        "--force",
+        "--",
+        at,
+      ]);
+  },
+  async "workspace.installDependencies"(directory: string) {
+    const steps: Parameters<
+      Parameters<typeof workspaceWorkload.installDependencies>[1]
+    >[0][] = [];
+    await workspaceWorkload.installDependencies(directory, async (step) => {
+      steps.push(step);
+    });
+    return steps;
+  },
 };

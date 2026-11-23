@@ -20,11 +20,14 @@ import {
 import { createConnection } from "node:net";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { isDeepStrictEqual } from "node:util";
 import type { BuildIdentity } from "../build-identity.js";
 import { HOST_FILES, hostFile, type HostLaunch } from "../acp/host-protocol.js";
 import { observeBoundCheckout } from "../checkout-observation.js";
 import {
   displayPath,
+  RunnerCallError,
+  type Req,
   type Res,
   pathFromWire,
 } from "@dispatch/runner-protocol/contract";
@@ -107,6 +110,7 @@ type SupervisorOptions = {
   githubCredentialHelper?: () => Promise<string>;
   observeCheckout?: (cwd: string, scratch: boolean) => Promise<CheckoutState>;
   prepareDependencies?: (cwd: string) => Promise<boolean>;
+  removePreparedCheckout?: (session: string) => Promise<boolean>;
   /** False while the update fence holds process admission closed. */
   mayStartProcess?: () => boolean;
 };
@@ -675,6 +679,7 @@ export async function createSessionSupervisor(
 
   async function releaseCheckout(
     key: string,
+    agentId: string,
     workspace: string,
     expectedState: string | null
   ): Promise<CheckoutReleaseResult> {
@@ -723,7 +728,7 @@ export async function createSessionSupervisor(
         if ((await checkoutBorrowers(key)).length > 0) return "inUse";
         await writePrivateState(releaseFile(key), "removing");
       }
-      await discardManagedCheckout(key);
+      await discardManagedCheckout(key, agentId);
     }
     for (const file of [
       cwdFile(key),
@@ -737,22 +742,26 @@ export async function createSessionSupervisor(
     return "released";
   }
 
-  async function discardManagedCheckout(key: string) {
+  async function discardManagedCheckout(key: string, agentId: string) {
     if ((await checkoutBorrowers(key)).length > 0)
       throw new Error("Runner checkout is still in use by a borrower.");
-    const session = path.join(sessions, key);
-    const stored = await readOptional(repositoryFile(key));
-    const repository =
-      stored === null ? null : (JSON.parse(stored) as RunnerRepository | null);
-    // Remove the directory before unregistering it so the workload never
-    // regains write access to a protected checkout parent.
-    if (
-      repository &&
-      checkoutParentIsProtected(await lstat(session).catch(missingPath))
-    )
-      await removeGuestDirectory(path.join(session, "checkout"));
-    await removeGuestDirectory(session);
-    if (repository) await repositories.remove(session, repository);
+    if (!(await config.removePreparedCheckout?.(agentId))) {
+      const session = path.join(sessions, key);
+      const stored = await readOptional(repositoryFile(key));
+      const repository =
+        stored === null
+          ? null
+          : (JSON.parse(stored) as RunnerRepository | null);
+      // Remove the directory before unregistering it so the workload never
+      // regains write access to a protected checkout parent.
+      if (
+        repository &&
+        checkoutParentIsProtected(await lstat(session).catch(missingPath))
+      )
+        await removeGuestDirectory(path.join(session, "checkout"));
+      await removeGuestDirectory(session);
+      if (repository) await repositories.remove(session, repository);
+    }
     await rm(repositoryFile(key), { force: true });
     await rm(planFile(key), { force: true });
     await rm(dependenciesFile(key), { force: true });
@@ -1132,6 +1141,84 @@ export async function createSessionSupervisor(
   sweep.unref();
 
   return {
+    stateDirectory: storage,
+    withWorkspacePreparation<T>(
+      agentId: string,
+      preparing: boolean,
+      run: (
+        readLegacy: (
+          request?: Req<"workspace.prepare">
+        ) => Promise<Res<"workspace.resume">>
+      ) => Promise<T>
+    ): Promise<T | null> {
+      const key = runnerStorageKey(agentId);
+      return serialize(key, async () => {
+        if ((await readOptional(retireFile(key))) !== null) {
+          if (!preparing) return null;
+          throw new RunnerCallError({
+            code: "conflict",
+            message: "This runner session was discarded.",
+          });
+        }
+        return run(async (request) => {
+          const encoded = await readOptional(repositoryFile(key));
+          const stored =
+            encoded === null
+              ? null
+              : (JSON.parse(encoded) as RunnerRepository | null);
+          if (request) {
+            const source = request.source;
+            let matches = false;
+            if ("repository" in source && stored) {
+              try {
+                const requested = parseRepository({
+                  url: source.repository,
+                  checkout: source.checkout,
+                });
+                matches =
+                  requested.url === stored.url &&
+                  isDeepStrictEqual(
+                    requested.checkout,
+                    parseRepository(stored).checkout
+                  );
+              } catch {
+                // The legacy record only accepts its existing HTTPS repository.
+              }
+            }
+            if (!matches)
+              throw new RunnerCallError({
+                code: "conflict",
+                message:
+                  "This runner session is bound to a different checkout.",
+              });
+          }
+          if (
+            !(await bound(key, MANAGED_WORKSPACE)) ||
+            (await readOptional(planFile(key))) !== null
+          )
+            throw new RunnerCallError({
+              code: "conflict",
+              message:
+                "Continue this legacy preparation by retrying its original launch.",
+            });
+          const initial = await initialDirectory(key, MANAGED_WORKSPACE);
+          const current = await selectedDirectory(
+            key,
+            MANAGED_WORKSPACE,
+            initial
+          );
+          const description = await describeCheckout(current, initial);
+          return {
+            ...description,
+            path: pathFromWire(description.path),
+            repositoryRoot: description.repositoryRoot
+              ? pathFromWire(description.repositoryRoot)
+              : null,
+            checkoutRoot: pathFromWire(initial),
+          };
+        });
+      });
+    },
     async launch(
       command: LaunchCommand,
       cwd: string | undefined,
@@ -1254,7 +1341,7 @@ export async function createSessionSupervisor(
           throw new Error("The checkout binding changed; retry the request.");
         return operation.kind === "observe"
           ? observeRelease(key, workspace)
-          : releaseCheckout(key, workspace, operation.expectedState);
+          : releaseCheckout(key, agentId, workspace, operation.expectedState);
       });
     },
     async withCommandCheckout<T>(
@@ -1421,6 +1508,7 @@ export async function createSessionSupervisor(
         if (!(await bound(key, workspace))) {
           if (managed && (await readBinding(key)) === null) {
             await writePrivateState(retireFile(key), "");
+            await config.removePreparedCheckout?.(agentId);
             return;
           }
           throw new Error("Agent is not bound to this workspace");
@@ -1435,7 +1523,7 @@ export async function createSessionSupervisor(
         await cleanLegacyHost(key);
         if (managed) {
           if (!checkoutOwner(await readBinding(key)))
-            await discardManagedCheckout(key);
+            await discardManagedCheckout(key, agentId);
           await rm(path.join(logs, key), { force: true });
         } else {
           await rm(cwdFile(key), { force: true });

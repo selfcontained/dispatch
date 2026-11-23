@@ -31,6 +31,7 @@ import type {
   EngineOperation,
   EngineOperationAck,
 } from "@dispatch/runner-protocol/engine-management";
+import { operations, runnerError } from "@dispatch/runner-protocol/contract";
 import type {
   ErrorCode,
   OpName,
@@ -552,6 +553,12 @@ export function decodeCommand(
   switch (command.kind) {
     case "launch":
       return withWorkspace(decodeLaunch(command, frameId));
+    case "workspacePrepare":
+      return withWorkspace(
+        decoded("workspace.prepare", { ...command.operation, session })
+      );
+    case "workspaceResume":
+      return withWorkspace(decoded("workspace.resume", { session }));
     case "attach":
       return withWorkspace(decoded("session.attach", { session }));
     case "alive":
@@ -702,6 +709,12 @@ export function encodeCommand(input: Decoded | LegacyCommand): Command {
       return { ...session, kind: "openTerminal" };
     case "checkout.watch":
       return { ...session, kind: "watchCheckout" };
+    case "workspace.prepare": {
+      const { session: _, ...operation } = r as Req<"workspace.prepare">;
+      return { ...session, kind: "workspacePrepare", operation };
+    }
+    case "workspace.resume":
+      return { ...session, kind: "workspaceResume" };
     case "workspace.describe":
       return {
         ...session,
@@ -916,6 +929,14 @@ export function decodeResult<K extends OpName>(
       return out({ text: value as string });
     case "terminal.open":
       return out(parse(value));
+    case "workspace.prepare":
+    case "workspace.resume": {
+      const reply = parse(value);
+      if (runnerError.check(reply?.error)) throw new ResultError(reply.error);
+      if (!operations[op].response.check(reply?.data))
+        throw new CodecError("Invalid workspace preparation result.");
+      return out(reply.data);
+    }
     case "workspace.describe":
     case "workspace.select":
     case "git.context":
@@ -1033,6 +1054,8 @@ export function encodeResult<K extends OpName>(
   const r = input.request as AnyRecord;
   if (response instanceof ResultError) {
     const { code, message } = response.error;
+    if (op === "workspace.prepare" || op === "workspace.resume")
+      return JSON.stringify({ error: response.error });
     if (op.startsWith("checkout.") && STATUS_OF[code] !== undefined)
       return JSON.stringify({ status: STATUS_OF[code], error: message });
     if (op.startsWith("engine."))
@@ -1056,6 +1079,9 @@ export function encodeResult<K extends OpName>(
       return res.state === "live";
     case "session.logs":
       return res.text as string;
+    case "workspace.prepare":
+    case "workspace.resume":
+      return JSON.stringify({ data: response });
     case "git.context":
       return JSON.stringify(response);
     case "workspace.release":
@@ -1242,8 +1268,6 @@ export const NOT_ON_V1 = {
   "runner.health": "v1 pushes health frames after accept_health",
   "session.list": "local-only today (listHosted, inspectHost)",
   "session.sample": "local-only today (process-tree sampling)",
-  "workspace.prepare": "carried inside v1 launch (see EXTRAS)",
-  "workspace.resume": "local-only today",
   "path.resolve": "controller-machine probe today (D7)",
   "path.complete": "controller-machine probe today (D7)",
   "checkout.write": "local-only today (persona authoring)",

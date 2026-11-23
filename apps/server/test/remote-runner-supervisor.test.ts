@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { createServer } from "node:net";
 import { once } from "node:events";
 import { PassThrough, Writable } from "node:stream";
+import { text } from "node:stream/consumers";
 import {
   chmod,
   link,
@@ -52,7 +53,10 @@ import {
 } from "../src/agents/remote/session-supervisor.js";
 import { createLinuxPrivsep } from "../../../packages/runner/src/platform/linux-privsep/index.js";
 import { storageKey } from "../../../packages/runner/src/platform/linux-privsep/layout.js";
-import { streamCheckoutWorker } from "../src/agents/remote/runner.js";
+import {
+  startTerminalWorker,
+  streamCheckoutWorker,
+} from "../src/agents/remote/runner.js";
 import { FlowStreams } from "../src/runners/enrolled/v1-framing.js";
 
 import {
@@ -290,14 +294,35 @@ describe("runner session supervision", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it("acknowledges the same session after cancelling exec with both transfers complete", async () => {
-    const workspace = "fixture";
-    const runner = await start([workspace]);
-    await runner.launch(launch(workspace), root);
-    const abort = new AbortController();
+  it("finishes terminal readiness before the worker exits using only standard pipes", async () => {
+    const child = startTerminalWorker(
+      ["/usr/bin/env"],
+      [
+        "/bin/sh",
+        "-c",
+        'printf ready >&3; exec 3>&-; printf private >&2; read -r input; printf "%s" "$input"',
+      ],
+      process.env
+    );
+    const exit = once(child, "close");
+    const output = text(child.stdout);
+    try {
+      expect(child.stdio).toHaveLength(3);
+      expect(await text(child.stderr)).toBe("ready");
+      expect(child.exitCode).toBeNull();
+      child.stdin.end("terminal output\n");
+      expect(await output).toBe("terminal output");
+      expect(await exit).toEqual([0, null]);
+    } finally {
+      child.stdin.destroy();
+      child.kill();
+      await exit;
+    }
+  });
+
+  function checkoutStreamPair() {
     const socket = new PassThrough();
     const peerSocket = new PassThrough();
-    let pid: number | undefined;
     const streams = new FlowStreams(socket, (frame, flushed) =>
       queueMicrotask(() => {
         peer.handle(frame);
@@ -309,6 +334,114 @@ describe("runner session supervision", () => {
     );
     streams.enable();
     peer.enable();
+    return {
+      streams,
+      peer,
+      close() {
+        socket.destroy();
+        peerSocket.destroy();
+      },
+    };
+  }
+
+  it("forwards stale status and empty stdout EOF after a terminal worker exits", async () => {
+    const terminal = startTerminalWorker(
+      ["/usr/bin/env"],
+      ["/bin/sh", "-c", "printf ready >&3; exec 3>&-; read -r input"],
+      process.env
+    );
+    const terminalExit = once(terminal, "close");
+    const { streams, peer, close } = checkoutStreamPair();
+    const abort = new AbortController();
+    const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(3000)]);
+    const started = path.join(root, "checkout-started");
+    const release = path.join(root, "checkout-release");
+    let work: Promise<string> | undefined;
+    try {
+      expect(terminal.stdio).toHaveLength(3);
+      expect(await text(terminal.stderr)).toBe("ready");
+      expect(terminal.exitCode).toBeNull();
+      const visible = { stdout: "", stderr: "" };
+      const output = Promise.all(
+        (["stdout", "stderr"] as const).map((id) =>
+          peer.receive(
+            id,
+            new Writable({
+              write(chunk, _encoding, done) {
+                visible[id] += chunk.toString();
+                done();
+              },
+            }),
+            signal
+          )
+        )
+      );
+      void output.catch(() => {});
+      work = streamCheckoutWorker(
+        [
+          process.execPath,
+          "-e",
+          `const { closeSync, existsSync, writeFileSync, writeSync } = require("node:fs");
+           const [started, release] = process.argv.slice(1);
+           writeFileSync(started, "");
+           const wait = setInterval(() => {
+             if (!existsSync(release)) return;
+             clearInterval(wait);
+             const trailer = Buffer.alloc(8192);
+             trailer.write(JSON.stringify({ code: "stale", error: "Guard changed." }));
+             writeSync(2, trailer);
+             closeSync(2);
+             closeSync(1);
+             process.exitCode = 1;
+           }, 5);`,
+          started,
+          release,
+        ],
+        {},
+        "",
+        {
+          stdout: "stdout",
+          stderr: "stderr",
+          shell: "direct",
+          env: {},
+          timeoutMs: null,
+          maxOutput: null,
+        },
+        streams,
+        signal
+      );
+      void work.catch(() => {});
+      // Start the checkout worker while the terminal is alive, then let the
+      // terminal exit before the checkout worker publishes its status and EOF.
+      await expect
+        .poll(async () => readFile(started, "utf8").catch(() => null))
+        .toBe("");
+      terminal.stdin.end("exit\n");
+      expect(await terminalExit).toEqual([0, null]);
+      await writeFile(release, "");
+      await expect(work).rejects.toMatchObject({
+        code: "stale",
+        message: "Guard changed.",
+      });
+      await output;
+      expect(visible).toEqual({ stdout: "", stderr: "" });
+    } finally {
+      abort.abort();
+      close();
+      terminal.stdin.destroy();
+      terminal.kill();
+      await terminalExit;
+      await work?.catch(() => {});
+    }
+  });
+
+  it("acknowledges the same session after cancelling exec with both transfers complete", async () => {
+    const workspace = "fixture";
+    const runner = await start([workspace]);
+    await runner.launch(launch(workspace), root);
+    const abort = new AbortController();
+    const { streams, peer, close } = checkoutStreamPair();
+    let pid: number | undefined;
     const outputDone = Promise.all([
       peer.receive(
         "stdout",
@@ -383,8 +516,7 @@ describe("runner session supervision", () => {
       await expect(work).rejects.toBe(abort.signal.reason);
     } finally {
       abort.abort();
-      socket.destroy();
-      peerSocket.destroy();
+      close();
       if (pid && !settled) {
         try {
           process.kill(-pid, "SIGKILL");
