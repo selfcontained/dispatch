@@ -31,43 +31,91 @@
   },
   {
     "lane": "local",
-    "scenario": "session.launch/pending",
+    "scenario": "session.launch/retry",
     "task": "T23",
     "reason": "no local runner child yet"
   },
   {
     "lane": "local",
-    "scenario": "session.attach/pending",
+    "scenario": "session.launch/conflict",
     "task": "T23",
     "reason": "no local runner child yet"
   },
   {
     "lane": "local",
-    "scenario": "session.alive/pending",
+    "scenario": "session.launch/environment",
     "task": "T23",
     "reason": "no local runner child yet"
   },
   {
     "lane": "local",
-    "scenario": "session.stop/pending",
+    "scenario": "session.attach/prompt-and-replay",
+    "task": "T23",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "session.attach/unknown",
+    "task": "T23",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "session.attach/stopped",
+    "task": "T23",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "session.alive/live",
+    "task": "T23",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "session.alive/discarded",
+    "task": "T23",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "session.stop/repeat",
     "task": "T26",
     "reason": "no local runner child yet"
   },
   {
     "lane": "local",
-    "scenario": "session.discard/pending",
+    "scenario": "session.discard/busy",
     "task": "T26",
     "reason": "no local runner child yet"
   },
   {
     "lane": "local",
-    "scenario": "session.logs/pending",
+    "scenario": "session.discard/success",
+    "task": "T26",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "session.logs/success",
     "task": "T23",
     "reason": "no local runner child yet"
   },
   {
     "lane": "local",
-    "scenario": "session.list/pending",
+    "scenario": "session.logs/line-limit",
+    "task": "T23",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "session.logs/unknown",
+    "task": "T23",
+    "reason": "no local runner child yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "session.list/live",
     "task": "T27",
     "reason": "no local runner child yet"
   },
@@ -421,43 +469,43 @@
   },
   {
     "lane": "remote",
-    "scenario": "session.launch/pending",
+    "scenario": "session.launch/conflict",
     "task": "T23",
-    "reason": "scenario not written yet"
+    "reason": "v1 returns failed for a duplicate live session with a different launch ID; expected conflict"
   },
   {
     "lane": "remote",
-    "scenario": "session.attach/pending",
-    "task": "T06b",
-    "reason": "scenario not written yet"
+    "scenario": "session.launch/environment",
+    "task": "T24",
+    "reason": "v1 drops caller-supplied launch environment values"
   },
   {
     "lane": "remote",
-    "scenario": "session.alive/pending",
-    "task": "T06b",
-    "reason": "scenario not written yet"
-  },
-  {
-    "lane": "remote",
-    "scenario": "session.stop/pending",
-    "task": "T26",
-    "reason": "scenario not written yet"
-  },
-  {
-    "lane": "remote",
-    "scenario": "session.discard/pending",
-    "task": "T26",
-    "reason": "scenario not written yet"
-  },
-  {
-    "lane": "remote",
-    "scenario": "session.logs/pending",
+    "scenario": "session.attach/unknown",
     "task": "T23",
-    "reason": "scenario not written yet"
+    "reason": "v1 returns failed for an unbound session; expected host_gone"
   },
   {
     "lane": "remote",
-    "scenario": "session.list/pending",
+    "scenario": "session.discard/busy",
+    "task": "T26",
+    "reason": "v1 returns failed when discarding a live session; expected busy"
+  },
+  {
+    "lane": "remote",
+    "scenario": "session.logs/line-limit",
+    "task": "T23",
+    "reason": "v1 ignores the requested line count and returns a fixed log tail"
+  },
+  {
+    "lane": "remote",
+    "scenario": "session.logs/unknown",
+    "task": "T23",
+    "reason": "v1 returns failed for an unbound session; expected not_found"
+  },
+  {
+    "lane": "remote",
+    "scenario": "session.list/live",
     "task": "T27",
     "reason": "not on wire v1: local-only today (listHosted, inspectHost)"
   },

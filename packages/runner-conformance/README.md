@@ -14,9 +14,14 @@ and a reference client that uses only `@dispatch/runner-protocol` and
 - `baseline.json` (R4): the red entries, per lane, each with the task that
   turns it green. A baselined scenario that passes, an unbaselined one that
   fails, and an entry for a scenario that did not run all fail the lane.
-  Entries are only ever removed.
+  When replacing a pending scenario, remove its entry and name any remaining
+  contract mismatches under the scenarios that exercise them.
 - `src/reference-client.ts`: accepts a remote runner's TLS connection,
-  describes it, reads a file and runs a command guarded by it.
+  describes it, launches a session, attaches and prompts it through turn end,
+  runs a guarded checkout command, then stops and discards the session. The
+  remote lane runs this twice with different environment keys and MCP server
+  names. It verifies the MCP names at the fixture engine. The launch environment
+  assertion stays red on wire v1 under T24.
 
 ## Lanes
 
