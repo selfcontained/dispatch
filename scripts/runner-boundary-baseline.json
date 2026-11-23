@@ -917,20 +917,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/merge-risk/explanation-diff.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/lib/run-command",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/merge-risk/sources.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/lib/run-command",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/provider-plans.ts",
     "kind": "R2 host access",
     "detail": "child_process",
@@ -955,13 +941,6 @@
     "file": "apps/server/src/agents/provider-plans.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/shared/process/child-environment",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/pull-request-reader.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/lib/run-command",
     "task": "T04",
     "count": 1
   },

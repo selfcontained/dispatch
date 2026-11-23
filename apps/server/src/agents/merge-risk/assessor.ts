@@ -1,3 +1,4 @@
+import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 import { pullRequestCredentialContext } from "../pull-request-reader.js";
 import { mergeRiskScope, type MergeRiskGitHubSource } from "./github-source.js";
 import { mergeRiskCapacity } from "./budget.js";
@@ -37,9 +38,7 @@ import {
   allFindingsResolved,
   loadBriefing,
   loadReviewEvidence,
-  readPullRequestDetails,
   reviewFingerprint,
-  type PullRequestDetails,
 } from "./sources.js";
 
 type Options = {
@@ -51,8 +50,8 @@ type Options = {
     agentId: string,
     runnerId: string
   ) => Promise<CodeownersConfig | null>;
-  github?: Pick<MergeRiskGitHubSource, "details">;
-  readDetails?: (url: string) => Promise<PullRequestDetails | null>;
+  /** PR details as the tracking agent's runner reads them. */
+  github: Pick<MergeRiskGitHubSource, "details">;
   transport?: typeof fetch;
   warn?: (error: unknown) => void;
 };
@@ -67,11 +66,7 @@ type Row = {
 };
 
 export class MergeRiskAssessor {
-  private readonly readDetails: NonNullable<Options["readDetails"]>;
-  constructor(private readonly options: Options) {
-    this.readDetails =
-      options.readDetails ?? ((url) => readPullRequestDetails(url));
-  }
+  constructor(private readonly options: Options) {}
 
   /**
    * The recommendation to show for this PR observation.
@@ -96,30 +91,11 @@ export class MergeRiskAssessor {
     const config = await this.options.settings.configuration();
     if (!config.mergeRiskEnabled || !config.apiKey)
       return displaySummary("disabled", headSha);
-    const github = this.options.github;
-    const observedContext = pullRequestCredentialContext(pr);
-    if (
-      (!github && runnerId !== null) ||
-      (github && (!headSha || !observedContext))
-    )
-      return displaySummary("unavailable", headSha);
-    const scopedDetails = github ? await github.details(runnerId, url) : null;
-    if (
-      github &&
-      (!scopedDetails ||
-        scopedDetails.credentialContext !== observedContext ||
-        scopedDetails.headRefOid !== headSha)
-    )
-      return displaySummary("unavailable", headSha);
-    const scope = scopedDetails
-      ? mergeRiskScope(runnerId, scopedDetails.credentialContext)
-      : "";
-    const current = async () =>
-      !scopedDetails ||
-      (await github?.details(runnerId, url))?.credentialContext ===
-        scopedDetails.credentialContext;
-    const includeHistorical = runnerId === null;
-    const previous = await this.history(url, scope, includeHistorical);
+    // Records are keyed by the credential the PR was observed with; a runner
+    // whose read names none has nothing it may reuse or record.
+    const scope = mergeRiskScope(runnerId, pullRequestCredentialContext(pr));
+    if (scope === null) return displaySummary("unavailable", headSha);
+    const previous = await this.history(url, scope);
     const display = (state: NonNullable<MergeRiskSummary["displayState"]>) => ({
       ...displaySummary(state, headSha),
       ...(previous ? { previous } : {}),
@@ -129,13 +105,8 @@ export class MergeRiskAssessor {
       settlementProvenance: true,
     });
     const fingerprint = reviewFingerprint(reviews);
-    if (pr.status === "Merged") {
-      const merged = await this.latest(url, headSha, scope);
-      return (
-        merged ??
-        (previous?.headSha === headSha ? previous : display("not_ready"))
-      );
-    }
+    if (pr.status === "Merged")
+      return (await this.latest(url, headSha, scope)) ?? display("not_ready");
     const gateHolds =
       (pr.status === "Open" || pr.status === "Draft") &&
       allFindingsResolved(reviews);
@@ -154,13 +125,7 @@ export class MergeRiskAssessor {
             displayState: stored.displayState ?? "failure",
             ...(previous ? { previous } : {}),
           };
-    const id = await this.reserve(
-      url,
-      headSha,
-      fingerprint,
-      scope,
-      scopedDetails?.baseRefOid
-    );
+    const id = await this.reserve(url, headSha, fingerprint, scope);
     if (!id) {
       const record = await this.options.pool.query<{ status: string }>(
         "SELECT status FROM merge_risk_decision_records WHERE url=$1 AND head_sha=$2 AND review_fingerprint=$3 AND evidence_scope=$4 ORDER BY created_at DESC,id DESC LIMIT 1",
@@ -176,11 +141,34 @@ export class MergeRiskAssessor {
     }
     onProgress?.(display("evaluating"));
     try {
-      const details = scopedDetails ?? (await this.readDetails(url));
+      let details;
+      try {
+        details = await this.options.github.details(runnerId, url);
+      } catch (error) {
+        // A runner that cannot answer is asked again on the next read; a
+        // local read falls back in process, so it never lands here.
+        if (
+          !(error instanceof RunnerCallError) ||
+          (error.code !== "unavailable" && error.code !== "unknown_outcome")
+        )
+          throw error;
+        await this.finish(id, "skipped_runner_unavailable", {});
+        return display("unavailable");
+      }
       if (!details || details.headRefOid !== headSha) {
         await this.finish(id, "skipped_stale_head", {});
         return display("unavailable");
       }
+      // The evidence must come from the credential the record is keyed by.
+      if (mergeRiskScope(runnerId, details.credentialContext) !== scope) {
+        await this.finish(id, "skipped_credential_changed", {});
+        return displaySummary("unavailable", headSha);
+      }
+      if (details.baseRefOid)
+        await this.options.pool.query(
+          "UPDATE merge_risk_decision_records SET base_sha=$2 WHERE id=$1",
+          [id, details.baseRefOid]
+        );
       const owners = await this.owners(ownerAgentIds, runnerId);
       const evidence = buildMergeRiskEvidence({
         pullRequest: {
@@ -207,10 +195,6 @@ export class MergeRiskAssessor {
               }
             : null,
       });
-      if (!(await current())) {
-        await this.finish(id, "skipped_credential_changed", {});
-        return displaySummary("unavailable", headSha);
-      }
       // The setting can change while evidence is being gathered.
       if (!(await this.options.settings.configuration()).mergeRiskEnabled) {
         await this.finish(id, "skipped_config_changed", {});
@@ -266,7 +250,6 @@ export class MergeRiskAssessor {
     const finalConfig = await this.options.settings.configuration();
     if (!finalConfig.mergeRiskEnabled || !finalConfig.apiKey)
       return displaySummary("disabled", headSha);
-    if (!(await current())) return displaySummary("unavailable", headSha);
     const result = await this.latest(url, headSha, scope, fingerprint);
     return result?.status === "ok"
       ? result
@@ -283,12 +266,11 @@ export class MergeRiskAssessor {
 
   private async history(
     url: string,
-    scope: string,
-    includeHistorical: boolean
+    scope: string
   ): Promise<MergeRiskSummary | undefined> {
     const rows = await this.options.pool.query<Row>(
-      "SELECT id, status, head_sha, prompt_version, created_at, result FROM merge_risk_decision_records WHERE url=$1 AND (evidence_scope=$2 OR ($3 AND evidence_scope='')) AND status = 'ok' ORDER BY created_at DESC,id DESC LIMIT 1",
-      [url, scope, includeHistorical]
+      "SELECT id, status, head_sha, prompt_version, created_at, result FROM merge_risk_decision_records WHERE url=$1 AND evidence_scope=$2 AND status = 'ok' ORDER BY created_at DESC,id DESC LIMIT 1",
+      [url, scope]
     );
     return rows.rows[0] ? toSummary(rows.rows[0]) : undefined;
   }
@@ -335,8 +317,7 @@ export class MergeRiskAssessor {
     url: string,
     headSha: string,
     fingerprint: string,
-    scope: string,
-    baseSha?: string
+    scope: string
   ) {
     const client = await this.options.pool.connect();
     try {
@@ -351,7 +332,7 @@ export class MergeRiskAssessor {
          VALUES($1,$2,$3,$4,$5,$6,$7,$8)
          ON CONFLICT(url,head_sha,review_fingerprint,evidence_scope) DO UPDATE
            SET status=EXCLUDED.status,created_at=now(),prompt_version=EXCLUDED.prompt_version,result=EXCLUDED.result,base_sha=EXCLUDED.base_sha
-           WHERE merge_risk_decision_records.status IN ('skipped_daily_cap','skipped_concurrency','skipped_credential_changed')
+           WHERE merge_risk_decision_records.status IN ('skipped_daily_cap','skipped_concurrency','skipped_credential_changed','skipped_runner_unavailable')
              AND merge_risk_decision_records.status <> EXCLUDED.status
          RETURNING id`,
         [
@@ -362,7 +343,7 @@ export class MergeRiskAssessor {
           MERGE_RISK_PROMPT_VERSION,
           JSON.stringify({ model: DECISIONS_MODEL }),
           scope,
-          baseSha ?? null,
+          null,
         ]
       );
       await client.query("COMMIT");

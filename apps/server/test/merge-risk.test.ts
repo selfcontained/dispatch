@@ -28,10 +28,10 @@ import {
   MERGE_RISK_QUESTIONS,
 } from "../src/agents/merge-risk/policy.js";
 import { MergeRiskAssessor } from "../src/agents/merge-risk/assessor.js";
+import type { MergeRiskGitHubSource } from "../src/agents/merge-risk/github-source.js";
 import {
   reviewFingerprint,
   loadReviewEvidence,
-  type PullRequestDetails,
 } from "../src/agents/merge-risk/sources.js";
 import { RoutingSettings } from "../src/chat/routing-settings.js";
 import {
@@ -542,7 +542,12 @@ describe("merge-risk assessor", () => {
   const reviewer = "agt_reviewer";
   const url = "https://github.com/acme/widgets/pull/9";
   const transport = vi.fn<typeof fetch>();
-  const details = vi.fn<(url: string) => Promise<PullRequestDetails | null>>();
+  const details =
+    vi.fn<
+      (
+        url: string
+      ) => Promise<Awaited<ReturnType<MergeRiskGitHubSource["details"]>> | null>
+    >();
   const pr = (patch: Partial<AgentPullRequest> = {}): AgentPullRequest => ({
     url,
     title: "Add thing",
@@ -606,7 +611,7 @@ describe("merge-risk assessor", () => {
       pool,
       settings,
       agentRoot: async () => null,
-      readDetails: details,
+      github: { details: (_runner, url) => details(url) },
       transport,
     });
   it("isolates PR evidence, reservations and explanations by runner and active credential", async () => {
@@ -738,9 +743,19 @@ describe("merge-risk assessor", () => {
 
     placement.set("first", beta);
     expect(await explain(first!.assessmentId!, "first")).toEqual(denied);
+    // A stored record is reused under the credential the status read
+    // observed, without another GitHub read.
+    github.details.mockClear();
     expect(
       await assessor.assess(url, observe(alpha), [], undefined, "first")
+    ).toMatchObject({ assessmentId: first!.assessmentId });
+    expect(github.details).not.toHaveBeenCalled();
+    // Evidence read with another credential than observed is never recorded.
+    placement.set("third", beta);
+    expect(
+      await assessor.assess(url, observe(alpha), [], undefined, "third")
     ).toMatchObject({ displayState: "unavailable" });
+    expect(github.details).toHaveBeenCalledTimes(1);
     const switched = await assessor.assess(
       url,
       observe(beta),
@@ -754,9 +769,6 @@ describe("merge-risk assessor", () => {
     expect(transport).toHaveBeenCalledTimes(3);
     placement.delete("second");
     expect(await explain(second!.assessmentId!, "second")).toEqual(denied);
-    expect(
-      await assessor.assess(url, observe(beta), [], undefined, "second")
-    ).toMatchObject({ displayState: "unavailable" });
     expect(
       await assessor.assess(url, observe(), [], undefined, "older-runner")
     ).toMatchObject({ displayState: "unavailable" });

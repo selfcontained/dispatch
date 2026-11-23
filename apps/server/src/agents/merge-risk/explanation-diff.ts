@@ -1,13 +1,9 @@
 /**
- * Diff hunks for an explanation, read at click time and pinned to the
- * assessed base and head SHAs, so
- * later pushes never change what is explained. Never stored; read-only `gh`.
- * Any failure yields null and the explanation proceeds without hunks.
+ * Diff hunks for an explanation, read at click time through the agent's
+ * runner (`github.pr.diff`) and pinned to the assessed head, so later pushes
+ * never change what is explained. Never stored. Any failure yields null and
+ * the explanation proceeds without hunks.
  */
-import {
-  runCommand,
-  type CommandRunner,
-} from "../../shared/lib/run-command.js";
 import { shouldExcludePath } from "../../shared/git/diff-file-rules.js";
 import { isTestFile } from "../../shared/git/test-files.js";
 
@@ -112,13 +108,6 @@ export function selectHunks(
   return { files: selected, omitted_files: files.length - selected.length };
 }
 
-function repoOf(url: string) {
-  const match = new URL(url).pathname.match(
-    /^\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)\/?$/
-  );
-  return match ? `${match[1]}/${match[2]}` : null;
-}
-
 /** Text of review findings, used only to rank files they mention. */
 export function mentionedText(evidence: unknown): string {
   const reviews = (evidence as { reviews?: unknown } | null)?.reviews;
@@ -132,52 +121,4 @@ export function mentionedText(evidence: unknown): string {
         : []
     )
     .join("\n");
-}
-
-export async function readAssessedDiff(
-  url: string,
-  base: string,
-  headSha: string,
-  evidence: unknown,
-  run: CommandRunner = runCommand
-): Promise<ExplanationDiff | null> {
-  try {
-    const repo = repoOf(url);
-    if (
-      !repo ||
-      !/^[0-9a-f]{40}$/i.test(base) ||
-      !/^[0-9a-f]{7,40}$/i.test(headSha)
-    )
-      return null;
-    const compare = await run(
-      "gh",
-      [
-        "api",
-        `repos/${repo}/compare/${base}...${headSha}`,
-        "--jq",
-        "[.files[] | {path: .filename, additions, deletions, patch}]",
-      ],
-      { timeoutMs: 20_000, allowedExitCodes: [0, 1] }
-    );
-    if (compare.exitCode !== 0) return null;
-    const parsed: unknown = JSON.parse(compare.stdout);
-    if (!Array.isArray(parsed)) return null;
-    const files: ChangedFile[] = parsed.flatMap((raw) => {
-      const f = raw as Record<string, unknown>;
-      return typeof f?.path === "string"
-        ? [
-            {
-              path: f.path,
-              additions: Number(f.additions) || 0,
-              deletions: Number(f.deletions) || 0,
-              ...(typeof f.patch === "string" ? { patch: f.patch } : {}),
-            },
-          ]
-        : [];
-    });
-    if (!files.length) return null;
-    return { base, ...selectHunks(files, mentionedText(evidence)) };
-  } catch {
-    return null;
-  }
 }

@@ -21,14 +21,23 @@ import {
   requestExplanation,
 } from "../src/agents/merge-risk/explanation-client.js";
 import {
-  readAssessedDiff,
   selectHunks,
+  type ExplanationDiff,
 } from "../src/agents/merge-risk/explanation-diff.js";
 import { RoutingSettings } from "../src/chat/routing-settings.js";
 import { reviewFingerprint } from "../src/agents/merge-risk/sources.js";
 let pool: Pool, settings: RoutingSettings, pr: AgentPullRequest, id: string;
 const transport = vi.fn<typeof fetch>();
-const readDiff = vi.fn<typeof readAssessedDiff>();
+/** Hunks as the local runner reads them (`github.pr.diff`, then selection). */
+const readDiff =
+  vi.fn<
+    (
+      url: string,
+      base: string | null,
+      head: string,
+      evidence: unknown
+    ) => Promise<ExplanationDiff | null>
+  >();
 const input = () => ({ assessmentId: id });
 const response = (
   text = "The auth/session.ts change affects session handling. Resolved review findings mitigate correctness risk; product judgment still needs a maintainer. Evidence is limited and this does not approve merging."
@@ -54,7 +63,11 @@ const service = () =>
     pool,
     settings,
     transport,
-    readDiff,
+    github: {
+      details: vi.fn(async () => null),
+      diff: (_runner, url, base, head, _context, evidence) =>
+        readDiff(url, base, head, evidence),
+    },
   });
 beforeAll(async () => {
   pool = await setupTestDb();
@@ -641,33 +654,33 @@ it.each(
       settings,
       agentRoot: async () => null,
       transport: scoring,
-      readDetails: async () => ({
-        number: 1,
-        title: "Explain assessment",
-        body: "Add explicit on-demand explanations inside the existing PR popover",
-        state: "OPEN",
-        isDraft: false,
-        mergedAt: null,
-        additions: 100,
-        deletions: 10,
-        baseRefName: "main",
-        headRefName: "feature",
-        headRefOid: "abc",
-        files: [
-          {
-            path: "apps/server/src/agents/merge-risk/explanations.ts",
-            additions: 90,
-            deletions: 5,
-          },
-          {
-            path: "apps/web/src/components/app/agent-pull-requests.tsx",
-            additions: 10,
-            deletions: 5,
-          },
-        ],
-        statusCheckRollup: [],
-      }),
+      github: { details: async () => details },
     });
+    const details = {
+      number: 1,
+      title: "Explain assessment",
+      body: "Add explicit on-demand explanations inside the existing PR popover",
+      state: "OPEN",
+      isDraft: false,
+      mergedAt: null,
+      additions: 100,
+      deletions: 10,
+      baseRefName: "main",
+      headRefName: "feature",
+      headRefOid: "abc",
+      files: [
+        {
+          path: "apps/server/src/agents/merge-risk/explanations.ts",
+          additions: 90,
+          deletions: 5,
+        },
+        {
+          path: "apps/web/src/components/app/agent-pull-requests.tsx",
+          additions: 10,
+          deletions: 5,
+        },
+      ],
+    };
     pr.mergeRisk = await assessor.assess(pr.url, pr, ["explain-owner"]);
     expect(pr.mergeRisk?.status).toBe("ok");
     id = pr.mergeRisk!.assessmentId!;
@@ -833,7 +846,7 @@ const currentDetails = {
   files: [],
 };
 
-it("uses the saved snapshot without fetching hunks for a legacy PR retargeted since assessment", async () => {
+it("explains a local assessment without a GitHub read, comparing from the current base as main did", async () => {
   await pool.query(
     "UPDATE merge_risk_evidence_snapshots SET evidence=evidence || $2::jsonb WHERE assessment_id=$1",
     [id, JSON.stringify({ pull_request: { base: "main" } })]
@@ -851,7 +864,15 @@ it("uses the saved snapshot without fetching hunks for a legacy PR retargeted si
   expect(
     await explanations.explain({ assessmentId: id, url: pr.url })
   ).toMatchObject({ state: "ready" });
-  expect(github.diff).not.toHaveBeenCalled();
+  expect(github.details).not.toHaveBeenCalled();
+  expect(github.diff).toHaveBeenCalledWith(
+    null,
+    pr.url,
+    null,
+    "abc",
+    undefined,
+    expect.anything()
+  );
   const request = JSON.parse(String(transport.mock.calls[0]![1]!.body));
   const payload = JSON.parse(request.input[0].content[0].text);
   expect(payload.context.evidenceRetained).toBe(true);
@@ -865,6 +886,10 @@ it.each([
 ] as const)(
   "releases the single pool connection during authorization of a stored %s reply",
   async (status, recheckedDetails, expected) => {
+    await pool.query(
+      "UPDATE merge_risk_decision_records SET evidence_scope=$2 WHERE id=$1",
+      [id, JSON.stringify(["r1", currentDetails.credentialContext])]
+    );
     await pool.query(
       "INSERT INTO merge_risk_explanations(assessment_id,status,result) VALUES($1,$2,$3)",
       [
@@ -898,7 +923,11 @@ it.each([
       github,
       transport,
     });
-    const explaining = explanations.explain({ assessmentId: id, url: pr.url });
+    const explaining = explanations.explain({
+      assessmentId: id,
+      url: pr.url,
+      runnerId: "r1",
+    });
     try {
       await vi.waitFor(() => expect(github.details).toHaveBeenCalledTimes(2));
       expect(single.totalCount).toBe(1);
@@ -987,28 +1016,4 @@ it("never sends hunks from secret-bearing files", () => {
   );
   expect(picked.files.map((f) => f.path)).toEqual(["src/env.ts"]);
   expect(picked.omitted_files).toBe(files.length);
-});
-it("reads hunks pinned to the assessed base and head, and degrades to none on gh failure", async () => {
-  const base = "c".repeat(40);
-  const run = vi.fn(async (_cmd: string, _args: string[]) => ({
-    exitCode: 0,
-    stderr: "",
-    stdout: JSON.stringify([
-      {
-        path: "src/a.ts",
-        additions: 1,
-        deletions: 0,
-        patch: "@@ -1 +1 @@\n+a",
-      },
-    ]),
-  }));
-  const url = "https://github.com/o/r/pull/9";
-  const diff = await readAssessedDiff(url, base, "abc1234", {}, run);
-  expect(run).toHaveBeenCalledTimes(1);
-  expect(run.mock.calls[0]![1]).toContain(
-    `repos/o/r/compare/${base}...abc1234`
-  );
-  expect(diff?.files).toEqual([{ path: "src/a.ts", patch: "@@ -1 +1 @@\n+a" }]);
-  const failing = vi.fn(async () => ({ exitCode: 1, stdout: "", stderr: "x" }));
-  expect(await readAssessedDiff(url, base, "abc1234", {}, failing)).toBeNull();
 });

@@ -442,7 +442,13 @@ const updateCheckTracker = new SubsystemTracker({
   description: "Checks the configured release channel for Dispatch updates.",
   expectedCadenceMs: 6 * 60 * 60 * 1000,
 });
-const mergeRiskGitHub = createMergeRiskGitHubSource(remoteRunner);
+/** The runner that reads GitHub for an agent: its enrolled runner, else local. */
+const githubRunnerFor = (runnerId: string | null) =>
+  runnerDirectory({
+    remote: remoteRunner,
+    child: () => localRunnerOf(localRunnerProcess),
+  }).for(placementForEnrolledId(runnerId));
+const mergeRiskGitHub = createMergeRiskGitHubSource(githubRunnerFor);
 const mergeRiskAssessor = new MergeRiskAssessor({
   pool,
   github: mergeRiskGitHub,
@@ -473,12 +479,7 @@ const pullRequests = new PullRequestRefresher({
       id: agent.id,
       runnerId: enrolledRunnerId(agent.placement) ?? null,
     })),
-  read: createRunnerPullRequestReader((runnerId) =>
-    runnerDirectory({
-      remote: remoteRunner,
-      child: () => localRunnerOf(localRunnerProcess),
-    }).for(placementForEnrolledId(runnerId))
-  ),
+  read: createRunnerPullRequestReader(githubRunnerFor),
   publish: (event) => uiEventBroker.publish(event),
   assess: (url, value, owners, onProgress, runnerId) =>
     mergeRiskAssessor.assess(url, value, owners, onProgress, runnerId),

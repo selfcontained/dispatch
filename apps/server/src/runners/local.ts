@@ -409,19 +409,19 @@ export function createLocalCheckoutRunner(
   }
 
   /**
-   * A pull request's status as the user's own `gh`: in the child when it
+   * GitHub reads (status, merge-risk details and diff) as the user's own
+   * `gh`: in the child when it
    * serves, else in process with the same port (R3, as for reads). A child
    * that dies or restarts during the call is the same as one not ready: the
    * read runs in process, so a local user never sees the transport. A gh
    * failure the child answered with is the read's answer.
    */
-  async function pullRequestStatus(
-    input: Req<"github.pr.status">,
-    options?: CallOptions<"github.pr.status">
-  ): Promise<Res<"github.pr.status">> {
+  async function github<
+    K extends "github.pr.status" | "github.pr.details" | "github.pr.diff",
+  >(op: K, input: Req<K>, options?: CallOptions<K>): Promise<Res<K>> {
     if (child?.connection.state === "ready")
       try {
-        return await child.call("github.pr.status", input, options);
+        return await child.call(op, input, options);
       } catch (error) {
         if (
           !(error instanceof RunnerCallError) ||
@@ -430,9 +430,19 @@ export function createLocalCheckoutRunner(
           throw error;
         options?.signal?.throwIfAborted();
       }
-    return githubWorkload.pullRequestStatus(input, {
-      signal: options?.signal,
-    });
+    const port = { signal: options?.signal };
+    if (op === "github.pr.details")
+      return githubWorkload.pullRequestDetails(
+        input as Req<"github.pr.details">
+      ) as Promise<Res<K>>;
+    if (op === "github.pr.diff")
+      return githubWorkload.pullRequestDiff(
+        input as Req<"github.pr.diff">
+      ) as Promise<Res<K>>;
+    return githubWorkload.pullRequestStatus(
+      input as Req<"github.pr.status">,
+      port
+    ) as Promise<Res<K>>;
   }
 
   /**
@@ -524,8 +534,13 @@ export function createLocalCheckoutRunner(
           input as Req<"checkout.exec">,
           options as CallOptions<"checkout.exec">
         ) as Promise<Res<K>>;
-      if (op === "github.pr.status")
-        return pullRequestStatus(
+      if (
+        op === "github.pr.status" ||
+        op === "github.pr.details" ||
+        op === "github.pr.diff"
+      )
+        return github(
+          op as "github.pr.status",
           input as Req<"github.pr.status">,
           options as CallOptions<"github.pr.status">
         ) as Promise<Res<K>>;

@@ -87,6 +87,16 @@ export interface GitHubPort {
     request: Req<"github.pr.status">,
     options: RunOptions
   ): Promise<Res<"github.pr.status">>;
+  /** A pull request's evidence: description, size and files (`github.pr.details`). */
+  pullRequestDetails(
+    request: Req<"github.pr.details">,
+    options: RunOptions
+  ): Promise<Res<"github.pr.details">>;
+  /** Changed files with patches between two commits (`github.pr.diff`). */
+  pullRequestDiff(
+    request: Req<"github.pr.diff">,
+    options: RunOptions
+  ): Promise<Res<"github.pr.diff">>;
 }
 
 /** A checkout's Git facts, paths as text (the contract's `gitContext`). */
