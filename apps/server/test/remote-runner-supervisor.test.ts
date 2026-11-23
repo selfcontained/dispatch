@@ -25,6 +25,7 @@ import { promisify } from "node:util";
 import Fastify from "fastify";
 import { createSessionCore } from "@dispatch/runner/cli";
 import { buildHostEnv } from "../src/agents/acp/host-env.js";
+import { hostSearchPath } from "../src/agents/acp/host-search-path.js";
 import {
   HOST_FILES,
   type HostLaunch,
@@ -789,7 +790,7 @@ describe("runner session supervision", () => {
     expect(payload.personaContext).toContain(JSON.stringify(file));
     expect(await readFile(file, "utf8")).toBe(context);
     expect((await stat(file)).mode & 0o777).toBe(0o600);
-    const env = buildHostEnv(payload, dir, {
+    const env = buildHostEnv(payload, dir, hostSearchPath, {
       HOME: root,
       PATH: "/usr/bin:/bin",
     });
@@ -1436,7 +1437,7 @@ describe("runner session supervision", () => {
             });
           });
       } else {
-        const env = buildHostEnv(payload, dir, {
+        const env = buildHostEnv(payload, dir, hostSearchPath, {
           HOME: root,
           PATH: process.env.PATH,
         });

@@ -5,10 +5,9 @@ import { randomUUID } from "node:crypto";
 import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { rootCertificates } from "node:tls";
-import { withToolSearchPath } from "../../shared/lib/tool-environment.js";
-import { withEngineBinDir } from "./engine-bin-dir.js";
 import type { AcpEngineId, EngineBins } from "./engine-spec.js";
 import { hostFile, type HostLaunch } from "./host-protocol.js";
+import type { HostSearchPath } from "./host/types.js";
 
 /** Bind the common variables for an agent started by a configured runner. */
 export function agentLaunchBindings(
@@ -94,6 +93,7 @@ export function buildHostEnv(
   launch: Pick<HostLaunch, "env" | "engine" | "pathPrefix"> &
     Partial<Pick<HostLaunch, "bins" | "effort">>,
   stateDir: string,
+  searchPath: HostSearchPath,
   shellEnv: NodeJS.ProcessEnv = process.env
 ): NodeJS.ProcessEnv {
   const env = { ...shellEnv, ...launch.env };
@@ -125,11 +125,11 @@ export function buildHostEnv(
       hostFile(stateDir, "curlCa")
     );
   }
-  env.PATH = withEngineBinDir(
+  env.PATH = searchPath.withEngineBinDir(
     [...launch.pathPrefix, shellEnv.PATH ?? ""].join(path.delimiter),
     launch.bins && launchedBin(launch.engine, launch.bins)
   );
-  return withToolSearchPath(env);
+  return searchPath.withToolSearchPath(env);
 }
 
 function launchedBin(engine: AcpEngineId, bins: EngineBins): string | null {

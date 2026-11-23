@@ -29,7 +29,6 @@ import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import type { EngineSpec } from "./engine-spec.js";
 import { readPromptImages } from "./host/prompt-images.js";
-import { isPackageBinDir } from "./package-bin-dir.js";
 
 export type {
   BackgroundSnapshot,
@@ -394,7 +393,8 @@ function describeRpcError(
  */
 export async function resolveExecutable(
   bin: string,
-  env: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv,
+  isPackageBinDir: (dir: string) => boolean
 ): Promise<string> {
   const executable = async (candidate: string) => {
     try {
@@ -516,8 +516,8 @@ export class AcpDriver {
         agentId: string,
         requests: AgentPermissionRequest[]
       ) => void;
-      /** Injectable for tests that spawn a fake; defaults to a PATH lookup. */
-      resolveBinary?: (bin: string, env: NodeJS.ProcessEnv) => Promise<string>;
+      /** The host's PATH lookup (resolveExecutable); tests that spawn a fake skip it. */
+      resolveBinary: (bin: string, env: NodeJS.ProcessEnv) => Promise<string>;
       logger: DriverLogger;
       /** Tests shorten the self-started turn watchdog. */
       selfTurnQuietMs?: { quiet: number; cancelled: number };
@@ -527,7 +527,7 @@ export class AcpDriver {
       this.opts.onPermissions?.(agentId, this.permissions.list(agentId));
     });
     this.spawnFn = opts.spawn ?? defaultSpawn;
-    this.resolveBinary = opts.resolveBinary ?? resolveExecutable;
+    this.resolveBinary = opts.resolveBinary;
   }
 
   onEvent(listener: DriverListener): () => void {

@@ -16,6 +16,7 @@ import {
   resolveExecutable,
   unstableSessionCapabilities,
 } from "../src/agents/acp/driver.js";
+import { isPackageBinDir } from "../src/agents/acp/package-bin-dir.js";
 import { selfCommand } from "../src/agents/acp/runtime.js";
 import { createFakeAcpAgent } from "./helpers/fake-acp-agent.js";
 
@@ -917,7 +918,10 @@ describe("AcpDriver", () => {
   });
 
   it("names the missing binary before spawning", async () => {
-    const driver = new AcpDriver({ logger });
+    const driver = new AcpDriver({
+      logger,
+      resolveBinary: (bin, env) => resolveExecutable(bin, env, isPackageBinDir),
+    });
     await expect(
       driver.start(
         launch({
@@ -1789,11 +1793,11 @@ describe("engine CLI lookup", () => {
           path.delimiter
         ),
       };
-      await expect(resolveExecutable("engine-cli", env)).resolves.toBe(
-        path.join(installed, "engine-cli")
-      );
       await expect(
-        resolveExecutable("engine-cli", { PATH: packageBin })
+        resolveExecutable("engine-cli", env, isPackageBinDir)
+      ).resolves.toBe(path.join(installed, "engine-cli"));
+      await expect(
+        resolveExecutable("engine-cli", { PATH: packageBin }, isPackageBinDir)
       ).rejects.toThrow(/engine-cli was not found on PATH/);
     } finally {
       await rm(root, { recursive: true, force: true });
