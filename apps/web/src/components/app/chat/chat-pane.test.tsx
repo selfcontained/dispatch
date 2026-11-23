@@ -1979,10 +1979,7 @@ describe("settlement bookkeeping with hidden history", () => {
       turnRow({
         id: "real",
         text: "",
-        turn: {
-          settled: false,
-          result: { text: "Streaming answer", streaming: true },
-        },
+        turn: { settled: false, result: null },
       }),
     ];
     const props = {
@@ -2026,6 +2023,127 @@ describe("settlement bookkeeping with hidden history", () => {
       ).toBeNull();
     } finally {
       geometry.mockRestore();
+    }
+  });
+});
+
+describe("ChatPane tall reply landing", () => {
+  const props = {
+    agentId: "agt_1",
+    agent,
+    active: true,
+    openLightbox: vi.fn(),
+    isMobile: false,
+  };
+
+  /**
+   * A tall reply at the bottom of a 1000px feed viewed through 200px: its
+   * header sits at 400, so landing at its start means scrollTop 392.
+   */
+  function layOut(scroll: HTMLElement) {
+    Object.defineProperties(scroll, {
+      scrollHeight: { configurable: true, value: 1000 },
+      clientHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 800, writable: true },
+    });
+    return vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        if (this === scroll)
+          return { top: 0, bottom: 200, height: 200 } as DOMRect;
+        if (
+          this.dataset.testid === "chat-message" &&
+          this.dataset.blockId === "real"
+        ) {
+          return {
+            top: 400 - scroll.scrollTop,
+            bottom: 1000 - scroll.scrollTop,
+            height: 600,
+          } as DOMRect;
+        }
+        return { top: 0, bottom: 0, height: 0 } as DOMRect;
+      });
+  }
+
+  it("leaves a reader at the end of a tall reply they followed as it streamed", () => {
+    const history = turnRow({ id: "history", text: "Earlier answer" });
+    const streamed = "Part one\n\nPart two\n\nPart three";
+    H.entries = [
+      history,
+      turnRow({
+        id: "real",
+        text: "",
+        turn: { settled: false, result: { text: streamed, streaming: true } },
+      }),
+    ];
+    const { rerender } = renderPane(props);
+    const scroll = screen.getByTestId("chat-scroll");
+    const geometry = layOut(scroll);
+    try {
+      // The reader followed the answer down to its end.
+      fireEvent.scroll(scroll);
+      H.entries = [history, turnRow({ id: "real", text: streamed })];
+      rerender(<ChatPane {...props} />);
+      expect(scroll.scrollTop).toBe(800);
+    } finally {
+      geometry.mockRestore();
+    }
+  });
+
+  it("lets go of a landed reply's start once the reader scrolls on", () => {
+    const observers: Array<{
+      callback: ResizeObserverCallback;
+      targets: Set<Element>;
+    }> = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        targets = new Set<Element>();
+        constructor(public callback: ResizeObserverCallback) {
+          observers.push(this);
+        }
+        observe(target: Element) {
+          this.targets.add(target);
+        }
+        unobserve(target: Element) {
+          this.targets.delete(target);
+        }
+        disconnect() {
+          this.targets.clear();
+        }
+      }
+    );
+    const history = turnRow({ id: "history", text: "Earlier answer" });
+    H.entries = [
+      history,
+      turnRow({ id: "real", text: "", turn: { settled: false, result: null } }),
+    ];
+    const { rerender, unmount } = renderPane(props);
+    const scroll = screen.getByTestId("chat-scroll");
+    const geometry = layOut(scroll);
+    try {
+      fireEvent.scroll(scroll);
+      H.entries = [history, turnRow({ id: "real", text: "Final long answer" })];
+      rerender(<ChatPane {...props} />);
+      // Landed at the reply's start, as designed.
+      expect(scroll.scrollTop).toBe(392);
+      // The reader scrolls down to keep reading.
+      fireEvent.wheel(scroll);
+      scroll.scrollTop = 600;
+      fireEvent.scroll(scroll);
+      // The reply's body is still settling: the content resizes.
+      const content = observers.find(
+        (observer) =>
+          observer.targets.has(scroll) &&
+          observer.targets.has(scroll.firstElementChild!)
+      )!;
+      expect(content).toBeTruthy();
+      act(() => content.callback([], content as unknown as ResizeObserver));
+      expect(scroll.scrollTop).toBe(600);
+    } finally {
+      geometry.mockRestore();
+      unmount();
+      vi.unstubAllGlobals();
     }
   });
 });
