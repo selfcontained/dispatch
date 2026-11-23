@@ -1016,7 +1016,6 @@ describe("runner session supervision", () => {
           fullAccess: false,
         }),
         permitsRemoteAgentMcp: () => active,
-        remoteRepoOperation: () => undefined,
       },
       jobService: { getActiveRunForAgent: async () => null },
       templateService: { addTemplate },

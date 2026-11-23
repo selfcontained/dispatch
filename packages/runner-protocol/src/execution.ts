@@ -129,6 +129,7 @@ export type ReadyFrame = {
   checkoutInspection?: true;
   checkoutMetadata?: true;
   checkoutCommands?: true;
+  checkoutExecStream?: true;
   terminals?: true;
   defaultBranchFiles?: true;
   checkoutViews?: true;
@@ -171,6 +172,7 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     ...(frame.checkoutViews === true && { checkoutViews: true }),
     ...(frame.defaultBranchFiles === true && { defaultBranchFiles: true }),
     ...(frame.checkoutCommands === true && { checkoutCommands: true }),
+    ...(frame.checkoutExecStream === true && { checkoutExecStream: true }),
     ...(frame.terminals === true && { terminals: true }),
     ...(frame.checkoutMetadata === true && { checkoutMetadata: true }),
     ...(frame.checkoutInspection === true && { checkoutInspection: true }),
@@ -212,7 +214,7 @@ export type ResultFrame = {
   value?: boolean | string;
   error?: string;
   /** `update-fenced`: refused by the update fence; it never started. */
-  code?: "host-gone" | "update-fenced";
+  code?: "host-gone" | "update-fenced" | "stale" | "timeout";
 };
 
 export type LaunchProgress =

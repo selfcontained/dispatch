@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -5,9 +6,12 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { GitHubRunnerExecutor } from "../src/agents/remote/github-runner-executor.js";
+import { executeStreamedCheckoutCommand } from "../src/agents/checkout-command-executor.js";
 import { runnerGitArgsFor } from "../src/agents/remote/runner.js";
 import {
   WorkloadTools,
+  cacheWorkloadPath,
+  workloadPathProbe,
   workloadLoginCommand,
   parseWorkloadTools,
   workloadToolLookup,
@@ -74,6 +78,62 @@ it("does not expose the configured fallback PATH to the login profile", async ()
   expect((await execute(session!, sessionArgs, { env })).stdout.trim()).toBe(
     own
   );
+});
+
+it("direct checkout exec uses and caches the login-only workload PATH", async () => {
+  const home = path.join(root, "home");
+  await tool(
+    path.join(home, "tools", "checkout-probe"),
+    "#!/bin/sh\nexit 23\n"
+  );
+  const profile = path.join(home, ".bash_profile");
+  await writeFile(profile, 'export PATH="$HOME/tools"\n');
+  const [bin, ...args] = workloadLoginCommand(
+    workloadPathProbe,
+    "/bin/bash",
+    home,
+    "/usr/bin:/bin"
+  );
+  let probes = 0;
+  const loginPath = cacheWorkloadPath(async () => {
+    probes++;
+    return (
+      await execute(bin!, args, { env: { HOME: home, PATH: "/usr/bin:/bin" } })
+    ).stdout;
+  });
+  const state = createHash("sha256")
+    .update(
+      JSON.stringify(["session", "effective", root, root, "guard", "data"])
+    )
+    .digest("hex");
+  const options = {
+    shell: "direct",
+    timeoutMs: null,
+    maxOutput: null,
+    env: {},
+    stdout: "out",
+    stderr: "err",
+  } as const;
+  const run = async () =>
+    executeStreamedCheckoutCommand(
+      root,
+      "session",
+      {
+        kind: "run",
+        checkout: "effective",
+        path: "guard",
+        state,
+        argv: ["checkout-probe"],
+      },
+      options,
+      await loginPath(),
+      async () => ({ root, content: "data" })
+    );
+
+  expect(await run()).toBe(23);
+  await writeFile(profile, 'export PATH="/usr/bin:/bin"\n');
+  expect(await run()).toBe(23);
+  expect(probes).toBe(1);
 });
 
 it("falls back to the system path when the lookup finds nothing", async () => {

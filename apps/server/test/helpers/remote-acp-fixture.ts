@@ -130,7 +130,7 @@ const fake = createFakeAcpAgent({
           });
           if (post.isError) throw new Error(JSON.stringify(post.content));
           const repo = await client.callTool({
-            name: "repo_runner_workspace",
+            name: "repo_proof",
             arguments: {},
           });
           if (repo.isError) throw new Error(JSON.stringify(repo.content));

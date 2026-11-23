@@ -122,3 +122,27 @@ export const fixedWorkloadTools: WorkloadToolResolver = {
   resolve: async (tool) => systemTools[tool],
   invalidate() {},
 };
+
+/** The probe runs in the workload account's login shell and prints only PATH. */
+export const workloadPathProbe = [
+  "/bin/sh",
+  "-c",
+  String.raw`printf "\0%s\0" "$PATH"`,
+];
+
+export function cacheWorkloadPath(probe: () => Promise<string>) {
+  let pending: Promise<string> | undefined;
+  return () => {
+    pending ??= probe()
+      .then((output) => {
+        const path = output.split("\0")[1];
+        if (!path) throw new Error("Could not read the workload login PATH.");
+        return path;
+      })
+      .catch((error: unknown) => {
+        pending = undefined;
+        throw error;
+      });
+    return pending;
+  };
+}

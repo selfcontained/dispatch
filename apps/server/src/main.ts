@@ -79,10 +79,13 @@ if (process.argv[2]?.startsWith("recovery-")) {
 } else if (process.argv[2] === "runner-checkout-command") {
   const { runCheckoutCommandCli } =
     await import("./agents/remote/checkout-command.js");
+  const { writeSync } = await import("node:fs");
   await runCheckoutCommandCli(
     process.argv[3]!,
     process.argv[4]!,
-    process.argv[5]
+    process.argv[5] || undefined,
+    process.argv[6] || undefined,
+    (status) => writeSync(3, JSON.stringify(status))
   );
 } else if (process.argv[2] === "runner-engine-capability") {
   const { runEngineCapabilityWorker } =

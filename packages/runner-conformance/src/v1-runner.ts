@@ -36,6 +36,7 @@ import {
 } from "@dispatch/runner-client/v1";
 import {
   receiveFile,
+  receiveCheckoutExec,
   RunnerAcknowledgementLost,
   RunnerHostGone,
   RunnerUnavailable,
@@ -186,6 +187,20 @@ export function v1Runner({
             ready.filesGetStream ? streams : undefined
           );
           return decodeResult(frame, bytes.toString("base64"));
+        }
+        if (command.kind === "checkoutCommand" && op === "checkout.exec") {
+          const { timeoutMs, maxOutput, shell, env } =
+            request as Req<"checkout.exec">;
+          const result = await receiveCheckoutExec(
+            command,
+            { timeoutMs, maxOutput, shell, env },
+            (command, signal) => connection.request(command, { signal }),
+            ready.checkoutExecStream ? streams : undefined,
+            opts?.signal
+          );
+          return result.streamed
+            ? (result.result as Res<K>)
+            : decodeResult(frame, result.value);
         }
         const { value } = await connection.request(command, {
           signal: opts?.signal,

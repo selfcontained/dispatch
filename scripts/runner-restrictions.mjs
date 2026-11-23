@@ -107,7 +107,9 @@ const rules = [
     "N14",
     "Runner repo tool and manifest limits",
     "T14",
-    [runner, "checkoutCommands.size >= 32"],
+    // Fallback only. Capable peers carry execution policy and stream output;
+    // legacy peers still need the old limits during rolling updates.
+    [runner, "legacy && legacyCheckoutCommands >= 32"],
     [
       protocol + "checkout-command.ts",
       "MAX_CHECKOUT_COMMAND_FILE_BYTES = 256 * 1024",

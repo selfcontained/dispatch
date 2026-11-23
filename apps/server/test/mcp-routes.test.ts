@@ -63,7 +63,6 @@ function createMockDeps() {
           "This runner version does not support checkout commands."
         );
       }),
-      remoteRepoOperation: vi.fn(),
       permitsRemoteAgentMcp: vi.fn(() => false),
       getAgent: vi.fn(async () => ({
         id: "agt_test1",

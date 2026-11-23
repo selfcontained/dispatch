@@ -284,8 +284,8 @@ describe("v1 credit streams", () => {
           sink._write = () => resolve();
         });
         const stalled = Promise.allSettled([
-          link.client.receive("stalled", sink, abort.signal),
-          link.runner.send("stalled", source),
+          link.client.receive("stalled", sink, abort.signal, { stall: false }),
+          link.runner.send("stalled", source, undefined, { stall: "blocked" }),
         ]);
         await firstWrite;
         const drained: Buffer[] = [];
@@ -319,6 +319,37 @@ describe("v1 credit streams", () => {
       }
     }
   );
+
+  it("allows a silent command until it actually needs credit", async () => {
+    const link = await loopback(true, 100);
+    const source = new Readable({ read() {} });
+    const chunks: Buffer[] = [];
+    try {
+      const result = Promise.all([
+        link.client.receive(
+          "idle",
+          new Writable({
+            write(chunk: Buffer, _encoding, done) {
+              chunks.push(chunk);
+              done();
+            },
+          }),
+          undefined,
+          { stall: false }
+        ),
+        link.runner.send("idle", source, undefined, { stall: "blocked" }),
+      ]);
+      await expect(
+        Promise.race([result.then(() => "closed"), delay(150, "idle")])
+      ).resolves.toBe("idle");
+      source.push(Buffer.from("output"));
+      source.push(null);
+      await result;
+      expect(Buffer.concat(chunks).toString()).toBe("output");
+    } finally {
+      await link.close();
+    }
+  });
 
   it("cancels only the stream when a peer sends beyond its granted window", async () => {
     const link = await loopback();

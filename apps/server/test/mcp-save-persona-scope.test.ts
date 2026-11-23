@@ -179,7 +179,6 @@ beforeAll(async () => {
       ...caller,
     }),
     permitsRemoteAgentMcp: () => true,
-    remoteRepoOperation: () => undefined,
     readRepoManifest: async () => null,
     inspectCheckout,
     createAgent,

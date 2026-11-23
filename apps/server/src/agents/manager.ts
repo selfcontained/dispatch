@@ -4058,20 +4058,6 @@ export class AgentManager {
     return this.remote?.permitsAgentMcp(placement) ?? false;
   }
 
-  remoteRepoOperation(agent: AgentRecord): (() => Promise<string>) | undefined {
-    const placement = remotePlacement(agent.cwd);
-    if (!placement || !this.remote?.repoToolFor(placement)) return undefined;
-    return async () =>
-      String(
-        (
-          await this.remote!.requestSession(placement, {
-            kind: "repo",
-            agentId: agent.id,
-          })
-        ).value ?? ""
-      );
-  }
-
   readRepoManifest(agent: AgentRecord) {
     return requestCheckoutCommand(this.checkoutReadRunners(), agent, {
       kind: "read",

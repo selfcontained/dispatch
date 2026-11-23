@@ -17,7 +17,7 @@ type Part =
   | { action: "cancel"; code: Failure };
 
 export type StreamFrame =
-  | { type: "stream"; action: "accept" }
+  | { type: "stream"; action: "accept"; checkoutExecStream?: true }
   | ({ type: "stream"; id: string } & Part);
 
 interface Transfer {
@@ -25,7 +25,7 @@ interface Transfer {
   io: Readable | Writable;
   credit: number;
   /** False for long-lived channels: an idle channel is not stalled. */
-  stall: boolean;
+  stall: boolean | "blocked";
   phase: "waiting" | "open" | "ended";
   timer?: ReturnType<typeof setTimeout>;
   wake?: () => void;
@@ -36,10 +36,10 @@ interface Transfer {
 export type TransferOptions = {
   /**
    * Cancel with `timeout` when the transfer makes no progress for the stall
-   * period (default). Channels that may sit idle pass false and rely on the
-   * connection closing instead.
+   * period (default). Senders with idle sources use "blocked" to time out
+   * only while waiting for credit or final acknowledgement.
    */
-  stall?: boolean;
+  stall?: boolean | "blocked";
 };
 
 type Sender = Transfer & { direction: "send"; io: Readable };
@@ -155,7 +155,7 @@ export class FlowStreams {
       const entry: Active = {
         ...input,
         credit: 0,
-        stall: options?.stall !== false,
+        stall: options?.stall ?? true,
         phase: "waiting",
         finish: (error) => {
           if (!this.active.delete(id)) return;
@@ -180,7 +180,7 @@ export class FlowStreams {
       io.once("close", close);
       signal?.addEventListener("abort", abort, { once: true });
       if (signal?.aborted) return abort();
-      this.touch(entry);
+      this.touch(entry, true);
       if (entry.direction === "send") {
         if (!this.reply(entry, { action: "open" })) return;
         void this.pump(entry).catch(() => fail());
@@ -188,9 +188,9 @@ export class FlowStreams {
     });
   }
 
-  private touch(entry: Active) {
+  private touch(entry: Active, blocked = false) {
     clearTimeout(entry.timer);
-    if (!entry.stall) return;
+    if (!entry.stall || (entry.stall === "blocked" && !blocked)) return;
     entry.timer = setTimeout(
       () => this.cancel(entry, "timeout", "Stream made no progress"),
       this.stallMs
@@ -227,6 +227,7 @@ export class FlowStreams {
       entry.credit < MIN_FRAME_CREDIT &&
       this.active.get(entry.id) === entry
     ) {
+      if (entry.stall === "blocked") this.touch(entry, true);
       await new Promise<void>((resolve) => {
         entry.wake = resolve;
       });
@@ -254,7 +255,7 @@ export class FlowStreams {
     }
     if (this.active.get(entry.id) !== entry) return;
     entry.phase = "ended";
-    this.touch(entry);
+    this.touch(entry, true);
     this.reply(entry, { action: "end" });
   }
 
@@ -358,7 +359,7 @@ export class FlowStreams {
     ) {
       entry.credit += bytes;
       if (entry.phase === "waiting") entry.phase = "open";
-      this.touch(entry);
+      this.touch(entry, entry.phase === "ended");
       entry.wake?.();
       return;
     }
@@ -416,7 +417,9 @@ export class FlowStreams {
   }
 }
 
-export function acceptsStreams(value: unknown): boolean {
+export function acceptsStreams(
+  value: unknown
+): value is Extract<StreamFrame, { action: "accept" }> {
   if (!value || typeof value !== "object") return false;
   const frame = value as Record<string, unknown>;
   return frame.type === "stream" && frame.action === "accept";

@@ -1,6 +1,7 @@
 import {
   runnerIdFromWire,
   type RunnerDescription,
+  type Req,
 } from "@dispatch/runner-protocol/contract";
 import { isEngineCapabilityOperation } from "@dispatch/runner-protocol/engine-management";
 import {
@@ -18,6 +19,7 @@ import { Writable } from "node:stream";
 import { createServer, type Server, type TLSSocket } from "node:tls";
 import {
   receiveFile,
+  receiveCheckoutExec,
   RunnerConnection,
   RunnerUnavailable,
 } from "../../runners/enrolled/v1-framing.js";
@@ -107,7 +109,6 @@ export type LegacyConfig = {
   mcpOrigin?: string;
   /** Host the guest dials for the default MCP origin. */
   endpointHost?: string;
-  repoTool?: boolean;
 };
 
 export type EnrollmentOptions = {
@@ -122,11 +123,6 @@ export type EnrollmentOptions = {
   mcpOrigin?: string;
   /** Public web origin when the operator UI has a separate listener or proxy. */
   approvalOrigin?: string;
-  /**
-   * Service-side approval for the runner's fixed repo operation: true for
-   * every placement, or a list of `<registrationId>` / `<registrationId>/<workspace>`.
-   */
-  repoTool?: boolean | string[];
   log?: Pick<Console, "info" | "warn">;
 };
 
@@ -217,6 +213,7 @@ type Peer = {
   checkoutInspection: boolean;
   checkoutMetadata: boolean;
   checkoutCommands: boolean;
+  checkoutExecStream: boolean;
   terminals: boolean;
   defaultBranchFiles: boolean;
   sessionCheckout: boolean;
@@ -319,15 +316,6 @@ export function advertisedHost(
   );
 }
 
-function parseRepoTool(value: string | undefined): boolean | string[] {
-  if (!value || value === "0") return false;
-  if (value === "1" || value === "*") return true;
-  return value
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-}
-
 export function configuredRunner(input?: {
   pool: Pool;
   host: string;
@@ -355,7 +343,6 @@ export function configuredRunner(input?: {
           endpointHost: process.env.DISPATCH_RUNNER_ENDPOINT_HOST,
           mcpOrigin: process.env.DISPATCH_RUNNER_MCP_ORIGIN,
           approvalOrigin: process.env.DISPATCH_RUNNER_APPROVAL_ORIGIN,
-          repoTool: parseRepoTool(process.env.DISPATCH_RUNNER_REPO_TOOL),
           log: console,
         }
       : undefined;
@@ -514,35 +501,6 @@ export class RemoteRunnerService {
     const first = [...this.enrolled.values()][0];
     if (!first) throw new RunnerUnavailable("No runner is enrolled.");
     return this.originFor({ runner: first.id, workspace: "" });
-  }
-
-  /** @deprecated Whether any placement may use the repo operation. */
-  get repoTool() {
-    const enrolled = this.enrollment?.repoTool;
-    return (
-      this.legacy?.repoTool === true ||
-      enrolled === true ||
-      (Array.isArray(enrolled) && enrolled.length > 0)
-    );
-  }
-
-  /**
-   * Whether the service approves the runner's fixed repo operation for this
-   * placement. Requires an agent-MCP-eligible registration; the runner still
-   * requires its own per-workspace `repoTool`.
-   */
-  repoToolFor(placement: Placement) {
-    if (this.isManagedWorkspace(placement) || !this.permitsAgentMcp(placement))
-      return false;
-    if (this.legacy && placement.runner === this.legacy.id)
-      return this.legacy.repoTool === true;
-    const approval = this.enrollment?.repoTool;
-    if (approval === true) return true;
-    return (
-      Array.isArray(approval) &&
-      (approval.includes(placement.runner) ||
-        approval.includes(`${placement.runner}/${placement.workspace}`))
-    );
   }
 
   /**
@@ -1019,6 +977,7 @@ export class RemoteRunnerService {
           defaultBranchFiles: ready.defaultBranchFiles === true,
           checkoutMetadata: ready.checkoutMetadata === true,
           checkoutCommands: ready.checkoutCommands === true,
+          checkoutExecStream: ready.checkoutExecStream === true,
           terminals: ready.terminals === true,
           checkoutInspection: ready.checkoutInspection === true,
           sharedWorktree: ready.sharedWorktree === true,
@@ -1049,7 +1008,11 @@ export class RemoteRunnerService {
         });
         previous?.socket.destroy();
         if (peer.streams) {
-          send({ type: "stream", action: "accept" });
+          send({
+            type: "stream",
+            action: "accept",
+            ...(peer.checkoutExecStream && { checkoutExecStream: true }),
+          });
           peer.streams.enable();
         }
         gate.ready?.(ready.workspaces, peer.managedWorkspace);
@@ -1758,6 +1721,24 @@ export class RemoteRunnerService {
       peer?.filesGetStream ? peer.streams : undefined
     );
   }
+
+  streamCheckoutExec = (
+    placement: Placement,
+    command: Extract<Command, { kind: "checkoutCommand" }>,
+    { timeoutMs, maxOutput, shell, env }: Req<"checkout.exec">,
+    signal?: AbortSignal
+  ) => {
+    const peer = this.workspacePeer(placement);
+    if (!peer?.checkoutExecStream || !peer.streams) return;
+    return receiveCheckoutExec(
+      command,
+      { timeoutMs, maxOutput, shell, env },
+      (request, active) =>
+        this.request(placement, request, false, undefined, active, peer),
+      peer.streams,
+      signal
+    );
+  };
 
   requestSession(
     placement: Placement,

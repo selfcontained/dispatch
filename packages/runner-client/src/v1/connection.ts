@@ -1,4 +1,10 @@
-import { checkoutCommandTimeoutMs } from "@dispatch/runner-protocol";
+import {
+  checkoutCommandTimeoutMs,
+  isCheckoutCommandStatus,
+  type CheckoutExecution,
+  type CheckoutCommandResult,
+} from "@dispatch/runner-protocol";
+import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 import type { Timeout } from "@dispatch/runner-protocol/contract";
 import { randomUUID } from "node:crypto";
 import { Writable, type Duplex } from "node:stream";
@@ -33,17 +39,37 @@ export function runnerDeadlineMs(
   return timeout === "long" ? 300_000 : 20_000;
 }
 
-/** How long the service waits for a reply. The runner's update fence uses
- * the same bound as the deadline of an already-admitted operation. */
+function executionOptions(command: Command) {
+  return command.kind === "checkoutCommand" && command.operation.kind === "run"
+    ? command.operation.execution
+    : undefined;
+}
+
+/** Node timers clamp values outside the signed 32-bit range to one ms. */
+export function scheduleDeadline(ms: number, expired: () => void) {
+  const deadline = performance.now() + ms;
+  let timer: ReturnType<typeof setTimeout>;
+  const tick = () => {
+    const remaining = deadline - performance.now();
+    if (remaining <= 0) expired();
+    else
+      timer = setTimeout(tick, Math.min(Math.ceil(remaining), 2_147_483_647));
+  };
+  timer = setTimeout(tick, Math.min(ms, 2_147_483_647));
+  return () => clearTimeout(timer);
+}
+
+/** Legacy reply deadline, also used by the runner as its update drain
+ * budget. An unbounded exec can defer an update without ending the command. */
 export function runnerReplyTimeoutMs(command: Command): number {
   // Repository fetches and engine package installs can run for minutes.
   // Let the runner enforce the command deadline and leave time for its reply.
-  if (command.kind === "checkoutCommand")
-    return runnerDeadlineMs(
-      "request",
-      checkoutCommandTimeoutMs(command.operation.checkout),
-      0
-    );
+  if (command.kind === "checkoutCommand") {
+    const timeoutMs =
+      executionOptions(command)?.timeoutMs ??
+      checkoutCommandTimeoutMs(command.operation.checkout);
+    return runnerDeadlineMs("request", Math.min(timeoutMs, 2_147_470_000), 0);
+  }
   return command.kind === "sessionCheckout" ||
     command.kind === "checkoutRelease" ||
     isStreamedCollection(command) ||
@@ -106,6 +132,96 @@ export async function receiveFile(
     ]);
     if (value !== true) throw new Error("Invalid runner file stream response.");
     return Buffer.concat(chunks);
+  } finally {
+    controller.abort();
+  }
+}
+
+type ExecCommand = Extract<Command, { kind: "checkoutCommand" }>;
+
+/** Commands with negotiated execution options acknowledge with status only. */
+export async function receiveCheckoutExec(
+  command: ExecCommand,
+  options: Omit<CheckoutExecution, "stdout" | "stderr">,
+  request: (
+    command: ExecCommand,
+    signal?: AbortSignal
+  ) => Promise<{ value: ResultFrame["value"] }>,
+  streams?: FlowStreams,
+  signal?: AbortSignal
+): Promise<
+  | { value: ResultFrame["value"]; streamed: false }
+  | { result: CheckoutCommandResult; streamed: true }
+> {
+  if (!streams) return { ...(await request(command, signal)), streamed: false };
+  if (command.operation.kind !== "run")
+    throw new Error("Expected a checkout run.");
+  signal?.throwIfAborted();
+  const controller = new AbortController();
+  const active = signal
+    ? AbortSignal.any([signal, controller.signal])
+    : controller.signal;
+  const stdout = randomUUID();
+  const stderr = randomUUID();
+  const output = (id: string) => {
+    const chunks: Buffer[] = [];
+    return streams
+      .receive(
+        id,
+        new Writable({
+          write(chunk: Buffer, _encoding, done) {
+            chunks.push(chunk);
+            done();
+          },
+        }),
+        active,
+        { stall: false }
+      )
+      .then(() => {
+        const text = Buffer.concat(chunks).toString("utf8").trim();
+        const limit = options.maxOutput;
+        if (limit === null || Buffer.byteLength(text) <= limit)
+          return { text, truncated: false };
+        return {
+          text: new TextDecoder().decode(Buffer.from(text).subarray(0, limit), {
+            stream: true,
+          }),
+          truncated: true,
+        };
+      });
+  };
+  try {
+    const [out, err, { value }] = await Promise.all([
+      output(stdout),
+      output(stderr),
+      request(
+        {
+          ...command,
+          operation: {
+            ...command.operation,
+            execution: { ...options, stdout, stderr },
+          },
+        },
+        active
+      ),
+    ]);
+    const status: unknown =
+      typeof value === "string" ? JSON.parse(value) : null;
+    if (!isCheckoutCommandStatus(status))
+      throw new Error("Invalid runner checkout command status.");
+    return {
+      streamed: true,
+      result: {
+        exitCode: status.exitCode,
+        stdout: out.text,
+        stderr: err.text,
+        ...(options.maxOutput !== null && {
+          truncated: Boolean(
+            status.truncated || out.truncated || err.truncated
+          ),
+        }),
+      },
+    };
   } finally {
     controller.abort();
   }
@@ -196,7 +312,12 @@ export class RunnerConnection {
     command: Command,
     signal?: AbortSignal
   ): Promise<ResultFrame["value"]> {
-    const timeoutMs = runnerReplyTimeoutMs(command);
+    const execution = executionOptions(command);
+    const timeoutMs = execution
+      ? execution.timeoutMs === null
+        ? null
+        : execution.timeoutMs + 5_000
+      : runnerReplyTimeoutMs(command);
     const checkoutReplyTimeoutMs =
       command.kind === "checkoutCommand" ? timeoutMs : undefined;
     return new Promise((resolve, reject) => {
@@ -204,7 +325,7 @@ export class RunnerConnection {
       // No frame: the connection closed after sending (`close()` settles
       // with nothing), unless a timeout or failed send says otherwise.
       const finish = (frame?: ResultFrame, failure?: Error) => {
-        clearTimeout(timer);
+        stopTimer?.();
         signal?.removeEventListener("abort", cancel);
         this.pending.delete(id);
         this.progress.delete(id);
@@ -213,6 +334,16 @@ export class RunnerConnection {
           reject(new RunnerHostGone(frame.error));
         else if (frame.code === "update-fenced")
           reject(new RunnerUpdateFenced(frame.error));
+        else if (
+          execution &&
+          (frame.code === "stale" || frame.code === "timeout")
+        )
+          reject(
+            new RunnerCallError({
+              code: frame.code,
+              message: frame.error ?? "Runner checkout command failed.",
+            })
+          );
         else if (frame.error) reject(new Error(frame.error));
         else resolve(frame.value);
       };
@@ -234,17 +365,25 @@ export class RunnerConnection {
           )
         );
       };
-      const timer = setTimeout(() => {
+      const expire = () => {
         if (command.kind === "checkoutCommand") requestCancel();
         finish(
           undefined,
           new RunnerUnavailable(
-            checkoutReplyTimeoutMs === undefined
+            checkoutReplyTimeoutMs == null
               ? unknown
               : `No runner checkout command reply after ${checkoutReplyTimeoutMs / 1000} seconds; execution is unknown.`
           )
         );
-      }, timeoutMs);
+      };
+      let stopTimer: (() => void) | undefined;
+      if (timeoutMs !== null) {
+        if (execution) stopTimer = scheduleDeadline(timeoutMs, expire);
+        else {
+          const timer = setTimeout(expire, timeoutMs);
+          stopTimer = () => clearTimeout(timer);
+        }
+      }
       signal?.addEventListener("abort", cancel, { once: true });
       this.pending.set(id, finish);
       try {

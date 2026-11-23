@@ -517,10 +517,6 @@ export async function registerMcpRoutes(
       },
       repoRoot,
       ...checkout.context,
-      remoteRepoOperation:
-        bearerToken && remotePlacement(agent.cwd)
-          ? deps.agentManager.remoteRepoOperation(agent)
-          : undefined,
       sendNotify: deps.mcpSendNotify,
       renameSession: deps.mcpRenameSession,
       setWorkspace: deps.mcpSetWorkspace,

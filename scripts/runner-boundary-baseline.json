@@ -1180,7 +1180,7 @@
     "kind": "R1 placement call",
     "detail": "remotePlacement(agent.cwd)",
     "task": "T07",
-    "count": 13
+    "count": 12
   },
   {
     "file": "apps/server/src/agents/manager.ts",
@@ -1607,7 +1607,7 @@
     "kind": "R1 placement read",
     "detail": "placement.runner",
     "task": "T07",
-    "count": 17
+    "count": 14
   },
   {
     "file": "apps/server/src/agents/remote/service.ts",
@@ -2524,7 +2524,7 @@
     "kind": "R1 placement call",
     "detail": "remotePlacement(agent.cwd)",
     "task": "T07",
-    "count": 4
+    "count": 3
   },
   {
     "file": "apps/server/src/routes/mcp.ts",
