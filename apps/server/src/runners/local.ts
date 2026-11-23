@@ -148,9 +148,11 @@ export function createLocalCheckoutRunner(
   /**
    * A checkout read for the bound session: through the child when it holds
    * this session's checkout at the directory the agent row names, else in
-   * process with the same workload. The second case is temporary (R3, T18):
-   * sessions launched after the import, or moved since, have no current
-   * binding in the child until launches and moves write one.
+   * process with the same workload. Every local launch is prepared and bound
+   * by the child (T18), so the second case is temporary (R3) and covers only
+   * a session the child holds no binding for (a row its import has not
+   * reached) or one moved since, whose binding names its launch checkout
+   * until moves write one (`workspace.select`, T16).
    */
   async function read<K extends ChildRead>(
     op: K,
@@ -199,7 +201,8 @@ export function createLocalCheckoutRunner(
   /**
    * A command for the bound session, by the same rule as reads: in the
    * child when it holds the selected checkout at the directory the agent row
-   * names, else in process with the same workload (R3, T18). The child
+   * names, else in process with the same workload (R3: unbound or moved
+   * sessions, as for reads). The child
    * refuses it with `fenced` while frozen for an update.
    */
   async function exec(
@@ -421,6 +424,8 @@ export function startLocalRunnerProcess(options: {
    * keeps any binding it already holds, so repeating is safe.
    */
   bindings?: () => Promise<LauncherBinding[]>;
+  /** The child's argv; default this executable's own `local-runner` mode. */
+  command?: string[];
 }): LocalRunnerProcess {
   const { log } = options;
   const importBindings = async (child: LaunchedRunner) => {
@@ -470,7 +475,7 @@ export function startLocalRunnerProcess(options: {
     log,
   });
   const supervisor = superviseRunner({
-    command: selfCommand("local-runner"),
+    command: options.command ?? selfCommand("local-runner"),
     // Main's child-environment scrub: no database URL, tokens or API keys.
     env: childProcessEnv(),
     start: {

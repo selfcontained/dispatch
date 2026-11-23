@@ -16,6 +16,11 @@
  * - A missing directory is `gone`, never owned.
  * - The recorded branch and base are kept as given: a session that switched
  *   branches still names the branch it was created with.
+ *
+ * A session the runner prepares itself (`workspace.prepare`) is bound by the
+ * same decision, once its checkout exists. That binding replaces one the
+ * import wrote for the session (an import can run while a launch is
+ * preparing) and is never replaced itself.
  */
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
@@ -24,6 +29,7 @@ import {
   mkdir,
   readFile,
   realpath,
+  rename,
   rm,
   stat,
   writeFile,
@@ -52,7 +58,7 @@ export type StoredBinding = {
     base: string | null;
   };
   /** How the runner came to hold it. */
-  source: "import";
+  source: "import" | "prepare";
 };
 
 export type ImportCounts = { added: number; kept: number; invalid: number };
@@ -78,7 +84,11 @@ function gitEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
-async function git(cwd: string, args: string[]): Promise<string[] | null> {
+/** Git's output lines in `cwd`, or null when it fails. Never throws. */
+export async function git(
+  cwd: string,
+  args: string[]
+): Promise<string[] | null> {
   try {
     const { stdout } = await run("git", ["-C", cwd, ...args], {
       timeout: GIT_TIMEOUT_MS,
@@ -189,6 +199,38 @@ export class BindingStore {
       this.origins.set(path, origin);
     }
     return origin;
+  }
+
+  /**
+   * Bind a session the runner prepared: the same decision as an import.
+   * Replaces an imported binding, never a prepared one, and returns the
+   * binding the store holds afterwards.
+   */
+  async bindPrepared(input: LauncherBinding): Promise<StoredBinding> {
+    await mkdir(this.dir, { recursive: true, mode: 0o700 });
+    const target = join(this.dir, fileName(input.session));
+    const held = await this.get(input.session);
+    if (held?.source === "prepare") return held;
+    const stored: StoredBinding = {
+      ...(await decideBinding(input)),
+      source: "prepare",
+    };
+    const temp = join(this.dir, `.${randomUUID()}.tmp`);
+    await writeFile(temp, JSON.stringify(stored) + "\n", { mode: 0o600 });
+    try {
+      if (held) await rename(temp, target);
+      else
+        try {
+          await link(temp, target);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+          // An import published one meanwhile: this one replaces it.
+          await rename(temp, target);
+        }
+    } finally {
+      await rm(temp, { force: true });
+    }
+    return stored;
   }
 
   /**

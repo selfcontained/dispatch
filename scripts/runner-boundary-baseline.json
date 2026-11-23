@@ -422,13 +422,6 @@
   {
     "file": "apps/server/src/agents/checkout-intent.ts",
     "kind": "R2 host import",
-    "detail": "apps/server/src/agents/workspace",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/checkout-intent.ts",
-    "kind": "R2 host import",
     "detail": "apps/server/src/shared/git/worktree",
     "task": "T04",
     "count": 1
@@ -1073,13 +1066,6 @@
   {
     "file": "apps/server/src/agents/local-runner.ts",
     "kind": "R3 local method",
-    "detail": "prepareWorkspace",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner.ts",
-    "kind": "R3 local method",
     "detail": "recordedHostPid",
     "task": "T04",
     "count": 1
@@ -1109,13 +1095,6 @@
     "file": "apps/server/src/agents/local-runner.ts",
     "kind": "R3 local method",
     "detail": "resolveWorkspace",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner.ts",
-    "kind": "R3 local method",
-    "detail": "resumeWorkspace",
     "task": "T04",
     "count": 1
   },
@@ -1249,13 +1228,6 @@
     "file": "apps/server/src/agents/manager.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/local-runner",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/manager.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/workspace",
     "task": "T04",
     "count": 1
   },
@@ -1949,13 +1921,6 @@
     "file": "apps/server/src/agents/workspace.ts",
     "kind": "R2 host access",
     "detail": "fs/promises",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/workspace.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/workspace-prep",
     "task": "T04",
     "count": 1
   },

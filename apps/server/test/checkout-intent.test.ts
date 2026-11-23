@@ -8,7 +8,6 @@ import { parseRepository } from "../src/agents/remote/repository.js";
 import { getPullRequestHead } from "../src/shared/github/pr.js";
 import {
   resolveCheckoutIntent,
-  resolveLocalCheckout,
   runnerDefaultBranch,
   toLocalWorktreeRequest,
   toRunnerCheckout,
@@ -21,6 +20,18 @@ import { readAgentView } from "../src/agents/checkout-runner.js";
 import { inspectCheckout } from "../src/agents/checkout-inspection.js";
 import { listLocalRemoteBranches } from "../src/agents/local-workspace-probes.js";
 import { createGitWorktree } from "../src/shared/git/worktree.js";
+import { runnerWorktree } from "../src/agents/workspace-launch.js";
+
+/**
+ * What the local runner checks out for a request it is sent (its core's
+ * rule, run for real in local-workspace-preparation.test.ts): the base
+ * defaults to `main`, and without a new branch the base is checked out.
+ */
+function checkedOut(request: Parameters<typeof runnerWorktree>[0]) {
+  const sent = runnerWorktree(request);
+  const base = sent.base ?? "main";
+  return { branch: sent.create ? sent.branch : base, base };
+}
 
 const context = { id: "agt_example", name: " A new agent! " };
 
@@ -79,7 +90,7 @@ describe("checkout intent", () => {
       if (!checkout) throw new Error("Expected a worktree intent");
       const request = toLocalWorktreeRequest(checkout, context.name, "nested");
       expect(request.location).toBe("nested");
-      expect(resolveLocalCheckout(request)).toEqual({
+      expect(checkedOut(request)).toEqual({
         branch,
         base,
       });
@@ -279,13 +290,11 @@ it("defaults a native Create Agent request to main even when the Git default is 
 });
 
 it("uses main for a native worktree request with no recorded base", () => {
-  expect(
-    resolveLocalCheckout({ branch: "feature", createNewBranch: true })
-  ).toEqual({
+  expect(checkedOut({ branch: "feature", createNewBranch: true })).toEqual({
     branch: "feature",
     base: "main",
   });
-  expect(resolveLocalCheckout({ branch: "", createNewBranch: false })).toEqual({
+  expect(checkedOut({ branch: "", createNewBranch: false })).toEqual({
     branch: "main",
     base: "main",
   });
@@ -385,7 +394,7 @@ describe("pull request intent", () => {
       createNewBranch: false,
       baseBranch: "topic",
     });
-    expect(resolveLocalCheckout(request)).toEqual({
+    expect(checkedOut(request)).toEqual({
       branch: "topic",
       base: "topic",
     });

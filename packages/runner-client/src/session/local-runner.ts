@@ -45,6 +45,11 @@ export type SessionCallOptions<K extends CallName | OpenName> =
      * false). With false, an unavailable runner rejects with `unavailable`.
      */
     wait?: boolean;
+    /**
+     * The reply deadline of each attempt; null waits without one. Default:
+     * the operation's deadline class.
+     */
+    timeoutMs?: number | null;
   };
 
 export type LocalRunnerSessionOptions = {
@@ -240,7 +245,11 @@ export class LocalRunnerSession implements Runner {
     for (;;) {
       const connection = await this.connected(opts.wait !== false, opts.signal);
       try {
-        return await connection.call(op, req, { signal: opts.signal });
+        return await connection.call(op, req, {
+          signal: opts.signal,
+          timeoutMs: opts.timeoutMs,
+          onEvent: opts.onEvent as ((event: unknown) => void) | undefined,
+        });
       } catch (error) {
         if (!(error instanceof RunnerCallError)) throw error;
         const again =

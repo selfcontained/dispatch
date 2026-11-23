@@ -10,6 +10,8 @@
  *            A value too long for one line is answered `{id, ok: true,
  *            stream}` instead: its JSON text follows on the credit-controlled
  *            stream `reply:<id>`, which the caller registers on that answer.
+ *   event    `{id, event}` before a call's answer: one event the operation
+ *            declares (progress), in the order the runner reported them.
  *   open     The same request for an `open` operation. A successful reply
  *            opens channel `id`: two credit-controlled streams,
  *            `channel:<id>:in` (to the runner) and `channel:<id>:out` (from
@@ -60,6 +62,8 @@ export const socketReply = union(
   object({ id: integer, ok: literal(true), stream: string }),
   object({ id: integer, ok: literal(false), error: runnerError })
 );
+/** An event of call `id`, sent before its answer. */
+export const socketEvent = object({ id: integer, event: json });
 /** The path-blob frame: accepted on the local socket only. */
 export const blobPathFrame = object({
   type: literal("blob"),
@@ -77,6 +81,7 @@ export const blobPathReply = union(
 );
 export type SocketRequest = Infer<typeof socketRequest>;
 export type SocketReply = Infer<typeof socketReply>;
+export type SocketEvent = Infer<typeof socketEvent>;
 export type BlobPathFrame = Infer<typeof blobPathFrame>;
 export type BlobPathReply = Infer<typeof blobPathReply>;
 
@@ -191,6 +196,7 @@ export function channelDuplex(toPeer: PassThrough, fromPeer: PassThrough) {
 
 type Pending = {
   op: string;
+  onEvent?: (event: unknown) => void;
   resolve(value: unknown): void;
   reject(error: RunnerCallError): void;
 };
@@ -294,6 +300,16 @@ export class LocalSocketConnection {
       else blob?.reject(new RunnerCallError(frame.error));
       return;
     }
+    if (socketEvent.check(frame)) {
+      const pending = this.pending.get(frame.id);
+      const spec = pending
+        ? (operations as Record<string, OperationSpec>)[pending.op]
+        : undefined;
+      // An event nobody waits for, or one the operation does not declare, is dropped.
+      if (pending?.onEvent && spec?.events?.check(frame.event))
+        pending.onEvent(frame.event);
+      return;
+    }
     if (!socketReply.check(frame)) return this.socket.destroy();
     const pending = this.pending.get(frame.id);
     if (!pending) {
@@ -355,7 +371,8 @@ export class LocalSocketConnection {
     input: unknown,
     signal: AbortSignal | undefined,
     timeoutMs: number | null,
-    before?: (id: number) => void
+    before?: (id: number) => void,
+    onEvent?: (event: unknown) => void
   ): { id: number; reply: Promise<unknown> } {
     const id = this.nextId++;
     const reply = new Promise<unknown>((resolve, reject) => {
@@ -383,6 +400,7 @@ export class LocalSocketConnection {
       signal?.addEventListener("abort", abort, { once: true });
       this.pending.set(id, {
         op,
+        onEvent,
         resolve: (value) => {
           done();
           resolve(value);
@@ -407,14 +425,23 @@ export class LocalSocketConnection {
   call<K extends CallName>(
     op: K,
     input: Req<K>,
-    opts: { signal?: AbortSignal; timeoutMs?: number } = {}
+    opts: {
+      signal?: AbortSignal;
+      /** The reply deadline; null waits without one. Default: the operation's class. */
+      timeoutMs?: number | null;
+      onEvent?: (event: unknown) => void;
+    } = {}
   ): Promise<Res<K>> {
     const spec = operations[op] as OperationSpec;
     return this.request(
       op,
       input,
       opts.signal,
-      opts.timeoutMs ?? localDeadlineMs(spec, input)
+      opts.timeoutMs === undefined
+        ? localDeadlineMs(spec, input)
+        : opts.timeoutMs,
+      undefined,
+      opts.onEvent
     ).reply as Promise<Res<K>>;
   }
 

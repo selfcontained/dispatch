@@ -1,8 +1,8 @@
 /*
  * The platform port: what the runner core asks of the machine it runs on.
- * One core, two platforms (`posix-user`, `linux-privsep`). Only `workload`
- * exists so far; process, layout and private-state parts arrive with the
- * families that need them.
+ * One core, two platforms (`posix-user`, `linux-privsep`). `workload` and
+ * `workspace` exist so far; process, layout and private-state parts arrive
+ * with the families that need them.
  */
 import type { Req, Res } from "@dispatch/runner-protocol/contract";
 
@@ -56,4 +56,71 @@ export interface Workload {
 
 export interface Platform {
   workload: Workload;
+  /** Preparing checkouts from a directory; without it, `workspace.prepare` is unsupported. */
+  workspace?: WorkspacePort;
+}
+
+/** A checkout's Git facts, paths as text (the contract's `gitContext`). */
+export type CheckoutGit = {
+  repoRoot: string;
+  branch: string;
+  worktreePath: string;
+  worktreeName: string;
+  isWorktree: boolean;
+  repoIconPath?: string | null;
+  origin?: string | null;
+};
+
+/** An independent worktree of a directory, as the core resolved it. */
+export type WorktreeSpec = {
+  /** The directory the worktree is made from, as given. */
+  directory: string;
+  name: string;
+  /** The branch to create, or the base to check out when not creating. */
+  branch: string;
+  base: string;
+  create: boolean;
+  /** A directory relative to `directory` to hold it; beside it when absent. */
+  nested?: string;
+};
+
+/**
+ * Preparing a checkout from a directory, as the workload account. The core
+ * decides what happens and in which order, records it, and binds the
+ * session; the platform does each step on the machine.
+ */
+export interface WorkspacePort {
+  /** The canonical path of an existing directory, else null. */
+  canonical(path: string): Promise<string | null>;
+  /** Evidence that a directory is the same one later (device, inode, birth), else null. */
+  identity(path: string): Promise<string | null>;
+  /**
+   * Where `create` will put the worktree and which branch it checks out,
+   * with the same validation and errors, writing nothing. `taken` when
+   * something is already at the path, so `create` will refuse it.
+   */
+  plan(
+    spec: WorktreeSpec
+  ): Promise<{ path: string; branch: string; taken: boolean }>;
+  /** Make the worktree at the planned path. */
+  create(
+    spec: WorktreeSpec,
+    path: string
+  ): Promise<{ path: string; branch: string }>;
+  /** Copy the named ignored files from `source` that `destination` lacks; returns those copied. */
+  copyIgnored(
+    source: string,
+    destination: string,
+    names: readonly string[]
+  ): Promise<string[]>;
+  /** Install dependencies, reporting the outcome; a failure is reported, not thrown. */
+  installDependencies(
+    directory: string,
+    report: (step: {
+      status: "done" | "failed";
+      detail: string;
+    }) => Promise<void>
+  ): Promise<void>;
+  /** The checkout's Git facts: null outside Git, "error" when the probe failed. */
+  git(directory: string): Promise<CheckoutGit | null | "error">;
 }

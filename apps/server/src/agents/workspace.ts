@@ -10,22 +10,20 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
-import type { FastifyBaseLogger } from "fastify";
 
 import { probeGitContext } from "../shared/git/git-context.js";
-import {
-  createGitWorktree,
-  GitWorktreeError,
-  worktreePathSlug,
-} from "../shared/git/worktree.js";
+import { GitWorktreeError } from "../shared/git/worktree.js";
 import { AgentError } from "./errors.js";
+import { WORKTREE_LOCAL_CONFIG_FILES } from "./worktree-local-config-files.js";
 import {
-  setupAgentWorkspace,
-  type WorkspaceProgress,
-} from "./workspace-prep.js";
-import { resolveLocalCheckout } from "./checkout-intent.js";
+  runnerWorktree,
+  type LaunchDirectory,
+  type WorktreeRequest,
+} from "./workspace-launch.js";
 
-export async function resolveLaunchDirectory(rawCwd: string) {
+export async function resolveLaunchDirectory(
+  rawCwd: string
+): Promise<LaunchDirectory> {
   const home = process.env.HOME ?? "/";
   const cwd =
     rawCwd === "~"
@@ -46,38 +44,30 @@ export async function resolveLaunchDirectory(rawCwd: string) {
   return { cwd, canonicalPath, git };
 }
 
-export type LaunchDirectory = Awaited<
-  ReturnType<typeof resolveLaunchDirectory>
->;
-export type WorktreeRequest = {
-  name: string;
-  branch: string;
-  baseBranch?: string;
-  createNewBranch: boolean;
-  location?: "nested" | "sibling";
-};
-type Progress = (
-  step: WorkspaceProgress | { phase: "worktree" | "session" }
-) => Promise<void>;
+export type { LaunchDirectory, WorktreeRequest };
+
+/*
+ * The preparation receipt in the session's state directory. The runner owns
+ * it: it reads and finishes it (`packages/runner/src/core/workspace.ts`).
+ * The app writes only the first record, before the agent row exists, so a
+ * restart never mistakes the launch for a direct one, and upgrades a receipt
+ * an earlier build of this branch wrote (its request in the app's shape).
+ */
+const RECEIPT_FILE = "workspace-preparation";
+type RunnerWorktree = ReturnType<typeof runnerWorktree>;
 type Receipt = {
   source: string;
   sourceIdentity: string;
   cwd: string;
-  request: WorktreeRequest;
-  worktree?: {
-    path: string;
-    branch: string;
-    base: string;
-    identity: string;
-    complete: boolean;
-  };
+  request: RunnerWorktree | WorktreeRequest;
+  copy?: string[];
+  install?: boolean;
+  [field: string]: unknown;
 };
 
 async function readReceipt(dir: string): Promise<Receipt | null> {
   try {
-    return JSON.parse(
-      await readFile(path.join(dir, "workspace-preparation"), "utf8")
-    );
+    return JSON.parse(await readFile(path.join(dir, RECEIPT_FILE), "utf8"));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
@@ -85,14 +75,14 @@ async function readReceipt(dir: string): Promise<Receipt | null> {
 }
 
 async function writeReceipt(dir: string, receipt: Receipt) {
-  const temporary = path.join(dir, `workspace-preparation-${randomUUID()}`);
+  const temporary = path.join(dir, `${RECEIPT_FILE}-${randomUUID()}`);
   try {
     await writeFile(temporary, JSON.stringify(receipt), {
       mode: 0o600,
       flag: "wx",
       flush: true,
     });
-    await rename(temporary, path.join(dir, "workspace-preparation"));
+    await rename(temporary, path.join(dir, RECEIPT_FILE));
     const directory = await open(dir, "r");
     try {
       await directory.sync();
@@ -109,177 +99,67 @@ async function directoryIdentity(cwd: string) {
   return `${evidence.dev}:${evidence.ino}:${evidence.birthtimeNs}`;
 }
 
-export function createWorkspacePreparation(logger: FastifyBaseLogger) {
-  const pending = new Map<string, Promise<unknown>>();
+const legacy = (request: Receipt["request"]): request is WorktreeRequest =>
+  "createNewBranch" in request;
 
-  async function serialize<T>(
-    dir: string,
-    action: () => Promise<T>
-  ): Promise<T> {
-    const current = (pending.get(dir) ?? Promise.resolve())
-      .catch(() => {})
-      .then(action);
-    pending.set(dir, current);
-    try {
-      return await current;
-    } finally {
-      if (pending.get(dir) === current) pending.delete(dir);
-    }
-  }
-
-  async function prepareWorktree(receipt: Receipt, progress: Progress) {
-    await progress({ phase: "worktree" });
-    const { cwd, request, source } = receipt;
-    if (
-      (await realpath(cwd).catch(() => null)) !== source ||
-      (await directoryIdentity(source).catch(() => null)) !==
-        receipt.sourceIdentity
-    )
-      throw new GitWorktreeError(
-        "The launch directory was moved or replaced.",
-        409
-      );
-    const { base, branch } = resolveLocalCheckout(request);
-    const worktreePath =
-      request.location === "nested"
-        ? path.join(
-            cwd,
-            ".dispatch",
-            "worktrees",
-            worktreePathSlug(branch, request)
-          )
-        : undefined;
-    const result = await createGitWorktree({
-      cwd,
-      name: request.name,
-      branchName: request.createNewBranch ? branch : undefined,
-      baseBranch: base,
-      worktreePath,
-      createNewBranch: request.createNewBranch,
-    });
-    return {
-      path: result.worktreePath,
-      branch: result.branchName,
-      base,
-      identity: await directoryIdentity(result.worktreePath),
-      complete: false,
-    };
-  }
-
-  async function finish(dir: string, receipt: Receipt, progress: Progress) {
-    const worktree =
-      receipt.worktree ?? (await prepareWorktree(receipt, progress));
-    if (!receipt.worktree) await writeReceipt(dir, { ...receipt, worktree });
-    if (
-      (await directoryIdentity(worktree.path).catch(() => null)) !==
-      worktree.identity
-    )
-      throw new GitWorktreeError(
-        "The prepared worktree was removed or replaced.",
-        409
-      );
-
-    if (!worktree.complete) {
-      if (
-        (await directoryIdentity(receipt.source).catch(() => null)) !==
-        receipt.sourceIdentity
-      )
-        throw new GitWorktreeError(
-          "The launch directory was moved or replaced.",
-          409
-        );
-      await setupAgentWorkspace(
-        receipt.source,
-        worktree.path,
-        logger,
-        progress
-      );
-      await writeReceipt(dir, {
-        ...receipt,
-        worktree: { ...worktree, complete: true },
-      });
-    }
-    await progress({ phase: "session" });
-    return {
-      effectiveCwd: worktree.path,
-      worktreePath: worktree.path,
-      worktreeBranch: worktree.branch,
-      baseBranch: worktree.base,
-      git: await probeGitContext(worktree.path),
-    };
-  }
-
+export function createWorkspacePreparation() {
   async function bind(
     dir: string,
     directory: LaunchDirectory,
     request: WorktreeRequest
   ) {
     const source = directory.canonicalPath;
+    const wanted = runnerWorktree(request);
     const receipt = await readReceipt(dir);
     if (receipt) {
+      const recorded = legacy(receipt.request)
+        ? runnerWorktree(receipt.request)
+        : receipt.request;
       if (
         receipt.source !== source ||
-        JSON.stringify(receipt.request) !== JSON.stringify(request)
+        JSON.stringify(recorded) !== JSON.stringify(wanted)
       )
         throw new GitWorktreeError(
           "This launch already owns a different worktree.",
           409
         );
-      return receipt;
+      return;
     }
     await mkdir(dir, { recursive: true, mode: 0o700 });
-    const intent = {
+    await writeReceipt(dir, {
       cwd: directory.cwd,
       source,
       sourceIdentity: await directoryIdentity(source),
-      request,
-    };
-    await writeReceipt(dir, intent);
+      request: wanted,
+      copy: [...WORKTREE_LOCAL_CONFIG_FILES],
+      install: true,
+    });
     const parent = await open(path.dirname(dir), "r");
     try {
       await parent.sync();
     } finally {
       await parent.close();
     }
-    return intent;
   }
 
   return {
-    async bind(
-      dir: string,
-      directory: LaunchDirectory,
-      request: WorktreeRequest
-    ) {
-      await serialize(dir, () => bind(dir, directory, request));
-    },
-    async prepare(
-      dir: string,
-      directory: LaunchDirectory,
-      request: WorktreeRequest | null,
-      progress: Progress
-    ) {
-      if (!request) {
-        await progress({ phase: "session" });
-        return {
-          effectiveCwd: directory.cwd,
-          worktreePath: null,
-          worktreeBranch: null,
-          baseBranch: null,
-          git: directory.git,
-        };
-      }
-      return serialize(dir, async () =>
-        finish(dir, await bind(dir, directory, request), progress)
-      );
-    },
+    bind,
     /** True once a launch asked for its own worktree in this state dir. */
     async requested(dir: string) {
       return (await readReceipt(dir)) !== null;
     },
-    resume(dir: string, progress: Progress) {
-      return serialize(dir, async () => {
-        const receipt = await readReceipt(dir);
-        return receipt ? finish(dir, receipt, progress) : null;
+    /**
+     * Rewrite a receipt an earlier build of this branch wrote into the shape
+     * the runner reads, before the runner resumes it. Anything else is left.
+     */
+    async upgrade(dir: string) {
+      const receipt = await readReceipt(dir);
+      if (!receipt || !legacy(receipt.request)) return;
+      await writeReceipt(dir, {
+        ...receipt,
+        request: runnerWorktree(receipt.request),
+        copy: receipt.copy ?? [...WORKTREE_LOCAL_CONFIG_FILES],
+        install: receipt.install ?? true,
       });
     },
   };

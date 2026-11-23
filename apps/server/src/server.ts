@@ -1526,9 +1526,17 @@ let routesRegistered = false;
 export async function initializeApp(options?: {
   runMigrations?: boolean;
   reconcileState?: boolean;
+  /**
+   * Start the local runner child as `start` does, with this command instead
+   * of this executable's own `local-runner` mode (an embedding without
+   * `start`, such as a test harness).
+   */
+  localRunner?: { command: string[] };
 }): Promise<typeof app> {
   // Read before the database is touched: invalid probation fails closed.
   await updateRecoveryRuntime.loadProbation();
+  if (options?.localRunner && !localRunnerProcess)
+    startLocalRunnerChild(options.localRunner.command);
   await agentManager.maintainServerLogs();
   await waitForDatabase();
   const shouldRunMigrations =
@@ -1626,12 +1634,8 @@ let stopLocalTlsWatch: (() => void) | undefined;
 
 let localRunnerProcess: LocalRunnerProcess | undefined;
 
-export async function start() {
-  // Probation is known before the child starts, so a probation child starts
-  // frozen and never serves a write before the update commits.
-  await updateRecoveryRuntime.loadProbation();
-  // Before agents are restored, probation included. Never awaited: the app
-  // starts and works as before whether or not the child comes up.
+/** Start and attach this app's local runner child; it prepares local launches. */
+function startLocalRunnerChild(command?: string[]) {
   localRunnerProcess = startLocalRunnerProcess({
     stateRoot: config.agentStateRoot,
     filesRoot: config.filesRoot,
@@ -1639,8 +1643,18 @@ export async function start() {
     log: app.log,
     frozen: updateRecoveryRuntime.localRunnerStartsFrozen(),
     bindings: () => readLocalBindings(pool),
+    ...(command && { command }),
   });
   agentManager.attachLocalRunner(() => localRunnerOf(localRunnerProcess));
+}
+
+export async function start() {
+  // Probation is known before the child starts, so a probation child starts
+  // frozen and never serves a write before the update commits.
+  await updateRecoveryRuntime.loadProbation();
+  // Before agents are restored, probation included. Never awaited: the app
+  // starts and works as before whether or not the child comes up.
+  startLocalRunnerChild();
   await remoteRunner?.start();
   await initializeApp();
 

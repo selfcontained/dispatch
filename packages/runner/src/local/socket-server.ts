@@ -25,6 +25,7 @@ import {
   socketHello,
   socketRequest,
   type BlobPathReply,
+  type SocketEvent,
   type SocketReply,
 } from "@dispatch/runner-client/transport/local-socket";
 import {
@@ -42,6 +43,11 @@ export type ConnectionContext = {
    * first `await`: frames after the request may already carry it.
    */
   receiveBlob(id: string, sink: Writable): Promise<void>;
+  /**
+   * Report one event of this call (an operation's declared `events`) before
+   * its answer. An event the operation does not declare is dropped.
+   */
+  emit(event: unknown): void;
 };
 
 export type CallHandlers = Partial<{
@@ -109,8 +115,10 @@ export async function serveSocket(
     socket.on("close", () => connections.delete(socket));
     socket.on("error", () => socket.destroy());
     let trusted = false;
-    const send = frameWriter<StreamFrame | SocketReply | BlobPathReply>(socket);
-    const write = (frame: SocketReply | BlobPathReply) => {
+    const send = frameWriter<
+      StreamFrame | SocketReply | SocketEvent | BlobPathReply
+    >(socket);
+    const write = (frame: SocketReply | SocketEvent | BlobPathReply) => {
       if (socket.destroyed) return;
       try {
         send(frame);
@@ -125,7 +133,7 @@ export async function serveSocket(
         blob.reject(new Error("Connection closed"));
       expected.clear();
     });
-    const context: ConnectionContext = {
+    const context: Omit<ConnectionContext, "emit"> = {
       receiveBlob(id, sink) {
         return new Promise((resolve, reject) => {
           if (expected.has(id) || streams.has(id))
@@ -225,7 +233,10 @@ export async function serveSocket(
       const release = fence ? fence.enter(op) : () => {};
       if (!release) return reply({ error: errorOf(fencedError()) });
       if (spec?.kind === "open")
-        return void open(op, spec, input, opens, context).then((result) => {
+        return void open(op, spec, input, opens, {
+          ...context,
+          emit: () => {},
+        }).then((result) => {
           release();
           if ("error" in result) return reply(result);
           const ids = channelStreams(id);
@@ -239,7 +250,16 @@ export async function serveSocket(
             .send(ids.out, channel, undefined, { stall: false })
             .catch(() => channel.destroy());
         });
-      void call(op, spec, input, calls, context).then((result) => {
+      let answered = false;
+      const callContext: ConnectionContext = {
+        ...context,
+        emit(event) {
+          if (!answered && spec?.events?.check(event))
+            write({ id, event: event as Json });
+        },
+      };
+      void call(op, spec, input, calls, callContext).then((result) => {
+        answered = true;
         release();
         reply(result);
       });

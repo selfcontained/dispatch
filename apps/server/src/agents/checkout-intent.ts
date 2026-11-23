@@ -8,7 +8,7 @@ import {
   assertSafeRefName,
   normalizeBaseBranch,
 } from "../shared/git/worktree.js";
-import type { WorktreeRequest } from "./workspace.js";
+import type { WorktreeRequest } from "./workspace-launch.js";
 
 export type CheckoutIntent = {
   useWorktree?: boolean;
@@ -242,13 +242,6 @@ export function toLocalWorktreeRequest(
     baseBranch: intent.base,
     location,
   };
-}
-
-export function resolveLocalCheckout(
-  request: Pick<WorktreeRequest, "branch" | "baseBranch" | "createNewBranch">
-): { branch: string; base: string } {
-  const base = request.baseBranch ?? "main";
-  return { base, branch: request.createNewBranch ? request.branch : base };
 }
 
 /** Older runners and origins without GitHub metadata resolve the base at checkout. */

@@ -112,14 +112,16 @@ if (process.argv[2]?.startsWith("recovery-")) {
   // This app's local runner child: same binary, same build.
   const { embeddedBuild } = await import("./agents/build-identity.js");
   const { runCli } = await import("@dispatch/runner/cli");
-  // The `posix-user` platform: checkout reads run in the child's process.
-  const { checkoutWorkload } = await import("./agents/checkout-worker.js");
+  // The `posix-user` platform: checkout reads and preparation steps run in
+  // the child's process.
+  const { checkoutWorkload, workspaceWorkload } =
+    await import("./agents/checkout-worker.js");
   await runCli(process.argv.slice(2), {
     build: {
       version: embeddedBuild.version,
       ...(embeddedBuild.revision && { revision: embeddedBuild.revision }),
     },
-    platform: { workload: checkoutWorkload },
+    platform: { workload: checkoutWorkload, workspace: workspaceWorkload },
   });
 } else if (process.argv[2] === "agent-host") {
   await import("./agents/acp/host/main.js");

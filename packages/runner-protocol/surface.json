@@ -1472,12 +1472,15 @@
       "events": {
         "object": {
           "phase": {
-            "literal": ["workspace", "dependencies", "ready"]
+            "literal": ["workspace", "copy", "dependencies", "ready"]
           },
           "status": {
             "optional": {
               "literal": ["done", "failed"]
             }
+          },
+          "detail": {
+            "optional": "string"
           }
         }
       }
@@ -1576,12 +1579,15 @@
       "events": {
         "object": {
           "phase": {
-            "literal": ["workspace", "dependencies", "ready"]
+            "literal": ["workspace", "copy", "dependencies", "ready"]
           },
           "status": {
             "optional": {
               "literal": ["done", "failed"]
             }
+          },
+          "detail": {
+            "optional": "string"
           }
         }
       }

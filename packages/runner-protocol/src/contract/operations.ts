@@ -76,9 +76,14 @@ const key = (...fields: string[]) => ({ kind: "key", key: fields }) as const;
 const session = { session: sessionHandle };
 const engine = { engine: string };
 const requestId = { requestId: string };
+/**
+ * Preparation steps in order: the checkout, the ignored files copied into
+ * it, its dependencies, then ready. `detail` is a step result's text.
+ */
 const launchProgress = object({
-  phase: literal("workspace", "dependencies", "ready"),
+  phase: literal("workspace", "copy", "dependencies", "ready"),
   status: optional(literal("done", "failed")),
+  detail: optional(string),
 });
 const engineEvent = union(engineProgress, engineComplete);
 const loginOp = (

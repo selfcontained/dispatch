@@ -97,7 +97,15 @@ import {
 import type { TerminalBackend } from "../terminal/manager.js";
 import { remoteTerminal } from "../terminal/remote.js";
 import { createLocalRunner } from "./local-runner.js";
-import type { LaunchDirectory, WorktreeRequest } from "./workspace.js";
+import {
+  prepareLocalWorkspace,
+  resumeLocalWorkspace,
+  worktreeRefusal,
+  type LaunchDirectory,
+  type PrepareProgress,
+  type PreparedWorkspace,
+  type WorktreeRequest,
+} from "./workspace-launch.js";
 import { createAgentMcpToken, createJobMcpToken } from "../auth.js";
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { AvailableCommand } from "@agentclientprotocol/sdk";
@@ -399,6 +407,12 @@ const RUNNER_RESUME_FAILED =
   "Dispatch couldn't resume this agent after the runner update. Start it to continue.";
 
 type AgentRow = Omit<AgentRecord, "placement"> & { runner_id: string };
+
+/** A refusal the local runner answered with main's worktree status, as main's error. */
+function asWorktreeError(error: unknown): never {
+  const refusal = worktreeRefusal(error);
+  throw refusal ? new GitWorktreeError(refusal.message, refusal.status) : error;
+}
 
 export class AgentManager {
   /** A forced runner update's steps on this manager's sessions. */
@@ -2596,13 +2610,15 @@ export class AgentManager {
     try {
       await opts.preparePersona?.();
       const progress = this.workspaceProgress(id, opts.type);
+      // Prepared by the local runner, which binds the session to it.
       const workspace = opts.directory
-        ? await this.localRunner.prepareWorkspace(
+        ? await prepareLocalWorkspace(
+            this.localRunnerChild(),
             id,
             opts.directory,
             opts.worktree,
             progress
-          )
+          ).catch(asWorktreeError)
         : null;
       if (workspace) await this.storePreparedWorkspace(id, workspace);
       const agent = await this.getRequiredAgent(id);
@@ -2856,10 +2872,7 @@ export class AgentManager {
       );
   }
 
-  private workspaceProgress(
-    id: string,
-    type: AgentType
-  ): Parameters<typeof this.localRunner.resumeWorkspace>[1] {
+  private workspaceProgress(id: string, type: AgentType): PrepareProgress {
     return async (step) => {
       if ("status" in step && step.status) {
         await this.recordStartup(() =>
@@ -2878,7 +2891,7 @@ export class AgentManager {
 
   private async storePreparedWorkspace(
     id: string,
-    workspace: Awaited<ReturnType<typeof this.localRunner.prepareWorkspace>>
+    workspace: PreparedWorkspace
   ) {
     const git = workspace.git;
     await this.pool.query(
@@ -3236,11 +3249,18 @@ export class AgentManager {
 
     if (!recycle?.drain) await this.setAgentStatus(id, "creating", null);
     try {
-      if (!remotePlacement(agent.cwd) && !agent.worktreePath) {
-        const workspace = await this.localRunner.resumeWorkspace(
+      if (
+        !remotePlacement(agent.cwd) &&
+        !agent.worktreePath &&
+        (await this.localRunner.requestedWorktree(id))
+      ) {
+        // A worktree launch a restart interrupted: the local runner finishes it.
+        await this.localRunner.bindWorkspace(id);
+        const workspace = await resumeLocalWorkspace(
+          this.localRunnerChild(),
           id,
           this.workspaceProgress(id, agent.type)
-        );
+        ).catch(asWorktreeError);
         if (workspace) {
           await this.storePreparedWorkspace(id, workspace);
           agent = await this.getRequiredAgent(id);
