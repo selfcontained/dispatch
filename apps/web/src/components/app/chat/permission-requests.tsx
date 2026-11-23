@@ -4,7 +4,7 @@ import type {
 } from "@dispatch/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, ShieldCheck } from "lucide-react";
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
 
 import {
   BlockBody,
@@ -281,6 +281,7 @@ function PermissionRequest({
   agentId: string;
   connected: boolean;
 }) {
+  const scopeId = useId();
   const client = useQueryClient();
   const key = ["agent-permissions", agentId];
   const answer = useMutation<AgentPermissionsResponse, Error, string | null>({
@@ -310,20 +311,37 @@ function PermissionRequest({
           <RequestDetails agentId={agentId} details={request.details} />
         ) : null}
       </BlockBody>
-      <BlockFooter className="flex-col items-stretch sm:flex-row sm:items-center">
+      <BlockFooter className="flex-col items-stretch sm:max-w-sm">
         {request.options.map((option) => (
-          <Button
+          <div
             key={option.optionId}
-            type="button"
-            size="xs"
-            variant={optionVariant(option, request.options)}
-            wrap
-            className="w-full max-w-full break-words sm:w-auto"
-            disabled={!connected || answer.isPending}
-            onClick={() => answer.mutate(option.optionId)}
+            className="flex w-full min-w-0 max-w-full flex-col gap-1"
           >
-            {option.name}
-          </Button>
+            <Button
+              type="button"
+              size="xs"
+              variant={optionVariant(option, request.options)}
+              aria-describedby={
+                option.kind === "allow_always"
+                  ? `${scopeId}-${option.optionId}`
+                  : undefined
+              }
+              wrap
+              className="w-full max-w-full break-words"
+              disabled={!connected || answer.isPending}
+              onClick={() => answer.mutate(option.optionId)}
+            >
+              {option.kind === "allow_always" ? "Always allow" : option.name}
+            </Button>
+            {option.kind === "allow_always" ? (
+              <p
+                id={`${scopeId}-${option.optionId}`}
+                className="mb-2 break-words text-center text-body-sm text-muted-foreground"
+              >
+                {option.name}
+              </p>
+            ) : null}
+          </div>
         ))}
         {!request.options.some((option) => option.kind.startsWith("reject")) ? (
           <Button
@@ -331,7 +349,7 @@ function PermissionRequest({
             size="xs"
             variant="secondary"
             wrap
-            className="w-full max-w-full break-words sm:w-auto"
+            className="w-full max-w-full break-words"
             disabled={!connected || answer.isPending}
             onClick={() => answer.mutate(null)}
           >
