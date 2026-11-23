@@ -273,7 +273,8 @@ describe("archive checkout outcome table", () => {
     async (row) => {
       const identity = await workspaceWorkload.identity(checkout);
       const call = vi.fn(async (op, input) => {
-        if (op === "workspace.describe") return {};
+        if (op === "workspace.describe") return { checkoutRoot: checkout };
+        if (op === "workspace.observe") return { ownership: "owned" };
         expect(op).toBe("workspace.release");
         expect(input).toEqual({
           session: "agent-fixture",
@@ -298,7 +299,9 @@ describe("archive checkout outcome table", () => {
         row.mode === "force" ||
         (row.mode === "auto" && !["dirty", "unmerged"].includes(row.state));
       expect(call.mock.calls.map(([op]) => op)).toEqual(
-        release ? ["workspace.describe", "workspace.release"] : []
+        release
+          ? ["workspace.describe", "workspace.observe", "workspace.release"]
+          : []
       );
       if (release)
         expect(git(repo, "branch", "--list", "feature") === "").toBe(
@@ -692,7 +695,7 @@ describe("pending release retry", () => {
  * co-owner it is removed when the mode authorizes it (force, or auto with no
  * outstanding work), whatever the local runner child holds. The child acts
  * only when its binding agrees with the row; otherwise the same removal runs
- * in process. Cases today's branch gets wrong are marked `fails`.
+ * in process.
  */
 describe("local archive against main's outcomes, whatever the child holds", () => {
   type Held = {
@@ -783,30 +786,23 @@ describe("local archive against main's outcomes, whatever the child holds", () =
     ).toMatchObject({ pending: false, removed: true });
   });
 
-  // Branch versus main: the child's import said external, so the branch
-  // keeps a real worktree that main removes.
-  it.fails(
-    "external at the row's worktree: removed, as main does",
-    async () => {
-      expect(
-        await archive(auto, {
-          child: child({ at: atRow, ownership: "external" }),
-        })
-      ).toMatchObject({ pending: false, removed: true });
-    }
-  );
+  // The child's import said external: main still removes the row's worktree.
+  it("external at the row's worktree: removed, as main does", async () => {
+    expect(
+      await archive(auto, {
+        child: child({ at: atRow, ownership: "external" }),
+      })
+    ).toMatchObject({ pending: false, removed: true });
+  });
 
-  it.fails(
-    "a binding elsewhere than the row's worktree: the row's worktree is removed",
-    async () => {
-      expect(
-        await archive(auto, {
-          child: child({ at: () => repo, ownership: "external" }),
-        })
-      ).toMatchObject({ pending: false, removed: true });
-      expect(existsSync(repo)).toBe(true);
-    }
-  );
+  it("a binding elsewhere than the row's worktree: the row's worktree is removed", async () => {
+    expect(
+      await archive(auto, {
+        child: child({ at: () => repo, ownership: "external" }),
+      })
+    ).toMatchObject({ pending: false, removed: true });
+    expect(existsSync(repo)).toBe(true);
+  });
 
   it("a row without a worktree of its own: nothing is removed, even if the child owns one", async () => {
     expect(
@@ -855,8 +851,7 @@ describe("local archive against main's outcomes, whatever the child holds", () =
     });
   });
 
-  // Branch versus main: a child that dies mid-call fails the cleanup.
-  it.fails("a child that dies mid-call: removed in process", async () => {
+  it("a child that dies mid-call: removed in process", async () => {
     expect(
       await archive(auto, {
         child: child({ at: atRow, ownership: "owned" }, true),

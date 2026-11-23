@@ -7,9 +7,11 @@ import {
   type CheckoutReleaseResult,
 } from "@dispatch/runner-protocol";
 import {
+  displayPath,
   RunnerCallError,
   sessionFromWire,
   type Runner,
+  type SessionHandle,
 } from "@dispatch/runner-protocol/contract";
 import {
   archiveReleaseState,
@@ -203,6 +205,32 @@ async function localCoOwner(
   return rows[0]?.id ?? null;
 }
 
+/** The child could not answer: not running, restarting, or died mid-call. */
+function childUnavailable(error: unknown) {
+  return (
+    error instanceof RunnerCallError &&
+    (error.code === "unavailable" || error.code === "unknown_outcome")
+  );
+}
+
+/**
+ * Whether the child's binding for the session is the row's worktree and
+ * the child's to remove (owned, or owned and already gone).
+ */
+async function childOwns(child: Runner, session: SessionHandle, path: string) {
+  const described = await child
+    .call("workspace.describe", { session })
+    .catch((error: unknown) => {
+      if (error instanceof RunnerCallError && error.code === "not_found")
+        return null;
+      throw error;
+    });
+  if (!described?.checkoutRoot || displayPath(described.checkoutRoot) !== path)
+    return false;
+  const observed = await child.call("workspace.observe", { session });
+  return observed.ownership === "owned";
+}
+
 export function localArchiveExecutor(
   pool: Pool,
   agent: ArchiveCheckoutAgent,
@@ -227,27 +255,26 @@ export function localArchiveExecutor(
     coOwner: () => localCoOwner(pool, agent, localRunner),
     async release(expectedState) {
       if (expectedState === null) return "retained";
+      // Main removes the row's worktree. The child does it when its
+      // binding is that worktree and its own; otherwise, or while the
+      // child cannot answer, the same removal runs here from the row.
       const session = sessionFromWire(agent.id);
-      if (child) {
-        const bound = await child.call("workspace.describe", { session }).then(
-          () => true,
-          (error: unknown) => {
-            if (error instanceof RunnerCallError && error.code === "not_found")
-              return false;
-            throw error;
+      if (child && agent.worktreePath)
+        try {
+          if (await childOwns(child, session, agent.worktreePath)) {
+            const { removed } = await child.call("workspace.release", {
+              session,
+              deleteBranch: Boolean(
+                agent.worktreeBranch &&
+                agent.worktreeBranch !== agent.baseBranch
+              ),
+              originalBranch: agent.worktreeBranch,
+            });
+            return removed ? "released" : "retained";
           }
-        );
-        if (bound) {
-          const { removed } = await child.call("workspace.release", {
-            session,
-            deleteBranch: Boolean(
-              agent.worktreeBranch && agent.worktreeBranch !== agent.baseBranch
-            ),
-            originalBranch: agent.worktreeBranch,
-          });
-          return removed ? "released" : "retained";
+        } catch (error) {
+          if (!childUnavailable(error)) throw error;
         }
-      }
       return localRunner.checkoutRelease(agent, {
         kind: "release",
         expectedState,
