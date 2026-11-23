@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
@@ -14,6 +15,10 @@ import type {
   CheckoutObservation,
   CheckoutRelease,
 } from "@dispatch/runner-protocol";
+import {
+  RunnerCallError,
+  type Runner,
+} from "@dispatch/runner-protocol/contract";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -22,6 +27,7 @@ import {
   type ArchiveDeps,
 } from "../src/agents/archive.js";
 import { releaseRemoteCheckout } from "../src/agents/archive-checkout.js";
+import { workspaceWorkload } from "../src/agents/checkout-worker.js";
 import { createLocalRunner } from "../src/agents/local-runner.js";
 import type { RemoteRunnerService } from "../src/agents/remote/service.js";
 import type { AgentRecord, WorktreeCleanupMode } from "../src/agents/types.js";
@@ -113,6 +119,7 @@ function harness(
     offline?: boolean;
     branchCoOwner?: boolean;
     releaseError?: boolean;
+    child?: Runner;
   } = {}
 ): Harness {
   const logger = {
@@ -197,6 +204,7 @@ function harness(
     logger,
     localRunner,
     remote,
+    localRunnerChild: () => options.child,
   } as unknown as ArchiveDeps;
   return { deps, agent, db };
 }
@@ -251,6 +259,79 @@ describe("archive checkout outcome table", () => {
     // A deferred release keeps the authorization it observed.
     if (result.pending)
       expect(result.rememberedState).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it.each(ROWS.filter(({ placement }) => placement === "local"))(
+    "child $mode $state borrowed=$borrowed",
+    async (row) => {
+      const identity = await workspaceWorkload.identity(checkout);
+      const call = vi.fn(async (op, input) => {
+        if (op === "workspace.describe") return {};
+        expect(op).toBe("workspace.release");
+        expect(input).toEqual({
+          session: "agent-fixture",
+          deleteBranch: true,
+          originalBranch: "feature",
+        });
+        if (row.state === "race")
+          writeFileSync(path.join(checkout, "late.txt"), "late");
+        return {
+          removed: await workspaceWorkload.release(
+            "agent-fixture",
+            { path: checkout, identity: identity! },
+            input
+          ),
+        };
+      });
+      const result = await archive(row, {
+        child: { call } as unknown as Runner,
+      });
+      expect(result).toEqual({ ...expected(row), rememberedState: null });
+      const release =
+        row.mode === "force" ||
+        (row.mode === "auto" && !["dirty", "unmerged"].includes(row.state));
+      expect(call.mock.calls.map(([op]) => op)).toEqual(
+        release ? ["workspace.describe", "workspace.release"] : []
+      );
+      if (release)
+        expect(git(repo, "branch", "--list", "feature") === "").toBe(
+          row.state !== "missing"
+        );
+    }
+  );
+
+  it("uses the in-process cleanup when the local child has no binding", async () => {
+    const call = vi.fn().mockRejectedValue(
+      new RunnerCallError({
+        code: "not_found",
+        message: "No checkout is bound to this session",
+      })
+    );
+    const result = await archive(
+      { placement: "local", mode: "force", state: "clean", borrowed: false },
+      { child: { call } as unknown as Runner }
+    );
+    expect(result.removed).toBe(true);
+    expect(call).toHaveBeenCalledExactlyOnceWith("workspace.describe", {
+      session: "agent-fixture",
+    });
+  });
+
+  it("preserves another linked checkout swapped into the owned path", async () => {
+    const identity = await workspaceWorkload.identity(checkout);
+    const other = path.join(fixture, "other");
+    git(repo, "worktree", "add", "-qb", "other", other);
+    rmSync(checkout, { recursive: true });
+    symlinkSync(other, checkout, "dir");
+    expect(
+      await workspaceWorkload.release(
+        "agent-fixture",
+        { path: checkout, identity: identity! },
+        { deleteBranch: true, originalBranch: "feature" }
+      )
+    ).toBe(false);
+    expect(existsSync(other)).toBe(true);
+    expect(git(other, "branch", "--show-current")).toBe("other");
   });
 
   it("keeps a runner release pending while the runner is offline", async () => {

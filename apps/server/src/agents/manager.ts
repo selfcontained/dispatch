@@ -4082,7 +4082,9 @@ export class AgentManager {
               this.logger,
               this.localRunner,
               agent,
-              mode ?? "auto"
+              mode ?? "auto",
+              undefined,
+              this.localRunnerChild()
             );
           }
           if (outcome.kind === "pending") continue;

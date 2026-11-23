@@ -54,6 +54,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import {
+  cleanupGitWorktree,
   createGitWorktree,
   GitWorktreeError,
   planGitWorktree,
@@ -752,6 +753,43 @@ const repositoryCache = {
 };
 
 export const workspaceWorkload = {
+  async release(
+    _session: string,
+    checkout: { path: string; identity?: string },
+    request: Pick<Req<"workspace.release">, "deleteBranch" | "originalBranch">
+  ) {
+    const entry = await lstat(checkout.path, { bigint: true }).catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return null;
+        throw error;
+      }
+    );
+    if (!entry) return true;
+    if (
+      !entry.isDirectory() ||
+      (checkout.identity !== undefined &&
+        checkout.identity !== `${entry.dev}:${entry.ino}:${entry.birthtimeNs}`)
+    )
+      return false;
+    const bounded: typeof runCommand = (command, args, options) =>
+      runCommand(command, args, {
+        ...options,
+        timeoutMs: options?.timeoutMs ?? 60_000,
+      });
+    const root = await bounded("git", [
+      "-C",
+      checkout.path,
+      "rev-parse",
+      "--show-toplevel",
+    ]);
+    if ((await realpath(root.stdout)) !== (await realpath(checkout.path)))
+      return false;
+    await cleanupGitWorktree(
+      { cwd: checkout.path, force: true, ...request },
+      bounded
+    );
+    return true;
+  },
   canonical: async (directory: string) => {
     const found = await stat(directory).catch(() => null);
     return found?.isDirectory() ? realpath(directory) : null;

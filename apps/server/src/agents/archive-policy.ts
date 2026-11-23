@@ -7,6 +7,11 @@ import {
   type CheckoutReleaseResult,
 } from "@dispatch/runner-protocol";
 import {
+  RunnerCallError,
+  sessionFromWire,
+  type Runner,
+} from "@dispatch/runner-protocol/contract";
+import {
   archiveReleaseState,
   observeRemoteCheckout,
   rememberArchiveCheckoutState,
@@ -162,7 +167,8 @@ async function localCoOwner(
 export function localArchiveExecutor(
   pool: Pool,
   agent: ArchiveCheckoutAgent,
-  localRunner: LocalArchiveRunner
+  localRunner: LocalArchiveRunner,
+  child?: Runner
 ): ArchiveExecutor {
   return {
     placement: "local",
@@ -182,6 +188,27 @@ export function localArchiveExecutor(
     coOwner: () => localCoOwner(pool, agent, localRunner),
     async release(expectedState) {
       if (expectedState === null) return "retained";
+      const session = sessionFromWire(agent.id);
+      if (child) {
+        const bound = await child.call("workspace.describe", { session }).then(
+          () => true,
+          (error: unknown) => {
+            if (error instanceof RunnerCallError && error.code === "not_found")
+              return false;
+            throw error;
+          }
+        );
+        if (bound) {
+          const { removed } = await child.call("workspace.release", {
+            session,
+            deleteBranch: Boolean(
+              agent.worktreeBranch && agent.worktreeBranch !== agent.baseBranch
+            ),
+            originalBranch: agent.worktreeBranch,
+          });
+          return removed ? "released" : "retained";
+        }
+      }
       return localRunner.checkoutRelease(agent, {
         kind: "release",
         expectedState,

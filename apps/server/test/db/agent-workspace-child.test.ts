@@ -352,6 +352,7 @@ describe("archive of an agent moved through the child", () => {
       (call) => (call as unknown as [{ cwd: string }])[0].cwd
     );
     expect(cleaned).toEqual([launchWorktree]);
+    expect(await store.get("agt_a")).toBeNull();
   });
 
   it("spares a worktree another live agent moved into", async () => {
@@ -362,5 +363,8 @@ describe("archive of an agent moved through the child", () => {
     await archive("agt_owner");
 
     expect(cleanupGitWorktreeSpy).not.toHaveBeenCalled();
+    expect(await store.get("agt_owner")).toMatchObject({
+      checkout: { path: ownWorktree, ownership: "owned" },
+    });
   });
 });

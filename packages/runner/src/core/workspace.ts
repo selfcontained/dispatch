@@ -252,7 +252,8 @@ function wireGit(value: CheckoutGit) {
 
 export function workspaceHandlers(
   stateRoot: string,
-  store: Pick<BindingStore, "get" | "origin" | "bindPrepared" | "select">,
+  store: Pick<BindingStore, "get" | "origin" | "bindPrepared" | "select"> &
+    Partial<Pick<BindingStore, "forget">>,
   port: WorkspacePort,
   /** Where cached clones live; the workload account must be able to write it. */
   repositories = join(stateRoot, "repositories"),
@@ -593,6 +594,33 @@ export function workspaceHandlers(
       context.emit(progress);
 
   return {
+    async "workspace.release"(input: Req<"workspace.release">) {
+      const session = sessionToWire(input.session);
+      return serialize(session, async () => {
+        const held = await store.get(session);
+        if (!held) return { removed: true };
+        if (held.checkout.ownership === "external") return { removed: false };
+        if (!port.release || !store.forget)
+          throw new RunnerCallError({
+            code: "unsupported",
+            message: "This runner does not release bound checkouts.",
+          });
+        const dir = sessionDir(stateRoot, receiptKey(session));
+        const { deleteBranch, originalBranch } = input;
+        const removed =
+          held.checkout.ownership === "gone" ||
+          (await port.release(session, held.checkout, {
+            deleteBranch,
+            originalBranch,
+          }));
+        if (removed) {
+          await rm(join(dir, RECEIPT_FILE), { force: true });
+          await store.forget(session);
+        }
+        return { removed };
+      });
+    },
+
     async "workspace.prepare"(input: Req<"workspace.prepare">, context) {
       const session = sessionToWire(input.session);
       const dir = sessionDir(stateRoot, receiptKey(session));

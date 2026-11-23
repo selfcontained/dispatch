@@ -61,6 +61,8 @@ export type StoredBinding = {
     ownership: Ownership;
     branch: string | null;
     base: string | null;
+    /** Identity evidence survives removal of the session's preparation receipt. */
+    identity?: string;
   };
   /** How the runner came to hold it. */
   source: "import" | "prepare";
@@ -107,6 +109,14 @@ export async function git(
 
 const real = (path: string) => realpath(path).catch(() => null);
 
+export function directoryIdentity(entry: {
+  dev: bigint;
+  ino: bigint;
+  birthtimeNs: bigint;
+}): string {
+  return `${entry.dev}:${entry.ino}:${entry.birthtimeNs}`;
+}
+
 /** Whether `path` is a directory, something else, or missing (a dangling link included). */
 async function presence(
   path: string
@@ -147,6 +157,7 @@ export async function decideBinding(
   const claim = input.worktree;
   const checkoutPath = claim ? claim.path : input.path;
   let ownership: Ownership = "external";
+  let identity: string | undefined;
   if (isAbsolute(checkoutPath)) {
     const found = await presence(checkoutPath);
     if (found === "missing") ownership = "gone";
@@ -154,8 +165,15 @@ export async function decideBinding(
       claim &&
       found === "directory" &&
       (await isLinkedWorktreeRoot(checkoutPath))
-    )
-      ownership = "owned";
+    ) {
+      const entry = await stat(checkoutPath, { bigint: true }).catch(
+        () => null
+      );
+      if (entry?.isDirectory()) {
+        ownership = "owned";
+        identity = directoryIdentity(entry);
+      }
+    }
   }
   return {
     version: 1,
@@ -167,6 +185,7 @@ export async function decideBinding(
       ownership,
       branch: claim?.branch ?? null,
       base: claim?.base ?? null,
+      ...(identity === undefined ? {} : { identity }),
     },
     source: "import",
   };
@@ -182,12 +201,20 @@ export class BindingStore {
 
   async get(session: string): Promise<StoredBinding | null> {
     try {
-      return JSON.parse(
+      const stored = JSON.parse(
         await readFile(join(this.dir, fileName(session)), "utf8")
       ) as StoredBinding;
-    } catch {
-      return null;
+      if (!stored || stored.version !== 1 || stored.session !== session)
+        throw new Error("Invalid stored checkout binding.");
+      return stored;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
     }
+  }
+
+  async forget(session: string): Promise<void> {
+    await rm(join(this.dir, fileName(session)), { force: true });
   }
 
   /**
