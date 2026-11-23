@@ -312,7 +312,7 @@ function PermissionRequest({
         ) : null}
       </BlockBody>
       <BlockFooter className="flex-col items-stretch sm:max-w-sm">
-        {request.options.map((option) => (
+        {request.options.map((option, index) => (
           <div
             key={option.optionId}
             className="flex w-full min-w-0 max-w-full flex-col gap-1"
@@ -323,7 +323,7 @@ function PermissionRequest({
               variant={optionVariant(option, request.options)}
               aria-describedby={
                 option.kind === "allow_always"
-                  ? `${scopeId}-${option.optionId}`
+                  ? `${scopeId}-${index}`
                   : undefined
               }
               wrap
@@ -335,7 +335,7 @@ function PermissionRequest({
             </Button>
             {option.kind === "allow_always" ? (
               <p
-                id={`${scopeId}-${option.optionId}`}
+                id={`${scopeId}-${index}`}
                 className="mb-2 break-words text-center text-body-sm text-muted-foreground"
               >
                 {option.name}

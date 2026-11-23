@@ -147,13 +147,16 @@ it("keeps the agent's persistent scope associated with its short action", async 
   const scope =
     "Yes, and don’t ask again for commands that start with pnpm run check";
   await show(details({ command: "ls" }), [
-    { optionId: "custom-scope", name: scope, kind: "allow_always" },
+    { optionId: "custom scope", name: scope, kind: "allow_always" },
     { optionId: "custom-once", name: "Just this time", kind: "allow_once" },
   ]);
   const action = screen.getByRole("button", { name: "Always allow" });
   const description = document.getElementById(
     action.getAttribute("aria-describedby")!
   );
+  expect(
+    screen.getByRole("button", { name: "Always allow", description: scope })
+  ).toBe(action);
   expect(description?.textContent).toBe(scope);
   expect(action.parentElement).toBe(description?.parentElement);
   expect(screen.getByRole("button", { name: "Just this time" })).toBeTruthy();
@@ -161,7 +164,7 @@ it("keeps the agent's persistent scope associated with its short action", async 
   await waitFor(() =>
     expect(api).toHaveBeenCalledWith("/api/v1/agents/a1/permissions/r1", {
       method: "POST",
-      body: JSON.stringify({ optionId: "custom-scope" }),
+      body: JSON.stringify({ optionId: "custom scope" }),
     })
   );
 });
