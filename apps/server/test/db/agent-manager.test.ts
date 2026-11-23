@@ -481,6 +481,96 @@ describe("AgentManager", () => {
       expect(discard).not.toHaveBeenCalled();
     });
 
+    it("retries an offline archive in a configured runner workspace until the host is stopped and released (audit #17)", async () => {
+      const available = vi.fn(() => false);
+      const requestSession = vi.fn(
+        async (_placement: unknown, operation: SessionOperation) => {
+          if (!available()) throw new Error("offline");
+          if (operation.kind !== "checkoutRelease")
+            throw new Error("Unexpected request");
+          return {
+            value:
+              operation.operation.kind === "release"
+                ? "released"
+                : JSON.stringify({
+                    ownership: "external",
+                    owner: null,
+                    borrowers: [],
+                    checkout: null,
+                  }),
+          };
+        }
+      );
+      const remote = {
+        available,
+        requestSession,
+        isManagedWorkspace: () => false,
+        originFor: () => "https://example.test",
+      } as unknown as RemoteRunnerService;
+      const cwd = "runner://runner-test/configured";
+      const placement = { runner: "runner-test", workspace: "configured" };
+      await pool.query(
+        `INSERT INTO agents (id, name, cwd, status)
+         VALUES ('configured-runner', 'Configured', $1, 'running')`,
+        [cwd]
+      );
+      const offlineRuntime = createSpyRuntime();
+      offlineRuntime.stop.mockRejectedValue(new Error("offline"));
+      const offline = new AgentManager(pool, noopLogger, testConfig, {
+        runtime: offlineRuntime,
+        remote,
+      });
+      await offline.beginArchive("configured-runner", "auto");
+      const onComplete = vi.fn();
+      await offline.executeArchive("configured-runner", {
+        onPhaseChange: vi.fn(),
+        onComplete,
+        onError: vi.fn(),
+      });
+      expect(onComplete).toHaveBeenCalledWith(["configured-runner"]);
+      const pending = async () =>
+        (
+          await pool.query(
+            "SELECT runner_cleanup_pending FROM agents WHERE id = 'configured-runner' AND deleted_at IS NOT NULL"
+          )
+        ).rows[0]?.runner_cleanup_pending;
+      expect(await pending()).toBe(true);
+
+      // Still offline: the retry stays pending.
+      await offline.reconcileAgentStatuses();
+      await vi.waitFor(() =>
+        expect(offlineRuntime.stop).toHaveBeenCalledTimes(2)
+      );
+      expect(await pending()).toBe(true);
+      const releases = () =>
+        requestSession.mock.calls.filter(
+          ([, request]) => request.kind === "checkoutRelease"
+        );
+      expect(releases()).toEqual([]);
+
+      // The runner reconnects: the retry stops the host, then releases it.
+      available.mockReturnValue(true);
+      const onlineRuntime = createSpyRuntime();
+      const reconnected = new AgentManager(pool, noopLogger, testConfig, {
+        runtime: onlineRuntime,
+        remote,
+      });
+      await reconnected.reconcileAgentStatuses();
+      await vi.waitFor(async () => expect(await pending()).toBe(false));
+      expect(onlineRuntime.stop).toHaveBeenCalledWith(
+        "configured-runner",
+        true
+      );
+      expect(releases().at(-1)).toEqual([
+        placement,
+        {
+          kind: "checkoutRelease",
+          agentId: "configured-runner",
+          operation: { kind: "release", expectedState: null },
+        },
+      ]);
+    });
+
     it("records a runner selection only after acknowledgement and binds independent children to the selected origin", async () => {
       const cwd = "runner://runner-test/@session";
       const projectId = "managed-runner-project";

@@ -81,7 +81,10 @@ async function getChildAgentIds(
 
 const WORKTREE_CLEANUP_TIMEOUT_MS = 60_000;
 
-/** Finish a local checkout through the shared archive sequence. */
+/**
+ * Finish a local checkout through the shared archive sequence. Callers send
+ * runner-placed agents to `releaseRemoteCheckout` instead.
+ */
 export async function cleanupAgentWorktree(
   pool: Pool,
   logger: FastifyBaseLogger,
@@ -90,8 +93,7 @@ export async function cleanupAgentWorktree(
   mode: WorktreeCleanupMode,
   hooks?: ArchiveCheckoutHooks
 ): Promise<ArchiveOutcome> {
-  if (!agent.worktreePath || remotePlacement(agent.cwd))
-    return { kind: "kept", reason: "notManaged" };
+  if (!agent.worktreePath) return { kind: "kept", reason: "notManaged" };
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
@@ -143,7 +145,9 @@ export async function finishCheckout(
   onCleanupStart?: () => Promise<void>
 ): Promise<boolean> {
   const hooks = { durations, onCleanupStart };
-  const outcome = managedCheckout(agent)
+  // Every runner placement, managed or a configured workspace, finishes on
+  // its runner: offline, the release stays pending and is retried.
+  const outcome = remotePlacement(agent.cwd)
     ? await releaseRemoteCheckout(
         deps.pool,
         deps.logger,

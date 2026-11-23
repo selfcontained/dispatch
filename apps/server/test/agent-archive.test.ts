@@ -1509,3 +1509,73 @@ it("archives an offline managed session with pending cleanup recorded in the sam
   );
   expect(onComplete).toHaveBeenCalledWith(["remote"]);
 });
+
+describe("runner agent in a configured workspace (audit #17)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const configured = (overrides: Partial<AgentRecord> = {}) =>
+    makeAgent("configured", {
+      cwd: "runner://runner/configured",
+      status: "archiving",
+      ...overrides,
+    });
+
+  it("records the host release as pending when the runner is offline", async () => {
+    const runtime = makeRuntime({
+      stop: vi.fn().mockRejectedValue(new Error("runner offline")),
+    });
+    const requestSession = vi
+      .fn()
+      .mockRejectedValue(new Error("runner offline"));
+    const deps = makeDeps({
+      runtime,
+      remote: { requestSession } as never,
+      getRequiredAgent: vi.fn().mockResolvedValue(configured()),
+    });
+    const onComplete = vi.fn();
+    await executeArchive(deps, "configured", {
+      onComplete,
+      onPhaseChange: vi.fn(),
+      onError: vi.fn(),
+    });
+    // The host never stopped, so nothing is released yet; the retry does it.
+    expect(requestSession).not.toHaveBeenCalled();
+    expect(deps.pool.query).toHaveBeenCalledWith(
+      expect.stringContaining("runner_cleanup_pending = $2"),
+      ["configured", true]
+    );
+    expect(onComplete).toHaveBeenCalledWith(["configured"]);
+  });
+
+  it("releases the stopped host on its runner without authorizing checkout removal", async () => {
+    const requestSession = vi.fn(async (_placement, { operation }) => ({
+      value:
+        operation.kind === "release"
+          ? "released"
+          : JSON.stringify({
+              ownership: "external",
+              owner: null,
+              borrowers: [],
+              checkout: null,
+            }),
+    }));
+    const deps = makeDeps({
+      remote: { requestSession } as never,
+      getRequiredAgent: vi.fn().mockResolvedValue(configured()),
+    });
+    await executeArchive(deps, "configured", makeCallbacks());
+    expect(requestSession).toHaveBeenLastCalledWith(
+      { runner: "runner", workspace: "configured" },
+      {
+        kind: "checkoutRelease",
+        agentId: "configured",
+        operation: { kind: "release", expectedState: null },
+      }
+    );
+    expect(cleanupGitWorktree).not.toHaveBeenCalled();
+    expect(deps.pool.query).toHaveBeenCalledWith(
+      expect.stringContaining("runner_cleanup_pending = $2"),
+      ["configured", false]
+    );
+  });
+});
