@@ -5,6 +5,7 @@ import path from "node:path";
 import type { Pool } from "pg";
 
 import { getSetting } from "./db/settings.js";
+import { worktreePathSlug } from "./shared/git/worktree.js";
 
 export const WORKTREE_LOCATION_KEY = "worktree_location";
 export const WORKTREE_DIRECTORY_KEY = "worktree_directory";
@@ -89,4 +90,34 @@ export async function assertWorktreeDirectoryUsable(
     throw unavailable("it is not writable");
   });
   return resolved;
+}
+
+/**
+ * Where a new worktree goes for a placement, or undefined for "sibling"
+ * (createGitWorktree's own default). Placement is local-only by construction:
+ * it is resolved here, at the local launch, and nothing else reads it.
+ * "directory" never falls back: an unusable folder throws
+ * WorktreeDirectoryError.
+ */
+export async function resolveWorktreePathOverride(
+  placement: WorktreePlacement,
+  target: {
+    originalCwd: string;
+    worktreeBranchName: string;
+    createNewBranch: boolean;
+  }
+): Promise<string | undefined> {
+  const slug = worktreePathSlug(target.worktreeBranchName, {
+    createNewBranch: target.createNewBranch,
+  });
+  if (placement.worktreeLocation === "nested") {
+    return path.join(target.originalCwd, ".dispatch", "worktrees", slug);
+  }
+  if (placement.worktreeLocation === "directory") {
+    const directory = await assertWorktreeDirectoryUsable(
+      placement.worktreeDirectory ?? ""
+    );
+    return path.join(directory, `${path.basename(target.originalCwd)}-${slug}`);
+  }
+  return undefined;
 }

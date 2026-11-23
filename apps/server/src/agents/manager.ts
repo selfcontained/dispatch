@@ -24,7 +24,6 @@ import {
   createGitWorktree,
   GitWorktreeError,
   normalizeBaseBranch,
-  worktreePathSlug,
 } from "../shared/git/worktree.js";
 import { readWorktreeStatus } from "../shared/git/worktree-status.js";
 import { resolveFilesDir } from "../shared/files.js";
@@ -115,11 +114,10 @@ import type {
 import { StreamWriteThrottle } from "./stream-write-throttle.js";
 import * as telemetry from "./telemetry.js";
 import {
-  assertWorktreeDirectoryUsable,
   getWorktreePlacement,
+  resolveWorktreePathOverride,
   WorktreeDirectoryError,
   type WorktreeLocation,
-  type WorktreePlacement,
 } from "../worktree-location-settings.js";
 
 export { AgentError } from "./errors.js";
@@ -1762,40 +1760,21 @@ export class AgentManager {
       } else {
         worktreeBranchName = normalizedBaseBranch || "main";
       }
-      // Callers that do not pass a placement (jobs, templates and task
-      // triggers, persona launches) get the instance-wide setting too.
-      const placement: WorktreePlacement = input.worktreeLocation
-        ? {
-            worktreeLocation: input.worktreeLocation,
-            worktreeDirectory: input.worktreeDirectory,
-          }
-        : await getWorktreePlacement(this.pool);
-      const worktreeLocation = placement.worktreeLocation;
-      if (worktreeLocation === "nested") {
-        worktreePathOverride = path.join(
-          originalCwd,
-          ".dispatch",
-          "worktrees",
-          worktreePathSlug(worktreeBranchName, { createNewBranch })
+      try {
+        worktreePathOverride = await resolveWorktreePathOverride(
+          input.worktreeLocation
+            ? {
+                worktreeLocation: input.worktreeLocation,
+                worktreeDirectory: input.worktreeDirectory,
+              }
+            : await getWorktreePlacement(this.pool),
+          { originalCwd, worktreeBranchName, createNewBranch }
         );
-      } else if (worktreeLocation === "directory") {
-        // No fallback: an absent drive fails the launch instead of filling
-        // the internal disk with a sibling worktree.
-        let directory: string;
-        try {
-          directory = await assertWorktreeDirectoryUsable(
-            placement.worktreeDirectory ?? ""
-          );
-        } catch (err) {
-          if (err instanceof WorktreeDirectoryError) {
-            throw new AgentError(err.message, err.statusCode);
-          }
-          throw err;
+      } catch (err) {
+        if (err instanceof WorktreeDirectoryError) {
+          throw new AgentError(err.message, err.statusCode);
         }
-        worktreePathOverride = path.join(
-          directory,
-          `${path.basename(originalCwd)}-${worktreePathSlug(worktreeBranchName, { createNewBranch })}`
-        );
+        throw err;
       }
     }
 

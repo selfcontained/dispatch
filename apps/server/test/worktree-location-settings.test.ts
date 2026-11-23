@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   assertWorktreeDirectoryUsable,
   getWorktreePlacement,
+  resolveWorktreePathOverride,
   WorktreeDirectoryError,
 } from "../src/worktree-location-settings.js";
 
@@ -111,4 +112,50 @@ describe("assertWorktreeDirectoryUsable", () => {
       );
     }
   );
+});
+
+describe("resolveWorktreePathOverride", () => {
+  const target = {
+    originalCwd: "/repo/dispatch",
+    worktreeBranchName: "agt_1/fix-it",
+    createNewBranch: true,
+  };
+
+  it("leaves sibling placement to createGitWorktree", async () => {
+    expect(
+      await resolveWorktreePathOverride({ worktreeLocation: "sibling" }, target)
+    ).toBeUndefined();
+  });
+
+  it("nests under .dispatch/worktrees", async () => {
+    expect(
+      await resolveWorktreePathOverride({ worktreeLocation: "nested" }, target)
+    ).toBe("/repo/dispatch/.dispatch/worktrees/agt-1-fix-it");
+  });
+
+  it("puts a repo-branch folder in the chosen directory", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "worktree-dir-"));
+    try {
+      expect(
+        await resolveWorktreePathOverride(
+          { worktreeLocation: "directory", worktreeDirectory: root },
+          target
+        )
+      ).toBe(path.join(root, "dispatch-agt-1-fix-it"));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a missing directory instead of falling back", async () => {
+    await expect(
+      resolveWorktreePathOverride(
+        {
+          worktreeLocation: "directory",
+          worktreeDirectory: "/Volumes/dispatch-test-absent-drive/worktrees",
+        },
+        target
+      )
+    ).rejects.toBeInstanceOf(WorktreeDirectoryError);
+  });
 });
