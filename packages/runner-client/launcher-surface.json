@@ -30,6 +30,9 @@
               "array": "string"
             }
           }
+        },
+        "frozen": {
+          "optional": "boolean"
         }
       }
     },
@@ -37,14 +40,16 @@
       "object": {
         "type": {
           "literal": ["freeze"]
-        }
+        },
+        "seq": "integer"
       }
     },
     "thaw": {
       "object": {
         "type": {
           "literal": ["thaw"]
-        }
+        },
+        "seq": "integer"
       }
     },
     "import": {
@@ -74,7 +79,17 @@
         },
         "protocol": "integer",
         "nonce": "string",
-        "socket": "string"
+        "socket": "string",
+        "frozen": "boolean"
+      }
+    },
+    "fence": {
+      "object": {
+        "type": {
+          "literal": ["fence"]
+        },
+        "seq": "integer",
+        "frozen": "boolean"
       }
     }
   },

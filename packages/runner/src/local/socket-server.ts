@@ -30,6 +30,7 @@ import {
   frameWriter,
   type StreamFrame,
 } from "@dispatch/runner-client/v1/node";
+import { fencedError, type WriteFence } from "./fence.js";
 
 /** What a handler may use of the connection its request arrived on. */
 export type ConnectionContext = {
@@ -87,12 +88,15 @@ function errorOf(error: unknown): RunnerError {
 /**
  * The child's socket (protocol in `transport/local-socket.ts`). Each
  * connection must open with the spawn's nonce; any other first line closes
- * it. Operations without a handler answer `unsupported`.
+ * it. Operations without a handler answer `unsupported`. With a `fence`,
+ * admission refuses writes with `fenced` while it is frozen, before any
+ * handler runs, and counts admitted writes until they finish.
  */
 export async function serveSocket(
   path: string,
   nonce: string,
-  handlers: CallHandlers | Handlers
+  handlers: CallHandlers | Handlers,
+  fence?: WriteFence
 ): Promise<{ close(): void }> {
   const { calls, opens = {} } =
     "calls" in handlers ? (handlers as Handlers) : { calls: handlers };
@@ -203,8 +207,11 @@ export async function serveSocket(
             ? { id, ok: false, error: result.error }
             : { id, ok: true, value: result.value }
         );
+      const release = fence ? fence.enter(op) : () => {};
+      if (!release) return reply({ error: errorOf(fencedError()) });
       if (spec?.kind === "open")
         return void open(op, spec, input, opens, context).then((result) => {
+          release();
           if ("error" in result) return reply(result);
           const ids = channelStreams(id);
           const { channel } = result;
@@ -217,7 +224,10 @@ export async function serveSocket(
             .send(ids.out, channel, undefined, { stall: false })
             .catch(() => channel.destroy());
         });
-      void call(op, spec, input, calls, context).then(reply);
+      void call(op, spec, input, calls, context).then((result) => {
+        release();
+        reply(result);
+      });
     });
   });
   await new Promise<void>((resolve, reject) => {

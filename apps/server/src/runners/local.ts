@@ -18,7 +18,11 @@ import type {
   CheckoutSession,
   LocalCheckoutRunner,
 } from "./directory.js";
-import { selfCommand, superviseRunner } from "@dispatch/runner-client/launcher";
+import {
+  selfCommand,
+  superviseRunner,
+  type LaunchedRunner,
+} from "@dispatch/runner-client/launcher";
 import { LocalRunnerSession } from "@dispatch/runner-client/session";
 import { childProcessEnv } from "../shared/process/child-environment.js";
 import { LOCAL_RUNNER_ID } from "./placement.js";
@@ -92,11 +96,108 @@ export type LocalRunnerLog = {
   warn(object: object, message: string): void;
 };
 
-export type LocalRunnerProcess = {
+/**
+ * The updater's view of the child. Every answer is fresh; anything the child
+ * cannot confirm in time is an error, never a guess.
+ */
+export type LocalRunnerFence = {
+  /** `idle`, or why the child cannot be counted idle (`unavailable` included). */
+  activity(): Promise<"idle" | "unavailable" | "busy">;
+  /** Freeze the child's writes; resolves only on the child's confirmation. */
+  freeze(): Promise<void>;
+  /** Release the fence; a child started later starts thawed. */
+  thaw(): Promise<void>;
+  /**
+   * The frozen child's own session count, read now. Throws when the child is
+   * not confirmed frozen or does not answer.
+   */
+  frozenSessions(): Promise<number>;
+};
+
+export type LocalRunnerProcess = LocalRunnerFence & {
   /** The child as a `Runner`: one connection, retried while unavailable. */
   runner: LocalRunnerSession;
   stop(graceMs?: number): Promise<void>;
 };
+
+const FENCE_ANSWER_MS = 10_000;
+const READ_MS = 5_000;
+
+/** The child as the fence sees it: the launcher's handle. */
+type FenceChild = Pick<LaunchedRunner, "pid" | "fence"> & {
+  ready: Pick<LaunchedRunner["ready"], "frozen">;
+};
+
+/**
+ * The fence over one supervised child. `wanted` is read at each (re)start so
+ * a restarted child stays frozen; `ready` records each child that came up.
+ * Reads go through the session without waiting: unavailable is an answer of
+ * its own, never treated as idle or empty.
+ */
+export function createLocalRunnerFence(input: {
+  runner: Pick<LocalRunnerSession, "call">;
+  /** The child running now, or null while it is down. */
+  current: () => FenceChild | null;
+  frozen: boolean;
+  log: LocalRunnerLog;
+}): LocalRunnerFence & {
+  readonly wanted: boolean;
+  ready(child: FenceChild | null): void;
+} {
+  const { runner, current, log } = input;
+  let frozen = input.frozen;
+  // The running child that confirmed it is frozen, by `fence` or `ready`.
+  let confirmed: FenceChild | null = null;
+  const health = () =>
+    runner.call(
+      "runner.health",
+      {},
+      { wait: false, signal: AbortSignal.timeout(READ_MS) }
+    );
+  return {
+    get wanted() {
+      return frozen;
+    },
+    ready(child) {
+      confirmed = child?.ready.frozen ? child : null;
+    },
+    async activity() {
+      try {
+        return (await health()).working > 0 ? "busy" : "idle";
+      } catch {
+        return "unavailable";
+      }
+    },
+    async freeze() {
+      frozen = true;
+      const child = current();
+      if (!child) throw new Error("The local runner is unavailable");
+      await child.fence(true, FENCE_ANSWER_MS);
+      if (!frozen || current() !== child)
+        throw new Error("The local runner changed while freezing");
+      confirmed = child;
+      log.info({ pid: child.pid }, "Local runner frozen");
+    },
+    async thaw() {
+      frozen = false;
+      confirmed = null;
+      const child = current();
+      if (!child) return;
+      await child.fence(false, FENCE_ANSWER_MS);
+      log.info({ pid: child.pid }, "Local runner thawed");
+    },
+    async frozenSessions() {
+      const child = current();
+      if (!frozen || !child || confirmed !== child)
+        throw new Error("The local runner is not confirmed frozen");
+      const sample = await health();
+      // The answer must come from the child that confirmed the fence.
+      if (current() !== child || confirmed !== child)
+        throw new Error("The local runner changed while it was read");
+      return sample.sessions;
+    },
+  };
+}
 
 /**
  * Start this app's local runner as a child (`<this executable> local-runner`)
@@ -109,6 +210,8 @@ export function startLocalRunnerProcess(options: {
   filesRoot: string;
   build: { version: string; revision: string | null };
   log: LocalRunnerLog;
+  /** Start frozen (an update's probation): writes are refused until `thaw`. */
+  frozen?: boolean;
 }): LocalRunnerProcess {
   const { log } = options;
   const runnerId = runnerIdToWire(LOCAL_RUNNER_ID);
@@ -124,6 +227,13 @@ export function startLocalRunnerProcess(options: {
       engines: [],
       capabilities: {},
     },
+  });
+  const fence = createLocalRunnerFence({
+    runner,
+    current: () =>
+      supervisor.state.state === "ready" ? supervisor.state.runner : null,
+    frozen: options.frozen === true,
+    log,
   });
   const supervisor = superviseRunner({
     command: selfCommand("local-runner"),
@@ -141,8 +251,10 @@ export function startLocalRunnerProcess(options: {
         engines: [],
       },
     },
+    frozen: () => fence.wanted,
     onStderr: (line) => log.info({ localRunner: line }, "Local runner output"),
     onState(state) {
+      fence.ready(state.state === "ready" ? state.runner : null);
       if (state.state === "ready") {
         const { pid, ready } = state.runner;
         log.info({ pid }, "Local runner ready");
@@ -185,6 +297,10 @@ export function startLocalRunnerProcess(options: {
   });
   return {
     runner,
+    activity: fence.activity,
+    freeze: fence.freeze,
+    thaw: fence.thaw,
+    frozenSessions: fence.frozenSessions,
     async stop(graceMs = 3_000) {
       runner.close();
       await supervisor.stop(graceMs);

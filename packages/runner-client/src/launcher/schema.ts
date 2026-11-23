@@ -7,7 +7,12 @@
  *   exact build handshake.
  * - EOF on the parent's end: the lifeline. The runner stops accepting, ends
  *   its own work and exits. It never stops detached hosts.
- * - parent → runner `freeze` / `thaw`: the updater's write fence.
+ * - parent → runner `freeze` / `thaw`, runner → parent `fence`: the
+ *   updater's write fence. Each carries a sequence number; the runner answers
+ *   `fence` once the state is in force (for `freeze`: no write in flight, and
+ *   every later write refused with `fenced`). A runner started with
+ *   `frozen: true` is frozen before it serves anything, and says so in
+ *   `ready`.
  * - parent → runner `import`: one-time bindings for sessions from older builds.
  *
  * A refusal is not a message: the runner writes one line to stderr and exits
@@ -18,11 +23,13 @@
  */
 import {
   array,
+  boolean,
   build,
   integer,
   json,
   literal,
   object,
+  optional,
   string,
   union,
   type Infer,
@@ -45,6 +52,8 @@ export const launcherStart = object({
     displayName: string,
     engines: array(string),
   }),
+  /** Start frozen (an update's probation start): refuse writes until `thaw`. */
+  frozen: optional(boolean),
 });
 
 export const launcherReady = object({
@@ -54,10 +63,18 @@ export const launcherReady = object({
   nonce: string,
   /** The local socket path, in a private runtime directory. */
   socket: string,
+  /** Whether the runner is frozen as it starts serving. */
+  frozen: boolean,
 });
 
-export const launcherFreeze = object({ type: literal("freeze") });
-export const launcherThaw = object({ type: literal("thaw") });
+export const launcherFreeze = object({ type: literal("freeze"), seq: integer });
+export const launcherThaw = object({ type: literal("thaw"), seq: integer });
+/** The runner's answer to `freeze`/`thaw` `seq`, once that state is in force. */
+export const launcherFence = object({
+  type: literal("fence"),
+  seq: integer,
+  frozen: boolean,
+});
 /** Bindings are typed when the runner keeps them (L4); until then the runner accepts and ignores them. */
 export const launcherImport = object({
   type: literal("import"),
@@ -74,6 +91,7 @@ export const launcherCommand = union(
 export type LauncherStart = Infer<typeof launcherStart>;
 export type LauncherReady = Infer<typeof launcherReady>;
 export type LauncherCommand = Infer<typeof launcherCommand>;
+export type LauncherFence = Infer<typeof launcherFence>;
 
 /** Exit codes a runner uses to refuse a start, with stderr naming the detail. */
 export const launcherExit = {
@@ -102,7 +120,7 @@ export function launcherSurface(): {
       thaw: launcherThaw.shape,
       import: launcherImport.shape,
     },
-    fromRunner: { ready: launcherReady.shape },
+    fromRunner: { ready: launcherReady.shape, fence: launcherFence.shape },
     lifeline: "eof",
     exit: { ...launcherExit },
   };
