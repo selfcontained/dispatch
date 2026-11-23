@@ -370,7 +370,7 @@ export async function launchViaUi(
         .getByPlaceholder("Branch name or GitHub PR URL")
         .fill(opts.pullRequest);
       await page
-        .getByRole("option", { name: `Use ${opts.pullRequest}`, exact: true })
+        .getByRole("option", { name: opts.pullRequest, exact: true })
         .click();
     }
   } else await page.getByTestId("create-agent-cwd").fill(opts.cwd ?? "/tmp");
