@@ -116,6 +116,7 @@
         "apps/server/test/prompt-images.test.ts",
         "apps/server/test/tasks-service.test.ts",
         "apps/server/test/*acp*",
+        "apps/server/test/opencode-instructions.test.ts",
         "e2e/worktree.spec.ts",
         "e2e/*agent-live*",
         "e2e/*agent*",

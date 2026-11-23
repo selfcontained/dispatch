@@ -12,6 +12,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { launchListenerEnv } from "../src/agents/acp/launch-env.js";
 import { buildHostEnv, buildLaunchEnv } from "../src/agents/acp/host-env.js";
+import { hostSearchPath } from "../src/agents/acp/host-search-path.js";
 import {
   pathFromWire,
   sessionFromWire,
@@ -125,7 +126,12 @@ it("merges shell-provided trust after ~/.dispatch/env and isolates agents and co
           return [line.slice(0, at), line.slice(at + 1)];
         })
     );
-    const env = buildHostEnv({ ...launch, engine: "codex" }, home, shellEnv);
+    const env = buildHostEnv(
+      { ...launch, engine: "codex" },
+      home,
+      hostSearchPath,
+      shellEnv
+    );
     results.push(env);
     expect(env.DISPATCH_LOCAL_CA_CERTIFICATE).toBeUndefined();
     for (const variable of [
@@ -139,12 +145,17 @@ it("merges shell-provided trust after ~/.dispatch/env and isolates agents and co
       expect(bundle).not.toContain(`${agent} SSL_CERT_FILE corporate root`);
       expect(bundle.match(/BEGIN CERTIFICATE/g)!.length).toBeGreaterThan(10);
     }
-    const fallback = buildHostEnv({ ...launch, engine: "codex" }, home, {
-      ...shellEnv,
-      CODEX_CA_CERTIFICATE: undefined,
-      CURL_CA_BUNDLE: undefined,
-      NODE_EXTRA_CA_CERTS: undefined,
-    });
+    const fallback = buildHostEnv(
+      { ...launch, engine: "codex" },
+      home,
+      hostSearchPath,
+      {
+        ...shellEnv,
+        CODEX_CA_CERTIFICATE: undefined,
+        CURL_CA_BUNDLE: undefined,
+        NODE_EXTRA_CA_CERTS: undefined,
+      }
+    );
     expect(readFileSync(fallback.CODEX_CA_CERTIFICATE!, "utf8")).toContain(
       `${agent} SSL_CERT_FILE corporate root`
     );
@@ -167,6 +178,7 @@ it("preserves the shell trust configuration without managed local TLS", () => {
   const env = buildHostEnv(
     { env: {}, engine: "claude", pathPrefix: [] },
     "/unused",
+    hostSearchPath,
     {
       CODEX_CA_CERTIFICATE: "corp.pem",
       CURL_CA_BUNDLE: "curl.pem",
@@ -212,6 +224,7 @@ it("lets an engine CLI found off PATH run the node installed beside it", () => {
       bins: { claudeBin: "/elsewhere/claude", codexBin: codex },
     },
     root,
+    hostSearchPath,
     { HOME: root, PATH: "/usr/bin:/bin" }
   );
   expect(env.PATH?.split(path.delimiter).slice(0, 4)).toEqual([
@@ -257,13 +270,13 @@ for (const engine of ["claude", "codex", "opencode"] as const) {
         opencodeBin: path.join(localBin, "opencode"),
       },
     };
-    const env = buildHostEnv(launch, root, inherited);
+    const env = buildHostEnv(launch, root, hostSearchPath, inherited);
     expect(
       execFileSync("npx", ["@playwright/mcp"], { env, encoding: "utf8" }).trim()
     ).toBe("mcp-started");
     expect(env.KEEP).toBe("unchanged");
     expect(inherited.PATH).toBe("/usr/bin:/bin");
-    const selected = buildHostEnv(launch, root, {
+    const selected = buildHostEnv(launch, root, hostSearchPath, {
       ...inherited,
       PATH: `${oldBin}:/usr/bin:/bin`,
     });
@@ -279,10 +292,13 @@ for (const engine of ["claude", "codex", "opencode"] as const) {
 it("preserves CLI effort defaults unless the launch explicitly overrides them", () => {
   const shell = { CLAUDE_EFFORT: "low", CLAUDE_CODE_EFFORT_LEVEL: "low" };
   const launch = { env: {}, pathPrefix: [], engine: "claude" as const };
-  expect(buildHostEnv(launch, "/tmp/effort-env", shell)).toMatchObject(shell);
+  expect(
+    buildHostEnv(launch, "/tmp/effort-env", hostSearchPath, shell)
+  ).toMatchObject(shell);
   const overridden = buildHostEnv(
     { ...launch, effort: "high" },
     "/tmp/effort-env",
+    hostSearchPath,
     shell
   );
   expect(overridden.CLAUDE_EFFORT).toBeUndefined();
@@ -357,7 +373,7 @@ for (const engine of ["claude", "codex", "opencode"] as const) {
       const launch: HostLaunch = JSON.parse(
         readFileSync(path.join(root, "launch.json"), "utf8")
       );
-      const env = buildHostEnv(launch, root, shellEnv);
+      const env = buildHostEnv(launch, root, hostSearchPath, shellEnv);
       expect({
         ...env,
         DISPATCH_FILES_DIR: env.DISPATCH_FILES_DIR?.replace(

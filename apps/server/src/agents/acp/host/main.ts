@@ -1,6 +1,7 @@
 import { sessionCommandId } from "@dispatch/runner-protocol";
 import { applyLaunchEffort } from "./launch-effort.js";
 import { firstPromptContext } from "./first-prompt.js";
+import type { HostSearchPath } from "./types.js";
 /**
  * `dispatch agent-host --state <dir>`: the process that owns one agent's
  * ACP session. It spawns the engine adapter, holds its stdio for its whole
@@ -48,6 +49,8 @@ import {
 export type AgentHostOptions = {
   /** The build this host runs, reported to clients that set an instance ID. */
   build: { version: string; revision: string | null };
+  /** How the engine CLI is found and the engine's PATH is extended. */
+  searchPath: HostSearchPath;
 };
 
 /** A launch's host instance ID is a version 4 UUID. */
@@ -217,7 +220,8 @@ async function main(argv: string[], options: AgentHostOptions): Promise<void> {
 
   // The engine child's environment: the host's own (a login shell's), the
   // launch's additions, and Dispatch's bin directories ahead on PATH.
-  const childEnv = buildHostEnv(launch, stateDir);
+  const { searchPath } = options;
+  const childEnv = buildHostEnv(launch, stateDir, searchPath);
   // Record only executable lookup context, never the full environment (tokens).
   logger.info(
     { agentId, engine: launch.engine, path: childEnv.PATH },
@@ -229,6 +233,8 @@ async function main(argv: string[], options: AgentHostOptions): Promise<void> {
   let mutatingRequests = 0;
   const driver = new AcpDriver({
     logger,
+    resolveBinary: (bin, env) =>
+      resolveExecutable(bin, env, searchPath.isPackageBinDir),
     onPermissions: (_id, requests) => {
       if (requests.length) lease = null;
       send(client, { type: "permissions", requests });
@@ -241,7 +247,9 @@ async function main(argv: string[], options: AgentHostOptions): Promise<void> {
   const bins = { ...launch.bins };
   const absolute = async (bin: string | null) =>
     bin && !bin.includes("/")
-      ? resolveExecutable(bin, childEnv).catch(() => null)
+      ? resolveExecutable(bin, childEnv, searchPath.isPackageBinDir).catch(
+          () => null
+        )
       : bin;
   if (launch.engine === "claude") {
     bins.claudeBin = (await absolute(bins.claudeBin)) ?? "";
@@ -708,7 +716,7 @@ async function main(argv: string[], options: AgentHostOptions): Promise<void> {
       env:
         spec.personaDelivery === "instructions_file"
           ? await openCodeInstructionsEnv(
-              stateDir,
+              hostFile(stateDir, "instructions"),
               launch.systemPrompt,
               childEnv
             )

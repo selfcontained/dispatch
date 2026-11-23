@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { hostFile } from "../src/agents/acp/host-protocol.js";
 import { openCodeInstructionsEnv } from "../src/agents/acp/opencode-instructions.js";
 
 describe("OpenCode instructions", () => {
@@ -14,7 +15,7 @@ describe("OpenCode instructions", () => {
         OPENCODE_CONFIG: "/custom/opencode.json",
       };
       const initial = await openCodeInstructionsEnv(
-        dir,
+        hostFile(dir, "instructions"),
         "Dispatch guidance",
         env
       );
@@ -26,7 +27,7 @@ describe("OpenCode instructions", () => {
       ]);
       expect(initial.OPENCODE_CONFIG).toBe(env.OPENCODE_CONFIG);
       const resumed = await openCodeInstructionsEnv(
-        dir,
+        hostFile(dir, "instructions"),
         "Updated persona",
         initial
       );
@@ -43,12 +44,12 @@ describe("OpenCode instructions", () => {
   });
   it("rejects malformed existing configuration instead of discarding it", async () => {
     await expect(
-      openCodeInstructionsEnv("/unused", "rules", {
+      openCodeInstructionsEnv("/unused/dispatch-instructions.md", "rules", {
         OPENCODE_CONFIG_CONTENT: "{",
       })
     ).rejects.toThrow("configuration object");
     await expect(
-      openCodeInstructionsEnv("/unused", "rules", {
+      openCodeInstructionsEnv("/unused/dispatch-instructions.md", "rules", {
         OPENCODE_CONFIG_CONTENT: '{"instructions":"x"}',
       })
     ).rejects.toThrow("array of paths");
