@@ -27,6 +27,7 @@ import {
   type ArchiveDeps,
 } from "../src/agents/archive.js";
 import { releaseRemoteCheckout } from "../src/agents/archive-checkout.js";
+import { runnerArchiveExecutor } from "../src/agents/archive-policy.js";
 import { workspaceWorkload } from "../src/agents/checkout-worker.js";
 import { observeGitCheckout } from "../src/agents/checkout-inspection.js";
 import { createLocalRunner } from "../src/agents/local-runner.js";
@@ -907,5 +908,42 @@ describe("local archive against main's outcomes, whatever the child holds", () =
         child: child({ at: atRow, ownership: "owned" }, true),
       })
     ).toMatchObject({ pending: false, removed: true });
+  });
+});
+
+describe("runner archive co-owner, whatever the row's worktree path", () => {
+  it("decides as it did when runner rows carried no worktree path", async () => {
+    const decide = async (worktreePath: string | null) => {
+      const pool = {
+        // A row that moved into the runner checkout matches only by path.
+        query: async (_sql: string, params: unknown[]) =>
+          params[3] !== null && params[3] === "/workload/checkout"
+            ? { rows: [{ id: "moved-in" }], rowCount: 1 }
+            : { rows: [], rowCount: 0 },
+      } as unknown as Pool;
+      const remote = {
+        supportsWorkspaceRelease: () => true,
+        requestSession: async () => ({ value: "released" }),
+      } as unknown as RemoteRunnerService;
+      const executor = runnerArchiveExecutor(
+        {
+          id: "runner-agent",
+          cwd: "runner://test/@session",
+          worktreePath,
+          worktreeBranch: null,
+          baseBranch: null,
+        },
+        remote,
+        true,
+        pool
+      );
+      return executor.observedCoOwner!({
+        ownership: "owned",
+        owner: "runner-agent",
+        borrowers: [],
+        checkout: null,
+      });
+    };
+    expect(await decide("/workload/checkout")).toBe(await decide(null));
   });
 });

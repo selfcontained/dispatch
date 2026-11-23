@@ -938,6 +938,95 @@ describe("AgentManager", () => {
       ).toBe(false);
     });
 
+    it("shows a runner's prepared checkout on the row, keeping its locator and its worktree status", async () => {
+      const cwd = "runner://runner-test/@session";
+      const projectId = "displayed-runner-project";
+      const repository = "https://example.test/displayed";
+      await pool.query(
+        "INSERT INTO projects (id, name, repository) VALUES ($1, 'Runner', $2)",
+        [projectId, repository]
+      );
+      let observed: unknown = null;
+      const requestSession = vi.fn(
+        async (_placement: unknown, command: { kind: string }) => ({
+          value: JSON.stringify(
+            command.kind === "checkoutRelease"
+              ? observed
+              : {
+                  data: {
+                    path: "/workload/displayed",
+                    moved: false,
+                    origin: repository,
+                    worktree: {
+                      path: "/workload/displayed",
+                      branch: "displayed",
+                      base: "main",
+                    },
+                  },
+                }
+          ),
+        })
+      );
+      const remote = {
+        available: () => true,
+        isManagedWorkspace: () => true,
+        supportsPreparedLaunch: () => true,
+        originFor: () => "https://example.test",
+        requestSession,
+      } as unknown as RemoteRunnerService;
+      const manager = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      const agent = await manager.createAgent({
+        cwd,
+        projectId,
+        worktreeBranch: "displayed",
+      });
+      expect(await manager.getAgent(agent.id)).toMatchObject({
+        cwd,
+        worktreePath: "/workload/displayed",
+        worktreeBranch: "displayed",
+        workspacePath: null,
+      });
+
+      // The archive dialog answers as it did when the row had no path.
+      const status = async (worktreePath: string | null) => {
+        await pool.query("UPDATE agents SET worktree_path = $2 WHERE id = $1", [
+          agent.id,
+          worktreePath,
+        ]);
+        return manager.checkWorktreeStatus(agent.id).then(
+          (value) => ({ value }),
+          (error: { statusCode?: number; message: string }) => ({
+            error: [error.statusCode, error.message],
+          })
+        );
+      };
+      for (const checkout of [
+        null,
+        {
+          path: "/workload/displayed",
+          branch: "displayed",
+          stateId: "3".repeat(64),
+          unmerged: false,
+          changedFiles: [],
+          uncommittedFiles: [],
+        },
+      ]) {
+        observed = {
+          ownership: "owned",
+          owner: agent.id,
+          borrowers: [],
+          checkout,
+        };
+        expect(await status("/workload/displayed")).toEqual(await status(null));
+      }
+      expect(await status("/workload/displayed")).toMatchObject({
+        value: { hasWorktree: true, worktreePath: "/workload/displayed" },
+      });
+    });
+
     it("passes the parent session for both remote checkout modes", async () => {
       const cwd = "runner://runner-test/@session";
       const projectId = "session-source-project";
