@@ -64,4 +64,25 @@ describe("starting directory project matching", () => {
     const p = project(repo);
     expect(await matchingProjects(join(worktree, "nested"), [p])).toEqual([p]);
   });
+
+  it("matches extra roots by path without matching another clone's origin", async () => {
+    const primary = join(root, "primary");
+    const extra = join(root, "extra");
+    const unrelated = join(root, "unrelated");
+    const repository = "https://example.test/team/repo.git";
+    for (const checkout of [primary, extra, unrelated]) {
+      execFileSync("git", ["init", "-q", checkout]);
+      execFileSync("git", [
+        "-C",
+        checkout,
+        "remote",
+        "add",
+        "origin",
+        repository,
+      ]);
+    }
+    const p = { ...project(primary), extraRoots: [extra], repository };
+    expect(await matchingProjects(extra, [p])).toEqual([p]);
+    expect(await matchingProjects(unrelated, [p])).toEqual([]);
+  });
 });

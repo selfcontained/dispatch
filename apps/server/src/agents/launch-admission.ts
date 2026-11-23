@@ -87,7 +87,6 @@ type ManagerRequest = {
 };
 
 const reasons = {
-  taskProject: "Choose the task’s project for its runner session.",
   projectAndLocation: "Choose a project or a folder, not both.",
   missingLocation: "Body must include cwd as a string.",
   mcpTarget:
@@ -161,11 +160,8 @@ export function admitLaunch(
       const managed = request.target === "managedRepository";
       let { projectId } = request;
       const { cwd, taskProjectId } = request;
-      if (request.caller === "task") {
-        if (managed && projectId && projectId !== taskProjectId)
-          return reject("taskProject");
-        if (!projectId && (managed || !cwd)) projectId = taskProjectId;
-      }
+      if (request.caller === "task" && !projectId && (managed || !cwd))
+        projectId = taskProjectId;
       if (projectId && cwd && !managed) return reject("projectAndLocation");
       if (!projectId && typeof cwd !== "string")
         return reject("missingLocation");

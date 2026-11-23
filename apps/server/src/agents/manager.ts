@@ -2168,8 +2168,9 @@ export class AgentManager {
       if (repository && !repository.url && projectRepository)
         repository.url = projectRepository;
 
-      // Project membership only supplies a location when none was selected.
-      if (!placement && !input.parentAgentId && !input.cwd && projectRoot) {
+      // A direct project launch starts at the project root. Children keep
+      // the folder selected by the parent launch.
+      if (!placement && !input.parentAgentId && projectRoot) {
         input.cwd = projectRoot;
       }
     }
