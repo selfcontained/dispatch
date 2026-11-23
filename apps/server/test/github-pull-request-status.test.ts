@@ -4,8 +4,15 @@
  * pinned here with fixture commands only; nothing reaches GitHub.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { GitHubPullRequestObservation } from "@dispatch/runner-protocol";
-import type { Runner } from "@dispatch/runner-protocol/contract";
+import {
+  PULL_REQUEST_ACTIVE_REFRESH_MS,
+  type GitHubPullRequestObservation,
+} from "@dispatch/runner-protocol";
+import {
+  RunnerCallError,
+  type Runner,
+} from "@dispatch/runner-protocol/contract";
+import type { Pool } from "pg";
 
 const childFallback = vi.hoisted(() => ({
   pullRequestStatus: vi.fn(),
@@ -24,6 +31,7 @@ import {
   pullRequestQueryArgs,
 } from "../src/agents/pull-request-reader.js";
 import { createLocalCheckoutRunner } from "../src/runners/local.js";
+import { PullRequestRefresher } from "../src/agents/pull-request-refresher.js";
 import type { CommandRunner } from "../src/shared/lib/run-command.js";
 
 const target = { owner: "a", repo: "b", number: 1 };
@@ -190,5 +198,73 @@ describe("PR reads through the agent's runner", () => {
     expect(childFallback.pullRequestStatus).toHaveBeenCalledWith(target, {
       signal: undefined,
     });
+  });
+
+  it("reads in process when the child dies mid-call, but keeps the child's gh failure", async () => {
+    vi.useFakeTimers();
+    const description = {
+      runnerId: "local",
+      displayName: "Local",
+      build: { version: "" },
+      protocol: 1,
+      engines: [],
+      capabilities: {},
+    } as never;
+    const childCall = vi.fn(async (): Promise<GitHubPullRequestObservation> => {
+      throw new RunnerCallError({
+        code: "unknown_outcome",
+        message: "The github.pr.status reply did not arrive",
+      });
+    });
+    const child = {
+      connection: { state: "ready", epoch: 1, onChange: () => () => {} },
+      call: childCall,
+    } as unknown as Runner;
+    childFallback.pullRequestStatus.mockResolvedValue(scoped);
+    const url = "https://github.com/a/b/pull/1";
+    const query = vi.fn(async (sql: string) => ({
+      rows: sql.includes("FROM blocks")
+        ? [
+            {
+              id: "post",
+              author_agent_id: "a",
+              attachments: [{ type: "pr", url, title: "PR" }],
+            },
+          ]
+        : [],
+    }));
+    const service = new PullRequestRefresher({
+      pool: { query } as unknown as Pool,
+      listAgents: async () => [{ id: "a", runnerId: null }],
+      publish: vi.fn(),
+      read: createRunnerPullRequestReader(() =>
+        createLocalCheckoutRunner(undefined, description, child)
+      ),
+      warn: vi.fn(),
+    });
+    try {
+      service.start();
+      await vi.advanceTimersByTimeAsync(200);
+      expect(childCall).toHaveBeenCalledTimes(1);
+      expect(childFallback.pullRequestStatus).toHaveBeenCalledTimes(1);
+      expect(service.get("a")[0]).toMatchObject({
+        title: "Scoped",
+        status: "Open",
+        ci: expect.objectContaining({ availability: "available" }),
+      });
+      // The normal five-minute cadence, not the failure backoff.
+      await vi.advanceTimersByTimeAsync(PULL_REQUEST_ACTIVE_REFRESH_MS + 1_000);
+      expect(childCall).toHaveBeenCalledTimes(2);
+
+      childCall.mockRejectedValueOnce(
+        new RunnerCallError({ code: "failed", message: "gh failed" })
+      );
+      await expect(service.refreshOne("a", url)).rejects.toThrow(
+        "Could not refresh PR. Check GitHub authentication and try again."
+      );
+      expect(childFallback.pullRequestStatus).toHaveBeenCalledTimes(2);
+    } finally {
+      await service.stop();
+    }
   });
 });

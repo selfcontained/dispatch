@@ -399,14 +399,26 @@ export function createLocalCheckoutRunner(
 
   /**
    * A pull request's status as the user's own `gh`: in the child when it
-   * serves, else in process with the same port (R3, as for reads).
+   * serves, else in process with the same port (R3, as for reads). A child
+   * that dies or restarts during the call is the same as one not ready: the
+   * read runs in process, so a local user never sees the transport. A gh
+   * failure the child answered with is the read's answer.
    */
   async function pullRequestStatus(
     input: Req<"github.pr.status">,
     options?: CallOptions<"github.pr.status">
   ): Promise<Res<"github.pr.status">> {
     if (child?.connection.state === "ready")
-      return child.call("github.pr.status", input, options);
+      try {
+        return await child.call("github.pr.status", input, options);
+      } catch (error) {
+        if (
+          !(error instanceof RunnerCallError) ||
+          (error.code !== "unavailable" && error.code !== "unknown_outcome")
+        )
+          throw error;
+        options?.signal?.throwIfAborted();
+      }
     return githubWorkload.pullRequestStatus(input, {
       signal: options?.signal,
     });
