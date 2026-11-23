@@ -263,8 +263,9 @@ export async function registerAgentCrudRoutes(
     const managed = placement?.workspace === MANAGED_WORKSPACE;
     // Created for a task: briefed on it in its prompt, placed in its
     // project unless a location was chosen, and assigned once it exists.
-    let taskBriefing: { projectId: string; text: string; name: string } | null =
-      null;
+    let taskBriefing: Awaited<
+      ReturnType<NonNullable<typeof deps.tasks>["briefingFor"]>
+    > | null = null;
     if (body.taskId !== undefined) {
       if (typeof body.taskId !== "string" || !body.taskId)
         return reply.code(400).send({ error: "Invalid taskId." });
@@ -507,6 +508,7 @@ export async function registerAgentCrudRoutes(
             links,
           },
           initialFiles: startupFiles,
+          startupReferences: taskBriefing?.references,
         },
         {
           detachLaunch: true,

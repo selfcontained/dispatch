@@ -303,7 +303,12 @@ export async function registerTaskRoutes(
   app.get<{ Params: { id: string } }>(
     "/api/v1/tasks/:id/briefing",
     async (request, reply) =>
-      mapTaskErrors(reply, () => taskService.briefingFor(request.params.id))
+      mapTaskErrors(reply, async () => {
+        const { projectId, text, name } = await taskService.briefingFor(
+          request.params.id
+        );
+        return { projectId, name, text };
+      })
   );
 
   app.delete<{ Params: { id: string; agentId: string } }>(

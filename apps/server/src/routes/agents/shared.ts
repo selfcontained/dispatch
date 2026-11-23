@@ -77,9 +77,13 @@ export type AgentRouteDeps = {
    * assignee; absent (tests), `taskId` is refused.
    */
   tasks?: {
-    briefingFor: (
-      taskId: string
-    ) => Promise<{ projectId: string; text: string; name: string }>;
+    briefingFor: (taskId: string) => Promise<{
+      projectId: string;
+      text: string;
+      name: string;
+      /** Files the text names by path, handed to the created agent. */
+      references?: Array<{ source: string; name: string }>;
+    }>;
     assignCreated: (taskId: string, agentId: string) => Promise<void>;
   };
   /** Read per click: the flag is a cold path and must not be cached stale. */

@@ -5,7 +5,8 @@ import { withTestWorkspaceRunner } from "../helpers/test-workspace-runner.js";
  * cancelled by a stop, re-held after a fence refusal, run once on release.
  * Agents on other runners and local agents are untouched.
  */
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -559,6 +560,55 @@ describe("launches on a runner held for an update", () => {
     expect(await readFile(updated, "utf8")).toBe("updated report");
     expect(await readFile(first, "utf8")).toBe("first report");
     expect(put).toHaveBeenCalledTimes(4);
+  });
+
+  it("hands a task's attachments to a runner session and names them there in the first turn", async () => {
+    const runtime = spyRuntime();
+    const manager = managerOn(await openHolds(), runtime);
+    const runnerFiles = await mkdtemp(path.join(dir, "runner-"));
+    const shot = path.join(dir, "tasks", "tsk_1", "shot.png");
+    const notes = path.join(dir, "tasks", "tsk_1", "notes.md");
+    const image = Buffer.from("89504e470d0a1a0a", "hex");
+    await mkdir(path.dirname(shot), { recursive: true });
+    await writeFile(shot, image);
+    await writeFile(notes, "context");
+    const put = vi
+      .spyOn(remote, "putFile")
+      .mockImplementation(async (_placement, agentId, name, file) => {
+        const destination = path.join(runnerFiles, `${agentId}-${name}`);
+        await writeFile(destination, await file.read());
+        return destination;
+      });
+    onTestFinished(() => put.mockRestore());
+    const briefing = `Attachments:\n- shot.png (image/png) — ${shot}\n- notes.md (text/markdown) — ${notes}`;
+
+    const agent = await manager.createAgent({
+      cwd: HELD,
+      initialPrompt: briefing,
+      startupReferences: [
+        { source: shot, name: "shot.png" },
+        { source: notes, name: "notes.md" },
+      ],
+    });
+    await vi.waitFor(() =>
+      expect(promptsFor(runtime, agent.id)).toHaveLength(1)
+    );
+    const digest = createHash("sha256").update(image).digest("hex");
+    const opened = path.join(
+      runnerFiles,
+      `${agent.id}-reference-${digest}.png`
+    );
+    const [text] = promptsFor(runtime, agent.id);
+    expect(text).toContain(`- shot.png (image/png) — ${opened}\n`);
+    expect(text).not.toContain(shot);
+    expect(text).not.toContain(notes);
+    // The agent on the runner opens the image there, byte for byte.
+    expect(await readFile(opened)).toEqual(image);
+    // Named in the text only, never attached inline.
+    expect(
+      runtime.prompt.mock.calls.find(([id]) => id === agent.id)?.[3]
+    ).toBeUndefined();
+    expect(put).toHaveBeenCalledTimes(2);
   });
 
   it("waits out a fence that refuses a new host's files, then delivers them once", async () => {

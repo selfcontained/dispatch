@@ -277,10 +277,19 @@ type CreateAgentInput = {
     links?: string[];
   };
   initialFiles?: SeedFileInput[];
+  /**
+   * Files on this machine that `initialPrompt` names by path (a task's
+   * attachments). Each is handed to the session when it starts, and the
+   * first turn names the path the agent opens instead.
+   */
+  startupReferences?: StartupReference[];
   templateId?: string;
   projectId?: string | null;
   repository?: unknown;
 };
+
+/** A file on this machine that a launch's first turn names by path. */
+export type StartupReference = { source: string; name: string };
 
 type CreateAgentOptions = {
   detachLaunch?: boolean;
@@ -2124,6 +2133,7 @@ export class AgentManager {
       preparation,
       initialPrompt: input.initialPrompt,
       initialFiles,
+      startupReferences: input.startupReferences ?? [],
       resolveLaunchPost,
       jobRunId: input.jobRunId,
       beforeLaunch: options.beforeLaunch,
@@ -2865,6 +2875,7 @@ export class AgentManager {
     preparation: WorkspacePreparation | null;
     initialPrompt: string | undefined;
     initialFiles: SeededFile[];
+    startupReferences: StartupReference[];
     /** Writes the launch post once the workspace is ready; see createAgent. */
     resolveLaunchPost: () => Promise<ChatLaunchPost | null>;
     jobRunId: string | undefined;
@@ -2934,6 +2945,7 @@ export class AgentManager {
       originalCwd: opts.originalCwd,
       initialPrompt: opts.initialPrompt,
       initialFiles: opts.initialFiles,
+      startupReferences: opts.startupReferences,
       chatLaunchPost: prepared.chatLaunchPost,
       jobRunId: opts.jobRunId,
     });
@@ -2953,6 +2965,8 @@ export class AgentManager {
       originalCwd: string;
       initialPrompt: string | undefined;
       initialFiles: SeededFile[];
+      /** Not kept by a held launch's receipt. */
+      startupReferences?: StartupReference[];
       chatLaunchPost: ChatLaunchPost | null;
       jobRunId: string | undefined;
       /** A released launch keeps the attempt's ID. */
@@ -3008,6 +3022,24 @@ export class AgentManager {
           }
         }
       }
+      // The first turn names each reference where the agent opens it: the
+      // same path on this machine, so the text is unchanged there.
+      const referenced = new Map<string, string>();
+      for (const { source, name } of opts.startupReferences ?? []) {
+        if (referenced.has(source)) continue;
+        try {
+          const destination = await this.whileFenced(agent, () =>
+            this.deliverSessionFile(agent, source, name, "reference")
+          );
+          referenced.set(source, destination);
+        } catch (error) {
+          if (error instanceof LifecycleSuperseded) throw error;
+          this.logger.warn(
+            { err: error, agentId: id },
+            "Startup reference is unavailable"
+          );
+        }
+      }
       await this.pool.query(
         `UPDATE agents SET status = 'running', cli_session_id = $2, setup_phase = NULL, updated_at = NOW() WHERE id = $1`,
         [id, sessionId]
@@ -3022,9 +3054,13 @@ export class AgentManager {
       // A prepared checkout already supplied its initial probe.
       if (!workspace) await this.populateGitContext(id);
       this.eventBus.publish(await this.getRequiredAgent(id));
+      let initialPrompt = opts.initialPrompt;
+      for (const [source, destination] of referenced)
+        if (initialPrompt !== undefined && destination !== source)
+          initialPrompt = initialPrompt.split(source).join(destination);
       const firstTurn = buildStartupTurn(
         {
-          initialPrompt: opts.initialPrompt,
+          initialPrompt,
           initialFiles: opts.initialFiles,
           chatLaunchPost,
         },
