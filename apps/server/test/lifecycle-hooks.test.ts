@@ -10,6 +10,10 @@ import { createLocalRunner } from "../src/agents/local-runner.js";
 import { runLifecycleHook } from "../src/agents/lifecycle-hooks.js";
 import type { RemoteRunnerService } from "../src/agents/remote/service.js";
 import type { AgentRecord } from "../src/agents/types.js";
+import {
+  controllerPlacement,
+  placementForRunner,
+} from "../src/runners/placement.js";
 
 const logger = {
   info: () => {},
@@ -125,6 +129,7 @@ describe("runLifecycleHook", () => {
         "stop",
         {
           id: "agt_hook",
+          placement: controllerPlacement,
           cwd: launch,
           worktreePath: launch,
           workspacePath: null,
@@ -167,6 +172,7 @@ describe("runLifecycleHook", () => {
       "stop",
       {
         id: "agt_hook",
+        placement: controllerPlacement,
         cwd: launch,
         worktreePath: launch,
         workspacePath: moved,
@@ -197,6 +203,7 @@ describe("runLifecycleHook", () => {
       "stop",
       {
         id: "agt_hook",
+        placement: controllerPlacement,
         cwd: launch,
         worktreePath: null,
         workspacePath: null,
@@ -228,7 +235,11 @@ it("puts each of a hook's runner requests through the fence retry", async () => 
   });
   await runLifecycleHook(
     "stop",
-    { id: "session", cwd: "runner://machine/work" } as AgentRecord,
+    {
+      id: "session",
+      cwd: "runner://machine/work",
+      placement: placementForRunner("machine"),
+    } as AgentRecord,
     logger,
     {
       local: createLocalRunner("/tmp/runner-hooks-unused", logger),
@@ -266,7 +277,11 @@ it("reports a runner hook failure and still runs the moved checkout on each tear
     };
   });
   const remote = { requestSession: call } as unknown as RemoteRunnerService;
-  const agent = { id: "session", cwd: "runner://machine/work" } as AgentRecord;
+  const agent = {
+    id: "session",
+    cwd: "runner://machine/work",
+    placement: placementForRunner("machine"),
+  } as AgentRecord;
   for (let attempt = 0; attempt < 2; attempt++) {
     await expect(
       runLifecycleHook(

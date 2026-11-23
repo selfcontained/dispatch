@@ -60,6 +60,8 @@ it("backs up to main and upgrades again with old and new placements intact", asy
       migrationsTable: "pgmigrations",
       log: () => {},
     });
+    // The rollback guarantee (runner_id defaults to 'local') holds for builds
+    // without the runner feature: main can only create local agents.
     await insertAgent("main_new", "/tmp/from-main");
     await pool.query(
       "UPDATE agents SET cwd = '/tmp/moved' WHERE id = 'pre_local'"

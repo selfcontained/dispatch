@@ -21,6 +21,7 @@ import { requestCheckoutCommand } from "../src/agents/checkout-commands.js";
 import { createLocalRunner } from "../src/agents/local-runner.js";
 import type { AgentRecord } from "../src/agents/types.js";
 import { discoverRepoTools } from "../src/server/mcp-checkout.js";
+import { controllerPlacement } from "../src/runners/placement.js";
 
 function nativeCatalog(root: string) {
   const agent = {
@@ -56,6 +57,7 @@ function nativeCatalog(root: string) {
 const AGENT = {
   id: "agt_tool_blip",
   cwd: "/tmp",
+  placement: controllerPlacement,
   type: "claude" as const,
   role: "agent" as const,
   persona: null,

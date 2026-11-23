@@ -23,6 +23,7 @@ import {
 } from "@dispatch/runner-conformance";
 import { createLocalRunner } from "../src/agents/local-runner.js";
 import { checkoutRunners } from "../src/runners/directory.js";
+import { controllerPlacement } from "../src/runners/placement.js";
 
 const logger = { info: vi.fn(), warn: vi.fn() } as unknown as FastifyBaseLogger;
 const root = mkdtempSync(path.join(os.tmpdir(), "runner-conformance-adapter-"));
@@ -39,6 +40,7 @@ it("matches the adapter lane's baseline", async () => {
     cwd: checkout,
     worktreePath: null,
     workspacePath: null,
+    placement: controllerPlacement,
   };
   const { directory, placement } = checkoutRunners(
     { local: createLocalRunner(path.join(root, "hosts"), logger) },

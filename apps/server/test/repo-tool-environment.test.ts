@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createLocalRunner } from "../src/agents/local-runner.js";
 import { runLifecycleHook } from "../src/agents/lifecycle-hooks.js";
 import type { AgentRecord } from "../src/agents/types.js";
+import { controllerPlacement } from "../src/runners/placement.js";
 import { repoCommandEnvironment } from "../src/shared/lib/tool-environment.js";
 import { loadRepoTools } from "../src/shared/mcp/repo-tools.js";
 
@@ -108,7 +109,11 @@ describe("repo command environment", () => {
     await expect(
       runLifecycleHook(
         "stop",
-        { id: "agt_probe", cwd: root } as AgentRecord,
+        {
+          id: "agt_probe",
+          cwd: root,
+          placement: controllerPlacement,
+        } as AgentRecord,
         logger,
         { local: createLocalRunner(path.join(root, "host-state"), logger) }
       )
@@ -210,6 +215,7 @@ describe("repo command environment", () => {
         {
           id: "agt_path",
           cwd: root,
+          placement: controllerPlacement,
           worktreePath: null,
           workspacePath: null,
         } as AgentRecord,

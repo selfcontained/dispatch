@@ -38,6 +38,7 @@ import {
   RunnerUpdateHolds,
   type RunnerHoldState,
 } from "../src/agents/remote/update-hold.js";
+import { placementForRunner } from "../src/runners/placement.js";
 import type { TrialRecord } from "../src/agents/remote/update-trial.js";
 import { identity, memoryStore, target } from "./runner-update-fixtures.js";
 
@@ -305,7 +306,13 @@ export async function updateWorld(
       runtime,
       streamRecorder: { setCwd: () => {} },
       getAgent: async (id: string) =>
-        id === AGENT ? { id, cwd: `runner://${RUNNER}/work` } : null,
+        id === AGENT
+          ? {
+              id,
+              cwd: `runner://${RUNNER}/work`,
+              placement: placementForRunner(RUNNER),
+            }
+          : null,
     };
     const agents = {
       isRunnerSessionAttached:
