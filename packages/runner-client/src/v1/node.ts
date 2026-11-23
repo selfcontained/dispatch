@@ -1,6 +1,6 @@
 import { Duplex } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
-import type { Frame, ChannelFrame } from "./index.js";
+import type { Frame, ChannelFrame } from "@dispatch/runner-protocol";
 
 /** `flushed` runs once the frame has been handed to the transport, or with
  * an error if the transport closed first. */

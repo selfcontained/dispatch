@@ -343,20 +343,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/checkout-commands.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(agent.cwd)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/checkout-commands.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/local-runner",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/checkout-inspection.ts",
     "kind": "R2 host access",
     "detail": "child_process",
@@ -2856,6 +2842,13 @@
     "count": 1
   },
   {
+    "file": "apps/server/src/runners/local.ts",
+    "kind": "R3 local adapter delegation",
+    "detail": "checkout.exec and manifest read",
+    "task": "L3",
+    "count": 1
+  },
+  {
     "file": "apps/server/src/scheduled-messages/service.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/acp/driver",
@@ -3836,31 +3829,10 @@
     "count": 1
   },
   {
-    "file": "packages/runner-protocol/src/connection.ts",
-    "kind": "R5 package import",
-    "detail": "node:stream",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "packages/runner-protocol/src/execution.ts",
     "kind": "R5 protocol leak",
     "detail": "personaContext",
     "task": "T24",
-    "count": 1
-  },
-  {
-    "file": "packages/runner-protocol/src/node.ts",
-    "kind": "R5 package import",
-    "detail": "node:stream",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "packages/runner-protocol/src/node.ts",
-    "kind": "R5 package import",
-    "detail": "node:string_decoder",
-    "task": "T04",
     "count": 1
   },
   {

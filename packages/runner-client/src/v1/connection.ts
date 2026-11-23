@@ -1,4 +1,5 @@
-import { checkoutCommandTimeoutMs } from "./checkout-command.js";
+import { checkoutCommandTimeoutMs } from "@dispatch/runner-protocol";
+import type { Timeout } from "@dispatch/runner-protocol/contract";
 import type { Duplex } from "node:stream";
 import type {
   ChannelFrame,
@@ -7,7 +8,7 @@ import type {
   LaunchProgress,
   LaunchProgressFrame,
   ServiceFrame,
-} from "./index.js";
+} from "@dispatch/runner-protocol";
 import { hostChannel } from "./node.js";
 
 export class RunnerUnavailable extends Error {}
@@ -18,13 +19,28 @@ export class RunnerUpdateFenced extends Error {}
  * runner may or may not have run it. */
 export class RunnerAcknowledgementLost extends RunnerUnavailable {}
 
+/** Contract deadlines. A null request timeout keeps the encoded v1 deadline. */
+export function runnerDeadlineMs(
+  timeout: Timeout,
+  requestTimeoutMs: number | null,
+  v1DeadlineMs: number
+): number {
+  if (timeout === "request")
+    return requestTimeoutMs === null ? v1DeadlineMs : requestTimeoutMs + 5_000;
+  return timeout === "long" ? 300_000 : 20_000;
+}
+
 /** How long the service waits for a reply. The runner's update fence uses
  * the same bound as the deadline of an already-admitted operation. */
 export function runnerReplyTimeoutMs(command: Command): number {
   // Repository fetches and engine package installs can run for minutes.
   // Let the runner enforce the command deadline and leave time for its reply.
   if (command.kind === "checkoutCommand")
-    return checkoutCommandTimeoutMs(command.operation.checkout) + 5_000;
+    return runnerDeadlineMs(
+      "request",
+      checkoutCommandTimeoutMs(command.operation.checkout),
+      0
+    );
   return command.kind === "sessionCheckout" ||
     command.kind === "checkoutRelease" ||
     command.kind === "inspectCheckout" ||
@@ -32,8 +48,8 @@ export function runnerReplyTimeoutMs(command: Command): number {
     command.kind === "engine" ||
     (command.kind === "launch" &&
       (command.launch.repository || command.launch.prepareWorkspace))
-    ? 300_000
-    : 20_000;
+    ? runnerDeadlineMs("long", null, 0)
+    : runnerDeadlineMs("default", null, 0);
 }
 
 /** Service side of one authenticated runner connection. Request IDs and channels are local to it. */
