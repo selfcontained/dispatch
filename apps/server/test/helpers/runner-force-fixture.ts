@@ -37,6 +37,7 @@ import {
 } from "../../src/agents/remote/update-hold.js";
 import { identity, target } from "../runner-update-fixtures.js";
 import { trackHoldWork } from "./hold-work.js";
+import { localRunnerFor } from "./local-runner-child.js";
 
 export const RUNNER = "r1";
 const PLACE = `runner://${RUNNER}/@session`;
@@ -427,6 +428,9 @@ export async function forceWorld(pool: Pool) {
         tls: null,
       },
       { remote, holds }
+    );
+    manager.attachLocalRunner(
+      () => localRunnerFor(path.join(dir, "agents")).session
     );
     let receive: ((event: RunnerUpdateEvent) => unknown) | undefined;
     let connected: ((runnerId: string) => unknown) | undefined;

@@ -23,6 +23,7 @@ import {
 } from "../src/agents/remote/update-hold.js";
 import type { RuntimeLaunch } from "../src/agents/runtime.js";
 import { scriptedHost } from "./runner-update-hold-fixtures.js";
+import { localRunnerIn } from "./helpers/local-runner-child.js";
 
 const logger = {
   info: () => {},
@@ -110,6 +111,7 @@ async function fixture(options: {
     return true;
   });
   const runtime = createAcpRuntime({
+    localRunner: localRunnerIn(stateRoot),
     config: {
       agentStateRoot: stateRoot,
       agentRuntime: "acp",

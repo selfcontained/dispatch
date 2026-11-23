@@ -45,8 +45,14 @@ export interface SessionProcessPort<I extends HostRecord> {
   socketInUse(socket: string): boolean;
   /** Pin the socket at this path for a single connection. */
   pinSocket(socket: string): PinnedSocket;
-  /** Parse a private host record; throws when it is invalid. */
-  parseIdentity(raw: string): I;
+  /** Parse the private host record of `key`; throws when it is invalid. */
+  parseIdentity(raw: string, key: string): I;
+  /**
+   * The private host record's contents for `identity` and the caller's
+   * `extra` fields; default JSON of both. A platform whose record another
+   * build also reads keeps that build's format.
+   */
+  formatIdentity?(identity: I, extra: Record<string, unknown>): string;
 }
 
 export interface SessionLayout {
@@ -159,8 +165,8 @@ export type SessionCoreOptions<I extends HostRecord> = {
   state: PrivateStatePort;
   /** False while the update fence holds process admission closed. */
   mayRun?: () => boolean;
-  /** How often exited hosts' descendants are swept. */
-  sweepMs?: number;
+  /** How often exited hosts' descendants are swept; null never sweeps. */
+  sweepMs?: number | null;
 };
 
 export type SessionCore<I extends HostRecord> = ReturnType<
@@ -202,7 +208,7 @@ export function createSessionCore<I extends HostRecord>(
 
   async function readIdentity(key: string) {
     const record = await state.read(layout.identityFile(key));
-    return record === null ? null : processes.parseIdentity(record);
+    return record === null ? null : processes.parseIdentity(record, key);
   }
 
   async function clean(key: string, identity: I | null) {
@@ -262,7 +268,7 @@ export function createSessionCore<I extends HostRecord>(
       let identity;
       try {
         if (!(await handle.trusted())) return undefined;
-        identity = processes.parseIdentity(await handle.read());
+        identity = processes.parseIdentity(await handle.read(), key);
       } finally {
         await handle.close();
       }
@@ -280,7 +286,7 @@ export function createSessionCore<I extends HostRecord>(
   // Recovered hosts have no ChildProcess exit event. Keep descendant cleanup
   // independent of the service connection and isolate failures by session.
   let sweeping = false;
-  const sweep = setInterval(() => {
+  const sweepOnce = () => {
     // Cleanup runs workload processes; it waits while the update fence holds.
     if (sweeping || options.mayRun?.() === false) return;
     sweeping = true;
@@ -302,8 +308,12 @@ export function createSessionCore<I extends HostRecord>(
       .finally(() => {
         sweeping = false;
       });
-  }, options.sweepMs ?? 5_000);
-  sweep.unref();
+  };
+  const sweep =
+    options.sweepMs === null
+      ? undefined
+      : setInterval(sweepOnce, options.sweepMs ?? 5_000);
+  sweep?.unref();
 
   return {
     lock,
@@ -352,7 +362,8 @@ export function createSessionCore<I extends HostRecord>(
           (identity) =>
             state.write(
               layout.identityFile(key),
-              JSON.stringify({ ...identity, ...extra })
+              processes.formatIdentity?.(identity, extra) ??
+                JSON.stringify({ ...identity, ...extra })
             ),
           (identity) => {
             void lock(key, async () => {

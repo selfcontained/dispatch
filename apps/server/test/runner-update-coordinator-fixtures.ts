@@ -41,6 +41,7 @@ import {
 import { placementForRunner } from "../src/runners/placement.js";
 import type { TrialRecord } from "../src/agents/remote/update-trial.js";
 import { identity, memoryStore, target } from "./runner-update-fixtures.js";
+import { localRunnerIn } from "./helpers/local-runner-child.js";
 
 export const RUNNER = "rnr_one";
 export const AGENT = "agt_retained";
@@ -252,6 +253,7 @@ export async function updateWorld(
       channels.clear();
     });
     const runtime = createAcpRuntime({
+      localRunner: localRunnerIn(directory),
       config: {
         agentStateRoot: directory,
         agentRuntime: "acp",

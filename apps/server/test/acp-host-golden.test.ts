@@ -34,6 +34,10 @@ import type { PromptSource } from "../src/agents/acp/prompt-source.js";
 import { createAcpRuntime } from "../src/agents/acp/runtime.js";
 import type { DriverEvent } from "../src/agents/acp/driver.js";
 import type { RuntimeLaunch } from "../src/agents/runtime.js";
+import {
+  localRunnerFor,
+  stopLocalRunners,
+} from "./helpers/local-runner-child.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "../../..");
@@ -150,7 +154,8 @@ describe("agent host goldens", () => {
     ]);
   });
 
-  afterAll(() => {
+  afterAll(async () => {
+    await stopLocalRunners();
     if (previousCommand === undefined)
       delete process.env.DISPATCH_AGENT_HOST_COMMAND;
     else process.env.DISPATCH_AGENT_HOST_COMMAND = previousCommand;
@@ -207,6 +212,7 @@ describe("agent host goldens", () => {
         logger,
         hostSeq: async () => ({ seq: 0, journalId: null }),
         syncJournal: async () => {},
+        localRunner: () => localRunnerFor(stateRoot).session,
       });
       runtime.onEvent((_id, event) => {
         events.push(event);

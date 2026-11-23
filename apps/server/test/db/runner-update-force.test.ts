@@ -33,6 +33,7 @@ import {
   type Host,
 } from "../helpers/runner-force-fixture.js";
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./setup.js";
+import { stopLocalRunners } from "../helpers/local-runner-child.js";
 
 vi.mock("../../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
@@ -56,6 +57,7 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   await world.close();
+  await stopLocalRunners();
 });
 
 const force = () => world.coordinator.forceUpdate(RUNNER);
