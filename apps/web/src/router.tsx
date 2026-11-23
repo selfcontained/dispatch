@@ -36,6 +36,18 @@ const loadDesignLabRoute = async () => {
 };
 
 export const router = createBrowserRouter([
+  ...(import.meta.env.DEV
+    ? [
+        {
+          path: "/design/sidebar-actions",
+          lazy: async () => ({
+            Component: (
+              await import("@/components/app/sidebar-actions-preview")
+            ).SidebarActionsPreview,
+          }),
+        },
+      ]
+    : []),
   {
     element: <RootLayout />,
     HydrateFallback: RouteLoading,
