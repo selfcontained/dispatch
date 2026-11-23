@@ -42,7 +42,10 @@ export function spawnTerminal(
   cwd: string,
   output: (data: Uint8Array) => void,
   workloadShell?: string,
-  { cols, rows } = { cols: 80, rows: 24 }
+  dimensions: { cols: number; rows: number; shell?: string } = {
+    cols: 80,
+    rows: 24,
+  }
 ): PtyProcess {
   if (
     typeof Bun === "undefined" ||
@@ -57,7 +60,9 @@ export function spawnTerminal(
     throw new Error(
       "Human terminals require Dispatch to run as an ordinary OS user."
     );
-  const shell = workloadShell ?? (userInfo().shell || "/bin/sh");
+  const { cols, rows } = dimensions;
+  const shell =
+    workloadShell ?? dimensions.shell ?? (userInfo().shell || "/bin/sh");
   const env = terminalEnvironment();
   const login = workloadShell
     ? loginShellCommand(

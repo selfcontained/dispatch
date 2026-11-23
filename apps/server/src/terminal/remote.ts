@@ -8,14 +8,22 @@ import {
 import { wireFrames } from "../runners/enrolled/v1-framing.js";
 import type { RemoteRunnerService } from "../agents/remote/service.js";
 import { TERMINAL_UPDATE_MESSAGE } from "../agents/remote/update-admission.js";
+import { typedTerminal } from "./typed.js";
 import type { TerminalBackend } from "./manager.js";
 
 export function remoteTerminal(
-  runner: Pick<RemoteRunnerService, "requestSession">,
+  runner: Pick<RemoteRunnerService, "requestSession"> &
+    Partial<Pick<RemoteRunnerService, "streamTerminal">>,
   placement: Placement,
   agentId: string
 ): TerminalBackend {
-  return async (output) => {
+  return async (output, inputFull) => {
+    const streamed = runner.streamTerminal?.(placement, agentId, {
+      cols: 80,
+      rows: 24,
+    });
+    if (streamed) return typedTerminal(() => streamed)(output, inputFull);
+
     const { value, channel } = await runner.requestSession(placement, {
       kind: "openTerminal",
       agentId,

@@ -9,7 +9,13 @@ export const STREAM_CHUNK = 32 * 1024;
 const MIN_FRAME_CREDIT = 1024;
 const STALL_TIMEOUT = 30_000;
 
-type Failure = "cancelled" | "timeout" | "invalid" | "failed" | "unavailable";
+type Failure =
+  | "cancelled"
+  | "timeout"
+  | "invalid"
+  | "failed"
+  | "unavailable"
+  | "fenced";
 type Part =
   | { action: "open" | "end" | "done" }
   | { action: "credit"; bytes: number }
@@ -22,6 +28,7 @@ export type StreamFrame =
       action: "accept";
       checkoutExecStream?: true;
       checkoutReadStream?: true;
+      terminalOpenStream?: true;
     }
   | ({ type: "stream"; id: string } & Part);
 
@@ -61,6 +68,7 @@ function validId(id: unknown): id is string {
 
 function cancelCode(code: unknown): Failure {
   switch (code) {
+    case "fenced":
     case "timeout":
     case "invalid":
     case "failed":
@@ -127,6 +135,12 @@ export class FlowStreams {
   /** Whether a transfer is registered under this ID. */
   has(id: string): boolean {
     return this.active.has(id);
+  }
+
+  /** Close a registered transfer and communicate why to the peer. */
+  interrupt(id: string, code: Failure) {
+    const entry = this.active.get(id);
+    if (entry) this.cancel(entry, code, "Stream interrupted");
   }
 
   private start(

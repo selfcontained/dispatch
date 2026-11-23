@@ -517,12 +517,6 @@
   },
   {
     "lane": "remote",
-    "scenario": "terminal.open/pending",
-    "task": "T21",
-    "reason": "scenario not written yet"
-  },
-  {
-    "lane": "remote",
     "scenario": "workspace.prepare/pending",
     "task": "T18",
     "reason": "not on wire v1: carried inside v1 launch (see EXTRAS)"

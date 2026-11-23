@@ -574,9 +574,67 @@ const checkoutReads: Scenario[] = [
   },
 ];
 
+const interactiveTerminal: Scenario = {
+  id: "terminal.open/interactive",
+  op: "terminal.open",
+  async run(fixture) {
+    const { info, channel } = await fixture.runner.open("terminal.open", {
+      target: { session: fixture.session },
+      cols: 91,
+      rows: 37,
+    });
+    try {
+      const output = await new Promise<string>((resolve, reject) => {
+        let output = "";
+        channel.onClose(() =>
+          reject(new ScenarioFailure("Terminal closed without an exit event."))
+        );
+        channel.onData((event) => {
+          if (event.type === "output")
+            output += Buffer.from(event.data, "base64").toString();
+          if (event.type === "exit" && event.code === 7) resolve(output);
+          else if (event.type !== "output")
+            reject(
+              new ScenarioFailure(
+                `Unexpected terminal event ${JSON.stringify(event)}`
+              )
+            );
+        });
+        channel.write({
+          type: "input",
+          data: "stty size; pwd; id -u; id -un; exit 7\n",
+        });
+      });
+      const lines = output.replaceAll("\r", "").split("\n");
+      const dimensions = lines.indexOf("37 91");
+      expect(
+        dimensions >= 0,
+        "The PTY did not start at the requested dimensions."
+      );
+      expect(
+        lines[dimensions + 1] === info.cwd,
+        "Terminal started outside the bound checkout."
+      );
+      expect(
+        Number(lines[dimensions + 2]) > 0,
+        "Terminal shell did not run as a non-root user."
+      );
+      expect(
+        lines[dimensions + 3] === info.user,
+        "Terminal did not report the workload user."
+      );
+    } finally {
+      channel.close();
+    }
+  },
+};
+
 export const remoteScenarios: readonly Scenario[] = [
   ...checkoutReads,
+  interactiveTerminal,
   ...scenarios.filter(
-    ({ op }) => !checkoutReads.some((scenario) => scenario.op === op)
+    ({ op }) =>
+      op !== interactiveTerminal.op &&
+      !checkoutReads.some((scenario) => scenario.op === op)
   ),
 ];

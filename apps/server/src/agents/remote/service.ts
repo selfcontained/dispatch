@@ -22,6 +22,7 @@ import {
   receiveFile,
   receiveCheckoutExec,
   receiveCheckoutRead,
+  openTerminalStream,
   RunnerConnection,
   RunnerUnavailable,
 } from "../../runners/enrolled/v1-framing.js";
@@ -218,6 +219,7 @@ type Peer = {
   checkoutExecStream: boolean;
   checkoutReadStream: boolean;
   terminals: boolean;
+  terminalOpenStream: boolean;
   defaultBranchFiles: boolean;
   sessionCheckout: boolean;
   checkoutRelease: boolean;
@@ -983,6 +985,7 @@ export class RemoteRunnerService {
           checkoutExecStream: ready.checkoutExecStream === true,
           checkoutReadStream: ready.checkoutReadStream === true,
           terminals: ready.terminals === true,
+          terminalOpenStream: ready.terminalOpenStream === true,
           checkoutInspection: ready.checkoutInspection === true,
           sharedWorktree: ready.sharedWorktree === true,
           workspacePreparation: ready.workspacePreparation === true,
@@ -1017,6 +1020,7 @@ export class RemoteRunnerService {
             action: "accept",
             ...(peer.checkoutReadStream && { checkoutReadStream: true }),
             ...(peer.checkoutExecStream && { checkoutExecStream: true }),
+            ...(peer.terminalOpenStream && { terminalOpenStream: true }),
           });
           peer.streams.enable();
         }
@@ -1743,6 +1747,22 @@ export class RemoteRunnerService {
         this.request(placement, command, false, undefined, active, peer),
       peer.streams,
       signal
+    );
+  }
+
+  streamTerminal(
+    placement: Placement,
+    agentId: string,
+    dimensions: Pick<Req<"terminal.open">, "cols" | "rows">
+  ) {
+    const peer = this.workspacePeer(placement);
+    if (!peer?.terminalOpenStream || !peer.streams) return;
+    return openTerminalStream(
+      { kind: "openTerminal", agentId, workspace: placement.workspace },
+      dimensions,
+      (command, signal) =>
+        this.request(placement, command, false, undefined, signal, peer),
+      peer.streams
     );
   }
 

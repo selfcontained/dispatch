@@ -350,12 +350,12 @@ export class RunnerConnection {
   ) {
     if (this.closed)
       throw new RunnerUnavailable("The runner connection is closed.");
-    if (
+    const cancellable =
       command.kind === "checkoutCommand" ||
       command.kind === "checkoutRead" ||
-      isStreamedCollection(command)
-    )
-      signal?.throwIfAborted();
+      isStreamedCollection(command) ||
+      (command.kind === "openTerminal" && command.stream !== undefined);
+    if (cancellable) signal?.throwIfAborted();
     const id = crypto.randomUUID();
     const channel = openChannel
       ? hostChannel(id, this.send, () => this.channels.delete(id))
@@ -373,11 +373,7 @@ export class RunnerConnection {
       const value = await this.sendRequest(
         id,
         command,
-        command.kind === "checkoutCommand" ||
-          command.kind === "checkoutRead" ||
-          isStreamedCollection(command)
-          ? signal
-          : undefined
+        cancellable ? signal : undefined
       );
       return { value, channel };
     } catch (error) {
@@ -442,7 +438,9 @@ export class RunnerConnection {
               ? "Checkout command cancelled."
               : command.kind === "checkoutRead"
                 ? "Checkout read cancelled."
-                : "File stream cancelled."
+                : command.kind === "openTerminal"
+                  ? "Terminal stream cancelled."
+                  : "File stream cancelled."
           )
         );
       };

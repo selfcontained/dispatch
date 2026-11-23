@@ -17,7 +17,10 @@ export function typedTerminal(
     const exited = new Promise<number | null>((resolve) => {
       finish = resolve;
     });
-    channel.onClose(() => finish(null));
+    channel.onClose((error) => {
+      if (error?.code === "fenced") endReason = TERMINAL_UPDATE_MESSAGE;
+      finish(null);
+    });
     channel.onData((event) => {
       if (event.type === "output") {
         output(Buffer.from(event.data, "base64"));

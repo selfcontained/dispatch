@@ -47,8 +47,11 @@ if (process.argv[2]?.startsWith("recovery-")) {
   const { runRunnerConnect } = await import("./agents/remote/enrollment.js");
   await runRunnerConnect(process.argv.slice(3));
 } else if (process.argv[2] === "runner-terminal") {
-  const { runTerminalWorker } = await loadTerminalWorker();
-  await runTerminalWorker(process.argv[3]!);
+  const { runTerminalWorker, runTypedTerminalWorker } =
+    await loadTerminalWorker();
+  const [, , , cwd, cols, rows] = process.argv;
+  if (cols === undefined) await runTerminalWorker(cwd!);
+  else await runTypedTerminalWorker(cwd!, Number(cols), Number(rows));
 } else if (
   process.argv[2] === "runner-worker" ||
   [
@@ -126,7 +129,7 @@ if (process.argv[2]?.startsWith("recovery-")) {
       ...(embeddedBuild.revision && { revision: embeddedBuild.revision }),
     },
     platform: { workload: checkoutWorkload },
-    handlers: localTerminalHandlers,
+    handlers: () => localTerminalHandlers(),
   });
 } else if (process.argv[2] === "agent-host") {
   await import("./agents/acp/host/main.js");
