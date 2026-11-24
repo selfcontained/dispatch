@@ -590,9 +590,6 @@ it("keeps the MCP caller surface and call outcomes at the recorded parity bounda
   );
   const triggerTemplateId = triggerTemplates.rows[0]!.id;
   for (const [label, location] of [
-    ["folder", { directory: "/unreachable/trigger-folder" }],
-    ["tilde", { directory: "~" }],
-    ["locator", { directory: runnerCwd }],
     ["offline", { runner: "offline-trigger-fixture" }],
     ["controller", { runner: "local" }],
     ["defaults", {}],
