@@ -141,9 +141,12 @@ export function BranchSelect({
     reportedDefault,
   ]);
 
+  const savedPullRequest =
+    /^https?:\/\/[^/]+\/[^/]+\/[^/]+\/pull\/\d+(?:[/?#].*)?$/.test(baseBranch);
   const savedBranchMissing =
     !branchesLoading &&
     !!baseBranch &&
+    !savedPullRequest &&
     !!fetchedForCwd &&
     remoteBranches.length > 0 &&
     !remoteBranches.includes(baseBranch);
@@ -208,6 +211,7 @@ export function BranchSelect({
             {allBranches.map((branch) => {
               const isMissing =
                 !!branch &&
+                !savedPullRequest &&
                 branch === baseBranch &&
                 remoteBranches.length > 0 &&
                 !remoteBranches.includes(branch);

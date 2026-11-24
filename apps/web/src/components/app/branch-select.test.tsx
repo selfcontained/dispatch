@@ -168,7 +168,9 @@ it.each(["release/not-fetched", "https://github.com/o/r/pull/7"])(
       screen
         .getAllByRole("option")
         .some((option) => option.textContent === `${baseBranch}not found`)
-    ).toBe(true);
+    ).toBe(!baseBranch.startsWith("https://"));
+    if (baseBranch.startsWith("https://"))
+      expect(screen.queryByText(/no longer exists/)).toBeNull();
     fireEvent.keyDown(screen.getByPlaceholderText("Search branches…"), {
       key: "Escape",
     });
