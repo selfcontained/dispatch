@@ -982,6 +982,16 @@ describe("AgentManager", () => {
         expect(older.projectId).toBeNull();
       });
 
+      it("starts in the project for its repository", async () => {
+        for (const prepared of [true, false]) {
+          const agent = await runnerManager(prepared).createAgent({
+            cwd,
+            repository: { url: `${joined}.git` },
+          });
+          expect(agent.projectId).toBe("url-joined");
+        }
+      });
+
       it("keeps an explicit project and a parent's project", async () => {
         const repository = { url: `${joined}.git` };
         const manager = runnerManager(true);

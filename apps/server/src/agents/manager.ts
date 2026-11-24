@@ -160,7 +160,11 @@ import {
   type CheckoutReply,
 } from "./remote/protocol.js";
 import { WORKTREE_LOCAL_CONFIG_FILES } from "./worktree-local-config-files.js";
-import { parseRepository } from "./remote/repository.js";
+import {
+  parseRepository,
+  parseRepositoryTarget,
+  projectRepositoryUrl,
+} from "./remote/repository.js";
 import {
   RunnerResumeRefused,
   RunnerRevoked,
@@ -2393,6 +2397,11 @@ export class AgentManager {
         input.cwd = checkoutOwner.cwd;
       }
     }
+    // A launch that names a repository and no project joins that
+    // repository's project, as a local folder joins the project it matches.
+    if (location && !input.projectId && !input.parentAgentId && !checkoutOwner)
+      input.projectId =
+        (await this.repositoryProject(input.repository)) ?? undefined;
     if (input.projectId) {
       const project = (
         await this.pool.query<{
@@ -2451,6 +2460,22 @@ export class AgentManager {
       projectRepository,
       checkoutOwner,
     };
+  }
+
+  /** The project for a launch's repository URL; at most one (unique index). */
+  private async repositoryProject(repository: unknown) {
+    let url: string | undefined;
+    try {
+      url = parseRepositoryTarget(repository ?? {}).url;
+    } catch {
+      return null; // Admission reports an invalid repository.
+    }
+    if (!url) return null;
+    const { rows } = await this.pool.query<{ id: string }>(
+      "SELECT id FROM projects WHERE repository = $1",
+      [projectRepositoryUrl(url)]
+    );
+    return rows[0]?.id ?? null;
   }
 
   private admitCreateTarget(
