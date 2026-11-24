@@ -7,7 +7,6 @@ import {
   render,
   screen,
   waitFor,
-  within,
 } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
@@ -63,16 +62,29 @@ vi.mock("framer-motion", async (importOriginal) => {
     "transition",
     "variants",
   ]);
+  // One component per tag: a fresh component type on every access would
+  // remount the subtree on each render and drop its state (an open menu).
+  const byTag = new Map<string, unknown>();
   const motion = new Proxy(
     {},
     {
-      get: (_target, tag: string) =>
-        React.forwardRef<HTMLElement, Record<string, unknown>>((props, ref) => {
-          const domProps = Object.fromEntries(
-            Object.entries(props).filter(([key]) => !MOTION_ONLY_PROPS.has(key))
+      get: (_target, tag: string) => {
+        if (!byTag.has(tag))
+          byTag.set(
+            tag,
+            React.forwardRef<HTMLElement, Record<string, unknown>>(
+              (props, ref) => {
+                const domProps = Object.fromEntries(
+                  Object.entries(props).filter(
+                    ([key]) => !MOTION_ONLY_PROPS.has(key)
+                  )
+                );
+                return React.createElement(tag, { ...domProps, ref });
+              }
+            )
           );
-          return React.createElement(tag, { ...domProps, ref });
-        }),
+        return byTag.get(tag);
+      },
     }
   );
   return {
@@ -236,6 +248,18 @@ function card(agentId = AGENT_ID): HTMLElement {
   return screen.getByTestId(`agent-card-${agentId}`);
 }
 
+/** Opens the expanded card's ⋯ menu (a dropdown under a fine pointer). */
+async function openActions(agentId = AGENT_ID): Promise<void> {
+  fireEvent.keyDown(screen.getByTestId(`agent-more-${agentId}`), {
+    key: "ArrowDown",
+  });
+  await screen.findByRole("menu");
+}
+
+function action(key: string): HTMLElement {
+  return screen.getByTestId(`agent-action-${key}`);
+}
+
 beforeEach(() => {
   chatUnread.value = { unread: 0, pendingQuestions: 0 };
   // Two source-defined windows (the 1.5s rename re-arm, the 2s copy
@@ -326,8 +350,8 @@ describe("AgentCard state and selection", () => {
 
 describe("AgentCard pin controls", () => {
   it.each(["standard", "review"] as const)(
-    "pins %s cards without opening, expanding or closing the narrow drawer",
-    (role) => {
+    "pins %s cards from the menu without opening, expanding or closing the narrow drawer",
+    async (role) => {
       const onTogglePin = vi.fn();
       const onRequestClose = vi.fn();
       const child = makeChild();
@@ -339,26 +363,22 @@ describe("AgentCard pin controls", () => {
         onRequestClose,
         closeOnSessionAction: true,
       });
-      fireEvent.click(screen.getByRole("button", { name: "Pin session" }));
+      await openActions();
+      expect(action("pin").textContent).toContain("Pin to top");
+      fireEvent.click(action("pin"));
       expect(onTogglePin).toHaveBeenCalledWith(AGENT_ID);
       expect(props.openAgent).not.toHaveBeenCalled();
       expect(props.closeAgent).not.toHaveBeenCalled();
       expect(props.toggleAgentDetails).not.toHaveBeenCalled();
       expect(onRequestClose).not.toHaveBeenCalled();
-      expect(screen.queryByTestId(`agent-pin-toggle-${child.id}`)).toBeNull();
+
       rerender({ isPinned: true });
-      expect(
-        screen
-          .getByRole("button", { name: "Unpin session" })
-          .getAttribute("aria-pressed")
-      ).toBe("true");
-      fireEvent.click(screen.getByRole("button", { name: "Unpin session" }));
+      await openActions();
+      expect(action("pin").textContent).toContain("Unpin");
+      fireEvent.click(action("pin"));
       expect(onTogglePin).toHaveBeenCalledTimes(2);
       rerender({ isPinned: true, expandedAgentId: null });
       expect(screen.getByRole("img", { name: "Pinned session" })).toBeTruthy();
-      expect(
-        screen.queryByRole("button", { name: "Unpin session" })
-      ).toBeNull();
     }
   );
 });
@@ -459,8 +479,8 @@ describe("AgentCardHeader wiring", () => {
       expandedAgentId: AGENT_ID,
     });
     expect(screen.getByTestId(`agent-prompt-rename-${AGENT_ID}`)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Archive" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Pause" })).toBeTruthy();
+    expect(screen.getByTestId(`agent-archive-${AGENT_ID}`)).toBeTruthy();
+    expect(screen.getByTestId(`agent-more-${AGENT_ID}`)).toBeTruthy();
   });
 
   // The `startsWith("job-")` guard in hasDefaultSessionName is unreachable — a
@@ -1055,15 +1075,16 @@ describe("AgentCard avatars", () => {
     const avatar = screen.getByTestId(`agent-avatar-${AGENT_ID}`);
     expect(avatar.getAttribute("data-seat")).toBeNull();
     expect(avatar.textContent).toBe("");
+    fireEvent.click(screen.getByTestId("sub-agents-toggle"));
     // Numbered as the stream numbers them: the root is seat 1.
     expect(
       screen
-        .getByTestId("child-agent-avatar-agt_child_1")
+        .getByTestId("sub-agent-avatar-agt_child_1")
         .getAttribute("data-seat")
     ).toBe("2");
     expect(
       screen
-        .getByTestId("child-agent-avatar-agt_child_2")
+        .getByTestId("sub-agent-avatar-agt_child_2")
         .getAttribute("data-seat")
     ).toBe("3");
   });
@@ -1122,36 +1143,32 @@ describe("AgentCardDetails wiring", () => {
     expect(screen.queryByText("Sandboxed")).toBeNull();
   });
 
-  it("keeps the worktree-path copy confirmation across a collapse and reopen", async () => {
-    const { rerender } = renderCard({
-      agent: worktreeAgent,
-      expandedAgentId: AGENT_ID,
-    });
+  it("copies the worktree path from the menu", async () => {
+    renderCard({ agent: worktreeAgent, expandedAgentId: AGENT_ID });
 
-    fireEvent.click(
-      screen.getByLabelText(
-        "Copy worktree path: /repo/.dispatch/worktrees/worker-1"
+    await openActions();
+    fireEvent.click(action("copy"));
+    await waitFor(() =>
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+        "/repo/.dispatch/worktrees/worker-1"
       )
     );
-    await waitFor(() =>
-      expect(screen.getByLabelText("Worktree path copied")).toBeTruthy()
-    );
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-      "/repo/.dispatch/worktrees/worker-1"
-    );
+  });
 
-    // The copy state lives on the card, not on the details panel that unmounts.
-    rerender({ expandedAgentId: null });
-    rerender({ expandedAgentId: AGENT_ID });
-    expect(screen.getByLabelText("Worktree path copied")).toBeTruthy();
+  it("offers copy worktree path only for worktree agents", async () => {
+    renderCard({ expandedAgentId: AGENT_ID });
+    await openActions();
+    expect(screen.queryByTestId("agent-action-copy")).toBeNull();
+    expect(action("move")).toBeTruthy();
   });
 });
 
 describe("AgentCardActions and child agents", () => {
-  it("routes pause to the stop dialog and archive to the delete dialog", () => {
+  it("routes pause to the stop dialog and archive to the delete dialog", async () => {
     const { props } = renderCard({ expandedAgentId: AGENT_ID });
 
-    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    await openActions();
+    fireEvent.click(action("pause"));
     expect(props.setStopTarget).toHaveBeenCalledWith(props.agent);
     expect(props.setStopConfirmOpen).toHaveBeenCalledWith(true);
     expect(props.setDeleteTarget).not.toHaveBeenCalled();
@@ -1162,7 +1179,24 @@ describe("AgentCardActions and child agents", () => {
     expect(props.setStopTarget).toHaveBeenCalledTimes(1);
   });
 
-  it("disables archiving mid-archive and swaps pause for resume when stopped", () => {
+  it("keeps the overflow menu last, and repeats archive inside it", async () => {
+    const child = makeChild({ role: "standard", persona: undefined });
+    const { props } = renderCard({
+      agents: [makeAgent(), child],
+      childAgents: [child],
+      expandedAgentId: AGENT_ID,
+    });
+    const archive = screen.getByTestId(`agent-archive-${AGENT_ID}`);
+    const more = screen.getByTestId(`agent-more-${AGENT_ID}`);
+    expect(archive.parentElement?.lastElementChild).toBe(more);
+
+    await openActions();
+    expect(action("archive").textContent).toContain("+ 1 sub agent");
+    fireEvent.click(action("archive"));
+    expect(props.setDeleteTarget).toHaveBeenCalledWith(props.agent);
+  });
+
+  it("disables archiving mid-archive and offers a single resume when stopped", async () => {
     const { rerender } = renderCard({
       agent: makeAgent({ status: "archiving" }),
       expandedAgentId: AGENT_ID,
@@ -1173,21 +1207,23 @@ describe("AgentCardActions and child agents", () => {
     );
     // Archiving reads as stopped, so only the explicit archiving checks keep the
     // resume affordances off the card while teardown runs.
-    expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Resume" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Resume session" })).toBeNull();
+    await openActions();
+    expect(screen.queryByTestId("agent-action-pause")).toBeNull();
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
 
     rerender({ agent: makeAgent({ status: "stopped" }) });
     expect(screen.getByTestId(`agent-archive-${AGENT_ID}`)).toHaveProperty(
       "disabled",
       false
     );
-    expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Resume session" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
+    // One play button: the header's.
+    expect(screen.getAllByRole("button", { name: /^Resume/ })).toHaveLength(1);
+    await openActions();
+    expect(screen.queryByTestId("agent-action-pause")).toBeNull();
   });
 
-  it("hides lifecycle actions on persona cards and credits the launching parent", async () => {
+  it("keeps only pinning on persona cards and credits the launching parent", async () => {
     const { rerender } = renderCard({
       agent: makeChild({ id: AGENT_ID, parentAgentId: "agt_launcher" }),
       agents: [makeAgent({ id: "agt_launcher", name: "worker-1" })],
@@ -1195,7 +1231,7 @@ describe("AgentCardActions and child agents", () => {
     });
 
     expect(screen.queryByTestId(`agent-archive-${AGENT_ID}`)).toBeNull();
-    expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
+    expect(screen.queryByTestId(`agent-more-${AGENT_ID}`)).toBeNull();
     expect(screen.getByText("security-review")).toBeTruthy();
 
     // Parent resolved by id when it is in the list...
@@ -1211,26 +1247,142 @@ describe("AgentCardActions and child agents", () => {
     );
   });
 
-  it("lists child agents with a count when expanded", () => {
+  it("summarises sub agents and grows the same rows in place when opened", () => {
     const children = [
       makeChild({ id: "agt_c1", persona: "security-review" }),
       makeChild({ id: "agt_c2", persona: "ux-review" }),
     ];
-    const { rerender } = renderCard({
+    const { props, rerender } = renderCard({
       childAgents: children,
       expandedAgentId: AGENT_ID,
+      connectedAgentId: "agt_c2",
     });
 
-    const heading = screen.getByText("Sub Agents");
-    expect(
-      within(heading.parentElement as HTMLElement).getByText("2")
-    ).toBeTruthy();
-    expect(screen.getByTestId("child-agent-row-agt_c1")).toBeTruthy();
-    expect(screen.getByTestId("child-agent-row-agt_c2")).toBeTruthy();
+    const toggle = screen.getByTestId("sub-agents-toggle");
+    expect(toggle.textContent).toContain("2 sub agents");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    // Nothing is running, so the summary has no row to show yet.
+    expect(screen.queryByTestId("sub-agent-row-agt_c1")).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByTestId("sub-agent-row-agt_c1")).toBeTruthy();
     expect(screen.getByText("ux-review")).toBeTruthy();
+    // The sub agent whose stream is open is marked.
+    expect(
+      screen.getByTestId("sub-agent-row-agt_c2").getAttribute("aria-current")
+    ).toBe("page");
+
+    fireEvent.click(screen.getByTestId("sub-agent-row-agt_c1"));
+    expect(props.openAgent).toHaveBeenCalledWith(children[0]);
 
     rerender({ childAgents: [] });
-    expect(screen.queryByText("Sub Agents")).toBeNull();
+    expect(screen.queryByTestId("sub-agents-toggle")).toBeNull();
+  });
+
+  it("gives each sub agent its own menu, last in its row", async () => {
+    const running = makeChild({
+      id: "agt_run",
+      role: "standard",
+      persona: undefined,
+      name: "builder-one",
+    });
+    const stopped = makeChild({
+      id: "agt_stop",
+      role: "standard",
+      persona: undefined,
+      name: "builder-two",
+      status: "stopped",
+    });
+    const { props } = renderCard({
+      agents: [makeAgent(), running, stopped],
+      childAgents: [running, stopped],
+      expandedAgentId: AGENT_ID,
+    });
+    fireEvent.click(screen.getByTestId("sub-agents-toggle"));
+
+    const row = screen.getByTestId("sub-agent-agt_run");
+    const menu = screen.getByTestId("sub-agent-menu-agt_run");
+    expect(menu.parentElement?.lastElementChild).toBe(menu);
+    expect(row.contains(menu)).toBe(true);
+    // The menu is a sibling of the row's open target, not inside it.
+    expect(screen.getByTestId("sub-agent-row-agt_run").contains(menu)).toBe(
+      false
+    );
+
+    const openMenu = async (id: string) => {
+      fireEvent.keyDown(screen.getByTestId(`sub-agent-menu-${id}`), {
+        key: "ArrowDown",
+      });
+      await screen.findByRole("menu");
+    };
+
+    await openMenu("agt_run");
+    fireEvent.click(screen.getByTestId("sub-agent-action-pause-agt_run"));
+    expect(props.setStopTarget).toHaveBeenCalledWith(running);
+    expect(props.setStopConfirmOpen).toHaveBeenCalledWith(true);
+    expect(props.openAgent).not.toHaveBeenCalled();
+
+    await openMenu("agt_run");
+    fireEvent.click(screen.getByTestId("sub-agent-action-archive-agt_run"));
+    expect(props.setDeleteTarget).toHaveBeenCalledWith(running);
+
+    await openMenu("agt_run");
+    fireEvent.click(screen.getByTestId("sub-agent-action-details-agt_run"));
+    expect(
+      await screen.findByRole("heading", { name: "Session details" })
+    ).toBeTruthy();
+    fireEvent.keyDown(document.activeElement ?? document.body, {
+      key: "Escape",
+    });
+
+    // A stopped sub agent resumes from its row or its menu.
+    fireEvent.click(screen.getByTestId("sub-agent-resume-agt_stop"));
+    expect(props.startAgent).toHaveBeenCalledWith(stopped);
+    await openMenu("agt_stop");
+    expect(screen.queryByTestId("sub-agent-action-pause-agt_stop")).toBeNull();
+    fireEvent.click(screen.getByTestId("sub-agent-action-resume-agt_stop"));
+    expect(props.startAgent).toHaveBeenCalledTimes(2);
+  });
+
+  it("disables Start a review with a reason when personas can't load", async () => {
+    renderCard({ expandedAgentId: AGENT_ID });
+    await openActions();
+    // The mocked personas request returns none, i.e. it failed to load.
+    await waitFor(() =>
+      expect(action("review").getAttribute("data-disabled")).not.toBeNull()
+    );
+    expect(action("review").textContent).toContain("Unavailable");
+  });
+
+  it("keeps a sub agent's Change workspace dialog open when its row unmounts", async () => {
+    const child = makeChild({
+      id: "agt_ws",
+      role: "standard",
+      persona: undefined,
+      name: "builder-ws",
+    });
+    renderCard({
+      agents: [makeAgent(), child],
+      childAgents: [child],
+      expandedAgentId: AGENT_ID,
+    });
+    fireEvent.click(screen.getByTestId("sub-agents-toggle"));
+    fireEvent.keyDown(screen.getByTestId("sub-agent-menu-agt_ws"), {
+      key: "ArrowDown",
+    });
+    await screen.findByRole("menu");
+    fireEvent.click(screen.getByTestId("sub-agent-action-move-agt_ws"));
+    expect(
+      await screen.findByRole("heading", { name: "Change workspace" })
+    ).toBeTruthy();
+
+    // Collapsing the list unmounts the row that opened the dialog.
+    fireEvent.click(screen.getByTestId("sub-agents-toggle"));
+    expect(screen.queryByTestId("sub-agent-agt_ws")).toBeNull();
+    expect(
+      screen.getByRole("heading", { name: "Change workspace" })
+    ).toBeTruthy();
   });
 
   it("surfaces the last error inside the expanded card", () => {
