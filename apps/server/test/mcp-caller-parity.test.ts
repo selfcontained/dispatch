@@ -17,6 +17,8 @@ import {
   runnerStorageKey,
 } from "../src/agents/remote/session-supervisor.js";
 import { inspectCheckout } from "../src/agents/checkout-inspection.js";
+import { writeCheckoutFile } from "../src/agents/checkout-worker.js";
+import type { RunnerCallError } from "@dispatch/runner-protocol/contract";
 import { REPO_TOOL_MANIFEST_PATH } from "../src/shared/mcp/repo-tools.js";
 import baseline from "./fixtures/mcp-caller-parity-baseline.json";
 import { useInjectApp } from "./helpers/inject-app.js";
@@ -99,11 +101,24 @@ const ctx = useInjectApp({
       workspacePrepare: true,
       preparedLaunch: true,
       gitQueries: true,
+      checkoutWrite: true,
       sessionFiles: true,
       sharedWorktree: true,
     },
     async answer(command) {
       switch (command.kind) {
+        case "checkoutWrite": {
+          // The runner's own workload write, in the session's checkout.
+          const { target: _target, ...write } = command.operation.request;
+          try {
+            return JSON.stringify({
+              data: await writeCheckoutFile(checkout, write),
+            });
+          } catch (error) {
+            const { code, message, details } = error as RunnerCallError;
+            return JSON.stringify({ error: { code, message, details } });
+          }
+        }
         case "gitQuery":
           expect(command.operation.op).toBe("git.defaultBranch");
           return JSON.stringify({ data: { branch: null } });

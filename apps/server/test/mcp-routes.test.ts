@@ -64,6 +64,8 @@ function createMockDeps() {
         );
       }),
       permitsRemoteAgentMcp: vi.fn(() => false),
+      // Persona authoring reaches the caller's checkout through its runner.
+      checkoutReadRunners: vi.fn(() => ({})),
       getAgent: vi.fn(async () => ({
         id: "agt_test1",
         cwd: "/tmp/test",

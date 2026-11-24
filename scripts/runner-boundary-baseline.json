@@ -1659,20 +1659,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/personas/persona-scope.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(target.cwd)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/personas/persona-scope.ts",
-    "kind": "R7 restriction",
-    "detail": "N24 Runner persona resolution falls back",
-    "task": "T35",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/personas/resolve.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/shared/git/git-context",
@@ -1859,13 +1845,6 @@
     "kind": "R7 restriction",
     "detail": "N18 Runner Brain and task scope require a project",
     "task": "T34",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/mcp.ts",
-    "kind": "R7 restriction",
-    "detail": "N23 Runner persona authoring root is absent",
-    "task": "T35",
     "count": 1
   },
   {

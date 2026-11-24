@@ -34,7 +34,7 @@ import { localSessionHandlers } from "./sessions.js";
 import type { SessionCoreFactory } from "../core/sessions.js";
 import type { PosixHostEntry } from "../platform/posix-user/sessions.js";
 import { checkoutHandlers, checkoutOpens } from "../core/checkout.js";
-import { workspaceHandlers } from "../core/workspace.js";
+import { repositoryClone, workspaceHandlers } from "../core/workspace.js";
 import { githubHandlers } from "../core/github.js";
 import { engineHandlers } from "../core/engines.js";
 import type { Platform } from "../platform/types.js";
@@ -251,8 +251,14 @@ export async function runLocalRunner(
         },
       })
     : undefined;
+  const repository = options.platform?.workspace?.repository;
   const checkout = options.platform
-    ? checkoutHandlers(store!, options.platform)
+    ? checkoutHandlers(
+        store!,
+        options.platform,
+        repository &&
+          repositoryClone(repository, join(message.roots.state, "repositories"))
+      )
     : {};
   const workspace = options.platform?.workspace
     ? workspaceHandlers(message.roots.state, store!, options.platform.workspace)

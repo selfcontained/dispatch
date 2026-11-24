@@ -10,10 +10,12 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import Fastify from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { inspectCheckout } from "../src/agents/checkout-inspection.js";
 import { personaScopeFor } from "../src/personas/persona-scope.js";
 import { listPersonas, resolvePersona } from "../src/personas/resolve.js";
+import { registerPersonaRoutes } from "../src/routes/personas.js";
 
 const git = (cwd: string, ...args: string[]) =>
   execFileSync("git", ["-C", cwd, ...args], { stdio: "pipe" }).toString();
@@ -164,6 +166,41 @@ describe("local personas match origin/main", () => {
     } finally {
       await rm(`${cache}.lock`, { recursive: true, force: true });
       await rm(legacy, { force: true });
+    }
+  });
+  it("answers an agent's picker as main answered for its workspace", async () => {
+    const app = Fastify();
+    const agent = {
+      id: "agent",
+      cwd: worktree,
+      placement: { runner: "local" },
+    };
+    await registerPersonaRoutes(app, {
+      agentManager: {
+        getAgent: async () => agent,
+        inspectCheckout: (_agent: unknown, query: never) =>
+          inspectCheckout(worktree, query, { recordedBase: false }),
+      },
+      projects: { get: async () => null },
+      streams: {},
+      handleAgentError: () => undefined,
+    } as never);
+    const read = async (query: string) =>
+      (await app.inject({ method: "GET", url: `/api/v1/personas?${query}` }))
+        .body;
+    await listPersonas(folder(), undefined, true);
+    try {
+      for (const owners of [false, true]) {
+        if (owners)
+          await writeFile(path.join(worktree, ".agents/owners.json"), "{}");
+        // Main's picker asked by the agent's workspace folder.
+        expect(await read(`agentId=agent`)).toBe(
+          await read(`cwd=${encodeURIComponent(worktree)}`)
+        );
+      }
+    } finally {
+      await rm(path.join(worktree, ".agents/owners.json"), { force: true });
+      await app.close();
     }
   });
 });

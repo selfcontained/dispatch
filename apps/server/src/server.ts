@@ -1,3 +1,4 @@
+import { launchPersonaScope } from "./personas/persona-scope.js";
 import { localLaunchSettings } from "./agents/acp/launch-env.js";
 import {
   enrolledRunnerId,
@@ -823,6 +824,7 @@ const taskService: TaskService = new TaskService({
   chat: streamService,
   publishUiEvent: (event) => uiEventBroker.publish(event),
   log: app.log,
+  personaScope: (target) => launchPersonaScope(agentManager, target),
 });
 const taskWatches = new TaskWatchNotifier({
   pool,

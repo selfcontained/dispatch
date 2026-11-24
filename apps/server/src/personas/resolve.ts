@@ -18,7 +18,12 @@ import {
   getBuiltInPersona,
 } from "./built-in.js";
 import { resolveWorktreeRoot } from "../shared/git/git-context.js";
-import { personaCatalog, parseDefaultBranchPersonas } from "./catalog.js";
+import {
+  personaCatalog,
+  parseDefaultBranchPersonas,
+  type PersonaCatalog,
+} from "./catalog.js";
+import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 
 async function sessionDefaultBranchPersonas(
   manager: Pick<AgentManager, "inspectCheckout">,
@@ -45,12 +50,62 @@ async function sessionDefaultBranchPersonas(
   }
 }
 
-async function personaSources(scope: PersonaScope) {
+const emptyCatalog: PersonaCatalog = {
+  personas: [],
+  warnings: [],
+  refreshing: false,
+  updatedAt: null,
+};
+
+/**
+ * A runner that cannot read the repository: an older peer, one that is
+ * offline or drops the connection, or a repository URL a launch would
+ * refuse. Those keep today's answer; only a failure the runner reports
+ * reaches the user.
+ */
+const readsElsewhere = (error: unknown) =>
+  !(error instanceof RunnerCallError) ||
+  error.code === "unsupported" ||
+  error.code === "unavailable" ||
+  error.code === "invalid";
+
+type Sources = {
+  load: (
+    warnings: string[]
+  ) => Promise<PersonaDefinition[]> | PersonaDefinition[];
+  loadSlug: (slug: string) => Promise<PersonaDefinition | null> | null;
+  catalog: (wait: boolean) => Promise<PersonaCatalog>;
+} | null;
+
+async function personaSources(scope: PersonaScope): Promise<Sources> {
+  if (scope.kind === "repository") {
+    // No checkout exists yet: only the repository's default branch, read
+    // on the runner the launch goes to and parsed here.
+    const fallback = await personaSources(scope.fallback);
+    return {
+      load: () => [],
+      loadSlug: () => null,
+      catalog: async (wait: boolean) => {
+        try {
+          return await parseDefaultBranchPersonas({
+            kind: "defaultBranchFiles",
+            ...(await scope.read([...PERSONA_DIRS], wait)),
+          });
+        } catch (error) {
+          if (!readsElsewhere(error)) throw error;
+          return fallback ? fallback.catalog(wait) : emptyCatalog;
+        }
+      },
+    };
+  }
   if (scope.kind === "session") {
     const { manager, agent } = scope;
     const readFile = (path: string) =>
       readAgentCheckoutFile(manager, agent, path);
     return {
+      // Difference from main (recorded, T35): the checkout listing names
+      // regular files and links to files only, so a directory, dangling link
+      // or FIFO named `*.md` is skipped silently where main's readdir warns.
       load: (warnings: string[]) =>
         loadCheckoutPersonas(
           async (path) => {
@@ -82,13 +137,6 @@ async function personaSources(scope: PersonaScope) {
     catalog: (wait: boolean) => personaCatalog.get(root, wait),
   };
 }
-
-const emptyCatalog = {
-  personas: [],
-  warnings: [],
-  refreshing: false,
-  updatedAt: null,
-};
 
 export async function listPersonas(
   scope: PersonaScope,

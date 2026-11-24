@@ -505,7 +505,8 @@ function encodeReply(reply: CheckoutReply): string {
   return encoded;
 }
 
-async function inspectionRoot(cwd: string, requireGit: boolean) {
+/** The root a checkout read's relative paths resolve against. */
+export async function inspectionRoot(cwd: string, requireGit: boolean) {
   // Preserve whitespace in the root, removing only Git's terminating newline.
   const probe = await run("git", ["rev-parse", "--show-toplevel"], {
     cwd,

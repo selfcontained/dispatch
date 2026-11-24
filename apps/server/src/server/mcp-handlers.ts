@@ -59,7 +59,12 @@ import type {
   PublishUiEvent,
   SendAgentPrompt,
 } from "./mcp-handler-types.js";
-import { personaScopeFor } from "../personas/persona-scope.js";
+import {
+  launchPersonaScope,
+  personaScopeFor,
+} from "../personas/persona-scope.js";
+import { ProjectStore } from "../projects/store.js";
+import { targetPlacement } from "../runners/saved-location.js";
 import { resolvePersona } from "../personas/resolve.js";
 import { remotePlacement } from "@dispatch/runner-protocol";
 import type { Placement } from "@dispatch/runner-protocol/contract";
@@ -400,7 +405,26 @@ async function handleLaunchAgent(
       ? await resolvePersona(
           runnerParent || cwd === parentCwd
             ? personaScopeFor({ manager: deps.agentManager, agent: parent })
-            : personaScopeFor({ cwd, source: "workspace" }),
+            : // The target's runner (D7): a folder on the controller's,
+              // else the template project's repository read on that runner.
+              launchPersonaScope(deps.agentManager, {
+                placement: targetPlacement(
+                  input.cwd === undefined && template
+                    ? template
+                    : { directory: cwd }
+                ),
+                cwd,
+                source: "workspace",
+                repository:
+                  input.cwd === undefined && template?.projectId
+                    ? async () =>
+                        (
+                          await new ProjectStore(deps.pool).getRepository(
+                            template.projectId!
+                          )
+                        )?.url
+                    : null,
+              }),
           persona!
         )
       : null;

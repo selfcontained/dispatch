@@ -27,7 +27,10 @@ import {
 } from "../src/shared/lib/run-command.js";
 import { listPersonas, resolvePersona } from "../src/personas/resolve.js";
 
-import { personaScopeFor } from "../src/personas/persona-scope.js";
+import {
+  launchPersonaScope,
+  personaScopeFor,
+} from "../src/personas/persona-scope.js";
 
 let directory: string,
   remote: string,
@@ -445,20 +448,25 @@ describe("shared remote persona catalog", () => {
     ).rejects.toThrow("Invalid persona type");
   });
   it.each([
-    ["local folder", (root: string) => ({ cwd: root })],
-    ["local project", (root: string) => ({ projectRoot: root })],
+    ["local folder", (root: string) => personaScopeFor({ cwd: root })],
+    ["local project", (root: string) => personaScopeFor({ projectRoot: root })],
     [
+      // A runner project without a repository (or a runner that cannot read
+      // it) keeps today's answer: the project's folder.
       "runner project",
-      (root: string) => ({
-        cwd: "runner://rnr_test/session",
-        projectRoot: root,
-      }),
+      (root: string) =>
+        launchPersonaScope({ checkoutReadRunners: () => ({}) } as never, {
+          placement: { runner: "rnr_test" } as never,
+          cwd: "runner://rnr_test/session",
+          projectRoot: root,
+          repository: null,
+        }),
     ],
   ] as const)(
     "lists the same task definition it resolves for a %s",
     async (_name, target) => {
       await publish("catalog instructions");
-      const scope = personaScopeFor(target(checkout));
+      const scope = target(checkout);
       const listed = await listPersonas(scope, "task", true);
       expect(listed.personas.map((persona) => persona.slug)).toEqual([
         "builder",
@@ -470,7 +478,10 @@ describe("shared remote persona catalog", () => {
   );
 
   it("limits a runner repository without a project to built-ins", async () => {
-    const scope = personaScopeFor({ cwd: "runner://rnr_test/session" });
+    const scope = launchPersonaScope(
+      { checkoutReadRunners: () => ({}) } as never,
+      { placement: { runner: "rnr_test" } as never, repository: null }
+    );
     const listed = await listPersonas(scope, "review", true);
     expect(listed.personas.map((persona) => persona.slug)).toEqual([
       "code-review",

@@ -174,6 +174,58 @@ export const results: ResultFixture[] = [
     value: json({ data: { base: "trunk" } }),
   },
   {
+    command: s("checkoutWrite", {
+      operation: {
+        op: "checkout.write",
+        request: {
+          target: { session: agentId, checkout: "current" },
+          path: ".agents/personas/x.md",
+          data: "# x",
+          expectedDigest: null,
+        },
+      },
+    }),
+    value: json({ data: { digest: "ab".repeat(32) } }),
+  },
+  {
+    command: s("checkoutWrite", {
+      operation: {
+        op: "checkout.write",
+        request: {
+          target: { session: agentId, checkout: "current" },
+          path: ".agents/personas/x.md",
+          data: "# x",
+          expectedDigest: "cd".repeat(32),
+        },
+      },
+    }),
+    value: json({
+      error: { code: "stale", message: "The file changed since it was read." },
+    }),
+  },
+  {
+    command: s("repositoryFiles", {
+      operation: {
+        op: "checkout.defaultFiles",
+        request: {
+          target: { repository: "https://example.com/repo" },
+          dirs: [".agents/personas"],
+          wait: true,
+        },
+      },
+    }),
+    value: json({
+      data: {
+        hasOrigin: true,
+        files: [{ path: ".agents/personas/x.md", content: "# x" }],
+        warnings: [],
+        refreshing: false,
+        updatedAt: 1,
+        truncated: false,
+      },
+    }),
+  },
+  {
     command: s("workspacePrepare", {
       operation: {
         source: {

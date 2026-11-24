@@ -401,6 +401,8 @@ type WorkspacePreparationFactory = (options: {
     request: Req<K>,
     emit: (event: unknown) => void
   ): Promise<Res<K>>;
+  /** A repository's cached clone, as a launch from that repository uses it. */
+  repositoryClone?(url: string): Promise<string>;
 }>;
 
 export type RunnerUpdateOptions = {
@@ -1058,6 +1060,89 @@ export async function runRemoteRunner(
         }
         if (socket.destroyed) return;
         switch (command.kind) {
+          case "checkoutWrite": {
+            // The worker writes as the workload, in the directory this
+            // supervisor's own binding names; the request carries no path
+            // outside the checkout and no directory.
+            const { request } = command.operation;
+            const { target: writeTarget, ...write } = request;
+            if (
+              !("session" in writeTarget) ||
+              writeTarget.session !== sessionFromWire(agentId)
+            )
+              throw new Error("Invalid checkout write binding.");
+            const gitEnv = await checkoutGitEnv();
+            const value = await supervisor.withCommandCheckout(
+              agentId,
+              workspace,
+              "effective",
+              target?.cwd,
+              connection.signal,
+              (cwd) =>
+                runCheckoutWorker(
+                  workloadLogin([...self("runner-worker"), "write", cwd]),
+                  gitEnv,
+                  JSON.stringify(write),
+                  AbortSignal.any([
+                    connection.signal,
+                    AbortSignal.timeout(20_000),
+                  ])
+                )
+            );
+            result(
+              value ??
+                JSON.stringify({
+                  error: {
+                    code: "not_found",
+                    message: "Checkout unavailable.",
+                  },
+                })
+            );
+            break;
+          }
+          case "repositoryFiles": {
+            const { request } = command.operation;
+            const repositoryClone = workspacePreparation?.repositoryClone;
+            if (!("repository" in request.target) || !repositoryClone)
+              throw new RunnerCallError({
+                code: "unsupported",
+                message: "This runner does not read repository files.",
+              });
+            let value: string;
+            try {
+              // The clone a launch from this repository uses, made or
+              // fetched as the workload by the same cache step.
+              const clone = await repositoryClone(request.target.repository);
+              value = await runCheckoutWorker(
+                workloadLogin([...self("runner-worker"), "read", clone]),
+                await checkoutGitEnv(),
+                JSON.stringify({
+                  op: "checkout.defaultFiles",
+                  request: { dirs: request.dirs, wait: request.wait },
+                }),
+                AbortSignal.any([
+                  connection.signal,
+                  AbortSignal.timeout(90_000),
+                ])
+              );
+            } catch (error) {
+              value = JSON.stringify({
+                error:
+                  error instanceof RunnerCallError
+                    ? {
+                        code: error.code,
+                        message: error.message,
+                        details: error.details,
+                      }
+                    : {
+                        code: "failed",
+                        message: "Could not read the repository's files.",
+                      },
+              });
+            }
+            result(value);
+            break;
+          }
           case "gitQuery": {
             const { op, request } = command.operation;
             const { target: gitTarget } = request;
@@ -2000,6 +2085,10 @@ export async function runRemoteRunner(
           defaultBranchFiles: true,
           workspacePreparation: true,
           gitQueries: true,
+          checkoutWrite: true,
+          ...(workspacePreparation?.repositoryClone && {
+            repositoryFiles: true,
+          }),
           ...(workspacePreparation && {
             workspacePrepare: true,
             preparedLaunch: true,

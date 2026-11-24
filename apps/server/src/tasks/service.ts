@@ -40,7 +40,7 @@ import {
 } from "../shared/agent-models.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import { resolveTemplateLaunch } from "../templates/resolve-launch.js";
-import { personaScopeFor } from "../personas/persona-scope.js";
+import type { LaunchPersonaScope } from "../personas/persona-scope.js";
 import { resolvePersona } from "../personas/resolve.js";
 import type { TemplateRecord } from "../templates/store.js";
 import { agentTaskProject } from "./agent-scope.js";
@@ -168,6 +168,8 @@ export type TaskServiceDeps = {
     taskId?: string;
   }) => void;
   log: Pick<FastifyBaseLogger, "warn" | "info">;
+  /** Where a trigger's persona is read before launch, on its target's runner (D7). */
+  personaScope: LaunchPersonaScope;
 };
 
 /** A trigger as callers send it: everything but the template defaults. */
@@ -709,15 +711,19 @@ export class TaskService {
     if (caller && template.fullAccess && isRestricted(caller))
       throw invalid(RESTRICTED_LAUNCH_REASON);
     if (template.persona) {
+      const placement = targetPlacement(template);
       const project =
-        template.projectId &&
-        !sameRunner(targetPlacement(template), controllerPlacement)
+        template.projectId && !sameRunner(placement, controllerPlacement)
           ? await this.projects.get(template.projectId)
           : null;
       await resolvePersona(
-        personaScopeFor({
+        this.deps.personaScope({
+          placement,
           cwd: savedLaunchTarget(template).cwd,
           projectRoot: project?.repoRoot ?? undefined,
+          repository: project
+            ? async () => (await this.projects.getRepository(project.id))?.url
+            : null,
         }),
         template.persona,
         "task"

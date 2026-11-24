@@ -4,8 +4,10 @@ import {
   RunnerCallError,
   type RunnerDescription,
   type Req,
+  type Res,
 } from "@dispatch/runner-protocol/contract";
 import { isEngineCapabilityOperation } from "@dispatch/runner-protocol/engine-management";
+import { projectRepositoryUrl } from "./repository.js";
 import { X509Certificate } from "node:crypto";
 import { readFileSync, watchFile, unwatchFile } from "node:fs";
 import http from "node:http";
@@ -230,6 +232,10 @@ type Peer = {
   preparedLaunch: boolean;
   sessionWorkspaceSource: boolean;
   gitQueries: boolean;
+  /** Writes in a session's checkout as its workload (`checkoutWrite`). */
+  checkoutWrite: boolean;
+  /** Reads a repository's default-branch files from its cache (`repositoryFiles`). */
+  repositoryFiles: boolean;
   workspaceRelease: boolean;
   /** Reconciles a repeated `launch.launchId` instead of running it again. */
   launchReconcile: boolean;
@@ -1000,6 +1006,8 @@ export class RemoteRunnerService {
             ready.workspacePrepare === true && ready.preparedLaunch === true,
           sessionWorkspaceSource: ready.sessionWorkspaceSource === true,
           gitQueries: ready.gitQueries === true,
+          checkoutWrite: ready.checkoutWrite === true,
+          repositoryFiles: ready.repositoryFiles === true,
           workspaceRelease: ready.workspaceRelease === true,
           launchReconcile: ready.launchReconcile === true,
           scopedStop: ready.scopedStop === true,
@@ -2166,6 +2174,72 @@ export class RemoteRunnerService {
     return this.listGitHubBranches(runnerId, github[1]!, github[2]!);
   }
 
+  /**
+   * A repository's default-branch files from the runner's own repository
+   * cache, before any session exists (`checkout.defaultFiles` with a
+   * `{repository}` target). A peer without `repositoryFiles` cannot.
+   */
+  async readRepositoryFiles(
+    runnerId: string,
+    request: Req<"checkout.defaultFiles">,
+    signal?: AbortSignal
+  ): Promise<Res<"checkout.defaultFiles">> {
+    // The same URL rules as a launch from a repository and the branch
+    // picker: credential-free HTTPS, normalised.
+    let repository: string;
+    try {
+      repository = projectRepositoryUrl(
+        (request.target as { repository: string }).repository
+      );
+    } catch {
+      throw new RunnerCallError({
+        code: "invalid",
+        message: "Not a runner repository URL.",
+      });
+    }
+    request = { ...request, target: { repository } };
+    const peer = this.peers.get(runnerId);
+    if (peer?.repositoryFiles)
+      for (const workspace of peer.workspaces) {
+        const placement = { runner: runnerId, workspace };
+        if (!this.workspacePeer(placement)) continue;
+        const op = "checkout.defaultFiles";
+        const { value } = await this.requestSession(
+          placement,
+          {
+            agentId: "@repository",
+            kind: "repositoryFiles",
+            operation: { op, request },
+          },
+          undefined,
+          signal
+        );
+        try {
+          return decodeResult(
+            {
+              op,
+              request,
+              absent: [],
+              extras: { workspace, repositoryFiles: true },
+            },
+            value
+          );
+        } catch (error) {
+          if (error instanceof ResultError)
+            throw new RunnerCallError(error.error);
+          throw error;
+        }
+      }
+    throw new RunnerCallError({
+      code: "unsupported",
+      message: "This runner does not read repository files.",
+    });
+  }
+
+  supportsCheckoutWrite(placement: Placement) {
+    return this.workspacePeer(placement)?.checkoutWrite === true;
+  }
+
   async listGitHubBranches(runnerId: string, owner: string, repo: string) {
     const response = await this.requestGitHub(runnerId, {
       type: "repositoryBranches",
@@ -2501,6 +2575,16 @@ export class RemoteRunnerService {
       throw new RunnerCallError({
         code: "unsupported",
         message: "This runner does not serve Git queries.",
+      });
+    if (command.kind === "checkoutWrite" && !peer.checkoutWrite)
+      throw new RunnerCallError({
+        code: "unsupported",
+        message: "This runner does not write checkout files.",
+      });
+    if (command.kind === "repositoryFiles" && !peer.repositoryFiles)
+      throw new RunnerCallError({
+        code: "unsupported",
+        message: "This runner does not read repository files.",
       });
     if (command.kind === "launch" && peer.workspacePreparation && onProgress)
       command = {

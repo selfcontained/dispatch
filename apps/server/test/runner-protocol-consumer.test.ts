@@ -146,6 +146,55 @@ it("negotiates advertised v1 capabilities independently on each ready frame", ()
     sessionCheckout: true,
   };
   expect(parseReadyFrame(managed)).toEqual(managed);
+  // T35: checkout writes and repository files are negotiated, true only.
+  const persona = { ...ready, checkoutWrite: true, repositoryFiles: true };
+  expect(parseReadyFrame(persona)).toEqual(persona);
+  expect(
+    parseReadyFrame({ ...ready, checkoutWrite: 1, repositoryFiles: "yes" })
+  ).toEqual(ready);
+});
+
+it("parses the persona commands only for their own operation and target", () => {
+  const command = (kind: string, operation: unknown) =>
+    parseServiceFrame({
+      type: "request",
+      id: "r1",
+      command: { kind, agentId: "agt_1", workspace: "@session", operation },
+    });
+  const write = {
+    op: "checkout.write",
+    request: {
+      target: { session: "agt_1", checkout: "current" },
+      path: ".agents/personas/x.md",
+      data: "x",
+      expectedDigest: null,
+    },
+  };
+  expect(command("checkoutWrite", write)).not.toBeNull();
+  expect(
+    command("checkoutWrite", {
+      ...write,
+      request: { ...write.request, target: { repository: "https://x/y" } },
+    })
+  ).toBeNull();
+  expect(
+    command("checkoutWrite", { ...write, op: "checkout.read" })
+  ).toBeNull();
+  const files = {
+    op: "checkout.defaultFiles",
+    request: {
+      target: { repository: "https://example.com/o/r" },
+      dirs: [".agents/personas"],
+      wait: false,
+    },
+  };
+  expect(command("repositoryFiles", files)).not.toBeNull();
+  expect(
+    command("repositoryFiles", {
+      ...files,
+      request: { ...files.request, target: { session: "agt_1" } },
+    })
+  ).toBeNull();
 });
 
 it("negotiates workspace progress per runner when workspace handles match", async () => {

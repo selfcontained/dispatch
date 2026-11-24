@@ -112,6 +112,24 @@ export type GitQuery = {
 export type SessionOperation =
   | SessionLifecycleOperation
   | { agentId: string; kind: "gitQuery"; operation: GitQuery }
+  /** `checkout.write` in the session's checkout, served with `checkoutWrite`. */
+  | {
+      agentId: string;
+      kind: "checkoutWrite";
+      operation: { op: "checkout.write"; request: Req<"checkout.write"> };
+    }
+  /**
+   * `checkout.defaultFiles` for a `{repository}` target, read from the
+   * runner's repository cache; served with `repositoryFiles`.
+   */
+  | {
+      agentId: string;
+      kind: "repositoryFiles";
+      operation: {
+        op: "checkout.defaultFiles";
+        request: Req<"checkout.defaultFiles">;
+      };
+    }
   | { agentId: string; kind: "sessionFile"; operation: SessionFileOperation }
   | { agentId: string; kind: "watchCheckout" }
   | {
@@ -199,6 +217,10 @@ export type ReadyFrame = {
   /** Workspace preparation can use another session's current folder. */
   sessionWorkspaceSource?: true;
   gitQueries?: true;
+  /** This v1 peer writes in a session's checkout as its workload (`checkoutWrite`). */
+  checkoutWrite?: true;
+  /** This v1 peer reads a repository's default-branch files from its cache (`repositoryFiles`). */
+  repositoryFiles?: true;
   /** This v1 peer serves session inventory and process samples. */
   sessionObservation?: true;
   workspaceRelease?: true;
@@ -246,6 +268,8 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
       sessionWorkspaceSource: true,
     }),
     ...(frame.gitQueries === true && { gitQueries: true }),
+    ...(frame.checkoutWrite === true && { checkoutWrite: true }),
+    ...(frame.repositoryFiles === true && { repositoryFiles: true }),
     ...(frame.workspacePrepare === true && { workspacePrepare: true }),
     ...(frame.workspaceRelease === true && { workspaceRelease: true }),
     ...(frame.checkoutViews === true && { checkoutViews: true }),
@@ -483,6 +507,24 @@ function isCommand(value: unknown): value is Command {
         isRecord(op) &&
         (op.op === "session.list" || op.op === "session.sample") &&
         operations[op.op].request.check(op.request)
+      );
+    }
+    case "checkoutWrite": {
+      const op = value.operation;
+      return (
+        isRecord(op) &&
+        op.op === "checkout.write" &&
+        operations["checkout.write"].request.check(op.request) &&
+        "session" in op.request.target
+      );
+    }
+    case "repositoryFiles": {
+      const op = value.operation;
+      return (
+        isRecord(op) &&
+        op.op === "checkout.defaultFiles" &&
+        operations["checkout.defaultFiles"].request.check(op.request) &&
+        "repository" in op.request.target
       );
     }
     case "gitQuery": {
