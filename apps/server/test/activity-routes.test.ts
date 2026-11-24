@@ -277,12 +277,12 @@ describe("GET /api/v1/history/projects", () => {
     expect(projA.usageCount).toBe(2);
   });
 
-  it("builds icon URLs only from agents that still exist", async () => {
-    const live = await createAgent({ cwd: "/home/user/mixed" });
+  it("builds icon URLs from each folder's newest agent, deleted or not (main)", async () => {
+    await createAgent({ cwd: "/home/user/mixed" });
     const gone = await createAgent({ cwd: "/home/user/mixed" });
     const only = await createAgent({ cwd: "/home/user/deleted" });
     await ctx.pool.query(
-      "UPDATE agents SET deleted_at = now() WHERE id = ANY($1)",
+      "UPDATE agents SET deleted_at = now(), created_at = created_at + interval '1 second' WHERE id = ANY($1)",
       [[gone, only]]
     );
 
@@ -294,11 +294,11 @@ describe("GET /api/v1/history/projects", () => {
     }[];
     expect(options.find((p) => p.path === "/home/user/mixed")).toMatchObject({
       usageCount: 2,
-      iconUrl: `/api/v1/agents/${live}/repo-icon`,
+      iconUrl: `/api/v1/agents/${gone}/repo-icon`,
     });
-    const deleted = options.find((p) => p.path === "/home/user/deleted");
-    expect(deleted).toBeTruthy();
-    expect(deleted).not.toHaveProperty("iconUrl");
+    expect(options.find((p) => p.path === "/home/user/deleted")).toMatchObject({
+      iconUrl: `/api/v1/agents/${only}/repo-icon`,
+    });
   });
 
   it("filters by search query", async () => {
