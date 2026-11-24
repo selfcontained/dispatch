@@ -14,6 +14,7 @@ import {
   projectRepositoryUrl,
   repositoryUrl,
 } from "../src/agents/remote/repository.js";
+import { iconCacheKey } from "../src/agents/checkout-icon.js";
 import { JobService } from "../src/jobs/service.js";
 import { resolveProjectRoot } from "../src/projects/resolve-root.js";
 import {
@@ -25,6 +26,7 @@ import {
   projectIdentities,
   projectKey,
   repositoryKey,
+  SESSION_REPOSITORY_SQL,
 } from "../src/runners/repository-identity.js";
 import { resolveRepoRoot } from "../src/shared/git/git-context.js";
 
@@ -73,9 +75,68 @@ describe("repository identity (D5, D8)", () => {
     await expect(
       key({ repoRoot: null, repository: "https://github.com/o/r" })
     ).resolves.toBe("https://github.com/o/r");
-    // No project: no key until the owner decides (N18).
+    // No project and no recorded repository: no key, as a local non-Git folder.
     await expect(key(null)).resolves.toBeNull();
     expect(repositoryRoot).not.toHaveBeenCalled();
+  });
+
+  it("a runner session with no project takes its recorded repository (owner: option A)", async () => {
+    const key = (
+      project: { repoRoot: string | null; repository: string | null } | null,
+      repository: string | null
+    ) =>
+      repositoryKey({
+        placement: runner,
+        repositoryRoot: vi.fn(),
+        project: async () => project,
+        repository: async () => repository,
+      });
+    // Stored by a launch as `repositoryUrl(url)`; keyed as a project stores it.
+    await expect(
+      key(null, repositoryUrl("https://github.com/Owner/Repo.git/"))
+    ).resolves.toBe(projectRepositoryUrl("https://github.com/Owner/Repo"));
+    await expect(key(null, null)).resolves.toBeNull();
+    await expect(key(null, "not a url")).resolves.toBeNull();
+    // A project wins over the recorded repository.
+    await expect(
+      key({ repoRoot: "/srv/repo", repository: null }, "https://github.com/o/r")
+    ).resolves.toBe("/srv/repo");
+  });
+
+  it("shares one key, both ways, with a repository-only project's runner agents", async () => {
+    const project = projectRepositoryUrl("https://github.com/Owner/Repo");
+    const inProject = await repositoryKey({
+      placement: runner,
+      repositoryRoot: vi.fn(),
+      project: async () => ({ repoRoot: null, repository: project }),
+      repository: async () => "https://github.com/Owner/Repo",
+    });
+    for (const recorded of [
+      "https://github.com/Owner/Repo",
+      "https://github.com/Owner/Repo.git",
+      "https://GitHub.com/Owner/Repo/",
+    ]) {
+      const projectless = await repositoryKey({
+        placement: runner,
+        repositoryRoot: vi.fn(),
+        project: async () => null,
+        repository: async () => repositoryUrl(recorded),
+      });
+      expect(projectless).toBe(inProject);
+    }
+  });
+
+  it("a controller session never reads a recorded repository", async () => {
+    const repository = vi.fn();
+    await expect(
+      repositoryKey({
+        placement: controllerPlacement,
+        repositoryRoot: async () => null,
+        project: async () => null,
+        repository,
+      })
+    ).resolves.toBeNull();
+    expect(repository).not.toHaveBeenCalled();
   });
 
   it("project keys follow D8's order", () => {
@@ -177,12 +238,16 @@ describe("option A readiness: a session's repository key equals its project's", 
 
 describe("loop handoff on a runner", () => {
   async function handoffKey(
-    project: { repoRoot: string | null; repository: string | null } | null
+    project: { repoRoot: string | null; repository: string | null } | null,
+    recorded: string | null = null
   ) {
     const keys: string[] = [];
     const service = new JobService(
       {
-        query: async () => ({ rows: project ? [project] : [] }),
+        query: async (sql: string) =>
+          sql === SESSION_REPOSITORY_SQL
+            ? { rows: [{ url: recorded }] }
+            : { rows: project ? [project] : [] },
       } as never,
       {
         getAgent: async () => ({ id: "agt_r", projectId: project && "prj_r" }),
@@ -227,7 +292,62 @@ describe("loop handoff on a runner", () => {
     ).resolves.toBe("https://github.com/o/r");
   });
 
-  it("keeps today's key for a run with no project (N18, owner decision)", async () => {
+  it("a run with no project writes under its recorded repository", async () => {
+    await expect(
+      handoffKey(null, "https://github.com/Owner/Repo.git")
+    ).resolves.toBe("https://github.com/Owner/Repo");
+  });
+
+  it("a run with no project and no repository keeps today's key", async () => {
     await expect(handoffKey(null)).resolves.toBe("runner://rnr_identity/ws_1");
+  });
+});
+
+describe("icon cache key for a runner agent with no project", () => {
+  function pool(recorded: string | null, projectRepository: string | null) {
+    return {
+      query: async (sql: string) =>
+        sql === SESSION_REPOSITORY_SQL
+          ? { rows: [{ url: recorded }] }
+          : { rows: [{ repository: projectRepository }] },
+    } as never;
+  }
+  const agent = (projectId: string | null) => ({
+    id: "agt_icon",
+    placement: runner,
+    cwd: "runner://rnr_identity/@session",
+    launchCwd: "runner://rnr_identity/@session",
+    gitContext: null,
+    projectId,
+  });
+
+  it("shares the entry of a project for the same repository", async () => {
+    const stored = projectRepositoryUrl("https://github.com/Owner/Repo");
+    const inProject = await iconCacheKey(pool(null, stored), agent("prj_1"));
+    const projectless = await iconCacheKey(
+      pool(repositoryUrl("https://github.com/Owner/Repo.git"), null),
+      agent(null)
+    );
+    expect(projectless).toBe(inProject);
+    expect(projectless).toBe("https://github.com/Owner/Repo");
+  });
+
+  it("has no key, and probes each time, with no recorded repository", async () => {
+    await expect(iconCacheKey(pool(null, null), agent(null))).resolves.toBe(
+      null
+    );
+  });
+
+  it("keeps a local agent's folder key and never reads a recorded repository", async () => {
+    const query = vi.fn();
+    await expect(
+      iconCacheKey({ query } as never, {
+        ...agent(null),
+        placement: controllerPlacement,
+        cwd: "/srv/repo/sub",
+        launchCwd: "/srv/repo",
+      })
+    ).resolves.toBe("/srv/repo");
+    expect(query).not.toHaveBeenCalled();
   });
 });
