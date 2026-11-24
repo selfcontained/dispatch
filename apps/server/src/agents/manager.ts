@@ -62,6 +62,7 @@ import { getPullRequestHead } from "../shared/github/pr.js";
 import { GitWorktreeError } from "../shared/git/worktree.js";
 import { resolveFilesDir } from "../shared/files.js";
 import { getDirectoryIconPath } from "../shared/directory-icon-cache.js";
+import { detectAgentIcon } from "./checkout-icon.js";
 import { getActivePersonality } from "../db/personalities.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import {
@@ -2672,7 +2673,8 @@ export class AgentManager {
       input,
       directory?.cwd ?? input.cwd,
       checkoutContext,
-      !directory
+      !directory,
+      placement
     );
     const worktree = p.checkout
       ? toLocalWorktreeRequest(p.checkout, p.name, input.worktreeLocation)
@@ -2749,11 +2751,18 @@ export class AgentManager {
       Parameters<typeof resolveCheckoutIntent>[1],
       "id" | "name"
     >,
-    runnerEngine: boolean
+    runnerEngine: boolean,
+    placement: Placement
   ): Promise<PreparedCreateInputs> {
     // Remember the icon of the directory the user chose, before a managed
-    // worktree can change the agent's effective cwd.
-    if (!runnerEngine) await getDirectoryIconPath(this.pool, originalCwd);
+    // worktree can change the agent's effective cwd. Its runner reads it.
+    if (!runnerEngine)
+      await getDirectoryIconPath(this.pool, originalCwd, () =>
+        detectAgentIcon(
+          runnerDirectory(this.checkoutReadRunners()).for(placement),
+          { path: pathFromWire(originalCwd) }
+        )
+      );
     const id = this.newAgentId();
     const type: AgentType = input.type ?? "claude";
     // Callers checked the target's catalog; a runner engine rechecks at launch.

@@ -12,6 +12,10 @@ import path from "node:path";
 import type { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import type { AgentManager } from "../src/agents/manager.js";
+import type { RemoteRunnerService } from "../src/agents/remote/service.js";
+import { checkoutWorkload } from "../src/agents/checkout-worker.js";
+import { placementForRunner } from "../src/runners/placement.js";
 import { registerProjectRoutes } from "../src/routes/projects.js";
 import type { TaskService } from "../src/tasks/service.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
@@ -19,6 +23,37 @@ import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 let pool: Pool;
 let app: ReturnType<typeof Fastify>;
 let root: string;
+/** The checkout the fixture runner holds for each session it serves. */
+const checkouts = new Map<string, string>();
+const served: string[] = [];
+// A fixture enrolled runner at the transport seam: it serves each session's
+// launch checkout with the runner's own checkout workload.
+const remote = {
+  runnerDescriptions: () => [],
+  streamCheckoutRead(
+    _placement: unknown,
+    op: string,
+    request: { target: { session: string }; [key: string]: unknown }
+  ) {
+    const { target, ...rest } = request;
+    served.push(`${op} ${String(target.session)}`);
+    const directory = checkouts.get(String(target.session));
+    if (!directory) return Promise.resolve(null);
+    return checkoutWorkload.run(
+      op as never,
+      { directory, request: rest } as never
+    );
+  },
+} as unknown as RemoteRunnerService;
+const runnerAgents = new Map<string, object>();
+const agents = {
+  getAgent: async (id: string) => runnerAgents.get(id) ?? null,
+  checkoutReadRunners: () => ({
+    local: undefined,
+    remote,
+    child: () => undefined,
+  }),
+} as unknown as Pick<AgentManager, "getAgent" | "checkoutReadRunners">;
 
 beforeAll(async () => {
   pool = await setupTestDb();
@@ -29,6 +64,7 @@ beforeAll(async () => {
     pool,
     taskService: {} as TaskService,
     publishUiEvent: () => {},
+    agents,
   });
 });
 
@@ -170,6 +206,81 @@ describe("GET /api/v1/projects/:id/icon: main's local behaviour", () => {
       await icon("not-a-uuid"),
       await icon("unknown-project"),
     ]) {
+      expect(res.statusCode).toBe(404);
+      expect(res.body).toBe("");
+    }
+  });
+});
+
+describe("GET /api/v1/projects/:id/icon: a project with no folder", () => {
+  async function repositoryProject(): Promise<string> {
+    return (
+      await pool.query<{ id: string }>(
+        `INSERT INTO projects (id, name, repo_root, color, repository) VALUES (gen_random_uuid(), 'remote', NULL, '#336699', 'https://github.com/acme/' || gen_random_uuid()) RETURNING id`
+      )
+    ).rows[0]!.id;
+  }
+  async function runnerAgent(
+    projectId: string,
+    files: Record<string, string | Buffer>,
+    createdAt: string
+  ): Promise<string> {
+    const id = `agt_${Math.random().toString(16).slice(2, 14)}`;
+    const cwd = "runner://rnr_icon/@session";
+    await pool.query(
+      `INSERT INTO agents (id, name, type, status, cwd, launch_cwd, project_id, runner_id, created_at)
+       VALUES ($1, $1, 'claude', 'running', $2, $2, $3, 'rnr_icon', $4)`,
+      [id, cwd, projectId, createdAt]
+    );
+    const checkout = mkdtempSync(path.join(root, "checkout-"));
+    for (const [name, data] of Object.entries(files))
+      writeFileSync(path.join(checkout, name), data);
+    checkouts.set(id, checkout);
+    runnerAgents.set(id, {
+      id,
+      cwd,
+      launchCwd: cwd,
+      worktreePath: null,
+      workspacePath: null,
+      gitContext: null,
+      placement: placementForRunner("rnr_icon"),
+    });
+    return id;
+  }
+
+  it("shows the icon of its newest agent's checkout, read on that agent's runner", async () => {
+    const id = await repositoryProject();
+    await runnerAgent(id, { "favicon.svg": "<svg>old</svg>" }, "2026-01-01");
+    const newest = await runnerAgent(
+      id,
+      { "logo.svg": "<svg>new</svg>" },
+      "2026-02-01"
+    );
+    served.length = 0;
+    const res = await icon(id);
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("image/svg+xml");
+    expect(res.headers["cache-control"]).toBe("private, max-age=86400");
+    expect(res.body).toBe("<svg>new</svg>");
+    expect(served.every((call) => call.endsWith(newest))).toBe(true);
+    expect(served).toContain(`checkout.read ${newest}`);
+    // The durable copy serves it from then on, as for a folder.
+    checkouts.delete(newest);
+    expect((await icon(id)).body).toBe("<svg>new</svg>");
+  });
+
+  it("answers main's empty 404 with no agent, no icon, or an oversized one", async () => {
+    const none = await repositoryProject();
+    const bare = await repositoryProject();
+    await runnerAgent(bare, { "README.md": "x" }, "2026-01-01");
+    const big = await repositoryProject();
+    await runnerAgent(
+      big,
+      { "icon.png": Buffer.alloc(2 * 1024 * 1024 + 1) },
+      "2026-01-01"
+    );
+    for (const id of [none, bare, big]) {
+      const res = await icon(id);
       expect(res.statusCode).toBe(404);
       expect(res.body).toBe("");
     }

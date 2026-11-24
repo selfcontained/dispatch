@@ -37,6 +37,9 @@ import {
 import { readCheckoutView } from "../src/agents/checkout-view.js";
 import { inspectCheckout } from "../src/agents/checkout-inspection.js";
 import { controllerPlacement } from "../src/runners/placement.js";
+import { runnerDirectory } from "../src/runners/directory.js";
+import { detectAgentIcon, readAgentIcon } from "../src/agents/checkout-icon.js";
+import { pathFromWire } from "@dispatch/runner-protocol/contract";
 import type { AgentRecord } from "../src/agents/types.js";
 
 const dirs: string[] = [];
@@ -487,5 +490,71 @@ describe("checkout reads through the local runner child", () => {
     ).catch((e: unknown) => e);
     expect(error).toMatchObject({ statusCode: 503 });
     expect(error).not.toBeInstanceOf(RunnerCallError);
+  });
+
+  describe("a folder before any session exists (T15c)", () => {
+    const local = (child: Runner | undefined) =>
+      runnerDirectory({ child: () => child }).for(controllerPlacement);
+    let folder: string;
+    beforeAll(async () => {
+      folder = temp("child-reads-icon-");
+      await mkdir(path.join(folder, "assets"));
+      await writeFile(path.join(folder, "assets", "logo.png"), PNG_NEW);
+    });
+    const at = () => ({ path: pathFromWire(folder) });
+    const icon = async (runner: Runner) => {
+      const found = await detectAgentIcon(runner, at());
+      return {
+        found,
+        bytes: found ? await readAgentIcon(runner, at(), found) : null,
+      };
+    };
+
+    it("reads the icon in the child, as the in-process read does", async () => {
+      const before = childRuns;
+      const viaChild = await icon(local(session));
+      expect(childRuns).toBeGreaterThan(before);
+      expect(viaChild).toEqual(await icon(local(undefined)));
+      expect(viaChild.found).toBe("assets/logo.png");
+      expect(viaChild.bytes).toEqual(PNG_NEW);
+    });
+
+    it("reads in process when the child is not ready, dies mid-call, or never answers", async () => {
+      const closed = new LocalRunnerSession({
+        description: session.describe(),
+      });
+      closed.close();
+      const failing = (code: "unavailable" | "unknown_outcome") =>
+        ({
+          connection: { state: "ready", epoch: 1 },
+          call: async () => {
+            throw new RunnerCallError({ code, message: code });
+          },
+        }) as unknown as Runner;
+      const expected = await icon(local(undefined));
+      for (const child of [
+        closed,
+        failing("unknown_outcome"),
+        failing("unavailable"),
+      ])
+        expect(await icon(local(child))).toEqual(expected);
+    });
+
+    it("keeps a refusal the child answered with", async () => {
+      const refusing = {
+        connection: { state: "ready", epoch: 1 },
+        call: async () => {
+          throw new RunnerCallError({ code: "forbidden", message: "no" });
+        },
+      } as unknown as Runner;
+      await expect(
+        local(refusing).call("checkout.read", {
+          target: at(),
+          path: "assets/logo.png",
+          encoding: "base64",
+          maxBytes: null,
+        })
+      ).rejects.toMatchObject({ code: "forbidden" });
+    });
   });
 });

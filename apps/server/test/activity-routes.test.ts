@@ -409,6 +409,23 @@ describe("GET /api/v1/history/projects", () => {
     }
   });
 
+  it("remembers the chosen folder's icon when the agent is created (main's warm-up)", async () => {
+    const project = await mkdtemp(
+      path.join(os.tmpdir(), "dispatch-icon-warm-")
+    );
+    try {
+      await writeFile(path.join(project, "favicon.svg"), "<svg/>");
+      await createAgent({ requestCwd: project });
+      const cached = await ctx.pool.query<{ icon_path: string | null }>(
+        "SELECT icon_path FROM directory_icons WHERE cwd = $1",
+        [project]
+      );
+      expect(cached.rows).toEqual([{ icon_path: "favicon.svg" }]);
+    } finally {
+      await rm(project, { recursive: true, force: true });
+    }
+  });
+
   it("uses the selected directory's icon after cwd moves to a worktree", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "dispatch-icon-root-"));
     const checkout = await mkdtemp(
