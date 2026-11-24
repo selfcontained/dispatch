@@ -73,6 +73,25 @@ describe("task column MCP boundary", () => {
             properties: { trigger: expect.any(Object) },
           },
         });
+        const triggerSchema = inventory.tools.find(
+          (t) => t.name === "task_column_update"
+        )!.inputSchema.properties!.trigger as {
+          anyOf: Array<{ properties?: Record<string, unknown> }>;
+        };
+        // origin/main's exact trigger input fields, plus T08's runner only.
+        expect(
+          Object.keys(
+            triggerSchema.anyOf.find((s) => s.properties)!.properties!
+          ).sort()
+        ).toEqual([
+          "agentType",
+          "assign",
+          "effort",
+          "fireOnCreate",
+          "model",
+          "runner",
+          "templateId",
+        ]);
         const result = await client.callTool({
           name: "task_column_update",
           arguments: {

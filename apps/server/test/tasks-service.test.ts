@@ -1340,52 +1340,54 @@ describe("triggers", () => {
       ]);
   });
 
-  it.each([
-    {
-      directory: "/does/not/exist",
-      runner: "local",
-      expected: { runner: "local", path: REPO },
-    },
-    {
-      directory: "~",
-      runner: "offline-fixture",
-      expected: { runner: "offline-fixture" },
-    },
-    {
-      directory: "runner://legacy-fixture/@session",
-      expected: { runner: "legacy-fixture" },
-    },
-  ])(
-    "stores and launches a trigger's own target: $directory / $runner",
-    async ({ expected, ...input }) => {
+  it.each(["local", "offline-fixture"])(
+    "stores only runner %s and resolves its project folder at launch",
+    async (runner) => {
       const ready = await columnId("ready");
       const saved = await service.updateColumn(ready, {
-        trigger: { templateId: TEMPLATE_ID, assign: false, ...input },
+        trigger: { templateId: TEMPLATE_ID, assign: false, runner },
       });
-      expect(saved.trigger?.location).toMatchObject(expected);
-      service = build(filesRoot, {
-        getTemplate: async (id) =>
-          template({ id, directory: "/moved-template" }),
-      });
+      expect(saved.trigger?.location).toEqual({ runner });
       const task = await service.createTask(
-        { projectId, title: "Own location" },
+        { projectId, title: "Own runner" },
         USER
       );
       await service.updateTask(task.id, { columnId: ready }, USER);
-      const resolved = launches[0]!.resolvedTemplate!;
-      expect(resolved.directory).toBe(
-        "path" in expected
-          ? expected.path
-          : input.directory.startsWith("runner://")
-            ? input.directory
-            : "runner://offline-fixture/@session"
-      );
-      // Re-reading the trigger retains its target after the template moves.
-      expect((await service.requireColumn(ready)).trigger?.location).toEqual(
-        saved.trigger?.location
+      expect(launches[0]!.resolvedTemplate?.directory).toBe(
+        runner === "local" ? REPO : "runner://offline-fixture/@session"
       );
     }
   );
+
+  it("ignores old branch-only directory and location path fields when launching and drops them on save", async () => {
+    const ready = await columnId("ready");
+    await pool.query(
+      "UPDATE task_columns SET trigger = $2::jsonb WHERE id = $1",
+      [
+        ready,
+        JSON.stringify({
+          templateId: TEMPLATE_ID,
+          agentType: null,
+          model: null,
+          assign: false,
+          fireOnCreate: false,
+          directory: "/obsolete-directory",
+          location: { runner: "local", path: "/obsolete-path" },
+        }),
+      ]
+    );
+    const task = await service.createTask(
+      { projectId, title: "Read old location" },
+      USER
+    );
+    await service.updateTask(task.id, { columnId: ready }, USER);
+    expect(launches[0]!.resolvedTemplate?.directory).toBe(REPO);
+    const saved = await service.updateColumn(ready, {
+      trigger: { templateId: TEMPLATE_ID, assign: false },
+    });
+    expect(saved.trigger).not.toHaveProperty("directory");
+    expect(saved.trigger?.location).toEqual({ runner: "local" });
+  });
 
   it("a new untargeted trigger follows its template after the template directory changes", async () => {
     let directory = "/template-before-trigger-save";
@@ -1420,7 +1422,7 @@ describe("triggers", () => {
     expect(edited.trigger?.location).toEqual(saved.trigger?.location);
   });
 
-  it("HTTP retains the optional runner and directory when replacing a trigger", async () => {
+  it("HTTP accepts the optional runner and ignores the removed directory input", async () => {
     const ready = await columnId("ready");
     const app = Fastify();
     await registerTaskRoutes(app, {
@@ -1442,7 +1444,6 @@ describe("triggers", () => {
       expect(result.statusCode, result.body).toBe(200);
       expect(result.json().trigger.location).toEqual({
         runner: "offline-http-fixture",
-        projectId,
       });
     } finally {
       await app.close();

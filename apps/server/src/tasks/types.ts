@@ -16,7 +16,7 @@ export type TaskAgentType = "claude" | "codex" | "opencode";
 export type TaskColumnTrigger = {
   templateId: string;
   /** Absent on legacy triggers, which follow their template. */
-  location?: Location;
+  location?: Pick<Location, "runner">;
   /** Resolved for board reads; absent from the stored trigger. */
   templateName?: string | null;
   /** Override the template's agent type; null keeps the template's. */

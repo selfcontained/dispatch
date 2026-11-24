@@ -1,9 +1,11 @@
 import { sameRunner } from "@dispatch/runner-protocol/contract";
-import { controllerPlacement } from "../runners/placement.js";
+import {
+  controllerPlacement,
+  runnerIdForPlacement,
+} from "../runners/placement.js";
 import {
   resolveSavedTarget,
   storedLocation,
-  type Location,
   savedLaunchTarget,
   targetPlacement,
 } from "../runners/saved-location.js";
@@ -172,7 +174,6 @@ export type TaskServiceDeps = {
 export type TaskColumnTriggerInput = Partial<TaskColumnTrigger> & {
   templateId: string;
   runner?: string;
-  directory?: string;
 };
 
 type ColumnInput = Omit<CreateTaskColumnInput, "trigger"> & {
@@ -592,25 +593,16 @@ export class TaskService {
     ) {
       throw invalid(`Template "${template.name}" belongs to another project.`);
     }
-    // An implicit target follows the template, including after later edits.
-    // Explicit targets use the same save rules as jobs and templates.
-    const explicitTarget =
-      trigger.directory !== undefined || "runner" in trigger;
-    const target = explicitTarget
-      ? resolveSavedTarget(trigger.directory ?? project.repoRoot ?? "", {
-          ...trigger,
+    // An implicit target follows the template. Explicit targets store only
+    // their runner; folders come from the template or the current project.
+    const selection = "runner" in trigger ? trigger : previous?.location;
+    const target = selection
+      ? resolveSavedTarget(template.directory, {
+          ...selection,
           projectId: project.id,
           projectRoot: project.repoRoot ?? undefined,
         })
-      : previous?.location
-        ? {
-            directory:
-              "path" in previous.location
-                ? previous.location.path
-                : template.directory,
-            [storedLocation]: previous.location,
-          }
-        : null;
+      : null;
     const locatedTemplate = target ? { ...template, ...target } : template;
     const agentType = trigger.agentType ?? null;
     if (agentType !== null && !AGENT_TYPES.includes(agentType)) {
@@ -661,7 +653,9 @@ export class TaskService {
     }
     return {
       templateId: template.id,
-      ...(target && { location: target[storedLocation] }),
+      ...(target && {
+        location: { runner: runnerIdForPlacement(targetPlacement(target)) },
+      }),
       agentType,
       model,
       effort,
@@ -677,7 +671,7 @@ export class TaskService {
       agentType?: AgentType | null;
       model?: string | null;
       effort?: Effort | null;
-      location?: Location;
+      location?: TaskColumnTrigger["location"];
     },
     caller?: TaskCaller
   ): Promise<TemplateRecord> {
@@ -689,12 +683,16 @@ export class TaskService {
       !(stored.projectId === null && stored.directory === project.repoRoot)
     )
       throw invalid(`Template "${stored.name}" belongs to another project.`);
+    // Older branch-only records may carry path/directory fields. The saved
+    // target resolver ignores them and uses the current template/project.
     const located = launch.location
       ? {
           ...stored,
-          directory:
-            "path" in launch.location ? launch.location.path : stored.directory,
-          [storedLocation]: launch.location,
+          ...resolveSavedTarget(stored.directory, {
+            ...launch.location,
+            projectId: project.id,
+            projectRoot: project.repoRoot ?? undefined,
+          }),
         }
       : stored;
     const target = launch.location
@@ -743,7 +741,7 @@ export class TaskService {
     agentType: AgentType | null;
     model: string | null;
     effort?: Effort | null;
-    location?: Location;
+    location?: TaskColumnTrigger["location"];
   }> {
     const templateId = task.launchTemplateId;
     const base = templateId
