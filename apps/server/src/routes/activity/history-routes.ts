@@ -38,17 +38,15 @@ async function handleHistoryProjects(
     project: string;
     usage_count: number;
     latest_created_at: Date;
-    agent_id: string | null;
+    agent_id: string;
   }>(
     `SELECT project,
               COUNT(*)::int AS usage_count,
               MAX(created_at) AS latest_created_at,
-              (ARRAY_AGG(id ORDER BY created_at DESC)
-                 FILTER (WHERE deleted_at IS NULL))[1] AS agent_id
+              (ARRAY_AGG(id ORDER BY created_at DESC))[1] AS agent_id
        FROM (
          SELECT id,
                 created_at,
-                deleted_at,
                 COALESCE(launch_cwd, git_context->>'repoRoot', cwd) AS project
          FROM agents
          WHERE ${where.join(" AND ")}
@@ -65,12 +63,7 @@ async function handleHistoryProjects(
     path: row.project,
     usageCount: row.usage_count,
     latestCreatedAt: row.latest_created_at.toISOString(),
-    // Only a live agent serves its repo icon; a deleted one is not found.
-    ...(row.agent_id
-      ? {
-          iconUrl: `/api/v1/agents/${encodeURIComponent(row.agent_id)}/repo-icon`,
-        }
-      : {}),
+    iconUrl: `/api/v1/agents/${encodeURIComponent(row.agent_id)}/repo-icon`,
   }));
 
   return {
