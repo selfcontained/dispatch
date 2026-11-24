@@ -4,6 +4,8 @@
     {
       "paths": [
         "apps/server/src/routes/system.ts",
+        "apps/server/src/routes/launch-targets.ts",
+        "apps/server/test/launch-targets.test.ts",
         "apps/server/test/system-routes.test.ts",
         "e2e/engine-updates.spec.ts",
         "apps/server/test/launch-persona-config.test.ts"
@@ -116,6 +118,7 @@
         "apps/server/test/local-launch-directory.test.ts",
         "apps/server/test/local-path-resolve.test.ts",
         "apps/server/test/local-files-child.test.ts",
+        "apps/server/test/db/project-matching.test.ts",
         "apps/server/test/db/local-worktree-restart.test.ts",
         "apps/server/test/repository-cache.test.ts",
         "apps/server/test/prompt-images.test.ts",

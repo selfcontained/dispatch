@@ -1357,6 +1357,8 @@ describe("runner session supervision", () => {
     );
     await registerMcpRoutes(app, {
       config: { authToken: secret },
+      // The fixture session records no repository and has no project.
+      pool: { query: async () => ({ rows: [] }) },
       providerPlans: async () => ({}),
       getBearerToken: (request) =>
         /^Bearer (.+)$/.exec(request.headers.authorization ?? "")?.[1] ?? null,

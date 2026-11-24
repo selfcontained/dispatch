@@ -201,7 +201,10 @@ export interface WorkspacePort {
    */
   putFile?(path: string, file: { mustExist: boolean }): Promise<string>;
   /** What a folder is for a launch (`path.resolve`), as the workload account. */
-  resolvePath?(path: string): Promise<Res<"path.resolve">>;
+  resolvePath?(
+    path: string,
+    options?: Omit<Req<"path.resolve">, "path">
+  ): Promise<Res<"path.resolve">>;
   /** The canonical path of an existing directory, else null. */
   canonical(path: string): Promise<string | null>;
   /**

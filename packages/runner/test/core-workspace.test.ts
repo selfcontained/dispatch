@@ -76,8 +76,13 @@ function port(calls: string[]): WorkspacePort {
           `${basename(spec.directory)}-${spec.branch.replace(/\//g, "-")}`
         );
   return {
-    async resolvePath(path) {
-      calls.push(`resolve ${path}`);
+    async resolvePath(path, options) {
+      calls.push(
+        `resolve ${path}` +
+          (options && Object.keys(options).length
+            ? ` ${JSON.stringify(options)}`
+            : "")
+      );
       return {
         resolvedPath: pathFromWire(path),
         canonicalPath: null,
@@ -729,5 +734,18 @@ describe("path.resolve", () => {
       await connection.call("path.resolve", { path: "~/somewhere" })
     ).toMatchObject({ resolvedPath: "~/somewhere", exists: false });
     expect(calls).toEqual(["resolve ~/somewhere"]);
+  });
+
+  it("passes the matching options to the port", async () => {
+    const { connection, calls } = await harness();
+    await connection.call("path.resolve", {
+      path: "/launch",
+      projectRoot: true,
+      canonical: ["/a", "/b"],
+      git: false,
+    });
+    expect(calls).toEqual([
+      'resolve /launch {"projectRoot":true,"canonical":["/a","/b"],"git":false}',
+    ]);
   });
 });

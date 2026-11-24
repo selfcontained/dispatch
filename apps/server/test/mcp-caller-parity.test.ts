@@ -758,3 +758,22 @@ it("keeps the MCP caller surface and call outcomes at the recorded parity bounda
     `${toolNames.size} tools and ${callCount} call pairs`
   ).toEqual(expected);
 });
+
+it("reads the controller launch target through the existing session authentication", async () => {
+  const cookie = await ctx.sessionCookie();
+  const get = (url: string) => ctx.app.inject({ url, headers: { cookie } });
+  const list = await get("/api/v1/launch-targets");
+  expect(list.statusCode, list.body).toBe(200);
+  const target = list
+    .json()
+    .targets.find(
+      (t: { location: { kind: string } }) => t.location.kind === "folder"
+    );
+  const original = await get("/api/v1/agent-models");
+  const adapted = await get(
+    `${target.dataUrl}?directory=${encodeURIComponent(root)}&agentType=codex`
+  );
+  expect(adapted.statusCode, adapted.body).toBe(200);
+  expect(adapted.json().catalog).toEqual(original.json());
+  expect((await get("/api/v1/agent-models")).body).toBe(original.body);
+});

@@ -658,8 +658,9 @@ test("managed scratch checkout selection persists across host start and preserve
 
   await page.goto("/", { waitUntil: "domcontentloaded" });
   const archive = page.getByTestId(`agent-archive-${id}`);
-  if (!(await archive.isVisible()))
-    await page.getByTestId(`agent-expand-toggle-${id}`).click();
+  const expand = page.getByTestId(`agent-expand-toggle-${id}`);
+  if ((await expand.getAttribute("aria-expanded")) !== "true")
+    await expand.click();
   await archive.click();
   await page.getByTestId("delete-agent-confirm").click();
   const choice = page.getByRole("alertdialog").filter({

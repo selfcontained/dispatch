@@ -86,6 +86,10 @@ export const pathResolution = object({
   git: nullable(gitContext),
   /** Present when the folder exists but its Git probe failed (`git` is null). */
   gitFailed: optional(literal(true)),
+  /** The project root could not be resolved: Git's own message. */
+  projectRootError: optional(string),
+  /** The request's `canonical` paths resolved, in order; null when one does not. */
+  canonical: optional(array(nullable(runnerPath))),
 });
 
 export const pathCompletion = object({

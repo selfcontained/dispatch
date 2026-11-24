@@ -26,7 +26,10 @@ import {
   finishCheckout,
   type ArchiveDeps,
 } from "../src/agents/archive.js";
-import { releaseRemoteCheckout } from "../src/agents/archive-checkout.js";
+import {
+  archiveRunner,
+  releaseRemoteCheckout,
+} from "../src/agents/archive-checkout.js";
 import { runnerArchiveExecutor } from "../src/agents/archive-policy.js";
 import { workspaceWorkload } from "../src/agents/checkout-worker.js";
 import { observeGitCheckout } from "../src/agents/checkout-inspection.js";
@@ -289,6 +292,8 @@ describe("archive checkout outcome table", () => {
     async (row) => {
       const identity = await workspaceWorkload.identity(checkout);
       const call = vi.fn(async (op, input) => {
+        if (op === "path.resolve")
+          return workspaceWorkload.resolvePath(input.path, input);
         if (op === "workspace.describe") return { checkoutRoot: checkout };
         if (op === "workspace.observe") return observeRow();
         expect(op).toBe("workspace.release");
@@ -308,13 +313,18 @@ describe("archive checkout outcome table", () => {
         };
       });
       const result = await archive(row, {
-        child: { call } as unknown as Runner,
+        child: {
+          call,
+          connection: { state: "ready", epoch: 1, onChange: () => () => {} },
+        } as unknown as Runner,
       });
       expect(result).toEqual({ ...expected(row), rememberedState: null });
       const release =
         row.mode === "force" ||
         (row.mode === "auto" && !["dirty", "unmerged"].includes(row.state));
       expect(call.mock.calls.map(([op]) => op)).toEqual([
+        // The co-owner check spells the worktree path first, as main does.
+        "path.resolve",
         // Auto observes through the child: it holds the row's worktree.
         ...(row.mode === "auto"
           ? ["workspace.describe", "workspace.observe"]
@@ -331,22 +341,29 @@ describe("archive checkout outcome table", () => {
   );
 
   it("uses the in-process cleanup when the local child has no binding", async () => {
-    const call = vi.fn().mockRejectedValue(
-      new RunnerCallError({
+    const call = vi.fn(async (op: string, input: { path: string }) => {
+      if (op === "path.resolve")
+        return workspaceWorkload.resolvePath(input.path, input);
+      throw new RunnerCallError({
         code: "not_found",
         message: "No checkout is bound to this session",
-      })
-    );
+      });
+    });
     const result = await archive(
       { placement: "local", mode: "force", state: "clean", borrowed: false },
-      { child: { call } as unknown as Runner }
+      {
+        child: {
+          call,
+          connection: { state: "ready", epoch: 1, onChange: () => () => {} },
+        } as unknown as Runner,
+      }
     );
     expect(result.removed).toBe(true);
-    expect(call).toHaveBeenCalledExactlyOnceWith(
-      "workspace.describe",
-      { session: "agent-fixture" },
-      undefined
-    );
+    expect(
+      call.mock.calls.filter(([op]) => op === "workspace.describe")
+    ).toEqual([
+      ["workspace.describe", { session: "agent-fixture" }, undefined],
+    ]);
   });
 
   it("preserves another linked checkout swapped into the owned path", async () => {
@@ -526,7 +543,9 @@ describe("restored worktree_branch co-owner guard", () => {
           h.deps.logger,
           h.deps.localRunner,
           h.agent,
-          mode
+          mode,
+          undefined,
+          archiveRunner(undefined, h.agent, controllerPlacement)
         )
       ).toEqual({ kind: "kept", reason: "coOwner" });
       expect(existsSync(checkout)).toBe(true);
@@ -548,7 +567,9 @@ describe("restored worktree_branch co-owner guard", () => {
         h.deps.logger,
         h.deps.localRunner,
         h.agent,
-        "force"
+        "force",
+        undefined,
+        archiveRunner(undefined, h.agent, controllerPlacement)
       )
     ).toEqual({ kind: "kept", reason: "coOwner" });
   });
@@ -731,6 +752,10 @@ describe("local archive against main's outcomes, whatever the child holds", () =
           code: "unavailable",
           message: "The local runner is unavailable",
         });
+      if (op === "path.resolve") {
+        const request = input as unknown as { path: string };
+        return workspaceWorkload.resolvePath(request.path, request);
+      }
       if (!held)
         throw new RunnerCallError({
           code: "not_found",
