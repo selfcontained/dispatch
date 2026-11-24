@@ -322,10 +322,8 @@ export function TemplateConfigFields({
       <>
         <TemplateWorktreeOption
           checked={useWorktree}
-          branchesUrl={
-            target ? (target.data.data?.branchesUrl ?? "") : undefined
-          }
-          defaultBaseBranch={target?.data.data?.defaults.baseBranch}
+          branchesUrl={target?.data.branchesUrl}
+          defaultBaseBranch={target?.data.defaultBaseBranch}
           cwd={directory}
           baseBranch={baseBranch}
           branchName={branchName}

@@ -94,7 +94,9 @@ export function useCreateAgentForm({
   const locationReady =
     (!selectedProjectId || projectsLoaded) &&
     launch.selectionReady &&
-    (!sourceAgentId || launch.projection.isSuccess) &&
+    (!sourceAgentId ||
+      launch.changed ||
+      (launch.projection.isSuccess && Boolean(launch.target))) &&
     (launch.target?.location.kind !== "project" || Boolean(project));
   const setCreateProjectId = (id: string | null) => {
     setLocationChoice({ projectId: id });
@@ -183,7 +185,7 @@ export function useCreateAgentForm({
   } = useCreateAgentPrefs(
     targetData.data?.defaults.preferenceKey ?? createCwd,
     createType,
-    targetData.data?.defaults.baseBranch ?? "main"
+    targetData.defaultBaseBranch
   );
   const createFullAccess = createType === "opencode" || savedCreateFullAccess;
   const {
@@ -369,8 +371,7 @@ export function useCreateAgentForm({
             : undefined,
           baseBranch:
             submitUseWorktree &&
-            createBaseBranch !==
-              (targetData.data?.defaults.baseBranch ?? "main")
+            createBaseBranch !== targetData.defaultBaseBranch
               ? createBaseBranch
               : undefined,
           initialPrompt: contextInitialPrompt,
@@ -419,7 +420,7 @@ export function useCreateAgentForm({
     [
       createBaseBranch,
       launch.target?.launchFields,
-      targetData.data?.defaults.baseBranch,
+      targetData.defaultBaseBranch,
       project,
       locationReady,
       createCwd,

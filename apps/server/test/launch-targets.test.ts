@@ -105,7 +105,7 @@ async function setup(projectFailure = false) {
         id,
         placement: id.startsWith("controller")
           ? controllerPlacement
-          : placementForRunner("fixture"),
+          : placementForRunner(id === "missing-target" ? "missing" : "fixture"),
         cwd: id.startsWith("controller") ? "/cwd" : "runner://fixture/@session",
         projectId: id === "unscoped" ? null : "project",
         ...(id === "controller-moved"
@@ -275,4 +275,11 @@ it("derives a supported engine when changing targets from another engine", async
   ).json();
   expect(result.agentTypes).toEqual(["codex"]);
   expect(result.catalog.models.codex[0].id).toBe("runner-model");
+});
+
+it("does not project an unlisted agent target as the controller", async () => {
+  const { get } = await setup();
+  expect(
+    (await get("/api/v1/launch-targets/saved/agent/missing-target")).statusCode
+  ).toBe(404);
 });

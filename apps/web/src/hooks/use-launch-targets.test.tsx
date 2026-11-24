@@ -20,6 +20,8 @@ const targets: LaunchTarget[] = [
     status: "online",
     launchFields: {},
     dataUrl: "/fixture/first",
+    branchesUrl: "/fixture/first/branches",
+    defaultBaseBranch: "main",
     location: { kind: "folder" },
     selectionFields: { runner: "controller-fixture" },
   },
@@ -28,6 +30,8 @@ const targets: LaunchTarget[] = [
     name: "Second fixture",
     launchFields: { runner: "runner-fixture" },
     dataUrl: "/fixture/second",
+    branchesUrl: "/fixture/second/branches",
+    defaultBaseBranch: "",
     status: "offline",
     location: { kind: "project", projects: [] },
     selectionFields: { runner: "runner-fixture" },
@@ -151,6 +155,10 @@ it("does not carry personas or preferences from the previous folder while the ne
   );
   rerender({ directory: "/next" });
   expect(result.current.data).toBeUndefined();
+  expect(result.current.branchesUrl).toBe(
+    "/fixture/first/branches?directory=%2Fnext"
+  );
+  expect(result.current.defaultBaseBranch).toBe("main");
   expect(result.current.info?.catalog.models.claude?.[0]?.id).toBe("m");
   expect(result.current.catalogLoading).toBe(false);
   await act(async () =>

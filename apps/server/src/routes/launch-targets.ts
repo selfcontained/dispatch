@@ -121,6 +121,8 @@ export async function registerLaunchTargetRoutes(
     status: target.status,
     location: target.location,
     dataUrl: `${ROOT}/${target.key}`,
+    branchesUrl: `${ROOT}/${target.key}/branches`,
+    defaultBaseBranch: target.location.kind === "folder" ? "main" : "",
     launchFields: fields(target),
     selectionFields: { runner: target.id },
   });
@@ -188,6 +190,10 @@ export async function registerLaunchTargetRoutes(
         throw Object.assign(new Error("Agent not found."), { statusCode: 404 });
       const runner = runnerIdForPlacement(agent.placement);
       const target = (await targets(request)).find((t) => t.id === runner);
+      if (!target)
+        throw Object.assign(new Error("Runner not found."), {
+          statusCode: 404,
+        });
       const folder = agent.workspacePath
         ? agent.gitContext?.repoRoot?.trim() || agent.workspacePath.trim()
         : agent.launchCwd?.trim() ||

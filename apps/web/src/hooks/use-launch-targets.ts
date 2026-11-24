@@ -17,6 +17,8 @@ export type LaunchTarget = {
     error?: string;
   };
   dataUrl: string;
+  branchesUrl: string;
+  defaultBaseBranch: string;
   launchFields: LaunchFields;
   selectionFields: LaunchFields;
 };
@@ -200,8 +202,17 @@ export function useLaunchTargetData(
   const effort = model
     ? (selected.data?.effort ?? reported)
     : (reported ?? (base.isPlaceholderData ? undefined : base.data?.effort));
+  const branchParams = new URLSearchParams({
+    directory,
+    ...(projectId ? { projectId } : {}),
+  });
   return {
     ...base,
+    branchesUrl:
+      base.data?.branchesUrl ??
+      (target?.branchesUrl ? `${target.branchesUrl}?${branchParams}` : ""),
+    defaultBaseBranch:
+      base.data?.defaults?.baseBranch ?? target?.defaultBaseBranch ?? "main",
     info,
     effort,
     catalogLoading: base.isLoading && !info,

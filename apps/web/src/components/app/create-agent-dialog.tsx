@@ -138,7 +138,11 @@ function CreateAgentDialogContent({
           >
             <DialogBody className="space-y-3">
               <LaunchTargetError
-                queries={[form.launch.list, form.targetData]}
+                queries={[
+                  form.launch.list,
+                  form.launch.projection,
+                  form.targetData,
+                ]}
               />
               <AgentEngineFields
                 agentType={form.createType}
@@ -214,8 +218,8 @@ function CreateAgentDialogContent({
               />
               <WorktreeSection
                 cwd={form.createCwd}
-                branchesUrl={form.targetData.data?.branchesUrl ?? ""}
-                defaultBaseBranch={form.targetData.data?.defaults.baseBranch}
+                branchesUrl={form.targetData.branchesUrl}
+                defaultBaseBranch={form.targetData.defaultBaseBranch}
                 worktreeAvailable={form.worktreeAvailable}
                 useWorktree={form.createUseWorktree}
                 onUseWorktreeChange={form.setCreateUseWorktree}
