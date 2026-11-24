@@ -25,6 +25,7 @@ import {
   identityKey,
   PROJECT_IDENTITY_SQL,
   repositoryKey,
+  SESSION_REPOSITORY_SQL,
   type ProjectIdentity,
 } from "../runners/repository-identity.js";
 import {
@@ -120,18 +121,20 @@ async function checkoutContext(
             ])
           ).rows[0] ?? null)
         : null,
+    repository: async () =>
+      (
+        await deps.pool.query<{ url: string | null }>(SESSION_REPOSITORY_SQL, [
+          agent.id,
+        ])
+      ).rows[0]?.url ?? null,
   });
-  const brainRepoRoot =
-    placement && agent.projectId && roots?.repositoryRoot
-      ? repositoryScope
-      : repoRoot;
   return {
     workspaceDir,
     repoRoot,
     repositoryScope,
     context: {
       worktreeRoot,
-      brainRepoRoot,
+      brainRepoRoot: repositoryScope,
       ...(persona && {
         personaFiles: persona.files,
         personaWrites: persona.writes,
