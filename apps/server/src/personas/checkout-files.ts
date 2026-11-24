@@ -4,6 +4,7 @@
  * agent. The runner decides where the checkout is and writes as its
  * workload; Dispatch only parses.
  */
+import { createHash } from "node:crypto";
 import type { Runner } from "@dispatch/runner-protocol/contract";
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import { sessionRunner, target } from "../agents/checkout-runner.js";
@@ -29,9 +30,17 @@ export function sessionPersonaFiles(
         maxBytes: null,
       });
       if (file === null) return null;
-      if (file.digest === undefined)
-        throw new Error("The runner did not report the file's digest.");
-      return { data: file.data, digest: file.digest };
+      // The contract digest is SHA-256 of the UTF-8 text; a read path that
+      // does not carry it yields the same value computed here. The runner
+      // still compares it with the file on disk before it writes.
+      return {
+        data: file.data,
+        digest:
+          file.digest ??
+          createHash("sha256")
+            .update(Buffer.from(file.data, "utf8"))
+            .digest("hex"),
+      };
     },
     async list(directory) {
       const reply = await manager.inspectCheckout(agent, {

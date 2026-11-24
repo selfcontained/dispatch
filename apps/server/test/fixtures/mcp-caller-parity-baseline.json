@@ -11,18 +11,6 @@
     "local": "accepted",
     "runner": "tool:A child launch cannot select a checkout on another runner or outside the caller's project."
   },
-  "call/persona_upsert": {
-    "rule": "N23",
-    "task": "T35",
-    "local": "accepted",
-    "runner": "tool:MCP error -32602: Tool persona_upsert not found"
-  },
-  "call/persona_validate": {
-    "rule": "N23",
-    "task": "T35",
-    "local": "accepted",
-    "runner": "tool:MCP error -32602: Tool persona_validate not found"
-  },
   "call/task_list/no-project": {
     "rule": "N18",
     "task": "T34",
@@ -40,54 +28,6 @@
     "task": "T31",
     "local": "accepted",
     "runner": "tool:MCP error -32602: Tool usage_watch_list not found"
-  },
-  "surface/persona_upsert": {
-    "rule": "N23",
-    "task": "T35",
-    "local": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "type": "object",
-      "properties": {
-        "slug": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 80
-        },
-        "template": {
-          "description": "Optional template ID returned by persona_templates.",
-          "type": "string"
-        },
-        "name": {
-          "type": "string",
-          "maxLength": 200
-        },
-        "description": {
-          "type": "string",
-          "maxLength": 500
-        },
-        "instructions": {
-          "type": "string",
-          "maxLength": 20000
-        },
-        "type": {
-          "description": "Review personas report findings; task personas are available on normal launches, templates and jobs. New files default to task; updates preserve the existing type when omitted.",
-          "type": "string",
-          "enum": ["review", "task"]
-        }
-      },
-      "required": ["slug"]
-    },
-    "runner": "absent"
-  },
-  "surface/persona_validate": {
-    "rule": "N23",
-    "task": "T35",
-    "local": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "type": "object",
-      "properties": {}
-    },
-    "runner": "absent"
   },
   "surface/redeem_codex_reset": {
     "rule": "N17",

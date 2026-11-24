@@ -42,9 +42,11 @@ import type { TemplateService } from "../templates/service.js";
 import type { AddTemplateInput } from "../templates/store.js";
 import {
   personaScopeFor,
+  savedPersonaScope,
   type SavedPersonaScope,
 } from "../personas/persona-scope.js";
 import { discoverRepoTools, mcpCheckoutRoots } from "../server/mcp-checkout.js";
+import { sessionPersonaFiles } from "../personas/checkout-files.js";
 import type { CrudToolCallbacks } from "../shared/mcp/crud-tools.js";
 import { handleMcpRequest } from "../shared/mcp/server.js";
 import type { StreamService } from "../chat/service.js";
@@ -96,7 +98,16 @@ async function checkoutContext(
     agent.placement ?? targetPlacement({ directory: agent.cwd });
   // The runner's machine-local paths never become host paths or keys.
   const repoRoot = identityKey(callerPlacement, roots?.repositoryRoot ?? null);
-  const worktreeRoot = placement ? null : (roots?.checkoutRoot ?? null);
+  // Like repoRoot: a runner's machine-local path is never a host path.
+  const worktreeRoot = identityKey(
+    callerPlacement,
+    roots?.checkoutRoot ?? null
+  );
+  // Persona authoring reads and writes in the checkout through its runner.
+  const persona =
+    roots && (roots.checkoutRoot || roots.repositoryRoot)
+      ? sessionPersonaFiles(deps.agentManager, agent)
+      : null;
   // One key (D5, D8) for Brain, the agent list and PR-risk visibility.
   const repositoryScope = await repositoryKey({
     placement: callerPlacement,
@@ -121,6 +132,10 @@ async function checkoutContext(
     context: {
       worktreeRoot,
       brainRepoRoot,
+      ...(persona && {
+        personaFiles: persona.files,
+        personaWrites: persona.writes,
+      }),
       toolsRoot: hasCheckout && placement ? workspaceDir : undefined,
       listSessionPersonas: hasCheckout,
       discoverRepoTools: ownerOnly
@@ -208,7 +223,7 @@ function buildCrudCallbacks(
     !sameRunner(callerPlacement, controllerPlacement) &&
     sameSavedCheckout({ directory: agent.cwd }, { directory: target.cwd })
       ? personaScopeFor({ manager: deps.agentManager, agent })
-      : personaScopeFor(target);
+      : savedPersonaScope(deps.agentManager)(target);
 
   return {
     listJobs: async (directory) => {
