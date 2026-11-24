@@ -584,6 +584,16 @@ export function decodeCommand(
       return runnerWide(
         decoded(command.operation.op, command.operation.request)
       );
+    case "checkoutWrite":
+      return withWorkspace(
+        decoded("checkout.write", command.operation.request)
+      );
+    case "repositoryFiles":
+      return runnerWide(
+        decoded("checkout.defaultFiles", command.operation.request, {
+          repositoryFiles: true,
+        })
+      );
     case "workspacePrepare":
       return withWorkspace(
         decoded("workspace.prepare", { ...command.operation, session })
@@ -753,6 +763,21 @@ export function encodeCommand(input: Decoded | LegacyCommand): Command {
       >["operation"],
     };
   }
+  if (op === "checkout.write")
+    return {
+      ...base(sessionOf(r)),
+      kind: "checkoutWrite",
+      operation: { op, request: input.request as Req<"checkout.write"> },
+    };
+  if (op === "checkout.defaultFiles" && "repository" in (r.target as AnyRecord))
+    return {
+      ...base((extras.agentId ?? "@repository") as string),
+      kind: "repositoryFiles",
+      operation: {
+        op,
+        request: input.request as Req<"checkout.defaultFiles">,
+      },
+    };
   if (op === "session.list" || op === "session.sample")
     return {
       ...base((extras.agentId ?? "runner") as string),
@@ -1034,6 +1059,7 @@ export function decodeResult<K extends OpName>(
     case "git.defaultBranch":
     case "git.branches":
     case "git.base":
+    case "checkout.write":
     case "workspace.prepare":
     case "workspace.resume": {
       const reply = parse(value);
@@ -1075,11 +1101,30 @@ export function decodeResult<K extends OpName>(
         return out(file && { data: file.content, digest: file.state });
       }
       const { content } = parse(value) as { content: string | null };
-      return out(content === null ? null : { data: content });
+      // The digest a contract read carries: SHA-256 of the UTF-8 text,
+      // as the workload computes it.
+      return out(
+        content === null
+          ? null
+          : {
+              data: content,
+              digest: createHash("sha256")
+                .update(Buffer.from(content, "utf8"))
+                .digest("hex"),
+            }
+      );
     }
     case "checkout.changes":
-    case "checkout.defaultFiles":
+    case "checkout.defaultFiles": {
+      if (input.extras.repositoryFiles) {
+        const reply = parse(value);
+        if (runnerError.check(reply?.error)) throw new ResultError(reply.error);
+        if (!operations[op].response.check(reply?.data))
+          throw new CodecError("Invalid runner operation result.");
+        return out(reply.data);
+      }
       return out(stripKind(parse(value)));
+    }
     case "checkout.list":
     case "checkout.preview":
     case "checkout.index":
@@ -1165,7 +1210,12 @@ export function encodeResult<K extends OpName>(
   const r = input.request as AnyRecord;
   if (response instanceof ResultError) {
     const { code, message } = response.error;
-    if (op === "workspace.prepare" || op === "workspace.resume")
+    if (
+      op === "workspace.prepare" ||
+      op === "workspace.resume" ||
+      op === "checkout.write" ||
+      (op === "checkout.defaultFiles" && input.extras.repositoryFiles)
+    )
       return JSON.stringify({ error: response.error });
     if (op.startsWith("checkout.") && STATUS_OF[code] !== undefined)
       return JSON.stringify({ status: STATUS_OF[code], error: message });
@@ -1196,6 +1246,7 @@ export function encodeResult<K extends OpName>(
     case "git.defaultBranch":
     case "git.branches":
     case "git.base":
+    case "checkout.write":
     case "workspace.prepare":
     case "workspace.resume":
       return JSON.stringify({ data: response });
@@ -1222,6 +1273,8 @@ export function encodeResult<K extends OpName>(
     case "checkout.changes":
       return JSON.stringify({ kind: "changes", ...res });
     case "checkout.defaultFiles":
+      if (input.extras.repositoryFiles)
+        return JSON.stringify({ data: response });
       return JSON.stringify({ kind: "defaultBranchFiles", ...res });
     case "checkout.image":
       return JSON.stringify({ data: res.bytes });
@@ -1387,7 +1440,6 @@ export const NOT_ON_V1 = {
   "runner.health": "v1 pushes health frames after accept_health",
   "path.resolve": "controller-machine probe today (D7)",
   "path.complete": "controller-machine probe today (D7)",
-  "checkout.write": "local-only today (persona authoring)",
   "engine.operation": "no lookup by operation ID on either side",
   "port.connect": "missing from both (D6)",
 } as const satisfies Partial<Record<OpName, string>>;

@@ -383,9 +383,9 @@ describe("ChatComposer", () => {
     expect(input.disabled).toBe(false);
     fireEvent.change(input, { target: { value: "early thought" } });
     expect(send.disabled).toBe(true);
-    expect(screen.getByTestId("chat-composer-wait-reason").textContent).toBe(
-      waitReason
-    );
+    // The wait holds Send without a hint line beneath the composer.
+    expect(screen.queryByTestId("chat-composer-wait-reason")).toBeNull();
+    expect(screen.queryByText(waitReason)).toBeNull();
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onSend).not.toHaveBeenCalled();
     expect(input.value).toBe("early thought");
@@ -393,7 +393,6 @@ describe("ChatComposer", () => {
     view.rerender(
       <ChatComposer agentId={null} onSend={onSend} disabledReason={null} />
     );
-    expect(screen.queryByTestId("chat-composer-wait-reason")).toBeNull();
     expect(send.disabled).toBe(false);
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onSend).toHaveBeenCalledWith("early thought", []);

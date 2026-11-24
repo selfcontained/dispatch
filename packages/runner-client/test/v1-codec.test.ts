@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   isCheckoutCommandFile,
   isCheckoutCommandResult,
@@ -62,7 +63,9 @@ function validV1Result(command: Command, value: unknown): boolean {
         : isSessionCheckout(parsed);
     case "sessionObservation":
       return operations[command.operation.op].response.check(parsed);
-    case "gitQuery": {
+    case "gitQuery":
+    case "checkoutWrite":
+    case "repositoryFiles": {
       const reply = parsed as { data?: unknown; error?: unknown };
       return (
         operations[command.operation.op].response.check(reply.data) ||
@@ -174,6 +177,32 @@ describe("wire v1 results round-trip through the codec", () => {
   );
 });
 
+describe("wire v1 checkout reads carry the contract digest", () => {
+  it("is SHA-256 of the UTF-8 text, as the workload computes it", () => {
+    const fixture = results.find(
+      ({ command, value }) =>
+        command.kind === "inspectCheckout" &&
+        command.query.kind === "readFile" &&
+        typeof value === "string" &&
+        value.includes('"content":"')
+    )!;
+    const decoded = decodeCommand(fixture.command, "digest") as Decoded;
+    const response = decodeResult(decoded, fixture.value, []) as {
+      data: string;
+      digest: string;
+    };
+    expect(response.digest).toBe(
+      createHash("sha256")
+        .update(Buffer.from(response.data, "utf8"))
+        .digest("hex")
+    );
+    // The legacy frame does not change.
+    expect(json(encodeResult(decoded, response as never))).toStrictEqual(
+      json(fixture.value)
+    );
+  });
+});
+
 describe("wire v1 errors", () => {
   it.each<Pick<ResultFrame, "error" | "code">>([
     { error: "Guest agent host has exited.", code: "host-gone" },
@@ -247,6 +276,8 @@ describe("codec coverage", () => {
         "sessionCheckout",
         "workspacePrepare",
         "gitQuery",
+        "checkoutWrite",
+        "repositoryFiles",
         "workspaceResume",
         "workspaceRelease",
         "checkoutCommand",

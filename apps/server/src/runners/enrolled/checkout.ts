@@ -226,12 +226,78 @@ export function createEnrolledCheckoutRunner(
       if (isCheckoutCommandFile(result)) return result;
       throw new Error("Invalid runner checkout command response.");
     },
+    // Not part of `Runner`: what the peer advertised in its ready frame.
+    ...{
+      serves(op: "checkout.write") {
+        return (
+          op === "checkout.write" &&
+          placement !== null &&
+          service?.supportsCheckoutWrite?.(placement) === true
+        );
+      },
+    },
     async call<K extends CallName>(
       op: K,
       input: Req<K>,
       options?: CallOptions<K>
     ): Promise<Res<K>> {
       if (op === "runner.describe") return describe() as Res<K>;
+      // A repository's default-branch files before any session exists.
+      if (
+        op === "checkout.defaultFiles" &&
+        "repository" in (input as Req<"checkout.defaultFiles">).target
+      ) {
+        if (!service)
+          throw new RunnerCallError({
+            code: "unavailable",
+            message: "The runner is unavailable.",
+          });
+        return service.readRepositoryFiles(
+          runnerId,
+          input as Req<"checkout.defaultFiles">,
+          options?.signal
+        ) as Promise<Res<K>>;
+      }
+      if (op === "checkout.write") {
+        const request = input as Req<"checkout.write">;
+        if (!service)
+          throw new RunnerCallError({
+            code: "unavailable",
+            message: "The session runner is unavailable.",
+          });
+        if (
+          !placement ||
+          !agent ||
+          !("session" in request.target) ||
+          sessionToWire(request.target.session) !== agent.id
+        )
+          throw new RunnerCallError({
+            code: "invalid",
+            message: "Invalid checkout write binding.",
+          });
+        const frame: Decoded<"checkout.write"> = {
+          op: "checkout.write",
+          request,
+          extras: { workspace: placement.workspace, agentId: agent.id },
+          absent: [],
+        };
+        const command = encodeCommand(frame);
+        if (command.kind !== "checkoutWrite")
+          throw new Error("Invalid v1 checkout write command.");
+        const { value } = await service.requestSession(
+          placement,
+          command,
+          undefined,
+          options?.signal
+        );
+        try {
+          return decodeResult(frame, value) as Res<K>;
+        } catch (error) {
+          if (error instanceof ResultError)
+            throw new RunnerCallError(error.error);
+          throw error;
+        }
+      }
       if (isCheckoutReadName(op))
         return callCheckoutRead(
           service,

@@ -185,7 +185,7 @@ import {
 } from "./acp/stream-recorder.js";
 import { OPEN_INPUT_SQL } from "../chat/store.js";
 import { StreamStore } from "./acp/stream-store.js";
-import { personaScopeFor } from "../personas/persona-scope.js";
+import { launchPersonaScope } from "../personas/persona-scope.js";
 import { resolvePersona } from "../personas/resolve.js";
 import {
   PERSONA_CONTEXT_ARG,
@@ -2578,9 +2578,11 @@ export class AgentManager {
       options.taskPersonaBody ??
       (
         await resolvePersona(
-          personaScopeFor({
+          launchPersonaScope(this, {
+            placement,
             cwd: input.cwd,
             projectRoot,
+            repository: projectRepository,
             source: input.personaSource,
           }),
           input.persona!,

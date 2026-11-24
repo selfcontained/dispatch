@@ -10,8 +10,11 @@ import { supportsPersonaType } from "../../personas/loader.js";
 import {
   getPersonaTemplate,
   PERSONA_TEMPLATES,
+  upsertCheckoutPersona,
   upsertPersona,
+  validateCheckoutPersonas,
   validatePersonas,
+  type PersonaFiles,
 } from "../../personas/authoring.js";
 import { describeAgentModelCatalog } from "../agent-models.js";
 import { CLI_AGENT_TYPES, type CliAgentType } from "../agent-types.js";
@@ -30,6 +33,13 @@ export type PersonaInteractionCallbacks = {
   parentAgentId?: string | null;
   worktreeRoot?: string | null;
   repoRoot?: string | null;
+  /**
+   * The caller's checkout through its runner. When present, authoring reads
+   * and writes there instead of at a root on this machine.
+   */
+  personaFiles?: PersonaFiles;
+  /** The caller's runner serves `checkout.write`. */
+  personaWrites?: boolean;
   listSessionPersonas?: boolean;
   listPersonas?: McpRequestContext["listPersonas"];
   launchOwnerReviews?: McpRequestContext["launchOwnerReviews"];
@@ -77,7 +87,24 @@ export function registerPersonaInteractionTools(
 ): void {
   const { agentId } = callbacks;
 
-  const personaRoot = callbacks.worktreeRoot ?? callbacks.repoRoot;
+  const { personaFiles } = callbacks;
+  const personaRoot = personaFiles
+    ? null
+    : (callbacks.worktreeRoot ?? callbacks.repoRoot);
+  const upsert = personaFiles
+    ? callbacks.personaWrites === true
+      ? (input: Omit<Parameters<typeof upsertPersona>[0], "root">) =>
+          upsertCheckoutPersona(personaFiles, input)
+      : null
+    : personaRoot
+      ? (input: Omit<Parameters<typeof upsertPersona>[0], "root">) =>
+          upsertPersona({ root: personaRoot, ...input })
+      : null;
+  const validate = personaFiles
+    ? () => validateCheckoutPersonas(personaFiles)
+    : personaRoot
+      ? () => validatePersonas(personaRoot)
+      : null;
 
   if (allowed.has("persona_templates")) {
     server.registerTool(
@@ -99,7 +126,7 @@ export function registerPersonaInteractionTools(
     );
   }
 
-  if (allowed.has("persona_upsert") && personaRoot) {
+  if (allowed.has("persona_upsert") && upsert) {
     server.registerTool(
       "persona_upsert",
       {
@@ -138,8 +165,7 @@ export function registerPersonaInteractionTools(
             throw new Error(
               "name, description, and instructions are required unless supplied by a template."
             );
-          const result = await upsertPersona({
-            root: personaRoot,
+          const result = await upsert({
             slug: args.slug,
             name,
             description,
@@ -162,7 +188,7 @@ export function registerPersonaInteractionTools(
     );
   }
 
-  if (allowed.has("persona_validate") && personaRoot) {
+  if (allowed.has("persona_validate") && validate) {
     server.registerTool(
       "persona_validate",
       {
@@ -172,7 +198,7 @@ export function registerPersonaInteractionTools(
       },
       async () => {
         try {
-          const personas = await validatePersonas(personaRoot);
+          const personas = await validate();
           const valid = personas.every((persona) => persona.valid);
           const warnings = personas.flatMap((persona) =>
             persona.warnings.map((warning) => `${persona.slug}: ${warning}`)

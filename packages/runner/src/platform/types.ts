@@ -29,9 +29,16 @@ export const WORKER_OPS = [
 /** Commands the workload runs. They may write, so the fence refuses them. */
 export const EXEC_OPS = ["checkout.exec"] as const;
 
+/**
+ * Files the workload writes in a session's checkout, as itself. The fence
+ * refuses them while frozen and waits for those already admitted.
+ */
+export const WRITE_OPS = ["checkout.write"] as const;
+
 export type WorkerOp = (typeof WORKER_OPS)[number];
 export type ExecOp = (typeof EXEC_OPS)[number];
-export type WorkloadOp = WorkerOp | ExecOp;
+export type WriteOp = (typeof WRITE_OPS)[number];
+export type WorkloadOp = WorkerOp | ExecOp | WriteOp;
 
 /** Which of a session's checkouts a target selected. */
 export type Selector = "current" | "launch" | "moved";

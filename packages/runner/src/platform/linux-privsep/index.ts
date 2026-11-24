@@ -16,6 +16,7 @@ import {
 } from "@dispatch/runner-protocol/contract";
 import {
   RECEIPT_FILE,
+  repositoryClone,
   workspaceHandlers,
   type Receipt,
 } from "../../core/workspace.js";
@@ -202,6 +203,8 @@ export async function createRemoteWorkspacePreparation(
     storageKey
   );
   return {
+    /** A repository's cached clone, as a launch from it uses: the same cache entry and step. */
+    repositoryClone: repositoryClone(port.repository!, paths.repositories),
     legacy: (session: string) => bindings.legacy(session),
     /** The supervisor changed the session's binding files: record them now. */
     async bindingWritten(session: string) {

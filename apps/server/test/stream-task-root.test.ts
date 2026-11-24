@@ -1,3 +1,4 @@
+import { launchPersonaScope } from "../src/personas/persona-scope.js";
 import {
   afterAll,
   beforeAll,
@@ -202,6 +203,8 @@ beforeEach(async () => {
     chat: streams,
     publishUiEvent: () => {},
     log: { warn: vi.fn(), info: vi.fn() },
+    personaScope: (target) =>
+      launchPersonaScope({ checkoutReadRunners: () => ({}) } as never, target),
   });
   await app?.close();
   app = Fastify();

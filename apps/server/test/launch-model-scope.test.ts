@@ -1,3 +1,4 @@
+import { launchPersonaScope } from "../src/personas/persona-scope.js";
 import type { Pool } from "pg";
 import {
   afterAll,
@@ -123,6 +124,8 @@ function taskService() {
     },
     publishUiEvent: () => {},
     log: logger,
+    personaScope: (target) =>
+      launchPersonaScope({ checkoutReadRunners: () => ({}) } as never, target),
   } as unknown as ConstructorParameters<typeof TaskService>[0]);
 }
 

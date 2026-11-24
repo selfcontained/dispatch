@@ -55,6 +55,7 @@ import {
 } from "../local/bindings.js";
 import type {
   CheckoutGit,
+  RepositoryPort,
   WorkspacePort,
   WorktreeSpec,
 } from "../platform/types.js";
@@ -252,6 +253,63 @@ function wireGit(value: CheckoutGit) {
     ...value,
     repoRoot: pathFromWire(value.repoRoot),
     worktreePath: pathFromWire(value.worktreePath),
+  };
+}
+
+/** Uses of each cached clone, per cache root: one at a time, whoever asks. */
+const cacheQueues = new Map<string, Map<string, Promise<unknown>>>();
+/** Clones this process has already made or fetched, per cache root. */
+const cachedClones = new Map<string, Set<string>>();
+
+async function useCache<T>(
+  repositories: string,
+  key: string,
+  action: () => Promise<T>
+): Promise<T> {
+  let caches = cacheQueues.get(repositories);
+  if (!caches) cacheQueues.set(repositories, (caches = new Map()));
+  const current = (caches.get(key) ?? Promise.resolve())
+    .catch(() => {})
+    .then(action);
+  caches.set(key, current);
+  try {
+    return await current;
+  } finally {
+    if (caches.get(key) === current) caches.delete(key);
+  }
+}
+
+/**
+ * The cached clone of a repository, the one a launch from that repository
+ * uses: the same key, the same directory, the same platform step (the
+ * workload's own Git, configuration and credentials), serialised with
+ * launches. The first use in this process makes or fetches it; later reads
+ * leave fetching to the reader (`checkout.defaultFiles` fetches the
+ * remote's default branch on its own schedule).
+ */
+export function repositoryClone(
+  repository: RepositoryPort,
+  repositories: string
+): (url: string) => Promise<string> {
+  return async (url) => {
+    const identity = repositoryIdentity(url);
+    if (!identity)
+      throw new RunnerCallError({
+        code: "invalid",
+        message: "Not a repository URL.",
+      });
+    const key = repositoryKey(identity);
+    const cache = join(repositories, key);
+    const clone = join(cache, repositoryName(identity));
+    let ready = cachedClones.get(repositories);
+    if (!ready) cachedClones.set(repositories, (ready = new Set()));
+    const made = ready;
+    await useCache(repositories, key, async () => {
+      if (made.has(key)) return;
+      await repository.cache(storableUrl(url), cache, clone);
+      made.add(key);
+    });
+    return clone;
   };
 }
 
@@ -484,19 +542,8 @@ export function workspaceHandlers(
     return recorded;
   }
 
-  const caches = new Map<string, Promise<unknown>>();
-  /** One use of a cached clone at a time. */
-  async function inCache<T>(key: string, action: () => Promise<T>) {
-    const current = (caches.get(key) ?? Promise.resolve())
-      .catch(() => {})
-      .then(action);
-    caches.set(key, current);
-    try {
-      return await current;
-    } finally {
-      if (caches.get(key) === current) caches.delete(key);
-    }
-  }
+  const inCache = <T>(key: string, action: () => Promise<T>) =>
+    useCache(repositories, key, action);
 
   /** The worktree a repository checkout asks for, by main's branch rules. */
   function repositoryRequest(

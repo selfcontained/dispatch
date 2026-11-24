@@ -290,6 +290,54 @@ export function createLocalCheckoutRunner(
   }
 
   /**
+   * A file write in the bound session's current checkout, by the same rule
+   * as reads: in the child when it holds that checkout at the directory the
+   * agent row names, else in process with the same workload. A child that
+   * is unavailable or dies mid-call falls back in process; the digest guard
+   * makes a repeat of a write that did land answer `stale`.
+   */
+  async function write(
+    input: Req<"checkout.write">,
+    options?: CallOptions<"checkout.write">
+  ): Promise<Res<"checkout.write">> {
+    const { target, ...request } = input;
+    if (!("session" in target) || sessionToWire(target.session) !== agent?.id)
+      throw new RunnerCallError({
+        code: "invalid",
+        message: "Invalid native checkout binding.",
+      });
+    const directory = agentWorkspaceDir({ baseBranch: null, ...agent });
+    if (!directory)
+      throw new RunnerCallError({
+        code: "not_found",
+        message: "The session checkout is unavailable.",
+        details: { status: 409, class: "agent" },
+      });
+    if (
+      child &&
+      (await childHolds(target.session, "current", directory, options))
+    )
+      try {
+        return await child.call(
+          "checkout.write",
+          {
+            ...input,
+            target: { session: target.session, checkout: "current" },
+          },
+          options
+        );
+      } catch (error) {
+        if (!childUnavailable(error)) throw error;
+        options?.signal?.throwIfAborted();
+      }
+    return checkoutWorkload.run(
+      "checkout.write",
+      { directory, request },
+      { signal: options?.signal }
+    );
+  }
+
+  /**
    * A command for the bound session, by the same rule as reads: in the
    * child when it holds the selected checkout at the directory the agent row
    * names, else in process with the same workload (R3: unbound sessions, as
@@ -728,6 +776,11 @@ export function createLocalCheckoutRunner(
           op as ChildRead,
           input as Req<ChildRead>,
           options as CallOptions<ChildRead>
+        ) as Promise<Res<K>>;
+      if (op === "checkout.write")
+        return write(
+          input as Req<"checkout.write">,
+          options as CallOptions<"checkout.write">
         ) as Promise<Res<K>>;
       if (op === "git.context")
         return gitContext(input as Req<"git.context">, options) as Promise<

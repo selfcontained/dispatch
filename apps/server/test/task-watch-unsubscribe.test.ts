@@ -19,6 +19,7 @@ describe("unsubscribe delivery ownership", () => {
         pool: { query },
         getAgent: async () => ({ id: "caller", projectId: "project" }),
         watches: { schedule: vi.fn(), cancel },
+        personaScope: () => ({ kind: "builtins" }),
       } as unknown as TaskServiceDeps);
       // Also models the earlier task-unwatch implementation's pre-delete scope
       // read: no board watch existed at that read, but fresh coverage can start

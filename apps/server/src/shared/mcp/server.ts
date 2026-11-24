@@ -39,6 +39,7 @@ import {
   type LaunchPersonaAgentType,
 } from "./persona-interaction-tools.js";
 import { type RepoToolDefinition, type RepoToolParam } from "./repo-tools.js";
+import type { PersonaFiles } from "../../personas/authoring.js";
 import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 import { registerStreamTools } from "./stream-tools.js";
@@ -280,6 +281,9 @@ export type McpRequestContext = UsageCallbacks & {
   toolsRoot?: string;
   brainRepoRoot?: string | null;
   worktreeRoot: string | null;
+  /** Persona authoring through the caller's checkout on its runner. */
+  personaFiles?: PersonaFiles;
+  personaWrites?: boolean;
   /**
    * Publishes `agent.tool_invoked` for every tool call on this server
    * (dynamic repo tools included). Optional so
@@ -525,6 +529,8 @@ export async function createDispatchMcpServer(
       parentAgentId: context.agent.parentAgentId,
       worktreeRoot: context.worktreeRoot,
       repoRoot: context.repoRoot,
+      personaFiles: context.personaFiles,
+      personaWrites: context.personaWrites,
       listPersonas: context.listPersonas,
       listSessionPersonas: context.listSessionPersonas,
       launchOwnerReviews: context.launchOwnerReviews,
