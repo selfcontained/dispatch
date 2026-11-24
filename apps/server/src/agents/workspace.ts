@@ -12,7 +12,11 @@ import path from "node:path";
 
 import { probeGitContext } from "../shared/git/git-context.js";
 import { inferRepositoryUrl } from "./remote/repository.js";
-import { pathFromWire, type Res } from "@dispatch/runner-protocol/contract";
+import {
+  pathFromWire,
+  type Req,
+  type Res,
+} from "@dispatch/runner-protocol/contract";
 import { WORKTREE_LOCAL_CONFIG_FILES } from "./worktree-local-config-files.js";
 import {
   launchDirectory,
@@ -27,7 +31,12 @@ import {
  * and for a directory its canonical path and main's Git probe. Never
  * throws for the folder itself; the app answers with main's errors.
  */
-export async function resolvePath(raw: string): Promise<Res<"path.resolve">> {
+export async function resolvePath(
+  raw: string,
+  options: Omit<Req<"path.resolve">, "path"> = {},
+  /** The platform's project root of a canonical folder (main's `resolveProjectRoot`). */
+  projectRootOf?: (canonical: string) => Promise<string>
+): Promise<Res<"path.resolve">> {
   const home = process.env.HOME ?? "/";
   const cwd =
     raw === "~"
@@ -49,6 +58,34 @@ export async function resolvePath(raw: string): Promise<Res<"path.resolve">> {
   const found = await stat(cwd).catch(() => null);
   if (!found?.isDirectory()) return { ...none, exists: found !== null };
   const canonicalPath = await realpath(cwd);
+  // Main's project matching: each root's realpath, a stale one skipped,
+  // no Git; and the folder's project root, Git's failure kept as its own.
+  const canonical = options.canonical && {
+    canonical: await Promise.all(
+      options.canonical.map((candidate) =>
+        realpath(candidate).then(pathFromWire, () => null)
+      )
+    ),
+  };
+  const projectRoot =
+    options.projectRoot && projectRootOf
+      ? await projectRootOf(canonicalPath).then(
+          (root) => ({ projectRoot: pathFromWire(root) }),
+          (error: unknown) => ({
+            projectRootError:
+              error instanceof Error ? error.message : String(error),
+          })
+        )
+      : undefined;
+  if (options.git === false)
+    return {
+      ...none,
+      canonicalPath: pathFromWire(canonicalPath),
+      exists: true,
+      isDirectory: true,
+      ...projectRoot,
+      ...canonical,
+    };
   const probed = await probeGitContext(canonicalPath, { timeoutMs: 5_000 });
   const git = probed.status === "ok" ? probed.value : null;
   // A pull request launch names its repository from this origin.
@@ -68,6 +105,8 @@ export async function resolvePath(raw: string): Promise<Res<"path.resolve">> {
       origin,
     },
     ...(probed.status === "error" && { gitFailed: true as const }),
+    ...projectRoot,
+    ...canonical,
   };
 }
 

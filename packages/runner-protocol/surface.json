@@ -1896,7 +1896,22 @@
       "kind": "call",
       "request": {
         "object": {
-          "path": "string"
+          "path": "string",
+          "git": {
+            "optional": {
+              "literal": [false]
+            }
+          },
+          "projectRoot": {
+            "optional": {
+              "literal": [true]
+            }
+          },
+          "canonical": {
+            "optional": {
+              "array": "string"
+            }
+          }
         }
       },
       "response": {
@@ -1946,6 +1961,18 @@
           "gitFailed": {
             "optional": {
               "literal": [true]
+            }
+          },
+          "projectRootError": {
+            "optional": "string"
+          },
+          "canonical": {
+            "optional": {
+              "array": {
+                "nullable": {
+                  "opaque": "RunnerPath"
+                }
+              }
             }
           }
         }

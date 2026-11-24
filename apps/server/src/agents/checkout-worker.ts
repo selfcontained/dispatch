@@ -44,6 +44,7 @@ import {
   observeGitCheckout,
 } from "./checkout-inspection.js";
 import { resolvePath } from "./workspace.js";
+import { resolveProjectRoot } from "../projects/resolve-root.js";
 import { SharedCheckoutWatches, watchCheckout } from "./checkout-watch.js";
 import { spawn } from "node:child_process";
 import { loginShellCommand } from "./acp/host-command.js";
@@ -996,8 +997,9 @@ const repositoryCache = {
 };
 
 export const workspaceWorkload = {
-  /** Main's launch folder resolution (`path.resolve`). */
-  resolvePath,
+  /** Main's launch folder resolution and project matching (`path.resolve`). */
+  resolvePath: (raw: string, options?: Omit<Req<"path.resolve">, "path">) =>
+    resolvePath(raw, options, resolveProjectRoot),
   /** A session file handed over where it is: the app's `files.put`. */
   putFile: (source: string, { mustExist }: { mustExist: boolean }) =>
     sessionFilesWorkload.put(source, mustExist ? "prompt" : "reference"),
