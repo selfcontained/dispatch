@@ -1,3 +1,8 @@
+import {
+  controllerPlacement,
+  placementForRunner,
+} from "../src/runners/placement.js";
+import { vi } from "vitest";
 import Fastify from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import { registerLaunchTargetRoutes } from "../src/routes/launch-targets.js";
@@ -90,7 +95,32 @@ async function setup(projectFailure = false) {
         },
   }));
   app.get("/api/v1/templates", async () => [template]);
+  const branches = vi.fn(async (placement, op, input) => ({
+    branches: ["develop", "main"],
+    defaultBranch: "develop",
+  }));
   await registerLaunchTargetRoutes(app, {
+    agents: {
+      getAgent: async (id: string) => ({
+        id,
+        placement: id.startsWith("controller")
+          ? controllerPlacement
+          : placementForRunner(id === "missing-target" ? "missing" : "fixture"),
+        cwd: id.startsWith("controller") ? "/cwd" : "runner://fixture/@session",
+        projectId: id === "unscoped" ? null : "project",
+        ...(id === "controller-moved"
+          ? {
+              workspacePath: "/moved",
+              gitContext: { repoRoot: " /moved/root " },
+            }
+          : { launchCwd: " /launch " }),
+      }),
+    } as never,
+    runners: {
+      for: (placement) => ({
+        call: (op, input) => branches(placement, op, input),
+      }),
+    } as never,
     templates: { getTemplate: async () => template } as never,
     tasks: {
       store: {
@@ -115,6 +145,7 @@ async function setup(projectFailure = false) {
     app,
     get,
     targets,
+    branches,
     failCatalog: () => {
       catalogFailure = true;
     },
@@ -151,14 +182,15 @@ describe("launch target adapter", () => {
     expect(data.agentTypes).toEqual(["claude", "codex"]);
     expect(data.defaults.launchFields).toEqual({});
     expect(data.defaults.baseBranch).toBe("main");
-    expect((await get(data.branchesUrl)).json()).toEqual(
-      (await get("/api/v1/git/branches?cwd=%2Frepo")).json()
-    );
+    expect((await get(data.branchesUrl)).json()).toEqual({
+      branches: ["main", "develop"],
+      defaultBranch: "develop",
+    });
     expect((await get("/api/v1/agent-models")).body).toBe(before);
     expect((await get(data.personasUrl)).statusCode).toBe(200);
   });
   it("reads the runner's catalog and project's repository without install/sign-in gates", async () => {
-    const { get, targets } = await setup();
+    const { get, targets, branches } = await setup();
     const response = await get(
       `${targets[1].dataUrl}?projectId=project&agentType=codex`
     );
@@ -166,14 +198,17 @@ describe("launch target adapter", () => {
     const data = response.json();
     expect(data.agentTypes).toEqual(["codex"]);
     expect(data.engineOptions[0].installed).toBe(false);
+    expect(data.defaults.templateFields).toEqual({
+      directory: "runner://fixture/@session",
+    });
     expect(data.engineOptions[0].install).toBe("existing codex command");
     expect(data.catalog.models.codex[0].id).toBe("runner-model");
     expect(data.effort).toEqual([{ value: "medium" }]);
     expect(data.defaults.launchFields).toEqual({ runner: "fixture" });
     expect(data.directory).toBe("");
-    expect((await get(data.branchesUrl)).json().query).toEqual({
-      runnerId: "fixture",
-      repository: "https://github.com/fixture/repo",
+    await get(data.branchesUrl);
+    expect(branches).toHaveBeenCalledWith(expect.anything(), "git.branches", {
+      target: { repository: "https://github.com/fixture/repo" },
     });
     const personas = (await get(data.personasUrl)).json();
     expect(personas.query.projectId).toBe("project");
@@ -194,6 +229,7 @@ describe("launch target adapter", () => {
         projectId: "project",
         directory: "",
         inherited,
+        locationLabel: "Fixture",
       });
     }
     expect((await get("/api/v1/templates")).body).toBe(before);
@@ -211,4 +247,40 @@ describe("launch target adapter", () => {
       targets
     );
   });
+});
+
+it.each([
+  ["controller", 0, "/launch", "project"],
+  ["controller-moved", 0, "/moved/root", "project"],
+  ["enrolled", 1, "", "project"],
+  ["unscoped", 1, "", null],
+])(
+  "projects agent %s without exposing another target’s path",
+  async (id, index, directory, projectId) => {
+    const { get, targets } = await setup();
+    const result = (
+      await get(`/api/v1/launch-targets/saved/agent/${id}`)
+    ).json();
+    expect(result).toMatchObject({
+      targetKey: targets[index as number].key,
+      directory,
+      projectId,
+    });
+  }
+);
+
+it("derives a supported engine when changing targets from another engine", async () => {
+  const { get, targets } = await setup();
+  const result = (
+    await get(`${targets[1].dataUrl}?projectId=project&agentType=claude`)
+  ).json();
+  expect(result.agentTypes).toEqual(["codex"]);
+  expect(result.catalog.models.codex[0].id).toBe("runner-model");
+});
+
+it("does not project an unlisted agent target as the controller", async () => {
+  const { get } = await setup();
+  expect(
+    (await get("/api/v1/launch-targets/saved/agent/missing-target")).statusCode
+  ).toBe(404);
 });

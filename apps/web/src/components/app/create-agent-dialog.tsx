@@ -1,3 +1,7 @@
+import { agentListQuery } from "@/hooks/use-agents";
+import { useParams } from "react-router-dom";
+import { LaunchTargetError } from "./launch-target-error";
+import { RunnerPicker } from "./runner-picker";
 import { RunnerProjectPicker } from "./runner-project-picker";
 import { taskAgentName } from "@dispatch/shared";
 import { panelFrame } from "@/components/ui/card";
@@ -13,7 +17,6 @@ import { AgentEngineFields } from "@/components/app/agent-engine-fields";
 import { ContextPicker } from "@/components/app/context-picker";
 import { CONTEXT_PROMPT_ID } from "@/components/app/create-agent-dialog-utils";
 import { WorktreeSection } from "@/components/app/create-agent-worktree-section";
-import { RunnerPicker } from "@/components/app/runner-picker";
 import { PathInput } from "@/components/app/path-input";
 import { useCreateAgentForm } from "@/components/app/use-create-agent-form";
 import { Button } from "@/components/ui/button";
@@ -80,8 +83,17 @@ function CreateAgentDialogContent({
   onCreated,
   task = null,
 }: Omit<CreateAgentDialogProps, "open" | "setOpen">): JSX.Element {
+  const { agentId } = useParams();
+  const { data: agents = [] } = useQuery<Agent[]>({
+    ...agentListQuery,
+    enabled: false,
+  });
   const { project, projectId } = useProjectScope();
   const form = useCreateAgentForm({
+    sourceAgentId:
+      !task && agents.some((agent) => agent.id === agentId)
+        ? agentId
+        : undefined,
     enabledAgentTypes,
     initialAgentType,
     resolveDefaultCwd: () => project?.repoRoot ?? resolveDefaultCwd(),
@@ -90,15 +102,8 @@ function CreateAgentDialogContent({
     onCreated,
   });
 
-  const hasRunnerChoice = form.runners.some(
-    (runner) => runner.status !== "revoked"
-  );
-
   return (
     <DialogContent
-      className={
-        hasRunnerChoice || form.runnerId ? "h-[min(42rem,80dvh)]" : undefined
-      }
       aria-describedby={
         form.step === "config" ? undefined : "create-agent-context-description"
       }
@@ -114,21 +119,16 @@ function CreateAgentDialogContent({
         <>
           <DialogHeader
             className={
-              hasRunnerChoice || form.runnerId
+              (form.launch.list.data?.length ?? 0) > 1
                 ? "flex-row items-center justify-between gap-2 space-y-0"
                 : undefined
             }
           >
             <DialogTitle>New agent</DialogTitle>
             <RunnerPicker
-              runners={
-                task
-                  ? form.runners.filter((runner) => runner.managedWorkspace)
-                  : form.runners
-              }
-              runnerId={form.runnerId}
-              unavailable={form.runnerUnavailable}
-              onRunnerChange={form.selectRunner}
+              targets={form.launch.list.data ?? []}
+              value={form.launch.key}
+              onChange={form.chooseTarget}
             />
           </DialogHeader>
 
@@ -137,31 +137,18 @@ function CreateAgentDialogContent({
             onSubmit={(event) => void form.handleSubmit(event)}
           >
             <DialogBody className="space-y-3">
-              {form.runnerUnavailable && (
-                <p
-                  role="alert"
-                  className="text-body-md text-danger-ink"
-                  data-testid="create-agent-runner-unavailable"
-                >
-                  This runner is revoked or gone. Choose This computer or
-                  another runner to continue.
-                </p>
-              )}
+              <LaunchTargetError
+                queries={[
+                  form.launch.list,
+                  form.launch.projection,
+                  form.targetData,
+                ]}
+              />
               <AgentEngineFields
                 agentType={form.createType}
                 onAgentTypeChange={form.setCreateType}
                 agentTypes={form.agentTypes}
-                agentLabel={form.runnerId ? "Agent" : undefined}
-                agentLoading={form.runnerEnginesLoading}
-                remote={Boolean(form.runnerId)}
-                statusLine={
-                  form.runnerEngineBlocked
-                    ? "Set up this agent on the runner to create a session."
-                    : form.workloadCatalogUnavailable
-                      ? "Using the agent’s configured model."
-                      : undefined
-                }
-                workloadEffort={form.workloadEffort}
+                target={{ engines: form.engines, effort: form.workloadEffort }}
                 effort={form.createEffort}
                 onEffortChange={form.setCreateEffort}
                 model={form.createModel}
@@ -185,25 +172,17 @@ function CreateAgentDialogContent({
                 />
               </Field>
 
-              {task && <TaskContextCard task={task} />}
-              {form.runnerId && !form.runnerUnavailable && !task && (
+              {task ? (
+                <TaskContextCard task={task} />
+              ) : form.launch.target?.location.kind === "project" ? (
                 <RunnerProjectPicker
-                  projects={form.runnerProjects}
+                  projects={form.launch.target.location.projects ?? []}
                   projectId={form.createProjectId}
-                  loading={form.runnerProjectsLoading}
-                  error={form.runnerProjectsError}
+                  loading={form.launch.list.isLoading}
+                  error={Boolean(form.launch.target.location.error)}
                   onProject={form.setCreateProjectId}
                 />
-              )}
-              {form.runnerId && task && form.repository && (
-                <p
-                  className="truncate text-body-sm text-muted-foreground"
-                  title={form.repository}
-                >
-                  {form.repository}
-                </p>
-              )}
-              {!form.runnerId && !task && (
+              ) : (
                 <div className="space-y-1">
                   <ProjectLocation
                     projectId={form.createProjectId}
@@ -213,7 +192,6 @@ function CreateAgentDialogContent({
                     }}
                   >
                     <PathInput
-                      localFoldersOnly
                       value={form.createCwd}
                       onChange={form.setCreateCwd}
                       history={form.cwdHistory}
@@ -230,28 +208,28 @@ function CreateAgentDialogContent({
 
               <AgentPersonaSelect
                 cwd={form.createCwd}
-                projectId={form.runnerId ? form.createProjectId : undefined}
+                endpoint={
+                  form.createCwd.trim() || form.createProjectId
+                    ? (form.targetData.data?.personasUrl ?? "")
+                    : undefined
+                }
                 value={form.createPersona}
                 onChange={form.setCreatePersona}
               />
-              {form.checkoutVisible && (
-                <WorktreeSection
-                  key={form.branchSource?.repository ?? form.createCwd.trim()}
-                  cwd={form.branchSource ? "" : form.createCwd}
-                  branchSource={form.branchSource}
-                  pullRequests={form.pullRequests}
-                  worktreeOptional={form.worktreeOptional}
-                  worktreeAvailable={form.worktreeAvailable}
-                  useWorktree={form.createUseWorktree}
-                  onUseWorktreeChange={form.setCreateUseWorktree}
-                  baseBranch={form.createBaseBranch}
-                  onBaseBranchChange={form.setCreateBaseBranch}
-                  worktreeBranch={form.createWorktreeBranch}
-                  onWorktreeBranchChange={form.setCreateWorktreeBranch}
-                  createNewBranch={form.createNewBranch}
-                  onCreateNewBranchChange={form.setCreateNewBranch}
-                />
-              )}
+              <WorktreeSection
+                cwd={form.createCwd}
+                branchesUrl={form.targetData.branchesUrl}
+                defaultBaseBranch={form.targetData.defaultBaseBranch}
+                worktreeAvailable={form.worktreeAvailable}
+                useWorktree={form.createUseWorktree}
+                onUseWorktreeChange={form.setCreateUseWorktree}
+                baseBranch={form.createBaseBranch}
+                onBaseBranchChange={form.setCreateBaseBranch}
+                worktreeBranch={form.createWorktreeBranch}
+                onWorktreeBranchChange={form.setCreateWorktreeBranch}
+                createNewBranch={form.createNewBranch}
+                onCreateNewBranchChange={form.setCreateNewBranch}
+              />
 
               {form.createType !== "opencode" && (
                 <OptionCard

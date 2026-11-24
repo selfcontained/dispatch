@@ -62,20 +62,6 @@ function baseBranch(): HTMLButtonElement {
 }
 
 describe("WorktreeSection", () => {
-  it("locks the worktree on when it is not optional with the same helper text", () => {
-    const { container } = render(
-      <WorktreeSection {...defaultProps} worktreeOptional={false} />
-    );
-    expect(checkbox("create-agent-worktree").disabled).toBe(true);
-    expect(checkbox("create-agent-new-branch").disabled).toBe(false);
-    const lockedText = container.textContent;
-    cleanup();
-    const optional = render(<WorktreeSection {...defaultProps} />);
-    expect(checkbox("create-agent-worktree").disabled).toBe(false);
-    expect(optional.container.textContent).toBe(lockedText);
-    expect(screen.queryByText(/Archiving removes this worktree/)).toBeNull();
-  });
-
   it("keeps the local starting branch label when opening an existing branch", () => {
     render(<WorktreeSection {...defaultProps} createNewBranch={false} />);
     expect(screen.getByRole("combobox", { name: "Starting branch" })).toBe(
@@ -155,26 +141,5 @@ describe("WorktreeSection", () => {
     expect(baseBranch().closest("[aria-hidden]")?.hasAttribute("inert")).toBe(
       false
     );
-  });
-
-  it("labels the runner picker for the branch it will check out", () => {
-    const branchSource = { id: "runner", repository: "" };
-    const { rerender } = render(
-      <WorktreeSection {...defaultProps} branchSource={branchSource} />
-    );
-    expect(screen.getByRole("combobox", { name: "Starting branch" })).toBe(
-      baseBranch()
-    );
-    rerender(
-      <WorktreeSection
-        {...defaultProps}
-        branchSource={branchSource}
-        createNewBranch={false}
-      />
-    );
-    expect(screen.getByRole("combobox", { name: "Existing branch" })).toBe(
-      baseBranch()
-    );
-    expect(screen.getByText("Existing branch")).toBeTruthy();
   });
 });

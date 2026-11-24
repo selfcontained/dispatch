@@ -1,4 +1,4 @@
-import { Monitor, Server } from "lucide-react";
+import { Server } from "lucide-react";
 import { useId } from "react";
 
 import {
@@ -8,22 +8,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { type Runner } from "@/hooks/use-runners";
+import type { LaunchTarget } from "@/hooks/use-launch-targets";
 import { cn } from "@/lib/utils";
-
-const THIS_COMPUTER = "__local__";
 
 /** One machine in the picker: what kind it is, its name, whether it is up. */
 function RunnerOption({
-  local = false,
   name,
   status,
 }: {
-  local?: boolean;
   name: string;
   status: "online" | "offline" | "pending" | "unavailable";
 }) {
-  const Icon = local ? Monitor : Server;
+  const Icon = Server;
   return (
     <span className="flex w-full min-w-0 items-center gap-1.5">
       <Icon
@@ -52,19 +48,16 @@ function RunnerOption({
 
 /** "Runs on" picker: This computer by default, or a paired runner. */
 export function RunnerPicker({
-  runners,
-  runnerId,
-  onRunnerChange,
-  unavailable,
+  targets,
+  value,
+  onChange,
 }: {
-  runners: Runner[];
-  runnerId: string | null;
-  onRunnerChange: (id: string | null) => void;
-  unavailable: boolean;
+  targets: LaunchTarget[];
+  value?: string;
+  onChange: (key: string) => void;
 }): JSX.Element | null {
   const runnerLabelId = useId();
-  const usable = runners.filter((r) => r.status !== "revoked");
-  if (usable.length === 0 && !runnerId) return null;
+  if (targets.length < 2) return null;
   return (
     <div className="w-44 shrink-0" data-testid="runner-picker">
       <div className="space-y-1">
@@ -72,9 +65,9 @@ export function RunnerPicker({
           Runs on
         </label>
         <Select
-          value={runnerId ?? THIS_COMPUTER}
-          onValueChange={(next) => {
-            if (next) onRunnerChange(next === THIS_COMPUTER ? null : next);
+          value={value ?? ""}
+          onValueChange={(key) => {
+            if (key) onChange(key);
           }}
         >
           <SelectTrigger
@@ -85,31 +78,15 @@ export function RunnerPicker({
             <SelectValue />
           </SelectTrigger>
           <SelectContent align="end" className="min-w-48">
-            <SelectItem value={THIS_COMPUTER}>
-              <RunnerOption local name="This computer" status="online" />
-            </SelectItem>
-            {unavailable && runnerId ? (
-              <SelectItem value={runnerId} disabled>
-                <RunnerOption
-                  name={
-                    runners.find((r) => r.id === runnerId)?.name ?? "Runner"
-                  }
-                  status="unavailable"
-                />
-              </SelectItem>
-            ) : null}
-            {usable.map((runner) => (
+            {targets.map((target) => (
               <SelectItem
-                key={runner.id}
-                value={runner.id}
-                disabled={runner.status !== "online"}
-                data-testid={`create-agent-runner-option-${runner.id}`}
+                key={target.key}
+                value={target.key}
+                data-testid={`create-agent-runner-option-${target.key}`}
               >
                 <RunnerOption
-                  name={runner.name}
-                  status={
-                    runner.status === "revoked" ? "offline" : runner.status
-                  }
+                  name={target.name}
+                  status={target.status as "online" | "offline" | "pending"}
                 />
               </SelectItem>
             ))}

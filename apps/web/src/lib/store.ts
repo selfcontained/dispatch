@@ -218,10 +218,21 @@ export const createUseWorktreePrefAtom = atomFamily((cwd: string) =>
 export const createFullAccessPrefAtom = atomFamily((cwd: string) =>
   atomWithLocalStorage<boolean>(`dispatch:fullAccess:${cwd}`, true)
 );
-export const createBaseBranchPrefAtom = atomFamily((cwd: string) =>
-  atomWithLocalStorage<string>(`dispatch:baseBranch:${cwd}`, "main", {
-    legacyRawString: true,
-  })
+type BranchPreference = string | { key: string; defaultValue: string };
+const branchPreference = (value: BranchPreference) =>
+  typeof value === "string" ? { key: value, defaultValue: "main" } : value;
+export const createBaseBranchPrefAtom = atomFamily(
+  (value: BranchPreference) => {
+    const config = branchPreference(value);
+    return atomWithLocalStorage<string>(
+      `dispatch:baseBranch:${config.key}`,
+      config.defaultValue,
+      { legacyRawString: true }
+    );
+  },
+  (a, b) =>
+    branchPreference(a).key === branchPreference(b).key &&
+    branchPreference(a).defaultValue === branchPreference(b).defaultValue
 );
 
 // Per-project, per-runtime model preference for the Create Agent dialog.

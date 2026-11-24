@@ -156,6 +156,24 @@ it("probes Git in the checkout named by the local binding", async () => {
   ]);
 });
 
+it("serves folder branches through the real core handler and socket", async () => {
+  const result = { branches: ["release", "master"], defaultBranch: "master" };
+  const { connection, calls, fence } = await harness(() => result);
+  await fence.freeze();
+  cleanups.push(() => fence.thaw());
+  await expect(
+    connection.call("git.branches", {
+      target: { path: pathFromWire("/repository") },
+    })
+  ).resolves.toEqual(result);
+  expect(calls).toEqual([
+    {
+      op: "git.branches",
+      input: { directory: "/repository", request: {} },
+    },
+  ]);
+});
+
 describe("core checkout reads", () => {
   it("resolves a session's target from its binding, by selector", async () => {
     const { connection, calls } = await harness(() => listing);

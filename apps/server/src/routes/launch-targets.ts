@@ -1,9 +1,17 @@
+import type { AgentManager } from "../agents/manager.js";
+import {
+  sameRunner,
+  pathFromWire,
+  type Runners,
+  type Req,
+} from "@dispatch/runner-protocol/contract";
 import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { TemplateService } from "../templates/service.js";
 import type { TaskService } from "../tasks/service.js";
 import {
   controllerPlacement,
+  placementForRunner,
   runnerIdForPlacement,
 } from "../runners/placement.js";
 import {
@@ -52,6 +60,8 @@ const query = (values: Record<string, string | undefined>) => {
 export async function registerLaunchTargetRoutes(
   app: FastifyInstance,
   deps: {
+    runners: Pick<Runners, "for">;
+    agents: Pick<AgentManager, "getAgent">;
     templates: Pick<TemplateService, "getTemplate">;
     tasks: Pick<TaskService, "store">;
   }
@@ -111,6 +121,8 @@ export async function registerLaunchTargetRoutes(
     status: target.status,
     location: target.location,
     dataUrl: `${ROOT}/${target.key}`,
+    branchesUrl: `${ROOT}/${target.key}/branches`,
+    defaultBaseBranch: target.location.kind === "folder" ? "main" : "",
     launchFields: fields(target),
     selectionFields: { runner: target.id },
   });
@@ -172,6 +184,33 @@ export async function registerLaunchTargetRoutes(
 
   app.get(`${ROOT}/saved/:kind/:id`, async (request) => {
     const { kind, id } = request.params as { kind: string; id: string };
+    if (kind === "agent") {
+      const agent = await deps.agents.getAgent(id);
+      if (!agent)
+        throw Object.assign(new Error("Agent not found."), { statusCode: 404 });
+      const runner = runnerIdForPlacement(agent.placement);
+      const target = (await targets(request)).find((t) => t.id === runner);
+      if (!target)
+        throw Object.assign(new Error("Runner not found."), {
+          statusCode: 404,
+        });
+      const folder = agent.workspacePath
+        ? agent.gitContext?.repoRoot?.trim() || agent.workspacePath.trim()
+        : agent.launchCwd?.trim() ||
+          agent.gitContext?.repoRoot?.trim() ||
+          agent.cwd.trim();
+      const reviewFolder =
+        agent.workspacePath ?? agent.worktreePath ?? agent.cwd;
+      return {
+        targetKey: keyFor(runner),
+        projectId: agent.projectId ?? null,
+        directory: target?.location.kind === "folder" ? folder : "",
+        reviewPreferenceKey:
+          target?.location.kind === "folder"
+            ? reviewFolder
+            : JSON.stringify([keyFor(runner), agent.id]),
+      };
+    }
     let saved;
     let inherited = false;
     let projectId: string | null | undefined;
@@ -207,6 +246,13 @@ export async function registerLaunchTargetRoutes(
       inherited,
       projectId: projectId ?? saved.projectId ?? null,
       directory: target?.location.kind === "folder" ? saved.directory : "",
+      locationLabel:
+        target?.location.kind === "folder"
+          ? saved.directory
+          : ((await project(request, projectId ?? saved.projectId ?? undefined))
+              ?.name ??
+            target?.name ??
+            ""),
       launchFields: inherited
         ? {}
         : target
@@ -216,23 +262,60 @@ export async function registerLaunchTargetRoutes(
   });
 
   app.get(`${ROOT}/:key/branches`, async (request, reply) => {
-    const target = await selected(request);
+    const selectedTarget = await selected(request);
     const q = request.query as { directory?: string; projectId?: string };
-    if (target.location.kind === "folder")
-      return read(
-        request,
-        `/api/v1/git/branches?${query({ cwd: q.directory })}`
-      );
-    if (!q.projectId)
-      return reply.code(400).send({ error: "Choose a runner and repository." });
-    const repository = await read<{ url: string | null }>(
-      request,
-      `/api/v1/projects/${encodeURIComponent(q.projectId)}/repository`
-    );
-    return read(
-      request,
-      `/api/v1/git/branches?${query({ runnerId: target.id, repository: repository.url ?? "" })}`
-    );
+    const inputs: Record<
+      Target["location"]["kind"],
+      () => Promise<Req<"git.branches">["target"]>
+    > = {
+      folder: async () => {
+        if (typeof q.directory !== "string" || !q.directory.trim())
+          throw Object.assign(new Error("cwd query parameter is required."), {
+            statusCode: 400,
+          });
+        return { path: pathFromWire(q.directory.trim()) };
+      },
+      project: async () => {
+        if (!q.projectId)
+          throw Object.assign(new Error("Choose a runner and repository."), {
+            statusCode: 400,
+          });
+        const repository = await read<{ url: string | null }>(
+          request,
+          `/api/v1/projects/${encodeURIComponent(q.projectId)}/repository`
+        );
+        if (!repository.url)
+          throw Object.assign(
+            new Error("Choose a valid HTTPS repository URL."),
+            { statusCode: 400 }
+          );
+        return { repository: repository.url };
+      },
+    };
+    let target: Req<"git.branches">["target"];
+    try {
+      target = await inputs[selectedTarget.location.kind]();
+    } catch (error) {
+      return reply
+        .code((error as { statusCode?: number }).statusCode ?? 400)
+        .send({ error: (error as Error).message });
+    }
+    try {
+      const runner = deps.runners.for(placementForRunner(selectedTarget.id));
+      const result = await runner.call("git.branches", { target });
+      return {
+        ...result,
+        branches: [...result.branches].sort((a, b) => {
+          if (a === "main") return -1;
+          if (b === "main") return 1;
+          if (a === "master") return -1;
+          if (b === "master") return 1;
+          return a.localeCompare(b);
+        }),
+      };
+    } catch {
+      return reply.code(500).send({ error: "Failed to list remote branches." });
+    }
   });
 
   app.get(`${ROOT}/:key`, async (request) => {
@@ -244,12 +327,20 @@ export async function registerLaunchTargetRoutes(
       model?: string;
     };
     const p = await project(request, q.projectId);
-    const directory = p?.repoRoot ?? q.directory ?? "";
+    const requestedDirectory = p?.repoRoot ?? q.directory ?? "";
+    const directory =
+      target.location.kind === "folder" &&
+      !sameRunner(
+        targetPlacement({ directory: requestedDirectory }),
+        controllerPlacement
+      )
+        ? ""
+        : requestedDirectory;
     const settings = await read<{ enabledAgentTypes: string[] }>(
       request,
       "/api/v1/app/settings/agent-types"
     );
-    const engine = q.agentType ?? settings.enabledAgentTypes[0] ?? "claude";
+    let engine = q.agentType ?? settings.enabledAgentTypes[0] ?? "claude";
     let catalog: Catalog;
     let engines: unknown;
     let engineOptions: EngineOption[] | null;
@@ -280,6 +371,8 @@ export async function registerLaunchTargetRoutes(
           install: metadata.engines.find((m) => m.id === entry.id)?.install,
         })) ?? null;
       agentTypes = inventory.entries?.map((e) => e.id) ?? agentTypes;
+      if (agentTypes.length && !agentTypes.includes(engine))
+        engine = agentTypes[0]!;
       const { ack } = await read<{
         ack: {
           ok: boolean;
@@ -344,6 +437,10 @@ export async function registerLaunchTargetRoutes(
             ? directory.trim()
             : JSON.stringify([target.key, q.projectId ?? null]),
         launchFields: fields(target),
+        templateFields:
+          target.location.kind === "folder"
+            ? {}
+            : { directory: located.directory },
       },
     };
   });

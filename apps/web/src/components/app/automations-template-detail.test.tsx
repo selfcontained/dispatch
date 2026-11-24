@@ -43,6 +43,9 @@ it("shows a failed delete in the dialog and can retry it", async () => {
       if (++attempts === 1) throw new Error("Delete broke");
       return {};
     }
+    if (path === "/api/v1/launch-targets") return { targets: [] };
+    if (path.startsWith("/api/v1/launch-targets/saved/"))
+      return { targetKey: "fixture" };
     if (path.startsWith("/api/v1/templates"))
       return [
         {

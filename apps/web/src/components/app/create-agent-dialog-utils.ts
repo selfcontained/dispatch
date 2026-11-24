@@ -1,4 +1,3 @@
-import { isLocalFolder } from "./path-input-utils";
 import { useCallback, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAtom } from "jotai";
@@ -34,8 +33,7 @@ export function readStoredString(key: string): string {
 }
 
 export function readLastUsedCwd(): string {
-  const cwd = readStoredString(LAST_USED_CWD_KEY);
-  return isLocalFolder(cwd) ? cwd : "~/";
+  return readStoredString(LAST_USED_CWD_KEY) || "~/";
 }
 
 export function readLastUsedAgentType(): AgentType | null {
@@ -201,20 +199,24 @@ export function useCwdHistory() {
 export function useCreateAgentPrefs(
   cwd: string,
   agentType: AgentType,
-  runnerProjectId?: string | null
+  baseBranchDefault = "main"
 ) {
   const trimmedCwd = cwd.trim();
-  const personaScopeKey = runnerProjectId
-    ? JSON.stringify([trimmedCwd, runnerProjectId])
-    : trimmedCwd;
   const [persona, setPersona] = useAtom(
-    useMemo(() => createPersonaPrefAtom(personaScopeKey), [personaScopeKey])
+    useMemo(() => createPersonaPrefAtom(trimmedCwd), [trimmedCwd])
   );
   const [fullAccess, setFullAccess] = useAtom(
     useMemo(() => createFullAccessPrefAtom(trimmedCwd), [trimmedCwd])
   );
   const [baseBranch, setBaseBranch] = useAtom(
-    useMemo(() => createBaseBranchPrefAtom(trimmedCwd), [trimmedCwd])
+    useMemo(
+      () =>
+        createBaseBranchPrefAtom({
+          key: trimmedCwd,
+          defaultValue: baseBranchDefault,
+        }),
+      [trimmedCwd, baseBranchDefault]
+    )
   );
   const [useWorktree, setUseWorktree] = useAtom(
     useMemo(() => createUseWorktreePrefAtom(trimmedCwd), [trimmedCwd])

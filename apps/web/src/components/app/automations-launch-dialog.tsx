@@ -1,3 +1,7 @@
+import {
+  useLaunchTargets,
+  useLaunchTargetData,
+} from "@/hooks/use-launch-targets";
 import { AgentConfigRow } from "./agent-config-row";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -29,10 +33,7 @@ import {
   type Template,
 } from "@/hooks/use-templates";
 import { type AgentType } from "@/lib/agent-types";
-import {
-  useAgentModelCatalog,
-  useAgentEffortChoices,
-} from "@/hooks/use-agent-model-catalog";
+import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import { agentRoute } from "@/lib/agent-routes";
 import { effortCompatibilityError } from "@/lib/agent-effort";
 import { Alert } from "@/components/ui/alert";
@@ -91,12 +92,22 @@ function LaunchTemplateDialogContent({
   const modelByAgentType = useRef<Partial<Record<AgentType, string | null>>>({
     [template.agentType]: template.model,
   });
+  const target = useLaunchTargets({ kind: "template", id: template.id });
+  const data = useLaunchTargetData(target.target, {
+    directory: template.directory,
+    projectId: template.projectId,
+    agentType,
+    model,
+  });
   const {
     options: modelOptions,
     savedOption,
     loading: modelCatalogLoading,
     loaded: modelCatalogLoaded,
-  } = useAgentModelCatalog(agentType);
+  } = useAgentModelCatalog(agentType, true, {
+    data: data.info?.catalog,
+    loading: target.list.isLoading || data.catalogLoading,
+  });
   const showModelSelect = modelCatalogLoading || modelOptions.length > 0;
 
   const showFiles = template.allowFiles;
@@ -149,7 +160,7 @@ function LaunchTemplateDialogContent({
     args.length === 0 ||
     args.every((a) => !a.error && (!a.required || argValues[a.key]?.trim()));
 
-  const effortChoices = useAgentEffortChoices(agentType, model);
+  const effortChoices = data.effort;
   const effortError = effortCompatibilityError(effort, effortChoices);
 
   const handleLaunch = useCallback(() => {
@@ -258,7 +269,7 @@ function LaunchTemplateDialogContent({
               id="launch-template-agent-type"
               value={agentType}
               onChange={handleAgentTypeChange}
-              agentTypes={agentTypes}
+              agentTypes={data.info?.agentTypes ?? agentTypes}
             />
             {showModelSelect ? (
               <AgentModelSelect
@@ -273,6 +284,8 @@ function LaunchTemplateDialogContent({
             ) : null}
             <AgentEffortSelect
               model={model}
+              workload
+              workloadChoices={effortChoices}
               value={effort}
               onChange={setEffort}
               agentType={agentType}

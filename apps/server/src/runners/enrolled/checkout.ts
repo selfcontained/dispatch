@@ -242,6 +242,21 @@ export function createEnrolledCheckoutRunner(
       options?: CallOptions<K>
     ): Promise<Res<K>> {
       if (op === "runner.describe") return describe() as Res<K>;
+      if (
+        op === "git.branches" &&
+        "repository" in (input as Req<"git.branches">).target
+      ) {
+        if (!service)
+          throw new RunnerCallError({
+            code: "unavailable",
+            message: "The runner is unavailable.",
+          });
+        const { target } = input as Req<"git.branches">;
+        return service.listRepositoryBranches(
+          runnerId,
+          target as { repository: string }
+        ) as Promise<Res<K>>;
+      }
       // A repository's default-branch files before any session exists.
       if (
         op === "checkout.defaultFiles" &&

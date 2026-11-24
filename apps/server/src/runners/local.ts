@@ -1,3 +1,4 @@
+import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import {
   displayPath,
   pathFromWire,
@@ -590,6 +591,32 @@ export function createLocalCheckoutRunner(
     return workspaceWorkload.resolvePath(requested, rest);
   }
 
+  /** Folder branch reads use the child, or the same workload if it cannot answer. */
+  async function branches(
+    input: Req<"git.branches">,
+    options?: CallOptions<"git.branches">
+  ): Promise<Res<"git.branches">> {
+    if (!("path" in input.target))
+      throw new RunnerCallError({
+        code: "unsupported",
+        message: "Branches are read for a path.",
+      });
+    const directory = resolveTilde(displayPath(input.target.path));
+    const request = { target: { path: pathFromWire(directory) } };
+    if (child?.connection.state === "ready")
+      try {
+        return await child.call("git.branches", request, options);
+      } catch (error) {
+        if (!childUnavailable(error)) throw error;
+        options?.signal?.throwIfAborted();
+      }
+    return checkoutWorkload.run(
+      "git.branches",
+      { directory, request: {} },
+      { signal: options?.signal }
+    );
+  }
+
   /** A folder's default branch: in the child when it serves this session, else in process (R3). */
   async function defaultBranch(
     input: Req<"git.defaultBranch">,
@@ -806,6 +833,11 @@ export function createLocalCheckoutRunner(
         return resolvePath(
           input as Req<"path.resolve">,
           options as CallOptions<"path.resolve">
+        ) as Promise<Res<K>>;
+      if (op === "git.branches")
+        return branches(
+          input as Req<"git.branches">,
+          options as CallOptions<"git.branches">
         ) as Promise<Res<K>>;
       if (op === "git.defaultBranch")
         return defaultBranch(

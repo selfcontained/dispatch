@@ -206,6 +206,27 @@ beforeEach(() => {
   apiMock.mockReset();
   launchQueue.length = 0;
   apiMock.mockImplementation(((path: string) => {
+    if (path === "/api/v1/launch-targets")
+      return Promise.resolve({
+        targets: [
+          {
+            key: "fixture-target",
+            dataUrl: "/fixture/data",
+            location: { kind: "folder" },
+          },
+        ],
+      });
+    if (path.startsWith("/api/v1/launch-targets/saved"))
+      return Promise.resolve({ targetKey: "fixture-target" });
+    if (path.startsWith("/fixture/data")) {
+      const q = new URL(path, "http://fixture").searchParams;
+      const type = q.get("agentType") as keyof typeof MODEL_CATALOG.models;
+      const options = MODEL_CATALOG.models[type];
+      return Promise.resolve({
+        catalog: MODEL_CATALOG,
+        effort: options?.find((m) => m.id === q.get("model"))?.effort,
+      });
+    }
     if (path === "/api/v1/agent-models") return Promise.resolve(MODEL_CATALOG);
     const responder = launchQueue.shift();
     if (!responder) throw new Error(`unexpected api call: ${path}`);

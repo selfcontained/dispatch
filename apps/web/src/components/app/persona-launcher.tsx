@@ -1,4 +1,7 @@
-import { remotePlacement } from "@dispatch/runner-protocol";
+import {
+  useLaunchTargets,
+  useLaunchTargetData,
+} from "@/hooks/use-launch-targets";
 import { useAtom } from "jotai";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -9,8 +12,6 @@ import { type Agent } from "@/components/app/types";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { SplitButton } from "@/components/ui/split-button";
 import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
-import { useRunnerModelCatalog } from "@/hooks/use-runner-engines";
-import { useRunners } from "@/hooks/use-runners";
 import { api } from "@/lib/api";
 import {
   AGENT_TYPE_LABELS,
@@ -57,10 +58,12 @@ export function PersonaLauncher({
 }): JSX.Element {
   const queryClient = useQueryClient();
   const cwd = agent.workspacePath ?? agent.worktreePath ?? agent.cwd;
-  const runnerId = remotePlacement(agent.cwd)?.runner ?? null;
-  const reviewerTypes = enabledAgentTypes.filter(isCliAgentType);
-  const showReviewAgentTypePicker = reviewerTypes.length > 1;
   const [dialogOpen, setDialogOpen] = useState(false);
+  const target = useLaunchTargets(
+    { kind: "agent", id: agent.id },
+    undefined,
+    dialogOpen
+  );
   const [selectedPersonas, setSelectedPersonas] = useState<string[]>([]);
   const [codeownersSelected, setCodeownersSelected] = useState(false);
   const [note, setNote] = useState("");
@@ -68,34 +71,30 @@ export function PersonaLauncher({
     defaultReviewAgentType(agent)
   );
 
+  const data = useLaunchTargetData(
+    target.target,
+    {
+      directory: target.projection.data?.directory ?? "",
+      projectId: target.projection.data?.projectId,
+      agentType: selectedAgentType,
+    },
+    dialogOpen
+  );
+  const reviewerTypes = (data.info?.agentTypes ?? enabledAgentTypes).filter(
+    isCliAgentType
+  );
+  const showReviewAgentTypePicker = reviewerTypes.length > 1;
+  const preferenceKey = target.projection.data?.reviewPreferenceKey ?? cwd;
   const modelAtom = useMemo(
-    () =>
-      reviewAgentModelPrefAtom(
-        runnerId
-          ? `runner://${encodeURIComponent(runnerId)}:${selectedAgentType}:${cwd}`
-          : `${selectedAgentType}:${cwd}`
-      ),
-    [selectedAgentType, cwd, runnerId]
+    () => reviewAgentModelPrefAtom(`${selectedAgentType}:${preferenceKey}`),
+    [selectedAgentType, preferenceKey]
   );
   const [selectedModel, setSelectedModel] = useAtom(modelAtom);
-
-  const localCatalog = useAgentModelCatalog(selectedAgentType, !runnerId);
-  const runners = useRunners({ enabled: dialogOpen && Boolean(runnerId) });
-  const online =
-    runners.data?.find((runner) => runner.id === runnerId)?.status === "online";
-  const runnerCatalog = useRunnerModelCatalog(
-    runnerId,
-    selectedAgentType,
-    dialogOpen && online
-  );
-  const modelOptions = runnerId
-    ? online && !runnerCatalog.isError
-      ? (runnerCatalog.data?.models ?? [])
-      : []
-    : localCatalog.options;
-  const modelCatalogLoading = runnerId
-    ? runners.isLoading || runnerCatalog.isLoading
-    : localCatalog.loading;
+  const { options: modelOptions, loading: modelCatalogLoading } =
+    useAgentModelCatalog(selectedAgentType, true, {
+      data: data.info?.catalog,
+      loading: target.list.isLoading || data.catalogLoading,
+    });
   const showModelSelect = modelCatalogLoading || modelOptions.length > 0;
 
   const { data: personaCatalog, isPending: personasPending } = useQuery<{

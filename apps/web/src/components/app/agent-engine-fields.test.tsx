@@ -41,10 +41,14 @@ vi.mock("./use-create-agent-form", async () => {
         createCwd: "/repo",
         createFullAccess: true,
         locationReady: true,
-        runners: [],
-        runnerId: null,
-        runnerUnavailable: false,
-        selectRunner: vi.fn(),
+        launch: {
+          list: { data: [], isError: false },
+          projection: { isError: false },
+          target: undefined,
+        },
+        targetData: { isError: false },
+        engines,
+        chooseTarget: vi.fn(),
         creating: false,
       };
     },
@@ -126,6 +130,24 @@ beforeAll(() => {
 });
 beforeEach(() => {
   api.mockImplementation(async (path: string) => {
+    if (path === "/api/v1/launch-targets")
+      return {
+        targets: [
+          {
+            key: "fixture",
+            dataUrl: "/fixture/data",
+            location: { kind: "folder" },
+          },
+        ],
+      };
+    if (path.startsWith("/api/v1/launch-targets/saved/"))
+      return { targetKey: "fixture" };
+    if (path.startsWith("/fixture/data"))
+      return {
+        catalog: { models },
+        agentTypes: enabledAgentTypes,
+        engineOptions: engines,
+      };
     if (path === "/api/v1/system/engines") return { engines };
     if (path === "/api/v1/agent-models") return { models };
     return [];
@@ -223,8 +245,10 @@ it("renders the installed engine's block the same in both hosts", async () => {
   createType.value = templateType.value = "codex";
   renderHost("trigger");
   await settle(true);
-  // The binary and its path stay out of the form rows.
-  expect(screen.queryByText(/\/opt\/homebrew\/bin\/codex/)).toBeNull();
+  // Main names the installed engine under the shared configuration row.
+  expect(screen.getByTestId("task-trigger-engine").textContent).toContain(
+    "/opt/homebrew/bin/codex"
+  );
   expect(screen.getByRole("combobox", { name: "Type" }).textContent).toContain(
     "Codex"
   );
@@ -259,5 +283,5 @@ it("keeps the Model field in Create Agent without a catalog", async () => {
   const trigger = await blockIn("trigger", false);
   expect(create).toContain("create-agent-model");
   expect(trigger).toContain("grid-cols-[minmax(0,1fr)_4.75rem]");
-  expect(trigger).not.toContain("/usr/local/bin/opencode");
+  expect(trigger).toContain("/usr/local/bin/opencode");
 });
