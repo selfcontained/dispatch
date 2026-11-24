@@ -43,6 +43,7 @@ type Projection = {
   projectId: string | null;
   directory: string;
   reviewPreferenceKey?: string;
+  locationLabel?: string;
 };
 
 /** Selection belongs to the mounted form. Keys and read URLs are never decoded. */

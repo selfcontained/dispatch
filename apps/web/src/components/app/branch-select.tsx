@@ -72,7 +72,7 @@ export function BranchSelect({
 
   const fetchBranches = useCallback(async () => {
     const trimmed = source;
-    if (!trimmed || disabled) return;
+    if (!trimmed || disabled || pendingSource.current === trimmed) return;
     pendingSource.current = trimmed;
     setBranchesLoading(true);
     setFetchError(null);
@@ -109,13 +109,13 @@ export function BranchSelect({
 
   useEffect(() => {
     if (
-      dropdownOpen &&
+      (dropdownOpen || sourceUrl !== undefined) &&
       source &&
       fetchedForCwd !== source &&
       pendingSource.current !== source
     )
       void fetchBranches();
-  }, [dropdownOpen, source, fetchedForCwd, fetchBranches]);
+  }, [dropdownOpen, sourceUrl, source, fetchedForCwd, fetchBranches]);
 
   // Keep the saved baseBranch selectable even if the fetched list doesn't
   // include it (branch renamed/deleted upstream). We flag it visually in
@@ -189,7 +189,7 @@ export function BranchSelect({
             {baseBranch ||
               (fetchedForCwd === source ? reportedDefault : "") ||
               defaultBaseBranch ||
-              "Repository default"}
+              ""}
           </ComboboxTrigger>
           <ComboboxContent
             label="Search branches"
@@ -213,18 +213,15 @@ export function BranchSelect({
                 !remoteBranches.includes(branch);
               return (
                 <ComboboxItem
-                  key={branch || reportedDefault || "Repository default"}
-                  value={branch || reportedDefault || "Repository default"}
+                  key={branch || reportedDefault || ""}
+                  value={branch || reportedDefault || ""}
                   selected={branch === baseBranch}
                   data-testid={`${testIdPrefix}-base-branch-option`}
                   className="font-mono"
                   onSelect={() => onBaseBranchChange(branch)}
                 >
                   <span className="min-w-0 break-all">
-                    {branch ||
-                      reportedDefault ||
-                      defaultBaseBranch ||
-                      "Repository default"}
+                    {branch || reportedDefault || defaultBaseBranch || ""}
                   </span>
                   {isMissing ? (
                     <span className="ml-auto text-label-xs uppercase tracking-wide text-warning-ink">

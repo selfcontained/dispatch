@@ -246,6 +246,13 @@ export async function registerLaunchTargetRoutes(
       inherited,
       projectId: projectId ?? saved.projectId ?? null,
       directory: target?.location.kind === "folder" ? saved.directory : "",
+      locationLabel:
+        target?.location.kind === "folder"
+          ? saved.directory
+          : ((await project(request, projectId ?? saved.projectId ?? undefined))
+              ?.name ??
+            target?.name ??
+            ""),
       launchFields: inherited
         ? {}
         : target

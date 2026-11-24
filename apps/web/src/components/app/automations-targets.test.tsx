@@ -67,6 +67,8 @@ function fixture(targets = [controller], template?: Record<string, unknown>) {
     if (url === "/api/v1/launch-targets") return { targets };
     if (url.startsWith("/api/v1/launch-targets/saved/"))
       return { targetKey: enrolled.key, projectId: "project", directory: "" };
+    if (url === "/fixture/branches")
+      return { branches: ["main"], defaultBranch: "main" };
     if (url.startsWith("/fixture/"))
       return {
         agentTypes: url.startsWith(enrolled.dataUrl)

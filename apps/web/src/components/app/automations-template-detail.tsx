@@ -199,8 +199,14 @@ function TemplateDetail({
       <PageHeader
         title={template.name}
         description={
-          <span title={template.description || template.directory}>
-            {template.description || shortPath(template.directory)}
+          <span
+            title={
+              template.description ||
+              target.launch.projection.data?.locationLabel
+            }
+          >
+            {template.description ||
+              shortPath(target.launch.projection.data?.locationLabel ?? "")}
           </span>
         }
         actions={
@@ -224,7 +230,7 @@ function TemplateDetail({
       <PageContent className="space-y-4">
         {template.description ? (
           <p className="break-all font-mono text-body-sm text-muted-foreground">
-            {shortPath(template.directory)}
+            {shortPath(target.launch.projection.data?.locationLabel ?? "")}
           </p>
         ) : null}
         {savedArgs.length > 0 ? (

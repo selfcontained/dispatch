@@ -279,3 +279,27 @@ it("waits for its data URL and fetches it when an open dropdown becomes ready", 
   ).toBeTruthy();
   expect(vi.mocked(api).mock.calls).toEqual([["/fixture/ready"]]);
 });
+
+it("shows the reported default before opening without changing the implicit payload value", async () => {
+  vi.mocked(api).mockResolvedValue({
+    branches: ["master", "release"],
+    defaultBranch: "master",
+  });
+  const changed = vi.fn();
+  render(
+    <BranchSelect
+      {...props}
+      sourceUrl="/fixture/default"
+      defaultBaseBranch=""
+      baseBranch=""
+      onBaseBranchChange={changed}
+    />,
+    { wrapper: wrapper() }
+  );
+  await waitFor(() =>
+    expect(
+      screen.getByRole("combobox", { name: "Base branch" }).textContent
+    ).toBe("master")
+  );
+  expect(changed).not.toHaveBeenCalled();
+});
