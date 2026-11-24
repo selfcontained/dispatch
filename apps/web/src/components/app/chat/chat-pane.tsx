@@ -239,6 +239,32 @@ const JUMP_INTERRUPTS = [
   "pointerdown",
   "keydown",
 ] as const;
+/**
+ * After the reader's last wheel, touch, pointer or key input, scroll events
+ * this soon still count as theirs: trackpad and touch momentum keep the
+ * feed moving after the input itself has stopped.
+ */
+const READER_SCROLL_MS = 400;
+/** Keys that scroll whatever scroller the page is on, from anywhere but a field. */
+const SCROLL_KEYS = new Set([
+  "PageUp",
+  "PageDown",
+  "Home",
+  "End",
+  "ArrowUp",
+  "ArrowDown",
+  " ",
+]);
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return (
+    target.isContentEditable ||
+    target.tagName === "INPUT" ||
+    target.tagName === "TEXTAREA" ||
+    target.tagName === "SELECT"
+  );
+}
 
 /**
  * Where a reader was in one agent's feed.
@@ -455,7 +481,8 @@ function scrollToAnchor(el: HTMLElement, anchors: ChatScrollAnchor[]): boolean {
       node.getBoundingClientRect().top -
       el.getBoundingClientRect().top -
       anchor.offset;
-    el.scrollTop += delta;
+    // Sub-pixel slack: re-applying a place already held must not scroll.
+    if (Math.abs(delta) >= 1) el.scrollTop += delta;
     return true;
   }
   return false;
@@ -470,6 +497,16 @@ export const REMEMBER_THROTTLE_MS = 50;
 
 /** How long the feed must sit still before the final, exact record. */
 export const REMEMBER_SETTLE_MS = 150;
+
+/**
+ * How long a place restored on return is held while the feed settles under
+ * it. Rows around it mount and measure in the frames after the restore;
+ * WebKit can move the scroller thousands of px while they do, further than
+ * the windowed feed's own hold treats as anything but a jump, and the
+ * reader came back somewhere else (which was then remembered over the
+ * right place). The reader's own input ends the hold at once.
+ */
+export const RESTORE_HOLD_MS = 1500;
 
 export function ChatPane({
   agentId,
@@ -546,9 +583,24 @@ export function ChatPane({
   const [following, setFollowing] = useState(
     () => savedPositionRef.current?.following ?? true
   );
+  /**
+   * Whether the reader is following the bottom. Only the reader turns it
+   * off, by scrolling away from the bottom themselves (or the pane does, on
+   * purpose: a jump to a row, the start of a tall reply, a restore). Where
+   * the scroller happens to sit after a layout change says nothing about
+   * intent: a streaming row that shrinks and regrows in one commit has
+   * WebKit clamp scrollTop hundreds of px above the bottom, and reading
+   * that as the reader leaving stopped the stream tailing for good.
+   */
+  const followingRef = useRef(savedPositionRef.current?.following ?? true);
   const updateFollowing = useCallback((value: boolean) => {
+    followingRef.current = value;
     setFollowing(value);
   }, []);
+  /** Until when scroll events count as the reader's own (see READER_SCROLL_MS). */
+  const readerScrollUntilRef = useRef(0);
+  /** A pointer or finger is down on the feed: it may be dragging the scrollbar or the feed. */
+  const readerHoldingRef = useRef(false);
   const [pendingBelow, setPendingBelow] = useState(false);
   /** Scrolled up far enough that a way back to the bottom is worth showing. */
   const [farFromBottom, setFarFromBottom] = useState(false);
@@ -578,6 +630,49 @@ export function ChatPane({
   const ANCHOR_HOLD_MS = 1200;
   const olderLoadRef = useRef<{ height: number; top: number } | null>(null);
   const restoredRef = useRef(false);
+  /** The windowed feed's own hold on the reader's place (see ChatFeed). */
+  const placeRef = useRef<FeedPlace | null>(null);
+  /**
+   * Put a place restored on return back where it was restored to, if the
+   * feed settling under it has moved it. Nothing while no hold is on.
+   */
+  const reapplyRestore = useCallback((el: HTMLElement) => {
+    if (restoreHoldUntilRef.current === 0) return;
+    if (Date.now() >= restoreHoldUntilRef.current) return;
+    const saved = savedPositionRef.current;
+    if (saved && !saved.following && scrollToAnchor(el, saved.anchors))
+      placeRef.current?.takeHere();
+  }, []);
+  /** Until when the restored place is held (see RESTORE_HOLD_MS). */
+  const restoreHoldUntilRef = useRef(0);
+  const restoreHoldTimerRef = useRef<number | null>(null);
+  /** While held, the restored rows stay rendered wherever the window is. */
+  const [restoreHolding, setRestoreHolding] = useState(false);
+  const endRestoreHold = useCallback(() => {
+    restoreHoldUntilRef.current = 0;
+    if (restoreHoldTimerRef.current !== null) {
+      window.clearTimeout(restoreHoldTimerRef.current);
+      restoreHoldTimerRef.current = null;
+    }
+    setRestoreHolding(false);
+  }, []);
+  const startRestoreHold = useCallback(() => {
+    restoreHoldUntilRef.current = Date.now() + RESTORE_HOLD_MS;
+    if (restoreHoldTimerRef.current !== null)
+      window.clearTimeout(restoreHoldTimerRef.current);
+    restoreHoldTimerRef.current = window.setTimeout(
+      endRestoreHold,
+      RESTORE_HOLD_MS
+    );
+    setRestoreHolding(true);
+  }, [endRestoreHold]);
+  useEffect(
+    () => () => {
+      if (restoreHoldTimerRef.current !== null)
+        window.clearTimeout(restoreHoldTimerRef.current);
+    },
+    []
+  );
   const rememberTimerRef = useRef<number | null>(null);
   const rememberedAtRef = useRef(0);
   // Measure against the bottom before content changes. A browser clamp
@@ -635,18 +730,43 @@ export function ChatPane({
     const el = scrollRef.current;
     // The reader taking the wheel also ends the hold at a reply's start:
     // re-aligning as its body settles would pull them back up to it.
-    const interrupt = () => {
+    const markReader = () => {
+      readerScrollUntilRef.current = Date.now() + READER_SCROLL_MS;
+    };
+    const interrupt = (event: Event) => {
       cancelTail();
       anchorTurnRef.current = null;
+      if (restoreHoldUntilRef.current !== 0) endRestoreHold();
+      markReader();
+      if (event.type === "pointerdown" || event.type === "touchstart")
+        readerHoldingRef.current = true;
+    };
+    const release = () => {
+      if (!readerHoldingRef.current) return;
+      readerHoldingRef.current = false;
+      markReader();
+    };
+    // Page keys scroll the feed with focus outside it (on the page body).
+    const onKey = (event: KeyboardEvent) => {
+      if (!SCROLL_KEYS.has(event.key) || isEditableTarget(event.target)) return;
+      cancelTail();
+      if (restoreHoldUntilRef.current !== 0) endRestoreHold();
+      markReader();
     };
     for (const type of JUMP_INTERRUPTS)
       el?.addEventListener(type, interrupt, { passive: true });
+    const releases = ["pointerup", "pointercancel", "touchend", "touchcancel"];
+    for (const type of releases)
+      window.addEventListener(type, release, { passive: true });
+    window.addEventListener("keydown", onKey);
     return () => {
       cancelTail();
       for (const type of JUMP_INTERRUPTS)
         el?.removeEventListener(type, interrupt);
+      for (const type of releases) window.removeEventListener(type, release);
+      window.removeEventListener("keydown", onKey);
     };
-  }, [cancelTail]);
+  }, [cancelTail, endRestoreHold]);
 
   // While following, the bottom stays in view through every change in the
   // content's height, not only the ones the layout effect below can name: a
@@ -667,9 +787,7 @@ export function ChatPane({
     return Boolean(
       el &&
       anchoredRef.current === 0 &&
-      (tailTarget.current !== null ||
-        knownHeightRef.current - el.clientHeight - el.scrollTop <=
-          TAIL_BUFFER_PX)
+      (tailTarget.current !== null || followingRef.current)
     );
   }, []);
   // Windowing also checks after commits that only changed the composer.
@@ -690,6 +808,7 @@ export function ChatPane({
     const observer = new ResizeObserver(() => {
       const scroller = scrollRef.current;
       if (!scroller) return;
+      reapplyRestore(scroller);
       const contentChanged = scroller.scrollHeight !== knownHeightRef.current;
       // A growing draft changes the viewport, not the stream. Only a reader
       // at the previous viewport's bottom follows that resize; the buffer
@@ -712,10 +831,11 @@ export function ChatPane({
           knownHeightRef.current = scrollRef.current.scrollHeight;
         return;
       }
+      // A viewport-only resize re-pins only a reader exactly at the bottom;
+      // either way it leaves following as it was.
       const tailing =
         tailTarget.current !== null ||
-        (contentChanged ? isFollowing() : wasAtBottom);
-      updateFollowing(tailing);
+        (isFollowing() && (contentChanged || wasAtBottom));
       if (tailing) followBottom();
       if (scrollRef.current)
         knownHeightRef.current = scrollRef.current.scrollHeight;
@@ -723,7 +843,7 @@ export function ChatPane({
     observer.observe(el);
     if (scrollRef.current) observer.observe(scrollRef.current);
     return () => observer.disconnect();
-  }, [isFollowing, followBottom, updateFollowing]);
+  }, [isFollowing, followBottom, reapplyRestore]);
 
   // Reading every row's rect is too much to do on each scroll event, so
   // this is throttled rather than called from the handler directly.
@@ -772,6 +892,7 @@ export function ChatPane({
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    reapplyRestore(el);
     if (tailTarget.current !== null) followBottom();
     // A shrink may clamp the browser before the observer runs. Adopt the
     // shorter bottom now; growth must keep the previous bottom until pinned.
@@ -780,21 +901,40 @@ export function ChatPane({
       el.scrollHeight
     );
     const distance = knownHeightRef.current - el.scrollTop - el.clientHeight;
-    const atBottom = tailTarget.current !== null || distance <= TAIL_BUFFER_PX;
     setFarFromBottom(distance > JUMP_BUTTON_PX);
-    if (atBottom && Date.now() - anchoredRef.current < ANCHOR_HOLD_MS) {
-      rememberSoon();
-      return;
+    const held = Date.now() - anchoredRef.current < ANCHOR_HOLD_MS;
+    const now = Date.now();
+    if (readerHoldingRef.current || now < readerScrollUntilRef.current) {
+      // The reader's own scroll, momentum included: where they stop decides.
+      readerScrollUntilRef.current = Math.max(
+        readerScrollUntilRef.current,
+        now + READER_SCROLL_MS
+      );
+      const atBottom =
+        tailTarget.current !== null || distance <= TAIL_BUFFER_PX;
+      if (!(atBottom && held)) {
+        if (atBottom) anchoredRef.current = 0;
+        updateFollowing(atBottom);
+        if (atBottom) setPendingBelow(false);
+      }
+    } else {
+      const fromBottom = el.scrollHeight - el.clientHeight - el.scrollTop;
+      if (followingRef.current && anchoredRef.current === 0) {
+        // Not the reader: layout moved the scroller (a clamp while a row
+        // shrank and regrew). They are still following; put the bottom back.
+        if (tailTarget.current === null && fromBottom > 1) followBottom();
+      } else if (!held && fromBottom <= 2) {
+        // Arrived at the bottom without scrolling there themselves (the
+        // jump button's smooth trip, content below folding away).
+        anchoredRef.current = 0;
+        updateFollowing(true);
+        setPendingBelow(false);
+      }
     }
-    if (atBottom) anchoredRef.current = 0;
-    updateFollowing(atBottom);
-    if (atBottom) setPendingBelow(false);
     rememberSoon();
-  }, [followBottom, rememberSoon, updateFollowing]);
+  }, [followBottom, reapplyRestore, rememberSoon, updateFollowing]);
 
   const { loadOlder: fetchOlder } = feed;
-  /** The windowed feed's own hold on the reader's place (see ChatFeed). */
-  const placeRef = useRef<FeedPlace | null>(null);
 
   /**
    * The jump button's smooth scroll. Rows it passes mount and measure on
@@ -874,6 +1014,12 @@ export function ChatPane({
         seekingRef.current = false;
         restoredRef.current = true;
         placeRef.current?.takeHere();
+        // Back within reach of the bottom (content since then is short, or
+        // the row grew), the reader is following again; otherwise the place
+        // is held while the feed settles under it.
+        if (el.scrollHeight - el.clientHeight - el.scrollTop <= TAIL_BUFFER_PX)
+          updateFollowing(true);
+        else startRestoreHold();
         return true;
       }
       if (!hasOlder || seekPagesRef.current >= RESTORE_SEEK_PAGES) return false;
@@ -884,7 +1030,7 @@ export function ChatPane({
       }
       return true;
     },
-    [fetchOlder, hasOlder, isFetchingOlder]
+    [fetchOlder, hasOlder, isFetchingOlder, startRestoreHold, updateFollowing]
   );
 
   useLayoutEffect(() => {
@@ -1012,6 +1158,7 @@ export function ChatPane({
     shownAgentRef.current = agentId;
     savedPositionRef.current = readChatScrollPosition(agentId);
     restoredRef.current = false;
+    endRestoreHold();
     seekingRef.current = false;
     seekPagesRef.current = 0;
     updateFollowing(savedPositionRef.current?.following ?? true);
@@ -1023,7 +1170,7 @@ export function ChatPane({
     streamedTurnIdsRef.current = new Set();
     anchoredRef.current = 0;
     olderLoadRef.current = null;
-  }, [agentId, updateFollowing]);
+  }, [agentId, endRestoreHold, updateFollowing]);
 
   const wasActiveRef = useRef(active);
   useEffect(() => {
@@ -1119,10 +1266,11 @@ export function ChatPane({
     };
   }, [contextJumpId]);
 
-  const restoreIds = restoredRef.current
-    ? null
-    : (savedPositionRef.current?.anchors.map((a) => a.entryId).join("\n") ??
-      null);
+  const restoreIds =
+    restoredRef.current && !restoreHolding
+      ? null
+      : (savedPositionRef.current?.anchors.map((a) => a.entryId).join("\n") ??
+        null);
   const pinnedIds = useMemo(() => {
     const ids = new Set<string>(restoreIds ? restoreIds.split("\n") : []);
     if (jumpBlockId) ids.add(jumpBlockId);
@@ -1179,9 +1327,15 @@ export function ChatPane({
       // false and the reader's own message lands out of sight.
       anchoredRef.current = 0;
       anchorTurnRef.current = null;
+      const el = scrollRef.current;
+      const near =
+        tailTarget.current !== null ||
+        (el !== null &&
+          el.scrollHeight - el.clientHeight - el.scrollTop <= TAIL_BUFFER_PX);
       updateFollowing(true);
       setPendingBelow(false);
-      if (isFollowing()) followBottom();
+      // Near the bottom eases there; from further up it is a jump.
+      if (near) followBottom();
       else scrollToBottom();
       await sendAsync({
         text,
@@ -1193,7 +1347,6 @@ export function ChatPane({
     },
     [
       followBottom,
-      isFollowing,
       onDispatchCommand,
       postTo,
       scrollToBottom,
