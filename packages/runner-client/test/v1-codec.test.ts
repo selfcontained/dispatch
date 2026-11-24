@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   isCheckoutCommandFile,
   isCheckoutCommandResult,
@@ -172,6 +173,32 @@ describe("wire v1 results round-trip through the codec", () => {
       expect(json(encoded)).toStrictEqual(json(value));
     }
   );
+});
+
+describe("wire v1 checkout reads carry the contract digest", () => {
+  it("is SHA-256 of the UTF-8 text, as the workload computes it", () => {
+    const fixture = results.find(
+      ({ command, value }) =>
+        command.kind === "inspectCheckout" &&
+        command.query.kind === "readFile" &&
+        typeof value === "string" &&
+        value.includes('"content":"')
+    )!;
+    const decoded = decodeCommand(fixture.command, "digest") as Decoded;
+    const response = decodeResult(decoded, fixture.value, []) as {
+      data: string;
+      digest: string;
+    };
+    expect(response.digest).toBe(
+      createHash("sha256")
+        .update(Buffer.from(response.data, "utf8"))
+        .digest("hex")
+    );
+    // The legacy frame does not change.
+    expect(json(encodeResult(decoded, response as never))).toStrictEqual(
+      json(fixture.value)
+    );
+  });
 });
 
 describe("wire v1 errors", () => {

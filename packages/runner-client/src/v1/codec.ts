@@ -1075,7 +1075,18 @@ export function decodeResult<K extends OpName>(
         return out(file && { data: file.content, digest: file.state });
       }
       const { content } = parse(value) as { content: string | null };
-      return out(content === null ? null : { data: content });
+      // The digest a contract read carries: SHA-256 of the UTF-8 text,
+      // as the workload computes it.
+      return out(
+        content === null
+          ? null
+          : {
+              data: content,
+              digest: createHash("sha256")
+                .update(Buffer.from(content, "utf8"))
+                .digest("hex"),
+            }
+      );
     }
     case "checkout.changes":
     case "checkout.defaultFiles":
