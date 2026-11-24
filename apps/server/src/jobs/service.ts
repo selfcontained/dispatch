@@ -2,6 +2,7 @@ import { sameRunner } from "@dispatch/runner-protocol/contract";
 import {
   PROJECT_IDENTITY_SQL,
   repositoryKey,
+  SESSION_REPOSITORY_SQL,
   type ProjectIdentity,
 } from "../runners/repository-identity.js";
 import {
@@ -588,6 +589,13 @@ export class JobService {
               ).rows[0] ?? null)
             : null;
         },
+        repository: async () =>
+          (
+            await this.pool.query<{ url: string | null }>(
+              SESSION_REPOSITORY_SQL,
+              [agentId]
+            )
+          ).rows[0]?.url ?? null,
       })) ?? directory;
     const key = continuationBrainKey(job.id);
     const terminalStatus =

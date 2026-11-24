@@ -1806,13 +1806,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/routes/mcp.ts",
-    "kind": "R7 restriction",
-    "detail": "N18 Runner Brain and task scope require a project",
-    "task": "T34",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/routes/personas.ts",
     "kind": "R1 placement call",
     "detail": "remotePlacement(cwd)",

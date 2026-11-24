@@ -295,6 +295,17 @@ it("keeps the MCP caller surface and call outcomes at the recorded parity bounda
       ]
     );
   }
+  // A runner launch records the repository its checkout came from.
+  await ctx.pool.query(
+    "UPDATE agents SET runner_repository = $2 WHERE id = $1",
+    [
+      callers[1],
+      {
+        url: "https://github.com/fixture/example.git",
+        checkout: { kind: "default" },
+      },
+    ]
+  );
 
   async function request(
     id: string,
@@ -645,9 +656,24 @@ it("keeps the MCP caller surface and call outcomes at the recorded parity bounda
     [callers]
   );
   await call("task_list/no-project", "task_list", {});
-  await call("brain_list_objects/no-project", "brain_list_objects", {
-    collection: "parity",
-  });
+  // No project: the local caller keeps its root, the runner caller its
+  // recorded repository (owner decision, option A). Both keep Brain.
+  await call(
+    "brain_store_object/no-project",
+    "brain_store_object",
+    callers.map((id) => ({
+      collection: "parity-projectless",
+      name: id,
+      value: { caller: id },
+    })) as [Args, Args],
+    true
+  );
+  await call(
+    "brain_list_objects/no-project",
+    "brain_list_objects",
+    { collection: "parity-projectless" },
+    true
+  );
   await call("create_template/no-project", "create_template", [
     { name: "projectless-local", prompt: launch.prompt },
     { name: "projectless-runner", prompt: launch.prompt },

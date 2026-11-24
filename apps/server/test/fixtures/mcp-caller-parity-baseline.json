@@ -1,10 +1,4 @@
 {
-  "call/brain_list_objects/no-project": {
-    "rule": "N18",
-    "task": "T34",
-    "local": "accepted",
-    "runner": "tool:MCP error -32602: Tool brain_list_objects not found"
-  },
   "call/launch_agent/other-folder": {
     "rule": "N1",
     "task": "T36",
