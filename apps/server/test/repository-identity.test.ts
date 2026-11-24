@@ -14,6 +14,7 @@ import {
   projectRepositoryUrl,
   repositoryUrl,
 } from "../src/agents/remote/repository.js";
+import { JobService } from "../src/jobs/service.js";
 import { resolveProjectRoot } from "../src/projects/resolve-root.js";
 import {
   controllerPlacement,
@@ -171,5 +172,62 @@ describe("option A readiness: a session's repository key equals its project's", 
     expect(
       projectRepositoryUrl(repositoryUrl("git@github.com:Owner/Repo.git", true))
     ).toBe(projectRepositoryUrl("https://github.com/Owner/Repo"));
+  });
+});
+
+describe("loop handoff on a runner", () => {
+  async function handoffKey(
+    project: { repoRoot: string | null; repository: string | null } | null
+  ) {
+    const keys: string[] = [];
+    const service = new JobService(
+      {
+        query: async () => ({ rows: project ? [project] : [] }),
+      } as never,
+      {
+        getAgent: async () => ({ id: "agt_r", projectId: project && "prj_r" }),
+      } as never,
+      { warn() {}, info() {}, error() {} } as never,
+      {} as never,
+      {
+        getObject: async (key: string) => {
+          keys.push(key);
+          return null;
+        },
+        storeObject: async () => ({}),
+      } as never
+    );
+    (service as unknown as { store: unknown }).store = {
+      getJob: async () => ({ id: "job_r", continuationEnabled: true }),
+    };
+    await (
+      service as unknown as {
+        syncContinuationHandoff(run: unknown): Promise<void>;
+      }
+    ).syncContinuationHandoff({
+      id: "run_r",
+      jobId: "job_r",
+      agentId: "agt_r",
+      chainId: null,
+      chainIteration: 1,
+      config: { directory: "runner://rnr_identity/ws_1" },
+    });
+    return keys[0];
+  }
+
+  it("writes where the successor's Brain reads: the project's key", async () => {
+    await expect(
+      handoffKey({
+        repoRoot: "/srv/repo",
+        repository: "https://github.com/o/r",
+      })
+    ).resolves.toBe("/srv/repo");
+    await expect(
+      handoffKey({ repoRoot: null, repository: "https://github.com/o/r" })
+    ).resolves.toBe("https://github.com/o/r");
+  });
+
+  it("keeps today's key for a run with no project (N18, owner decision)", async () => {
+    await expect(handoffKey(null)).resolves.toBe("runner://rnr_identity/ws_1");
   });
 });
