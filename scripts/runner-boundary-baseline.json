@@ -2079,13 +2079,6 @@
     "count": 2
   },
   {
-    "file": "apps/server/src/shared/directory-icon-cache.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/repo-icon",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/shared/git/agent-diff.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/shared/git/base-ref",

@@ -1,7 +1,5 @@
 import type { Pool } from "pg";
 
-import { detectRepoIcon } from "./repo-icon.js";
-
 const ICON_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
 const pendingByPool = new WeakMap<Pool, Map<string, Promise<string | null>>>();
 
@@ -24,8 +22,8 @@ async function scanAndStore(
 export async function getDirectoryIconPath(
   pool: Pool,
   cwd: string,
-  /** How the directory is scanned; the host filesystem when omitted. */
-  probe: () => Promise<string | null> = () => detectRepoIcon(cwd)
+  /** How the checkout is scanned: through its runner. */
+  probe: () => Promise<string | null>
 ): Promise<string | null> {
   const cached = await pool.query<{
     icon_path: string | null;

@@ -6,7 +6,7 @@ import { withTestWorkspaceRunner } from "../helpers/test-workspace-runner.js";
  * a held runner that is momentarily offline is admitted from what the runner
  * last advertised, then checked against the reconnected runner on release.
  */
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -137,6 +137,8 @@ const requestSession = vi.fn(
     };
   }
 );
+/** A checkout the fixture runner serves for every session, when a test sets one. */
+let servedCheckout: string | undefined;
 /** The runner's connection and what it advertises, per test. */
 const peer = {
   online: true,
@@ -168,6 +170,20 @@ const remote = {
       : undefined
   ),
   requestSession,
+  // Checkout reads for sessions a test gives a checkout; others as before.
+  streamCheckoutRead: (
+    _placement: unknown,
+    op: string,
+    request: { target: { session: unknown }; [key: string]: unknown }
+  ) => {
+    const { target, ...rest } = request;
+    const directory = servedCheckout;
+    if (!directory) return undefined;
+    return import("../../src/agents/checkout-worker.js").then(
+      ({ checkoutWorkload }) =>
+        checkoutWorkload.run(op as never, { directory, request: rest } as never)
+    );
+  },
   // files.put goes through the same request seam, so refusals still apply.
   putFile: async (placement: unknown, agentId: string, name: string) =>
     (
@@ -650,4 +666,40 @@ describe("durable agent stop", () => {
       expect(await statusOf(agent.id)).toBe(superseded ? "running" : "stopped");
     }
   );
+});
+
+describe("the create-time icon warm-up on a runner (T15c)", () => {
+  it("remembers the launch checkout's icon under its project's repository", async () => {
+    const holds = await openHolds();
+    const runtime = spyRuntime();
+    const manager = managerOn(holds, runtime);
+    holds.start();
+    const checkout = await mkdtemp(path.join(dir, "checkout-"));
+    await writeFile(path.join(checkout, "favicon.svg"), "<svg/>");
+    const repository = `https://github.com/acme/warm-${Date.now()}`;
+    const projectId = (
+      await pool.query<{ id: string }>(
+        "INSERT INTO projects (id, name, repo_root, color, repository) VALUES (gen_random_uuid(), 'warm', NULL, '#336699', $1) RETURNING id",
+        [repository]
+      )
+    ).rows[0]!.id;
+    servedCheckout = checkout;
+    const agent = await manager.createAgent({ cwd: OTHER, projectId });
+    await vi.waitFor(async () =>
+      expect(await statusOf(agent.id)).toBe("running")
+    );
+    const rows = async () =>
+      (
+        await pool.query<{ cwd: string; icon_path: string | null }>(
+          "SELECT cwd, icon_path FROM directory_icons WHERE cwd = $1 OR cwd = $2",
+          [repository, OTHER]
+        )
+      ).rows;
+    await vi.waitFor(async () =>
+      expect(await rows()).toEqual([
+        { cwd: repository, icon_path: "favicon.svg" },
+      ])
+    );
+    servedCheckout = undefined;
+  });
 });

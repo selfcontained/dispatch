@@ -61,8 +61,7 @@ import {
 import { getPullRequestHead } from "../shared/github/pr.js";
 import { GitWorktreeError } from "../shared/git/worktree.js";
 import { resolveFilesDir } from "../shared/files.js";
-import { getDirectoryIconPath } from "../shared/directory-icon-cache.js";
-import { detectAgentIcon } from "./checkout-icon.js";
+import { agentIconPath } from "./checkout-icon.js";
 import { getActivePersonality } from "../db/personalities.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import {
@@ -2673,8 +2672,7 @@ export class AgentManager {
       input,
       directory?.cwd ?? input.cwd,
       checkoutContext,
-      !directory,
-      placement
+      !directory
     );
     const worktree = p.checkout
       ? toLocalWorktreeRequest(p.checkout, p.name, input.worktreeLocation)
@@ -2751,18 +2749,8 @@ export class AgentManager {
       Parameters<typeof resolveCheckoutIntent>[1],
       "id" | "name"
     >,
-    runnerEngine: boolean,
-    placement: Placement
+    runnerEngine: boolean
   ): Promise<PreparedCreateInputs> {
-    // Remember the icon of the directory the user chose, before a managed
-    // worktree can change the agent's effective cwd. Its runner reads it.
-    if (!runnerEngine)
-      await getDirectoryIconPath(this.pool, originalCwd, () =>
-        detectAgentIcon(
-          runnerDirectory(this.checkoutReadRunners()).for(placement),
-          { path: pathFromWire(originalCwd) }
-        )
-      );
     const id = this.newAgentId();
     const type: AgentType = input.type ?? "claude";
     // Callers checked the target's catalog; a runner engine rechecks at launch.
@@ -3012,6 +3000,11 @@ export class AgentManager {
         throw error;
       }
       const { sessionId } = started;
+      // Remember the icon of the folder the agent was launched in (main's
+      // create-time warm-up): its launch checkout, read on its runner.
+      await agentIconPath(this.pool, this.checkoutReadRunners(), agent).catch(
+        () => null
+      );
       const images = chatLaunchPost?.images;
       if (opts.initialFiles.length) {
         const filesDir = resolveFilesDir(
