@@ -954,6 +954,9 @@ const repositoryCache = {
 export const workspaceWorkload = {
   /** Main's launch folder resolution (`path.resolve`). */
   resolvePath,
+  /** A session file handed over where it is: the app's `files.put`. */
+  putFile: (source: string, { mustExist }: { mustExist: boolean }) =>
+    sessionFilesWorkload.put(source, mustExist ? "prompt" : "reference"),
   /** Main's archive observation of a worktree (`observeGitCheckout`). */
   observe: (directory: string) => observeGitCheckout(directory),
   async release(

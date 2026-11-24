@@ -315,6 +315,89 @@ describe("local socket transport", () => {
     ).rejects.toMatchObject({ code: "invalid" });
   });
 
+  it("hands a path over in place only to a call that asks for one, reading nothing", async () => {
+    const sinks = new Map<string, ReturnType<typeof hashingSink>>();
+    const { dir, endpoint } = await serve({
+      calls: {
+        ...blobHandlers(sinks).calls,
+        // A put that takes its file where it is (`name` "in-place").
+        "files.get": async (input, context) => {
+          const taken = await context.receiveBlobPath!(input.path);
+          return {
+            name: taken.path,
+            size: taken.mustExist ? 1 : 0,
+            digest: "",
+            blob: "",
+          };
+        },
+      },
+    });
+    const connection = await connect(endpoint);
+    const session = sessionFromWire("s");
+    const take = (blob: string) =>
+      connection.call("files.get", { session, path: blob });
+    // A file that is not there: nothing is read or checked by the transport.
+    const gone = join(dir, "gone.txt");
+    const taken = take("in-1");
+    await connection.sendBlob("in-1", {
+      path: gone,
+      inPlace: { mustExist: false },
+    });
+    await expect(taken).resolves.toMatchObject({ name: gone, size: 0 });
+    const required = take("in-2");
+    await connection.sendBlob("in-2", {
+      path: gone,
+      inPlace: { mustExist: true },
+    });
+    await expect(required).resolves.toMatchObject({ name: gone, size: 1 });
+
+    // In place, but not absolute.
+    const relative = take("in-3");
+    await expect(
+      connection.sendBlob("in-3", {
+        path: "gone.txt",
+        inPlace: { mustExist: false },
+      })
+    ).rejects.toMatchObject({ code: "invalid" });
+    await expect(relative).rejects.toMatchObject({ code: "invalid" });
+
+    // A plain path, or bytes, where a path in place is expected.
+    const plain = take("in-4");
+    await expect(
+      connection.sendBlob("in-4", { path: gone })
+    ).rejects.toMatchObject({ code: "invalid" });
+    await expect(plain).rejects.toMatchObject({ code: "invalid" });
+    const bytes = take("in-5");
+    const sent = connection.sendBlob("in-5", Readable.from([Buffer.from("x")]));
+    await expect(bytes).rejects.toMatchObject({ code: "invalid" });
+    await expect(sent).rejects.toBeInstanceOf(RunnerCallError);
+
+    // An in-place path for a blob that is read, or that nobody expects.
+    const file = join(dir, "present.txt");
+    writeFileSync(file, "present");
+    const read = connection.call("files.put", {
+      session,
+      name: "p.txt",
+      size: 7,
+      digest: createHash("sha256").update("present").digest("hex"),
+      blob: "in-6",
+    });
+    await expect(
+      connection.sendBlob("in-6", {
+        path: file,
+        inPlace: { mustExist: true },
+      })
+    ).rejects.toMatchObject({ code: "invalid" });
+    await expect(read).rejects.toMatchObject({ code: "invalid" });
+    expect(sinks.get("p.txt")!.bytes()).toBe(0);
+    await expect(
+      connection.sendBlob("nobody", {
+        path: file,
+        inPlace: { mustExist: true },
+      })
+    ).rejects.toMatchObject({ code: "invalid" });
+  });
+
   it("keeps channel stream IDs apart from caller blob IDs", () => {
     expect(channelStreams(7)).toEqual({
       in: "channel:7:in",

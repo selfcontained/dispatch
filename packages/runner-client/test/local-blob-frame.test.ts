@@ -17,13 +17,25 @@ describe("path-blob frame", () => {
     expect(blobPathFrame.check(frame)).toBe(true);
   });
 
-  it("is refused on the TLS/v1 transport", () => {
-    expect(parseServiceFrame(frame)).toBeNull();
-    expect(runnerRequestId(frame)).toBeUndefined();
+  const inPlace = { ...frame, inPlace: { mustExist: false } };
+
+  it.each([
+    ["a path", frame],
+    ["a path in place", inPlace],
+  ])("is refused on the TLS/v1 transport (%s)", (_name, sent) => {
+    expect(parseServiceFrame(sent)).toBeNull();
+    expect(runnerRequestId(sent)).toBeUndefined();
     const socket = new PassThrough();
     const streams = new FlowStreams(socket, () => {});
     streams.enable();
-    expect(streams.handle(frame)).toBe(false);
+    expect(streams.handle(sent)).toBe(false);
     socket.destroy();
+  });
+
+  it("takes the in-place mark only in its shape", () => {
+    expect(blobPathFrame.check(inPlace)).toBe(true);
+    expect(
+      blobPathFrame.check({ ...frame, inPlace: { mustExist: "yes" } })
+    ).toBe(false);
   });
 });
