@@ -20,7 +20,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
 import {
-  personaScopeFor,
+  savedPersonaScope,
   type SavedPersonaScope,
 } from "../personas/persona-scope.js";
 import { resolvePersona } from "../personas/resolve.js";
@@ -680,7 +680,7 @@ export class JobService {
   async addJob(
     input: AddJobInput,
     callerFullAccess?: boolean,
-    personaScope: SavedPersonaScope = personaScopeFor
+    personaScope: SavedPersonaScope = savedPersonaScope(this.agentManager)
   ): Promise<JobRecord> {
     input = { ...input, directory: normalizeJobDirectory(input.directory) };
     if (input.agentType === "opencode") input = { ...input, fullAccess: true };
@@ -707,7 +707,19 @@ export class JobService {
     });
     if (input.persona)
       await resolvePersona(
-        personaScope({ cwd: target.directory, projectRoot }),
+        personaScope({
+          cwd: target.directory,
+          projectRoot,
+          placement: targetPlacement(target),
+          repository: input.projectId
+            ? async () =>
+                (
+                  await new ProjectStore(this.pool).getRepository(
+                    input.projectId!
+                  )
+                )?.url
+            : null,
+        }),
         input.persona,
         "task"
       );
@@ -798,7 +810,7 @@ export class JobService {
   async updateJob(
     input: UpdateJobInput,
     callerFullAccess?: boolean,
-    personaScope: SavedPersonaScope = personaScopeFor
+    personaScope: SavedPersonaScope = savedPersonaScope(this.agentManager)
   ): Promise<JobRecord> {
     const existing = await this.getJobOrThrow(input.jobId);
     if ((input.agentType ?? existing.agentType) === "opencode")
@@ -929,7 +941,16 @@ export class JobService {
         projectId !== backingTemplate?.projectId)
     )
       await resolvePersona(
-        personaScope({ cwd: directory, projectRoot: projectDirectory }),
+        personaScope({
+          cwd: directory,
+          projectRoot: projectDirectory,
+          placement: targetPlacement(target),
+          repository: projectId
+            ? async () =>
+                (await new ProjectStore(this.pool).getRepository(projectId))
+                  ?.url
+            : null,
+        }),
         persona,
         "task"
       );

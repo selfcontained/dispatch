@@ -32,8 +32,12 @@ vi.mock("../src/shared/git/git-context.js", () => ({
 
 function createMockDeps() {
   return {
-    projects: { get: vi.fn(async (_id: string) => ({ repoRoot: "/project" })) },
+    projects: {
+      get: vi.fn(async (_id: string) => ({ repoRoot: "/project" })),
+      getRepository: vi.fn(async (_id: string) => ({ url: null })),
+    },
     agentManager: {
+      checkoutReadRunners: vi.fn(() => ({})),
       getAgent: vi.fn(async () => ({
         id: "agt_parent",
         name: "test-agent",
@@ -145,7 +149,15 @@ describe("GET /api/v1/personas", () => {
   });
 
   it.each([
-    ["&projectId=prj_test", { kind: "project", repoRoot: "/project" }],
+    [
+      "&projectId=prj_test",
+      // Its repository, read on that runner; today's project folder when it
+      // cannot be read there.
+      expect.objectContaining({
+        kind: "repository",
+        fallback: { kind: "project", repoRoot: "/project" },
+      }),
+    ],
     ["", { kind: "builtins" }],
   ])("scopes a runner listing with query suffix %s", async (suffix, scope) => {
     const { listPersonas } = await import("../src/personas/resolve.js");

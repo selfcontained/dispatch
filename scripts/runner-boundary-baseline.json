@@ -1659,20 +1659,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/personas/persona-scope.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(target.cwd)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/personas/persona-scope.ts",
-    "kind": "R7 restriction",
-    "detail": "N24 Runner persona resolution falls back",
-    "task": "T35",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/personas/resolve.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/shared/git/git-context",

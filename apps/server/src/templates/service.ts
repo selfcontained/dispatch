@@ -20,7 +20,7 @@ import type { AgentManager } from "../agents/manager.js";
 import type { AgentRecord } from "../agents/types.js";
 import type { AgentType } from "../agent-type-settings.js";
 import {
-  personaScopeFor,
+  savedPersonaScope,
   type SavedPersonaScope,
 } from "../personas/persona-scope.js";
 import { resolvePersona } from "../personas/resolve.js";
@@ -90,7 +90,7 @@ export class TemplateService {
   async addTemplate(
     input: AddTemplateInput,
     callerFullAccess?: boolean,
-    personaScope: SavedPersonaScope = personaScopeFor,
+    personaScope: SavedPersonaScope = savedPersonaScope(this.agentManager),
     /** Internal, from the record being copied; never from HTTP/MCP input. */
     savedModel?: string | null
   ): Promise<TemplateRecord> {
@@ -109,7 +109,15 @@ export class TemplateService {
     });
     if (input.persona)
       await resolvePersona(
-        personaScope({ cwd: target.directory, projectRoot }),
+        personaScope({
+          cwd: target.directory,
+          projectRoot,
+          placement: targetPlacement(target),
+          repository: input.projectId
+            ? async () =>
+                (await this.projects.getRepository(input.projectId!))?.url
+            : null,
+        }),
         input.persona,
         "task"
       );
@@ -177,7 +185,7 @@ export class TemplateService {
     id: string,
     input: Partial<AddTemplateInput>,
     callerFullAccess?: boolean,
-    personaScope: SavedPersonaScope = personaScopeFor
+    personaScope: SavedPersonaScope = savedPersonaScope(this.agentManager)
   ): Promise<TemplateRecord> {
     const existing = await this.store.getTemplate(id);
     if (!existing) throw new Error(`Template "${id}" not found.`);
@@ -219,6 +227,10 @@ export class TemplateService {
         personaScope({
           cwd: target.directory,
           projectRoot,
+          placement: targetPlacement(target),
+          repository: projectId
+            ? async () => (await this.projects.getRepository(projectId))?.url
+            : null,
         }),
         persona,
         "task"

@@ -2,7 +2,11 @@ import { remotePlacement } from "@dispatch/runner-protocol";
 import type { Effort } from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import { listPersonas } from "../personas/resolve.js";
-import { personaScopeFor } from "../personas/persona-scope.js";
+import {
+  launchPersonaScope,
+  personaScopeFor,
+} from "../personas/persona-scope.js";
+import { targetPlacement } from "../runners/saved-location.js";
 import type { ProjectStore } from "../projects/store.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
@@ -20,7 +24,7 @@ import { resolveWorktreeRoot } from "../shared/git/git-context.js";
 
 type PersonaRouteDeps = {
   agentManager: AgentManager;
-  projects: Pick<ProjectStore, "get">;
+  projects: Pick<ProjectStore, "get" | "getRepository">;
   /**
    * The request reaches the agent as a post in its stream: the agent
    * launches the persona itself, with its own briefing of the work.
@@ -129,6 +133,9 @@ export async function registerPersonaRoutes(
               personaScopeFor({ manager: deps.agentManager, agent }),
               type
             ),
+            // Difference from main (recorded, T35): main's access() also offers
+            // owner reviews for an owners.json that is a directory or unreadable,
+            // and answers 400 on other access errors; this reads the file.
             readSessionOwnerRules(deps.agentManager, agent).catch(() => null),
           ]);
         // Main's answer for the agent's workspace folder, field for field.
@@ -155,9 +162,13 @@ export async function registerPersonaRoutes(
           ? await resolveOptionalWorktreeRoot(cwd)
           : null;
       const { personas, warnings, refreshing, updatedAt } = await listPersonas(
-        personaScopeFor({
+        launchPersonaScope(deps.agentManager, {
+          placement: targetPlacement({ directory: cwd ?? "" }),
           cwd,
           projectRoot: project?.repoRoot ?? undefined,
+          repository: projectId
+            ? async () => (await deps.projects.getRepository(projectId))?.url
+            : null,
           source: type === "task" ? "catalog" : "workspace",
         }),
         type

@@ -7,6 +7,7 @@ import {
   type Res,
 } from "@dispatch/runner-protocol/contract";
 import { isEngineCapabilityOperation } from "@dispatch/runner-protocol/engine-management";
+import { projectRepositoryUrl } from "./repository.js";
 import { X509Certificate } from "node:crypto";
 import { readFileSync, watchFile, unwatchFile } from "node:fs";
 import http from "node:http";
@@ -2183,6 +2184,20 @@ export class RemoteRunnerService {
     request: Req<"checkout.defaultFiles">,
     signal?: AbortSignal
   ): Promise<Res<"checkout.defaultFiles">> {
+    // The same URL rules as a launch from a repository and the branch
+    // picker: credential-free HTTPS, normalised.
+    let repository: string;
+    try {
+      repository = projectRepositoryUrl(
+        (request.target as { repository: string }).repository
+      );
+    } catch {
+      throw new RunnerCallError({
+        code: "invalid",
+        message: "Not a runner repository URL.",
+      });
+    }
+    request = { ...request, target: { repository } };
     const peer = this.peers.get(runnerId);
     if (peer?.repositoryFiles)
       for (const workspace of peer.workspaces) {

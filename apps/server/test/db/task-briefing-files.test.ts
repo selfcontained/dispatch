@@ -1,3 +1,4 @@
+import { launchPersonaScope } from "../../src/personas/persona-scope.js";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -172,6 +173,7 @@ beforeEach(async () => {
     },
     publishUiEvent: () => {},
     log: { warn: vi.fn(), info: vi.fn() },
+    personaScope: (target) => launchPersonaScope(manager, target),
   });
 });
 

@@ -1,3 +1,4 @@
+import { launchPersonaScope } from "../src/personas/persona-scope.js";
 import Fastify from "fastify";
 import fastifyMultipart from "@fastify/multipart";
 import { registerTaskRoutes } from "../src/routes/tasks.js";
@@ -163,6 +164,8 @@ function build(
     },
     publishUiEvent: (event) => published.push(event),
     log: { warn: vi.fn(), info: vi.fn() },
+    personaScope: (target) =>
+      launchPersonaScope({ checkoutReadRunners: () => ({}) } as never, target),
     ...overrides,
   });
 }
