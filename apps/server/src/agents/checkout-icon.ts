@@ -14,7 +14,11 @@ import type { Pool } from "pg";
 import type { AgentRecord } from "@dispatch/shared";
 import { getDirectoryIconPath } from "../shared/directory-icon-cache.js";
 import { detectIconFrom, type IconSource } from "../shared/icon-scan.js";
-import { identityKey } from "../runners/repository-identity.js";
+import {
+  identityKey,
+  SESSION_REPOSITORY_SQL,
+  sessionRepositoryKey,
+} from "../runners/repository-identity.js";
 import { sessionRunner, type CheckoutReadRunners } from "./checkout-runner.js";
 
 type ReadAgent = Parameters<typeof sessionRunner>[1];
@@ -121,9 +125,11 @@ type KeyedAgent = Pick<
  * The icon cache key for an agent's launch checkout. On the controller's
  * runner it is main's key, byte for byte: the folder the agent was launched
  * in (T34's `identityKey`). On any other runner it is the project's
- * repository URL, shared by that project's agents there, or none (a probe
- * each time). A runner agent never reads or writes a folder's entry, and the
- * two key spaces cannot collide: a key is an absolute path or a URL.
+ * repository URL, shared by that project's agents there; with no project,
+ * the session's recorded repository under the same bytes (T34, option A);
+ * else none (a probe each time). A runner agent never reads or writes a
+ * folder's entry, and the two key spaces cannot collide: a key is an
+ * absolute path or a URL.
  */
 export async function iconCacheKey(
   pool: Pool,
@@ -133,7 +139,14 @@ export async function iconCacheKey(
     agent.placement,
     agent.launchCwd ?? agent.gitContext?.repoRoot ?? agent.cwd
   );
-  if (folder !== null || !agent.projectId) return folder;
+  if (folder !== null) return folder;
+  if (!agent.projectId) {
+    const recorded = await pool.query<{ url: string | null }>(
+      SESSION_REPOSITORY_SQL,
+      [agent.id]
+    );
+    return sessionRepositoryKey(recorded.rows[0]?.url ?? null);
+  }
   const project = await pool.query<{ repository: string | null }>(
     "SELECT repository FROM projects WHERE id = $1",
     [agent.projectId]

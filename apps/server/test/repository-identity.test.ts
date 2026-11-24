@@ -14,6 +14,7 @@ import {
   projectRepositoryUrl,
   repositoryUrl,
 } from "../src/agents/remote/repository.js";
+import { iconCacheKey } from "../src/agents/checkout-icon.js";
 import { JobService } from "../src/jobs/service.js";
 import { resolveProjectRoot } from "../src/projects/resolve-root.js";
 import {
@@ -299,5 +300,54 @@ describe("loop handoff on a runner", () => {
 
   it("a run with no project and no repository keeps today's key", async () => {
     await expect(handoffKey(null)).resolves.toBe("runner://rnr_identity/ws_1");
+  });
+});
+
+describe("icon cache key for a runner agent with no project", () => {
+  function pool(recorded: string | null, projectRepository: string | null) {
+    return {
+      query: async (sql: string) =>
+        sql === SESSION_REPOSITORY_SQL
+          ? { rows: [{ url: recorded }] }
+          : { rows: [{ repository: projectRepository }] },
+    } as never;
+  }
+  const agent = (projectId: string | null) => ({
+    id: "agt_icon",
+    placement: runner,
+    cwd: "runner://rnr_identity/@session",
+    launchCwd: "runner://rnr_identity/@session",
+    gitContext: null,
+    projectId,
+  });
+
+  it("shares the entry of a project for the same repository", async () => {
+    const stored = projectRepositoryUrl("https://github.com/Owner/Repo");
+    const inProject = await iconCacheKey(pool(null, stored), agent("prj_1"));
+    const projectless = await iconCacheKey(
+      pool(repositoryUrl("https://github.com/Owner/Repo.git"), null),
+      agent(null)
+    );
+    expect(projectless).toBe(inProject);
+    expect(projectless).toBe("https://github.com/Owner/Repo");
+  });
+
+  it("has no key, and probes each time, with no recorded repository", async () => {
+    await expect(iconCacheKey(pool(null, null), agent(null))).resolves.toBe(
+      null
+    );
+  });
+
+  it("keeps a local agent's folder key and never reads a recorded repository", async () => {
+    const query = vi.fn();
+    await expect(
+      iconCacheKey({ query } as never, {
+        ...agent(null),
+        placement: controllerPlacement,
+        cwd: "/srv/repo/sub",
+        launchCwd: "/srv/repo",
+      })
+    ).resolves.toBe("/srv/repo");
+    expect(query).not.toHaveBeenCalled();
   });
 });
