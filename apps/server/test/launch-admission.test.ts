@@ -39,13 +39,11 @@ const callers: {
       launchedByAgentId: ownerId,
       useWorktree: false,
     },
-    options: { independentCheckoutOf: ownerId },
     expected: [null, null, null, null],
   },
   {
     caller: "MCP independent",
     input: { launchedByAgentId: ownerId, useWorktree: false },
-    options: { independentCheckoutOf: ownerId },
     // Borrows the launcher's checkout, as it runs in the launcher's folder locally.
     expected: [null, null, null, null],
   },
@@ -157,6 +155,40 @@ describe("launch admission compatibility", () => {
     }
   );
 
+  // N4 (T36): a local owner's checkout binds as a runner owner's does.
+  it.each([
+    { parentAgentId: ownerId, launchedByAgentId: ownerId },
+    { launchedByAgentId: ownerId },
+  ])("binds a local owner's checkout: %o", async (input) => {
+    expect(
+      await checkAdmission(
+        { cwd: folder, ...input },
+        { useWorktreeOf: ownerId }
+      )
+    ).toBeNull();
+  });
+
+  // T36: a template's saved runner is checked the same for every launcher.
+  it.each([folder, managed])(
+    "refuses an offline or unknown template runner for a launcher at %s",
+    async (ownerCwd) => {
+      for (const cwd of [managed, "runner://unknown/@session"])
+        expect(
+          await checkAdmission(
+            {
+              cwd,
+              templateId,
+              repository: {},
+              parentAgentId: ownerId,
+              launchedByAgentId: ownerId,
+            },
+            {},
+            { available: false, ownerCwd }
+          )
+        ).toBe("The enrolled runner workspace is unavailable.");
+    }
+  );
+
   it("admits a standalone task persona on a managed runner", async () => {
     const input = { cwd: managed, persona: "task-persona" };
     expect(await checkAdmission({ ...input, projectId })).toBeNull();
@@ -189,23 +221,11 @@ describe("launch admission compatibility", () => {
       expected: "Update the runner to launch an agent in an existing checkout.",
     },
     {
-      cwd: folder,
-      input: { parentAgentId: ownerId, launchedByAgentId: ownerId },
-      options: { useWorktreeOf: ownerId },
-      expected: childBinding,
-    },
-    {
       cwd: managed,
       input: { launchedByAgentId: ownerId },
       options: { useWorktreeOf: ownerId },
       flags: { sharedWorktree: false },
       expected: "Update the runner to launch an agent in an existing checkout.",
-    },
-    {
-      cwd: folder,
-      input: { launchedByAgentId: ownerId },
-      options: { useWorktreeOf: ownerId },
-      expected: childBinding,
     },
     {
       cwd: managed,

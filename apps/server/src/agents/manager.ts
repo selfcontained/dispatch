@@ -160,7 +160,11 @@ import {
   type CheckoutReply,
 } from "./remote/protocol.js";
 import { WORKTREE_LOCAL_CONFIG_FILES } from "./worktree-local-config-files.js";
-import { parseRepository } from "./remote/repository.js";
+import {
+  parseRepository,
+  parseRepositoryTarget,
+  projectRepositoryUrl,
+} from "./remote/repository.js";
 import {
   RunnerResumeRefused,
   RunnerRevoked,
@@ -185,7 +189,10 @@ import {
 } from "./acp/stream-recorder.js";
 import { OPEN_INPUT_SQL } from "../chat/store.js";
 import { StreamStore } from "./acp/stream-store.js";
-import { launchPersonaScope } from "../personas/persona-scope.js";
+import {
+  launchPersonaScope,
+  personaScopeFor,
+} from "../personas/persona-scope.js";
 import { resolvePersona } from "../personas/resolve.js";
 import {
   PERSONA_CONTEXT_ARG,
@@ -299,8 +306,6 @@ type CreateAgentOptions = {
   detachLaunch?: boolean;
   /** Trusted shared-checkout launch, never accepted from an HTTP payload. */
   useWorktreeOf?: string;
-  /** Trusted MCP launch with its own checkout on the caller's runner. */
-  independentCheckoutOf?: string;
   taskPersonaBody?: string;
   /** Commit owner state before the engine can discover tools or run a turn. */
   beforeLaunch?: (agentId: string) => Promise<void>;
@@ -2310,24 +2315,9 @@ export class AgentManager {
     input: CreateAgentInput,
     options: CreateAgentOptions
   ) {
-    const { useWorktreeOf, independentCheckoutOf } = options;
-    const independentSource = independentCheckoutOf
-      ? await this.getAgent(independentCheckoutOf)
-      : null;
+    const { useWorktreeOf } = options;
     const hasPersonaBody = Boolean(options.taskPersonaBody);
-    if (independentCheckoutOf) {
-      const decision = admitLaunch({
-        phase: "independentBinding",
-        input,
-        owner: independentSource,
-        hasPersonaBody,
-        borrowsCheckout: Boolean(useWorktreeOf),
-      });
-      if (!decision.ok)
-        throw new AgentError(decision.message, decision.statusCode);
-    }
-    if (independentSource) input.projectId = independentSource.projectId;
-    let checkoutOwner: AgentRecord | null = independentSource;
+    let checkoutOwner: AgentRecord | null = null;
     if (useWorktreeOf !== undefined) {
       const candidate = await this.getAgent(useWorktreeOf);
       const ownerWorkdir = candidate ? reviewerWorkspace(candidate) : undefined;
@@ -2383,8 +2373,21 @@ export class AgentManager {
     const placement =
       checkoutOwner?.placement ?? checkoutReadPlacement(input.cwd);
     let location = launchSessionLocation(input.cwd, placement);
-    if (location && parent && sameRunner(placement, parent.placement)) {
-      checkoutOwner ??= parent;
+    // The launcher's folder is its session's, a child's or not; a template's
+    // own checkout (it names a repository) is not (T36).
+    const launcherId = input.launchedByAgentId ?? input.parentAgentId;
+    const launcher =
+      location &&
+      launcherId &&
+      !(input.templateId !== undefined && input.repository !== undefined)
+        ? launcherId === parent?.id
+          ? parent
+          : await this.getAgent(launcherId)
+        : null;
+    if (location && launcher && sameRunner(placement, launcher.placement)) {
+      checkoutOwner ??= launcher;
+      // An independent agent belongs to its folder's project.
+      if (!input.parentAgentId) input.projectId = checkoutOwner.projectId;
       const parentLocation = launchSessionLocation(
         checkoutOwner.cwd,
         placement
@@ -2394,6 +2397,11 @@ export class AgentManager {
         input.cwd = checkoutOwner.cwd;
       }
     }
+    // A launch that names a repository and no project joins that
+    // repository's project, as a local folder joins the project it matches.
+    if (location && !input.projectId && !input.parentAgentId && !checkoutOwner)
+      input.projectId =
+        (await this.repositoryProject(input.repository)) ?? undefined;
     if (input.projectId) {
       const project = (
         await this.pool.query<{
@@ -2473,6 +2481,22 @@ export class AgentManager {
       projectRepository,
       checkoutOwner,
     };
+  }
+
+  /** The project for a launch's repository URL; at most one (unique index). */
+  private async repositoryProject(repository: unknown) {
+    let url: string | undefined;
+    try {
+      url = parseRepositoryTarget(repository ?? {}).url;
+    } catch {
+      return null; // Admission reports an invalid repository.
+    }
+    if (!url) return null;
+    const { rows } = await this.pool.query<{ id: string }>(
+      "SELECT id FROM projects WHERE repository = $1",
+      [projectRepositoryUrl(url)]
+    );
+    return rows[0]?.id ?? null;
   }
 
   private admitCreateTarget(
@@ -2599,13 +2623,17 @@ export class AgentManager {
       options.taskPersonaBody ??
       (
         await resolvePersona(
-          launchPersonaScope(this, {
-            placement,
-            cwd: input.cwd,
-            projectRoot,
-            repository: projectRepository,
-            source: input.personaSource,
-          }),
+          // An agent's launch from its session reads that checkout, as main
+          // reads the folder.
+          checkoutOwner && location && input.launchedByAgentId
+            ? personaScopeFor({ manager: this, agent: checkoutOwner })
+            : launchPersonaScope(this, {
+                placement,
+                cwd: input.cwd,
+                projectRoot,
+                repository: projectRepository,
+                source: input.personaSource,
+              }),
           input.persona!,
           "task"
         )

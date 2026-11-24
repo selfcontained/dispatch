@@ -513,28 +513,7 @@
   {
     "file": "apps/server/src/agents/launch-admission.ts",
     "kind": "R1 placement call",
-    "detail": "remotePlacement(owner.cwd)",
-    "task": "T07",
-    "count": 2
-  },
-  {
-    "file": "apps/server/src/agents/launch-admission.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(requestedCwd ?? \"\")",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/launch-admission.ts",
-    "kind": "R1 placement call",
     "detail": "remotePlacement(sourceCwd)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/launch-admission.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(template.directory)",
     "task": "T07",
     "count": 1
   },
@@ -542,20 +521,6 @@
     "file": "apps/server/src/agents/launch-admission.ts",
     "kind": "R7 restriction",
     "detail": "N1 Launch target bound to caller",
-    "task": "T36",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/launch-admission.ts",
-    "kind": "R7 restriction",
-    "detail": "N2 Launch cwd overwritten",
-    "task": "T36",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/launch-admission.ts",
-    "kind": "R7 restriction",
-    "detail": "N4 Runner parent binding restrictions",
     "task": "T36",
     "count": 1
   },
@@ -1940,13 +1905,6 @@
   },
   {
     "file": "apps/server/src/server/mcp-handlers.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(parent.cwd)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/server/mcp-handlers.ts",
     "kind": "R2 host access",
     "detail": "fs/promises",
     "task": "T04",
@@ -1965,13 +1923,6 @@
     "detail": "agentWorkspaceDir(parent)",
     "task": "T07",
     "count": 1
-  },
-  {
-    "file": "apps/server/src/server/mcp-persona-handlers.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(parent.cwd)",
-    "task": "T07",
-    "count": 2
   },
   {
     "file": "apps/server/src/server/release-artifact.ts",

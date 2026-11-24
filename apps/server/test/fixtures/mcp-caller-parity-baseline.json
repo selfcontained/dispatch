@@ -1,5 +1,5 @@
 {
-  "call/launch_agent/explicit-path": {
+  "call/launch_agent/other-folder": {
     "rule": "N1",
     "task": "T36",
     "local": "accepted",

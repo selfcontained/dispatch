@@ -8,6 +8,7 @@ import type { Pool } from "pg";
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import { AgentError } from "../agents/errors.js";
 import { admitLaunch } from "../agents/launch-admission.js";
+import { mcpCheckoutRoots } from "./mcp-checkout.js";
 import { agentWorkspaceDir } from "../agents/workspace-target.js";
 import { detectFileType } from "../files/file-type.js";
 import { fileMetadataFromBuffer } from "../files/metadata.js";
@@ -64,13 +65,16 @@ import {
   personaScopeFor,
 } from "../personas/persona-scope.js";
 import { ProjectStore } from "../projects/store.js";
-import { targetPlacement } from "../runners/saved-location.js";
+import {
+  savedLaunchTarget,
+  targetPlacement,
+} from "../runners/saved-location.js";
 import { resolvePersona } from "../personas/resolve.js";
-import { remotePlacement } from "@dispatch/runner-protocol";
 import type { Placement } from "@dispatch/runner-protocol/contract";
 import { checkoutReadPlacement } from "../runners/placement.js";
 import {
   PROJECT_IDENTITY_SQL,
+  SESSION_REPOSITORY_SQL,
   projectIdentities,
   repositoryKey,
   type ProjectIdentity,
@@ -190,7 +194,8 @@ async function addressableAgents<
   agentId: string,
   senderRepoRoot: string | null,
   crossRepo: boolean,
-  project: (id: string | null | undefined) => Promise<ProjectIdentity | null>
+  project: (id: string | null | undefined) => Promise<ProjectIdentity | null>,
+  repository: (agentId: string) => Promise<string | null>
 ): Promise<T[]> {
   const sender = all.find((a) => a.id === agentId);
   const senderParentId = sender?.parentAgentId ?? null;
@@ -222,6 +227,7 @@ async function addressableAgents<
         // agent cwd not in a git repo — skip
         resolveRepoRoot(a.workspacePath ?? a.cwd).catch(() => null),
       project: () => project(a.projectId),
+      repository: () => repository(a.id),
     });
     if (aKey !== null && aKey === senderRepoRoot) result.push(a);
   }
@@ -371,6 +377,12 @@ async function handleJobLog(
   return { runId: run.id, status: run.status };
 }
 
+/** A saved target's project and checkout; the cwd stays the template's. */
+function savedTarget(target: Parameters<typeof savedLaunchTarget>[0]) {
+  const { cwd: _cwd, ...rest } = savedLaunchTarget(target);
+  return rest;
+}
+
 async function handleLaunchAgent(
   deps: CreateMcpHandlersDeps,
   agentId: string,
@@ -385,49 +397,60 @@ async function handleLaunchAgent(
     throw new Error(`Template ${input.templateId} not found.`);
   }
   const parentCwd = agentWorkspaceDir(parent) ?? parent.cwd;
-  const runnerParent = remotePlacement(parent.cwd);
   const child = input.child !== false;
-  const admissionInput = {
+  let admissionInput = {
     caller: child ? "mcpChild" : "mcpIndependent",
     sourceCwd: parent.cwd,
     sourceWorkdir: parentCwd,
-    sourceProjectId: parent.projectId,
+    sourcePath: parent.workspacePath,
     cwd: input.cwd,
     template,
   } as const;
-  const admission = admitLaunch({ phase: "mcpTarget", ...admissionInput });
+  let admission = admitLaunch({ phase: "mcpTarget", ...admissionInput });
+  if (
+    !admission.ok &&
+    admission.reason === "mcpTarget" &&
+    !parent.workspacePath
+  ) {
+    // A session that has not moved is in its checkout, as its runner reports.
+    const roots = await mcpCheckoutRoots(deps.agentManager, parent);
+    if (roots?.checkoutRoot) {
+      admissionInput = { ...admissionInput, sourcePath: roots.checkoutRoot };
+      admission = admitLaunch({ phase: "mcpTarget", ...admissionInput });
+    }
+  }
   if (!admission.ok)
     throw new AgentError(admission.message, admission.statusCode);
   const { cwd } = admission;
   const persona = input.persona ?? template?.persona ?? undefined;
-  const selectedPersona =
-    input.persona || (runnerParent && persona)
-      ? await resolvePersona(
-          runnerParent || cwd === parentCwd
-            ? personaScopeFor({ manager: deps.agentManager, agent: parent })
-            : // The target's runner (D7): a folder on the controller's,
-              // else the template project's repository read on that runner.
-              launchPersonaScope(deps.agentManager, {
-                placement: targetPlacement(
-                  input.cwd === undefined && template
-                    ? template
-                    : { directory: cwd }
-                ),
-                cwd,
-                source: "workspace",
-                repository:
-                  input.cwd === undefined && template?.projectId
-                    ? async () =>
-                        (
-                          await new ProjectStore(deps.pool).getRepository(
-                            template.projectId!
-                          )
-                        )?.url
-                    : null,
-              }),
-          persona!
-        )
-      : null;
+  // A template launches at its saved location; a folder is a path on the
+  // caller's machine.
+  const templateTarget = input.cwd === undefined && template ? template : null;
+  const selectedPersona = input.persona
+    ? await resolvePersona(
+        cwd === parentCwd
+          ? personaScopeFor({ manager: deps.agentManager, agent: parent })
+          : // The target's runner (D7): a folder on the caller's, else the
+            // template project's repository read on that runner.
+            launchPersonaScope(deps.agentManager, {
+              placement: targetPlacement(
+                templateTarget ?? { directory: parentCwd }
+              ),
+              cwd,
+              source: "workspace",
+              repository:
+                input.cwd === undefined && template?.projectId
+                  ? async () =>
+                      (
+                        await new ProjectStore(deps.pool).getRepository(
+                          template.projectId!
+                        )
+                      )?.url
+                  : null,
+            }),
+        persona!
+      )
+    : null;
   if (selectedPersona && (selectedPersona.type ?? "review") === "review") {
     if (template)
       throw new Error(
@@ -582,10 +605,12 @@ async function handleLaunchAgent(
   });
   if (!templateAdmission.ok) throw new Error(templateAdmission.message);
 
-  const launch: Parameters<AgentManager["createAgent"]>[0] = {
+  const agent = await deps.agentManager.createAgent({
     name: input.name,
     type: agentType as (typeof CLI_AGENT_TYPES)[number],
     cwd,
+    // As the UI launches a template: its project on its runner, if any.
+    ...(templateTarget && savedTarget({ ...templateTarget, useWorktree })),
     fullAccess,
     model,
     effort,
@@ -603,17 +628,7 @@ async function handleLaunchAgent(
     templateId: input.templateId,
     persona,
     personaSource: "workspace",
-  };
-  const agent = runnerParent
-    ? await deps.agentManager.createAgent(launch, {
-        // Without its own worktree a launch borrows the launcher's checkout,
-        // child or not, as it runs in the launcher's folder locally.
-        ...(!useWorktree
-          ? { useWorktreeOf: parent.id }
-          : { independentCheckoutOf: parent.id }),
-        taskPersonaBody: selectedPersona?.body,
-      })
-    : await deps.agentManager.createAgent(launch);
+  });
 
   deps.publishUiEvent({
     type: "agent.upsert",
@@ -871,7 +886,13 @@ async function handleListAgentsForAgent(
       async (id) =>
         (await deps.pool.query<ProjectIdentity>(PROJECT_IDENTITY_SQL, [id]))
           .rows[0] ?? null
-    )
+    ),
+    async (id) =>
+      (
+        await deps.pool.query<{ url: string | null }>(SESSION_REPOSITORY_SQL, [
+          id,
+        ])
+      ).rows[0]?.url ?? null
   );
   // Two different scopes, deliberately.
   //
