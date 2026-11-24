@@ -174,6 +174,7 @@ import { MacAppUpdateBridge } from "./mac-app-update-bridge.js";
 import { isMacAppManaged } from "./update-owner.js";
 import { createAutoCheckRuntime } from "./release-auto-check.js";
 import { registerStaticRoutes } from "./routes/static.js";
+import { registerLaunchTargetRoutes } from "./routes/launch-targets.js";
 import { registerSystemRoutes } from "./routes/system.js";
 import { registerEngineLoginRoutes } from "./routes/engine-login.js";
 import { registerEngineManagementRoutes } from "./routes/engine-management.js";
@@ -1508,6 +1509,10 @@ async function registerRoutes() {
       build: { revision: gitSha, version: packageVersion },
     });
   }
+  await registerLaunchTargetRoutes(app, {
+    templates: templateService,
+    tasks: taskService,
+  });
   await registerRunnerRoutes(app, {
     runners: remoteRunner,
     updates: runnerUpdates,
