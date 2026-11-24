@@ -245,6 +245,8 @@ const JUMP_INTERRUPTS = [
  * feed moving after the input itself has stopped.
  */
 const READER_SCROLL_MS = 400;
+/** A smooth scroll to the bottom with no scroll event for this long has stopped. */
+const TAIL_STALL_MS = 250;
 /** Keys that scroll whatever scroller the page is on, from anywhere but a field. */
 const SCROLL_KEYS = new Set([
   "PageUp",
@@ -696,6 +698,8 @@ export function ChatPane({
   // Give the browser the destination so the compositor can keep scrolling
   // while React handles the delivery and turn-start events on the main thread.
   const tailTarget = useRef<number | null>(null);
+  /** When the smooth scroll toward tailTarget last moved (or started). */
+  const tailMovedAtRef = useRef(0);
   const cancelTail = useCallback(() => {
     if (tailTarget.current === null) return;
     tailTarget.current = null;
@@ -717,13 +721,27 @@ export function ChatPane({
       tailTarget.current = null;
       return;
     }
+    // Easing is for arrivals. A bottom more than a view away (a feed still
+    // measuring its rows, the view resized by the keyboard or composer) is
+    // reached with a jump: a long smooth scroll at a target that keeps
+    // moving lands somewhere in between.
+    if (bottom - el.scrollTop > el.clientHeight) {
+      tailTarget.current = null;
+      scrollToBottom();
+      return;
+    }
+    // A smooth scroll still under way toward about the same bottom is left
+    // to finish, unless it has stopped moving: WebKit drops one when the
+    // scroller is written or resized mid-flight.
     if (
       tailTarget.current !== null &&
       Math.abs(bottom - tailTarget.current) < 32 &&
-      Math.abs(el.scrollTop - tailTarget.current) > 1
+      Math.abs(el.scrollTop - tailTarget.current) > 1 &&
+      Date.now() - tailMovedAtRef.current < TAIL_STALL_MS
     )
       return;
     tailTarget.current = bottom;
+    tailMovedAtRef.current = Date.now();
     el.scrollTo({ top: bottom, behavior: "smooth" });
   }, [scrollToBottom]);
   useEffect(() => {
@@ -893,7 +911,10 @@ export function ChatPane({
     const el = scrollRef.current;
     if (!el) return;
     reapplyRestore(el);
-    if (tailTarget.current !== null) followBottom();
+    if (tailTarget.current !== null) {
+      tailMovedAtRef.current = Date.now();
+      followBottom();
+    }
     // A shrink may clamp the browser before the observer runs. Adopt the
     // shorter bottom now; growth must keep the previous bottom until pinned.
     knownHeightRef.current = Math.min(
