@@ -192,10 +192,10 @@ export function useCreateAgentForm({
     loading: modelCatalogLoading,
     loaded: modelCatalogLoaded,
   } = useAgentModelCatalog(createType, true, {
-    data: targetData.data?.catalog,
-    loading: launch.list.isLoading || targetData.isLoading,
+    data: targetData.info?.catalog,
+    loading: launch.list.isLoading || targetData.catalogLoading,
   });
-  const agentTypes = targetData.data?.agentTypes ?? enabledAgentTypes;
+  const agentTypes = targetData.info?.agentTypes ?? enabledAgentTypes;
   const effortData = useLaunchTargetData(
     launch.target,
     {
@@ -208,8 +208,8 @@ export function useCreateAgentForm({
   );
   const workloadEffort =
     createModel && createModel !== defaultModel
-      ? effortData.data?.effort
-      : targetData.data?.effort;
+      ? effortData.effort
+      : targetData.effort;
 
   useEffect(() => {
     if (!modelCatalogLoaded || modelOptions.length === 0) return;
@@ -449,7 +449,7 @@ export function useCreateAgentForm({
     targetData,
     agentTypes,
     workloadEffort,
-    engines: targetData.data?.engineOptions ?? null,
+    engines: targetData.info?.engineOptions ?? null,
     chooseTarget: (key: string) => {
       launch.choose(key);
       setCreateEffort(null);

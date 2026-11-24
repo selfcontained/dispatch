@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   Combobox,
@@ -60,6 +60,8 @@ export function BranchSelect({
       : "");
   const activeSource = useRef(source);
   activeSource.current = source;
+  const pendingSource = useRef<string | null>(null);
+  const sourcePending = sourceUrl === "";
   const [reportedDefault, setReportedDefault] = useState("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [remoteBranches, setRemoteBranches] = useState<string[]>([]);
@@ -71,6 +73,7 @@ export function BranchSelect({
   const fetchBranches = useCallback(async () => {
     const trimmed = source;
     if (!trimmed || disabled) return;
+    pendingSource.current = trimmed;
     setBranchesLoading(true);
     setFetchError(null);
     try {
@@ -87,6 +90,7 @@ export function BranchSelect({
         error instanceof Error ? error.message : "Couldn’t load branches."
       );
     } finally {
+      if (pendingSource.current === trimmed) pendingSource.current = null;
       if (activeSource.current === trimmed) {
         setBranchesLoading(false);
         setFetchedForCwd(trimmed);
@@ -102,6 +106,16 @@ export function BranchSelect({
     },
     [disabled, fetchBranches, fetchedForCwd, source]
   );
+
+  useEffect(() => {
+    if (
+      dropdownOpen &&
+      source &&
+      fetchedForCwd !== source &&
+      pendingSource.current !== source
+    )
+      void fetchBranches();
+  }, [dropdownOpen, source, fetchedForCwd, fetchBranches]);
 
   // Keep the saved baseBranch selectable even if the fetched list doesn't
   // include it (branch renamed/deleted upstream). We flag it visually in
@@ -168,7 +182,7 @@ export function BranchSelect({
         <Combobox open={dropdownOpen} onOpenChange={changeOpen}>
           <ComboboxTrigger
             disabled={disabled}
-            loading={branchesLoading}
+            loading={branchesLoading || sourcePending}
             data-testid={`${testIdPrefix}-base-branch`}
             className="font-mono text-body-sm"
           >
@@ -183,7 +197,7 @@ export function BranchSelect({
             value={baseBranch}
             emptyMessage="No matching branches."
             status={
-              branchesLoading ? (
+              branchesLoading || sourcePending ? (
                 <>
                   <Spinner />
                   Loading branches…

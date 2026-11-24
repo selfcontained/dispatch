@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CatalogResponse } from "./use-agent-model-catalog";
 import type { EngineStatus } from "./use-engines";
 import type { AgentType } from "@/lib/agent-types";
@@ -49,12 +49,14 @@ export function useLaunchTargets(
     kind: "template" | "trigger" | "agent";
     id: string;
   },
-  inheritedTemplateId?: string
+  inheritedTemplateId?: string,
+  enabled = true
 ) {
   const [choice, setChoice] = useState<string | null>(null);
   const reset = useCallback(() => setChoice(null), []);
   const list = useQuery({
     queryKey: ["launch-targets"],
+    enabled,
     queryFn: async () =>
       (await api<{ targets: LaunchTarget[] }>("/api/v1/launch-targets"))
         .targets,
@@ -62,7 +64,7 @@ export function useLaunchTargets(
   });
   const projection = useQuery({
     queryKey: ["saved-launch-target", saved?.kind, saved?.id],
-    enabled: Boolean(saved),
+    enabled: enabled && Boolean(saved),
     queryFn: () =>
       api<Projection>(
         `/api/v1/launch-targets/saved/${saved!.kind}/${encodeURIComponent(saved!.id)}`
@@ -70,7 +72,7 @@ export function useLaunchTargets(
   });
   const inherited = useQuery({
     queryKey: ["saved-launch-target", "template", inheritedTemplateId],
-    enabled: Boolean(inheritedTemplateId),
+    enabled: enabled && Boolean(inheritedTemplateId),
     queryFn: () =>
       api<Projection>(
         `/api/v1/launch-targets/saved/template/${encodeURIComponent(inheritedTemplateId!)}`
@@ -134,6 +136,16 @@ export function useLaunchTargetData(
     agentType,
     ...(projectId ? { projectId } : {}),
   });
+  // Engine metadata belongs to the target; locations have their own URLs and preferences.
+  const infoKey = [
+    "agent-models",
+    "launch-target-info",
+    target?.key,
+    agentType,
+  ] as const;
+  const cachedInfo = useQuery<
+    Pick<TargetData, "catalog" | "agentTypes" | "engineOptions">
+  >({ queryKey: infoKey, queryFn: skipToken });
   const base = useQuery({
     queryKey: [
       "agent-models",
@@ -144,7 +156,15 @@ export function useLaunchTargetData(
       agentType,
     ],
     enabled: enabled && Boolean(target),
-    queryFn: () => api<TargetData>(`${target!.dataUrl}?${params}`),
+    queryFn: async () => {
+      const result = await api<TargetData>(`${target!.dataUrl}?${params}`);
+      client.setQueryData(infoKey, {
+        catalog: result.catalog,
+        agentTypes: result.agentTypes,
+        engineOptions: result.engineOptions,
+      });
+      return result;
+    },
     placeholderData: (previous, query) =>
       query !== undefined &&
       query.queryKey[2] === target?.key &&
@@ -172,12 +192,19 @@ export function useLaunchTargetData(
       ),
     refetchInterval: 10000,
   });
-  const catalog = base.data?.catalog;
+  const info = base.data ?? cachedInfo.data;
+  const catalog = info?.catalog;
   const reported = catalog?.models[agentType]?.find(
     (item) => item.id === (model ?? catalog.defaults?.[agentType])
   )?.effort;
   const effort = model
     ? (selected.data?.effort ?? reported)
     : (reported ?? (base.isPlaceholderData ? undefined : base.data?.effort));
-  return { ...base, data: base.data ? { ...base.data, effort } : undefined };
+  return {
+    ...base,
+    info,
+    effort,
+    catalogLoading: base.isLoading && !info,
+    data: base.data ? { ...base.data, effort } : undefined,
+  };
 }

@@ -151,6 +151,8 @@ it("does not carry personas or preferences from the previous folder while the ne
   );
   rerender({ directory: "/next" });
   expect(result.current.data).toBeUndefined();
+  expect(result.current.info?.catalog.models.claude?.[0]?.id).toBe("m");
+  expect(result.current.catalogLoading).toBe(false);
   await act(async () =>
     next.resolve({
       agentTypes: ["claude"],

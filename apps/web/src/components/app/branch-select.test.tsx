@@ -247,3 +247,35 @@ it("keeps an earlier target's response out of the current dropdown", async () =>
   );
   expect(screen.queryByRole("option", { name: "old-main" })).toBeNull();
 });
+
+it("waits for its data URL and fetches it when an open dropdown becomes ready", async () => {
+  stubLayout();
+  vi.mocked(api).mockResolvedValue({
+    branches: ["ready-branch"],
+    defaultBranch: "ready-branch",
+  });
+  const view = render(
+    <BranchSelect
+      {...props}
+      cwd="/controller-folder"
+      sourceUrl=""
+      defaultBaseBranch=""
+    />,
+    { wrapper: wrapper() }
+  );
+  fireEvent.click(screen.getByTestId("branch-select-base-branch"));
+  expect(api).not.toHaveBeenCalled();
+  expect(screen.getByText("Loading branches…")).toBeTruthy();
+  view.rerender(
+    <BranchSelect
+      {...props}
+      cwd="/controller-folder"
+      sourceUrl="/fixture/ready"
+      defaultBaseBranch=""
+    />
+  );
+  expect(
+    await screen.findByRole("option", { name: "ready-branch" })
+  ).toBeTruthy();
+  expect(vi.mocked(api).mock.calls).toEqual([["/fixture/ready"]]);
+});

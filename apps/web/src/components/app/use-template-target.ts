@@ -24,12 +24,14 @@ export function useTemplateTarget(
     model: draft.model,
   });
   const models = useAgentModelCatalog(draft.agentType, true, {
-    data: data.data?.catalog,
+    data: data.info?.catalog,
     loading:
-      launch.list.isLoading || launch.projection.isFetching || data.isLoading,
+      launch.list.isLoading ||
+      launch.projection.isFetching ||
+      data.catalogLoading,
   });
   useEffect(() => {
-    const types = data.data?.agentTypes;
+    const types = data.info?.agentTypes;
     if (launch.changed && types?.length && !types.includes(draft.agentType))
       setDraft((old) => ({
         ...old,
@@ -37,7 +39,7 @@ export function useTemplateTarget(
         model: null,
         effort: null,
       }));
-  }, [launch.changed, data.data?.agentTypes, draft.agentType, setDraft]);
+  }, [launch.changed, data.info?.agentTypes, draft.agentType, setDraft]);
   const applied = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (!launch.changed || !data.data || applied.current === launch.key) return;

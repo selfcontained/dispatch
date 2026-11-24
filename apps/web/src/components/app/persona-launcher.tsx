@@ -58,8 +58,12 @@ export function PersonaLauncher({
 }): JSX.Element {
   const queryClient = useQueryClient();
   const cwd = agent.workspacePath ?? agent.worktreePath ?? agent.cwd;
-  const target = useLaunchTargets({ kind: "agent", id: agent.id });
   const [dialogOpen, setDialogOpen] = useState(false);
+  const target = useLaunchTargets(
+    { kind: "agent", id: agent.id },
+    undefined,
+    dialogOpen
+  );
   const [selectedPersonas, setSelectedPersonas] = useState<string[]>([]);
   const [codeownersSelected, setCodeownersSelected] = useState(false);
   const [note, setNote] = useState("");
@@ -67,12 +71,16 @@ export function PersonaLauncher({
     defaultReviewAgentType(agent)
   );
 
-  const data = useLaunchTargetData(target.target, {
-    directory: target.projection.data?.directory ?? "",
-    projectId: target.projection.data?.projectId,
-    agentType: selectedAgentType,
-  });
-  const reviewerTypes = (data.data?.agentTypes ?? enabledAgentTypes).filter(
+  const data = useLaunchTargetData(
+    target.target,
+    {
+      directory: target.projection.data?.directory ?? "",
+      projectId: target.projection.data?.projectId,
+      agentType: selectedAgentType,
+    },
+    dialogOpen
+  );
+  const reviewerTypes = (data.info?.agentTypes ?? enabledAgentTypes).filter(
     isCliAgentType
   );
   const showReviewAgentTypePicker = reviewerTypes.length > 1;
@@ -84,8 +92,8 @@ export function PersonaLauncher({
   const [selectedModel, setSelectedModel] = useAtom(modelAtom);
   const { options: modelOptions, loading: modelCatalogLoading } =
     useAgentModelCatalog(selectedAgentType, true, {
-      data: data.data?.catalog,
-      loading: target.list.isLoading || data.isLoading,
+      data: data.info?.catalog,
+      loading: target.list.isLoading || data.catalogLoading,
     });
   const showModelSelect = modelCatalogLoading || modelOptions.length > 0;
 

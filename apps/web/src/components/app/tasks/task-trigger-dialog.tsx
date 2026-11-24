@@ -164,21 +164,27 @@ export function TaskTriggerDialog({
       : chosen
         ? { kind: "template", id: chosen.id }
         : undefined,
-    chosen?.id
+    chosen?.id,
+    open
   );
-  const data = useLaunchTargetData(launch.target, {
-    directory: chosen?.directory ?? project.repoRoot ?? "",
-    projectId,
-    agentType,
-    model: trigger.model ?? (agentType === templateType ? chosen?.model : null),
-  });
+  const data = useLaunchTargetData(
+    launch.target,
+    {
+      directory: chosen?.directory ?? project.repoRoot ?? "",
+      projectId,
+      agentType,
+      model:
+        trigger.model ?? (agentType === templateType ? chosen?.model : null),
+    },
+    open
+  );
   const models = useAgentModelCatalog(agentType, true, {
-    data: data.data?.catalog,
-    loading: launch.list.isLoading || data.isLoading,
+    data: data.info?.catalog,
+    loading: launch.list.isLoading || data.catalogLoading,
   });
-  const effortChoices = data.data?.effort;
+  const effortChoices = data.effort;
   useEffect(() => {
-    const types = data.data?.agentTypes;
+    const types = data.info?.agentTypes;
     if (launch.changed && types?.length && !types.includes(agentType))
       setTrigger((old) => ({
         ...old,
@@ -186,7 +192,7 @@ export function TaskTriggerDialog({
         model: null,
         effort: null,
       }));
-  }, [launch.changed, data.data?.agentTypes, agentType, templateType]);
+  }, [launch.changed, data.info?.agentTypes, agentType, templateType]);
   const { reset: resetTarget } = launch;
   useEffect(() => {
     if (!open) resetTarget();
@@ -339,9 +345,9 @@ export function TaskTriggerDialog({
                 effort: null,
               }))
             }
-            agentTypes={data.data?.agentTypes ?? enabledAgentTypes}
+            agentTypes={data.info?.agentTypes ?? enabledAgentTypes}
             target={{
-              engines: data.data?.engineOptions ?? null,
+              engines: data.info?.engineOptions ?? null,
               effort: effortChoices,
             }}
             effortDefaultLabel={

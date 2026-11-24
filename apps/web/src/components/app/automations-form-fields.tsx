@@ -187,7 +187,7 @@ export function TemplateConfigFields({
     agentType,
     true,
     target
-      ? { data: target.data.data?.catalog, loading: target.models.loading }
+      ? { data: target.data.info?.catalog, loading: target.models.loading }
       : undefined
   );
   const {
@@ -228,7 +228,7 @@ export function TemplateConfigFields({
             onModelChange(null);
             onEffortChange(null);
           }}
-          agentTypes={target?.data.data?.agentTypes ?? enabledAgentTypes}
+          agentTypes={target?.data.info?.agentTypes ?? enabledAgentTypes}
         />
         {modelOptions.length > 0 || modelCatalogLoading ? (
           <AgentModelSelect
@@ -242,7 +242,7 @@ export function TemplateConfigFields({
         <AgentEffortSelect
           model={model}
           workload={Boolean(target)}
-          workloadChoices={target?.data.data?.effort}
+          workloadChoices={target?.data.effort}
           value={effort ?? null}
           onChange={onEffortChange}
           agentType={agentType}
@@ -322,7 +322,9 @@ export function TemplateConfigFields({
       <>
         <TemplateWorktreeOption
           checked={useWorktree}
-          branchesUrl={target?.data.data?.branchesUrl}
+          branchesUrl={
+            target ? (target.data.data?.branchesUrl ?? "") : undefined
+          }
           defaultBaseBranch={target?.data.data?.defaults.baseBranch}
           cwd={directory}
           baseBranch={baseBranch}

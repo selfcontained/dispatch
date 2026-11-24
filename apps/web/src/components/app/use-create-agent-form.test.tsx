@@ -1125,3 +1125,34 @@ describe("agent launch projection", () => {
     }
   );
 });
+
+it("keeps main's saved-model payload while a new folder's location data loads", async () => {
+  const destination = "/repo/location-switch-pin";
+  window.localStorage.setItem(
+    `dispatch:model:claude:${destination}`,
+    JSON.stringify("retained")
+  );
+  queryClient.setQueryData(["agent-models"], {
+    models: { claude: [{ id: "retained", label: "Retained" }] },
+  });
+  const fallback = apiMock.getMockImplementation()!;
+  apiMock.mockImplementation((url, init) =>
+    url.startsWith("/fixture/controller?") &&
+    new URL(url, "http://fixture").searchParams.get("directory") === destination
+      ? new Promise(() => {})
+      : fallback(url, init)
+  );
+  const { result } = await setup();
+  await waitFor(() =>
+    expect(
+      result.current.modelOptions.some((option) => option.id === "retained")
+    ).toBe(true)
+  );
+  act(() => result.current.setCreateCwd(destination));
+  expect(result.current.targetData.data).toBeUndefined();
+  await act(async () => result.current.handleSubmit(submitEvent()));
+  expect(agentsPostJson()).toMatchObject({
+    cwd: destination,
+    model: "retained",
+  });
+});

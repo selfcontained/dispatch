@@ -214,7 +214,7 @@ function CreateAgentDialogContent({
               />
               <WorktreeSection
                 cwd={form.createCwd}
-                branchesUrl={form.targetData.data?.branchesUrl}
+                branchesUrl={form.targetData.data?.branchesUrl ?? ""}
                 defaultBaseBranch={form.targetData.data?.defaults.baseBranch}
                 worktreeAvailable={form.worktreeAvailable}
                 useWorktree={form.createUseWorktree}

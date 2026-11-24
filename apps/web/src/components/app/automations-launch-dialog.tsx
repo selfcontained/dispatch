@@ -105,8 +105,8 @@ function LaunchTemplateDialogContent({
     loading: modelCatalogLoading,
     loaded: modelCatalogLoaded,
   } = useAgentModelCatalog(agentType, true, {
-    data: data.data?.catalog,
-    loading: target.list.isLoading || data.isLoading,
+    data: data.info?.catalog,
+    loading: target.list.isLoading || data.catalogLoading,
   });
   const showModelSelect = modelCatalogLoading || modelOptions.length > 0;
 
@@ -160,7 +160,7 @@ function LaunchTemplateDialogContent({
     args.length === 0 ||
     args.every((a) => !a.error && (!a.required || argValues[a.key]?.trim()));
 
-  const effortChoices = data.data?.effort;
+  const effortChoices = data.effort;
   const effortError = effortCompatibilityError(effort, effortChoices);
 
   const handleLaunch = useCallback(() => {
@@ -269,7 +269,7 @@ function LaunchTemplateDialogContent({
               id="launch-template-agent-type"
               value={agentType}
               onChange={handleAgentTypeChange}
-              agentTypes={data.data?.agentTypes ?? agentTypes}
+              agentTypes={data.info?.agentTypes ?? agentTypes}
             />
             {showModelSelect ? (
               <AgentModelSelect
