@@ -22,6 +22,10 @@
  *            regular file at `path` itself and feeds it to the blob it expects
  *            under `id`, answering `{type: "blob", id, ok, error?}`. A frame
  *            of this transport only: TLS sends a blob's bytes as a stream.
+ *            With `inPlace: {mustExist}` the runner reads nothing: the call
+ *            that expects the blob takes the path where it is (a missing
+ *            file fails it when `mustExist`). Only a call that asked for a
+ *            path in place accepts it, and it accepts nothing else.
  *
  * A failure before the request is written is `unavailable` (not sent); a
  * connection lost after it is `unknown_outcome`.
@@ -34,6 +38,7 @@ import {
   runnerError,
   RunnerCallError,
   json,
+  boolean,
   integer,
   literal,
   object,
@@ -69,6 +74,7 @@ export const blobPathFrame = object({
   type: literal("blob"),
   id: string,
   path: string,
+  inPlace: optional(object({ mustExist: boolean })),
 });
 export const blobPathReply = union(
   object({ type: literal("blob"), id: string, ok: literal(true) }),
@@ -490,12 +496,15 @@ export class LocalSocketConnection {
    */
   sendBlob(
     id: string,
-    source: { path: string } | Readable,
+    source: { path: string; inPlace?: { mustExist: boolean } } | Readable,
     signal?: AbortSignal
   ): Promise<void> {
     if (!("path" in source) || typeof source.path !== "string")
       return this.streams.send(id, source as Readable, signal);
-    const { path } = source;
+    const { path, inPlace } = source as {
+      path: string;
+      inPlace?: { mustExist: boolean };
+    };
     return new Promise((resolve, reject) => {
       if (!this.connected)
         return reject(fail("unavailable", "The local runner is unavailable"));
@@ -503,7 +512,12 @@ export class LocalSocketConnection {
         return reject(fail("invalid", "That blob is already being sent"));
       this.blobs.set(id, { resolve, reject });
       try {
-        this.send({ type: "blob", id, path } satisfies BlobPathFrame);
+        this.send({
+          type: "blob",
+          id,
+          path,
+          ...(inPlace && { inPlace: { mustExist: inPlace.mustExist } }),
+        } satisfies BlobPathFrame);
       } catch {
         this.blobs.delete(id);
         reject(fail("unavailable", "The local runner is unavailable"));

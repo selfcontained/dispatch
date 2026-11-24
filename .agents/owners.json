@@ -115,6 +115,7 @@
         "apps/server/test/local-workspace-preparation.test.ts",
         "apps/server/test/local-launch-directory.test.ts",
         "apps/server/test/local-path-resolve.test.ts",
+        "apps/server/test/local-files-child.test.ts",
         "apps/server/test/db/local-worktree-restart.test.ts",
         "apps/server/test/repository-cache.test.ts",
         "apps/server/test/prompt-images.test.ts",
