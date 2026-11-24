@@ -1,5 +1,9 @@
 import { sameRunner } from "@dispatch/runner-protocol/contract";
-import { controllerPlacement } from "../runners/placement.js";
+import {
+  PROJECT_IDENTITY_SQL,
+  repositoryKey,
+  type ProjectIdentity,
+} from "../runners/repository-identity.js";
 import {
   hasSavedLocator,
   resolveSavedTarget,
@@ -565,12 +569,26 @@ export class JobService {
     const job = await this.store.getJob(run.jobId);
     if (!job?.continuationEnabled) return;
     const directory = destinationDirectory ?? run.config.directory;
-    const repoRoot = !sameRunner(
-      targetPlacement({ directory }),
-      controllerPlacement
-    )
-      ? directory
-      : await resolveRepoRoot(directory).catch(() => normalizePath(directory));
+    // The key the successor's Brain tools read (D5, D8). A plain folder on
+    // the controller's machine keeps its normalized path, as on main.
+    const agentId = run.agentId;
+    const repoRoot =
+      (await repositoryKey({
+        placement: targetPlacement({ directory }),
+        repositoryRoot: () =>
+          resolveRepoRoot(directory).catch(() => normalizePath(directory)),
+        project: async () => {
+          const projectId = (await this.agentManager.getAgent(agentId))
+            ?.projectId;
+          return projectId
+            ? ((
+                await this.pool.query<ProjectIdentity>(PROJECT_IDENTITY_SQL, [
+                  projectId,
+                ])
+              ).rows[0] ?? null)
+            : null;
+        },
+      })) ?? directory;
     const key = continuationBrainKey(job.id);
     const terminalStatus =
       run.continuation?.action === "finish"

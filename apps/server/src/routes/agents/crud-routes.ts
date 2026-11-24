@@ -45,9 +45,8 @@ import {
   modelScopeFor,
   validateAgentModelChoice,
 } from "../../shared/agent-models.js";
-import { getDirectoryIconPath } from "../../shared/directory-icon-cache.js";
 import {
-  detectAgentIcon,
+  agentIconPath,
   iconTarget,
   readAgentIcon,
 } from "../../agents/checkout-icon.js";
@@ -165,15 +164,10 @@ export async function registerAgentCrudRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    const baseDir = agent.launchCwd ?? agent.gitContext?.repoRoot ?? agent.cwd;
-    const runner = sessionRunner(
-      deps.agentManager.checkoutReadRunners(),
-      agent
-    );
+    const runners = deps.agentManager.checkoutReadRunners();
+    const runner = sessionRunner(runners, agent);
     const target = iconTarget(agent);
-    const iconRelPath = await getDirectoryIconPath(deps.pool, baseDir, () =>
-      detectAgentIcon(runner, target)
-    );
+    const iconRelPath = await agentIconPath(deps.pool, runners, agent);
     if (!iconRelPath) {
       return reply.code(404).send({ error: "No repo icon." });
     }

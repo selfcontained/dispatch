@@ -29,6 +29,7 @@ import {
   mapIncomingFrames,
   type HostMessage,
 } from "@dispatch/runner-client/v1/host";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { Duplex } from "node:stream";
 import { childProcessEnv } from "../shared/process/child-environment.js";
@@ -218,6 +219,22 @@ export function createLocalCheckoutRunner(
     options?: CallOptions<K>
   ): Promise<Res<K>> {
     const { target, ...request } = input as Req<ChildRead>;
+    // A folder before any session exists: in the child when it is ready,
+    // else, and when it dies mid-call, the same port in process (R3).
+    if ("path" in target) {
+      if (child?.connection.state === "ready")
+        try {
+          return await child.call(op, input, options);
+        } catch (error) {
+          if (!childUnavailable(error)) throw error;
+          options?.signal?.throwIfAborted();
+        }
+      return checkoutWorkload.run(
+        op,
+        { directory: displayPath(target.path), request } as never,
+        { signal: options?.signal }
+      );
+    }
     if (!("session" in target) || sessionToWire(target.session) !== agent?.id)
       throw new RunnerCallError({
         code: "invalid",
@@ -618,9 +635,12 @@ export function createLocalCheckoutRunner(
   }
 
   /**
-   * Session files for the bound session, in process with the same workload
-   * (R3, as for reads): the child does not serve `files.*` yet. A put hands
-   * the file over where it is, so its path is the one the agent opens.
+   * Session files for the bound session. A put hands the file over where it
+   * is, so its path is the one the agent opens: in the child when it is
+   * ready and holds the session (the socket passes the path in place, with
+   * no read), else, and when it dies mid-call, the same port in process
+   * (R3, as for reads). A get stays in process: the local socket has no
+   * frame that returns bytes, and main's one read returns them unencoded.
    */
   async function files<K extends "files.put" | "files.get">(
     op: K,
@@ -633,6 +653,30 @@ export function createLocalCheckoutRunner(
       });
     if (op === "files.put") {
       const file = sessionFileBlob((input as Req<"files.put">).blob);
+      const local = child as
+        | (Runner & Partial<Pick<LocalRunnerSession, "sendBlob">>)
+        | undefined;
+      if (local?.sendBlob && local.connection.state === "ready")
+        try {
+          const signal = AbortSignal.timeout(CHILD_WAIT_MS);
+          if (await childBinding(local, input.session, signal)) {
+            // The app's token stays here; the child gets a path in place.
+            const blob = `file:${randomUUID()}`;
+            const [answer] = await Promise.all([
+              local.call("files.put", {
+                ...(input as Req<"files.put">),
+                blob,
+              }),
+              local.sendBlob(blob, {
+                path: file.path,
+                inPlace: { mustExist: file.purpose === "prompt" },
+              }),
+            ]);
+            return answer as Res<K>;
+          }
+        } catch (error) {
+          if (!childUnavailable(error)) throw error;
+        }
       return {
         path: pathFromWire(
           await sessionFilesWorkload.put(file.path, file.purpose)

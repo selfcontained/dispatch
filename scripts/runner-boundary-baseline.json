@@ -653,13 +653,6 @@
   {
     "file": "apps/server/src/agents/local-runner.ts",
     "kind": "R3 local method",
-    "detail": "inferRepositoryUrl",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner.ts",
-    "kind": "R3 local method",
     "detail": "resolveProjectRoot",
     "task": "T04",
     "count": 1
@@ -1871,13 +1864,6 @@
   {
     "file": "apps/server/src/routes/mcp.ts",
     "kind": "R7 restriction",
-    "detail": "N19 Runner repository scope unavailable for listing and risk",
-    "task": "T34",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/mcp.ts",
-    "kind": "R7 restriction",
     "detail": "N23 Runner persona authoring root is absent",
     "task": "T35",
     "count": 1
@@ -1905,24 +1891,10 @@
   },
   {
     "file": "apps/server/src/routes/projects.ts",
-    "kind": "R2 host access",
-    "detail": "fs/promises",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/projects.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/projects/resolve-root",
     "task": "T04",
     "count": 2
-  },
-  {
-    "file": "apps/server/src/routes/projects.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/repo-icon",
-    "task": "T04",
-    "count": 1
   },
   {
     "file": "apps/server/src/routes/release.ts",
@@ -2025,21 +1997,7 @@
   {
     "file": "apps/server/src/server/mcp-handlers.ts",
     "kind": "R1 placement call",
-    "detail": "remotePlacement(a.cwd)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/server/mcp-handlers.ts",
-    "kind": "R1 placement call",
     "detail": "remotePlacement(parent.cwd)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/server/mcp-handlers.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(sender.cwd)",
     "task": "T07",
     "count": 1
   },
@@ -2119,13 +2077,6 @@
     "detail": "placement.runner",
     "task": "T07",
     "count": 2
-  },
-  {
-    "file": "apps/server/src/shared/directory-icon-cache.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/repo-icon",
-    "task": "T04",
-    "count": 1
   },
   {
     "file": "apps/server/src/shared/git/agent-diff.ts",

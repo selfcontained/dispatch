@@ -65,7 +65,24 @@ describe("local launch directory", () => {
       cwd: plain,
       canonicalPath: plain,
       git: { status: "ok", value: null },
+      origin: null,
     });
+  });
+
+  it("reports a repository's HTTPS origin beside, not inside, its Git context", async () => {
+    git("remote", "add", "origin", "git@github.com:fixture/example.git");
+    try {
+      const resolved = await resolveLaunchDirectory(sub);
+      expect(resolved.origin).toBe("https://github.com/fixture/example.git");
+      expect(resolved.git).toMatchObject({ status: "ok" });
+      expect(
+        resolved.git.status === "ok" && resolved.git.value
+          ? "origin" in resolved.git.value
+          : null
+      ).toBe(false);
+    } finally {
+      git("remote", "remove", "origin");
+    }
   });
 
   it("keeps the spelling it was given and resolves a link canonically", async () => {

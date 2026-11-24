@@ -432,7 +432,35 @@ it("keeps the MCP caller surface and call outcomes at the recorded parity bounda
     true,
     "session"
   );
-  await call("list_agents", "list_agents", {}, true);
+  const lists = await call("list_agents", "list_agents", {}, true);
+  // One repository identity (D5, D8): the local caller keys by its root, the
+  // runner caller by its project's primary root, and each lists the other.
+  for (const [index, list] of lists.entries()) {
+    const agents = (
+      list.result?.structuredContent as { agents?: { id: string }[] }
+    ).agents;
+    expect(agents?.map(({ id }) => id)).toContain(callers[1 - index]);
+  }
+  await call(
+    "brain_store_object/project",
+    "brain_store_object",
+    callers.map((id) => ({
+      collection: "parity",
+      name: id,
+      value: { caller: id },
+    })) as [Args, Args],
+    true
+  );
+  const brains = await call(
+    "brain_list_objects/project",
+    "brain_list_objects",
+    { collection: "parity" },
+    true
+  );
+  // Both callers read and write one Brain.
+  for (const brain of brains)
+    for (const id of callers)
+      expect(JSON.stringify(brain.result?.structuredContent)).toContain(id);
   await call("task_list", "task_list", {}, true);
   await call("usage_watch_list", "usage_watch_list", {}, true);
   await call(
@@ -562,9 +590,6 @@ it("keeps the MCP caller surface and call outcomes at the recorded parity bounda
   );
   const triggerTemplateId = triggerTemplates.rows[0]!.id;
   for (const [label, location] of [
-    ["folder", { directory: "/unreachable/trigger-folder" }],
-    ["tilde", { directory: "~" }],
-    ["locator", { directory: runnerCwd }],
     ["offline", { runner: "offline-trigger-fixture" }],
     ["controller", { runner: "local" }],
     ["defaults", {}],

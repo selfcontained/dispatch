@@ -61,7 +61,7 @@ import {
 import { getPullRequestHead } from "../shared/github/pr.js";
 import { GitWorktreeError } from "../shared/git/worktree.js";
 import { resolveFilesDir } from "../shared/files.js";
-import { getDirectoryIconPath } from "../shared/directory-icon-cache.js";
+import { agentIconPath, folderIconPath } from "./checkout-icon.js";
 import { getActivePersonality } from "../db/personalities.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import {
@@ -2633,10 +2633,7 @@ export class AgentManager {
       ? {
           defaultBranch: async () => "main",
           ...(localGit && {
-            repository: () =>
-              this.localRunner
-                .inferRepositoryUrl(localGit)
-                .catch(() => undefined),
+            repository: async () => directory.origin ?? undefined,
             pullRequestHead: (target: PullRequestTarget) =>
               getPullRequestHead({ cwd: localGit, ...target }),
             forkPullRequests: false,
@@ -2671,6 +2668,16 @@ export class AgentManager {
                 sessionSource && { forkPullRequests: false }),
             }),
         };
+    // Remember the icon of the folder the launch reads, before a managed
+    // worktree can change the agent's effective cwd (main's warm-up). A
+    // launch with no folder to read yet warms up once its session exists.
+    if (directory)
+      await folderIconPath(
+        this.pool,
+        this.checkoutReadRunners(),
+        placement,
+        directory.cwd
+      );
     const p = await this.prepareCreateInputs(
       input,
       directory?.cwd ?? input.cwd,
@@ -2754,9 +2761,6 @@ export class AgentManager {
     >,
     runnerEngine: boolean
   ): Promise<PreparedCreateInputs> {
-    // Remember the icon of the directory the user chose, before a managed
-    // worktree can change the agent's effective cwd.
-    if (!runnerEngine) await getDirectoryIconPath(this.pool, originalCwd);
     const id = this.newAgentId();
     const type: AgentType = input.type ?? "claude";
     // Callers checked the target's catalog; a runner engine rechecks at launch.
@@ -2958,6 +2962,7 @@ export class AgentManager {
       startupReferences: opts.startupReferences,
       chatLaunchPost: prepared.chatLaunchPost,
       jobRunId: opts.jobRunId,
+      sessionIcon: !opts.directory,
     });
   }
 
@@ -2980,6 +2985,8 @@ export class AgentManager {
       jobRunId: string | undefined;
       /** A released launch keeps the attempt's ID. */
       launchId?: string;
+      /** Warm the icon up through the session: there was no folder to read at create. */
+      sessionIcon?: boolean;
     }
   ): Promise<void> {
     const { workspace, chatLaunchPost } = opts;
@@ -3006,6 +3013,12 @@ export class AgentManager {
         throw error;
       }
       const { sessionId } = started;
+      // A launch that had no folder to read at create warms up now that its
+      // launch checkout exists (a released create had none to read).
+      if (opts.sessionIcon ?? true)
+        await agentIconPath(this.pool, this.checkoutReadRunners(), agent).catch(
+          () => null
+        );
       const images = chatLaunchPost?.images;
       if (opts.initialFiles.length) {
         const filesDir = resolveFilesDir(

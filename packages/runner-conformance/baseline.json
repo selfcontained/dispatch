@@ -129,13 +129,13 @@
     "lane": "local",
     "scenario": "files.put/pending",
     "task": "T12",
-    "reason": "no local runner child yet"
+    "reason": "the local child takes a file in place; files.put/bytes sends bytes for a new path and reads them back with files.get"
   },
   {
     "lane": "local",
     "scenario": "files.get/bytes",
     "task": "T11",
-    "reason": "no local runner child yet"
+    "reason": "no byte-return frame on the local socket: files.get stays in process"
   },
   {
     "lane": "local",

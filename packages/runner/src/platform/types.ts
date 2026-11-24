@@ -187,6 +187,12 @@ export interface WorkspacePort {
     changedFiles: string[];
     uncommittedFiles: string[];
   }>;
+  /**
+   * A session file handed over where it is (`files.put` on a transport that
+   * passes a path in place): the path the session opens. `mustExist` fails
+   * a missing file; otherwise the path is handed over as it is.
+   */
+  putFile?(path: string, file: { mustExist: boolean }): Promise<string>;
   /** What a folder is for a launch (`path.resolve`), as the workload account. */
   resolvePath?(path: string): Promise<Res<"path.resolve">>;
   /** The canonical path of an existing directory, else null. */

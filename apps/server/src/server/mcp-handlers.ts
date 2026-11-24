@@ -62,6 +62,14 @@ import type {
 import { personaScopeFor } from "../personas/persona-scope.js";
 import { resolvePersona } from "../personas/resolve.js";
 import { remotePlacement } from "@dispatch/runner-protocol";
+import type { Placement } from "@dispatch/runner-protocol/contract";
+import { checkoutReadPlacement } from "../runners/placement.js";
+import {
+  PROJECT_IDENTITY_SQL,
+  projectIdentities,
+  repositoryKey,
+  type ProjectIdentity,
+} from "../runners/repository-identity.js";
 import { createPersonaHandlers } from "./mcp-persona-handlers.js";
 import {
   activatePersonality,
@@ -170,12 +178,14 @@ async function addressableAgents<
     parentAgentId?: string | null;
     launchedByAgentId?: string | null;
     projectId?: string | null;
+    placement?: Placement;
   },
 >(
   all: T[],
   agentId: string,
   senderRepoRoot: string | null,
-  crossRepo: boolean
+  crossRepo: boolean,
+  project: (id: string | null | undefined) => Promise<ProjectIdentity | null>
 ): Promise<T[]> {
   const sender = all.find((a) => a.id === agentId);
   const senderParentId = sender?.parentAgentId ?? null;
@@ -200,16 +210,15 @@ async function addressableAgents<
       result.push(a);
       continue;
     }
-    if (remotePlacement(a.cwd) || (sender && remotePlacement(sender.cwd))) {
-      if (sender?.projectId && sender.projectId === a.projectId) result.push(a);
-      continue;
-    }
-    try {
-      const aRoot = await resolveRepoRoot(a.workspacePath ?? a.cwd);
-      if (aRoot === senderRepoRoot) result.push(a);
-    } catch {
-      // agent cwd not in a git repo — skip
-    }
+    // The same repository key (D5, D8) the sender's own scope came from.
+    const aKey = await repositoryKey({
+      placement: a.placement ?? checkoutReadPlacement(a.cwd),
+      repositoryRoot: () =>
+        // agent cwd not in a git repo — skip
+        resolveRepoRoot(a.workspacePath ?? a.cwd).catch(() => null),
+      project: () => project(a.projectId),
+    });
+    if (aKey !== null && aKey === senderRepoRoot) result.push(a);
   }
   return result;
 }
@@ -833,7 +842,12 @@ async function handleListAgentsForAgent(
     allAgents,
     agentId,
     senderRepoRoot,
-    crossRepo
+    crossRepo,
+    projectIdentities(
+      async (id) =>
+        (await deps.pool.query<ProjectIdentity>(PROJECT_IDENTITY_SQL, [id]))
+          .rows[0] ?? null
+    )
   );
   // Two different scopes, deliberately.
   //
