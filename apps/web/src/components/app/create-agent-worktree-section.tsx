@@ -2,10 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { panelFrame } from "@/components/ui/card";
 import { GitBranch, Info } from "lucide-react";
 
-import {
-  BranchSelect,
-  type BranchSelectProps,
-} from "@/components/app/branch-select";
+import { BranchSelect } from "@/components/app/branch-select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { IconButton } from "@/components/ui/icon-button";
@@ -13,15 +10,11 @@ import { cn } from "@/lib/utils";
 
 type WorktreeSectionProps = {
   cwd: string;
-  /** Lists branches from this repository instead of the local folder. */
-  branchSource?: BranchSelectProps["runner"];
-  /** Accept a pull request URL when opening an existing branch. */
-  pullRequests?: boolean;
+  branchesUrl?: string;
+  defaultBaseBranch?: string;
   worktreeAvailable: boolean;
-  /** False when the checkout always uses a managed worktree. */
-  worktreeOptional?: boolean;
   useWorktree: boolean;
-  onUseWorktreeChange?: (value: boolean) => void;
+  onUseWorktreeChange: (value: boolean) => void;
   baseBranch: string;
   onBaseBranchChange: (value: string) => void;
   worktreeBranch: string;
@@ -32,10 +25,9 @@ type WorktreeSectionProps = {
 
 export function WorktreeSection({
   cwd,
-  branchSource,
-  pullRequests = false,
+  branchesUrl,
+  defaultBaseBranch,
   worktreeAvailable,
-  worktreeOptional = true,
   useWorktree,
   onUseWorktreeChange,
   baseBranch,
@@ -77,10 +69,8 @@ export function WorktreeSection({
         >
           <Checkbox
             checked={worktreeChecked}
-            onCheckedChange={(checked) =>
-              onUseWorktreeChange?.(checked === true)
-            }
-            disabled={!worktreeAvailable || !worktreeOptional}
+            onCheckedChange={(checked) => onUseWorktreeChange(checked === true)}
+            disabled={!worktreeAvailable}
             data-testid="create-agent-worktree"
           />
           <span className="flex h-5 items-center gap-1.5 text-body-md font-medium text-foreground">
@@ -92,11 +82,9 @@ export function WorktreeSection({
           size="icon-xs"
           label="About managed worktrees"
           tooltip={
-            !worktreeOptional
-              ? "Runner repositories use a managed worktree"
-              : worktreeAvailable
-                ? "Creates an isolated worktree for this agent. Dispatch tracks and cleans it up when the agent is archived."
-                : "Requires a Git repository."
+            worktreeAvailable
+              ? "Creates an isolated worktree for this agent. Dispatch tracks and cleans it up when the agent is archived."
+              : "Requires a Git repository."
           }
         >
           <Info />
@@ -127,17 +115,13 @@ export function WorktreeSection({
             <div className="ml-8 w-[calc(100%-2rem)]">
               <BranchSelect
                 cwd={cwd}
-                runner={branchSource}
-                allowPullRequest={pullRequests && !createNewBranch}
+                sourceUrl={branchesUrl}
+                defaultBaseBranch={defaultBaseBranch}
                 baseBranch={baseBranch}
                 onBaseBranchChange={onBaseBranchChange}
                 worktreeBranch={worktreeBranch}
                 onWorktreeBranchChange={onWorktreeBranchChange}
-                baseBranchLabel={
-                  branchSource && !createNewBranch
-                    ? "Existing branch"
-                    : "Starting branch"
-                }
+                baseBranchLabel="Starting branch"
                 showNewBranchInput={false}
                 testIdPrefix="create-agent"
                 disabled={!worktreeChecked}

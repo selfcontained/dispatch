@@ -1,3 +1,7 @@
+import {
+  controllerPlacement,
+  placementForRunner,
+} from "../src/runners/placement.js";
 import { vi } from "vitest";
 import Fastify from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
@@ -96,6 +100,22 @@ async function setup(projectFailure = false) {
     defaultBranch: "develop",
   }));
   await registerLaunchTargetRoutes(app, {
+    agents: {
+      getAgent: async (id: string) => ({
+        id,
+        placement: id.startsWith("controller")
+          ? controllerPlacement
+          : placementForRunner("fixture"),
+        cwd: id.startsWith("controller") ? "/cwd" : "runner://fixture/@session",
+        projectId: id === "unscoped" ? null : "project",
+        ...(id === "controller-moved"
+          ? {
+              workspacePath: "/moved",
+              gitContext: { repoRoot: " /moved/root " },
+            }
+          : { launchCwd: " /launch " }),
+      }),
+    } as never,
     runners: {
       for: (placement) => ({
         call: (op, input) => branches(placement, op, input),
@@ -178,6 +198,9 @@ describe("launch target adapter", () => {
     const data = response.json();
     expect(data.agentTypes).toEqual(["codex"]);
     expect(data.engineOptions[0].installed).toBe(false);
+    expect(data.defaults.templateFields).toEqual({
+      directory: "runner://fixture/@session",
+    });
     expect(data.engineOptions[0].install).toBe("existing codex command");
     expect(data.catalog.models.codex[0].id).toBe("runner-model");
     expect(data.effort).toEqual([{ value: "medium" }]);
@@ -223,4 +246,33 @@ describe("launch target adapter", () => {
       targets
     );
   });
+});
+
+it.each([
+  ["controller", 0, "/launch", "project"],
+  ["controller-moved", 0, "/moved/root", "project"],
+  ["enrolled", 1, "", "project"],
+  ["unscoped", 1, "", null],
+])(
+  "projects agent %s without exposing another target’s path",
+  async (id, index, directory, projectId) => {
+    const { get, targets } = await setup();
+    const result = (
+      await get(`/api/v1/launch-targets/saved/agent/${id}`)
+    ).json();
+    expect(result).toMatchObject({
+      targetKey: targets[index as number].key,
+      directory,
+      projectId,
+    });
+  }
+);
+
+it("derives a supported engine when changing targets from another engine", async () => {
+  const { get, targets } = await setup();
+  const result = (
+    await get(`${targets[1].dataUrl}?projectId=project&agentType=claude`)
+  ).json();
+  expect(result.agentTypes).toEqual(["codex"]);
+  expect(result.catalog.models.codex[0].id).toBe("runner-model");
 });

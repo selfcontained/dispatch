@@ -1,3 +1,9 @@
+import { LaunchTargetError } from "../launch-target-error";
+import {
+  useLaunchTargets,
+  useLaunchTargetData,
+} from "@/hooks/use-launch-targets";
+import { RunnerPicker } from "../runner-picker";
 import { effortCompatibilityError } from "@/lib/agent-effort";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Plus, Settings2, Zap } from "lucide-react";
@@ -27,10 +33,7 @@ import { Hint } from "@/components/ui/tooltip";
 import { AgentEngineFields } from "@/components/app/agent-engine-fields";
 import { CreateTemplateDialog } from "@/components/app/automations-create-dialog";
 import { useDashboardContext } from "@/components/app/dashboard-context";
-import {
-  useAgentModelCatalog,
-  useAgentEffortCatalog,
-} from "@/hooks/use-agent-model-catalog";
+import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import { useProjects } from "@/hooks/use-projects";
 import { useTemplates } from "@/hooks/use-templates";
 import type { TaskColumn, TaskColumnTrigger } from "@/hooks/use-tasks";
@@ -155,12 +158,39 @@ export function TaskTriggerDialog({
   // Null keeps the template's engine; the picker shows what that resolves to.
   const templateType = (chosen?.agentType ?? "claude") as AgentType;
   const agentType = (trigger.agentType ?? templateType) as AgentType;
-  const models = useAgentModelCatalog(agentType);
-  const effortCatalog = useAgentEffortCatalog();
-  const effortChoices = effortCatalog(
-    agentType,
-    trigger.model ?? (agentType === templateType ? chosen?.model : null) ?? null
+  const launch = useLaunchTargets(
+    column.trigger
+      ? { kind: "trigger", id: column.id }
+      : chosen
+        ? { kind: "template", id: chosen.id }
+        : undefined,
+    chosen?.id
   );
+  const data = useLaunchTargetData(launch.target, {
+    directory: chosen?.directory ?? project.repoRoot ?? "",
+    projectId,
+    agentType,
+    model: trigger.model ?? (agentType === templateType ? chosen?.model : null),
+  });
+  const models = useAgentModelCatalog(agentType, true, {
+    data: data.data?.catalog,
+    loading: launch.list.isLoading || data.isLoading,
+  });
+  const effortChoices = data.data?.effort;
+  useEffect(() => {
+    const types = data.data?.agentTypes;
+    if (launch.changed && types?.length && !types.includes(agentType))
+      setTrigger((old) => ({
+        ...old,
+        agentType: types[0] === templateType ? null : types[0]!,
+        model: null,
+        effort: null,
+      }));
+  }, [launch.changed, data.data?.agentTypes, agentType, templateType]);
+  const { reset: resetTarget } = launch;
+  useEffect(() => {
+    if (!open) resetTarget();
+  }, [open, resetTarget]);
   const inheritsEffort =
     agentType === templateType &&
     (!trigger.model || trigger.model === chosen?.model);
@@ -170,22 +200,26 @@ export function TaskTriggerDialog({
     resolvedEffort,
     effortChoices
   );
-  const selectTemplate = (templateId: string, nextTemplateType: AgentType) => {
-    const nextTemplate = projectTemplates.find(
-      (template) => template.id === templateId
+  const effortTemplate = useRef(trigger.templateId);
+  useEffect(() => {
+    if (
+      effortTemplate.current === trigger.templateId ||
+      !data.data ||
+      data.isPlaceholderData
+    )
+      return;
+    effortTemplate.current = trigger.templateId;
+    setTrigger((old) =>
+      effortCompatibilityError(old.effort, effortChoices)
+        ? { ...old, effort: null }
+        : old
     );
+  }, [trigger.templateId, data.data, data.isPlaceholderData, effortChoices]);
+  const selectTemplate = (templateId: string) => {
     setTrigger((old) => ({
       ...old,
       templateId,
-      effort: effortCompatibilityError(
-        old.effort,
-        effortCatalog(
-          old.agentType ?? nextTemplateType,
-          old.model ?? nextTemplate?.model ?? null
-        )
-      )
-        ? null
-        : old.effort,
+      effort: old.effort,
     }));
   };
   const toggle = (key: "assign" | "fireOnCreate") =>
@@ -210,7 +244,11 @@ export function TaskTriggerDialog({
     void submit(
       "save",
       trigger.templateId
-        ? { ...trigger, model: models.normalizeModel(trigger.model) }
+        ? {
+            ...trigger,
+            ...launch.fields,
+            model: models.normalizeModel(trigger.model),
+          }
         : null
     );
   };
@@ -234,6 +272,20 @@ export function TaskTriggerDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-4">
+          <RunnerPicker
+            targets={launch.list.data ?? []}
+            value={launch.key}
+            onChange={(key) => {
+              launch.choose(key);
+              setTrigger((old) => ({
+                ...old,
+                agentType: null,
+                model: null,
+                effort: null,
+              }));
+            }}
+          />
+          <LaunchTargetError queries={[launch.list, data]} />
           <Field label="Template" id="task-trigger-template">
             <Select
               value={trigger.templateId || "none"}
@@ -242,11 +294,7 @@ export function TaskTriggerDialog({
                   openingCreate.current = true;
                   return setCreating(true);
                 }
-                selectTemplate(
-                  value === "none" ? "" : value,
-                  projectTemplates.find((template) => template.id === value)
-                    ?.agentType ?? "claude"
-                );
+                selectTemplate(value === "none" ? "" : value);
               }}
             >
               <SelectTrigger ref={templateTrigger}>
@@ -291,7 +339,11 @@ export function TaskTriggerDialog({
                 effort: null,
               }))
             }
-            agentTypes={enabledAgentTypes}
+            agentTypes={data.data?.agentTypes ?? enabledAgentTypes}
+            target={{
+              engines: data.data?.engineOptions ?? null,
+              effort: effortChoices,
+            }}
             effortDefaultLabel={
               inheritsEffort && chosen?.effort
                 ? `Inherit (${effortChoices?.find((c) => c.value === chosen.effort)?.name ?? chosen.effort})`
@@ -348,7 +400,10 @@ export function TaskTriggerDialog({
           <Button
             variant="primary"
             disabled={
-              !trigger.templateId || Boolean(effortConflict) || Boolean(pending)
+              !trigger.templateId ||
+              !launch.selectionReady ||
+              Boolean(effortConflict) ||
+              Boolean(pending)
             }
             pending={pending === "save"}
             onClick={save}
@@ -362,9 +417,7 @@ export function TaskTriggerDialog({
         onOpenChange={setCreating}
         enabledAgentTypes={enabledAgentTypes}
         project={project}
-        onCreated={(template) =>
-          selectTemplate(template.id, template.agentType)
-        }
+        onCreated={(template) => selectTemplate(template.id)}
         onCloseAutoFocus={(event) => {
           // The menu item that opened it is gone; return to the picker.
           event.preventDefault();

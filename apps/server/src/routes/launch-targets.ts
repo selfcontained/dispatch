@@ -1,4 +1,6 @@
+import type { AgentManager } from "../agents/manager.js";
 import {
+  sameRunner,
   pathFromWire,
   type Runners,
   type Req,
@@ -59,6 +61,7 @@ export async function registerLaunchTargetRoutes(
   app: FastifyInstance,
   deps: {
     runners: Pick<Runners, "for">;
+    agents: Pick<AgentManager, "getAgent">;
     templates: Pick<TemplateService, "getTemplate">;
     tasks: Pick<TaskService, "store">;
   }
@@ -179,6 +182,29 @@ export async function registerLaunchTargetRoutes(
 
   app.get(`${ROOT}/saved/:kind/:id`, async (request) => {
     const { kind, id } = request.params as { kind: string; id: string };
+    if (kind === "agent") {
+      const agent = await deps.agents.getAgent(id);
+      if (!agent)
+        throw Object.assign(new Error("Agent not found."), { statusCode: 404 });
+      const runner = runnerIdForPlacement(agent.placement);
+      const target = (await targets(request)).find((t) => t.id === runner);
+      const folder = agent.workspacePath
+        ? agent.gitContext?.repoRoot?.trim() || agent.workspacePath.trim()
+        : agent.launchCwd?.trim() ||
+          agent.gitContext?.repoRoot?.trim() ||
+          agent.cwd.trim();
+      const reviewFolder =
+        agent.workspacePath ?? agent.worktreePath ?? agent.cwd;
+      return {
+        targetKey: keyFor(runner),
+        projectId: agent.projectId ?? null,
+        directory: target?.location.kind === "folder" ? folder : "",
+        reviewPreferenceKey:
+          target?.location.kind === "folder"
+            ? reviewFolder
+            : JSON.stringify([keyFor(runner), agent.id]),
+      };
+    }
     let saved;
     let inherited = false;
     let projectId: string | null | undefined;
@@ -288,12 +314,20 @@ export async function registerLaunchTargetRoutes(
       model?: string;
     };
     const p = await project(request, q.projectId);
-    const directory = p?.repoRoot ?? q.directory ?? "";
+    const requestedDirectory = p?.repoRoot ?? q.directory ?? "";
+    const directory =
+      target.location.kind === "folder" &&
+      !sameRunner(
+        targetPlacement({ directory: requestedDirectory }),
+        controllerPlacement
+      )
+        ? ""
+        : requestedDirectory;
     const settings = await read<{ enabledAgentTypes: string[] }>(
       request,
       "/api/v1/app/settings/agent-types"
     );
-    const engine = q.agentType ?? settings.enabledAgentTypes[0] ?? "claude";
+    let engine = q.agentType ?? settings.enabledAgentTypes[0] ?? "claude";
     let catalog: Catalog;
     let engines: unknown;
     let engineOptions: EngineOption[] | null;
@@ -324,6 +358,8 @@ export async function registerLaunchTargetRoutes(
           install: metadata.engines.find((m) => m.id === entry.id)?.install,
         })) ?? null;
       agentTypes = inventory.entries?.map((e) => e.id) ?? agentTypes;
+      if (agentTypes.length && !agentTypes.includes(engine))
+        engine = agentTypes[0]!;
       const { ack } = await read<{
         ack: {
           ok: boolean;
@@ -388,6 +424,10 @@ export async function registerLaunchTargetRoutes(
             ? directory.trim()
             : JSON.stringify([target.key, q.projectId ?? null]),
         launchFields: fields(target),
+        templateFields:
+          target.location.kind === "folder"
+            ? {}
+            : { directory: located.directory },
       },
     };
   });

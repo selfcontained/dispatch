@@ -1,3 +1,7 @@
+import { LaunchTargetError } from "./launch-target-error";
+import type { TemplateTarget } from "./use-template-target";
+import { RunnerPicker } from "./runner-picker";
+import { RunnerProjectPicker } from "./runner-project-picker";
 import { AgentConfigRow } from "./agent-config-row";
 import { Panel } from "@/components/ui/card";
 import type { Effort } from "@dispatch/shared";
@@ -29,8 +33,12 @@ export function TemplateWorktreeOption({
   onCheckedChange,
   onBaseBranchChange,
   onBranchNameChange,
+  branchesUrl,
+  defaultBaseBranch,
 }: {
   checked: boolean;
+  branchesUrl?: string;
+  defaultBaseBranch?: string;
   cwd: string;
   baseBranch: string;
   branchName: string;
@@ -52,6 +60,8 @@ export function TemplateWorktreeOption({
           <div className="ml-8">
             <BranchSelect
               cwd={cwd}
+              sourceUrl={branchesUrl}
+              defaultBaseBranch={defaultBaseBranch}
               baseBranch={baseBranch}
               onBaseBranchChange={onBaseBranchChange}
               worktreeBranch={branchName}
@@ -91,6 +101,7 @@ export function TemplateFullAccessOption({
 }
 
 export interface TemplateConfigFieldsProps {
+  target?: TemplateTarget;
   agentType: AgentType;
   onAgentTypeChange: (value: AgentType) => void;
   persona?: string | null;
@@ -165,13 +176,20 @@ export function TemplateConfigFields({
   onPromptChange,
   autoFocusName,
   lockedLocation,
+  target,
 }: TemplateConfigFieldsProps): JSX.Element {
   const effortId = useId();
   const {
     options: modelOptions,
     savedOption,
     loading: modelCatalogLoading,
-  } = useAgentModelCatalog(agentType);
+  } = useAgentModelCatalog(
+    agentType,
+    true,
+    target
+      ? { data: target.data.data?.catalog, loading: target.models.loading }
+      : undefined
+  );
   const {
     history: cwdHistory,
     removableHistory: removableCwdHistory,
@@ -186,6 +204,16 @@ export function TemplateConfigFields({
 
   return (
     <div className="space-y-3">
+      {target ? (
+        <RunnerPicker
+          targets={target.launch.list.data ?? []}
+          value={target.launch.key}
+          onChange={target.choose}
+        />
+      ) : null}
+      {target ? (
+        <LaunchTargetError queries={[target.launch.list, target.data]} />
+      ) : null}
       <AgentConfigRow
         showModel={modelOptions.length > 0 || modelCatalogLoading}
       >
@@ -200,7 +228,7 @@ export function TemplateConfigFields({
             onModelChange(null);
             onEffortChange(null);
           }}
-          agentTypes={enabledAgentTypes}
+          agentTypes={target?.data.data?.agentTypes ?? enabledAgentTypes}
         />
         {modelOptions.length > 0 || modelCatalogLoading ? (
           <AgentModelSelect
@@ -213,6 +241,8 @@ export function TemplateConfigFields({
         ) : null}
         <AgentEffortSelect
           model={model}
+          workload={Boolean(target)}
+          workloadChoices={target?.data.data?.effort}
           value={effort ?? null}
           onChange={onEffortChange}
           agentType={agentType}
@@ -237,7 +267,15 @@ export function TemplateConfigFields({
         />
       </Field>
 
-      {lockedLocation ? (
+      {target?.launch.target?.location.kind === "project" ? (
+        <RunnerProjectPicker
+          projects={target.launch.target.location.projects ?? []}
+          projectId={projectId ?? null}
+          loading={target.launch.list.isLoading}
+          error={Boolean(target.launch.target.location.error)}
+          onProject={(id) => onProjectChange?.(id, "")}
+        />
+      ) : lockedLocation ? (
         <div className="space-y-1.5" data-testid="locked-location">
           <p className="text-body-sm font-medium">Project</p>
           <Panel className="py-2 text-body-md">
@@ -272,6 +310,11 @@ export function TemplateConfigFields({
 
       <AgentPersonaSelect
         cwd={directory}
+        endpoint={
+          target && (directory.trim() || projectId)
+            ? (target.data.data?.personasUrl ?? "")
+            : undefined
+        }
         value={persona ?? null}
         onChange={onPersonaChange}
       />
@@ -279,6 +322,8 @@ export function TemplateConfigFields({
       <>
         <TemplateWorktreeOption
           checked={useWorktree}
+          branchesUrl={target?.data.data?.branchesUrl}
+          defaultBaseBranch={target?.data.data?.defaults.baseBranch}
           cwd={directory}
           baseBranch={baseBranch}
           branchName={branchName}

@@ -23,7 +23,6 @@ import { CountBubble } from "@/components/ui/count-bubble";
 import { IconButton } from "@/components/ui/icon-button";
 import { Hint } from "@/components/ui/tooltip";
 import {
-  isLocalFolder,
   acceptGhostCompletion,
   filterHistoryOptions,
   getHistoryOptions,
@@ -52,7 +51,6 @@ type PathInputProps = {
   placeholder?: string;
   /** Show path validation status (exists, is directory, is git repo) */
   showValidation?: boolean;
-  localFoldersOnly?: boolean;
   /** Recent directory history for dropdown */
   history?: string[];
   /** History entries that can be removed from this client. Defaults to history. */
@@ -84,7 +82,6 @@ export function PathInput({
   onChange,
   placeholder = "~/path/to/project",
   showValidation = true,
-  localFoldersOnly = false,
   history = [],
   removableHistory,
   historyMetadata = {},
@@ -122,15 +119,10 @@ export function PathInput({
   // (this component's own live, search-scoped fetch) frequently describe the
   // same project — merge rather than dedup-by-first-source so a stale/
   // rank-capped entry with no iconUrl can't shadow a fresher one that has it.
-  const options = useMemo(() => {
-    const merged = mergeHistoryOptions(
-      filteredHistoryOptions,
-      projectSuggestionOptions
-    );
-    return localFoldersOnly
-      ? merged.filter((option) => isLocalFolder(option.path))
-      : merged;
-  }, [filteredHistoryOptions, projectSuggestionOptions, localFoldersOnly]);
+  const options = useMemo<HistoryOption[]>(
+    () => mergeHistoryOptions(filteredHistoryOptions, projectSuggestionOptions),
+    [filteredHistoryOptions, projectSuggestionOptions]
+  );
   const [selectedIndex, setSelectedIndex] = useState(0);
   const projectSuggestionsRequestRef = useRef(0);
   const listboxRef = useRef<HTMLDivElement>(null);
@@ -217,13 +209,10 @@ export function PathInput({
     };
   }, [dropdownOpen, historyFilter]);
 
-  const runnerInLocalField =
-    localFoldersOnly && !!value.trim() && !isLocalFolder(value);
-
   // Debounced path validation
   useEffect(() => {
     const trimmed = value.trim();
-    if (!trimmed || runnerInLocalField) {
+    if (!trimmed) {
       validationRequestRef.current += 1;
       setPathValidation(null);
       onPathInfoChange?.(null);
@@ -275,7 +264,7 @@ export function PathInput({
       validationRequestRef.current += 1;
       setValidating(false);
     };
-  }, [value, showValidation, onPathInfoChange, runnerInLocalField]);
+  }, [value, showValidation, onPathInfoChange]);
 
   // Debounced inline ghost completion
   useEffect(() => {
@@ -491,9 +480,7 @@ export function PathInput({
 
       {showValidation ? (
         <div className="flex h-5 items-center justify-end gap-1.5 text-body-sm">
-          {runnerInLocalField ? (
-            <span role="status">Choose a folder on this machine.</span>
-          ) : validating ? (
+          {validating ? (
             <Spinner label="Checking the folder" />
           ) : pathValidation ? (
             pathValidation.isDirectory ? (

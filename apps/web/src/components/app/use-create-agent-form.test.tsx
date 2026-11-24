@@ -73,6 +73,7 @@ function wrapper({ children }: { children: ReactNode }) {
 }
 
 type SetupOverrides = Partial<{
+  sourceAgentId: string;
   enabledAgentTypes: AgentType[];
   initialAgentType: AgentType | null;
   initialProjectId: string | null;
@@ -81,23 +82,23 @@ type SetupOverrides = Partial<{
   onCreated: (agent: Agent, agentType: AgentType) => Promise<void>;
 }>;
 
+type SetupProps = Required<Omit<SetupOverrides, "sourceAgentId">> &
+  Pick<SetupOverrides, "sourceAgentId">;
 async function setup(overrides: SetupOverrides = {}) {
   const onCreated = overrides.onCreated ?? vi.fn().mockResolvedValue(undefined);
-  const view = renderHook(
-    (props: Required<SetupOverrides>) => useCreateAgentForm(props),
-    {
-      wrapper,
-      initialProps: {
-        enabledAgentTypes: ["claude", "codex"] as AgentType[],
-        initialAgentType: null,
-        initialProjectId: null,
-        task: null,
-        resolveDefaultCwd: () => "/repo/app",
-        onCreated,
-        ...overrides,
-      },
-    }
-  );
+  const view = renderHook((props: SetupProps) => useCreateAgentForm(props), {
+    wrapper,
+    initialProps: {
+      sourceAgentId: undefined,
+      enabledAgentTypes: ["claude", "codex"] as AgentType[],
+      initialAgentType: null,
+      initialProjectId: null,
+      task: null,
+      resolveDefaultCwd: () => "/repo/app",
+      onCreated,
+      ...overrides,
+    } as SetupProps,
+  });
   // Flush the mount-time queries (system defaults, cwd history) so their
   // resolutions don't fire outside act() mid-test. This relies on async act
   // yielding macrotasks — react-query v5 notifies via setTimeout(0), not
@@ -153,6 +154,34 @@ function pasteEvent(options: {
   } as unknown as ClipboardEvent<HTMLElement>;
 }
 
+const controller = {
+  key: "opaque-controller",
+  name: "This computer",
+  status: "online",
+  location: { kind: "folder" },
+  dataUrl: "/fixture/controller",
+  launchFields: {},
+  selectionFields: { runner: "controller" },
+};
+const repositoryTarget = {
+  key: "opaque-repository",
+  name: "Fixture",
+  status: "offline",
+  location: {
+    kind: "project",
+    projects: [
+      {
+        id: "project-a",
+        repoRoot: "/repo/a",
+        repository: "https://github.com/org/repo",
+      },
+    ],
+  },
+  dataUrl: "/fixture/repository",
+  launchFields: { runner: "fixture" },
+  selectionFields: { runner: "fixture" },
+};
+
 beforeEach(() => {
   window.localStorage.clear();
   queryClient = new QueryClient({
@@ -160,6 +189,23 @@ beforeEach(() => {
   });
   jotaiStore = createStore();
   apiMock.mockImplementation(async (path: string) => {
+    if (path === "/api/v1/launch-targets") return { targets: [controller] };
+    if (path.startsWith("/fixture/")) {
+      const q = new URL(path, "http://fixture").searchParams;
+      return {
+        agentTypes: ["claude", "codex"],
+        catalog: queryClient.getQueryData(["agent-models"]) ?? { models: {} },
+        engineOptions: [],
+        branchesUrl: "/fixture/branches",
+        personasUrl: "/api/v1/personas?fixture",
+        defaults: {
+          baseBranch: path.startsWith(repositoryTarget.dataUrl) ? "" : "main",
+          preferenceKey: path.startsWith(repositoryTarget.dataUrl)
+            ? q.get("projectId")
+            : q.get("directory"),
+        },
+      };
+    }
     if (path.startsWith("/api/v1/personas?")) return { personas: [] };
     if (path.startsWith("/api/v1/history/projects")) return { projects: [] };
     if (path === "/api/v1/system/defaults") return { homeDir: "/home/srv" };
@@ -221,215 +267,44 @@ describe("launch location preference", () => {
   });
 
   it.each(["release", "main"])(
-    "requires a repository-linked project and preserves explicit branch %s",
+    "uses target data and keeps the explicit branch %s without forcing a worktree",
     async (branch) => {
-      queryClient.setQueryData(
-        ["runners"],
-        [
-          {
-            id: "rnr_lima",
-            name: "Lima",
-            status: "online",
-            workspaces: ["legacy"],
-          },
-        ]
+      const fallback = apiMock.getMockImplementation()!;
+      apiMock.mockImplementation((url, opts) =>
+        url === "/api/v1/launch-targets"
+          ? Promise.resolve({ targets: [controller, repositoryTarget] })
+          : fallback(url, opts)
       );
       const { result } = await setup({ initialProjectId: "project-a" });
-      act(() => result.current.selectRunner("rnr_lima"));
-      expect(result.current.locationReady).toBe(false);
-      await act(async () => result.current.handleSubmit(submitEvent()));
-      expect(
-        apiMock.mock.calls.some(([path]) => path === "/api/v1/agents")
-      ).toBe(false);
-
-      act(() => result.current.setCreateProjectId("project-b"));
-      expect(result.current.locationReady).toBe(false);
-      act(() => result.current.setCreateProjectId("project-a"));
-      expect(result.current.locationReady).toBe(true);
-      act(() => {
-        result.current.setCreatePersona("builder");
-        result.current.setCreateBaseBranch(branch);
-      });
-      await act(async () => result.current.handleSubmit(submitEvent()));
-      expect(agentsPostJson()).toEqual({
-        name: "",
-        runner: "rnr_lima",
-        projectId: "project-a",
-        persona: "builder",
-        type: "claude",
-        fullAccess: true,
-        useWorktree: true,
-        createNewBranch: true,
-        baseBranch: branch,
-      });
-      expect(result.current.worktreeOptional).toBe(false);
-      expect(result.current.worktreeAvailable).toBe(true);
-    }
-  );
-
-  it("submits the same checkout fields for a local folder and a runner repository", async () => {
-    queryClient.setQueryDefaults(["runners"], { staleTime: Infinity });
-    queryClient.setQueryData(
-      ["runners"],
-      [
-        {
-          id: "rnr_lima",
-          name: "Lima",
-          status: "online",
-          workspaces: ["@session"],
-          managedWorkspace: true,
-        },
-      ]
-    );
-    const { result } = await setup();
-    const fill = (newBranch: boolean) =>
-      act(() => {
-        result.current.setCreateNewBranch(newBranch);
-        result.current.setCreateBaseBranch("develop");
-        result.current.setCreateWorktreeBranch("feat/x");
-      });
-    const checkoutFields = () => {
-      const body = agentsPostJson();
-      return Object.fromEntries(
-        ["useWorktree", "createNewBranch", "worktreeBranch", "baseBranch"].map(
-          (key) => [key, body[key]]
-        )
+      act(() => result.current.chooseTarget("opaque-repository"));
+      await waitFor(() =>
+        expect(result.current.targetData.isSuccess).toBe(true)
       );
-    };
-    const submitted: Record<string, unknown>[] = [];
-    for (const newBranch of [true, false]) {
-      act(() => result.current.selectRunner(null));
-      act(() => result.current.handlePathInfoChange(REPO_INFO));
-      fill(newBranch);
-      apiMock.mockClear();
+      expect(result.current.locationReady).toBe(true);
+      expect(result.current.worktreeAvailable).toBe(true);
+      act(() => {
+        result.current.setCreateBaseBranch(branch);
+        result.current.setCreateUseWorktree(true);
+      });
       await act(async () => result.current.handleSubmit(submitEvent()));
-      submitted.push(checkoutFields());
-      act(() => result.current.selectRunner("rnr_lima"));
-      act(() => result.current.setCreateProjectId("project-a"));
-      fill(newBranch);
+      expect(agentsPostJson()).toMatchObject({
+        runner: "fixture",
+        projectId: "project-a",
+        baseBranch: branch,
+        useWorktree: true,
+      });
+      act(() => result.current.setCreateUseWorktree(false));
       apiMock.mockClear();
       await act(async () => result.current.handleSubmit(submitEvent()));
       expect(agentsPostJson()).toMatchObject({
-        runner: "rnr_lima",
-        projectId: "project-a",
+        runner: "fixture",
+        useWorktree: false,
       });
-      expect(agentsPostJson()).not.toHaveProperty("cwd");
-      submitted.push(checkoutFields());
+      expect(agentsPostJson()).not.toHaveProperty("baseBranch");
+      act(() => result.current.setCreateProjectId("project-b"));
+      expect(result.current.locationReady).toBe(false);
     }
-    expect(submitted).toEqual([
-      ...Array(2).fill({
-        useWorktree: true,
-        createNewBranch: true,
-        worktreeBranch: "feat/x",
-        baseBranch: "develop",
-      }),
-      ...Array(2).fill({
-        useWorktree: true,
-        createNewBranch: false,
-        worktreeBranch: undefined,
-        baseBranch: "develop",
-      }),
-    ]);
-  });
-
-  it("submits a pull request URL for the runner to resolve", async () => {
-    queryClient.setQueryDefaults(["runners"], { staleTime: Infinity });
-    queryClient.setQueryData(
-      ["runners"],
-      [
-        {
-          id: "rnr_lima",
-          name: "Lima",
-          status: "online",
-          workspaces: ["@session"],
-          managedWorkspace: true,
-          githubManagement: true,
-        },
-      ]
-    );
-    const { result } = await setup();
-    const pr = "https://github.com/org/repo/pull/12";
-    act(() => result.current.selectRunner("rnr_lima"));
-    act(() => result.current.setCreateProjectId("project-a"));
-    act(() => {
-      result.current.setCreateNewBranch(false);
-      result.current.setCreateBaseBranch(pr);
-    });
-    apiMock.mockClear();
-    await act(async () => result.current.handleSubmit(submitEvent()));
-    const body = agentsPostJson();
-    expect(body).toMatchObject({
-      useWorktree: true,
-      createNewBranch: false,
-      pullRequest: pr,
-    });
-    expect(body.baseBranch).toBeUndefined();
-    expect(
-      apiMock.mock.calls.some(([url]) =>
-        String(url).includes("pull-request-head")
-      )
-    ).toBe(false);
-
-    act(() => result.current.setCreateNewBranch(true));
-    expect(result.current.createBaseBranch).toBe("");
-    expect(result.current.locationReady).toBe(true);
-    apiMock.mockClear();
-    await act(async () => result.current.handleSubmit(submitEvent()));
-    const newBranch = agentsPostJson();
-    expect(newBranch.createNewBranch).toBe(true);
-    expect(newBranch.baseBranch).toBeUndefined();
-    expect(newBranch.pullRequest).toBeUndefined();
-    act(() => result.current.setCreateNewBranch(false));
-    expect(result.current.createBaseBranch).toBe(pr);
-  });
-
-  it("does not reinterpret a local saved branch as a pull request", async () => {
-    const { result } = await setup();
-    const saved = "https://github.com/org/repo/pull/12";
-    act(() => {
-      result.current.handlePathInfoChange(REPO_INFO);
-      result.current.setCreateBaseBranch(saved);
-    });
-    expect(result.current.createBaseBranch).toBe(saved);
-    act(() => result.current.setCreateNewBranch(false));
-    await act(async () => result.current.handleSubmit(submitEvent()));
-    expect(agentsPostJson().baseBranch).toBe(saved);
-    expect(agentsPostJson().pullRequest).toBeUndefined();
-  });
-
-  it("starts each runner repository fresh without touching the folder's saved choice", async () => {
-    queryClient.setQueryDefaults(["runners"], { staleTime: Infinity });
-    queryClient.setQueryData(
-      ["runners"],
-      [
-        {
-          id: "rnr_lima",
-          name: "Lima",
-          status: "online",
-          workspaces: ["@session"],
-          managedWorkspace: true,
-        },
-      ]
-    );
-    const { result } = await setup();
-    act(() => result.current.setCreateBaseBranch("develop"));
-    act(() => result.current.selectRunner("rnr_lima"));
-    act(() => result.current.setCreateProjectId("project-a"));
-    expect(result.current.createBaseBranch).toBe("");
-    expect(result.current.createNewBranch).toBe(true);
-    act(() => {
-      result.current.setCreateBaseBranch("release");
-      result.current.setCreateNewBranch(false);
-      result.current.setCreateWorktreeBranch("typed");
-    });
-    act(() => result.current.setCreateProjectId("project-b"));
-    expect(result.current.createBaseBranch).toBe("");
-    expect(result.current.createNewBranch).toBe(true);
-    expect(result.current.createWorktreeBranch).toBe("");
-    act(() => result.current.selectRunner(null));
-    expect(result.current.createBaseBranch).toBe("develop");
-    expect(result.current.worktreeOptional).toBe(true);
-  });
+  );
 
   it("allows a folder choice but reopens with the latest concrete scope", async () => {
     const first = await setup({ initialProjectId: "project-a" });
@@ -660,7 +535,14 @@ describe("agent type seeding", () => {
     });
     expect(result.current.createType).toBe("codex");
 
+    act(() => {
+      queryClient.setQueriesData<{ agentTypes: AgentType[] }>(
+        { queryKey: ["agent-models", "launch-target"] },
+        (old) => (old ? { ...old, agentTypes: ["claude"] } : old)
+      );
+    });
     rerender({
+      sourceAgentId: undefined as unknown as string,
       enabledAgentTypes: ["claude"] as AgentType[],
       initialAgentType: "codex",
       initialProjectId: null,
@@ -680,13 +562,13 @@ describe("cwd seeding", () => {
     expect(result.current.createCwd).toBe("/repo/spaced");
   });
 
-  it("keeps remote locators out of native launches, including saved values", async () => {
+  it("keeps main’s accepted directory inputs unchanged", async () => {
     const locator = "runner://linux/@session";
     window.localStorage.setItem(LAST_USED_CWD_KEY, locator);
     const { result } = await setup({ resolveDefaultCwd: () => locator });
-    expect(result.current.createCwd).toBe("~/");
+    expect(result.current.createCwd).toBe(locator);
     act(() => result.current.setCreateCwd(locator));
-    expect(result.current.locationReady).toBe(false);
+    expect(result.current.locationReady).toBe(true);
     act(() => result.current.setCreateCwd("/local/folder"));
     expect(result.current.locationReady).toBe(true);
   });
@@ -1210,4 +1092,36 @@ describe("repo-specific launch personas", () => {
       name: "",
     });
   });
+});
+
+describe("agent launch projection", () => {
+  it.each([
+    ["opaque-controller", "project-a", "/repo/a"],
+    ["opaque-repository", "project-a", ""],
+    ["opaque-repository", null, ""],
+  ] as const)(
+    "seeds %s from projected inputs (%s)",
+    async (targetKey, projectId, directory) => {
+      const fallback = apiMock.getMockImplementation()!;
+      apiMock.mockImplementation((url, opts) =>
+        url === "/api/v1/launch-targets"
+          ? Promise.resolve({ targets: [controller, repositoryTarget] })
+          : url.startsWith("/api/v1/launch-targets/saved/agent/")
+            ? Promise.resolve({ targetKey, projectId, directory })
+            : fallback(url, opts)
+      );
+      const { result } = await setup({
+        sourceAgentId: "selected",
+        resolveDefaultCwd: () => "runner://fixture/@session",
+      });
+      await waitFor(() => expect(result.current.launch.key).toBe(targetKey));
+      await waitFor(() =>
+        expect(result.current.createCwd).toBe(
+          directory || (projectId ? "/repo/a" : "")
+        )
+      );
+      if (targetKey === "opaque-repository")
+        expect(result.current.createProjectId).toBe(projectId);
+    }
+  );
 });

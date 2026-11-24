@@ -10,19 +10,24 @@ import { Field } from "@/components/ui/field";
 
 export function AgentPersonaSelect({
   cwd,
+  endpoint,
   projectId,
   value,
   onChange,
 }: {
   cwd: string;
+  endpoint?: string;
   projectId?: string | null;
   value: string | null;
   onChange: (value: string | null) => void;
 }) {
   const { data, isLoading, isError, isSuccess } = useTaskPersonas(
     cwd,
-    projectId
+    projectId,
+    endpoint
   );
+  const ready =
+    endpoint === undefined ? Boolean(cwd.trim()) : Boolean(endpoint);
   const personas = data?.personas ?? [];
   const selected = personas.find((p) => p.slug === value);
   return (
@@ -45,15 +50,17 @@ export function AgentPersonaSelect({
           <SelectItem value="__none__" className="text-muted-foreground">
             None
           </SelectItem>
-          {(!cwd.trim() || isLoading || isError || !personas.length) && (
+          {(!ready || isLoading || isError || !personas.length) && (
             <SelectItem value="__status__" disabled>
-              {!cwd.trim()
-                ? "Choose a directory first"
-                : isLoading || data?.refreshing
-                  ? "Loading personas…"
-                  : isError
-                    ? "Couldn’t load personas"
-                    : "No task personas available"}
+              {endpoint === ""
+                ? "Loading personas…"
+                : !ready
+                  ? "Choose a directory first"
+                  : isLoading || data?.refreshing
+                    ? "Loading personas…"
+                    : isError
+                      ? "Couldn’t load personas"
+                      : "No task personas available"}
             </SelectItem>
           )}
           {data?.warnings?.length ? (

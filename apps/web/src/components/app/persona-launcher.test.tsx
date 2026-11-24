@@ -61,6 +61,32 @@ function launchRequestBody(): Record<string, unknown> {
 }
 
 function renderLauncher(parent = agent) {
+  const original = api.getMockImplementation()!;
+  api.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url === "/api/v1/launch-targets")
+      return {
+        targets: [
+          {
+            key: "opaque-target",
+            dataUrl: "/fixture/data",
+            location: { kind: "folder" },
+          },
+        ],
+      };
+    if (url.startsWith("/api/v1/launch-targets/saved/agent/"))
+      return {
+        targetKey: "opaque-target",
+        directory: parent.cwd,
+        projectId: parent.projectId,
+        reviewPreferenceKey:
+          parent.workspacePath ?? parent.worktreePath ?? parent.cwd,
+      };
+    if (url.startsWith("/fixture/data")) {
+      const response = await original(url, init);
+      return response.catalog ? response : { catalog: response };
+    }
+    return original(url, init);
+  });
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -86,21 +112,12 @@ describe("PersonaLauncher", () => {
     });
     const runnerId = "rnr_test";
     const model = { id: "claude-haiku-5-5", label: "Haiku 5.5" };
-    api.mockImplementation(async (path: string, init?: RequestInit) => {
-      if (path === "/api/runners")
-        return { runners: [{ id: runnerId, status: "online" }] };
-      if (path === "/api/v1/engine-management/operations") {
-        expect(JSON.parse(String(init?.body))).toEqual({
-          scope: { kind: "runner", runnerId },
-          operation: { type: "model_catalog", engine: "claude" },
-        });
+    api.mockImplementation(async (path: string, _init?: RequestInit) => {
+      if (path.startsWith("/fixture/data"))
         return {
-          ack: {
-            ok: true,
-            capability: { type: "model_catalog", catalog: { models: [model] } },
-          },
+          catalog: { models: { claude: [model] } },
+          agentTypes: ["claude"],
         };
-      }
       if (path.startsWith("/api/v1/personas")) return { personas: PERSONAS };
       if (path.includes("/launch-persona"))
         return { ok: true, block: { id: "blk_1" } };

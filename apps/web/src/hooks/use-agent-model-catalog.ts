@@ -17,7 +17,7 @@ export type AgentModelOption = {
   markSeen?: () => void;
   effort?: import("@dispatch/shared").AgentConfigChoice[];
 };
-type CatalogResponse = {
+export type CatalogResponse = {
   models: AgentModelCatalog;
   defaults?: Partial<Record<AgentType, string>>;
   availability?: Partial<Record<AgentType, ModelAvailability>>;
@@ -34,7 +34,8 @@ export type AgentModelCatalog = Partial<Record<AgentType, AgentModelOption[]>>;
  */
 export function useAgentModelCatalog(
   agentType: AgentType,
-  enabled = true
+  enabled = true,
+  provided?: { data?: CatalogResponse; loading: boolean }
 ): {
   /** The models turned on: what can be chosen. */
   options: AgentModelOption[];
@@ -58,14 +59,16 @@ export function useAgentModelCatalog(
    * untouched so a failed fetch never wipes a saved model. */
   normalizeModel: (value: string | null) => string | null;
 } {
-  const { data, isLoading } = useQuery<CatalogResponse>({
+  const query = useQuery<CatalogResponse>({
     queryKey: ["agent-models"],
-    enabled,
+    enabled: provided ? false : enabled,
     queryFn: () => api("/api/v1/agent-models"),
     staleTime: 5 * 60 * 1000,
     gcTime: Infinity,
   });
 
+  const data = provided ? provided.data : query.data;
+  const isLoading = provided ? provided.loading : query.isLoading;
   const loaded = data !== undefined;
   const { mutate } = useUpdateModelAvailability();
   const availability = data?.availability?.[agentType];

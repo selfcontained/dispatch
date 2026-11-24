@@ -1510,6 +1510,7 @@ async function registerRoutes() {
     });
   }
   await registerLaunchTargetRoutes(app, {
+    agents: agentManager,
     runners: runnerDirectory({
       remote: remoteRunner,
       child: () => localRunnerOf(localRunnerProcess),

@@ -1,4 +1,4 @@
-import { type RunnerHealth, workspaceLocator } from "@dispatch/runner-protocol";
+import type { RunnerHealth } from "@dispatch/runner-protocol";
 import type { RunnerUpdateAction, RunnerUpdateView } from "@dispatch/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
@@ -48,11 +48,6 @@ export function useWantedBuildRefresh({ health, update }: Runner) {
     refresh();
     return subscribeServerVersion(refresh);
   }, [queryClient, shown]);
-}
-
-/** Locator the server stores in an agent's cwd: opaque runner id, both parts encoded. */
-export function runnerLocator(runnerId: string, workspace: string): string {
-  return workspaceLocator({ runner: runnerId, workspace });
 }
 
 export function useRunners(

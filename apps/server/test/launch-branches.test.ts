@@ -62,6 +62,7 @@ async function setup(runners: Pick<Runners, "for"> = runnerDirectory({})) {
   await registerSystemRoutes(app, {} as never);
   app.get("/api/runners", async () => ({ runners: [] }));
   await registerLaunchTargetRoutes(app, {
+    agents: {} as never,
     runners,
     templates: {} as never,
     tasks: {} as never,

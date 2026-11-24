@@ -11,48 +11,13 @@ import {
 import { afterEach, expect, it, vi } from "vitest";
 
 import { api } from "@/lib/api";
-import { BranchSelect, branchRows } from "./branch-select";
+import { BranchSelect } from "./branch-select";
 
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
 
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
-});
-
-it("shows one selected default when starting a new branch from the explicit default", async () => {
-  globalThis.ResizeObserver ??= class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  };
-  Element.prototype.scrollIntoView ??= () => {};
-  vi.mocked(api).mockResolvedValue({
-    branches: ["trunk", "topic"],
-    defaultBranch: "trunk",
-  } as never);
-  const runner = {
-    id: "runner-a",
-    repository: "https://github.com/example/first",
-  };
-  const { rerender } = render(
-    <BranchSelect
-      {...props}
-      runner={runner}
-      baseBranch="trunk"
-      allowPullRequest
-    />,
-    { wrapper: wrapper() }
-  );
-  const control = screen.getByRole("combobox", { name: "Base branch" });
-  fireEvent.click(control);
-  await screen.findByRole("option", { name: "topic" });
-  rerender(<BranchSelect {...props} runner={runner} baseBranch="trunk" />);
-  const defaultRows = screen.getAllByRole("option", { name: "trunk" });
-  expect(defaultRows).toHaveLength(1);
-  expect(defaultRows[0]?.querySelector("svg")?.classList).toContain(
-    "opacity-100"
-  );
 });
 
 it("loads local branches on first open and reuses the list on reopen", async () => {
@@ -121,52 +86,9 @@ function wrapper() {
   };
 }
 
-it.each([
-  { id: "runner-a", repository: "https://github.com/example/second" },
-  { id: "runner-b", repository: "https://github.com/example/first" },
-])(
-  "keeps a superseded branch response out of the active selection: %j",
-  async (current) => {
-    type Branches = { branches: string[]; defaultBranch: string };
-    const old = Promise.withResolvers<Branches>();
-    const newer = Promise.withResolvers<Branches>();
-    const request = vi
-      .mocked(api)
-      .mockReturnValueOnce(old.promise)
-      .mockReturnValueOnce(newer.promise);
-    const { rerender } = render(
-      <BranchSelect
-        {...props}
-        runner={{
-          id: "runner-a",
-          repository: "https://github.com/example/first",
-        }}
-      />,
-      { wrapper: wrapper() }
-    );
-    await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
-    rerender(<BranchSelect {...props} runner={current} />);
-    await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
-    await act(async () =>
-      newer.resolve({ branches: ["new-main"], defaultBranch: "new-main" })
-    );
-    const control = screen.getByRole("combobox", { name: "Base branch" });
-    await waitFor(() => expect(control.textContent).toContain("new-main"));
-    await act(async () =>
-      old.resolve({ branches: ["old-main"], defaultBranch: "old-main" })
-    );
-    expect(control.textContent).toContain("new-main");
-  }
-);
-
 const sources = {
   local: { cwd: "/repo" },
-  runner: {
-    runner: {
-      id: "runner-a",
-      repository: "https://github.com/example/repo",
-    },
-  },
+  runner: { sourceUrl: "/fixture/branches", defaultBaseBranch: "" },
 } as const;
 
 function stubLayout() {
@@ -191,12 +113,6 @@ async function openRows(
     wrapper: wrapper(),
   });
   const control = screen.getByRole("combobox", { name: "Base branch" });
-  if (source === "runner") {
-    await waitFor(() =>
-      expect(control.textContent).toContain(extra.baseBranch || "trunk")
-    );
-    expect(api).toHaveBeenCalledTimes(1);
-  }
   fireEvent.click(control);
   await screen.findByRole("option", { name: "feature/a" });
   return () =>
@@ -206,33 +122,12 @@ async function openRows(
     }));
 }
 
-it("lists the runner default first and emits the repository default value", async () => {
-  const onBaseBranchChange = vi.fn();
-  const rows = await openRows("runner", { onBaseBranchChange });
-  expect(rows()).toEqual([
-    { text: "trunk", selected: true },
-    { text: "feature/a", selected: false },
-    { text: "feature/b", selected: false },
-  ]);
-  fireEvent.click(screen.getByRole("option", { name: "trunk" }));
-  expect(onBaseBranchChange).toHaveBeenCalledWith("");
-});
-
 it.each(["local", "runner"] as const)(
   "%s keeps and flags an unlisted saved branch",
   async (source) => {
     const rows = await openRows(source, { baseBranch: "gone" });
     const options = rows();
-    expect(options[0]).toEqual(
-      source === "local"
-        ? { text: "gonenot found", selected: true }
-        : { text: "trunk", selected: false }
-    );
-    expect(options[1]).toEqual(
-      source === "local"
-        ? { text: "main", selected: false }
-        : { text: "gonenot found", selected: true }
-    );
+    expect(options[0]).toEqual({ text: "gonenot found", selected: true });
     expect(screen.getByText(/no longer exists on the remote/)).toBeTruthy();
   }
 );
@@ -242,77 +137,49 @@ it("keeps a missing local main selected and flagged", async () => {
   expect(rows()[0]).toEqual({ text: "mainnot found", selected: true });
 });
 
-it("accepts a typed branch and a pull request URL", async () => {
-  const onBaseBranchChange = vi.fn();
-  const rows = await openRows("runner", {
-    allowPullRequest: true,
-    onBaseBranchChange,
-  });
-  const search = screen.getByPlaceholderText("Branch name or GitHub PR URL");
-  fireEvent.change(search, { target: { value: "release/next" } });
-  expect(rows().map((row) => row.text)).toContain("release/next");
-  fireEvent.click(screen.getByRole("option", { name: "release/next" }));
-  expect(onBaseBranchChange).toHaveBeenLastCalledWith("release/next");
-
-  fireEvent.click(screen.getByRole("combobox", { name: "Base branch" }));
-  const pr = "https://github.com/example/repo/pull/7";
-  fireEvent.change(
-    screen.getByPlaceholderText("Branch name or GitHub PR URL"),
-    { target: { value: pr } }
-  );
-  fireEvent.click(await screen.findByRole("option", { name: pr }));
-  expect(onBaseBranchChange).toHaveBeenLastCalledWith(pr);
-});
-
-it("only offers listed branches when searching locally", async () => {
-  const onBaseBranchChange = vi.fn();
-  const rows = await openRows("local", {
-    allowPullRequest: true,
-    onBaseBranchChange,
-  });
-  const search = screen.getByPlaceholderText(/Search branches|GitHub PR URL/);
-  for (const value of [
-    "release/next",
-    "https://github.com/example/repo/pull/7",
-  ]) {
-    fireEvent.change(search, { target: { value } });
-    expect(rows().map((row) => row.text)).not.toContain(value);
+it.each(["local", "runner"] as const)(
+  "only offers listed branches when searching %s",
+  async (source) => {
+    const onBaseBranchChange = vi.fn();
+    const rows = await openRows(source, {
+      onBaseBranchChange,
+    });
+    const search = screen.getByPlaceholderText(/Search branches|GitHub PR URL/);
+    for (const value of [
+      "release/next",
+      "https://github.com/example/repo/pull/7",
+    ]) {
+      fireEvent.change(search, { target: { value } });
+      expect(rows().map((row) => row.text)).not.toContain(value);
+    }
+    fireEvent.change(search, { target: { value: "feature/a" } });
+    fireEvent.click(screen.getByRole("option", { name: "feature/a" }));
+    expect(onBaseBranchChange).toHaveBeenLastCalledWith("feature/a");
+    expect(search.getAttribute("placeholder")).toBe("Search branches…");
   }
-  fireEvent.change(search, { target: { value: "feature/a" } });
-  fireEvent.click(screen.getByRole("option", { name: "feature/a" }));
-  expect(onBaseBranchChange).toHaveBeenLastCalledWith("feature/a");
-  expect(search.getAttribute("placeholder")).toBe("Search branches…");
-});
+);
 
-it("builds runner rows and offers PR URLs only when allowed", () => {
-  const data = {
-    branches: ["trunk", "a"],
-    defaultBranch: "trunk",
-    baseBranch: "",
-    listed: true,
-  };
-  const pr = "https://github.com/o/r/pull/1";
-  expect(
-    branchRows({ ...data, typed: pr, allowPullRequest: false }).map(
-      (row) => row.value
-    )
-  ).toEqual(["", "a"]);
-  expect(
-    branchRows({ ...data, typed: pr, allowPullRequest: true }).map(
-      (row) => row.value
-    )
-  ).toEqual(["", pr, "a"]);
-  // A branch entered by hand is not flagged as missing.
-  expect(
-    branchRows({
-      ...data,
-      baseBranch: "typed",
-      typed: "",
-      allowPullRequest: false,
-      entered: "typed",
-    })[1]
-  ).toMatchObject({ value: "typed", missing: false, selected: true });
-});
+it.each(["release/not-fetched", "https://github.com/o/r/pull/7"])(
+  "retains saved %s unchanged",
+  async (baseBranch) => {
+    const onBaseBranchChange = vi.fn();
+    await openRows("runner", { baseBranch, onBaseBranchChange });
+    expect(
+      screen
+        .getAllByRole("option")
+        .some((option) => option.textContent === `${baseBranch}not found`)
+    ).toBe(true);
+    fireEvent.keyDown(screen.getByPlaceholderText("Search branches…"), {
+      key: "Escape",
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("combobox", { name: "Base branch" }).textContent
+      ).toBe(baseBranch)
+    );
+    expect(onBaseBranchChange).not.toHaveBeenCalled();
+  }
+);
 
 it("opens the list above a scrolling dialog body and returns focus on close", async () => {
   stubLayout();
@@ -342,4 +209,41 @@ it("opens the list above a scrolling dialog body and returns focus on close", as
     expect(screen.queryByRole("option", { name: "feature/a" })).toBeNull()
   );
   await waitFor(() => expect(document.activeElement).toBe(control));
+});
+
+it("keeps an earlier target's response out of the current dropdown", async () => {
+  stubLayout();
+  const first = Promise.withResolvers<{
+    branches: string[];
+    defaultBranch: string;
+  }>();
+  const second = Promise.withResolvers<{
+    branches: string[];
+    defaultBranch: string;
+  }>();
+  vi.mocked(api)
+    .mockReturnValueOnce(first.promise)
+    .mockReturnValueOnce(second.promise);
+  const view = render(
+    <BranchSelect {...props} sourceUrl="/fixture/first" defaultBaseBranch="" />,
+    { wrapper: wrapper() }
+  );
+  fireEvent.click(screen.getByTestId("branch-select-base-branch"));
+  await waitFor(() => expect(api).toHaveBeenCalledTimes(1));
+  fireEvent.keyDown(screen.getByPlaceholderText("Search branches…"), {
+    key: "Escape",
+  });
+  view.rerender(
+    <BranchSelect {...props} sourceUrl="/fixture/second" defaultBaseBranch="" />
+  );
+  fireEvent.click(screen.getByTestId("branch-select-base-branch"));
+  await waitFor(() => expect(api).toHaveBeenCalledTimes(2));
+  await act(async () =>
+    second.resolve({ branches: ["new-main"], defaultBranch: "new-main" })
+  );
+  expect(await screen.findByRole("option", { name: "new-main" })).toBeTruthy();
+  await act(async () =>
+    first.resolve({ branches: ["old-main"], defaultBranch: "old-main" })
+  );
+  expect(screen.queryByRole("option", { name: "old-main" })).toBeNull();
 });

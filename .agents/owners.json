@@ -7,6 +7,11 @@
         "apps/server/src/routes/launch-targets.ts",
         "apps/server/test/launch-targets.test.ts",
         "apps/server/test/launch-branches.test.ts",
+        "apps/server/test/launch-api-targets.test.ts",
+        "apps/web/src/hooks/use-launch-targets*",
+        "apps/web/src/components/app/use-template-target.ts",
+        "apps/web/src/components/app/launch-target-error.tsx",
+        "apps/web/src/components/app/automations-targets.test.tsx",
         "apps/server/test/system-routes.test.ts",
         "e2e/engine-updates.spec.ts",
         "apps/server/test/launch-persona-config.test.ts"

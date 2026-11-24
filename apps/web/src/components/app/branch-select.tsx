@@ -1,5 +1,4 @@
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import {
   Combobox,
@@ -13,22 +12,16 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { api } from "@/lib/api";
 
-const EMPTY_BRANCHES: string[] = [];
-
-const PULL_REQUEST_URL =
-  /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/[1-9]\d*\/?$/;
-
 export type BranchSelectProps = {
   cwd: string;
-  /** Lists a runner repository's branches instead of the local folder's. */
-  runner?: { id: string; repository: string };
-  /** Accept a GitHub pull request URL as the branch to open. */
-  allowPullRequest?: boolean;
+  sourceUrl?: string;
+  defaultBaseBranch?: string;
   baseBranch: string;
   /**
-   * Fired when the user picks a branch; runners use "" for the repository default.
-   * The component never overwrites `baseBranch` on its own — a saved branch
-   * missing from the fetched list stays selectable with a visible flag.
+   * Fired when the user picks a branch. The component never overwrites
+   * `baseBranch` on its own — if a saved branch is missing from the
+   * fetched list we keep it in the dropdown with a visible flag and let
+   * the user choose a replacement.
    */
   onBaseBranchChange: (value: string) => void;
   worktreeBranch: string;
@@ -45,98 +38,10 @@ export type BranchSelectProps = {
   disabled?: boolean;
 };
 
-/** The branches endpoint for either source; both return one shape. */
-export function branchListEndpoint(
-  cwd: string,
-  runner: BranchSelectProps["runner"]
-): string {
-  if (!runner)
-    return cwd.trim()
-      ? `/api/v1/git/branches?cwd=${encodeURIComponent(cwd.trim())}`
-      : "";
-  return runner.repository
-    ? `/api/v1/git/branches?runnerId=${encodeURIComponent(runner.id)}&repository=${encodeURIComponent(runner.repository)}`
-    : "";
-}
-
-export type BranchRow = {
-  /** "" is the repository default. */
-  value: string;
-  label: string;
-  selected: boolean;
-  missing: boolean;
-};
-
-/**
- * Runner rows: the repository default, then a typed
- * branch or PR URL, then a saved branch that is no longer listed, then the
- * rest of the list.
- */
-export function branchRows({
-  branches,
-  defaultBranch,
-  baseBranch,
-  typed,
-  allowPullRequest,
-  listed,
-  entered,
-}: {
-  branches: string[];
-  defaultBranch: string;
-  baseBranch: string;
-  typed: string;
-  allowPullRequest: boolean;
-  /** The list loaded, so an unlisted saved branch can be flagged. */
-  listed: boolean;
-  /** A branch entered by hand here; it is not flagged as missing. */
-  entered?: string;
-}): BranchRow[] {
-  const isDefault = (branch: string) =>
-    !branch || (Boolean(defaultBranch) && branch === defaultBranch);
-  const rows: BranchRow[] = [
-    {
-      value: "",
-      label: defaultBranch || "Repository default",
-      selected: isDefault(baseBranch),
-      missing: false,
-    },
-  ];
-  const others = branches.filter((branch) => !isDefault(branch));
-  const entry = typed.trim();
-  const isPullRequest = PULL_REQUEST_URL.test(entry);
-  if (
-    entry &&
-    !isDefault(entry) &&
-    entry !== baseBranch &&
-    !others.includes(entry) &&
-    (isPullRequest ? allowPullRequest : true)
-  )
-    rows.push({ value: entry, label: entry, selected: false, missing: false });
-  if (!isDefault(baseBranch) && !others.includes(baseBranch))
-    rows.push({
-      value: baseBranch,
-      label: baseBranch,
-      selected: true,
-      missing:
-        listed &&
-        branches.length > 0 &&
-        baseBranch !== entered &&
-        !PULL_REQUEST_URL.test(baseBranch),
-    });
-  for (const branch of others)
-    rows.push({
-      value: branch,
-      label: branch,
-      selected: branch === baseBranch,
-      missing: false,
-    });
-  return rows;
-}
-
 export function BranchSelect({
   cwd,
-  runner,
-  allowPullRequest: allowPullRequestInput = false,
+  sourceUrl,
+  defaultBaseBranch = "main",
   baseBranch,
   onBaseBranchChange,
   worktreeBranch,
@@ -148,112 +53,86 @@ export function BranchSelect({
   showNewBranchInput = true,
   disabled = false,
 }: BranchSelectProps): JSX.Element {
-  const [typed, setTyped] = useState("");
-  const [entered, setEntered] = useState<string>();
-  const endpoint = branchListEndpoint(cwd, runner);
-  const allowPullRequest = Boolean(runner) && allowPullRequestInput;
-  const typedBranch = runner ? typed : "";
+  const source =
+    sourceUrl ??
+    (cwd.trim()
+      ? `/api/v1/git/branches?cwd=${encodeURIComponent(cwd.trim())}`
+      : "");
+  const activeSource = useRef(source);
+  activeSource.current = source;
+  const [reportedDefault, setReportedDefault] = useState("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [localList, setLocalList] = useState<{
-    endpoint: string;
-    branches?: string[];
-    error?: string;
-  }>();
+  const [remoteBranches, setRemoteBranches] = useState<string[]>([]);
+  const [branchesLoading, setBranchesLoading] = useState(false);
+  const [fetchedForCwd, setFetchedForCwd] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   if (disabled && dropdownOpen) setDropdownOpen(false);
 
-  // Runners load eagerly so the closed control names the repository default.
-  const branches = useQuery({
-    queryKey: ["branch-select", endpoint],
-    queryFn: ({ signal }) =>
-      api<{ branches: string[]; defaultBranch?: string }>(endpoint, { signal }),
-    enabled: Boolean(runner && !disabled && endpoint),
-    staleTime: 30_000,
-    retry: false,
-  });
-  const localResult = localList?.endpoint === endpoint ? localList : undefined;
-  const listedBranches =
-    (runner ? branches.data?.branches : localResult?.branches) ??
-    EMPTY_BRANCHES;
-  const defaultBranch = runner ? (branches.data?.defaultBranch ?? "") : "";
-  const branchesLoading = runner
-    ? branches.isFetching
-    : Boolean(localResult && !localResult.branches && !localResult.error);
-  const fetchError = runner ? branches.error?.message : localResult?.error;
-
-  const fetchLocalBranches = async () => {
-    if (!endpoint || disabled) return;
-    const pending = { endpoint };
-    setLocalList(pending);
+  const fetchBranches = useCallback(async () => {
+    const trimmed = source;
+    if (!trimmed || disabled) return;
+    setBranchesLoading(true);
+    setFetchError(null);
     try {
-      const result = await api<{ branches: string[] }>(endpoint);
-      setLocalList((current) =>
-        current === pending ? { endpoint, branches: result.branches } : current
+      const result = await api<{ branches: string[]; defaultBranch?: string }>(
+        source
       );
+      if (activeSource.current !== trimmed) return;
+      setRemoteBranches(result.branches);
+      setReportedDefault(result.defaultBranch ?? "");
     } catch (error) {
-      setLocalList((current) =>
-        current === pending
-          ? {
-              endpoint,
-              error:
-                error instanceof Error
-                  ? error.message
-                  : "Couldn't load branches.",
-            }
-          : current
+      if (activeSource.current !== trimmed) return;
+      setRemoteBranches([]);
+      setFetchError(
+        error instanceof Error ? error.message : "Couldn’t load branches."
       );
+    } finally {
+      if (activeSource.current === trimmed) {
+        setBranchesLoading(false);
+        setFetchedForCwd(trimmed);
+      }
     }
-  };
+  }, [source, disabled]);
 
-  const changeOpen = (next: boolean) => {
-    if (next && disabled) return;
-    if (next) {
-      if (!runner && !localResult) void fetchLocalBranches();
-    }
-    setDropdownOpen(next);
-  };
+  const changeOpen = useCallback(
+    (open: boolean) => {
+      if (disabled) return;
+      setDropdownOpen(open);
+      if (open && fetchedForCwd !== source) void fetchBranches();
+    },
+    [disabled, fetchBranches, fetchedForCwd, source]
+  );
 
-  const rows = useMemo(() => {
-    if (!runner) {
-      const base = listedBranches.includes("main")
-        ? listedBranches
-        : ["main", ...listedBranches];
-      const localRows =
-        baseBranch && !base.includes(baseBranch) ? [baseBranch, ...base] : base;
-      return localRows.map((branch) => ({
-        value: branch,
-        label: branch,
-        selected: branch === baseBranch,
-        missing:
-          branch === baseBranch &&
-          listedBranches.length > 0 &&
-          !listedBranches.includes(branch),
-      }));
-    }
-    return branchRows({
-      branches: listedBranches,
-      defaultBranch,
-      baseBranch,
-      typed: typedBranch,
-      allowPullRequest,
-      listed: branches.isSuccess && !branchesLoading,
-      entered,
-    });
+  // Keep the saved baseBranch selectable even if the fetched list doesn't
+  // include it (branch renamed/deleted upstream). We flag it visually in
+  // the dropdown rather than silently overwrite it.
+  const allBranches = useMemo(() => {
+    const listed = fetchedForCwd === source ? remoteBranches : [];
+    const base = listed.includes(defaultBaseBranch)
+      ? listed
+      : [
+          defaultBaseBranch,
+          ...listed.filter(
+            (branch) => defaultBaseBranch || branch !== reportedDefault
+          ),
+        ];
+    if (baseBranch && !base.includes(baseBranch)) return [baseBranch, ...base];
+    return base;
   }, [
-    runner,
-    listedBranches,
-    defaultBranch,
+    remoteBranches,
     baseBranch,
-    typedBranch,
-    allowPullRequest,
-    branches.isSuccess,
-    branchesLoading,
-    entered,
+    defaultBaseBranch,
+    fetchedForCwd,
+    source,
+    reportedDefault,
   ]);
-  const savedBranchMissing = rows.some((row) => row.missing);
-  const choose = (value: string) => {
-    if (value && value === typedBranch.trim()) setEntered(value);
-    onBaseBranchChange(value);
-  };
+
+  const savedBranchMissing =
+    !branchesLoading &&
+    !!baseBranch &&
+    !!fetchedForCwd &&
+    remoteBranches.length > 0 &&
+    !remoteBranches.includes(baseBranch);
 
   return (
     <div className="space-y-2">
@@ -267,9 +146,7 @@ export function BranchSelect({
                 type="button"
                 variant="link"
                 size="inline"
-                onClick={() =>
-                  void (runner ? branches.refetch() : fetchLocalBranches())
-                }
+                onClick={() => void fetchBranches()}
                 disabled={disabled}
               >
                 Retry
@@ -288,34 +165,22 @@ export function BranchSelect({
           )
         }
       >
-        <Combobox
-          open={dropdownOpen}
-          onOpenChange={changeOpen}
-          search={runner ? typed : undefined}
-          onSearchChange={runner ? setTyped : undefined}
-        >
+        <Combobox open={dropdownOpen} onOpenChange={changeOpen}>
           <ComboboxTrigger
             disabled={disabled}
             loading={branchesLoading}
             data-testid={`${testIdPrefix}-base-branch`}
             className="font-mono text-body-sm"
           >
-            {runner
-              ? baseBranch || defaultBranch || "Repository default"
-              : baseBranch}
+            {baseBranch ||
+              (fetchedForCwd === source ? reportedDefault : "") ||
+              defaultBaseBranch ||
+              "Repository default"}
           </ComboboxTrigger>
           <ComboboxContent
             label="Search branches"
-            placeholder={
-              allowPullRequest
-                ? "Branch name or GitHub PR URL"
-                : runner
-                  ? "Search or enter a branch"
-                  : "Search branches…"
-            }
-            value={
-              runner ? rows.find((row) => row.selected)?.label : baseBranch
-            }
+            placeholder="Search branches…"
+            value={baseBranch}
             emptyMessage="No matching branches."
             status={
               branchesLoading ? (
@@ -326,24 +191,35 @@ export function BranchSelect({
               ) : undefined
             }
           >
-            {rows.map((row) => (
-              <ComboboxItem
-                key={row.value || "\0default"}
-                value={row.label}
-                keywords={row.value ? undefined : ["default"]}
-                selected={row.selected}
-                data-testid={`${testIdPrefix}-base-branch-option`}
-                className="font-mono"
-                onSelect={() => choose(row.value)}
-              >
-                <span className="min-w-0 break-all">{row.label}</span>
-                {row.missing ? (
-                  <span className="ml-auto text-label-xs uppercase tracking-wide text-warning-ink">
-                    not found
+            {allBranches.map((branch) => {
+              const isMissing =
+                !!branch &&
+                branch === baseBranch &&
+                remoteBranches.length > 0 &&
+                !remoteBranches.includes(branch);
+              return (
+                <ComboboxItem
+                  key={branch || reportedDefault || "Repository default"}
+                  value={branch || reportedDefault || "Repository default"}
+                  selected={branch === baseBranch}
+                  data-testid={`${testIdPrefix}-base-branch-option`}
+                  className="font-mono"
+                  onSelect={() => onBaseBranchChange(branch)}
+                >
+                  <span className="min-w-0 break-all">
+                    {branch ||
+                      reportedDefault ||
+                      defaultBaseBranch ||
+                      "Repository default"}
                   </span>
-                ) : null}
-              </ComboboxItem>
-            ))}
+                  {isMissing ? (
+                    <span className="ml-auto text-label-xs uppercase tracking-wide text-warning-ink">
+                      not found
+                    </span>
+                  ) : null}
+                </ComboboxItem>
+              );
+            })}
           </ComboboxContent>
         </Combobox>
       </Field>

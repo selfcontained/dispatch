@@ -6,15 +6,21 @@ import { useMemo } from "react";
 import { AgentModelSelect } from "@/components/app/agent-model-select";
 import { AgentTypeSelect } from "@/components/app/agent-type-select";
 import { type AgentModelOption } from "@/hooks/use-agent-model-catalog";
-import { useEngines } from "@/hooks/use-engines";
+import {
+  engineSummary,
+  useEngines,
+  type EngineStatus,
+} from "@/hooks/use-engines";
 import { type AgentType } from "@/lib/agent-types";
 
 type AgentEngineFieldsProps = {
   agentType: AgentType;
   onAgentTypeChange: (type: AgentType) => void;
   agentTypes: AgentType[];
-  agentLabel?: string;
-  agentLoading?: boolean;
+  target?: {
+    engines: EngineStatus[] | null;
+    effort?: import("@dispatch/shared").AgentConfigChoice[];
+  };
   effort?: Effort | null;
   effortDefaultLabel?: string;
   onEffortChange?: (effort: Effort | null) => void;
@@ -28,23 +34,20 @@ type AgentEngineFieldsProps = {
   modelLoading: boolean;
   /** Overridden by dialogs other than Create Agent so ids stay unique. */
   idPrefix?: string;
-  /** Runs on a remote runner: this machine's CLI install state is irrelevant. */
-  remote?: boolean;
-  statusLine?: string;
-  workloadEffort?: import("@dispatch/shared").AgentConfigChoice[];
 };
+
+const EMPTY_ENGINES: EngineStatus[] = [];
 
 /**
  * The type and model pickers side by side, with the engine Dispatch will
  * drive named underneath. Every dialog that launches an agent shows them the
- * same way. Create Agent keeps the model picker visible without a catalog.
+ * same way. Create Agent also shows the fallback when a catalog is missing.
  */
 export function AgentEngineFields({
   agentType,
   onAgentTypeChange,
   agentTypes,
-  agentLabel,
-  agentLoading,
+  target,
   model,
   effort,
   effortDefaultLabel,
@@ -55,13 +58,11 @@ export function AgentEngineFields({
   savedOption,
   modelLoading,
   idPrefix,
-  remote = false,
-  statusLine,
-  workloadEffort,
 }: AgentEngineFieldsProps): JSX.Element {
   // Engines whose CLI this machine does not have: pickable, but the picker
   // says what to install rather than letting the launch fail.
-  const { engines } = useEngines(!remote);
+  const native = useEngines(target === undefined);
+  const engines = target ? (target.engines ?? EMPTY_ENGINES) : native.engines;
   const missingEngines = useMemo(
     () =>
       Object.fromEntries(
@@ -74,6 +75,7 @@ export function AgentEngineFields({
       ),
     [engines]
   );
+  const engineLine = engineSummary(engines, agentType);
   const showModelSelect =
     catalogDefault !== undefined || modelLoading || modelOptions.length > 0;
 
@@ -88,9 +90,7 @@ export function AgentEngineFields({
           value={agentType}
           onChange={onAgentTypeChange}
           agentTypes={agentTypes}
-          label={agentLabel}
-          loading={agentLoading}
-          missing={remote ? undefined : missingEngines}
+          missing={missingEngines}
         />
 
         {showModelSelect ? (
@@ -108,8 +108,8 @@ export function AgentEngineFields({
         {onEffortChange ? (
           <AgentEffortSelect
             model={model}
-            workload={remote}
-            workloadChoices={workloadEffort}
+            workload={target !== undefined}
+            workloadChoices={target?.effort}
             inheritLabel={effortDefaultLabel}
             value={effort ?? null}
             onChange={onEffortChange}
@@ -118,13 +118,13 @@ export function AgentEngineFields({
           />
         ) : null}
       </AgentConfigRow>
-      {statusLine ? (
+      {engineLine ? (
         <p
           className="-mt-1 truncate text-body-sm text-faint"
-          title={statusLine}
+          title={engineLine}
           data-testid={idPrefix ? `${idPrefix}-engine` : "create-agent-engine"}
         >
-          {statusLine}
+          {engineLine}
         </p>
       ) : null}
     </div>
