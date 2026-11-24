@@ -1,5 +1,5 @@
 import { useAtom } from "jotai";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
@@ -32,6 +32,9 @@ export function PersonaLauncher({
   disabled = false,
   disabledReason,
   label = "Review",
+  openSignal,
+  hideTrigger = false,
+  onUnavailableChange,
 }: {
   agent: Agent;
   enabledAgentTypes: AgentType[];
@@ -39,6 +42,15 @@ export function PersonaLauncher({
   disabledReason?: string;
   /** The trigger button's text. */
   label?: string;
+  /** Opens the picker each time it changes, for a launch from a menu item. */
+  openSignal?: number;
+  /** Renders only the picker; something else (a menu) opens it. */
+  hideTrigger?: boolean;
+  /**
+   * Why the picker can't open (personas loading or failed), or null once it
+   * can — so a menu item that opens it can disable itself and say why.
+   */
+  onUnavailableChange?: (reason: string | null) => void;
 }): JSX.Element {
   const queryClient = useQueryClient();
   const cwd = agent.workspacePath ?? agent.worktreePath ?? agent.cwd;
@@ -117,9 +129,27 @@ export function PersonaLauncher({
     },
   });
 
+  // Declared before the empty-personas return so the hook order holds;
+  // assigned once openDialog exists below.
+  const openRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    if (openSignal) openRef.current?.();
+  }, [openSignal]);
+  const unavailableReason = launchMutation.isPending
+    ? "Launching a review…"
+    : personas.length > 0
+      ? null
+      : personasPending
+        ? "Loading personas…"
+        : "Couldn’t load personas for this workspace.";
+  useEffect(() => {
+    onUnavailableChange?.(unavailableReason);
+  }, [onUnavailableChange, unavailableReason]);
+
   // Dispatch ships built-in personas, so an empty list means the personas
   // request itself failed rather than an unconfigured repo.
   if (personas.length === 0) {
+    if (hideTrigger) return <></>;
     return (
       <SplitButton
         size="sm"
@@ -150,6 +180,7 @@ export function PersonaLauncher({
     launchMutation.reset();
     setDialogOpen(true);
   };
+  openRef.current = () => openDialog();
 
   const persistReviewAgentType = async (nextType: AgentType): Promise<void> => {
     if (agent.reviewAgentType === nextType) return;
@@ -171,42 +202,44 @@ export function PersonaLauncher({
 
   return (
     <>
-      <SplitButton
-        size="sm"
-        disabled={disabled || launchMutation.isPending}
-        hint={disabled ? disabledReason : undefined}
-        className="text-muted-foreground hover:text-foreground"
-        data-testid="launch-reviewer-button"
-        onClick={() => openDialog()}
-        menuLabel="Choose reviewer type"
-        menuTestId="launch-reviewer-type-dropdown"
-        menu={
-          showReviewAgentTypePicker
-            ? reviewerTypes.map((agentType) => (
-                <DropdownMenuItem
-                  key={agentType}
-                  className="text-foreground"
-                  onClick={() => openDialog(agentType)}
-                  data-testid={`launch-reviewer-type-${agentType}`}
-                >
-                  <span className="flex items-center gap-3">
-                    <AgentTypeIcon
-                      type={agentType}
-                      className="size-icon-lg border-none bg-transparent p-0 text-foreground/soft"
-                    />
-                    <span>{AGENT_TYPE_LABELS[agentType]}</span>
-                  </span>
-                </DropdownMenuItem>
-              ))
-            : null
-        }
-      >
-        <AgentTypeIcon
-          type={defaultReviewAgentType(agent)}
-          className="size-icon-lg border-none bg-transparent p-0 text-foreground/soft"
-        />
-        {label}
-      </SplitButton>
+      {hideTrigger ? null : (
+        <SplitButton
+          size="sm"
+          disabled={disabled || launchMutation.isPending}
+          hint={disabled ? disabledReason : undefined}
+          className="text-muted-foreground hover:text-foreground"
+          data-testid="launch-reviewer-button"
+          onClick={() => openDialog()}
+          menuLabel="Choose reviewer type"
+          menuTestId="launch-reviewer-type-dropdown"
+          menu={
+            showReviewAgentTypePicker
+              ? reviewerTypes.map((agentType) => (
+                  <DropdownMenuItem
+                    key={agentType}
+                    className="text-foreground"
+                    onClick={() => openDialog(agentType)}
+                    data-testid={`launch-reviewer-type-${agentType}`}
+                  >
+                    <span className="flex items-center gap-3">
+                      <AgentTypeIcon
+                        type={agentType}
+                        className="size-icon-lg border-none bg-transparent p-0 text-foreground/soft"
+                      />
+                      <span>{AGENT_TYPE_LABELS[agentType]}</span>
+                    </span>
+                  </DropdownMenuItem>
+                ))
+              : null
+          }
+        >
+          <AgentTypeIcon
+            type={defaultReviewAgentType(agent)}
+            className="size-icon-lg border-none bg-transparent p-0 text-foreground/soft"
+          />
+          {label}
+        </SplitButton>
+      )}
 
       <PersonaLauncherDialog
         open={dialogOpen}

@@ -1,21 +1,19 @@
 import React from "react";
-import { Pin, PinOff } from "lucide-react";
 
 import { AgentMeta } from "@/components/app/agent-meta";
 import { AgentCardActions } from "@/components/app/agent-card-actions";
 import { AgentCardDetails } from "@/components/app/agent-card-details";
 import { AgentCardHeader } from "@/components/app/agent-card-header";
 import { AgentCardActivity } from "@/components/app/agent-card-status";
-import { ChildAgentRow } from "@/components/app/child-agent-row";
 import { AgentName } from "@/components/app/agent-name";
 import { useAgentDiffStats } from "@/hooks/use-agent-diff-stats";
-import { useCopyText } from "@/hooks/use-copy";
+import { ChangeWorkspaceDialog } from "@/components/app/change-workspace-dialog";
 import { SessionSettingsDialog } from "@/components/app/session-settings-dialog";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { IconButton } from "@/components/ui/icon-button";
+import { SubAgentRows } from "@/components/app/sub-agent-rows";
 import { AnimatePresence, motion } from "framer-motion";
 
+import { descendantAgents } from "@/lib/agent-lineage";
 import { lineageSeats } from "@/lib/agent-seat";
 import { type AgentType } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
@@ -109,12 +107,18 @@ function AgentCardImpl({
   const isExpanded = expandedAgentId === agent.id;
   const fullAccessEnabled = isFullAccessEnabled(agent);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
-  // Sub agent rows reuse the same rename dialog; tracking which row opened it
-  // keeps one dialog instance instead of one per row.
-  const [settingsChild, setSettingsChild] = React.useState<Agent | null>(null);
-  // Owned here rather than in AgentCardDetails so the copy confirmation is not
-  // lost when the details panel unmounts on collapse.
-  const [worktreePathCopied, copyWorktreePath] = useCopyText();
+  // One details dialog for every sub agent row, tracking which row opened it.
+  const [detailsChild, setDetailsChild] = React.useState<Agent | null>(null);
+  // Likewise one Change workspace dialog: a collapsed row can unmount while
+  // its dialog is open. The last target stays so the dialog can animate out.
+  const [workspaceChild, setWorkspaceChild] = React.useState<{
+    agent: Agent;
+    open: boolean;
+  } | null>(null);
+  const cascadeCount = React.useMemo(
+    () => descendantAgents(agent.id, agents).length,
+    [agent.id, agents]
+  );
   // Sub agents wear the seat the stream gives them; the card's own avatar
   // carries no number, since a flat list of roots would repeat seat 1.
   const seats = React.useMemo(
@@ -142,25 +146,6 @@ function AgentCardImpl({
       });
     };
   }, [nativeDragHandlers]);
-
-  const pinControl = onTogglePin ? (
-    <IconButton
-      className="rounded-full"
-      label={isPinned ? "Unpin session" : "Pin session"}
-      data-agent-control="true"
-      data-testid={`agent-pin-toggle-${agent.id}`}
-      aria-pressed={isPinned}
-      onClick={() => onTogglePin(agent.id)}
-    >
-      <span className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-surface-subtle">
-        {isPinned ? (
-          <PinOff className="h-3.5 w-3.5" />
-        ) : (
-          <Pin className="h-3.5 w-3.5" />
-        )}
-      </span>
-    </IconButton>
-  ) : null;
 
   return (
     <React.Fragment>
@@ -195,7 +180,7 @@ function AgentCardImpl({
 
         <AgentCardActivity
           agent={agent}
-          // Expanded cards list each sub agent's activity in its own row.
+          // Expanded cards show sub agent activity in their own rows.
           childAgents={isExpanded ? undefined : childAgents}
           onNavigate={closeOnSessionAction ? onRequestClose : undefined}
         />
@@ -209,86 +194,69 @@ function AgentCardImpl({
               transition={{ duration: 0.2, ease: "easeOut" }}
               className="mt-2 overflow-hidden"
             >
-              <div className="flex flex-col gap-3 px-0 pb-0.5 pt-0.5">
-                <div className="space-y-1.5">
-                  <AgentCardDetails
-                    agent={agent}
-                    personaParentName={
-                      agent.parentAgentId
-                        ? (agents.find((a) => a.id === agent.parentAgentId)
-                            ?.name ?? (
-                            <AgentName agentId={agent.parentAgentId} />
-                          ))
-                        : undefined
+              <div className="flex flex-col gap-2 pb-0.5 pt-0.5">
+                <AgentCardDetails
+                  agent={agent}
+                  personaParentName={
+                    agent.parentAgentId
+                      ? (agents.find((a) => a.id === agent.parentAgentId)
+                          ?.name ?? <AgentName agentId={agent.parentAgentId} />)
+                      : undefined
+                  }
+                  diffStats={diffStats}
+                  refreshDiffStats={refreshDiffStats}
+                  fullAccessEnabled={fullAccessEnabled}
+                >
+                  <SubAgentRows
+                    childAgents={childAgents}
+                    seats={seats}
+                    viewingId={connectedAgentId}
+                    actions={{
+                      enabledAgentTypes,
+                      enabledIdes,
+                      cascadeCount: (child) =>
+                        descendantAgents(child.id, agents).length,
+                      onPause: (child) => {
+                        setStopTarget(child);
+                        setStopConfirmOpen(true);
+                      },
+                      onResume: (child) => void startAgent(child),
+                      onArchive: (child) => {
+                        setDeleteTarget(child);
+                        setDeleteConfirmOpen(true);
+                      },
+                      onShowDetails: setDetailsChild,
+                      onChangeWorkspace: (child) =>
+                        setWorkspaceChild({ agent: child, open: true }),
+                    }}
+                    onOpenAgent={(child) => void openAgent(child)}
+                    onNavigate={
+                      closeOnSessionAction ? onRequestClose : undefined
                     }
-                    diffStats={diffStats}
-                    refreshDiffStats={refreshDiffStats}
-                    fullAccessEnabled={fullAccessEnabled}
-                    enabledIdes={enabledIdes}
-                    worktreePathCopied={worktreePathCopied}
-                    copyWorktreePath={copyWorktreePath}
                   />
-                </div>
-
+                </AgentCardDetails>
                 {agent.lastError && agent.status !== "running" ? (
                   <AgentMeta label="Last error" value={agent.lastError} />
                 ) : null}
-                {childAgents.length > 0 ? (
-                  <div className="space-y-1.5 border-t border-border-subtle pt-2">
-                    <div className="flex items-center justify-between pl-0.5 pr-2">
-                      <span className="section-label">Sub Agents</span>
-                      <span className="text-label-xs text-faint">
-                        {childAgents.length}
-                      </span>
-                    </div>
-                    <ScrollArea
-                      className="max-h-56"
-                      type="always"
-                      fitContentWidth
-                    >
-                      <div className="space-y-1 pr-2">
-                        {childAgents.map((child) => (
-                          <ChildAgentRow
-                            key={child.id}
-                            agent={child}
-                            seat={seats[child.id] ?? null}
-                            state={getVisualState(child)}
-                            isInitialReviewActive={child.role === "review"}
-                            openAgent={openAgent}
-                            closeAgent={closeAgent}
-                            startAgent={startAgent}
-                            setStopTarget={setStopTarget}
-                            setStopConfirmOpen={setStopConfirmOpen}
-                            setDeleteTarget={setDeleteTarget}
-                            setDeleteConfirmOpen={setDeleteConfirmOpen}
-                            onEditSettings={setSettingsChild}
-                            onRequestClose={onRequestClose}
-                            closeOnSessionAction={closeOnSessionAction}
-                          />
-                        ))}
-                      </div>
-                    </ScrollArea>
-                  </div>
-                ) : null}
-              </div>
-              {agent.role !== "review" ? (
                 <AgentCardActions
-                  pinControl={pinControl}
                   agent={agent}
                   isStopped={isStopped}
+                  isPinned={isPinned}
+                  onTogglePin={onTogglePin}
+                  cascadeCount={cascadeCount}
                   enabledAgentTypes={enabledAgentTypes}
-                  closeOnSessionAction={closeOnSessionAction}
-                  onRequestClose={onRequestClose}
-                  startAgent={startAgent}
+                  enabledIdes={enabledIdes}
+                  onPause={() => {
+                    setStopTarget(agent);
+                    setStopConfirmOpen(true);
+                  }}
                   onEditSettings={() => setSettingsOpen(true)}
-                  setStopTarget={setStopTarget}
-                  setStopConfirmOpen={setStopConfirmOpen}
-                  setDeleteTarget={setDeleteTarget}
-                  setDeleteConfirmOpen={setDeleteConfirmOpen}
+                  onArchive={() => {
+                    setDeleteTarget(agent);
+                    setDeleteConfirmOpen(true);
+                  }}
                 />
-              ) : pinControl ? (
-                <div className="px-0.5 pb-1 pt-2">{pinControl}</div>
-              ) : null}
+              </div>
             </motion.div>
           ) : null}
         </AnimatePresence>
@@ -297,16 +265,26 @@ function AgentCardImpl({
         agent={agent}
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
-        enabledIdes={enabledIdes}
       />
       <SessionSettingsDialog
-        agent={settingsChild}
-        open={settingsChild !== null}
+        agent={detailsChild}
+        open={detailsChild !== null}
         onOpenChange={(open) => {
-          if (!open) setSettingsChild(null);
+          if (!open) setDetailsChild(null);
         }}
-        enabledIdes={enabledIdes}
+        showDetails
       />
+      {workspaceChild ? (
+        <ChangeWorkspaceDialog
+          agent={workspaceChild.agent}
+          open={workspaceChild.open}
+          onOpenChange={(open) =>
+            setWorkspaceChild((current) =>
+              current ? { ...current, open } : current
+            )
+          }
+        />
+      ) : null}
     </React.Fragment>
   );
 }

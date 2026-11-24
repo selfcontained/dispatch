@@ -825,7 +825,7 @@ export function PullRequestRow({
       >
         <IconButton
           tooltip="Pull request details"
-          size="icon-sm"
+          size="icon-xs"
           data-agent-control="true"
           label={`Details for pull request ${ref.number}: ${STATES[status].label}`}
           onPointerDownCapture={() => {
@@ -859,7 +859,7 @@ export function PullRequestRow({
           </Hint>
           {!isError && risk && (
             <IconButton
-              size="icon-sm"
+              size="icon-xs"
               data-agent-control="true"
               label={`Merge risk for pull request ${ref.number}: ${riskDisplay(risk).label}`}
               aria-haspopup="dialog"
@@ -878,7 +878,7 @@ export function PullRequestRow({
             pr.ci?.availability !== "available" ||
             pr.ci.summary.total > 0) && (
             <IconButton
-              size="icon-sm"
+              size="icon-xs"
               data-agent-control="true"
               label={`Check details for pull request ${ref.number}`}
               tooltip={`Checks: ${checksSummary(isError ? undefined : pr.ci)}`}
