@@ -1,4 +1,5 @@
 import { useAtomValue } from "jotai";
+import { AutoHeight } from "./auto-height";
 import { chatShowProgressTextAtom } from "@/lib/store";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { memo, type ReactNode, useMemo } from "react";
@@ -219,7 +220,7 @@ export function TurnAnswer({
       data-turn-id={block.id}
       data-settled={turn.settled ? "true" : undefined}
     >
-      <div data-testid="chat-turn-body">
+      <AutoHeight data-testid="chat-turn-body">
         {turn.settled ? (
           <ResultTurn
             turn={result}
@@ -315,7 +316,7 @@ export function TurnAnswer({
             />
           </div>
         ) : null}
-      </div>
+      </AutoHeight>
     </div>
   );
 }
