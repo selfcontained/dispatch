@@ -2,33 +2,17 @@ import { AgentPreview } from "./agent-preview";
 import React from "react";
 import { AssignedTaskRow } from "./assigned-task-row";
 import { AgentPullRequests } from "./agent-pull-requests";
-import {
-  Check,
-  Copy,
-  Folder,
-  FolderTree,
-  GitBranch,
-  UserRound,
-} from "lucide-react";
+import { Folder, GitBranch, UserRound } from "lucide-react";
 
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
-import { ChangeWorkspaceButton } from "@/components/app/change-workspace-dialog";
 import { DiffStatBadge } from "@/components/app/diff-stat-badge";
-import { IdeLaunchButton } from "@/components/app/ide-launch-button";
 import { type Agent, type DiffStats } from "@/components/app/types";
-import { Button } from "@/components/ui/button";
 import {
   agentModelLabel,
   useAgentModelCatalogData,
 } from "@/hooks/use-agent-model-catalog";
-import {
-  Hint,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { type IdeType } from "@/lib/ide-types";
+import { Hint } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 function CompactMetaRow({
@@ -84,19 +68,14 @@ export type AgentCardDetailsProps = {
   diffStats: DiffStats | null | undefined;
   refreshDiffStats: () => void;
   fullAccessEnabled: boolean;
-  enabledIdes: IdeType[];
-  /**
-   * Copy state is owned by the card itself so the "copied" confirmation
-   * survives collapsing and reopening the details panel.
-   */
-  worktreePathCopied: boolean;
-  copyWorktreePath: (text: string) => void;
+  /** Rows that continue the panel on its icon column (sub agents, reviews). */
+  children?: React.ReactNode;
 };
 
 /**
- * The location panel inside an expanded agent card: branch/worktree info, the
- * engine and model, diff stats, IDE launch, and the sandbox/full-access
- * indicator.
+ * The panel inside an expanded agent card: branch/worktree info, the engine
+ * and model, diff stats, task, PR and preview links, then whatever rows the
+ * card adds (sub agents, reviews) and the sandbox/full-access indicator.
  */
 export function AgentCardDetails({
   agent,
@@ -104,9 +83,7 @@ export function AgentCardDetails({
   diffStats,
   refreshDiffStats,
   fullAccessEnabled,
-  enabledIdes,
-  worktreePathCopied,
-  copyWorktreePath,
+  children,
 }: AgentCardDetailsProps): JSX.Element {
   // A moved workspace is where the agent works now; the launch cwd is only
   // where its engine runs.
@@ -212,56 +189,14 @@ export function AgentCardDetails({
       <AgentPullRequests agentId={agent.id} agentName={agent.name} />
       <AgentPreview agentId={agent.id} />
 
-      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-        <div className="flex flex-wrap items-center gap-2">
-          {workspaceDir ? (
-            <IdeLaunchButton path={workspaceDir} enabledIdes={enabledIdes} />
-          ) : null}
-          <ChangeWorkspaceButton agent={agent} />
-          {agent.gitContext?.isWorktree && workspaceDir ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="xs"
-                  onClick={() => workspaceDir && copyWorktreePath(workspaceDir)}
-                  aria-label={
-                    worktreePathCopied
-                      ? "Worktree path copied"
-                      : `Copy worktree path: ${workspaceDir}`
-                  }
-                  className="group font-normal text-muted-foreground hover:text-foreground"
-                >
-                  {worktreePathCopied ? (
-                    <Check className="text-info" />
-                  ) : (
-                    <>
-                      <FolderTree className="group-hover:hidden group-focus-visible:hidden" />
-                      <Copy className="hidden group-hover:block group-focus-visible:block" />
-                    </>
-                  )}
-                  <span>Worktree</span>
-                  <span className="sr-only" aria-live="polite">
-                    {worktreePathCopied ? "Worktree path copied" : ""}
-                  </span>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-[420px] break-all">
-                {workspaceDir}
-                <div className="mt-1 text-label-xs opacity-70">
-                  Click to copy
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          ) : null}
-        </div>
-        {!fullAccessEnabled ? (
-          <Hint label="Uses engine permission checks; approval requests appear in chat.">
-            <span className="text-label-xs text-muted-foreground">
-              Restricted access
-            </span>
-          </Hint>
-        ) : null}
-      </div>
+      {children}
+      {!fullAccessEnabled ? (
+        <Hint label="Uses engine permission checks; approval requests appear in chat.">
+          <span className="w-fit text-label-xs text-faint">
+            Restricted access
+          </span>
+        </Hint>
+      ) : null}
     </div>
   );
 }

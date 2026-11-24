@@ -281,9 +281,12 @@ test.describe("Live agent", () => {
     // Stop the agent from its sidebar card, then start it again.
     const card = page.getByTestId(`agent-card-${agent.id}`);
     await expect(card).toBeVisible();
-    await card.getByRole("button", { name: "Pause", exact: true }).click();
+    // Pause is rare, so it lives in the card's ⋯ menu.
+    await card.getByTestId(`agent-more-${agent.id}`).click();
+    await page.getByTestId("agent-action-pause").click();
     await page.getByTestId("stop-agent-confirm").click();
-    const resume = card.getByRole("button", { name: "Resume", exact: true });
+    // A stopped agent has one resume control: the header's.
+    const resume = card.getByRole("button", { name: "Resume session" });
     await expect(resume).toBeVisible({ timeout: 20_000 });
     // Stopping the focused agent drops focus, and a stopped agent's row does
     // not open it; its route still shows the feed.
@@ -295,11 +298,18 @@ test.describe("Live agent", () => {
     );
 
     await resume.click();
-    await expect(
-      card.getByRole("button", { name: "Pause", exact: true })
-    ).toBeVisible({
-      timeout: TURN_TIMEOUT,
-    });
+    await expect(resume).toHaveCount(0, { timeout: TURN_TIMEOUT });
+    // Running again, not just leaving stopped: Pause is back in the menu.
+    await expect(async () => {
+      await card.getByTestId(`agent-more-${agent.id}`).click();
+      try {
+        await expect(page.getByTestId("agent-action-pause")).toBeVisible({
+          timeout: 1_000,
+        });
+      } finally {
+        await page.keyboard.press("Escape");
+      }
+    }).toPass({ timeout: TURN_TIMEOUT });
 
     // The restarted host resumes the session and still answers.
     await sendChat(page, "after restart");

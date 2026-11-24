@@ -1,5 +1,4 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { FolderInput } from "lucide-react";
 import { useState } from "react";
 
 import { type Agent } from "@/components/app/types";
@@ -14,10 +13,8 @@ import {
   DialogForm,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { IconButton } from "@/components/ui/icon-button";
 import { api } from "@/lib/api";
 import { Alert } from "@/components/ui/alert";
 import { Field } from "@/components/ui/field";
@@ -27,13 +24,16 @@ import { Field } from "@/components/ui/field";
  * made itself, another repo — so the diff, branch and repo tools follow it.
  * The agent can do the same with its set_workspace tool.
  */
-export function ChangeWorkspaceButton({
+export function ChangeWorkspaceDialog({
   agent,
+  open,
+  onOpenChange,
 }: {
   agent: Agent;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }): JSX.Element {
   const queryClient = useQueryClient();
-  const [open, setOpen] = useState(false);
   const [path, setPath] = useState("");
   const [baseBranch, setBaseBranch] = useState("");
   const moved = Boolean(agent.workspacePath);
@@ -59,36 +59,25 @@ export function ChangeWorkspaceButton({
       ]) {
         void queryClient.invalidateQueries({ queryKey: [key, agent.id] });
       }
-      setOpen(false);
+      onOpenChange(false);
     },
   });
 
-  const onOpenChange = (next: boolean) => {
-    if (!next) {
-      setOpen(false);
-      return;
-    }
+  // Each opening starts from where the agent works now.
+  const [seeded, setSeeded] = useState(false);
+  if (open && !seeded) {
+    setSeeded(true);
     setPath(agent.workspacePath ?? agent.worktreePath ?? agent.cwd);
     setBaseBranch(
       (agent.workspacePath ? agent.workspaceBaseBranch : agent.baseBranch) ?? ""
     );
     mutation.reset();
-    setOpen(true);
-  };
+  } else if (!open && seeded) {
+    setSeeded(false);
+  }
 
   return (
-    // The trigger lives inside the Dialog root so closing (Escape, Cancel,
-    // Save) returns focus to it.
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogTrigger asChild>
-        <IconButton
-          size="icon-sm"
-          label="Change workspace"
-          data-testid={`change-workspace-${agent.id}`}
-        >
-          <FolderInput />
-        </IconButton>
-      </DialogTrigger>
       <DialogContent busy={mutation.isPending}>
         <DialogHeader>
           <DialogTitle>Change workspace</DialogTitle>

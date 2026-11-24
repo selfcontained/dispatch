@@ -27,9 +27,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useAgentDiffStats } from "@/hooks/use-agent-diff-stats";
-import { useCopyText } from "@/hooks/use-copy";
 import { api } from "@/lib/api";
-import { type IdeType } from "@/lib/ide-types";
 import { Alert } from "@/components/ui/alert";
 import { Field } from "@/components/ui/field";
 
@@ -39,23 +37,23 @@ type SessionSettingsDialogProps = {
   agent: Agent | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  enabledIdes: IdeType[];
+  /**
+   * Also show the agent's details (branch, links, activity). A sub agent's
+   * card never expands, so this is where its details live; an expanded card
+   * already shows them and asks for just the form.
+   */
+  showDetails?: boolean;
 };
 
 /**
- * "Session details": the rename form this dialog has always offered, plus —
- * for a sub agent, which otherwise has no way to see this — the same
- * read-only info a parent agent's own expanded card shows in the sidebar
- * (branch/worktree, IDE links, sandbox state, live turn activity). Reuses the
- * exact same components (AgentCardDetails, AgentActivityLabel,
- * AgentCardPhaseStatus) a parent card renders, rather than a second
- * implementation of the same information.
+ * Rename an agent and move it between projects; for a sub agent, also its
+ * details, using the same components an expanded card renders.
  */
 export function SessionSettingsDialog({
   agent,
   open,
   onOpenChange,
-  enabledIdes,
+  showDetails = false,
 }: SessionSettingsDialogProps) {
   const { data: projects = [] } = useProjects();
   const [projectId, setProjectId] = useState<string | null>(null);
@@ -71,9 +69,8 @@ export function SessionSettingsDialog({
   // fresh here rather than threading yet more props down from the card.
   const { diffStats, refresh: refreshDiffStats } = useAgentDiffStats(
     agent?.id ?? "",
-    open && agent != null
+    open && agent != null && showDetails
   );
-  const [worktreePathCopied, copyWorktreePath] = useCopyText();
 
   useEffect(() => {
     if (open && agent) {
@@ -124,20 +121,16 @@ export function SessionSettingsDialog({
         busy={saving}
         aria-describedby={undefined}
         onOpenAutoFocus={(e) => {
-          // Radix's default autofocus lands on the first non-link tabbable
-          // in the dialog — for a worktree agent, that's now the "Copy
-          // worktree path" button (AgentCardDetails renders ahead of the
-          // name field), not the Input's own `autoFocus`. That both drops
-          // focus from the rename field this dialog exists to let you use
-          // quickly, and immediately opens that button's tooltip on top of
-          // the branch info. Force focus onto the name field explicitly.
+          // Land on the name field, selected, ready to retype.
           e.preventDefault();
           inputRef.current?.focus();
           inputRef.current?.select();
         }}
       >
         <DialogHeader>
-          <DialogTitle>Session details</DialogTitle>
+          <DialogTitle>
+            {showDetails ? "Session details" : "Rename / project"}
+          </DialogTitle>
         </DialogHeader>
         <DialogForm
           onSubmit={(e) => {
@@ -146,7 +139,7 @@ export function SessionSettingsDialog({
           }}
         >
           <DialogBody className="flex flex-col gap-3">
-            {agent ? (
+            {agent && showDetails ? (
               <div className="space-y-1.5">
                 <AgentCardPhaseStatus agent={agent} />
                 <AgentActivityLabel agent={agent} className="text-body-sm" />
@@ -155,9 +148,6 @@ export function SessionSettingsDialog({
                   diffStats={diffStats}
                   refreshDiffStats={refreshDiffStats}
                   fullAccessEnabled={isFullAccessEnabled(agent)}
-                  enabledIdes={enabledIdes}
-                  worktreePathCopied={worktreePathCopied}
-                  copyWorktreePath={copyWorktreePath}
                 />
               </div>
             ) : null}

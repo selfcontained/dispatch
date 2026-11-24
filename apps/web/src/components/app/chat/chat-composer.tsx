@@ -1669,8 +1669,6 @@ export function ChatComposer({
               <span data-testid="chat-composer-disabled-reason">
                 {disabledReason}
               </span>
-            ) : waitReason ? (
-              <span data-testid="chat-composer-wait-reason">{waitReason}</span>
             ) : slashBlockedReason ? (
               <span role="alert" data-testid="chat-composer-slash-hint">
                 {slashBlockedReason}

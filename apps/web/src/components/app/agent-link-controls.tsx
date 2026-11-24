@@ -28,7 +28,7 @@ export function AgentLinkControls({
     >
       <IconButton
         className="text-faint hover:text-foreground"
-        size="icon-sm"
+        size="icon-xs"
         label={copied ? copiedLabel : copyLabel}
         onClick={() => copyText(url)}
       >
@@ -37,7 +37,7 @@ export function AgentLinkControls({
       <IconButton
         tooltip={dismissTitle}
         className="text-faint hover:text-foreground"
-        size="icon-sm"
+        size="icon-xs"
         label={dismissLabel}
         onClick={onDismiss}
       >

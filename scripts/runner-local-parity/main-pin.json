@@ -1,5 +1,5 @@
 {
   "repository": "origin/main",
-  "sha": "2faa3d4983919a3029f5a640dc44a276e64840a6",
+  "sha": "8ebaabda4b18bad95e7d56be02a43146122da866",
   "rule": "Moves only in the commit that merges that main commit into the branch."
 }
