@@ -15,7 +15,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { AgentManager } from "../src/agents/manager.js";
 import type { RemoteRunnerService } from "../src/agents/remote/service.js";
 import { checkoutWorkload } from "../src/agents/checkout-worker.js";
-import { placementForRunner } from "../src/runners/placement.js";
+import {
+  controllerPlacement,
+  placementForRunner,
+} from "../src/runners/placement.js";
+import { registerAgentCrudRoutes } from "../src/routes/agents/crud-routes.js";
+import type { AgentRouteDeps } from "../src/routes/agents/shared.js";
 import { registerProjectRoutes } from "../src/routes/projects.js";
 import type { TaskService } from "../src/tasks/service.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
@@ -66,6 +71,10 @@ beforeAll(async () => {
     publishUiEvent: () => {},
     agents,
   });
+  await registerAgentCrudRoutes(app, {
+    pool,
+    agentManager: agents,
+  } as unknown as AgentRouteDeps);
 });
 
 afterAll(async () => {
@@ -283,6 +292,148 @@ describe("GET /api/v1/projects/:id/icon: a project with no folder", () => {
       const res = await icon(id);
       expect(res.statusCode).toBe(404);
       expect(res.body).toBe("");
+    }
+  });
+});
+
+// The agent icon route's cache key (T15c, ruling A): main's folder key on
+// the controller's runner; on any other runner, the project's repository
+// URL, or no key (a probe each time). A URL is never an absolute path, so
+// the two key spaces cannot collide.
+describe("GET /api/v1/agents/:id/repo-icon: the icon cache key", () => {
+  const agentIcon = (id: string) =>
+    app.inject({ method: "GET", url: `/api/v1/agents/${id}/repo-icon` });
+  const keys = async (like: string) =>
+    (
+      await pool.query<{ cwd: string; icon_path: string | null }>(
+        "SELECT cwd, icon_path FROM directory_icons WHERE cwd LIKE $1 ORDER BY cwd",
+        [like]
+      )
+    ).rows;
+  async function projectRow(
+    repoRoot: string | null,
+    repository: string | null
+  ) {
+    return (
+      await pool.query<{ id: string }>(
+        `INSERT INTO projects (id, name, repo_root, color, repository) VALUES (gen_random_uuid(), 'p', $1, '#336699', $2) RETURNING id`,
+        [repoRoot, repository]
+      )
+    ).rows[0]!.id;
+  }
+  let n = 0;
+  function onRunner(
+    projectId: string | null,
+    files: Record<string, string>
+  ): string {
+    const id = `agt_key${++n}${Math.random().toString(16).slice(2, 8)}`;
+    const cwd = "runner://rnr_keys/@session";
+    const checkout = mkdtempSync(path.join(root, "key-checkout-"));
+    for (const [name, data] of Object.entries(files))
+      writeFileSync(path.join(checkout, name), data);
+    checkouts.set(id, checkout);
+    runnerAgents.set(id, {
+      id,
+      cwd,
+      launchCwd: cwd,
+      worktreePath: null,
+      workspacePath: null,
+      gitContext: null,
+      projectId,
+      placement: placementForRunner("rnr_keys"),
+    });
+    return id;
+  }
+  function onController(folder: string, projectId: string | null): string {
+    const id = `agt_loc${++n}${Math.random().toString(16).slice(2, 8)}`;
+    runnerAgents.set(id, {
+      id,
+      cwd: folder,
+      launchCwd: folder,
+      worktreePath: null,
+      workspacePath: null,
+      gitContext: null,
+      baseBranch: null,
+      projectId,
+      placement: controllerPlacement,
+    });
+    return id;
+  }
+
+  it("gives two projects on one runner each their own answer", async () => {
+    const url = (name: string) =>
+      `https://github.com/acme/${name}-${Math.random().toString(16).slice(2)}`;
+    for (const order of ["bare first", "icon first"]) {
+      const withIcon = onRunner(await projectRow(null, url("icon")), {
+        "favicon.svg": "<svg>mine</svg>",
+      });
+      const without = onRunner(await projectRow(null, url("bare")), {
+        "README.md": "x",
+      });
+      const sequence =
+        order === "bare first" ? [without, withIcon] : [withIcon, without];
+      for (const id of sequence) {
+        const res = await agentIcon(id);
+        if (id === withIcon) {
+          expect(res.statusCode, order).toBe(200);
+          expect(res.body).toBe("<svg>mine</svg>");
+        } else {
+          expect(res.statusCode, order).toBe(404);
+          expect(res.json()).toEqual({ error: "No repo icon." });
+        }
+      }
+    }
+    // Runner agents never key by their shared workspace locator.
+    expect(await keys("runner://%")).toEqual([]);
+  });
+
+  it("keys a runner agent by its project's repository URL, never a path", async () => {
+    const repository = `https://github.com/acme/url-${Math.random().toString(16).slice(2)}`;
+    const id = onRunner(await projectRow(null, repository), {
+      "logo.svg": "<svg/>",
+    });
+    expect((await agentIcon(id)).statusCode).toBe(200);
+    const rows = await keys(repository);
+    expect(rows).toEqual([{ cwd: repository, icon_path: "logo.svg" }]);
+    expect(path.isAbsolute(rows[0]!.cwd)).toBe(false);
+  });
+
+  it("probes each time, with no entry, for a runner agent without a repository", async () => {
+    const id = onRunner(null, { "favicon.svg": "<svg>one</svg>" });
+    const before = await keys("%");
+    expect((await agentIcon(id)).body).toBe("<svg>one</svg>");
+    // The checkout changes: a second request sees it at once.
+    rmSync(path.join(checkouts.get(id)!, "favicon.svg"));
+    writeFileSync(path.join(checkouts.get(id)!, "logo.png"), "png");
+    const again = await agentIcon(id);
+    expect(again.statusCode).toBe(200);
+    expect(again.body).toBe("png");
+    expect(await keys("%")).toEqual(before);
+  });
+
+  it("keeps a local folder's entry and a runner agent's entry of that project apart, both ways", async () => {
+    for (const order of ["runner first", "local first"]) {
+      const folder = mkdtempSync(path.join(root, "shared-folder-"));
+      writeFileSync(path.join(folder, "favicon.svg"), "<svg>local</svg>");
+      const repository = `https://github.com/acme/shared-${Math.random().toString(16).slice(2)}`;
+      const projectId = await projectRow(folder, repository);
+      const local = onController(folder, projectId);
+      // The runner's checkout is on another branch: a different icon, at a
+      // path the local folder does not have.
+      const runner = onRunner(projectId, { "brand.png": "runner-png" });
+      const sequence =
+        order === "runner first" ? [runner, local] : [local, runner];
+      for (const id of sequence) {
+        const res = await agentIcon(id);
+        expect(res.statusCode, `${order} ${id}`).toBe(200);
+        expect(res.body).toBe(id === local ? "<svg>local</svg>" : "runner-png");
+      }
+      expect(await keys(folder)).toEqual([
+        { cwd: folder, icon_path: "favicon.svg" },
+      ]);
+      expect(await keys(repository)).toEqual([
+        { cwd: repository, icon_path: "brand.png" },
+      ]);
     }
   });
 });
