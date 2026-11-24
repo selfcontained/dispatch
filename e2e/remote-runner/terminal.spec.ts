@@ -153,7 +153,8 @@ for (const lane of ["native", "runner", "managed"] as const) {
       });
       if (await openSidebar.isVisible()) await openSidebar.click();
       await expect(expand).toHaveAttribute("aria-expanded", "true");
-      const action = session.getByTestId("ide-launch-button");
+      await session.getByTestId(`agent-more-${agent.id}`).click();
+      const action = session.getByTestId("agent-action-ide-vscode");
       await action.scrollIntoViewIfNeeded();
       await expect(action).toBeInViewport({ ratio: 0.8 });
       await expect(action).toHaveAttribute("href", `vscode://file${target}`);
@@ -168,6 +169,7 @@ for (const lane of ["native", "runner", "managed"] as const) {
         );
       }
       await screenshot("ide");
+      await session.keyboard.press("Escape");
       if (remote)
         await session
           .getByTestId("sidebar-shell")
