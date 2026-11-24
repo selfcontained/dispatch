@@ -116,7 +116,8 @@ export async function listPersonas(
   );
   return {
     ...catalog,
-    warnings: [...warnings, ...catalog.warnings],
+    // Main reads the catalog first, then the checkout's own files.
+    warnings: [...catalog.warnings, ...warnings],
     personas: type
       ? personas.filter((p) => supportsPersonaType(p, type))
       : personas,
@@ -137,19 +138,13 @@ export async function resolvePersona(
   if (sources && !persona) {
     const catalog = await sources.catalog(true);
     persona = catalog.personas.find((p) => p.slug === slug);
-    if (scope.kind === "session") persona ??= getBuiltInPersona(slug);
     if (!persona && catalog.refreshing)
       throw new Error(
         "Persona catalog is still refreshing. Try again shortly."
       );
   }
   persona ??= getBuiltInPersona(slug);
-  if (!persona)
-    throw new Error(
-      scope.kind === "session"
-        ? `Persona "${slug}" not found in this checkout or built-ins.`
-        : `Persona "${slug}" not found.`
-    );
+  if (!persona) throw new Error(`Persona "${slug}" not found.`);
   if (type && !supportsPersonaType(persona, type))
     throw new Error(`Persona "${slug}" is not available for ${type} launches.`);
   if (!persona.body.trim())
