@@ -203,6 +203,15 @@ export async function validatePersonas(
       entries.push({ personasDir, file });
     }
   }
+  return validateEntries(entries, (file) =>
+    readFile(path.join(root, file), "utf8")
+  );
+}
+
+async function validateEntries(
+  entries: Array<{ personasDir: string; file: string }>,
+  read: (file: string) => Promise<string>
+): Promise<PersonaValidation[]> {
   const primarySlugs = new Set(
     entries
       .filter((entry) => entry.personasDir === PERSONAS_DIR)
@@ -210,10 +219,7 @@ export async function validatePersonas(
   );
   return Promise.all(
     entries.map(async ({ personasDir, file }) => {
-      const content = await readFile(
-        path.join(root, personasDir, file),
-        "utf8"
-      );
+      const content = await read(`${personasDir}/${file}`);
       const slug = file.slice(0, -3);
       const { frontmatter, body } = parseFrontmatter(content);
       const errors: string[] = [];
@@ -250,6 +256,115 @@ export async function validatePersonas(
       };
     })
   );
+}
+
+/**
+ * A session's checkout as persona authoring sees it, through its runner:
+ * the same reads and one guarded write, on every runner.
+ */
+export type PersonaFiles = {
+  /** A file's text and the digest a write must name to replace it; null when absent. */
+  read(path: string): Promise<{ data: string; digest: string } | null>;
+  /** The file names in a directory; empty when it does not exist. */
+  list(directory: string): Promise<string[]>;
+  /**
+   * Write `data` only if the file still matches `expectedDigest` (null: it
+   * must not exist). Throws a `stale` RunnerCallError otherwise.
+   */
+  write(
+    path: string,
+    data: string,
+    expectedDigest: string | null
+  ): Promise<void>;
+};
+
+/** Attempts before reporting that the file kept changing underneath. */
+const UPSERT_ATTEMPTS = 3;
+
+const isStale = (error: unknown) =>
+  (error as { code?: unknown } | null)?.code === "stale";
+
+/**
+ * `upsertPersona` through a session's checkout. Uncontended, it reads and
+ * writes exactly what main's in-process write does; when the file changes
+ * between the read and the write it reads again, and after
+ * `UPSERT_ATTEMPTS` it fails rather than overwrite what someone else wrote.
+ */
+export async function upsertCheckoutPersona(
+  files: PersonaFiles,
+  input: {
+    slug: string;
+    name: string;
+    description: string;
+    instructions: string;
+    type?: "review" | "task";
+  }
+): Promise<{ path: string; created: boolean; content: string }> {
+  validatePersonaSlug(input.slug);
+  if (
+    !input.name.trim() ||
+    !input.description.trim() ||
+    !input.instructions.trim()
+  ) {
+    throw new Error("name, description, and instructions must be non-empty.");
+  }
+  if (/[\r\n]/.test(input.name) || /[\r\n]/.test(input.description)) {
+    throw new Error("name and description must be single-line text.");
+  }
+  for (let attempt = 1; ; attempt++) {
+    const inNew = await files.read(`${PERSONAS_DIR}/${input.slug}.md`);
+    const personasDir =
+      !inNew && (await files.read(`${LEGACY_PERSONAS_DIR}/${input.slug}.md`))
+        ? LEGACY_PERSONAS_DIR
+        : PERSONAS_DIR;
+    const file = `${personasDir}/${input.slug}.md`;
+    const existing =
+      personasDir === PERSONAS_DIR ? inNew : await files.read(file);
+    const existingType =
+      existing && input.type === undefined
+        ? (parseFrontmatter(existing.data).frontmatter.type ?? "review")
+        : undefined;
+    const content = renderPersona({
+      ...input,
+      type: input.type ?? (existingType as "review" | "task" | undefined),
+    });
+    try {
+      await files.write(file, content, existing?.digest ?? null);
+    } catch (error) {
+      if (!isStale(error)) throw error;
+      if (attempt >= UPSERT_ATTEMPTS)
+        throw new Error(
+          `${file} kept changing while it was being written. Nothing was overwritten; try again.`
+        );
+      continue;
+    }
+    return {
+      path: path.join(personasDir, `${input.slug}.md`),
+      created: existing === null,
+      content,
+    };
+  }
+}
+
+/** `validatePersonas` through a session's checkout. */
+export async function validateCheckoutPersonas(
+  files: PersonaFiles
+): Promise<PersonaValidation[]> {
+  const entries: Array<{ personasDir: string; file: string }> = [];
+  for (const personasDir of PERSONA_DIRS) {
+    const names = await files.list(personasDir);
+    for (const file of names.filter((name) => name.endsWith(".md")).sort()) {
+      entries.push({ personasDir, file });
+    }
+  }
+  return validateEntries(entries, async (file) => {
+    const read = await files.read(file);
+    if (read === null)
+      throw Object.assign(new Error(`ENOENT: no such file, open '${file}'`), {
+        code: "ENOENT",
+      });
+    return read.data;
+  });
 }
 
 export function getPersonaTemplate(id: string): PersonaTemplate | undefined {
