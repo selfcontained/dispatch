@@ -11,7 +11,10 @@ import os from "node:os";
 import path from "node:path";
 
 import type { Pool } from "pg";
-import { RunnerCallError } from "@dispatch/runner-protocol/contract";
+import {
+  RunnerCallError,
+  type Runner,
+} from "@dispatch/runner-protocol/contract";
 import {
   afterAll,
   afterEach,
@@ -701,5 +704,44 @@ describe("the create-time icon warm-up on a runner (T15c)", () => {
       ])
     );
     servedCheckout = undefined;
+  });
+
+  it("caches a local folder's icon at create even when the launch then fails (main)", async () => {
+    const holds = await openHolds();
+    const runtime = spyRuntime();
+    runtime.launch.mockRejectedValueOnce(new Error("host failed to start"));
+    const manager = managerOn(holds, runtime);
+    // This harness's fixture child serves no checkout reads: it answers them
+    // as a child that cannot be reached, so they run in process.
+    const fixture = (
+      manager as unknown as { localRunnerChild: () => Runner }
+    ).localRunnerChild();
+    manager.attachLocalRunner(
+      () =>
+        ({
+          ...fixture,
+          connection: fixture.connection,
+          call: (op: string, request: unknown, options: unknown) =>
+            op.startsWith("checkout.")
+              ? Promise.reject(
+                  new RunnerCallError({ code: "unavailable", message: op })
+                )
+              : fixture.call(op as never, request as never, options as never),
+        }) as unknown as Runner
+    );
+    holds.start();
+    const folder = await mkdtemp(path.join(dir, "failing-"));
+    await writeFile(path.join(folder, "favicon.svg"), "<svg/>");
+    await expect(
+      manager.createAgent({ cwd: folder, useWorktree: false })
+    ).rejects.toThrow("host failed to start");
+    expect(
+      (
+        await pool.query(
+          "SELECT cwd, icon_path FROM directory_icons WHERE cwd = $1",
+          [folder]
+        )
+      ).rows
+    ).toEqual([{ cwd: folder, icon_path: "favicon.svg" }]);
   });
 });
