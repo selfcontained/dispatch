@@ -7,6 +7,7 @@ import {
   type Runners,
 } from "@dispatch/runner-protocol/contract";
 import { checkoutWorkload } from "../src/agents/checkout-worker.js";
+import { checkoutHandlers } from "../../../packages/runner/src/core/checkout.js";
 import Fastify from "fastify";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -139,11 +140,10 @@ it.each(["absent", "not-ready", "ready", "unavailable", "unknown_outcome"])(
           code: state as "unavailable" | "unknown_outcome",
           message: "fixture transport",
         });
-      return checkoutWorkload.run(
-        "git.branches",
-        { directory: root, request: {} },
-        {}
-      );
+      const handlers = checkoutHandlers({} as never, {
+        workload: checkoutWorkload,
+      });
+      return handlers["git.branches"]!(input, {} as never);
     });
     const child =
       state === "absent"
