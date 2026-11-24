@@ -9,6 +9,13 @@ import {
   inferProjectRepository,
   projectRepositoryUrl,
 } from "../agents/remote/repository.js";
+import type { AgentManager } from "../agents/manager.js";
+import {
+  detectAgentIcon,
+  iconTarget,
+  readAgentIcon,
+} from "../agents/checkout-icon.js";
+import { sessionRunner } from "../agents/checkout-runner.js";
 import { ProjectStore } from "../projects/store.js";
 import { parseInput } from "../shared/lib/parse-input.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
@@ -30,6 +37,45 @@ const appearance = z.object({
 });
 export { resolveProjectRoot } from "../projects/resolve-root.js";
 import { resolveProjectRoot } from "../projects/resolve-root.js";
+
+const MAX_ICON_BYTES = 2 * 1024 * 1024;
+
+function iconMime(icon: string) {
+  const ext = path.extname(icon).toLowerCase();
+  return ext === ".svg"
+    ? "image/svg+xml"
+    : ext === ".png"
+      ? "image/png"
+      : "image/x-icon";
+}
+
+/**
+ * A project with no folder is read through its newest agent's launch
+ * checkout, on that agent's runner: the agent main's folder history links a
+ * folder's icon through. Same limits as a folder's icon.
+ */
+async function readNewestAgentIcon(
+  pool: Pool,
+  agents: Pick<AgentManager, "getAgent" | "checkoutReadRunners">,
+  projectId: string
+) {
+  const newest = (
+    await pool.query<{ id: string }>(
+      "SELECT id FROM agents WHERE project_id=$1 ORDER BY created_at DESC LIMIT 1",
+      [projectId]
+    )
+  ).rows[0];
+  const agent = newest && (await agents.getAgent(newest.id));
+  if (!agent) return null;
+  const runner = sessionRunner(agents.checkoutReadRunners(), agent);
+  const target = iconTarget(agent);
+  const icon = await detectAgentIcon(runner, target);
+  if (!icon) return null;
+  const bytes = await readAgentIcon(runner, target, icon);
+  if (!Buffer.isBuffer(bytes) || !bytes.length || bytes.length > MAX_ICON_BYTES)
+    return null;
+  return { bytes, mime: iconMime(icon), path: icon };
+}
 
 async function readRepositoryIcon(repoRoot: string | null) {
   if (!repoRoot) return null;
@@ -59,8 +105,11 @@ export async function registerProjectRoutes(
     pool,
     publishUiEvent,
     taskService,
+    agents,
   }: {
     pool: Pool;
+    /** Reads a folderless project's icon through its newest agent. */
+    agents?: Pick<AgentManager, "getAgent" | "checkoutReadRunners">;
     publishUiEvent: PublishUiEvent;
     taskService: Pick<
       TaskService,
@@ -249,7 +298,13 @@ export async function registerProjectRoutes(
           .type(cached.icon_mime)
           .send(cached.icon_data);
       }
-      const icon = await readRepositoryIcon(project.repoRoot);
+      const icon = project.repoRoot
+        ? await readRepositoryIcon(project.repoRoot)
+        : agents
+          ? await readNewestAgentIcon(pool, agents, project.id).catch(
+              () => null
+            )
+          : null;
       if (!icon) return reply.code(404).send();
       await pool.query(
         "UPDATE projects SET icon_data=$2, icon_mime=$3 WHERE id=$1",
