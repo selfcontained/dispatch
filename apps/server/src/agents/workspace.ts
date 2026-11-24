@@ -11,6 +11,7 @@ import {
 import path from "node:path";
 
 import { probeGitContext } from "../shared/git/git-context.js";
+import { inferRepositoryUrl } from "./remote/repository.js";
 import { pathFromWire, type Res } from "@dispatch/runner-protocol/contract";
 import { WORKTREE_LOCAL_CONFIG_FILES } from "./worktree-local-config-files.js";
 import {
@@ -50,6 +51,10 @@ export async function resolvePath(raw: string): Promise<Res<"path.resolve">> {
   const canonicalPath = await realpath(cwd);
   const probed = await probeGitContext(canonicalPath, { timeoutMs: 5_000 });
   const git = probed.status === "ok" ? probed.value : null;
+  // A pull request launch names its repository from this origin.
+  const origin = git
+    ? await inferRepositoryUrl(canonicalPath).catch(() => null)
+    : null;
   return {
     ...none,
     canonicalPath: pathFromWire(canonicalPath),
@@ -60,6 +65,7 @@ export async function resolvePath(raw: string): Promise<Res<"path.resolve">> {
       ...git,
       repoRoot: pathFromWire(git.repoRoot),
       worktreePath: pathFromWire(git.worktreePath),
+      origin,
     },
     ...(probed.status === "error" && { gitFailed: true as const }),
   };

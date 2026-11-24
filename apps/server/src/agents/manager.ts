@@ -2633,10 +2633,7 @@ export class AgentManager {
       ? {
           defaultBranch: async () => "main",
           ...(localGit && {
-            repository: () =>
-              this.localRunner
-                .inferRepositoryUrl(localGit)
-                .catch(() => undefined),
+            repository: async () => directory.origin ?? undefined,
             pullRequestHead: (target: PullRequestTarget) =>
               getPullRequestHead({ cwd: localGit, ...target }),
             forkPullRequests: false,

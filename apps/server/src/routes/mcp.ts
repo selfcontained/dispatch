@@ -22,6 +22,12 @@ import { agentWorkspaceDir } from "../agents/workspace-target.js";
 import { sameRunner } from "@dispatch/runner-protocol/contract";
 import { controllerPlacement } from "../runners/placement.js";
 import {
+  identityKey,
+  PROJECT_IDENTITY_SQL,
+  repositoryKey,
+  type ProjectIdentity,
+} from "../runners/repository-identity.js";
+import {
   defaultSavedTarget,
   normalizeSavedDirectory,
   sameSavedCheckout,
@@ -86,21 +92,32 @@ async function checkoutContext(
     : await mcpCheckoutRoots(deps.agentManager, agent);
   const hasCheckout =
     !roots || Boolean(roots.checkoutRoot || roots.repositoryRoot);
-  const repoRoot = placement ? null : (roots?.repositoryRoot ?? null);
+  const callerPlacement =
+    agent.placement ?? targetPlacement({ directory: agent.cwd });
+  // The runner's machine-local paths never become host paths or keys.
+  const repoRoot = identityKey(callerPlacement, roots?.repositoryRoot ?? null);
   const worktreeRoot = placement ? null : (roots?.checkoutRoot ?? null);
-  // The runner's machine-local paths never become host paths or Brain keys.
+  // One key (D5, D8) for Brain, the agent list and PR-risk visibility.
+  const repositoryScope = await repositoryKey({
+    placement: callerPlacement,
+    repositoryRoot: async () => repoRoot,
+    project: async () =>
+      agent.projectId
+        ? ((
+            await deps.pool.query<ProjectIdentity>(PROJECT_IDENTITY_SQL, [
+              agent.projectId,
+            ])
+          ).rows[0] ?? null)
+        : null,
+  });
   const brainRepoRoot =
     placement && agent.projectId && roots?.repositoryRoot
-      ? ((
-          await deps.pool.query(
-            "SELECT repo_root FROM projects WHERE id = $1",
-            [agent.projectId]
-          )
-        ).rows[0]?.repo_root ?? null)
+      ? repositoryScope
       : repoRoot;
   return {
     workspaceDir,
     repoRoot,
+    repositoryScope,
     context: {
       worktreeRoot,
       brainRepoRoot,
@@ -343,7 +360,7 @@ export async function registerMcpRoutes(
     }
 
     const checkout = await checkoutContext(deps, agent, request.body);
-    const { workspaceDir, repoRoot } = checkout;
+    const { workspaceDir, repoRoot, repositoryScope } = checkout;
 
     const jobTools = run
       ? {
@@ -381,7 +398,7 @@ export async function registerMcpRoutes(
               id: string,
               root: string | null
             ) => Promise<{ id: string }[]>
-          )(agent.id, repoRoot),
+          )(agent.id, repositoryScope),
         inventory: deps.pullRequests,
         enabled: deps.riskEnabled,
       }),
@@ -424,7 +441,14 @@ export async function registerMcpRoutes(
       clearActivePersonality: deps.mcpClearActivePersonality,
       launchAgent: deps.mcpLaunchAgent,
       archiveAgent: deps.mcpArchiveAgent,
-      listAgentsForAgent: deps.mcpListAgentsForAgent,
+      // list_agents takes the caller's repository key, not its host root.
+      listAgentsForAgent: (id: string) =>
+        (
+          deps.mcpListAgentsForAgent as (
+            id: string,
+            root: string | null
+          ) => Promise<unknown>
+        )(id, repositoryScope),
       getFeedbackSummary: (params: Record<string, unknown>) =>
         telemetry.getFeedbackSummary(deps.pool, params as never) as Promise<
           Record<string, unknown>
@@ -474,7 +498,7 @@ export async function registerMcpRoutes(
     }
 
     const checkout = await checkoutContext(deps, agent, request.body);
-    const { workspaceDir, repoRoot } = checkout;
+    const { workspaceDir, repoRoot, repositoryScope } = checkout;
 
     reply.hijack();
     // Captured before the transport writes anything, so an archive that stops
@@ -490,7 +514,7 @@ export async function registerMcpRoutes(
               id: string,
               root: string | null
             ) => Promise<{ id: string }[]>
-          )(agent.id, repoRoot),
+          )(agent.id, repositoryScope),
         inventory: deps.pullRequests,
         enabled: deps.riskEnabled,
       }),
@@ -533,7 +557,14 @@ export async function registerMcpRoutes(
       clearActivePersonality: deps.mcpClearActivePersonality,
       launchAgent: deps.mcpLaunchAgent,
       archiveAgent: deps.mcpArchiveAgent,
-      listAgentsForAgent: deps.mcpListAgentsForAgent,
+      // list_agents takes the caller's repository key, not its host root.
+      listAgentsForAgent: (id: string) =>
+        (
+          deps.mcpListAgentsForAgent as (
+            id: string,
+            root: string | null
+          ) => Promise<unknown>
+        )(id, repositoryScope),
       issueLoginLink: () => deps.loginLinkStore.issue(),
       getFeedbackSummary: (params: Record<string, unknown>) =>
         telemetry.getFeedbackSummary(deps.pool, params as never) as Promise<
