@@ -747,7 +747,8 @@ export function workspaceHandlers(
           code: "unsupported",
           message: "This runner does not resolve launch folders.",
         });
-      return port.resolvePath(input.path);
+      const { path, ...options } = input;
+      return port.resolvePath(path, options);
     },
 
     async "workspace.prepare"(input: Req<"workspace.prepare">, context) {

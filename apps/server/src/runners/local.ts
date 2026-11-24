@@ -586,7 +586,8 @@ export function createLocalCheckoutRunner(
         if (!childUnavailable(error)) throw error;
         options?.signal?.throwIfAborted();
       }
-    return workspaceWorkload.resolvePath(input.path);
+    const { path: requested, ...rest } = input;
+    return workspaceWorkload.resolvePath(requested, rest);
   }
 
   /** A folder's default branch: in the child when it serves this session, else in process (R3). */

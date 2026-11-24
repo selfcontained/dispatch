@@ -2414,26 +2414,47 @@ export class AgentManager {
       }
     }
     const unscoped = !input.projectId && !input.parentAgentId;
-    const directory = location
-      ? null
-      : unscoped
-        ? await this.launchDirectory(placement, input.cwd)
-        : undefined;
     // Membership inherited from a parent (including no project) and
     // explicit/template selections remain authoritative.
-    if (directory) {
+    let directory: LaunchDirectory | null | undefined = location
+      ? null
+      : undefined;
+    if (!location && unscoped) {
       const projects = (
         await this.pool.query(
           'SELECT id, name, repo_root AS "repoRoot", extra_roots AS "extraRoots" FROM projects'
         )
       ).rows;
+      // One call on the launch's runner: the folder, and with projects its
+      // project root and each root's canonical path (no Git for roots).
+      const roots: string[] = projects.flatMap(
+        (project: { repoRoot: string | null; extraRoots?: string[] | null }) =>
+          [project.repoRoot, ...(project.extraRoots ?? [])].filter(
+            (root): root is string => Boolean(root)
+          )
+      );
+      const resolved = await this.resolveLaunchPath(
+        placement,
+        input.cwd,
+        projects.length ? { projectRoot: true, canonical: roots } : {}
+      );
+      directory = launchDirectory(resolved);
+      // Git's own failure, as main's project matching lets it escape.
+      if (resolved.projectRootError !== undefined)
+        throw new Error(resolved.projectRootError);
+      const canonical = new Map(
+        roots.map((root, at) => {
+          const found = resolved.canonical?.[at];
+          return [root, found ? displayPath(found) : null] as const;
+        })
+      );
       const matches = await matchProjectIdentity(
         directory.canonicalPath,
-        projects.length
-          ? await this.localRunner.resolveProjectRoot(directory.canonicalPath)
+        resolved.projectRoot
+          ? displayPath(resolved.projectRoot)
           : directory.canonicalPath,
         projects,
-        (candidate) => this.localRunner.canonicalPath(candidate)
+        async (candidate) => canonical.get(candidate) ?? null
       );
       if (matches.length > 1)
         throw new AgentError(
@@ -3627,11 +3648,18 @@ export class AgentManager {
 
   /** A launch folder, resolved by the runner the launch goes to. */
   private async launchDirectory(placement: Placement, cwd: string) {
-    return launchDirectory(
-      await runnerDirectory(this.checkoutReadRunners())
-        .for(placement)
-        .call("path.resolve", { path: cwd })
-    );
+    return launchDirectory(await this.resolveLaunchPath(placement, cwd));
+  }
+
+  /** `path.resolve` on the runner the launch goes to. */
+  private resolveLaunchPath(
+    placement: Placement,
+    cwd: string,
+    options: Omit<Req<"path.resolve">, "path"> = {}
+  ) {
+    return runnerDirectory(this.checkoutReadRunners())
+      .for(placement)
+      .call("path.resolve", { path: cwd, ...options });
   }
 
   /** The worktree request a local launch recorded on its row, if any. */

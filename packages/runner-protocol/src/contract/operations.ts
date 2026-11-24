@@ -338,7 +338,15 @@ export const operations = {
   "path.resolve": op({
     scope: "runner",
     kind: "call",
-    request: object({ path: string }),
+    request: object({
+      path: string,
+      /** False: no Git probe of `path` (`git` stays null). */
+      git: optional(literal(false)),
+      /** Also resolve `path`'s project root (`projectRoot` or `projectRootError`). */
+      projectRoot: optional(literal(true)),
+      /** Also canonicalise these paths, with no Git: `canonical`, in order. */
+      canonical: optional(array(string)),
+    }),
     response: pathResolution,
     errors: ["forbidden"],
     retry: read,

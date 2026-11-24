@@ -1,9 +1,7 @@
-import { realpath } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyBaseLogger } from "fastify";
 
 import { createWorkspacePreparation } from "./workspace.js";
-import { resolveProjectRoot } from "../projects/resolve-root.js";
 
 /** Workspace and file helpers for workloads sharing the controller account. */
 export function createLocalRunner(
@@ -22,8 +20,6 @@ export function createLocalRunner(
   }
   const workspace = createWorkspacePreparation();
   return {
-    canonicalPath: (directory: string) => realpath(directory).catch(() => null),
-    resolveProjectRoot,
     /**
      * A receipt an earlier build wrote for the agent's worktree launch,
      * before its request was recorded on the row: brought into the runner's

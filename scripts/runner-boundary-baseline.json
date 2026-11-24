@@ -617,13 +617,6 @@
   },
   {
     "file": "apps/server/src/agents/local-runner.ts",
-    "kind": "R2 host access",
-    "detail": "fs/promises",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/workspace",
     "task": "T04",
@@ -631,29 +624,8 @@
   },
   {
     "file": "apps/server/src/agents/local-runner.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/projects/resolve-root",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner.ts",
     "kind": "R3 local method",
     "detail": "bindWorkspace",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner.ts",
-    "kind": "R3 local method",
-    "detail": "canonicalPath",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner.ts",
-    "kind": "R3 local method",
-    "detail": "resolveProjectRoot",
     "task": "T04",
     "count": 1
   },

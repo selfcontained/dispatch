@@ -34,7 +34,7 @@ export type ArchiveCheckoutAgent = Pick<
 
 export type LocalArchiveRunner = Pick<
   ReturnType<typeof createLocalRunner>,
-  "canonicalPath" | "bindWorkspace"
+  "bindWorkspace"
 >;
 
 /** A row's session on the agent's runner, through the directory. */

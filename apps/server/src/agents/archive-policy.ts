@@ -7,6 +7,7 @@ import {
   type CheckoutReleaseResult,
 } from "@dispatch/runner-protocol";
 import {
+  displayPath,
   sessionFromWire,
   type Runner,
 } from "@dispatch/runner-protocol/contract";
@@ -178,14 +179,19 @@ export async function finishArchiveCheckout(
 async function localCoOwner(
   pool: Pool,
   agent: ArchiveCheckoutAgent,
-  localRunner: LocalArchiveRunner
+  runner: Runner
 ) {
   const worktreePath = agent.worktreePath;
   if (!worktreePath) return null;
+  // Main's realpathOrSelf: one realpath on the agent's runner, no Git.
+  const { canonicalPath } = await runner.call("path.resolve", {
+    path: worktreePath,
+    git: false,
+  });
   const worktreeSpellings = [
     ...new Set([
       worktreePath,
-      (await localRunner.canonicalPath(worktreePath)) ?? worktreePath,
+      canonicalPath ? displayPath(canonicalPath) : worktreePath,
     ]),
   ];
   const { rows } = await pool.query<{ id: string }>(
@@ -231,7 +237,7 @@ export function localArchiveExecutor(
       );
     },
     borrowers: () => [],
-    coOwner: () => localCoOwner(pool, agent, localRunner),
+    coOwner: () => localCoOwner(pool, agent, runner),
     async release(expectedState) {
       if (expectedState === null) return "retained";
       const { removed } = await runner.call("workspace.release", {
