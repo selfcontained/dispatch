@@ -277,3 +277,40 @@ describe("core checkout reads", () => {
     expect(file?.data.length).toBe(data.length);
   });
 });
+
+describe("core checkout writes", () => {
+  const write = {
+    path: ".agents/personas/x.md",
+    data: "x",
+    expectedDigest: null,
+  };
+  it("writes in the bound session's current checkout, never at a requested path", async () => {
+    const { connection, calls } = await harness(() => ({ digest: "d" }));
+    await expect(
+      connection.call("checkout.write", { target: target("moved"), ...write })
+    ).resolves.toEqual({ digest: "d" });
+    expect(calls).toEqual([
+      { op: "checkout.write", input: { directory: "/moved", request: write } },
+    ]);
+    for (const other of [
+      { path: pathFromWire("/elsewhere") },
+      { repository: "https://example.com/o/r" },
+    ])
+      await expect(
+        connection.call("checkout.write", { target: other, ...write })
+      ).rejects.toMatchObject({ code: "unsupported" });
+    await expect(
+      connection.call("checkout.write", { target: target("unknown"), ...write })
+    ).rejects.toMatchObject({ code: "not_found" });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("is refused while frozen", async () => {
+    const { connection, calls, fence } = await harness(() => ({ digest: "d" }));
+    await fence.freeze();
+    await expect(
+      connection.call("checkout.write", { target: target("plain"), ...write })
+    ).rejects.toMatchObject({ code: "fenced" });
+    expect(calls).toEqual([]);
+  });
+});

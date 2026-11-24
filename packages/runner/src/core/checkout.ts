@@ -18,6 +18,7 @@ import type { BindingStore, StoredBinding } from "../local/bindings.js";
 import {
   EXEC_OPS,
   WORKER_OPS,
+  WRITE_OPS,
   type Platform,
   type Selector,
   type WorkloadOp,
@@ -180,9 +181,19 @@ export function checkoutHandlers(
   for (const op of [
     ...WORKER_OPS.filter((op) => op !== "git.context"),
     ...EXEC_OPS,
+    ...WRITE_OPS,
   ]) {
     const run = async (input: { target: Target }) => {
       const { target, ...request } = input;
+      // A write lands only in a checkout this runner's own binding names.
+      if (
+        (WRITE_OPS as readonly string[]).includes(op) &&
+        !("session" in target)
+      )
+        throw new RunnerCallError({
+          code: "unsupported",
+          message: "This runner writes in the checkouts it holds",
+        });
       const dir = await directory(target);
       const selector: Selector =
         ("session" in target && target.checkout) || "current";

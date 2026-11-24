@@ -24,7 +24,7 @@ import {
  * only inside a runner process, never in the app.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { constants } from "node:fs";
+import { constants, existsSync } from "node:fs";
 import {
   RunnerCallError,
   pathFromWire,
@@ -38,7 +38,11 @@ import { readWorkspaceView, WorkspaceError } from "../files/workspace-view.js";
 import { getAgentDiff, getAgentFileDiff } from "../shared/git/agent-diff.js";
 import { getDiffStatsComputation } from "../shared/git/diff-stats.js";
 import { getAgentDiffImage } from "../shared/git/diff-image.js";
-import { inspectCheckout, observeGitCheckout } from "./checkout-inspection.js";
+import {
+  inspectCheckout,
+  inspectionRoot,
+  observeGitCheckout,
+} from "./checkout-inspection.js";
 import { resolvePath } from "./workspace.js";
 import { SharedCheckoutWatches, watchCheckout } from "./checkout-watch.js";
 import { spawn } from "node:child_process";
@@ -59,6 +63,7 @@ import {
   rename,
   rm,
   stat,
+  type FileHandle,
 } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -89,7 +94,7 @@ import { detectDefaultBranch } from "../shared/git/default-branch.js";
 
 type WorkerOp = CheckoutReadName | "git.context" | GitQueryName;
 type Selector = "current" | "launch" | "moved";
-type Input<K extends WorkerOp | "checkout.exec"> = {
+type Input<K extends WorkerOp | "checkout.exec" | "checkout.write"> = {
   directory: string;
   request: Omit<Req<K>, "target">;
 } & (K extends "checkout.exec" ? { selector: Selector } : unknown) &
@@ -128,7 +133,7 @@ const STATUS_CODES: Record<number, ErrorCode> = {
  * is the declared one for that status, or `failed`.
  */
 function workerError(
-  op: WorkerOp | "checkout.exec",
+  op: WorkerOp | "checkout.exec" | "checkout.write",
   error: unknown
 ): RunnerCallError {
   if (error instanceof RunnerCallError) return error;
@@ -515,12 +520,20 @@ export const checkoutWorkload = {
   watch(directory: string, changed: () => void, closed: () => void) {
     return watches.subscribe(directory, changed, closed);
   },
-  async run<K extends WorkerOp | "checkout.exec">(
+  async run<K extends WorkerOp | "checkout.exec" | "checkout.write">(
     op: K,
     input: Input<K>,
     options: { signal?: AbortSignal }
   ): Promise<Res<K>> {
     try {
+      if (op === "checkout.write") {
+        // Relative to the same root a checkout read resolves against.
+        const { root } = await inspectionRoot(input.directory, false);
+        return (await writeCheckoutFile(
+          root,
+          (input as Input<"checkout.write">).request
+        )) as Res<K>;
+      }
       if (op === "git.context")
         return (await readGitContext(
           input.directory,
@@ -1286,4 +1299,236 @@ async function readRawBytes(
     if (error instanceof RunnerCallError) throw error;
     return null;
   }
+}
+
+/*
+ * `checkout.write`: one file in a session's checkout, written by the
+ * workload account itself, only when the file still holds what the caller
+ * read (`expectedDigest`; null means it must not exist yet).
+ *
+ * Nothing here runs with more privilege than the workload: on the Linux
+ * runner it is a worker the supervisor starts under the workload's own
+ * uid/gid, and locally it is the user's own runner. The refusals below are
+ * main's persona-authoring refusals (a symlinked directory or file, a
+ * directory outside the checkout), not a confinement of an escalation.
+ *
+ * Where `/proc/self/fd` exists, every step is bound to an open directory:
+ * each segment is opened with `O_NOFOLLOW` through its parent's descriptor,
+ * so a symlink swapped in after a check is refused rather than followed.
+ * Elsewhere (macOS) it is main's lstat/realpath walk.
+ */
+/**
+ * A transport bound, not a persona limit: persona_upsert's own input caps
+ * (instructions 20,000 characters, name 200, description 500) keep a
+ * rendered persona under about 81 KiB, so nothing main can write reaches
+ * it. A later caller of `checkout.write` owns revisiting it.
+ */
+export const MAX_CHECKOUT_WRITE_BYTES = 1024 * 1024;
+
+export type CheckoutWriteRefusal =
+  | { reason: "symlink-dir"; segment: string }
+  | { reason: "symlink-file" }
+  | { reason: "outside" }
+  | { reason: "invalid-path" }
+  | { reason: "not-file" }
+  | { reason: "too_large" };
+
+const refuse = (details: CheckoutWriteRefusal, message: string) =>
+  new RunnerCallError({ code: "forbidden", message, details });
+
+const stale = () =>
+  new RunnerCallError({
+    code: "stale",
+    message: "The file changed since it was read.",
+  });
+
+/** The digest `checkout.read` reports for the same file: SHA-256 of its UTF-8 text. */
+export function textDigest(text: string): string {
+  return createHash("sha256").update(Buffer.from(text, "utf8")).digest("hex");
+}
+
+function segmentsOf(file: string): string[] {
+  const segments = file.split("/");
+  if (
+    !file ||
+    file.includes("\0") ||
+    file.includes("\\") ||
+    path.isAbsolute(file) ||
+    segments.some((s) => s === "" || s === "." || s === "..")
+  )
+    throw refuse(
+      { reason: "invalid-path" },
+      "The path must be relative to the checkout."
+    );
+  return segments;
+}
+
+function isWithin(root: string, target: string): boolean {
+  const relative = path.relative(root, target);
+  return (
+    relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  );
+}
+
+const symlinkDir = (segment: string) =>
+  refuse(
+    { reason: "symlink-dir", segment },
+    `Refusing to write through symlinked persona directory: ${segment}.`
+  );
+const symlinkFile = () =>
+  refuse(
+    { reason: "symlink-file" },
+    "Refusing to overwrite a symlinked persona file."
+  );
+const outside = () =>
+  refuse(
+    { reason: "outside" },
+    "Persona directory must remain inside the current workspace."
+  );
+
+const errno = (error: unknown) => (error as NodeJS.ErrnoException)?.code;
+
+/** Compare, then replace in place: main keeps the inode and its mode. */
+async function guardedWrite(
+  handle: FileHandle,
+  data: Buffer,
+  expectedDigest: string | null
+) {
+  const info = await handle.stat();
+  if (!info.isFile())
+    throw refuse({ reason: "not-file" }, "Not a regular file.");
+  if (expectedDigest !== null) {
+    const current = (await handle.readFile()).toString("utf8");
+    if (textDigest(current) !== expectedDigest) throw stale();
+  }
+  await handle.truncate(0);
+  await handle.write(data, 0, data.length, 0);
+}
+
+const fileFlags = (expectedDigest: string | null) =>
+  constants.O_RDWR |
+  constants.O_NOFOLLOW |
+  // A guarded write never creates: the file the caller read must still be there.
+  (expectedDigest === null ? constants.O_CREAT | constants.O_EXCL : 0);
+
+/** Main's walk: lstat each directory, refuse links, keep it inside the root. */
+async function writeByPath(
+  root: string,
+  segments: string[],
+  data: Buffer,
+  expectedDigest: string | null
+) {
+  const realRoot = await realpath(root);
+  let current = realRoot;
+  for (const segment of segments.slice(0, -1)) {
+    current = path.join(current, segment);
+    const entry = await lstat(current).catch(() => null);
+    if (entry?.isSymbolicLink()) throw symlinkDir(segment);
+    if (!entry) await mkdir(current);
+    if (!isWithin(realRoot, await realpath(current))) throw outside();
+  }
+  const filePath = path.join(current, segments.at(-1)!);
+  const entry = await lstat(filePath).catch(() => null);
+  if (entry?.isSymbolicLink()) throw symlinkFile();
+  const handle = await open(filePath, fileFlags(expectedDigest), 0o644).catch(
+    (error) => {
+      if (errno(error) === "EEXIST") throw stale();
+      if (errno(error) === "ENOENT" && expectedDigest !== null) throw stale();
+      if (errno(error) === "ELOOP") throw symlinkFile();
+      throw error;
+    }
+  );
+  try {
+    await guardedWrite(handle, data, expectedDigest);
+  } finally {
+    await handle.close();
+  }
+}
+
+const viaFd = (fd: number, name: string) => `/proc/self/fd/${fd}/${name}`;
+
+/** A raw error names the real path, as main's does, not the descriptor's. */
+function realError(error: unknown, at: string, real: string): unknown {
+  if (!(error instanceof Error)) return error;
+  if (!error.message.includes(at)) return error;
+  const renamed = new Error(error.message.split(at).join(real));
+  Object.assign(renamed, { code: errno(error), path: real });
+  return renamed;
+}
+
+/** The same walk with each step bound to its parent's open descriptor. */
+async function writeByDescriptor(
+  root: string,
+  segments: string[],
+  data: Buffer,
+  expectedDigest: string | null
+) {
+  const opened: FileHandle[] = [];
+  const directoryFlags =
+    constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
+  try {
+    let real = await realpath(root);
+    let dir = await open(real, constants.O_RDONLY | constants.O_DIRECTORY);
+    opened.push(dir);
+    for (const segment of segments.slice(0, -1)) {
+      const at = viaFd(dir.fd, segment);
+      const into = path.join(real, segment);
+      const step = async () => {
+        try {
+          return await open(at, directoryFlags);
+        } catch (error) {
+          const entry = await lstat(at).catch(() => null);
+          if (entry?.isSymbolicLink()) throw symlinkDir(segment);
+          if (errno(error) !== "ENOENT") throw realError(error, at, into);
+          await mkdir(at).catch((made) => {
+            if (errno(made) !== "EEXIST") throw realError(made, at, into);
+          });
+          return open(at, directoryFlags).catch(async (again) => {
+            if ((await lstat(at).catch(() => null))?.isSymbolicLink())
+              throw symlinkDir(segment);
+            throw realError(again, at, into);
+          });
+        }
+      };
+      dir = await step();
+      opened.push(dir);
+      real = into;
+    }
+    const name = segments.at(-1)!;
+    const at = viaFd(dir.fd, name);
+    const handle = await open(at, fileFlags(expectedDigest), 0o644).catch(
+      async (error) => {
+        if ((await lstat(at).catch(() => null))?.isSymbolicLink())
+          throw symlinkFile();
+        if (errno(error) === "EEXIST") throw stale();
+        if (errno(error) === "ENOENT" && expectedDigest !== null) throw stale();
+        throw realError(error, at, path.join(real, name));
+      }
+    );
+    opened.push(handle);
+    await guardedWrite(handle, data, expectedDigest);
+  } finally {
+    for (const handle of opened.reverse()) await handle.close().catch(() => {});
+  }
+}
+
+const descriptorWalk = () => existsSync("/proc/self/fd");
+
+export async function writeCheckoutFile(
+  root: string,
+  request: Omit<Req<"checkout.write">, "target">,
+  options: { descriptors?: boolean } = {}
+): Promise<{ digest: string }> {
+  const segments = segmentsOf(request.path);
+  const data = Buffer.from(request.data, "utf8");
+  if (data.length > MAX_CHECKOUT_WRITE_BYTES)
+    throw refuse(
+      { reason: "too_large" },
+      `The file is larger than ${MAX_CHECKOUT_WRITE_BYTES} bytes.`
+    );
+  const write =
+    (options.descriptors ?? descriptorWalk()) ? writeByDescriptor : writeByPath;
+  await write(root, segments, data, request.expectedDigest);
+  return { digest: textDigest(request.data) };
 }
