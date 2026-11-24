@@ -819,14 +819,8 @@ describe("AgentManager", () => {
         useWorktree: true,
         baseBranch: "develop",
       };
-      const binding = { independentCheckoutOf: parent.id };
-      await expect(
-        first.createAgent(
-          { ...childInput, cwd: "runner://other/@session" },
-          binding
-        )
-      ).rejects.toThrow("Invalid independent runner checkout binding");
-      const child = await first.createAgent(childInput, binding);
+      // The launcher's folder is its session's (T36): no binding option.
+      const child = await first.createAgent(childInput);
       expect(child).toMatchObject({ cwd, projectId, parentAgentId: parent.id });
       const launch = expect.objectContaining({
         agentId: child.id,

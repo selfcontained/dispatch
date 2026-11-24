@@ -1,4 +1,3 @@
-import { remotePlacement } from "@dispatch/runner-protocol";
 import type { Effort } from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import type { Pool } from "pg";
@@ -93,9 +92,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     parent: AgentRecord,
     opts: PersonaLaunchOptions
   ): Promise<PreparedPersonaLaunch> {
-    const cwd = remotePlacement(parent.cwd)
-      ? parent.cwd
-      : (agentWorkspaceDir(parent) ?? parent.cwd);
+    const cwd = agentWorkspaceDir(parent) ?? parent.cwd;
     const fallbackReviewType = isCliAgentType(parent.reviewAgentType)
       ? parent.reviewAgentType
       : null;
@@ -169,11 +166,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
   ) {
     const parent = await agentManager.getAgent(parentId);
     if (!parent) throw new Error("Parent agent not found.");
-    return launchReviewer(
-      parent,
-      opts,
-      remotePlacement(parent.cwd) ? parent.id : undefined
-    );
+    return launchReviewer(parent, opts);
   }
 
   async function launchReviewer(

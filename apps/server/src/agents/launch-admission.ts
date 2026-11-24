@@ -38,18 +38,12 @@ type McpRequest = {
   phase: "mcpTarget" | "mcpTemplate";
   caller: "mcpChild" | "mcpIndependent";
   sourceCwd: string;
+  /** The caller's current folder, as a launch names it. */
   sourceWorkdir: string;
-  sourceProjectId?: string | null;
+  /** The caller's current folder as the agent reports it, if it moved. */
+  sourcePath?: string | null;
   cwd?: string;
   template?: { directory: string; projectId?: string | null } | null;
-};
-
-type IndependentRequest = {
-  phase: "independentBinding";
-  input: BindingIntent;
-  owner: AgentRecord | null;
-  hasPersonaBody: boolean;
-  borrowsCheckout: boolean;
 };
 
 type SharedRequest = {
@@ -74,10 +68,10 @@ type ManagerRequest = {
 const reasons = {
   projectAndLocation: "Choose a project or a folder, not both.",
   missingLocation: "Body must include cwd as a string.",
+  relativeLocation: "Working directory must be an absolute path.",
   mcpTarget:
     "A child launch cannot select a checkout on another runner or outside the caller's project.",
   templateDirectory: "Project template directory cannot be overridden.",
-  independentBinding: "Invalid independent runner checkout binding.",
   sharedBinding: "Invalid shared checkout binding.",
   reviewerPersona: "Missing reviewer persona.",
   childBinding: "Invalid child checkout binding.",
@@ -98,6 +92,11 @@ type Rejection = {
 type Admission<T extends object = Record<never, never>> =
   | ({ ok: true } & T)
   | Rejection;
+
+/** Main's `validateWorkingDirectory`: absolute, or under the home directory. */
+function launchPath(cwd: string) {
+  return cwd === "~" || cwd.startsWith("~/") || cwd.startsWith("/");
+}
 
 function reject(
   reason: Reason,
@@ -122,16 +121,10 @@ type ManagerAdmission = Admission<{
  */
 export function admitLaunch(request: ApiRequest): ApiAdmission;
 export function admitLaunch(request: McpRequest): McpAdmission;
-export function admitLaunch(request: IndependentRequest): Admission;
 export function admitLaunch(request: SharedRequest): SharedAdmission;
 export function admitLaunch(request: ManagerRequest): ManagerAdmission;
 export function admitLaunch(
-  request:
-    | ApiRequest
-    | McpRequest
-    | IndependentRequest
-    | SharedRequest
-    | ManagerRequest
+  request: ApiRequest | McpRequest | SharedRequest | ManagerRequest
 ):
   | ApiAdmission
   | McpAdmission
@@ -153,49 +146,29 @@ export function admitLaunch(
     }
     case "mcpTarget":
     case "mcpTemplate": {
-      // Child and independent MCP callers have the same scope today.
-      const { sourceCwd, sourceWorkdir, sourceProjectId, template, cwd } =
-        request;
-      const runner = remotePlacement(sourceCwd);
-      const requestedCwd = cwd ?? template?.directory;
+      // A folder is a path on the caller's machine, for every caller. The
+      // caller's own current folder is its session's (D7).
+      const { sourceCwd, sourceWorkdir, sourcePath, template, cwd } = request;
+      const own =
+        cwd === undefined
+          ? !template
+          : cwd === sourceWorkdir || (!!sourcePath && cwd === sourcePath);
       if (request.phase === "mcpTarget") {
-        if (
-          runner
-            ? (cwd !== undefined && cwd !== sourceCwd) ||
-              (template &&
-                remotePlacement(template.directory) &&
-                template.directory !== sourceCwd) ||
-              (template?.projectId && template.projectId !== sourceProjectId)
-            : remotePlacement(requestedCwd ?? "")
-        )
+        // Another folder on a runner would need the child to move there
+        // after it starts (N1, T36 leaves it).
+        if (cwd !== undefined && !own && remotePlacement(sourceCwd))
           return reject("mcpTarget");
-      } else if (
-        !runner &&
-        template?.projectId &&
-        cwd &&
-        cwd !== template.directory
-      ) {
-        return reject("templateDirectory");
+      } else {
+        if (template?.projectId && cwd && cwd !== template.directory)
+          return reject("templateDirectory");
+        // Main's rule: a folder, never a runner address.
+        if (cwd !== undefined && !own && !launchPath(cwd))
+          return reject("relativeLocation");
       }
       return {
         ok: true,
-        cwd: runner ? sourceCwd : (requestedCwd ?? sourceWorkdir),
+        cwd: own ? sourceWorkdir : (cwd ?? template!.directory),
       };
-    }
-    case "independentBinding": {
-      const { input, owner, hasPersonaBody, borrowsCheckout } = request;
-      if (
-        !owner ||
-        !remotePlacement(owner.cwd) ||
-        input.cwd !== owner.cwd ||
-        input.launchedByAgentId !== owner.id ||
-        (input.parentAgentId && input.parentAgentId !== owner.id) ||
-        (input.fullAccess && !owner.fullAccess) ||
-        (input.persona && !hasPersonaBody) ||
-        borrowsCheckout
-      )
-        return reject("independentBinding");
-      return { ok: true };
     }
     case "sharedBinding": {
       const { input, owner, ownerWorkdir, hasPersonaBody } = request;
@@ -212,17 +185,16 @@ export function admitLaunch(
         (input.projectId !== undefined && input.projectId !== owner.projectId)
       )
         return reject("sharedBinding");
-      if (input.role === "review") {
-        if (!input.persona) return reject("reviewerPersona");
-      } else if (
-        (input.parentAgentId !== undefined &&
-          input.parentAgentId !== owner.id) ||
-        !remotePlacement(owner.cwd) ||
-        (input.fullAccess && !owner.fullAccess) ||
-        (input.persona && !hasPersonaBody)
-      ) {
-        return reject("childBinding");
-      }
+      const review = input.role === "review";
+      if (
+        review
+          ? !input.persona
+          : (input.parentAgentId !== undefined &&
+              input.parentAgentId !== owner.id) ||
+            (input.fullAccess && !owner.fullAccess) ||
+            (input.persona && !hasPersonaBody)
+      )
+        return reject(review ? "reviewerPersona" : "childBinding");
       return { ok: true, owner, parentId: input.parentAgentId };
     }
     case "manager": {

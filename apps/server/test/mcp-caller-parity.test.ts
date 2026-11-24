@@ -526,6 +526,13 @@ it("keeps the MCP caller surface and call outcomes at the recorded parity bounda
     { ...launch, cwd: checkout },
     true
   );
+  // Another folder on the runner caller's machine needs a move after start.
+  await call(
+    "launch_agent/other-folder",
+    "launch_agent",
+    { ...launch, cwd: outside },
+    true
+  );
   await call(
     "launch_agent/persona",
     "launch_agent",
@@ -577,6 +584,18 @@ it("keeps the MCP caller surface and call outcomes at the recorded parity bounda
           true
         );
       } else {
+        if (target === "project")
+          // The runner caller's project template: for the local caller, a
+          // project on another runner (D7).
+          await call(
+            "run_template/project-on-runner",
+            "launch_agent",
+            [
+              { ...launch, templateId: id(1) },
+              { ...launch, templateId: id(1) },
+            ],
+            true
+          );
         await call(
           `run_template/${target}`,
           "launch_agent",

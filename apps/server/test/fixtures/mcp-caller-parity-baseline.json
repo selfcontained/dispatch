@@ -5,7 +5,7 @@
     "local": "accepted",
     "runner": "tool:MCP error -32602: Tool brain_list_objects not found"
   },
-  "call/launch_agent/explicit-path": {
+  "call/launch_agent/other-folder": {
     "rule": "N1",
     "task": "T36",
     "local": "accepted",
