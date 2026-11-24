@@ -282,6 +282,10 @@ describe("launch location preference", () => {
       );
       expect(result.current.locationReady).toBe(true);
       expect(result.current.worktreeAvailable).toBe(true);
+      expect(result.current.createBaseBranch).toBe("");
+      await act(async () => result.current.handleSubmit(submitEvent()));
+      expect(agentsPostJson()).not.toHaveProperty("baseBranch");
+      apiMock.mockClear();
       act(() => {
         result.current.setCreateBaseBranch(branch);
         result.current.setCreateUseWorktree(true);
