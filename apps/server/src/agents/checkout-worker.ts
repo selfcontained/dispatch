@@ -689,6 +689,37 @@ export async function runCheckoutWorker(argv: string[]): Promise<void> {
     }
     return;
   }
+  if (op === "write") {
+    // `runner-worker write <cwd>`: one checkout.write as the workload, in
+    // the directory the supervisor's own binding named.
+    const input: unknown = await json(process.stdin);
+    if (
+      !cwd ||
+      !operations["checkout.write"].request.check({
+        ...(input as object),
+        target: { path: pathFromWire("/") },
+      })
+    )
+      throw new Error("Invalid checkout write request.");
+    let reply;
+    try {
+      reply = {
+        data: await checkoutWorkload.run(
+          "checkout.write",
+          {
+            directory: cwd,
+            request: input as Omit<Req<"checkout.write">, "target">,
+          },
+          {}
+        ),
+      };
+    } catch (error) {
+      const { code, message, details } = workerError("checkout.write", error);
+      reply = { error: { code, message, details } };
+    }
+    process.stdout.write(JSON.stringify(reply));
+    return;
+  }
   if (op === "read") {
     const input: unknown = await json(process.stdin);
     if (!isCheckoutReadRequest(input, "worker") || !cwd)

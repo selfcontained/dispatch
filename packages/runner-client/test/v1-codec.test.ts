@@ -63,7 +63,9 @@ function validV1Result(command: Command, value: unknown): boolean {
         : isSessionCheckout(parsed);
     case "sessionObservation":
       return operations[command.operation.op].response.check(parsed);
-    case "gitQuery": {
+    case "gitQuery":
+    case "checkoutWrite":
+    case "repositoryFiles": {
       const reply = parsed as { data?: unknown; error?: unknown };
       return (
         operations[command.operation.op].response.check(reply.data) ||
@@ -274,6 +276,8 @@ describe("codec coverage", () => {
         "sessionCheckout",
         "workspacePrepare",
         "gitQuery",
+        "checkoutWrite",
+        "repositoryFiles",
         "workspaceResume",
         "workspaceRelease",
         "checkoutCommand",

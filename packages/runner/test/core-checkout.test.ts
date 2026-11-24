@@ -31,7 +31,10 @@ const temp = () => {
   return dir;
 };
 
-async function harness(reply: (op: string, input: unknown) => unknown) {
+async function harness(
+  reply: (op: string, input: unknown) => unknown,
+  repositoryClone?: (url: string) => Promise<string>
+) {
   const root = temp();
   const store = new BindingStore(root);
   await store.import([
@@ -58,7 +61,7 @@ async function harness(reply: (op: string, input: unknown) => unknown) {
   const server = await serveSocket(
     socket,
     nonce,
-    { calls: checkoutHandlers(store, platform) },
+    { calls: checkoutHandlers(store, platform, repositoryClone) },
     fence
   );
   const connection = await LocalSocketConnection.connect({ socket, nonce });
@@ -312,5 +315,64 @@ describe("core checkout writes", () => {
       connection.call("checkout.write", { target: target("plain"), ...write })
     ).rejects.toMatchObject({ code: "fenced" });
     expect(calls).toEqual([]);
+  });
+});
+
+describe("core repository reads", () => {
+  const files = {
+    hasOrigin: true,
+    files: [],
+    warnings: [],
+    refreshing: false,
+    updatedAt: null,
+    truncated: false,
+  };
+  it("reads a repository's default-branch files in its cached clone", async () => {
+    const clones: string[] = [];
+    const { connection, calls } = await harness(
+      () => files,
+      async (url) => {
+        clones.push(url);
+        return "/cache/key/repo";
+      }
+    );
+    const repository = { repository: "https://example.com/o/r" };
+    await expect(
+      connection.call("checkout.defaultFiles", {
+        target: repository,
+        dirs: [".agents/personas"],
+        wait: true,
+      })
+    ).resolves.toEqual(files);
+    expect(clones).toEqual(["https://example.com/o/r"]);
+    expect(calls).toEqual([
+      {
+        op: "checkout.defaultFiles",
+        input: {
+          directory: "/cache/key/repo",
+          request: { dirs: [".agents/personas"], wait: true },
+        },
+      },
+    ]);
+    // Other reads of a repository stay unsupported, as before.
+    await expect(
+      connection.call("checkout.read", {
+        target: repository,
+        path: "README.md",
+        encoding: "utf8",
+        maxBytes: null,
+      })
+    ).rejects.toMatchObject({ code: "unsupported" });
+  });
+
+  it("is unsupported without a repository cache", async () => {
+    const { connection } = await harness(() => files);
+    await expect(
+      connection.call("checkout.defaultFiles", {
+        target: { repository: "https://example.com/o/r" },
+        dirs: [],
+        wait: false,
+      })
+    ).rejects.toMatchObject({ code: "unsupported" });
   });
 });

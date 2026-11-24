@@ -111,15 +111,24 @@ const PULSE = Buffer.from("1");
 
 export function checkoutHandlers(
   store: Pick<BindingStore, "get" | "origin">,
-  platform: Platform
+  platform: Platform,
+  /**
+   * The cached clone of a repository, as a launch from it uses
+   * (`repositoryClone`). Without it, repository targets are unsupported.
+   */
+  repositoryClone?: (url: string) => Promise<string>
 ): CallHandlers {
-  async function directory(target: Target): Promise<string> {
+  async function directory(target: Target, op?: string): Promise<string> {
     if ("session" in target) {
       const binding = await store.get(sessionToWire(target.session));
       if (!binding) throw notBound();
       return selected(binding, target.checkout);
     }
     if ("path" in target) return displayPath(target.path);
+    // A repository's default-branch files, from its cached clone: what main's
+    // persona catalog reads from the origin's default branch.
+    if (repositoryClone && op === "checkout.defaultFiles")
+      return repositoryClone(target.repository);
     throw new RunnerCallError({
       code: "unsupported",
       message:
@@ -194,7 +203,7 @@ export function checkoutHandlers(
           code: "unsupported",
           message: "This runner writes in the checkouts it holds",
         });
-      const dir = await directory(target);
+      const dir = await directory(target, op);
       const selector: Selector =
         ("session" in target && target.checkout) || "current";
       const command = (EXEC_OPS as readonly string[]).includes(op);
