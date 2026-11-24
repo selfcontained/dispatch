@@ -932,6 +932,84 @@ describe("AgentManager", () => {
       ).toBe(false);
     });
 
+    describe("a runner launch from a bare repository URL", () => {
+      const cwd = "runner://runner-test/@session";
+      const joined = "https://example.test/joined";
+      const runnerManager = (prepared: boolean) =>
+        new AgentManager(pool, noopLogger, testConfig, {
+          runtime,
+          remote: {
+            available: () => true,
+            isManagedWorkspace: () => true,
+            supportsPreparedLaunch: () => prepared,
+            originFor: () => "https://example.test",
+            requestSession: vi.fn(
+              async (_p: unknown, command: { kind: string }) => {
+                const checkout = {
+                  path: "/workload/prepared",
+                  moved: false,
+                  origin: "https://example.test/explicit",
+                };
+                return {
+                  value: JSON.stringify(
+                    command.kind === "sessionCheckout"
+                      ? checkout
+                      : { data: checkout }
+                  ),
+                };
+              }
+            ),
+          } as unknown as RemoteRunnerService,
+        });
+      beforeAll(async () => {
+        await pool.query(
+          `INSERT INTO projects (id, name, repository) VALUES
+             ('url-joined', 'Joined', $1), ('url-explicit', 'Explicit', 'https://example.test/explicit')
+           ON CONFLICT DO NOTHING`,
+          [joined]
+        );
+      });
+
+      it("keeps today's outcome for a URL no project has", async () => {
+        const repository = { url: "https://example.test/nomatch" };
+        await expect(
+          runnerManager(true).createAgent({ cwd, repository })
+        ).rejects.toThrow("Choose a project to launch on this runner.");
+        const older = await runnerManager(false).createAgent({
+          cwd,
+          repository,
+        });
+        expect(older.projectId).toBeNull();
+      });
+
+      it("keeps an explicit project and a parent's project", async () => {
+        const repository = { url: `${joined}.git` };
+        const manager = runnerManager(true);
+        const explicit = await manager.createAgent({
+          cwd,
+          projectId: "url-explicit",
+          repository,
+        });
+        expect(explicit.projectId).toBe("url-explicit");
+        const child = await manager.createAgent({
+          cwd,
+          parentAgentId: explicit.id,
+          launchedByAgentId: explicit.id,
+          repository,
+        });
+        expect(child.projectId).toBe("url-explicit");
+      });
+
+      it("leaves a local launch to main's folder matching", async () => {
+        const folder = await mkdtemp(path.join(os.tmpdir(), "url-local-"));
+        const local = await runnerManager(true).createAgent({
+          cwd: folder,
+          repository: { url: joined },
+        });
+        expect(local.projectId).toBeNull();
+      });
+    });
+
     it("shows a runner's prepared checkout on the row, keeping its locator and its worktree status", async () => {
       const cwd = "runner://runner-test/@session";
       const projectId = "displayed-runner-project";
