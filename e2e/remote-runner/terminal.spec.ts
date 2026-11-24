@@ -14,7 +14,10 @@ import {
   state,
 } from "./harness";
 
-test.use({ actionTimeout: 10_000 });
+test.use({
+  actionTimeout: 10_000,
+  launchOptions: { args: ["--disable-external-intent-requests"] },
+});
 
 test.afterAll(async ({ request }) => cleanupE2EAgents(request));
 
@@ -157,7 +160,16 @@ for (const lane of ["native", "runner", "managed"] as const) {
       const action = session.getByTestId("agent-action-ide-vscode");
       await action.scrollIntoViewIfNeeded();
       await expect(action).toBeInViewport({ ratio: 0.8 });
-      await expect(action).toHaveAttribute("href", `vscode://file${target}`);
+      // Main's menu performs navigation rather than rendering an anchor.
+      const cdp = await session.context().newCDPSession(session);
+      await cdp.send("Page.enable");
+      let ideUrl: string | undefined;
+      cdp.on("Page.frameRequestedNavigation", ({ url }) => {
+        if (url.startsWith("vscode:")) ideUrl = url;
+      });
+      await action.click();
+      await expect.poll(() => ideUrl).toBe(`vscode://file${target}`);
+      await cdp.detach();
       if (remote) {
         const stream = await request.post(`/api/v1/agents/${agent.id}/stream`, {
           headers,
@@ -169,7 +181,6 @@ for (const lane of ["native", "runner", "managed"] as const) {
         );
       }
       await screenshot("ide");
-      await session.keyboard.press("Escape");
       if (remote)
         await session
           .getByTestId("sidebar-shell")
