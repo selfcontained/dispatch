@@ -1,9 +1,15 @@
+import {
+  pathFromWire,
+  type Runners,
+  type Req,
+} from "@dispatch/runner-protocol/contract";
 import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { TemplateService } from "../templates/service.js";
 import type { TaskService } from "../tasks/service.js";
 import {
   controllerPlacement,
+  placementForRunner,
   runnerIdForPlacement,
 } from "../runners/placement.js";
 import {
@@ -52,6 +58,7 @@ const query = (values: Record<string, string | undefined>) => {
 export async function registerLaunchTargetRoutes(
   app: FastifyInstance,
   deps: {
+    runners: Pick<Runners, "for">;
     templates: Pick<TemplateService, "getTemplate">;
     tasks: Pick<TaskService, "store">;
   }
@@ -216,23 +223,60 @@ export async function registerLaunchTargetRoutes(
   });
 
   app.get(`${ROOT}/:key/branches`, async (request, reply) => {
-    const target = await selected(request);
+    const selectedTarget = await selected(request);
     const q = request.query as { directory?: string; projectId?: string };
-    if (target.location.kind === "folder")
-      return read(
-        request,
-        `/api/v1/git/branches?${query({ cwd: q.directory })}`
-      );
-    if (!q.projectId)
-      return reply.code(400).send({ error: "Choose a runner and repository." });
-    const repository = await read<{ url: string | null }>(
-      request,
-      `/api/v1/projects/${encodeURIComponent(q.projectId)}/repository`
-    );
-    return read(
-      request,
-      `/api/v1/git/branches?${query({ runnerId: target.id, repository: repository.url ?? "" })}`
-    );
+    const inputs: Record<
+      Target["location"]["kind"],
+      () => Promise<Req<"git.branches">["target"]>
+    > = {
+      folder: async () => {
+        if (typeof q.directory !== "string" || !q.directory.trim())
+          throw Object.assign(new Error("cwd query parameter is required."), {
+            statusCode: 400,
+          });
+        return { path: pathFromWire(q.directory.trim()) };
+      },
+      project: async () => {
+        if (!q.projectId)
+          throw Object.assign(new Error("Choose a runner and repository."), {
+            statusCode: 400,
+          });
+        const repository = await read<{ url: string | null }>(
+          request,
+          `/api/v1/projects/${encodeURIComponent(q.projectId)}/repository`
+        );
+        if (!repository.url)
+          throw Object.assign(
+            new Error("Choose a valid HTTPS repository URL."),
+            { statusCode: 400 }
+          );
+        return { repository: repository.url };
+      },
+    };
+    let target: Req<"git.branches">["target"];
+    try {
+      target = await inputs[selectedTarget.location.kind]();
+    } catch (error) {
+      return reply
+        .code((error as { statusCode?: number }).statusCode ?? 400)
+        .send({ error: (error as Error).message });
+    }
+    try {
+      const runner = deps.runners.for(placementForRunner(selectedTarget.id));
+      const result = await runner.call("git.branches", { target });
+      return {
+        ...result,
+        branches: [...result.branches].sort((a, b) => {
+          if (a === "main") return -1;
+          if (b === "main") return 1;
+          if (a === "master") return -1;
+          if (b === "master") return 1;
+          return a.localeCompare(b);
+        }),
+      };
+    } catch {
+      return reply.code(500).send({ error: "Failed to list remote branches." });
+    }
   });
 
   app.get(`${ROOT}/:key`, async (request) => {

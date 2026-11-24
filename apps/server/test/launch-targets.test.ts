@@ -1,3 +1,4 @@
+import { vi } from "vitest";
 import Fastify from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import { registerLaunchTargetRoutes } from "../src/routes/launch-targets.js";
@@ -90,7 +91,16 @@ async function setup(projectFailure = false) {
         },
   }));
   app.get("/api/v1/templates", async () => [template]);
+  const branches = vi.fn(async (placement, op, input) => ({
+    branches: ["develop", "main"],
+    defaultBranch: "develop",
+  }));
   await registerLaunchTargetRoutes(app, {
+    runners: {
+      for: (placement) => ({
+        call: (op, input) => branches(placement, op, input),
+      }),
+    } as never,
     templates: { getTemplate: async () => template } as never,
     tasks: {
       store: {
@@ -115,6 +125,7 @@ async function setup(projectFailure = false) {
     app,
     get,
     targets,
+    branches,
     failCatalog: () => {
       catalogFailure = true;
     },
@@ -151,14 +162,15 @@ describe("launch target adapter", () => {
     expect(data.agentTypes).toEqual(["claude", "codex"]);
     expect(data.defaults.launchFields).toEqual({});
     expect(data.defaults.baseBranch).toBe("main");
-    expect((await get(data.branchesUrl)).json()).toEqual(
-      (await get("/api/v1/git/branches?cwd=%2Frepo")).json()
-    );
+    expect((await get(data.branchesUrl)).json()).toEqual({
+      branches: ["main", "develop"],
+      defaultBranch: "develop",
+    });
     expect((await get("/api/v1/agent-models")).body).toBe(before);
     expect((await get(data.personasUrl)).statusCode).toBe(200);
   });
   it("reads the runner's catalog and project's repository without install/sign-in gates", async () => {
-    const { get, targets } = await setup();
+    const { get, targets, branches } = await setup();
     const response = await get(
       `${targets[1].dataUrl}?projectId=project&agentType=codex`
     );
@@ -171,9 +183,9 @@ describe("launch target adapter", () => {
     expect(data.effort).toEqual([{ value: "medium" }]);
     expect(data.defaults.launchFields).toEqual({ runner: "fixture" });
     expect(data.directory).toBe("");
-    expect((await get(data.branchesUrl)).json().query).toEqual({
-      runnerId: "fixture",
-      repository: "https://github.com/fixture/repo",
+    await get(data.branchesUrl);
+    expect(branches).toHaveBeenCalledWith(expect.anything(), "git.branches", {
+      target: { repository: "https://github.com/fixture/repo" },
     });
     const personas = (await get(data.personasUrl)).json();
     expect(personas.query.projectId).toBe("project");
