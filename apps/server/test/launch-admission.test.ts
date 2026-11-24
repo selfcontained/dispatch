@@ -121,6 +121,7 @@ async function checkAdmission(
     },
     // The launch folder is resolved through the agent's runner (path.resolve).
     launchDirectory: stop,
+    resolveLaunchPath: stop,
     prepareCreate: stop,
   }) as AgentManager;
   try {
