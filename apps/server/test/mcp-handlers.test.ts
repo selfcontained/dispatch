@@ -1073,6 +1073,115 @@ describe("createMcpHandlers", () => {
     });
   });
 
+  describe("launchAgent: main's local admission", () => {
+    // origin/main's handleLaunchAgent calls createAgent with one argument:
+    // cwd is `input.cwd ?? template.directory ?? parent workdir`.
+    const localParent = {
+      id: "agt_test1",
+      name: "parent",
+      cwd: "/repo",
+      type: "claude",
+      fullAccess: true,
+      projectId: "proj_1",
+      worktreePath: "/worktrees/parent",
+      status: "running",
+    };
+    const lastLaunch = () => deps.agentManager.createAgent.mock.calls.at(-1)!;
+
+    it.each([
+      ["child", {}, { parentAgentId: "agt_test1" }],
+      ["independent", { child: false }, {}],
+    ])(
+      "launches a local %s in the parent's folder in both checkout shapes",
+      async (_kind, shape, lineage) => {
+        deps.agentManager.getAgent.mockResolvedValue(localParent);
+        for (const useWorktree of [false, true]) {
+          await handlers.launchAgent("agt_test1", {
+            name: "c",
+            prompt: "work",
+            useWorktree,
+            ...shape,
+          });
+          const call = lastLaunch();
+          expect(call).toHaveLength(1);
+          expect(call[0]).toMatchObject({
+            cwd: "/worktrees/parent",
+            useWorktree,
+            createNewBranch: false,
+            launchedByAgentId: "agt_test1",
+            fullAccess: true,
+            ...lineage,
+          });
+          expect(call[0]).not.toHaveProperty("projectId");
+          expect(call[0]).not.toHaveProperty("repository");
+          if (!("parentAgentId" in lineage))
+            expect(call[0].parentAgentId).toBeUndefined();
+        }
+      }
+    );
+
+    it("keeps a local explicit folder and the parent's own launch folder as given", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        ...localParent,
+        workspacePath: "/moved/here",
+      });
+      for (const cwd of ["/moved/here", "/repo", "/elsewhere"]) {
+        await handlers.launchAgent("agt_test1", { prompt: "w", cwd });
+        expect(lastLaunch()).toHaveLength(1);
+        expect(lastLaunch()[0]).toMatchObject({ cwd });
+      }
+    });
+
+    it("launches a local template in its directory with no extra target", async () => {
+      deps.agentManager.getAgent.mockResolvedValue(localParent);
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({ directory: "/template-repo", projectId: "proj_t" })
+      );
+      await handlers.launchAgent("agt_test1", {
+        prompt: "w",
+        templateId: "tmpl_123",
+      });
+      expect(lastLaunch()).toHaveLength(1);
+      expect(lastLaunch()[0]).toMatchObject({
+        cwd: "/template-repo",
+        templateId: "tmpl_123",
+      });
+      expect(lastLaunch()[0]).not.toHaveProperty("projectId");
+      expect(lastLaunch()[0]).not.toHaveProperty("repository");
+      await expect(
+        handlers.launchAgent("agt_test1", {
+          prompt: "w",
+          templateId: "tmpl_123",
+          cwd: "/worktrees/parent",
+        })
+      ).rejects.toThrow("Project template directory cannot be overridden.");
+    });
+
+    it("reads a local task persona from the parent's checkout", async () => {
+      deps.agentManager.getAgent.mockResolvedValue(localParent);
+      const inspectCheckout = vi.fn(async (_agent: unknown, query: any) => ({
+        kind: "readFile",
+        content: query.path.endsWith("/builder.md")
+          ? "---\nname: Builder\ndescription: Build\ntype: task\n---\nRepo instructions"
+          : null,
+      }));
+      Object.assign(deps.agentManager, { inspectCheckout });
+      await handlers.launchAgent("agt_test1", {
+        prompt: "w",
+        persona: "builder",
+      });
+      expect(inspectCheckout).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "agt_test1" }),
+        expect.objectContaining({ kind: "readFile" })
+      );
+      expect(lastLaunch()).toHaveLength(1);
+      expect(lastLaunch()[0]).toMatchObject({
+        cwd: "/worktrees/parent",
+        persona: "builder",
+      });
+    });
+  });
+
   describe("launchAgent", () => {
     it("keeps borrowed and independent launches on the caller runner", async () => {
       const cwd = "runner://runner-test/@session";
