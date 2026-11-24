@@ -36,6 +36,8 @@ export type LaunchDirectory = {
   cwd: string;
   canonicalPath: string;
   git: GitProbe;
+  /** The checkout's HTTPS origin, when the runner reports one (`git.origin`). */
+  origin: string | null;
 };
 
 /**
@@ -54,6 +56,8 @@ export function launchDirectory(
       "Working directory does not exist or is not a directory.",
       400
     );
+  // The origin is the launch's, not part of the Git context a row stores.
+  const { origin = null, ...git } = resolved.git ?? {};
   return {
     cwd,
     canonicalPath: displayPath(resolved.canonicalPath),
@@ -62,11 +66,12 @@ export function launchDirectory(
       : {
           status: "ok",
           value: resolved.git && {
-            ...resolved.git,
+            ...(git as Omit<NonNullable<typeof resolved.git>, "origin">),
             repoRoot: displayPath(resolved.git.repoRoot),
             worktreePath: displayPath(resolved.git.worktreePath),
           },
         },
+    origin,
   };
 }
 
