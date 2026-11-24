@@ -41,7 +41,11 @@ vi.mock("./use-create-agent-form", async () => {
         createCwd: "/repo",
         createFullAccess: true,
         locationReady: true,
-        launch: { list: { data: [], isError: false }, target: undefined },
+        launch: {
+          list: { data: [], isError: false },
+          projection: { isError: false },
+          target: undefined,
+        },
         targetData: { isError: false },
         engines,
         chooseTarget: vi.fn(),

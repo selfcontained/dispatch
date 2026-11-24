@@ -52,10 +52,73 @@ afterEach(() => {
 function mount(
   type: (typeof types)[number],
   response: object = catalog,
-  withRunner = false
+  withRunner = false,
+  initialEntry = "/agents?project=p1"
 ) {
   vi.mocked(api).mockImplementation(async (path) => {
     if (path === "/api/v1/agent-models") return response;
+    if (path === "/api/v1/launch-targets")
+      return {
+        targets: [
+          {
+            key: "controller-choice",
+            name: "This computer",
+            status: "online",
+            location: { kind: "folder" },
+            dataUrl: "/fixture/controller",
+            branchesUrl: "/fixture/controller/branches",
+            defaultBaseBranch: "main",
+            launchFields: {},
+            selectionFields: { runner: "controller" },
+          },
+          ...(withRunner
+            ? [
+                {
+                  key: "runner-choice",
+                  name: "Runner A",
+                  status: "online",
+                  location: {
+                    kind: "project",
+                    projects: [
+                      {
+                        id: "p1",
+                        name: "Sample Project",
+                        repoRoot: "/repo",
+                        repository: "https://github.com/example/project.git",
+                      },
+                    ],
+                  },
+                  dataUrl: "/fixture/runner",
+                  branchesUrl: "/fixture/runner/branches",
+                  defaultBaseBranch: "",
+                  launchFields: { runner: "runner-a" },
+                  selectionFields: { runner: "runner-a" },
+                },
+              ]
+            : []),
+        ],
+      };
+    if (path.startsWith("/fixture/") && path.includes("/branches?"))
+      return { branches: ["trunk", "release"], defaultBranch: "trunk" };
+    if (path.startsWith("/fixture/")) {
+      const target = new URL(path, "http://fixture");
+      return {
+        catalog: response,
+        agentTypes: [...types],
+        engineOptions: [],
+        directory: target.pathname === "/fixture/controller" ? "/repo" : "",
+        personasUrl: "/api/v1/personas?fixture=1",
+        branchesUrl: `${target.pathname}/branches?projectId=p1`,
+        defaults: {
+          preferenceKey: target.pathname,
+          baseBranch: target.pathname === "/fixture/controller" ? "main" : "",
+          launchFields:
+            target.pathname === "/fixture/controller"
+              ? {}
+              : { runner: "runner-a" },
+        },
+      };
+    }
     if (path === "/api/v1/projects") {
       return [
         { id: "p1", name: "Sample Project", repoRoot: "/repo" },
@@ -94,7 +157,7 @@ function mount(
   render(
     <QueryClientProvider client={client}>
       <Provider store={createStore()}>
-        <MemoryRouter initialEntries={["/agents?project=p1"]}>
+        <MemoryRouter initialEntries={[initialEntry]}>
           <CreateAgentDialog
             open
             enabledAgentTypes={[...types]}
@@ -107,7 +170,12 @@ function mount(
       </Provider>
     </QueryClientProvider>
   );
-  return client;
+  return {
+    client,
+    setCatalog: (next: object) => {
+      response = next;
+    },
+  };
 }
 
 it.each(types)("shows %s's stored default and model choices", async (type) => {
@@ -150,12 +218,14 @@ it.each(types)(
 );
 
 it("replaces the empty fallback when the open dialog receives a learned catalog", async () => {
-  const client = mount("opencode", { models: { opencode: [] } });
+  const { client, setCatalog } = mount("opencode", {
+    models: { opencode: [] },
+  });
   const model = await screen.findByRole("combobox", { name: "Model" });
   await within(model).findByText("Default");
   expect(model).toHaveProperty("disabled", true);
 
-  vi.mocked(api).mockResolvedValue(catalog);
+  setCatalog(catalog);
   await act(() => client.invalidateQueries({ queryKey: ["agent-models"] }));
 
   await within(model).findByText("opencode Second");
@@ -163,7 +233,7 @@ it("replaces the empty fallback when the open dialog receives a learned catalog"
 });
 
 it("requires a runner project and loads branches from its repository", async () => {
-  mount("codex", catalog, true);
+  mount("codex", catalog, true, "/agents");
   const machine = await screen.findByRole("combobox", { name: "Runs on" });
   fireEvent.keyDown(machine, { key: "ArrowDown" });
   fireEvent.click(screen.getByRole("option", { name: /Runner A/ }));
@@ -187,16 +257,15 @@ it("requires a runner project and loads branches from its repository", async () 
   const startingBranch = await screen.findByRole("combobox", {
     name: "Starting branch",
   });
-  await within(startingBranch).findByText("trunk");
-  expect(api).toHaveBeenCalledWith(
-    "/api/v1/git/branches?runnerId=runner-a&repository=https%3A%2F%2Fgithub.com%2Fexample%2Fproject.git",
-    expect.objectContaining({ signal: expect.any(AbortSignal) })
-  );
+  fireEvent.click(startingBranch);
+  await screen.findByRole("option", { name: "trunk" });
+  expect(api).toHaveBeenCalledWith("/fixture/runner/branches?projectId=p1");
+  fireEvent.click(screen.getByRole("option", { name: "trunk" }));
   expect(submit).toHaveProperty("disabled", false);
   fireEvent.click(
     screen.getByRole("checkbox", { name: "Toggle new branch creation" })
   );
   expect(
-    screen.getByRole("combobox", { name: "Existing branch" })
+    screen.getByRole("combobox", { name: "Starting branch" })
   ).toBeDefined();
 });

@@ -919,9 +919,10 @@ describe("handleSubmit", () => {
 
   it("keeps an API failure for the dialog and resets the creating flag", async () => {
     const { result, onCreated } = await setup();
-    apiMock.mockImplementation(async (path: string) => {
+    const read = apiMock.getMockImplementation()!;
+    apiMock.mockImplementation(async (path, options) => {
       if (path === "/api/v1/agents") throw new Error("boom");
-      return { projects: [], homeDir: "/home/srv" };
+      return read(path, options);
     });
 
     await act(async () => result.current.handleSubmit(submitEvent()));
@@ -934,9 +935,10 @@ describe("handleSubmit", () => {
 
   it("keeps a non-Error failure too", async () => {
     const { result } = await setup();
-    apiMock.mockImplementation(async (path: string) => {
+    const read = apiMock.getMockImplementation()!;
+    apiMock.mockImplementation(async (path, options) => {
       if (path === "/api/v1/agents") throw "string failure";
-      return { projects: [], homeDir: "/home/srv" };
+      return read(path, options);
     });
 
     await act(async () => result.current.handleSubmit(submitEvent()));
