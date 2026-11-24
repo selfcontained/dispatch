@@ -1887,6 +1887,36 @@ describe("ChatPane jump to a block", () => {
     expect(screen.queryByTestId("chat-jump-to-bottom")).toBeNull();
   });
 
+  it("keeps a cold-load jump where it lands, not at the bottom opened at", () => {
+    H.entries = [
+      ...older,
+      pendingTurn("t1", "agt_1", "2026-09-02T10:01:00.000Z"),
+    ];
+    const heightMock = vi
+      .spyOn(HTMLElement.prototype, "scrollHeight", "get")
+      .mockReturnValue(1000);
+    const clientMock = vi
+      .spyOn(HTMLElement.prototype, "clientHeight", "get")
+      .mockReturnValue(200);
+    vi.mocked(Element.prototype.scrollTo).mockImplementation(function (
+      this: HTMLElement
+    ) {
+      this.scrollTop = this.scrollHeight - this.clientHeight;
+    });
+    try {
+      renderAt("?block=t1");
+      expect(rowOf("t1").hasAttribute("data-jump-flash")).toBe(true);
+      // The jump's own scroll lands mid-feed, inside the opening hold.
+      const scroll = screen.getByTestId("chat-scroll");
+      scroll.scrollTop = 300;
+      fireEvent.scroll(scroll);
+      expect(scroll.scrollTop).toBe(300);
+    } finally {
+      heightMock.mockRestore();
+      clientMock.mockRestore();
+    }
+  });
+
   it("waits for a target that is not in the feed yet", () => {
     H.entries = [...older];
     const { rerenderPane } = renderAt("?block=t1");

@@ -636,8 +636,15 @@ export function ChatPane({
   const reapplyRestore = useCallback((el: HTMLElement) => {
     if (restoreHoldUntilRef.current === 0) return;
     if (Date.now() >= restoreHoldUntilRef.current) return;
+    // A deliberate move away (a jump to a row, the start of a tall reply)
+    // ends the hold where it is made; this only guards against a late one.
+    if (anchoredRef.current !== 0) return;
     if (holdBottomRef.current) {
-      if (el.scrollHeight - el.clientHeight - el.scrollTop > 1)
+      // A smooth follow under way is already headed for the bottom.
+      if (
+        tailTarget.current === null &&
+        el.scrollHeight - el.clientHeight - el.scrollTop > 1
+      )
         scrollToBottomRef.current();
       return;
     }
@@ -1046,6 +1053,7 @@ export function ChatPane({
     if (tailing && landed && !streamedTurnIdsRef.current.has(landed.id)) {
       if (replyStartIfTall(el, landed.id) !== null) {
         cancelTail();
+        endRestoreHold();
         anchoredRef.current = Date.now();
         anchorTurnRef.current = landed.id;
         updateFollowing(false);
@@ -1072,6 +1080,7 @@ export function ChatPane({
     cancelTail,
     seekSaved,
     startRestoreHold,
+    endRestoreHold,
     entries,
     visibleEntries,
   ]);
@@ -1115,6 +1124,7 @@ export function ChatPane({
     scrollRef,
     () => {
       cancelTail();
+      endRestoreHold();
       anchoredRef.current = Date.now();
       anchorTurnRef.current = null;
       updateFollowing(false);
