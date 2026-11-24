@@ -155,7 +155,8 @@ async function up(run) {
       "--label",
       `dispatch-remote-e2e=${id}`,
       "--add-host",
-      "host.docker.internal:host-gateway",
+      // Lima's Docker gateway is the VM; callers can name the Mac's address.
+      `host.docker.internal:${process.env.REMOTE_E2E_HOST_GATEWAY ?? "host-gateway"}`,
       "-v",
       `${path.join(run, name)}:/etc/runner:ro`,
       "-v",
