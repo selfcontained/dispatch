@@ -671,6 +671,29 @@ export function workspaceHandlers(
       };
     },
 
+    /**
+     * A file the caller hands the session where it is, on a transport that
+     * passes a path in place (the local socket): nothing is read or copied.
+     * The bytes of a file are not received here.
+     */
+    async "files.put"(input: Req<"files.put">, context) {
+      // Registered before any await: the frame may follow the request.
+      const taken = context.receiveBlobPath?.(input.blob);
+      taken?.catch(() => {});
+      if (!taken || !port.putFile)
+        throw new RunnerCallError({
+          code: "unsupported",
+          message: "This runner takes session files in place only.",
+        });
+      if (!(await store.get(sessionToWire(input.session))))
+        throw new RunnerCallError({
+          code: "not_found",
+          message: "No checkout is bound to this session",
+        });
+      const { path, mustExist } = await taken;
+      return { path: pathFromWire(await port.putFile(path, { mustExist })) };
+    },
+
     async "path.resolve"(input: Req<"path.resolve">) {
       if (!port.resolvePath)
         throw new RunnerCallError({
