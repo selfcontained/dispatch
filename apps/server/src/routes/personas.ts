@@ -123,24 +123,21 @@ export async function registerPersonaRoutes(
       if (typeof query.agentId === "string") {
         const agent = await deps.agentManager.getAgent(query.agentId);
         if (!agent) return reply.code(404).send({ error: "Agent not found." });
-        const [catalog, owners] = await Promise.all([
-          listPersonas(
-            personaScopeFor({ manager: deps.agentManager, agent }),
-            type
-          ),
-          readSessionOwnerRules(deps.agentManager, agent).catch(() => null),
-        ]);
+        const [{ personas, warnings, refreshing, updatedAt }, owners] =
+          await Promise.all([
+            listPersonas(
+              personaScopeFor({ manager: deps.agentManager, agent }),
+              type
+            ),
+            readSessionOwnerRules(deps.agentManager, agent).catch(() => null),
+          ]);
+        // Main's answer for the agent's workspace folder, field for field.
         return {
-          ...catalog,
-          personas: catalog.personas.map(
-            ({ slug, name, description, type }) => ({
-              slug,
-              name,
-              description,
-              type,
-            })
-          ),
+          personas,
           codeowners: owners !== null,
+          refreshing,
+          updatedAt,
+          ...(warnings.length ? { warnings } : {}),
         };
       }
       const cwd = typeof query.cwd === "string" ? query.cwd : undefined;
