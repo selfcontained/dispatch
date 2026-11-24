@@ -229,6 +229,7 @@ describe("launch target adapter", () => {
         projectId: "project",
         directory: "",
         inherited,
+        locationLabel: "Fixture",
       });
     }
     expect((await get("/api/v1/templates")).body).toBe(before);
