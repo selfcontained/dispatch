@@ -95,11 +95,7 @@ export async function loadCheckoutPersonas(
     let entries: string[];
     try {
       entries = await listFiles(directory);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT")
-        warnings.push(
-          `Could not list personas in ${directory}: ${errorMessage(error)}`
-        );
+    } catch {
       continue;
     }
 
