@@ -180,6 +180,8 @@ async function up(run) {
       "export DISPATCH_RUNNER_ENDPOINT_HOST=host.docker.internal",
       `export CLAUDE_CONFIG_DIR='${providerFixture}'`,
       `export CODEX_HOME='${providerFixture}'`,
+      // The native terminal must not wait for interactive oh-my-zsh updates.
+      "export SHELL=/bin/bash",
       `export REMOTE_E2E_STATE='${path.join(run, "state.json")}'`,
       "",
     ].join("\n")
