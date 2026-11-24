@@ -74,6 +74,7 @@ import type { Placement } from "@dispatch/runner-protocol/contract";
 import { checkoutReadPlacement } from "../runners/placement.js";
 import {
   PROJECT_IDENTITY_SQL,
+  SESSION_REPOSITORY_SQL,
   projectIdentities,
   repositoryKey,
   type ProjectIdentity,
@@ -193,7 +194,8 @@ async function addressableAgents<
   agentId: string,
   senderRepoRoot: string | null,
   crossRepo: boolean,
-  project: (id: string | null | undefined) => Promise<ProjectIdentity | null>
+  project: (id: string | null | undefined) => Promise<ProjectIdentity | null>,
+  repository: (agentId: string) => Promise<string | null>
 ): Promise<T[]> {
   const sender = all.find((a) => a.id === agentId);
   const senderParentId = sender?.parentAgentId ?? null;
@@ -225,6 +227,7 @@ async function addressableAgents<
         // agent cwd not in a git repo — skip
         resolveRepoRoot(a.workspacePath ?? a.cwd).catch(() => null),
       project: () => project(a.projectId),
+      repository: () => repository(a.id),
     });
     if (aKey !== null && aKey === senderRepoRoot) result.push(a);
   }
@@ -883,7 +886,13 @@ async function handleListAgentsForAgent(
       async (id) =>
         (await deps.pool.query<ProjectIdentity>(PROJECT_IDENTITY_SQL, [id]))
           .rows[0] ?? null
-    )
+    ),
+    async (id) =>
+      (
+        await deps.pool.query<{ url: string | null }>(SESSION_REPOSITORY_SQL, [
+          id,
+        ])
+      ).rows[0]?.url ?? null
   );
   // Two different scopes, deliberately.
   //

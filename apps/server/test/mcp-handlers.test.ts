@@ -2606,6 +2606,41 @@ describe("createMcpHandlers", () => {
       });
     });
 
+    it("lists project-less runner agents of one recorded repository (T34 key)", async () => {
+      const runner = "runner://runner-test/@session";
+      deps.agentManager.listAgents.mockResolvedValue([
+        { id: "agt_self", name: "self", cwd: runner, status: "running" },
+        { id: "agt_peer", name: "peer", cwd: runner, status: "running" },
+        { id: "agt_other", name: "other", cwd: runner, status: "running" },
+        { id: "agt_local", name: "local", cwd: "/repo", status: "running" },
+      ]);
+      vi.mocked(resolveRepoRoot).mockImplementation(
+        async (cwd) => cwd as string
+      );
+      const urls: Record<string, string> = {
+        agt_self: "https://example.test/shared.git",
+        agt_peer: "https://example.test/shared",
+        agt_other: "https://example.test/other",
+      };
+      deps.pool.query.mockImplementation(async (sql: string, params: any[]) =>
+        sql.includes("runner_repository")
+          ? { rows: [{ url: urls[params[0]] ?? null }] }
+          : { rows: [] }
+      );
+      const result = await handlers.listAgentsForAgent(
+        "agt_self",
+        "https://example.test/shared"
+      );
+      expect(result.map(({ id }) => id)).toEqual(["agt_peer"]);
+      // A local agent's key is its folder's; no session repository is read.
+      expect(
+        deps.pool.query.mock.calls.filter(
+          ([sql, params]: any[]) =>
+            sql.includes("runner_repository") && params[0] === "agt_local"
+        )
+      ).toHaveLength(0);
+    });
+
     it("returns empty list when senderRepoRoot is null and no parent/child", async () => {
       deps.agentManager.listAgents.mockResolvedValue([
         {
