@@ -219,6 +219,22 @@ export function createLocalCheckoutRunner(
     options?: CallOptions<K>
   ): Promise<Res<K>> {
     const { target, ...request } = input as Req<ChildRead>;
+    // A folder before any session exists: in the child when it is ready,
+    // else, and when it dies mid-call, the same port in process (R3).
+    if ("path" in target) {
+      if (child?.connection.state === "ready")
+        try {
+          return await child.call(op, input, options);
+        } catch (error) {
+          if (!childUnavailable(error)) throw error;
+          options?.signal?.throwIfAborted();
+        }
+      return checkoutWorkload.run(
+        op,
+        { directory: displayPath(target.path), request } as never,
+        { signal: options?.signal }
+      );
+    }
     if (!("session" in target) || sessionToWire(target.session) !== agent?.id)
       throw new RunnerCallError({
         code: "invalid",
