@@ -98,6 +98,9 @@ function world() {
   }
   const manager = new EngineManager({
     engineActions: {
+      usage: () => {
+        throw new Error("Unexpected fixture usage request");
+      },
       calls: (target) => scopedEngineCalls({} as never, service, target),
       updates: () => ({}) as never,
     },

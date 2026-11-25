@@ -302,6 +302,7 @@ export const engineUsage = object({
           id: string,
           label: string,
           usedPercent: number,
+          severity: optional(string),
           resetsAt: nullable(string),
         })
       ),
@@ -312,13 +313,28 @@ export const engineUsage = object({
           limit: number,
           currency: string,
           enabled: optional(boolean),
+          disabledReason: optional(string),
         })
       ),
       credits: optional(
         object({ balance: nullable(number), unlimited: boolean })
       ),
       limitResets: optional(
-        object({ available: integer, applicable: integer })
+        object({
+          available: number,
+          applicable: number,
+          oldestExpiresAt: optional(nullable(string)),
+          items: optional(
+            array(
+              object({
+                id: string,
+                title: string,
+                grantedAt: nullable(string),
+                expiresAt: nullable(string),
+              })
+            )
+          ),
+        })
       ),
       unavailableReason: optional(string),
     })

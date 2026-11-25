@@ -202,6 +202,46 @@ describe("UsageWatchService (postgres)", () => {
   });
   afterEach(() => service.dispose());
 
+  it("isolates subscriptions, claims and rearming by the watched agent's runner report", async () => {
+    service.dispose();
+    let a = report(plan("codex", [10]));
+    let b = report(plan("codex", [10]));
+    const local = vi.fn(async () => {
+      throw new Error("must not read controller usage");
+    });
+    service = new UsageWatchService({
+      pool,
+      providerPlans: local,
+      providerPlansForAgent: async (id) => (id === "agt_uw_a" ? a : b),
+      deliver,
+      warn: () => {},
+      now: () => clock,
+    });
+    const input = {
+      type: "codex" as const,
+      comparison: "at_or_below" as const,
+      remainingPercent: 10,
+    };
+    await service.subscribe("agt_uw_a", input);
+    await service.subscribe("agt_uw_b", input);
+    a = report(plan("codex", [95]));
+    await service.tick();
+    await service.idle();
+    expect(deliver.mock.calls.map(([id]) => id)).toEqual(["agt_uw_a"]);
+    // Only B crosses next; A must remain disarmed despite B's earlier high headroom.
+    b = report(plan("codex", [99]));
+    await service.tick();
+    await service.idle();
+    expect(deliver.mock.calls.map(([id]) => id)).toEqual([
+      "agt_uw_a",
+      "agt_uw_b",
+    ]);
+    await service.tick();
+    await service.idle();
+    expect(deliver).toHaveBeenCalledTimes(2);
+    expect(local).not.toHaveBeenCalled();
+  });
+
   const feed = async (...providers: ProviderPlan[]) => {
     current = report(...providers);
     await service.evaluate(current);

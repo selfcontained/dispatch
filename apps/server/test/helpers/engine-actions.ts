@@ -1,3 +1,5 @@
+import { createRunnerUsage } from "../../src/agents/codex-reset.js";
+import { engineScopeKey } from "@dispatch/runner-protocol/engine-management";
 /** Legacy wire fixtures projected into the current engine-call dependency. */
 import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 import type { EngineCalls } from "../../src/runners/local.js";
@@ -6,7 +8,19 @@ import type { EngineManager } from "../../src/agents/remote/engine-manager.js";
 export function fixtureEngineActions(
   deps: Omit<ConstructorParameters<typeof EngineManager>[0], "engineActions">
 ): ConstructorParameters<typeof EngineManager>[0]["engineActions"] {
-  return {
+  const coordinators = new Map<string, ReturnType<typeof createRunnerUsage>>();
+  const actions: ConstructorParameters<
+    typeof EngineManager
+  >[0]["engineActions"] = {
+    usage(scope) {
+      const key = engineScopeKey(scope);
+      let usage = coordinators.get(key);
+      if (!usage) {
+        usage = createRunnerUsage(actions.calls(scope));
+        coordinators.set(key, usage);
+      }
+      return usage;
+    },
     updates: () => deps.local.updates,
     calls: (scope) => {
       if (scope.kind === "local") return deps.local.engines;
@@ -43,4 +57,5 @@ export function fixtureEngineActions(
       } as EngineCalls;
     },
   };
+  return actions;
 }

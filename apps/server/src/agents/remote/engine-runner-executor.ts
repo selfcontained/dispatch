@@ -1,3 +1,9 @@
+import {
+  loadProviderPlans,
+  consumeCodexLimitReset,
+  CodexResetError,
+  type ProviderPlanOptions,
+} from "../provider-plans.js";
 import { createInterface } from "node:readline";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import {
@@ -76,6 +82,7 @@ export type EngineListParts = {
 };
 
 export type EngineWorkloadPlatform = {
+  providerOptions?: ProviderPlanOptions;
   plugins?: ReadonlyMap<string, PluginStatusChecker>;
   inspectUpdate?: (
     engine: string,
@@ -103,6 +110,28 @@ export class EngineWorkload {
 
   constructor(private readonly platform: EngineWorkloadPlatform) {
     this.logins = new EngineLogins(platform.logins);
+  }
+
+  usage(_request: Req<"engine.usage">) {
+    return loadProviderPlans(this.platform.providerOptions);
+  }
+  async quotaReset(
+    request: Req<"engine.quota.reset">
+  ): Promise<Res<"engine.quota.reset">> {
+    try {
+      return await consumeCodexLimitReset({
+        ...this.platform.providerOptions,
+        requestId: request.requestId,
+      });
+    } catch (error) {
+      if (error instanceof CodexResetError)
+        return {
+          code: "",
+          windowsReset: 0,
+          error: { reason: error.reason, message: error.message },
+        };
+      throw error;
+    }
   }
 
   async updateInspect(
@@ -269,12 +298,14 @@ export class EngineWorkload {
 export function localEngineWorkload(
   bins: Partial<Record<AcpEngineId, string>>,
   seams: Pick<EngineLoginDeps, "command" | "env" | "linkTimeoutMs"> & {
+    providerOptions?: ProviderPlanOptions;
     updates?: Partial<Record<AcpEngineId, ManagedCommand>>;
     installs?: Partial<Record<AcpEngineId, ManagedCommand>>;
   } = {}
 ): EngineWorkload {
   const statuses = () => engineStatuses(bins, seams.env ?? process.env);
   return new EngineWorkload({
+    providerOptions: seams.providerOptions,
     inspectUpdate: async (engine, action, presentation) => {
       const status = (await statuses()).find((row) => row.id === engine);
       if (!status)

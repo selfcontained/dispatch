@@ -1047,6 +1047,8 @@ export type LocalRunnerFence = {
 };
 
 export type EngineCallName =
+  | "engine.usage"
+  | "engine.quota.reset"
   | "engine.update.inspect"
   | "engine.update.spawn"
   | "engine.update.release"
@@ -1080,6 +1082,10 @@ const childMissed = (error: unknown) =>
 
 /** The posix-user engine port, as this process runs it while the child is away. */
 export type InProcessEngines = {
+  usage(request: Req<"engine.usage">): Promise<Res<"engine.usage">>;
+  quotaReset(
+    request: Req<"engine.quota.reset">
+  ): Promise<Res<"engine.quota.reset">>;
   updateInspect(
     request: Req<"engine.update.inspect">
   ): Promise<Res<"engine.update.inspect">>;
@@ -1140,6 +1146,12 @@ export function localEngineCalls(
     options?: CallOptions<K>
   ): Promise<Res<K>> {
     switch (op) {
+      case "engine.usage":
+        return (await inProcess.usage(input as Req<"engine.usage">)) as Res<K>;
+      case "engine.quota.reset":
+        return (await inProcess.quotaReset(
+          input as Req<"engine.quota.reset">
+        )) as Res<K>;
       case "engine.update.inspect":
         return (await inProcess.updateInspect(
           input as Req<"engine.update.inspect">
@@ -1199,6 +1211,7 @@ export function localEngineCalls(
       // Mutation replay protection belongs to the owning host. A lost
       // acknowledgement must not replay against a restarted or fallback host.
       const singleAttempt =
+        op === "engine.quota.reset" ||
         op === "engine.update.spawn" ||
         op === "engine.update.release" ||
         op === "engine.plugin.apply";

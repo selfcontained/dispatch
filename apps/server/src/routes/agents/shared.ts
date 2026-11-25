@@ -1,4 +1,3 @@
-import type { LocalEngineRunner } from "../../agents/local-runner-engine.js";
 import type { RedeemCodexReset } from "../../agents/codex-reset.js";
 import type { ProviderPlansResponse } from "@dispatch/shared";
 import type { FastifyBaseLogger, FastifyReply } from "fastify";
@@ -61,15 +60,19 @@ export type AgentRouteDeps = {
    * message; see `routes/agents/prompt-routes.ts`.
    */
   chat: StreamService;
-  localEngines?: Pick<
-    LocalEngineRunner,
-    "readProviderPlans" | "consumeCodexReset"
-  >;
   /** Subscription plan usage; tests inject one so nothing reads a real login. */
   providerPlans?: ((request?: {
     force?: boolean;
   }) => Promise<ProviderPlansResponse>) & { invalidate?: () => void };
   /** Spends a Codex limit reset; tests inject one so nothing reaches ChatGPT. */
+  usageForRunner?: (id: string) => {
+    providerPlans: NonNullable<AgentRouteDeps["providerPlans"]>;
+    redeemCodexReset: RedeemCodexReset;
+  };
+  usageForAgent?: (id: string) => Promise<{
+    providerPlans: NonNullable<AgentRouteDeps["providerPlans"]>;
+    redeemCodexReset: RedeemCodexReset;
+  }>;
   redeemCodexReset?: RedeemCodexReset;
   consumeCodexReset?: () => Promise<CodexResetOutcome>;
   /**

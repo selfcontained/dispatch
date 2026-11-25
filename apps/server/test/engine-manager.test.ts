@@ -452,3 +452,49 @@ describe("EngineManager runner scope", () => {
     unsubscribe();
   });
 });
+
+it("usage and reset RPC aliases share Dispatch's runner coordinator without legacy host calls", async () => {
+  const report = { checkedAt: "2026-11-24T12:00:00Z", providers: [] };
+  const outcome = {
+    code: "future_provider_code",
+    windowsReset: 2.5,
+    credit: { id: "credit", title: "Reset", expiresAt: null },
+  };
+  const usage = vi.fn(() => ({
+    providerPlans: vi.fn(async () => report),
+    redeemCodexReset: vi.fn(async () => ({
+      outcome,
+      error: null,
+      usage: report,
+      refreshError: null,
+    })),
+  }));
+  const handle = vi.fn();
+  const send = vi.fn();
+  const calls = vi.fn();
+  const manager = new ActualEngineManager({
+    local: { capabilities: { handle } },
+    remote: { send },
+    engineActions: { usage, calls },
+  } as never);
+  for (const scope of [
+    { kind: "local" },
+    { kind: "runner", runnerId: "fixture-runner" },
+  ] as const) {
+    expect(await manager.rpc(scope, { type: "provider_usage" })).toEqual({
+      ok: true,
+      capability: { type: "provider_usage", usage: report },
+    });
+    expect(
+      await manager.rpc(scope, {
+        type: "codex_reset",
+        account: "legacy-precondition",
+        requestId: "fixture",
+      })
+    ).toEqual({ ok: true, capability: { type: "codex_reset", ...outcome } });
+    expect(usage).toHaveBeenCalledWith(scope);
+  }
+  expect(handle).not.toHaveBeenCalled();
+  expect(send).not.toHaveBeenCalled();
+  expect(calls).not.toHaveBeenCalled();
+});

@@ -15,7 +15,11 @@ import {
   validateJobMcpToken,
 } from "../src/auth.js";
 import { createLocalEngineRunner } from "../src/agents/local-runner-engine.js";
-import { createProviderPlansReporter } from "../src/agents/provider-plans.js";
+import {
+  loadProviderPlans,
+  consumeCodexLimitReset,
+  createProviderPlansReporter,
+} from "../src/agents/provider-plans.js";
 import { createPluginStatusChecker } from "../src/shared/plugin-status.js";
 import { registerPluginRoutes } from "../src/routes/plugin.js";
 import { registerSystemRoutes } from "../src/routes/system.js";
@@ -226,10 +230,23 @@ esac
     const readModels = vi.spyOn(agentModels, "agentModelCatalog");
     const readChoices = vi.spyOn(agentModels, "getAgentModelOptions");
     const providerPlans = createProviderPlansReporter({
-      load: localEngines.readProviderPlans,
+      load: () =>
+        loadProviderPlans({
+          homeDir: home,
+          env: {},
+          platform: "linux",
+          fetchUsage,
+        }),
     });
     const redeemCodexReset = createCodexResetCoordinator({
-      consume: localEngines.consumeCodexReset,
+      consume: (requestId) =>
+        consumeCodexLimitReset({
+          homeDir: home,
+          env: {},
+          platform: "linux",
+          fetchUsage,
+          requestId,
+        }),
       providerPlans,
     });
     const agentManager = {
@@ -474,4 +491,72 @@ esac
       await rm(home, { recursive: true, force: true });
     }
   });
+});
+
+it("agent and runner usage routes share scoped reports, reset envelopes and UUID validation", async () => {
+  const app = Fastify();
+  const localPlans = Object.assign(
+    vi.fn(async () => report),
+    { invalidate: vi.fn() }
+  );
+  const scopedReport = { ...report, checkedAt: "2026-11-24T12:00:00Z" };
+  const scopedPlans = Object.assign(
+    vi.fn(async () => scopedReport),
+    { invalidate: vi.fn() }
+  );
+  const redeem = vi.fn(async () => ({
+    outcome,
+    error: null,
+    usage: scopedReport,
+    refreshError: null,
+  }));
+  const scoped = { providerPlans: scopedPlans, redeemCodexReset: redeem };
+  await registerAgentUsageRoutes(app, {
+    providerPlans: localPlans,
+    redeemCodexReset: redeem,
+    agentManager: {
+      getAgent: async (id: string) => (id === "missing" ? null : { id }),
+    },
+    usageForAgent: async () => scoped,
+    usageForRunner: () => scoped,
+  } as never);
+  try {
+    for (const prefix of [
+      "/api/v1/agents/fixture/usage",
+      "/api/v1/runners/fixture/usage",
+    ]) {
+      const plans = await app.inject({
+        method: "GET",
+        url: prefix + "/plans?force=1",
+      });
+      expect(plans.json()).toEqual(scopedReport);
+      const invalid = await app.inject({
+        method: "POST",
+        url: prefix + "/codex/resets/consume",
+        payload: { idempotencyKey: "bad" },
+      });
+      expect(invalid.statusCode).toBe(400);
+      expect(invalid.json()).toEqual({
+        error: "idempotencyKey must be a UUID.",
+      });
+      const result = await app.inject({
+        method: "POST",
+        url: prefix + "/codex/resets/consume",
+        payload: { idempotencyKey: key },
+      });
+      expect(result.json()).toEqual(outcome);
+    }
+    expect(localPlans).not.toHaveBeenCalled();
+    expect(scopedPlans).toHaveBeenCalledWith({ force: true });
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/api/v1/agents/missing/usage/plans",
+        })
+      ).statusCode
+    ).toBe(404);
+  } finally {
+    await app.close();
+  }
 });

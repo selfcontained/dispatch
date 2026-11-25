@@ -144,6 +144,8 @@ export function isEngineCapabilityOperation(
 
 /** Current engine calls use the existing authenticated engine request envelope. */
 export const ENGINE_HOST_CALLS = [
+  "engine.usage",
+  "engine.quota.reset",
   "engine.list",
   "engine.login.start",
   "engine.login.submit",

@@ -6,7 +6,7 @@
  *                             runner recorded it
  *   RUNNER_DIE_AFTER_INSTALL  after dependencies, before the binding
  */
-import { existsSync, rmSync } from "node:fs";
+import { appendFileSync, existsSync, rmSync } from "node:fs";
 import { createSessionCore, runCli } from "@dispatch/runner/cli";
 import { embeddedBuild } from "../../src/agents/build-identity.js";
 import {
@@ -25,6 +25,21 @@ const dieOnce = (marker: string | undefined) => {
 };
 
 const engines = localEnginePort();
+// Fixture-only provider acts: no provider or ambient credentials are ever read.
+if (process.env.RUNNER_FIXTURE_RESET_LOG) {
+  engines.usage = async () => ({
+    checkedAt: new Date().toISOString(),
+    providers: [],
+  });
+  engines.quotaReset = async (request) => {
+    appendFileSync(
+      process.env.RUNNER_FIXTURE_RESET_LOG!,
+      request.requestId + "\n"
+    );
+    dieOnce(process.env.RUNNER_DIE_AFTER_RESET);
+    return { code: "ok", windowsReset: 1, credit: null };
+  };
+}
 const updateSpawn = engines.updateSpawn.bind(engines);
 engines.updateSpawn = async (request) => {
   const result = await updateSpawn(request);

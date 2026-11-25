@@ -1,5 +1,12 @@
+import { createRunnerUsage } from "../src/agents/codex-reset.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { localEngineCalls, inProcessEngines } from "../src/runners/local.js";
@@ -490,4 +497,41 @@ describe("engine update host lifetime", () => {
     ]);
     host.close();
   });
+});
+
+it("a real local child lost reset reply is never re-sent after restart or on fallback", async () => {
+  const state = root();
+  const log = path.join(state, "fixture-spends");
+  const crash = path.join(state, "crash-after-reset");
+  writeFileSync(crash, "");
+  const runner = startTestLocalRunner(state, {
+    env: {
+      HOME: state,
+      RUNNER_FIXTURE_RESET_LOG: log,
+      RUNNER_DIE_AFTER_RESET: crash,
+    },
+  });
+  const fallback = inProcessEngines({ claudeBin: "fixture" });
+  const spend = vi.spyOn(fallback, "quotaReset");
+  vi.spyOn(fallback, "usage").mockResolvedValue({
+    checkedAt: "2026-11-24T12:00:00Z",
+    providers: [],
+  });
+  try {
+    await runner.ready();
+    await runner.session.call("runner.health", {});
+    const usage = createRunnerUsage(
+      localEngineCalls(() => runner.session, fallback)
+    );
+    const key = "a8b3cda6-7890-4a17-a031-9affc78a1eba";
+    const result = await usage.redeemCodexReset(key);
+    expect(result.error?.possiblyConsumed).toBe(true);
+    await runner.ready(1);
+    expect(await usage.redeemCodexReset(key)).toEqual(result);
+    expect(readFileSync(log, "utf8")).toBe(key + "\n");
+    expect(spend).not.toHaveBeenCalled();
+  } finally {
+    fallback.close();
+    await runner.stop();
+  }
 });

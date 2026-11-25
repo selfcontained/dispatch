@@ -5,6 +5,7 @@ import {
 import { launchPersonaScope } from "./personas/persona-scope.js";
 import { localLaunchSettings } from "./agents/acp/launch-env.js";
 import {
+  controllerPlacement,
   enrolledRunnerId,
   isOnEnrolledRunner,
   placementForEnrolledId,
@@ -41,7 +42,7 @@ import {
   registerPortfolioRoutes,
 } from "./routes/portfolio.js";
 import { installRequestLifecycle } from "./server/request-lifecycle.js";
-import { createCodexResetCoordinator } from "./agents/codex-reset.js";
+import { createRunnerUsage } from "./agents/codex-reset.js";
 import { createLocalEngineRunner } from "./agents/local-runner-engine.js";
 import { TaskWatchNotifier } from "./tasks/watch-notifier.js";
 import { UsageWatchService } from "./agents/usage-watches.js";
@@ -141,7 +142,6 @@ import {
 } from "./generated/runtime-assets.js";
 import { BrainStore } from "./brain/store.js";
 import { registerActivityRoutes } from "./routes/activity/index.js";
-import { createProviderPlansReporter } from "./agents/provider-plans.js";
 import { parseCodeowners } from "./personas/codeowners.js";
 import { LEGACY_OWNERS_PATH, OWNERS_PATH } from "./personas/paths.js";
 import { createMergeRiskGitHubSource } from "./agents/merge-risk/github-source.js";
@@ -1153,19 +1153,55 @@ async function registerRoutes() {
     bins: { claude: config.claudeBin, codex: config.codexBin },
     logger: app.log,
   });
-  const providerPlans = createProviderPlansReporter({
-    load: localEngines.readProviderPlans,
-    log: app.log,
+  const localEnginesInProcess = inProcessEngines({
+    claudeBin: config.claudeBin,
+    codexBin: config.codexBin,
+    opencodeBin: config.opencodeBin,
   });
-  const redeemCodexReset = createCodexResetCoordinator({
-    providerPlans,
-    consume: localEngines.consumeCodexReset,
-  });
+  app.addHook("onClose", async () => localEnginesInProcess.close());
+  const engineCalls = (scope: EngineScope) =>
+    scopedEngineCalls(
+      localEngineCalls(
+        () => localRunnerOf(localRunnerProcess),
+        localEnginesInProcess
+      ),
+      remoteRunner,
+      scope
+    );
+  const stopUsageReports: Array<() => void> = [];
+  const usageCoordinators = new Map<
+    string,
+    ReturnType<typeof createRunnerUsage>
+  >();
+  function usageForCalls(calls: ReturnType<typeof engineCalls>) {
+    const key = calls.settings.namespace;
+    let usage = usageCoordinators.get(key);
+    if (!usage) {
+      usage = createRunnerUsage(calls);
+      usageCoordinators.set(key, usage);
+      stopUsageReports.push(
+        usage.providerPlans.onReport(() => usageWatches.evaluate())
+      );
+    }
+    return usage;
+  }
+  const usageForRunner = (runnerId: string) =>
+    usageForCalls(engineCalls(engineScopeForRunner(runnerId)));
+  const { providerPlans, redeemCodexReset } = usageForRunner(
+    runnerIdForPlacement(controllerPlacement)
+  );
+  const usageForAgent = async (id: string) => {
+    const agent = await agentManager.getAgent(id);
+    if (!agent) throw new Error("Agent not found.");
+    return usageForRunner(runnerIdForPlacement(agent.placement));
+  };
   // One evaluator for every agent's usage watches, fed by every refresh of
   // the shared reporter plus its own bounded tick while live watches exist.
   const usageWatches = new UsageWatchService({
     pool,
     providerPlans,
+    providerPlansForAgent: async (id) =>
+      (await usageForAgent(id)).providerPlans(),
     deliver: async (agentId, text, options) => {
       await (
         await enqueueAgentPrompt(agentId, text, {
@@ -1177,21 +1213,18 @@ async function registerRoutes() {
     },
     warn: (err) => app.log.warn({ err }, "usage watch delivery deferred"),
   });
-  const stopUsageReports = providerPlans.onReport((report) =>
-    usageWatches.evaluate(report)
-  );
   // Archived agents never claim a notice; the tick sweeps their rows.
   await usageWatches
     .recover()
     .catch((err) => app.log.warn({ err }, "usage watch recovery failed"));
   usageWatches.start();
   app.addHook("onClose", async () => {
-    stopUsageReports();
+    for (const stop of stopUsageReports) stop();
     usageWatches.dispose();
   });
   await registerMcpRoutes(app, {
-    localEngines,
     runnerEngines,
+    usageForAgent,
     usageWatches,
     providerPlans,
     redeemCodexReset,
@@ -1244,12 +1277,6 @@ async function registerRoutes() {
   // The local placement's engines: the runner child, else this same port in
   // process while the child is away (R3). One login tracker per process, so
   // main's sign-in routes and the engine-management routes never diverge.
-  const localEnginesInProcess = inProcessEngines({
-    claudeBin: config.claudeBin,
-    codexBin: config.codexBin,
-    opencodeBin: config.opencodeBin,
-  });
-  app.addHook("onClose", async () => localEnginesInProcess.close());
   const engineUpdates = new EngineUpdateOperations(engineOperationStore(pool), {
     ...engineUpdatePort(
       localEngineCalls(
@@ -1260,15 +1287,6 @@ async function registerRoutes() {
     onError: (error) =>
       app.log.error({ err: error }, "Engine update persistence failed"),
   });
-  const engineCalls = (scope: EngineScope) =>
-    scopedEngineCalls(
-      localEngineCalls(
-        () => localRunnerOf(localRunnerProcess),
-        localEnginesInProcess
-      ),
-      remoteRunner,
-      scope
-    );
   const updateCoordinators = new Map<string, EngineUpdateOperations>([
     ["local", engineUpdates],
   ]);
@@ -1336,7 +1354,11 @@ async function registerRoutes() {
     },
   });
   const engineManager = new EngineManager({
-    engineActions: { calls: engineCalls, updates: updatesFor },
+    engineActions: {
+      calls: engineCalls,
+      updates: updatesFor,
+      usage: (scope) => usageForCalls(engineCalls(scope)),
+    },
     local: {
       engines: localEngineCalls(
         () => localRunnerOf(localRunnerProcess),
@@ -1497,7 +1519,8 @@ async function registerRoutes() {
   });
 
   await registerAgentRoutes(app, {
-    localEngines,
+    usageForRunner,
+    usageForAgent,
     providerPlans,
     redeemCodexReset,
     tasks: {
