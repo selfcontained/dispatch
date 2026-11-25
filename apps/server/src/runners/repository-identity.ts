@@ -114,3 +114,28 @@ export function repositoryRecord<T extends { url: string }>(
     return repository;
   return { ...repository, identityKey: sessionRepositoryKey(repository.url) };
 }
+
+/**
+ * SQL twin of the launch-folder identity rule, for an agents row aliased `a`.
+ * The local arm is main's expression verbatim. Project identities are already
+ * canonical at their write boundary; a session without a project uses its
+ * checkout owner's persisted canonical repository identity.
+ * Correlated lookups are only evaluated for other runners, preserving local
+ * scans and indexes without joining or materializing the history table.
+ */
+export const HISTORY_IDENTITY_SQL = `CASE WHEN a.runner_id = 'local'
+  THEN COALESCE(a.launch_cwd, a.git_context->>'repoRoot', a.cwd)
+  ELSE (SELECT CASE WHEN p.id IS NOT NULL
+      THEN COALESCE(p.repo_root, p.repository)
+      ELSE owner.runner_repository->>'identityKey' END
+    FROM agents owner LEFT JOIN projects p ON p.id = a.project_id
+    WHERE owner.id = COALESCE(a.runner_worktree_owner, a.id))
+  END`;
+
+/** History presentation data; local response objects retain main's shape. */
+export function historyProjectFields(
+  placement: Placement,
+  project: string | null
+): { project?: string | null } {
+  return sameRunner(placement, controllerPlacement) ? {} : { project };
+}
