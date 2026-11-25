@@ -62,7 +62,8 @@ describe("plugin operations through the engine port", () => {
         plugin: "dispatch@dispatch",
         refresh: false,
       },
-      undefined
+      // One attempt: a child that cannot answer is not waited for.
+      { wait: false }
     );
     expect(plugins.getStatus).not.toHaveBeenCalled();
     call.mockRejectedValue(

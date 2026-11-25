@@ -180,10 +180,27 @@ describe("files.put on the local runner", () => {
         call: vi.fn(),
       } as unknown as Runner,
     ],
-    ["a child that dies mid-call", dying("unavailable")],
-    ["a child whose answer was lost", dying("unknown_outcome")],
+    ["a child that never received it", dying("unavailable")],
   ])("runs the same port in process with %s", async (_name, child) => {
     expect(await putRules(child)).toBe(0);
+  });
+
+  it("answers a put whose reply was lost with a clean error, never a second put", async () => {
+    const deliver = vi.spyOn(sessionFilesWorkload, "put");
+    deliver.mockClear();
+    const file = path.join(root, `lost-${randomUUID()}.txt`);
+    writeFileSync(file, "x");
+    await expect(
+      putSessionFile(
+        runner(dying("unknown_outcome")),
+        handle,
+        file,
+        "lost.txt",
+        "prompt"
+      )
+    ).rejects.toMatchObject({ code: "unknown_outcome" });
+    expect(deliver).not.toHaveBeenCalled();
+    deliver.mockRestore();
   });
 
   it("runs in process for a session the child holds no binding for", async () => {

@@ -185,11 +185,10 @@ describe("PR reads through the agent's runner", () => {
     } as unknown as Runner;
     const viaChild = createLocalCheckoutRunner(undefined, description, child);
     expect(await viaChild.call("github.pr.status", target)).toEqual(scoped);
-    expect(childCall).toHaveBeenCalledWith(
-      "github.pr.status",
-      target,
-      undefined
-    );
+    // One attempt: a child that cannot answer is not waited for.
+    expect(childCall).toHaveBeenCalledWith("github.pr.status", target, {
+      wait: false,
+    });
     expect(childFallback.pullRequestStatus).not.toHaveBeenCalled();
 
     childFallback.pullRequestStatus.mockResolvedValue(scoped);

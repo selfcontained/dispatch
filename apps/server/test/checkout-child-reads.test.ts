@@ -164,6 +164,9 @@ beforeAll(async () => {
     },
   });
   session.setEndpoint({ socket: socketPath, nonce });
+  // Connected, as the app's session is once its child answers describe
+  // (this socket serves checkout reads only; any answer is a connection).
+  await session.call("runner.describe", {}).catch(() => {});
 });
 
 afterAll(() => {
@@ -477,19 +480,26 @@ describe("checkout reads through the local runner child", () => {
     }
   });
 
-  it("answers unavailable as a 503 when the child cannot be reached", async () => {
+  it("answers in process, as main does, when the child cannot be reached", async () => {
     const closed = new LocalRunnerSession({
       description: session.describe(),
     });
     closed.close();
-    const error = await readAgentView(
-      agent(bound),
-      views[0]![1],
-      { local: noCommands, child: () => closed },
-      "main"
-    ).catch((e: unknown) => e);
-    expect(error).toMatchObject({ statusCode: 503 });
-    expect(error).not.toBeInstanceOf(RunnerCallError);
+    for (const [, view] of views)
+      expect(
+        await outcome(() =>
+          readAgentView(
+            agent(bound),
+            view,
+            { local: noCommands, child: () => closed },
+            "main"
+          )
+        )
+      ).toBe(
+        await outcome(() =>
+          readAgentView(agent(bound), view, undefined, "main")
+        )
+      );
   });
 
   describe("a folder before any session exists (T15c)", () => {

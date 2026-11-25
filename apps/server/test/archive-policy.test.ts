@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdtempSync,
   realpathSync,
@@ -340,6 +341,60 @@ describe("archive checkout outcome table", () => {
     }
   );
 
+  it("keeps an unreadable worktree whose release reply was lost, as main keeps a failed cleanup", async () => {
+    if (process.getuid?.() === 0) return; // root reads any folder
+    const row = {
+      placement: "local",
+      mode: "force",
+      state: "clean",
+      borrowed: false,
+    } as const;
+    shape(row.state);
+    const call = vi.fn(async (op: string, input: { path: string }) => {
+      if (op === "path.resolve")
+        return workspaceWorkload.resolvePath(input.path, input);
+      if (op === "workspace.describe")
+        return { path: checkout, checkoutRoot: checkout, moved: false };
+      if (op === "workspace.observe")
+        return {
+          ownership: "owned",
+          owner: "agent-fixture",
+          borrowers: [],
+          checkout: null,
+        };
+      if (op === "workspace.release") {
+        // The child went with its reply, and the worktree cannot be read.
+        chmodSync(fixture, 0o000);
+        throw new RunnerCallError({
+          code: "unknown_outcome",
+          message: "The local runner went away",
+        });
+      }
+      throw new RunnerCallError({ code: "not_found", message: op });
+    });
+    const { deps, agent } = harness(row, {
+      child: {
+        call,
+        connection: { state: "ready", epoch: 1, onChange: () => () => {} },
+      } as unknown as Runner,
+    });
+    const release = vi.spyOn(workspaceWorkload, "release");
+    try {
+      expect(await finishCheckout(deps, agent, row.mode, true, {})).toBe(false);
+    } finally {
+      chmodSync(fixture, 0o755);
+    }
+    expect(existsSync(checkout)).toBe(true);
+    expect(release).not.toHaveBeenCalled();
+    expect(
+      call.mock.calls.filter(([op]) => op === "workspace.release")
+    ).toHaveLength(1);
+    expect(deps.logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ worktreePath: checkout }),
+      "Worktree cleanup failed; leaving on disk."
+    );
+  });
+
   it("uses the in-process cleanup when the local child has no binding", async () => {
     const call = vi.fn(async (op: string, input: { path: string }) => {
       if (op === "path.resolve")
@@ -362,7 +417,8 @@ describe("archive checkout outcome table", () => {
     expect(
       call.mock.calls.filter(([op]) => op === "workspace.describe")
     ).toEqual([
-      ["workspace.describe", { session: "agent-fixture" }, undefined],
+      // One attempt: a child that cannot answer is not waited for.
+      ["workspace.describe", { session: "agent-fixture" }, { wait: false }],
     ]);
   });
 
