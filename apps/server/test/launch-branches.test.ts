@@ -137,7 +137,12 @@ it.each(["absent", "not-ready", "ready", "unavailable", "unknown_outcome"])(
     const call = vi.fn(async (_op, input) => {
       if (state !== "ready")
         throw new RunnerCallError({
-          code: state as "unavailable" | "unknown_outcome",
+          // A child that is not connected answers a single attempt with
+          // `unavailable` at once, as the local session does.
+          code:
+            state === "not-ready"
+              ? "unavailable"
+              : (state as "unavailable" | "unknown_outcome"),
           message: "fixture transport",
         });
       const handlers = checkoutHandlers({} as never, {
@@ -160,9 +165,8 @@ it.each(["absent", "not-ready", "ready", "unavailable", "unknown_outcome"])(
     expect(response.json().branches).toEqual(
       (await listLocalRemoteBranches(root)).branches
     );
-    expect(call).toHaveBeenCalledTimes(
-      ["absent", "not-ready"].includes(state) ? 0 : 1
-    );
+    // One attempt whenever there is a child, never a second.
+    expect(call).toHaveBeenCalledTimes(state === "absent" ? 0 : 1);
   }
 );
 it("maps branch read and timeout failures as main does and rejects a missing folder", async () => {

@@ -323,6 +323,8 @@
         "apps/server/test/git-origin-parity.test.ts",
         "apps/server/test/git-origin-routing.test.ts",
         "apps/server/test/git-origin-child-recovery.test.ts",
+        "apps/server/test/local-adapter-child-loss.test.ts",
+        "apps/server/test/workspace-workload-gone.test.ts",
         "apps/server/test/git-roots-parity.test.ts",
         "apps/server/test/project-root-caller-parity.test.ts",
         "apps/server/test/project-root-child-recovery.test.ts",

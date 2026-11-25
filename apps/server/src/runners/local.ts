@@ -68,6 +68,9 @@ const checkoutWorkload = createCheckoutWorkload({
   parseDefinition: toPersonaDefinition,
 });
 
+/** The checkout workload this adapter runs in process, for its tests to observe. */
+export const localCheckoutWorkload = checkoutWorkload;
+
 /** Checkout reads the local runner child serves (T09). */
 const CHILD_READS = new Set<CallName>([
   "checkout.list",
@@ -90,9 +93,6 @@ type ChildRead =
   | "checkout.changes"
   | "checkout.image"
   | "checkout.defaultFiles";
-
-/** How long a read waits for a child that is restarting. */
-const CHILD_WAIT_MS = 15_000;
 
 type Selector = "current" | "launch" | "moved";
 type ChildBinding = { path: string; launch: string | null; moved: boolean };
@@ -133,11 +133,14 @@ function forgetBinding(child: Runner, session: string) {
   cache.selects.set(session, (cache.selects.get(session) ?? 0) + 1);
 }
 
+/**
+ * The child's binding for the session, asked once: a child that is down or
+ * restarting throws `unavailable` at once instead of being waited for.
+ */
 async function childBinding(
   child: Runner,
   session: Req<"workspace.describe">["session"],
-  signal: AbortSignal,
-  singleAttempt = false
+  signal?: AbortSignal
 ): Promise<ChildBinding | null> {
   const cache = bindingCache(child);
   const key = sessionToWire(session);
@@ -145,11 +148,10 @@ async function childBinding(
   if (known !== undefined) return known;
   const selects = cache.selects.get(key) ?? 0;
   try {
-    const attempt = singleAttempt ? { signal, wait: false } : { signal };
     const described = await child.call(
       "workspace.describe",
       { session },
-      attempt
+      once({ signal })
     );
     const binding = {
       path: displayPath(described.path),
@@ -189,12 +191,54 @@ function commandDirectory(agent: CheckoutSession, selector: Selector) {
   return moved ?? launch;
 }
 
-/** The child could not answer: not running, restarting, or died mid-call. */
-function childUnavailable(error: unknown) {
+/**
+ * One attempt at the child: the session neither waits for a child that is
+ * down or restarting nor sends the call again. A local user gets main's
+ * answer with main's latency, from the identical port here when needed.
+ */
+function once<O extends object>(options?: O): O & { wait: false } {
+  return { ...(options as O), wait: false };
+}
+
+/**
+ * A read the child did not answer: not running, restarting, died mid-call
+ * (`unknown_outcome`), or frozen for an update. A read changes nothing, so
+ * the identical port runs here.
+ */
+function readMissed(error: unknown) {
   return (
     error instanceof RunnerCallError &&
-    (error.code === "unavailable" || error.code === "unknown_outcome")
+    (error.code === "unavailable" ||
+      error.code === "unknown_outcome" ||
+      error.code === "fenced")
   );
+}
+
+/**
+ * A mutation the child never received: only then may it run here. An
+ * uncertain reply (`unknown_outcome`), `fenced` and `not_found` are the
+ * caller's answer.
+ */
+function neverSent(error: unknown) {
+  return error instanceof RunnerCallError && error.code === "unavailable";
+}
+
+/**
+ * The child's answer to one attempt, or null when `missed` says the child
+ * did not answer and the caller should use the port here.
+ */
+async function fromChild<T>(
+  attempt: () => Promise<T>,
+  missed: (error: unknown) => boolean,
+  signal?: AbortSignal
+): Promise<{ value: T } | null> {
+  try {
+    return { value: await attempt() };
+  } catch (error) {
+    if (!missed(error)) throw error;
+    signal?.throwIfAborted();
+    return null;
+  }
 }
 
 export function createLocalCheckoutRunner(
@@ -202,23 +246,37 @@ export function createLocalCheckoutRunner(
   description: RunnerDescription,
   child?: Runner
 ): CheckoutRunner {
-  /** Whether the child holds this session's checkout at `directory`. */
+  /**
+   * One attempt at the child, or null (use the port here) when there is no
+   * child or `missed` says it did not answer. The attempt itself dials a
+   * child that is not connected yet, so a restarted child is used again.
+   */
+  function attempt<T>(
+    run: (child: Runner) => Promise<T>,
+    missed: (error: unknown) => boolean,
+    signal?: AbortSignal
+  ): Promise<{ value: T } | null> {
+    const runner = child;
+    if (!runner) return Promise.resolve(null);
+    return fromChild(() => run(runner), missed, signal);
+  }
+  /**
+   * Whether the child holds this session's checkout at `directory`, asked
+   * once. A child that cannot answer holds nothing for this call: a read
+   * then runs here, and so does a mutation, which was never sent.
+   */
   async function childHolds(
     session: Req<"workspace.describe">["session"],
     selector: Selector,
     directory: string,
     options?: { signal?: AbortSignal }
-  ) {
-    if (!child) return false;
-    const signal = AbortSignal.any([
-      AbortSignal.timeout(CHILD_WAIT_MS),
-      ...(options?.signal ? [options.signal] : []),
-    ]);
-    return names(
-      await childBinding(child, session, signal),
-      selector,
-      directory
+  ): Promise<boolean> {
+    const asked = await attempt(
+      (child) => childBinding(child, session, options?.signal),
+      readMissed,
+      options?.signal
     );
+    return asked !== null && names(asked.value, selector, directory);
   }
 
   /**
@@ -239,13 +297,12 @@ export function createLocalCheckoutRunner(
     // A folder before any session exists: in the child when it is ready,
     // else, and when it dies mid-call, the same port in process (R3).
     if ("path" in target) {
-      if (child?.connection.state === "ready")
-        try {
-          return await child.call(op, input, options);
-        } catch (error) {
-          if (!childUnavailable(error)) throw error;
-          options?.signal?.throwIfAborted();
-        }
+      const answered = await attempt(
+        (child) => child.call(op, input, once(options)),
+        readMissed,
+        options?.signal
+      );
+      if (answered) return answered.value;
       return checkoutWorkload.run(
         op,
         { directory: displayPath(target.path), request } as never,
@@ -281,26 +338,32 @@ export function createLocalCheckoutRunner(
         details: { status: views ? 404 : 409, class: "agent" },
       });
     }
-    if (
-      child &&
+    const answered =
       (await childHolds(
         target.session,
         launched ? "launch" : "current",
         directory,
         options
-      ))
-    )
-      return child.call(
-        op,
-        {
-          ...input,
-          target: {
-            session: target.session,
-            checkout: launched ? "launch" : "current",
-          },
-        },
-        options
-      );
+      )) &&
+      (await attempt(
+        (child) =>
+          child.call(
+            op,
+            {
+              ...input,
+              target: {
+                session: target.session,
+                checkout: launched ? "launch" : "current",
+              },
+            },
+            once(options)
+          ),
+        readMissed,
+        options?.signal
+      ));
+    if (answered) return answered.value;
+    // The directory the child would read: the row's, which every move
+    // (`workspace.select`) records.
     return checkoutWorkload.run(op, { directory, request } as never, {
       signal: options?.signal,
     });
@@ -309,9 +372,10 @@ export function createLocalCheckoutRunner(
   /**
    * A file write in the bound session's current checkout, by the same rule
    * as reads: in the child when it holds that checkout at the directory the
-   * agent row names, else in process with the same workload. A child that
-   * is unavailable or dies mid-call falls back in process; the digest guard
-   * makes a repeat of a write that did land answer `stale`.
+   * agent row names, else in process with the same workload. It is sent
+   * once: only a write the child never received is made here. A lost reply
+   * is the caller's answer (`unknown_outcome`); a caller that repeats it by
+   * hand gets `stale` from the digest guard if the first one landed.
    */
   async function write(
     input: Req<"checkout.write">,
@@ -330,23 +394,22 @@ export function createLocalCheckoutRunner(
         message: "The session checkout is unavailable.",
         details: { status: 409, class: "agent" },
       });
-    if (
-      child &&
-      (await childHolds(target.session, "current", directory, options))
-    )
-      try {
-        return await child.call(
-          "checkout.write",
-          {
-            ...input,
-            target: { session: target.session, checkout: "current" },
-          },
-          options
-        );
-      } catch (error) {
-        if (!childUnavailable(error)) throw error;
-        options?.signal?.throwIfAborted();
-      }
+    const answered =
+      (await childHolds(target.session, "current", directory, options)) &&
+      (await attempt(
+        (child) =>
+          child.call(
+            "checkout.write",
+            {
+              ...input,
+              target: { session: target.session, checkout: "current" },
+            },
+            once(options)
+          ),
+        neverSent,
+        options?.signal
+      ));
+    if (answered) return answered.value;
     return checkoutWorkload.run(
       "checkout.write",
       { directory, request },
@@ -358,8 +421,8 @@ export function createLocalCheckoutRunner(
    * A command for the bound session, by the same rule as reads: in the
    * child when it holds the selected checkout at the directory the agent row
    * names, else in process with the same workload (R3: unbound sessions, as
-   * for reads). The child refuses it with `fenced` while frozen for an
-   * update.
+   * for reads). Sent once: only a command the child never received runs
+   * here. The child refuses it with `fenced` while frozen for an update.
    */
   async function exec(
     input: Req<"checkout.exec">,
@@ -378,15 +441,22 @@ export function createLocalCheckoutRunner(
         code: "not_found",
         message: "The moved checkout is no longer selected.",
       });
-    if (
-      child &&
-      (await childHolds(target.session, selector, directory, options))
-    )
-      return child.call(
-        "checkout.exec",
-        { ...input, target: { session: target.session, checkout: selector } },
-        options
-      );
+    const answered =
+      (await childHolds(target.session, selector, directory, options)) &&
+      (await attempt(
+        (child) =>
+          child.call(
+            "checkout.exec",
+            {
+              ...input,
+              target: { session: target.session, checkout: selector },
+            },
+            once(options)
+          ),
+        neverSent,
+        options?.signal
+      ));
+    if (answered) return answered.value;
     return checkoutWorkload.run(
       "checkout.exec",
       { directory, selector, request },
@@ -397,38 +467,39 @@ export function createLocalCheckoutRunner(
   /**
    * The child's observation when its binding for the session is the
    * worktree the row records and its own to remove; null when it holds
-   * none, holds another, or cannot answer (not running, restarting, or died
-   * mid-call).
+   * none, holds another, or cannot answer (not running, restarting, died
+   * mid-call, or frozen). One attempt each: it is a read.
    */
   async function childOwned(
     session: Req<"workspace.observe">["session"],
     worktree: string,
     options?: { signal?: AbortSignal }
   ): Promise<Res<"workspace.observe"> | null> {
-    if (!child) return null;
-    try {
-      const described = await child
-        .call("workspace.describe", { session }, options)
-        .catch((error: unknown) => {
-          if (error instanceof RunnerCallError && error.code === "not_found")
-            return null;
-          throw error;
-        });
-      if (
-        !described?.checkoutRoot ||
-        displayPath(described.checkoutRoot) !== worktree
-      )
-        return null;
-      const observed = await child.call(
-        "workspace.observe",
-        { session },
-        options
-      );
-      return observed.ownership === "owned" ? observed : null;
-    } catch (error) {
-      if (childUnavailable(error)) return null;
-      throw error;
-    }
+    const asked = await attempt(
+      async (child) => {
+        const described = await child
+          .call("workspace.describe", { session }, once(options))
+          .catch((error: unknown) => {
+            if (error instanceof RunnerCallError && error.code === "not_found")
+              return null;
+            throw error;
+          });
+        if (
+          !described?.checkoutRoot ||
+          displayPath(described.checkoutRoot) !== worktree
+        )
+          return null;
+        const observed = await child.call(
+          "workspace.observe",
+          { session },
+          once(options)
+        );
+        return observed.ownership === "owned" ? observed : null;
+      },
+      readMissed,
+      options?.signal
+    );
+    return asked?.value ?? null;
   }
 
   /**
@@ -462,8 +533,12 @@ export function createLocalCheckoutRunner(
 
   /**
    * Archive's removal of the worktree the row records, by the same rule:
-   * in the child when its binding agrees, else the same port here with the
-   * row's facts, also when the child dies mid-call (R3, as for reads).
+   * in the child when its binding agrees, once; else the same port here
+   * with the row's facts, which only a release the child never received may
+   * reach. A release whose reply was lost is never sent again: a read-only
+   * look at the worktree says whether it went (`removed`), else the caller
+   * gets `unknown_outcome` and archive leaves the checkout on disk, as main
+   * does when its cleanup fails.
    */
   async function release(
     input: Req<"workspace.release">,
@@ -472,12 +547,23 @@ export function createLocalCheckoutRunner(
     const session = boundSession(input);
     const worktree = session.worktreePath;
     if (!worktree) return { removed: false };
-    try {
-      if (child && (await childOwned(input.session, worktree, options)))
-        return await child.call("workspace.release", input, options);
-    } catch (error) {
-      if (!childUnavailable(error)) throw error;
-    }
+    if (child && (await childOwned(input.session, worktree, options)))
+      try {
+        return await child.call("workspace.release", input, once(options));
+      } catch (error) {
+        if (
+          error instanceof RunnerCallError &&
+          error.code === "unknown_outcome"
+        ) {
+          // Read-only; an unreadable worktree is not gone, so it keeps the
+          // lost reply.
+          if (await workspaceWorkload.gone(worktree).catch(() => false))
+            return { removed: true };
+          throw error;
+        }
+        if (!neverSent(error)) throw error;
+        options?.signal?.throwIfAborted();
+      }
     // Main removes the checkout Git resolves for the row's path (its
     // `rev-parse --show-toplevel`), so a row naming a folder inside its
     // worktree loses the worktree, as on main.
@@ -516,11 +602,14 @@ export function createLocalCheckoutRunner(
         code: "not_found",
         message: "The moved checkout is no longer selected.",
       });
-    if (
-      child?.connection.state === "ready" &&
-      (await childHolds(target.session, selector, directory, options))
-    )
-      return child.call("git.context", input, options);
+    const answered =
+      (await childHolds(target.session, selector, directory, options)) &&
+      (await attempt(
+        (child) => child.call("git.context", input, once(options)),
+        readMissed,
+        options?.signal
+      ));
+    if (answered) return answered.value;
     const checkoutBranch =
       agent.worktreePath === directory &&
       (selector === "launch" ||
@@ -550,8 +639,8 @@ export function createLocalCheckoutRunner(
   /**
    * Move the session (`set_workspace`): the child validates the folder and
    * records it in its binding when it holds one; a session it holds no
-   * binding for is checked in process by the same rule (R3, as for reads)
-   * and stays served in process.
+   * binding for, or a move it never received, is checked in process by the
+   * same rule (R3, as for reads) and stays served in process. Sent once.
    */
   async function select(
     input: Req<"workspace.select">,
@@ -559,18 +648,24 @@ export function createLocalCheckoutRunner(
   ): Promise<Res<"workspace.select">> {
     const session = boundSession(input);
     const key = sessionToWire(input.session);
-    if (child) {
-      const signal = AbortSignal.any([
-        AbortSignal.timeout(CHILD_WAIT_MS),
-        ...(options?.signal ? [options.signal] : []),
-      ]);
-      if (await childBinding(child, input.session, signal)) {
+    // A move the child never received (it is down, or never answered the
+    // binding question) is checked here; one it may have recorded is not.
+    const held = await attempt(
+      (child) => childBinding(child, input.session, options?.signal),
+      readMissed,
+      options?.signal
+    );
+    if (child && held?.value) {
+      forgetBinding(child, key);
+      try {
+        const answered = await fromChild(
+          () => child.call("workspace.select", input, once(options)),
+          neverSent,
+          options?.signal
+        );
+        if (answered) return answered.value;
+      } finally {
         forgetBinding(child, key);
-        try {
-          return await child.call("workspace.select", input, options);
-        } finally {
-          forgetBinding(child, key);
-        }
       }
     }
     const home = session.worktreePath ?? session.cwd;
@@ -596,14 +691,12 @@ export function createLocalCheckoutRunner(
     input: Req<"path.resolve">,
     options?: CallOptions<"path.resolve">
   ): Promise<Res<"path.resolve">> {
-    if (child?.connection.state === "ready")
-      try {
-        const attempt = { ...options, wait: false };
-        return await child.call("path.resolve", input, attempt);
-      } catch (error) {
-        if (!childUnavailable(error)) throw error;
-        options?.signal?.throwIfAborted();
-      }
+    const answered = await attempt(
+      (child) => child.call("path.resolve", input, once(options)),
+      readMissed,
+      options?.signal
+    );
+    if (answered) return answered.value;
     const { path: requested, ...rest } = input;
     return workspaceWorkload.resolvePath(requested, rest);
   }
@@ -620,13 +713,12 @@ export function createLocalCheckoutRunner(
       });
     const directory = resolveTilde(displayPath(input.target.path));
     const request = { target: { path: pathFromWire(directory) } };
-    if (child?.connection.state === "ready")
-      try {
-        return await child.call("git.branches", request, options);
-      } catch (error) {
-        if (!childUnavailable(error)) throw error;
-        options?.signal?.throwIfAborted();
-      }
+    const answered = await attempt(
+      (child) => child.call("git.branches", request, once(options)),
+      readMissed,
+      options?.signal
+    );
+    if (answered) return answered.value;
     return checkoutWorkload.run(
       "git.branches",
       { directory, request: {} },
@@ -645,8 +737,12 @@ export function createLocalCheckoutRunner(
         code: "unsupported",
         message: "The default branch is read for a path.",
       });
-    if (child?.connection.state === "ready")
-      return child.call("git.defaultBranch", input, options);
+    const answered = await attempt(
+      (child) => child.call("git.defaultBranch", input, once(options)),
+      readMissed,
+      options?.signal
+    );
+    if (answered) return answered.value;
     return checkoutWorkload.run(
       "git.defaultBranch",
       { directory: displayPath(target.path), request: {} },
@@ -665,17 +761,12 @@ export function createLocalCheckoutRunner(
   async function github<
     K extends "github.pr.status" | "github.pr.details" | "github.pr.diff",
   >(op: K, input: Req<K>, options?: CallOptions<K>): Promise<Res<K>> {
-    if (child?.connection.state === "ready")
-      try {
-        return await child.call(op, input, options);
-      } catch (error) {
-        if (
-          !(error instanceof RunnerCallError) ||
-          (error.code !== "unavailable" && error.code !== "unknown_outcome")
-        )
-          throw error;
-        options?.signal?.throwIfAborted();
-      }
+    const answered = await attempt(
+      (child) => child.call(op, input, once(options)),
+      readMissed,
+      options?.signal
+    );
+    if (answered) return answered.value;
     const port = { signal: options?.signal };
     if (op === "github.pr.details")
       return githubWorkload.pullRequestDetails(
@@ -715,15 +806,22 @@ export function createLocalCheckoutRunner(
         code: "not_found",
         message: "This agent has no workspace.",
       });
-    if (
-      child &&
-      (await childHolds(target.session, "current", directory, options))
-    )
-      return child.open(
-        "checkout.watch",
-        { target: { session: target.session, checkout: "current" } },
-        options
-      );
+    // A watch the child cannot open runs here, as main watches, for the
+    // life of this subscription: a child that comes back later does not
+    // take it over, so no pulse is doubled or dropped.
+    const opened =
+      (await childHolds(target.session, "current", directory, options)) &&
+      (await attempt(
+        (child) =>
+          child.open(
+            "checkout.watch",
+            { target: { session: target.session, checkout: "current" } },
+            once(options)
+          ),
+        readMissed,
+        options?.signal
+      ));
+    if (opened) return opened.value;
     return { info: {}, channel: pulses(directory) };
   }
 
@@ -731,8 +829,9 @@ export function createLocalCheckoutRunner(
    * Session files for the bound session. A put hands the file over where it
    * is, so its path is the one the agent opens: in the child when it is
    * ready and holds the session (the socket passes the path in place, with
-   * no read), else, and when it dies mid-call, the same port in process
-   * (R3, as for reads). A get stays in process: the local socket has no
+   * no read), once; else, and when the child never received it, the same
+   * port in process (R3). A lost reply is the caller's answer. A get stays
+   * in process: the local socket has no
    * frame that returns bytes, and main's one read returns them unencoded.
    */
   async function files<K extends "files.put" | "files.get">(
@@ -749,27 +848,32 @@ export function createLocalCheckoutRunner(
       const local = child as
         | (Runner & Partial<Pick<LocalRunnerSession, "sendBlob">>)
         | undefined;
-      if (local?.sendBlob && local.connection.state === "ready")
-        try {
-          const signal = AbortSignal.timeout(CHILD_WAIT_MS);
-          if (await childBinding(local, input.session, signal)) {
-            // The app's token stays here; the child gets a path in place.
-            const blob = `file:${randomUUID()}`;
-            const [answer] = await Promise.all([
-              local.call("files.put", {
-                ...(input as Req<"files.put">),
-                blob,
-              }),
-              local.sendBlob(blob, {
-                path: file.path,
-                inPlace: { mustExist: file.purpose === "prompt" },
-              }),
-            ]);
-            return answer as Res<K>;
-          }
-        } catch (error) {
-          if (!childUnavailable(error)) throw error;
-        }
+      const held = local?.sendBlob
+        ? await attempt(
+            (child) => childBinding(child, input.session),
+            readMissed
+          )
+        : null;
+      if (local?.sendBlob && held?.value) {
+        // The app's token stays here; the child gets a path in place. One
+        // attempt for the call and its blob, both settled before anything
+        // else happens: no waiter is left behind.
+        const blob = `file:${randomUUID()}`;
+        const [answer] = await Promise.allSettled([
+          local.call(
+            "files.put",
+            { ...(input as Req<"files.put">), blob },
+            once<CallOptions<"files.put">>()
+          ),
+          local.sendBlob(blob, {
+            path: file.path,
+            inPlace: { mustExist: file.purpose === "prompt" },
+          }),
+        ]);
+        if (answer.status === "fulfilled") return answer.value as Res<K>;
+        // Only a put the child never received is made here.
+        if (!neverSent(answer.reason)) throw answer.reason;
+      }
       return {
         path: pathFromWire(
           await sessionFilesWorkload.put(file.path, file.purpose)
@@ -866,34 +970,27 @@ export function createLocalCheckoutRunner(
             code: "not_found",
             message: "The session checkout is unavailable.",
           });
-        if (child?.connection.state === "ready") {
-          try {
-            const attempt = {
-              ...(options as CallOptions<"git.roots">),
-              wait: false,
-            };
-            const signal = AbortSignal.any([
-              AbortSignal.timeout(CHILD_WAIT_MS),
-              ...(options?.signal ? [options.signal] : []),
-            ]);
-            if (
-              !("session" in target) ||
-              names(
-                await childBinding(child, target.session, signal, true),
-                target.checkout ?? "current",
-                directory
-              )
-            )
-              return (await child.call(
+        // One attempt, by the rule for every read: for a session, only
+        // when the child holds that checkout at the row's directory.
+        const answered =
+          (!("session" in target) ||
+            (await childHolds(
+              target.session,
+              target.checkout ?? "current",
+              directory,
+              options
+            ))) &&
+          (await attempt(
+            (child) =>
+              child.call(
                 "git.roots",
                 request,
-                attempt
-              )) as Res<K>;
-          } catch (error) {
-            if (!childUnavailable(error)) throw error;
-            options?.signal?.throwIfAborted();
-          }
-        }
+                once(options as CallOptions<"git.roots">)
+              ),
+            readMissed,
+            options?.signal
+          ));
+        if (answered) return answered.value as Res<K>;
         return checkoutWorkload.run(
           "git.roots",
           { directory, request: {} },
@@ -902,18 +999,17 @@ export function createLocalCheckoutRunner(
       }
       if (op === "git.origin") {
         const request = input as Req<"git.origin">;
-        if (child?.connection.state === "ready") {
-          try {
-            const attempt = {
-              ...(options as CallOptions<"git.origin">),
-              wait: false,
-            };
-            return (await child.call("git.origin", request, attempt)) as Res<K>;
-          } catch (error) {
-            if (!childUnavailable(error)) throw error;
-            options?.signal?.throwIfAborted();
-          }
-        }
+        const answered = await attempt(
+          (child) =>
+            child.call(
+              "git.origin",
+              request,
+              once(options as CallOptions<"git.origin">)
+            ),
+          readMissed,
+          options?.signal
+        );
+        if (answered) return answered.value as Res<K>;
         return checkoutWorkload.run(
           "git.origin",
           { directory: request.path, request },
@@ -1320,9 +1416,16 @@ export function localEngineCalls(
         op === "engine.update.spawn" ||
         op === "engine.update.release" ||
         op === "engine.plugin.apply";
+      // A sign-in is unchanged: it may wait for a restarting child (and a
+      // fenced one is made here, in the engine's own store). Every other
+      // operation is one attempt: a read then runs here at once.
+      const signIn =
+        op === "engine.login.start" ||
+        op === "engine.login.submit" ||
+        op === "engine.login.cancel";
       if (runner?.connection.state === "ready")
         try {
-          const attempt = singleAttempt ? { ...options, wait: false } : options;
+          const attempt = signIn ? options : { ...options, wait: false };
           return await runner.call(op, input, attempt);
         } catch (error) {
           if (

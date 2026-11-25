@@ -68,7 +68,14 @@ it("does not fall back when the enrolled runner is unavailable", async () => {
 it.each(["starting", "unavailable"] as const)(
   "reads in process while the child is %s",
   async (state) => {
-    const call = vi.fn();
+    // A child that is not connected answers a single attempt with
+    // `unavailable` at once, as the local session does.
+    const call = vi.fn(async () => {
+      throw new RunnerCallError({
+        code: "unavailable",
+        message: "fixture transport",
+      });
+    });
     const child = { call, connection: { state } } as unknown as Runner;
     const runner = runnerDirectory({ child: () => child }).for(
       controllerPlacement
@@ -76,7 +83,9 @@ it.each(["starting", "unavailable"] as const)(
     expect(
       await runner.call("git.origin", { path: "/missing/git-origin-fixture" })
     ).toEqual({ url: null });
-    expect(call).not.toHaveBeenCalled();
+    // One attempt, never waiting: that attempt dials a restarted child.
+    expect(call).toHaveBeenCalledTimes(1);
+    expect(call.mock.calls[0]).toContainEqual({ wait: false });
   }
 );
 it.each(["unavailable", "unknown_outcome"] as const)(
