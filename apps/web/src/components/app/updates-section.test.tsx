@@ -17,6 +17,7 @@ vi.mock("@/lib/api", () => ({
 }));
 vi.mock("@/hooks/use-release-updates", () => ({ useReleaseUpdates: vi.fn() }));
 vi.mock("@/hooks/use-mac-app-update", () => ({
+  MAC_APP_UPDATE_QUERY_KEY: ["mac-app", "update"],
   useMacAppUpdate: () => ({ data: { connected: false, state: null } }),
   useMacAppUpdateAction: () => ({ mutate: vi.fn() }),
 }));
