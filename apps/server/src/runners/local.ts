@@ -1011,7 +1011,8 @@ function pulses(directory: string): CallerChannel<"checkout.watch"> {
 const PULSE = new Uint8Array([0x31]);
 
 /** The local runner child as its callers use it: a `Runner` with streams. */
-export type LocalRunner = LocalRunnerSession;
+export type LocalRunner = Omit<Runner, "call"> &
+  Pick<LocalRunnerSession, "call" | "openStream">;
 
 /** What the agent runtime uses of the child for local hosts. */
 export type LocalSessionRunner = Pick<LocalRunner, "call" | "openStream">;
