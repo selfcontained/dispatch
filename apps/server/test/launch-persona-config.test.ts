@@ -10,7 +10,7 @@ import type { Pool } from "pg";
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./db/setup.js";
 import { TemplateService } from "../src/templates/service.js";
 import { JobService } from "../src/jobs/service.js";
-import { upsertPersona } from "../src/personas/authoring.js";
+import { upsertPersona } from "./helpers/native-persona-authoring.js";
 
 let pool: Pool;
 let directory: string;

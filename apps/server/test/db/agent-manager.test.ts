@@ -6,7 +6,7 @@ import { sessionFilesWorkload } from "../../src/agents/checkout-worker.js";
 import { TemplateService } from "../../src/templates/service.js";
 import { personaCatalog } from "../../src/personas/catalog.js";
 import * as gitContext from "../../src/shared/git/git-context.js";
-import { upsertPersona } from "../../src/personas/authoring.js";
+import { upsertPersona } from "../helpers/native-persona-authoring.js";
 import { execFileSync } from "node:child_process";
 import {
   link,

@@ -328,6 +328,7 @@
         "apps/server/test/task-scope-order.test.ts",
         "apps/server/test/helpers/task-scope.ts",
         "apps/server/test/helpers/project-matching.ts",
+        "apps/server/test/helpers/native-persona-authoring.ts",
         "apps/server/test/git-roots-child-recovery.test.ts",
         "apps/server/test/tasks-service.test.ts",
         "packages/shared/src/mcp-inventory-types.ts",
