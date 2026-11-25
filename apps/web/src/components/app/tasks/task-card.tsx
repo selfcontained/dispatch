@@ -7,6 +7,7 @@ import type { Task, TaskColumn } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
 import { TaskAgent } from "./task-agent";
 import { TaskLaunching } from "./task-launching";
+import { TaskGoalProgress } from "./task-goal-progress";
 import { AgentName } from "@/components/app/agent-name";
 import { formatDateTime, formatRelativeCompact } from "@/lib/format";
 import { MENU_ITEM } from "./task-utils";
@@ -205,6 +206,7 @@ function TaskCardDetails({
   const agent = agents.find((item) => item.id === task.assignedAgentId);
   return (
     <>
+      <TaskGoalProgress counts={task.goalCounts} className="mt-2" />
       <div className="mt-2 flex flex-wrap items-center gap-2 text-body-sm text-muted-foreground">
         {task.launching ? (
           <TaskLaunching task={task} columns={columns} />
