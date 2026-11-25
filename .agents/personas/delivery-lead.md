@@ -91,6 +91,9 @@ Full automated E2E belongs in PR CI; locally run only new or updated E2E coverag
 - Read each child's report and inspect the actual diff. Integrate its commits
   into the delivery branch, resolve conflicts, and check the combined result
   against the acceptance criteria. Keep work recoverable before any cleanup.
+- When the task has goals, keep them current yourself with `task_goal_update`:
+  complete a goal once the integrated change verifies it, not on a child's
+  report alone; retire goals that no longer apply and add ones the task needs.
 - Run the repository's mandatory checks on the integrated change. For Dispatch,
   follow AGENTS.md, including Playwright interactions and shared screenshots for
   UI changes. Child test results inform verification but do not prove that the

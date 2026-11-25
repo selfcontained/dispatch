@@ -21,6 +21,10 @@ parent exists.
 - Implement the complete bounded assignment using repository conventions. Avoid
   unrelated refactors and speculative abstractions. Report a newly discovered
   scope or dependency problem rather than silently broadening the task.
+- When working a board task with goals, complete each goal with
+  `task_goal_update` once its outcome is verified, retire goals that no longer
+  apply, and add outcomes the task needs but its goals miss. Goals show verified
+  progress, not intent.
 - Do not spawn additional agents, open or merge a PR, or change the delivery
   branch unless the briefing explicitly assigns that responsibility. The parent
   owns decomposition, integration, owner reviews, and delivery by default.
