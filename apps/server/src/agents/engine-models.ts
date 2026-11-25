@@ -67,59 +67,16 @@ type StoredEngineModels = {
   seenAt: string;
 };
 
-export type EngineModelReport = {
-  /** The model the engine is running now. */
-  current: string;
-  /** Everything it offers, groups flattened, in the engine's order. */
-  choices: AgentModelOption[];
-};
-
-/**
- * An engine's name for a model as a person would say it. codex-acp strips
- * the family off its GPT models ("gpt-5.6-sol" is published as "5.6 Sol")
- * because its own picker shows them under a "GPT" heading; the flat list
- * here has no heading, so the family goes back on.
- */
-function modelLabel(value: string, name: string): string {
-  // Only a bare version ("5.6 Sol") is a stripped name; anything else is
-  // the engine's own wording and stays as it is.
-  if (/^gpt-/i.test(value) && /^\d/.test(name)) return `GPT-${name}`;
-  return name;
-}
-
-/**
- * The model option among an engine's session config options, or null when
- * it publishes none. Engines name it `model` or file it under the `model`
- * category; either counts, and the first match wins.
- */
-export function modelOptionOf(
-  options: readonly SessionConfigOption[]
-): EngineModelReport | null {
-  const option = options.find(
-    (o) => o.type === "select" && (o.id === "model" || o.category === "model")
-  );
-  if (!option || option.type !== "select") return null;
-  const choices: AgentModelOption[] = [];
-  const add = (o: { value: string; name: string }, group?: string) => {
-    // The picker has its own "Default" (no override); the engine's entry
-    // for the same thing would be a second one.
-    if (o.value === "default") return;
-    // A grouped choice is named within its group ("GPT" › "6 Astra"); the
-    // flat list needs the whole name.
-    const name = modelLabel(o.value, o.name);
-    const label =
-      group && !name.toLowerCase().startsWith(group.toLowerCase())
-        ? `${group} ${name}`
-        : name;
-    choices.push({ id: o.value, label });
-  };
-  for (const entry of option.options) {
-    if ("group" in entry) entry.options.forEach((o) => add(o, entry.name));
-    else add(entry);
-  }
-  const current = String(option.currentValue);
-  return { current, choices };
-}
+import {
+  modelOptionOf,
+  engineEffortOption,
+  type EngineModelReport,
+} from "@dispatch/runner-protocol/engine-options";
+export {
+  modelOptionOf,
+  engineEffortOption,
+  type EngineModelReport,
+} from "@dispatch/runner-protocol/engine-options";
 
 /** At boot: what earlier sessions taught, so the pickers are right before any engine runs again. */
 export async function loadLearnedAgentModels(
@@ -340,25 +297,6 @@ function sameModels(
   );
 }
 
-export function engineEffortOption(options: readonly SessionConfigOption[]) {
-  const effortOption = options.find(
-    (o) =>
-      o.type === "select" &&
-      (o.category === "thought_level" ||
-        /effort|reasoning|thinking/i.test(o.id))
-  );
-  return effortOption?.type === "select"
-    ? effortOption.options
-        .flatMap((entry) => ("options" in entry ? entry.options : [entry]))
-        .filter((choice) => choice.value !== "default")
-        .map((choice) => ({
-          value: choice.value,
-          name: choice.name,
-          ...(choice.description ? { description: choice.description } : {}),
-        }))
-    : [];
-}
-
 /** Persist the live session's effort, including removal when a model has no option. */
 export async function recordEngineEffort(
   pool: Pool,
@@ -380,3 +318,11 @@ export async function recordEngineEffort(
   );
   return true;
 }
+
+// An SDK upgrade must keep every field read by the neutral parsers assignable.
+type AssertOptionCompatibility<T extends true> = T;
+export type EngineOptionCompatibility = AssertOptionCompatibility<
+  SessionConfigOption extends import("@dispatch/runner-protocol/engine-options").EngineConfigOption
+    ? true
+    : false
+>;

@@ -677,13 +677,6 @@
   {
     "file": "apps/server/src/agents/remote/engine-capability-worker.ts",
     "kind": "R5 runner to Dispatch",
-    "detail": "apps/server/src/agents/engine-models",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/engine-capability-worker.ts",
-    "kind": "R5 runner to Dispatch",
     "detail": "apps/server/src/agents/remote/engine-capability-result",
     "task": "T04",
     "count": 1
@@ -859,13 +852,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/remote/session-processes.ts",
-    "kind": "R5 runner to Dispatch",
-    "detail": "apps/server/src/agents/build-identity",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/remote/session-storage.ts",
     "kind": "R5 protocol leak",
     "detail": "dispatchReviewBase",
@@ -983,13 +969,6 @@
     "file": "apps/server/src/agents/remote/update-fence-store.ts",
     "kind": "R5 runner to Dispatch",
     "detail": "apps/server/src/agents/remote/update-admission",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/update-probe.ts",
-    "kind": "R5 runner to Dispatch",
-    "detail": "apps/server/src/agents/build-identity",
     "task": "T04",
     "count": 1
   },
