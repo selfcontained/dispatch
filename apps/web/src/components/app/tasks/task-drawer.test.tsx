@@ -96,6 +96,7 @@ const detail: TaskDetail = {
   agents: [],
   events: [],
   attachments: [],
+  goals: [],
 };
 
 it("keeps an unsaved description open when cached task fields change", async () => {

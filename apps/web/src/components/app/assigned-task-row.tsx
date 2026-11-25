@@ -6,6 +6,7 @@ import { RowButton } from "@/components/ui/row-button";
 import { StatusDot } from "@/components/ui/status-dot";
 import { Hint } from "@/components/ui/tooltip";
 import { columnAccent, orderedColumns } from "./tasks/task-utils";
+import { TaskGoalProgress, goalProgressText } from "./tasks/task-goal-progress";
 import { TASK_MODAL_STATE, TASK_PANE_PARAM } from "./tasks/task-utils";
 
 /** Preserve the header's first-association choice: API position/createdAt/id order. */
@@ -28,11 +29,13 @@ export function AssignedTaskRow({ agentId }: { agentId: string }) {
   );
   if (assigned.isError || board.isError || !current || !column) return null;
   const columns = orderedColumns(board.data!);
+  const goals = current.goalCounts?.total ? current.goalCounts : null;
+  const summary = `${current.title} — ${column.name}${goals ? ` · ${goalProgressText(goals)}` : ""}`;
   return (
-    <Hint label={`${current.title} — ${column.name}`}>
+    <Hint label={summary}>
       <RowButton
         className="-mx-1.5 min-h-7 w-[calc(100%+0.75rem)] min-w-0 gap-3 px-1.5 text-body-sm text-muted-foreground"
-        aria-label={`Task: ${current.title}, ${column.name}`}
+        aria-label={`Task: ${current.title}, ${column.name}${goals ? `, ${goalProgressText(goals)}` : ""}`}
         aria-haspopup="dialog"
         onClick={() => {
           const next = new URLSearchParams(params);
@@ -56,6 +59,11 @@ export function AssignedTaskRow({ agentId }: { agentId: string }) {
           <span className="block truncate text-foreground">
             {current.title}
           </span>
+          <TaskGoalProgress
+            counts={current.goalCounts}
+            compact
+            className="my-1"
+          />
           <span
             className="flex items-center gap-1 text-label-xs"
             style={{

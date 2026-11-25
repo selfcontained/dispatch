@@ -36,7 +36,7 @@ columns that launch templates; use that briefing when it answers your question.
 ## Create a task someone can pick up cold
 
 ```
-task_create  title, body?, column?, projectId?
+task_create  title, body?, column?, projectId?, goals?
 ```
 
 Write a specific title and a markdown body with the problem, deliverable,
@@ -45,6 +45,25 @@ first column unless you name a `column` key. If that column's trigger fires on
 create, an agent may launch immediately. `task_create` cannot attach files;
 add links afterwards with `task_update`. Check the returned ID with
 `task_get` when subsequent work depends on the created state.
+
+## Track goals
+
+When a task spans several verifiable outcomes, give it goals: short titles in
+order, passed as `goals` on `task_create` or added later. The board shows
+completed versus current goals, so the next agent and the user can see where
+the work stands without rereading the conversation.
+
+```
+task_goal_add     id, titles, requestId?
+task_goal_update  id, changes: [{ goalId, title?, action? }], requestId?
+```
+
+Read goal ids from `task_get`. `action` is `complete`, `reopen` or `retire`;
+retire a goal that no longer applies rather than leaving it open. Revise goals
+as you learn. A batch applies all or nothing, and repeating an edit already in
+effect changes nothing; pass a `requestId` if you may retry an add. Goals never
+move the task: finishing the last one leaves the column and acceptance as they
+were.
 
 ## Own, move, and hand off
 
