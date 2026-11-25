@@ -15,10 +15,17 @@ import {
   readAgentIcon,
 } from "../agents/checkout-icon.js";
 import { sessionRunner } from "../agents/checkout-runner.js";
-import { runnerDirectory } from "../runners/directory.js";
-import { checkoutReadPlacement } from "../runners/placement.js";
+import {
+  runnerDirectory,
+  type CheckoutCommandRunners,
+} from "../runners/directory.js";
+import {
+  checkoutReadPlacement,
+  controllerPlacement,
+} from "../runners/placement.js";
 import {
   pathFromWire,
+  displayPath,
   type Runner,
   type Target,
 } from "@dispatch/runner-protocol/contract";
@@ -40,8 +47,37 @@ const appearance = z.object({
       "Choose a valid prepared icon image."
     ),
 });
-export { resolveProjectRoot } from "../projects/resolve-root.js";
-import { resolveProjectRoot } from "../projects/resolve-root.js";
+/** Folder inputs to this controller belong to its own runner (D7). */
+export async function resolveProjectRoot(
+  input: string,
+  runners: CheckoutCommandRunners = {}
+): Promise<string> {
+  const expanded = resolveTilde(input);
+  // Prefix rather than path.resolve: preserve the kernel's symlink/.. rules.
+  const absolute =
+    expanded && !path.isAbsolute(expanded)
+      ? `${process.cwd()}${path.sep}${expanded}`
+      : expanded;
+  const result = await runnerDirectory(runners)
+    .for(controllerPlacement)
+    .call("path.resolve", { path: absolute, git: false, projectRoot: true });
+  if (result.projectRootError !== undefined) {
+    let message = result.projectRootError;
+    const suffix = ` '${absolute}'`;
+    // Node names realpath; Bun names its lstat. Keep the native label and
+    // the path spelling main passed, despite anchoring the RPC request.
+    if (
+      absolute !== expanded &&
+      /^[A-Z][A-Z0-9_]+: .*?, (?:realpath|lstat) '/.test(message) &&
+      message.endsWith(suffix)
+    )
+      message = message.slice(0, -suffix.length) + ` '${expanded}'`;
+    throw new Error(message);
+  }
+  if (result.projectRoot === null)
+    throw new Error("Runner did not return a project root.");
+  return displayPath(result.projectRoot);
+}
 
 const MAX_ICON_BYTES = 2 * 1024 * 1024;
 
@@ -168,7 +204,10 @@ export async function registerProjectRoutes(
       // in-progress input simply has no preview; saved offline icons still work.
       const root =
         saved?.repoRoot ??
-        (await resolveProjectRoot(request.query.repoRoot!).catch(() => null));
+        (await resolveProjectRoot(
+          request.query.repoRoot!,
+          agents?.checkoutReadRunners() ?? {}
+        ).catch(() => null));
       const icon = root
         ? await readProjectIcon(pool, agents, { repoRoot: root })
         : null;
@@ -216,7 +255,10 @@ export async function registerProjectRoutes(
     if (!input) return;
     try {
       const repoRoot = input.repoRoot
-        ? await resolveProjectRoot(input.repoRoot)
+        ? await resolveProjectRoot(
+            input.repoRoot,
+            agents?.checkoutReadRunners() ?? {}
+          )
         : null;
       const repository =
         input.repository !== undefined

@@ -61,7 +61,7 @@ describe("path.resolve on the local runner", () => {
     expect(call).toHaveBeenCalledWith(
       "path.resolve",
       { path: "/child/answers" },
-      undefined
+      { wait: false }
     );
   });
 
@@ -184,13 +184,16 @@ describe("path.resolve for project matching (the local port)", () => {
     expect(answer).not.toHaveProperty("gitFailed");
   });
 
-  it("does no matching work for a folder main refuses", async () => {
+  it("keeps invalid folder metadata while retaining the requested native root error", async () => {
     const answer = await workspaceWorkload.resolvePath(
       path.join(plain, "missing"),
       { projectRoot: true, canonical: [repo] }
     );
     expect(answer).toMatchObject({ exists: false });
     expect(answer).not.toHaveProperty("canonical");
-    expect(answer).not.toHaveProperty("projectRootError");
+    const failure = await resolveProjectRoot(path.join(plain, "missing")).catch(
+      (error: Error) => error
+    );
+    expect(answer.projectRootError).toBe((failure as Error).message);
   });
 });
