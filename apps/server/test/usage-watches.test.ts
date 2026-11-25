@@ -12,6 +12,8 @@ import type { Pool } from "pg";
 import type { ProviderPlan, ProviderPlansResponse } from "@dispatch/shared";
 
 import {
+  MAX_WATCHES_PER_AGENT,
+  USAGE_WATCH_TICK_MS,
   REARM_MARGIN,
   STALE_AFTER_MS,
   UsageWatchService,
@@ -201,6 +203,38 @@ describe("UsageWatchService (postgres)", () => {
     });
   });
   afterEach(() => service.dispose());
+
+  it("the scoped local path reuses main's local reporter and watch policy", async () => {
+    service.dispose();
+    expect(USAGE_WATCH_TICK_MS).toBe(120_000);
+    expect(REARM_MARGIN).toBe(5);
+    expect(STALE_AFTER_MS).toBe(900_000);
+    expect(MAX_WATCHES_PER_AGENT).toBe(20);
+    const load = vi.fn(async () => current);
+    const localReporter = createProviderPlansReporter({ load });
+    service = new UsageWatchService({
+      pool,
+      providerPlans: localReporter,
+      providerPlansForAgent: async () => localReporter(),
+      deliver,
+      warn: () => {},
+      now: () => clock,
+    });
+    await service.subscribe("agt_uw_a", {
+      type: "codex",
+      comparison: "at_or_below",
+      remainingPercent: 10,
+    });
+    await service.tick();
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(deliver).not.toHaveBeenCalled();
+    current = report(plan("codex", [95]));
+    localReporter.invalidate();
+    await service.tick();
+    await service.idle();
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(deliver.mock.calls.map(([id]) => id)).toEqual(["agt_uw_a"]);
+  });
 
   it("isolates subscriptions, claims and rearming by the watched agent's runner report", async () => {
     service.dispose();

@@ -442,3 +442,60 @@ it("retains newer good windows after a runner refresh loses its reply", async ()
     vi.useRealTimers();
   }
 });
+
+it.each(["success", "failure", "auth", "ambiguous", "transport"])(
+  "shares main's process-wide spend guard across runners and releases after %s",
+  async (kind) => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const spendA = vi.fn(async () => {
+      await held;
+      if (kind === "auth")
+        throw new CodexResetError("not_signed_in", "fixture missing login");
+      if (kind === "failure")
+        throw new CodexResetError("request_failed", "fixture provider failure");
+      if (kind === "ambiguous")
+        throw new RunnerCallError({
+          code: "unknown_outcome",
+          message: "fixture lost acknowledgement",
+        });
+      if (kind === "transport") throw new Error("fixture transport throw");
+      return ok;
+    });
+    const spendB = vi.fn(async () => ok);
+    const runner = (spend: () => Promise<typeof ok>) =>
+      createRunnerUsage({
+        call: async (op: string) => (op === "engine.usage" ? report : spend()),
+      } as never);
+    const a = runner(spendA);
+    const b = runner(spendB);
+    const first = a.redeemCodexReset(key);
+    try {
+      expect(await b.redeemCodexReset(otherKey)).toEqual({
+        outcome: null,
+        error: {
+          reason: "reset_in_progress",
+          message:
+            "Another account-shared reset is in progress. Check usage before making a new request.",
+          possiblyConsumed: false,
+        },
+        usage: null,
+        refreshError: null,
+      });
+      expect(spendB).not.toHaveBeenCalled();
+    } finally {
+      release();
+    }
+    const result = await first;
+    if (kind === "success") expect(result.outcome).toEqual(ok);
+    else expect(result.error?.possiblyConsumed).toBe(kind !== "auth");
+    expect(spendA).toHaveBeenCalledOnce();
+    // Same UUID on B is a different runner's replay map, but shares active exclusion.
+    expect((await b.redeemCodexReset(key)).outcome).toEqual(ok);
+    expect(spendB).toHaveBeenCalledOnce();
+    expect(await a.redeemCodexReset(key)).toEqual(result);
+    expect(spendA).toHaveBeenCalledOnce();
+  }
+);

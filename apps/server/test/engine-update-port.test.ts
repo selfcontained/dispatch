@@ -1,3 +1,16 @@
+// Provider acts stay fixtures even if a fence regression reaches the host.
+vi.mock("../src/agents/provider-plans.js", async (original) => ({
+  ...(await original<typeof import("../src/agents/provider-plans.js")>()),
+  loadProviderPlans: vi.fn(async () => ({
+    checkedAt: "2026-11-24T12:00:00Z",
+    providers: [],
+  })),
+  consumeCodexLimitReset: vi.fn(async () => ({
+    code: "ok",
+    windowsReset: 1,
+    credit: null,
+  })),
+}));
 import { createRunnerUsage } from "../src/agents/codex-reset.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -535,3 +548,83 @@ it("a real local child lost reset reply is never re-sent after restart or on fal
     await runner.stop();
   }
 });
+
+const fencedMutations = [
+  [
+    "engine.quota.reset",
+    "quotaReset",
+    { engine: "codex", account: "", requestId: "fixture" },
+  ],
+  [
+    "engine.update.spawn",
+    "updateSpawn",
+    {
+      requestId: "fixture",
+      command: { executable: "/fixture/never-run", args: [] },
+      timeoutMs: 1000,
+    },
+  ],
+  ["engine.update.release", "updateRelease", { operationId: "fixture" }],
+  [
+    "engine.plugin.apply",
+    "pluginApply",
+    {
+      engine: "codex",
+      plugin: "dispatch@dispatch",
+      action: "install",
+      requestId: "fixture",
+    },
+  ],
+] as const;
+it.each(fencedMutations)(
+  "a child fence on %s never reaches the fallback host",
+  async (op, method, input) => {
+    const fallback = inProcessEngines({ claudeBin: "fixture" });
+    const mutate = vi.spyOn(fallback, method).mockResolvedValue({} as never);
+    const call = vi.fn(async () => {
+      throw new RunnerCallError({ code: "fenced", message: "fixture frozen" });
+    });
+    try {
+      const calls = localEngineCalls(
+        () => ({ connection: { state: "ready" }, call }) as never,
+        fallback
+      );
+      await expect(calls.call(op, input as never)).rejects.toMatchObject({
+        code: "fenced",
+      });
+      expect(mutate).not.toHaveBeenCalled();
+      expect(call).toHaveBeenCalledWith(op, input, { wait: false });
+    } finally {
+      fallback.close();
+    }
+  }
+);
+it.each(fencedMutations)(
+  "the in-process port fences %s even with no child",
+  async (op, _method, input) => {
+    const fallback = inProcessEngines(
+      {
+        claudeBin: "/fixture/never-run",
+        codexBin: "/fixture/never-run",
+        opencodeBin: "/fixture/never-run",
+      },
+      () => true
+    );
+    try {
+      const calls = localEngineCalls(() => undefined, fallback);
+      await expect(calls.call(op, input as never)).rejects.toMatchObject({
+        code: "fenced",
+      });
+      await expect(calls.call("engine.usage", {})).resolves.toEqual({
+        checkedAt: "2026-11-24T12:00:00Z",
+        providers: [],
+      });
+      // This read uses the actual in-memory host and still answers while frozen.
+      await expect(
+        calls.call("engine.operation", { operationId: "fixture-absent" })
+      ).rejects.toMatchObject({ code: "not_found" });
+    } finally {
+      fallback.close();
+    }
+  }
+);
