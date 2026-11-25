@@ -433,6 +433,48 @@ describe("loadProviderPlans", () => {
     expect(report.providers[0]?.unavailableReason).toMatch(/not signed in/);
   });
 
+  // T31: pinned against origin/main before rerouting host reads through EnginePort.
+  it("retains main's snapshot presentation and provider order after live reads fail", async () => {
+    const observedAt = "2026-09-24T09:00:00Z";
+    const fetchUsage = vi.fn(async () => {
+      throw new Error("fixture offline");
+    });
+    const report = await loadProviderPlans({
+      ...codexOptions(codexAuth),
+      read: async (file) =>
+        file === "/home/.claude.json"
+          ? JSON.stringify({
+              cachedUsageUtilization: {
+                fetchedAtMs: Date.parse(observedAt),
+                utilization: claudeUtilization,
+              },
+            })
+          : file === "/home/.codex/auth.json"
+            ? codexAuth
+            : read(file),
+      fetchUsage: fetchUsage as unknown as typeof fetch,
+    });
+    expect(report.checkedAt).toBe(NOW.toISOString());
+    expect(report.providers.map(({ engine }) => engine)).toEqual([
+      "claude",
+      "codex",
+    ]);
+    expect(report.providers[0]).toEqual({
+      ...parseClaudeUtilization(
+        claudeUtilization,
+        new Date(observedAt).toISOString()
+      ),
+      unavailableReason:
+        "Could not refresh Claude plan usage. Open /usage in Claude Code to refresh its local report.",
+    });
+    expect(report.providers[1]).toEqual({
+      ...parseCodexRollout(fallback),
+      unavailableReason:
+        "Could not refresh Codex plan usage; showing the last report Codex left on this machine.",
+    });
+    expect(fetchUsage).toHaveBeenCalledTimes(3);
+  });
+
   it("caches, and a forced refresh inside the floor still reuses", async () => {
     let calls = 0;
     const reporter = createProviderPlansReporter({
