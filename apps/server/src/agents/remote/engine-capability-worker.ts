@@ -21,8 +21,11 @@ import {
   type EngineOperationAck,
 } from "@dispatch/runner-protocol/engine-management";
 
-import { withEngineBinDir } from "../acp/engine-bin-dir.js";
-import { engineSpecFor, type EngineBins } from "../acp/engine-spec.js";
+import { withEngineBinDir } from "@dispatch/runner/host/engine-bin-dir";
+import {
+  engineSpecFor,
+  type EngineBins,
+} from "@dispatch/runner/host/engine-spec";
 import { modelOptionOf, engineEffortOption } from "../engine-models.js";
 import {
   CodexResetError,

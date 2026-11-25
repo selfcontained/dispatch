@@ -1,4 +1,4 @@
-import { loginShellCommand } from "./acp/host-command.js";
+import { loginShellCommand } from "@dispatch/runner/host/host-command";
 import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";

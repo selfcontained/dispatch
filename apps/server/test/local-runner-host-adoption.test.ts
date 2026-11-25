@@ -19,7 +19,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import type { DriverEvent } from "../src/agents/acp/driver.js";
+import type { DriverEvent } from "@dispatch/runner/host/driver";
 import { createAcpRuntime } from "../src/agents/acp/runtime.js";
 import { mainLocalHosts } from "./helpers/main-local-hosts.js";
 import type { AgentRuntime, RuntimeLaunch } from "../src/agents/runtime.js";

@@ -1,3 +1,4 @@
+import { isPromptSource } from "../src/agents/acp/prompt-source.js";
 /**
  * The agent host is generic: a client that knows only the session contract
  * (`@dispatch/runner-protocol/contract` and the v1 codec in
@@ -24,14 +25,14 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { decodeHostFrame } from "@dispatch/runner-client/v1/host";
 import { hostMessage } from "@dispatch/runner-protocol/contract";
 
-import { HostClient } from "../src/agents/acp/host-client.js";
+import { HostClient } from "@dispatch/runner-client/host-client";
 import {
   encodeMessage,
   HOST_FILES,
   ndjsonDecoder,
   type HostLaunch,
   type JournalEntry,
-} from "../src/agents/acp/host-protocol.js";
+} from "@dispatch/runner-client/host-framing";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "../../..");
@@ -150,6 +151,7 @@ describe("generic agent host", () => {
       debug: vi.fn(),
     };
     const client = new HostClient({
+      validSource: isPromptSource,
       agentId: "session-1",
       remote: false,
       openSocket: async () => {
@@ -232,40 +234,33 @@ describe("the host's import closure", () => {
         visit(resolved);
       }
     };
-    visit(path.join(serverSrc, "agents/acp/host/main.ts"));
+    visit(path.join(serverSrc, "../../../packages/runner/src/host/main.ts"));
     const files = [...seen]
       .map((file) => path.relative(serverSrc, file))
       .sort();
     expect([...packages].sort()).toEqual([
       "@agentclientprotocol/sdk",
+      "@dispatch/runner-client",
       "@dispatch/runner-protocol",
       "jsonc-parser",
       "node:",
       "zod",
     ]);
     expect(files).toEqual([
-      "agents/acp/background-ingress.ts",
-      "agents/acp/background-work.ts",
-      "agents/acp/driver.ts",
-      "agents/acp/engine-bin-dir.ts",
-      "agents/acp/engine-spec.ts",
-      "agents/acp/host-command.ts",
-      "agents/acp/host-env.ts",
-      "agents/acp/host-protocol.ts",
-      "agents/acp/host/first-prompt.ts",
-      "agents/acp/host/launch-effort.ts",
-      "agents/acp/host/main.ts",
-      "agents/acp/host/mcp-inventory.ts",
-      "agents/acp/host/prompt-images.ts",
-      "agents/acp/host/types.ts",
-      "agents/acp/opencode-instructions.ts",
-      "agents/acp/package-bin-dir.ts",
-      "agents/acp/permissions.ts",
-      "agents/engine-availability.ts",
-      "shared/lib/run-command.ts",
-      "shared/lib/tool-environment.ts",
-      "shared/process/child-environment.js",
-      "shared/process/owned-processes.js",
+      "../../../packages/runner/src/host/background-ingress.ts",
+      "../../../packages/runner/src/host/background-work.ts",
+      "../../../packages/runner/src/host/driver.ts",
+      "../../../packages/runner/src/host/engine-spec.ts",
+      "../../../packages/runner/src/host/first-prompt.ts",
+      "../../../packages/runner/src/host/host-command.ts",
+      "../../../packages/runner/src/host/host-env.ts",
+      "../../../packages/runner/src/host/launch-effort.ts",
+      "../../../packages/runner/src/host/main.ts",
+      "../../../packages/runner/src/host/mcp-inventory.ts",
+      "../../../packages/runner/src/host/opencode-instructions.ts",
+      "../../../packages/runner/src/host/permissions.ts",
+      "../../../packages/runner/src/host/prompt-images.ts",
+      "../../../packages/runner/src/host/types.ts",
     ]);
   });
 });

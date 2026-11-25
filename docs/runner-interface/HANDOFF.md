@@ -163,3 +163,7 @@ resolved imports still receive all ordinary boundary checks. Unknown or mutated
 bindings remain violations. Single owners retain manager, ACP runtime, local
 adapter, remote service and supervisor files; fallback removal still requires the
 lead's recovery decision.
+
+T40 move records stay counted, with exact approved importers and verified package targets; only main.ts may supply app-owned providers through a separately validated input seam.
+The move list has a reviewed record budget and shrinking importer list; growth requires the named-commit policy fixture. Frozen historical list snapshots only replay existing commits.
+Remove each record with its baseline entry; the final seal requires zero records and zero budget.

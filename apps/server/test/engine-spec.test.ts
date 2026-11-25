@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { engineSpecFor } from "../src/agents/acp/engine-spec.js";
+import { engineSpecFor } from "@dispatch/runner/host/engine-spec";
 
 describe("engineSpecFor", () => {
   it("runs native OpenCode ACP and routes approvals through Dispatch", () => {
@@ -9,7 +9,7 @@ describe("engineSpecFor", () => {
     expect(spec).toMatchObject({
       bin: "/x/opencode",
       args: ["acp"],
-      personaDelivery: "instructions_file",
+      guidanceDelivery: "instructions_file",
       fullAccess: { kind: "permission_request" },
     });
     expect(spec.env.OPENCODE_PERMISSION).toBeUndefined();

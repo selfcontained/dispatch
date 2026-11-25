@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { launchListenerEnv } from "../src/agents/acp/launch-env.js";
-import { buildHostEnv, buildLaunchEnv } from "../src/agents/acp/host-env.js";
+import { buildHostEnv, buildLaunchEnv } from "@dispatch/runner/host/host-env";
 import { hostSearchPath } from "../src/agents/acp/host-search-path.js";
 import {
   pathFromWire,
@@ -21,8 +21,8 @@ import {
   localHostEntry,
   writeLocalHostLaunch,
 } from "../src/agents/acp/local-host-entry.js";
-import type { HostLaunch } from "../src/agents/acp/host-protocol.js";
-import { loginShellCommand } from "../src/agents/acp/runtime.js";
+import type { HostLaunch } from "@dispatch/runner-protocol/host";
+import { loginShellCommand } from "@dispatch/runner/host/host-command";
 
 const roots: string[] = [];
 afterEach(() => {

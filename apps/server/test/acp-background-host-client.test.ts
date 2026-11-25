@@ -1,7 +1,9 @@
+import { isPromptSource } from "../src/agents/acp/prompt-source.js";
 import { afterEach, expect, it, vi } from "vitest";
-import { HostClient } from "../src/agents/acp/host-client.js";
+import { HostClient } from "@dispatch/runner-client/host-client";
 function fixture(supported = true) {
   const client = new HostClient({
+    validSource: isPromptSource,
     agentId: "a",
     remote: false,
     openSocket: async () => {

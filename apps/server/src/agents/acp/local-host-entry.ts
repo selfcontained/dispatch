@@ -9,7 +9,10 @@ import {
   ownedEnvironment,
   ownedProcessPids,
 } from "../../shared/process/owned-processes.js";
-import { hostCommand, loginShellCommand } from "./host-command.js";
+import {
+  hostCommand,
+  loginShellCommand,
+} from "@dispatch/runner/host/host-command";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -27,12 +30,12 @@ import {
   isAcpEngine,
   type AcpEngineId,
   type EngineBins,
-} from "./engine-spec.js";
+} from "@dispatch/runner-protocol/host";
 import {
   agentLaunchBindings,
   prepareHostLaunch,
   writeHostLaunch,
-} from "./host-env.js";
+} from "@dispatch/runner/host/host-env";
 
 /**
  * The agent host as the local runner child starts and identifies it (its

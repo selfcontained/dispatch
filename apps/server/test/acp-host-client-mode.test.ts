@@ -1,3 +1,4 @@
+import { isPromptSource } from "../src/agents/acp/prompt-source.js";
 /**
  * The host client's mode is negotiated from what the host advertises, never
  * from placement. Fixture hosts on real Unix sockets speak the two feature
@@ -16,13 +17,13 @@ import { Duplex, PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 
-import { HostClient } from "../src/agents/acp/host-client.js";
+import { HostClient } from "@dispatch/runner-client/host-client";
 import {
   encodeMessage,
   ndjsonDecoder,
   type ClientMessage,
   type HostMessage,
-} from "../src/agents/acp/host-protocol.js";
+} from "@dispatch/runner-client/host-framing";
 import { hostReconnectDisposition } from "../src/agents/acp/runtime.js";
 
 const agentId = "agt_mode_test";
@@ -198,6 +199,7 @@ function client(
   const onReady = vi.fn();
   const onGone = vi.fn();
   const host = new HostClient({
+    validSource: isPromptSource,
     agentId,
     remote: true,
     openSocket,
@@ -458,6 +460,7 @@ describe("byte-pinned main-era host adoption", () => {
     const entries: unknown[] = [];
     // Preserve cursor updates performed by the ordinary helper.
     const other = new HostClient({
+      validSource: isPromptSource,
       agentId,
       logger,
       remote: false,
@@ -488,4 +491,62 @@ describe("byte-pinned main-era host adoption", () => {
     ]);
     expect(await other.promptReceipt("main-prompt")).toBe("unsupported");
   });
+});
+
+describe("host client prompt source boundary", () => {
+  for (const valid of [false, true]) {
+    it(`${valid ? "keeps" : "drops"} source metadata in both welcome and replay`, async () => {
+      const source = valid
+        ? { source: "chat", chatMessageId: "msg-source" }
+        : { product: "foreign", ticket: 7 };
+      const incoming = new PassThrough();
+      const outgoing = new PassThrough();
+      const stream = Duplex.from({ readable: incoming, writable: outgoing });
+      const decode = ndjsonDecoder<ClientMessage>();
+      const welcomed: HostMessage[] = [];
+      const replayed: unknown[] = [];
+      outgoing.on("data", (chunk) => {
+        for (const message of decode(chunk)) {
+          if (message.type !== "hello") continue;
+          incoming.write(
+            JSON.stringify({
+              ...welcome("main", { id: "source-journal", seq: 1 }),
+              turn: { seq: 1, startedAt: "2026-01-01T00:00:00.000Z", source },
+            }) + "\n"
+          );
+          incoming.write(
+            JSON.stringify({
+              type: "event",
+              seq: 1,
+              at: "2026-01-01T00:00:00.000Z",
+              event: {
+                type: "turn",
+                state: "started",
+                agentId,
+                text: "hello",
+                source,
+              },
+            }) + "\n"
+          );
+        }
+      });
+      const c = client(async () => stream, undefined, {
+        onWelcome: (value) => welcomed.push(value),
+        onEvent: (value) => replayed.push(value),
+      });
+      await c.host.connect(2_000, undefined, true);
+      expect(welcomed).toHaveLength(1);
+      expect(replayed).toHaveLength(1);
+      const turn = (welcomed[0] as Extract<HostMessage, { type: "welcome" }>)
+        .turn!;
+      const event = (replayed[0] as { event: Record<string, unknown> }).event;
+      if (valid) {
+        expect(turn).toHaveProperty("source", source);
+        expect(event).toHaveProperty("source", source);
+      } else {
+        expect(turn).not.toHaveProperty("source");
+        expect(event).not.toHaveProperty("source");
+      }
+    });
+  }
 });

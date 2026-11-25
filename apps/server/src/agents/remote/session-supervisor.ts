@@ -25,8 +25,12 @@ import {
   agentLaunchBindings,
   prepareHostLaunch,
   writeHostLaunch,
-} from "../acp/host-env.js";
-import { HOST_FILES, hostFile, type HostLaunch } from "../acp/host-protocol.js";
+} from "@dispatch/runner/host/host-env";
+import {
+  HOST_FILES,
+  hostFile,
+  type HostLaunch,
+} from "@dispatch/runner-client/host-framing";
 import { observeBoundCheckout } from "../checkout-observation.js";
 import {
   displayPath,

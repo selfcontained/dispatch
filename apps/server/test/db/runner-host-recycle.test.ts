@@ -27,7 +27,7 @@ import {
   ndjsonDecoder,
   type ClientMessage,
   type HostMessage,
-} from "../../src/agents/acp/host-protocol.js";
+} from "@dispatch/runner-client/host-framing";
 import type { RemoteRunnerService } from "../../src/agents/remote/service.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./setup.js";
 

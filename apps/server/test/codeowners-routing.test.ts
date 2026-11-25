@@ -34,7 +34,7 @@ const cases: [string, string[]][] = [
   ["apps/server/test/helpers/fake-acp-agent.ts", ["agent-runtime-owner"]],
   ["packages/shared/src/mcp-inventory-types.ts", ["mcp-contract-owner"]],
   [
-    "apps/server/src/agents/acp/host/mcp-inventory.ts",
+    "packages/runner/src/host/mcp-inventory.ts",
     ["agent-runtime-owner", "mcp-contract-owner"],
   ],
 

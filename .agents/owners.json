@@ -87,6 +87,9 @@
         "scripts/runner-local-parity*.mjs",
         "scripts/runner-local-parity/**",
         "scripts/runner-boundary-baseline.json",
+        "scripts/runner-boundary-rekeys.json",
+        "scripts/fixtures/runner-boundary-rekey-policy.json",
+        "scripts/opencode-v2-smoke.mjs",
         "scripts/runner-restrictions.mjs",
         "docs/04-agent-lifecycle.md",
         "scripts/e2e-remote-runners.sh",
@@ -305,7 +308,7 @@
         "apps/server/test/repo-tool-environment.test.ts",
         "apps/server/test/tasks-service.test.ts",
         "packages/shared/src/mcp-inventory-types.ts",
-        "apps/server/src/agents/acp/host/mcp-inventory.ts"
+        "packages/runner/src/host/mcp-inventory.ts"
       ],
       "personas": ["mcp-contract-owner"]
     },

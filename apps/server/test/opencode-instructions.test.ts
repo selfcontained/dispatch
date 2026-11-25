@@ -2,8 +2,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { hostFile } from "../src/agents/acp/host-protocol.js";
-import { openCodeInstructionsEnv } from "../src/agents/acp/opencode-instructions.js";
+import { hostFile } from "@dispatch/runner-client/host-framing";
+import { openCodeInstructionsEnv } from "@dispatch/runner/host/opencode-instructions";
 
 describe("OpenCode instructions", () => {
   it("adds private native instructions without replacing provider or user rules, including on resume", async () => {

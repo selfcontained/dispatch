@@ -32,7 +32,7 @@
 import path from "node:path";
 import { readFile } from "node:fs/promises";
 
-import { withEngineBinDir } from "../agents/acp/engine-bin-dir.js";
+import { withEngineBinDir } from "@dispatch/runner/host/engine-bin-dir";
 import { isPluginAgentType, PLUGIN_AGENT_TYPES } from "./agent-types.js";
 import type { PluginAgentType } from "./agent-types.js";
 import { compareSemver } from "./lib/compare-semver.js";

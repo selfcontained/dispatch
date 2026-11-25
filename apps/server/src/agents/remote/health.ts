@@ -1,7 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import { readFile, lstat } from "node:fs/promises";
-import { hostFile } from "../acp/host-protocol.js";
+import { hostFile } from "@dispatch/runner-client/host-framing";
 import { gitSha, packageVersion } from "../../generated/runtime-assets.js";
 import { parseMaintenanceFailure, type RunnerHealth } from "./protocol.js";
 

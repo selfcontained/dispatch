@@ -1,3 +1,4 @@
+import { isPromptSource } from "./prompt-source.js";
 import { AgentError } from "../errors.js";
 import { isPromptImageMimeType } from "./prompt-source.js";
 import type { RuntimeLaunch } from "../runtime.js";
@@ -25,7 +26,6 @@ import {
   controllerPlacement,
   runnerIdForPlacement,
 } from "../../runners/placement.js";
-export { selfCommand, hostCommand, loginShellCommand } from "./host-command.js";
 
 import type { FastifyBaseLogger } from "fastify";
 import type {
@@ -67,8 +67,8 @@ import {
   HostClient,
   type HostQuiesceLease,
   UpdateAcknowledgementLost,
-} from "./host-client.js";
-import { type JournalEntry } from "./host-protocol.js";
+} from "@dispatch/runner-client/host-client";
+import { type JournalEntry } from "@dispatch/runner-protocol/host";
 
 /** The engine's ACP handshake can take a while on a cold adapter. */
 const LAUNCH_TIMEOUT_MS = 60_000;
@@ -1189,6 +1189,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     const replaced = recycleHolds.get(agentId);
     if (replaced?.forced && replaced.restarting) replaced.entry = entry;
     entry.client = new HostClient({
+      validSource: isPromptSource,
       agentId,
       remote: Boolean(placement),
       openSocket: async () => {
@@ -2216,6 +2217,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     async stopIdleHostForRecovery(agentId) {
       if (runtime.isBusy(agentId)) return false;
       const client = new HostClient({
+        validSource: isPromptSource,
         agentId,
         remote: false,
         openSocket: async () => {

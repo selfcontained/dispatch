@@ -6,8 +6,11 @@ import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { rootCertificates } from "node:tls";
 import type { AcpEngineId, EngineBins } from "@dispatch/runner-protocol/host";
-import { hostFile, type HostLaunch } from "./host-protocol.js";
-import type { HostSearchPath } from "./host/types.js";
+import {
+  hostFile,
+  type HostLaunch,
+} from "@dispatch/runner-client/host-framing";
+import type { HostSearchPath } from "./types.js";
 
 /** Bind the common variables for an agent started by a configured runner. */
 export function agentLaunchBindings(
@@ -60,7 +63,7 @@ export async function prepareHostLaunch(
       ...environment,
       agentId: launch.agentId,
     }),
-    personaContext: await preparePersonaContext(dir, launch.personaContext),
+    personaContext: await preparePromptContext(dir, launch.personaContext),
   };
 }
 
@@ -76,7 +79,7 @@ export async function writeHostLaunch(
 }
 
 /** Keep the snapshot in the private host directory so restarts can recover it. */
-export async function preparePersonaContext(
+export async function preparePromptContext(
   stateDir: string,
   context: string | null | undefined
 ): Promise<string | null> {

@@ -25,12 +25,12 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import Fastify from "fastify";
 import { createSessionCore } from "@dispatch/runner/cli";
-import { buildHostEnv } from "../src/agents/acp/host-env.js";
+import { buildHostEnv } from "@dispatch/runner/host/host-env";
 import { hostSearchPath } from "../src/agents/acp/host-search-path.js";
 import {
   HOST_FILES,
   type HostLaunch,
-} from "../src/agents/acp/host-protocol.js";
+} from "@dispatch/runner-client/host-framing";
 import { issueAuthority, issueServer } from "../src/agents/remote/x509.js";
 import { createAgentMcpToken, validateAgentMcpToken } from "../src/auth.js";
 import { registerMcpRoutes } from "../src/routes/mcp.js";

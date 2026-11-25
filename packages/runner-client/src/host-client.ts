@@ -1,14 +1,16 @@
-import type { BackgroundSnapshot } from "@dispatch/shared";
-import type { AgentMcpInventoryResponse } from "@dispatch/shared";
 import type {
-  AgentPermissionRequest,
-  AgentPermissionsResponse,
-} from "@dispatch/shared";
-import {
-  isPromptSource,
-  type PromptImage,
-  type PromptSource,
-} from "./prompt-source.js";
+  BackgroundSnapshot,
+  McpInventoryResult as AgentMcpInventoryResponse,
+  PermissionRequest as AgentPermissionRequest,
+  PromptImage,
+  CallerSource as PromptSource,
+  DriverLogger,
+} from "@dispatch/runner-protocol/host";
+
+type AgentPermissionsResponse = {
+  connected: boolean;
+  requests: AgentPermissionRequest[];
+};
 
 import { randomUUID } from "node:crypto";
 import type { Duplex } from "node:stream";
@@ -16,7 +18,6 @@ import { isDeepStrictEqual } from "node:util";
 
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 
-import type { DriverLogger } from "./driver.js";
 import {
   type ClientMessage,
   encodeMessage,
@@ -24,17 +25,20 @@ import {
   type JournalEntry,
   type PromptReceiptState,
   ndjsonDecoder,
-} from "./host-protocol.js";
+} from "./host-framing.js";
 
 /**
  * A host carries a prompt's `source` without reading it, so Dispatch checks
  * it here, on receipt: one it did not write is dropped, and the turn reads
  * as a system prompt.
  */
-function withValidSource(message: HostMessage): HostMessage {
+function withValidSource(
+  message: HostMessage,
+  validSource: (value: unknown) => boolean
+): HostMessage {
   if (message.type === "welcome") {
     if (!message.turn || message.turn.source === undefined) return message;
-    if (isPromptSource(message.turn.source)) return message;
+    if (validSource(message.turn.source)) return message;
     const { source: _, ...turn } = message.turn;
     return { ...message, turn };
   }
@@ -43,7 +47,7 @@ function withValidSource(message: HostMessage): HostMessage {
     message.event &&
     "source" in message.event &&
     message.event.source !== undefined &&
-    !isPromptSource(message.event.source)
+    !validSource(message.event.source)
   ) {
     const { source: _, ...event } = message.event;
     return { ...message, event } as HostMessage;
@@ -98,6 +102,8 @@ export class UpdateAcknowledgementLost extends Error {
 
 export type HostClientDeps = {
   agentId: string;
+  /** The caller validates its own opaque prompt metadata on receipt. */
+  validSource: (value: unknown) => boolean;
   /**
    * The channel goes through a runner's wire: validate frames strictly, name
    * the journal on prompts, use the runner's wording for a lost connection.
@@ -354,7 +360,7 @@ export class HostClient {
           socket.destroy();
           break;
         }
-        this.handle(withValidSource(message));
+        this.handle(withValidSource(message, this.deps.validSource));
       }
     });
     socket.on("error", (err) => {

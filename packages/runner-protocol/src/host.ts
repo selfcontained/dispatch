@@ -280,3 +280,10 @@ export type HostMessage =
       result: McpInventoryResult;
     }
   | { type: "background_work_result"; id: string; result: BackgroundSnapshot };
+
+export type DriverLogger = {
+  info: (obj: Record<string, unknown>, msg: string) => void;
+  warn: (obj: Record<string, unknown>, msg: string) => void;
+  error: (obj: Record<string, unknown>, msg: string) => void;
+  debug: (obj: Record<string, unknown>, msg: string) => void;
+};

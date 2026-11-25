@@ -1,4 +1,4 @@
-import type { AcpDriver } from "../driver.js";
+import type { AcpDriver } from "./driver.js";
 import type { AcpEngineId } from "@dispatch/runner-protocol/host";
 
 /** Apply after model selection, before accepting the first prompt. */

@@ -12,7 +12,10 @@ import type {
   RunnerRepository,
 } from "./remote/protocol.js";
 import type { BuildIdentity } from "./build-identity.js";
-import type { HostLaunch, PromptReceiptState } from "./acp/host-protocol.js";
+import type {
+  HostLaunch,
+  PromptReceiptState,
+} from "@dispatch/runner-protocol/host";
 import type { AppConfig } from "../config.js";
 import type { DriverEvent } from "@dispatch/runner-protocol/host";
 import type {

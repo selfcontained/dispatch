@@ -1,6 +1,6 @@
 import Fastify from "fastify";
 import { describe, expect, it, vi } from "vitest";
-import { parseMcpInventory } from "../src/agents/acp/host/mcp-inventory.js";
+import { parseMcpInventory } from "@dispatch/runner/host/mcp-inventory";
 import { registerAgentPromptRoutes } from "../src/routes/agents/prompt-routes.js";
 import type { AgentRouteDeps } from "../src/routes/agents/shared.js";
 

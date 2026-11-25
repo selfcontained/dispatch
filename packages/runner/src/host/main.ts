@@ -26,14 +26,14 @@ import path from "node:path";
 import {
   AcpDriver,
   type DriverEvent,
+  type DriverProcessOwnership,
   type CallerSource,
   resolveExecutable,
   TEARDOWN_STEP_MS,
-} from "../driver.js";
-import { openCodeInstructionsEnv } from "../opencode-instructions.js";
-import { buildHostEnv } from "../host-env.js";
-import { engineSpecFor } from "../engine-spec.js";
-import { engineVersion } from "../../engine-availability.js";
+} from "./driver.js";
+import { openCodeInstructionsEnv } from "./opencode-instructions.js";
+import { buildHostEnv } from "./host-env.js";
+import { engineSpecFor } from "./engine-spec.js";
 import {
   type ClientMessage,
   encodeMessage,
@@ -43,10 +43,12 @@ import {
   type JournalEntry,
   ndjsonDecoder,
   parseClientMessage,
-} from "../host-protocol.js";
+} from "@dispatch/runner-client/host-framing";
 
 /** What the caller supplies besides the state directory. */
 export type AgentHostOptions = {
+  ownership: DriverProcessOwnership;
+  engineVersion: (bin: string) => Promise<string | null>;
   /** The build this host runs, reported to clients that set an instance ID. */
   build: { version: string; revision: string | null };
   /** How the engine CLI is found and the engine's PATH is extended. */
@@ -232,6 +234,7 @@ async function main(argv: string[], options: AgentHostOptions): Promise<void> {
   let submittedPrompts = 0;
   let mutatingRequests = 0;
   const driver = new AcpDriver({
+    ownership: options.ownership,
     logger,
     resolveBinary: (bin, env) =>
       resolveExecutable(bin, env, searchPath.isPackageBinDir),
@@ -693,7 +696,7 @@ async function main(argv: string[], options: AgentHostOptions): Promise<void> {
           agentId,
           engine: launch.engine,
           cli: engineCli,
-          version: await engineVersion(engineCli),
+          version: await options.engineVersion(engineCli),
         },
         "host: engine CLI"
       );
@@ -705,16 +708,16 @@ async function main(argv: string[], options: AgentHostOptions): Promise<void> {
       effort: resume ? null : (launch.effort ?? null),
       model: launch.model,
       systemPromptAppend:
-        spec.personaDelivery === "system_prompt" ? launch.systemPrompt : null,
+        spec.guidanceDelivery === "system_prompt" ? launch.systemPrompt : null,
       firstPromptAppend: firstPromptContext(
-        spec.personaDelivery,
+        spec.guidanceDelivery,
         launch.systemPrompt,
         launch.personaContext
       ),
       mcp: launch.mcp,
       sessionId: resume,
       env:
-        spec.personaDelivery === "instructions_file"
+        spec.guidanceDelivery === "instructions_file"
           ? await openCodeInstructionsEnv(
               hostFile(stateDir, "instructions"),
               launch.systemPrompt,

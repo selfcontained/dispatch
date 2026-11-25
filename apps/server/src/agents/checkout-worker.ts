@@ -47,7 +47,7 @@ import { resolvePath } from "./workspace.js";
 import { resolveProjectRoot } from "../projects/resolve-root.js";
 import { SharedCheckoutWatches, watchCheckout } from "./checkout-watch.js";
 import { spawn } from "node:child_process";
-import { loginShellCommand } from "./acp/host-command.js";
+import { loginShellCommand } from "@dispatch/runner/host/host-command";
 import { readCheckoutCommandFile } from "./checkout-inspection.js";
 import {
   capture,

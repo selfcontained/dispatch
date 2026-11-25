@@ -18,12 +18,12 @@ import { childProcessEnv } from "../../src/shared/process/child-environment.js";
 import {
   hostCommand,
   loginShellCommand,
-} from "../../src/agents/acp/host-command.js";
-import { preparePersonaContext } from "../../src/agents/acp/host-env.js";
+} from "@dispatch/runner/host/host-command";
+import { preparePromptContext } from "@dispatch/runner/host/host-env";
 import {
   hostFile,
   type HostLaunch,
-} from "../../src/agents/acp/host-protocol.js";
+} from "@dispatch/runner-client/host-framing";
 
 export type MainLaunchSettings = Pick<
   HostLaunch,
@@ -111,7 +111,7 @@ export function mainLocalHosts(agentStateRoot: string) {
       effort: input.effort ?? null,
       fullAccess: input.fullAccess ?? true,
       systemPrompt: input.systemPrompt,
-      personaContext: await preparePersonaContext(dir, input.personaContext),
+      personaContext: await preparePromptContext(dir, input.personaContext),
       mcp: input.mcp,
       env: input.env,
       pathPrefix: input.pathPrefix,

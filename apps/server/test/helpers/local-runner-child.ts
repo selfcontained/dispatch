@@ -15,7 +15,7 @@ import type { LocalEndpoint } from "@dispatch/runner-client/transport/local-sock
 import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 import { createSessionCore, localSessionHandlers } from "@dispatch/runner/cli";
 import { embeddedBuild } from "../../src/agents/build-identity.js";
-import { hostCommand } from "../../src/agents/acp/host-command.js";
+import { hostCommand } from "@dispatch/runner/host/host-command";
 import { localLaunchSettings } from "../../src/agents/acp/launch-env.js";
 import { localHostEntry } from "../../src/agents/acp/local-host-entry.js";
 import type { LocalSessionRunner } from "../../src/runners/local.js";
