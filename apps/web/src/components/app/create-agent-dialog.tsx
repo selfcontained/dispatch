@@ -126,6 +126,7 @@ function CreateAgentDialogContent({
           >
             <DialogTitle>New agent</DialogTitle>
             <RunnerPicker
+              live
               targets={form.launch.list.data ?? []}
               value={form.launch.key}
               onChange={form.chooseTarget}

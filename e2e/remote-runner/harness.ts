@@ -357,6 +357,18 @@ export async function revokeViaUi(page: Page, id: string) {
   });
 }
 
+/** Resolve the opaque picker key from the same target list the form reads. */
+async function runnerTargetKey(page: Page, runnerId: string) {
+  const response = await page.request.get("/api/v1/launch-targets", {
+    headers: authHeaders(),
+  });
+  const { targets } = (await response.json()) as {
+    targets: Array<{ key: string; selectionFields: { runner?: string } }>;
+  };
+  return targets.find((target) => target.selectionFields.runner === runnerId)
+    ?.key;
+}
+
 /** Launch through the normal Create Agent dialog (Folder = runner locator). */
 export async function launchViaUi(
   page: Page,
@@ -365,7 +377,6 @@ export async function launchViaUi(
     cwd?: string;
     runnerId?: string;
     projectName?: string;
-    pullRequest?: string;
     prompt: string;
     restricted?: boolean;
   }
@@ -381,7 +392,9 @@ export async function launchViaUi(
   if (opts.runnerId) {
     await page.getByTestId("create-agent-runner").click();
     await page
-      .getByTestId(`create-agent-runner-option-${opts.runnerId}`)
+      .getByTestId(
+        `create-agent-runner-option-${await runnerTargetKey(page, opts.runnerId)}`
+      )
       .click();
     if (!opts.projectName)
       throw new Error("Runner UI launches need a project.");
@@ -389,16 +402,6 @@ export async function launchViaUi(
     await page
       .getByRole("option", { name: opts.projectName, exact: true })
       .click();
-    if (opts.pullRequest) {
-      await page.getByTestId("create-agent-new-branch").click();
-      await page.getByTestId("create-agent-base-branch").click();
-      await page
-        .getByPlaceholder("Branch name or GitHub PR URL")
-        .fill(opts.pullRequest);
-      await page
-        .getByRole("option", { name: opts.pullRequest, exact: true })
-        .click();
-    }
   } else await page.getByTestId("create-agent-cwd").fill(opts.cwd ?? "/tmp");
   if (opts.restricted) {
     // "Start in full access mode" is on by default; permission prompts need it off.
@@ -448,7 +451,9 @@ export async function runnerOptionEnabled(page: Page, runnerId: string) {
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.getByTestId("create-agent-button").click();
   await page.getByTestId("create-agent-runner").click();
-  const option = page.getByTestId(`create-agent-runner-option-${runnerId}`);
+  const option = page.getByTestId(
+    `create-agent-runner-option-${await runnerTargetKey(page, runnerId)}`
+  );
   const enabled =
     (await option.count()) > 0 &&
     (await option.getAttribute("aria-disabled")) !== "true" &&

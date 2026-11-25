@@ -39,10 +39,11 @@ Dispatch talks to every machine an agent runs on through one `Runner` interface.
 ## Full-suite check before the lead merges
 
 When your gates pass:
+
 1. Merge the current integration head (`origin/agt_6500d94e4ff5/agent-4e4ff5`) into your branch (no rebase) and re-run the gates.
 2. Push your branch and open a **draft** pull request against `main` titled `[runner build check] <task>`, body: "Temporary draft to run CI on a builder branch of #1540. Do not merge; the lead closes it." This is only to get the existing CI job on your branch.
 3. Wait for the `ci` check. If it fails, fix it (new commits) and push again. Report only when it is green, with the PR URL.
-The lead merges your branch into the integration branch and closes the draft. Never merge it yourself and never mark it ready.
+   The lead merges your branch into the integration branch and closes the draft. Never merge it yourself and never mark it ready.
 
 ## Report (one message, short)
 
