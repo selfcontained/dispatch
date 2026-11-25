@@ -153,3 +153,130 @@ export type EngineBins = {
    */
   adapter?: { bin: string; args?: string[] };
 };
+
+import {
+  parseSessionCommand,
+  type HostWelcome,
+  type JournalEntry as RunnerJournalEntry,
+  type SessionCommand,
+  type SessionReply,
+} from "./session.js";
+import type { RemoteLaunch } from "./execution.js";
+/**
+ * What the server writes into an agent's state directory before spawning
+ * its host. Everything the host needs to run the engine is here, so the
+ * host takes no arguments beyond the directory. Mode 0600: it carries the
+ * MCP token and the system prompt.
+ */
+export type HostLaunch = RemoteLaunch & {
+  cwd: string;
+  /** A supervised runner samples the lifetime of active turns. */
+  reportTurnActivity?: boolean;
+  hostInstanceId?: string;
+  bins: EngineBins;
+  /** Environment the engine child gets on top of the host's own. */
+  env: Record<string, string>;
+  /** Directories prepended to the engine child's PATH. */
+  pathPrefix: string[];
+};
+
+/** One journal line: an event with its position in the host's stream. */
+export type JournalEntry = RunnerJournalEntry<DriverEvent>;
+
+export type PromptReceiptState =
+  | "accepted"
+  | "claimed"
+  | "unclaimed"
+  | "rotated";
+
+type PromptReceiptQuery = {
+  type: "prompt_receipt";
+  id: string;
+  journalId: string;
+};
+export type ClientMessage =
+  | SessionCommand<CallerSource>
+  | PromptReceiptQuery
+  | { type: "quiesce" | "release_quiesce"; id: string }
+  | { type: "shutdown"; quiesceId: string };
+
+function validRequestId(id: unknown): id is string {
+  return typeof id === "string" && id.length > 0 && id.length <= 128;
+}
+
+export function parseClientMessage(value: unknown): ClientMessage | null {
+  if (
+    value &&
+    typeof value === "object" &&
+    "type" in value &&
+    value.type === "prompt_receipt"
+  ) {
+    if (
+      !("id" in value) ||
+      typeof value.id !== "string" ||
+      !("journalId" in value) ||
+      typeof value.journalId !== "string" ||
+      value.id.length === 0 ||
+      value.id.length > 128 ||
+      value.journalId.length === 0 ||
+      value.journalId.length > 128
+    )
+      return null;
+    return { type: "prompt_receipt", id: value.id, journalId: value.journalId };
+  }
+  if (value && typeof value === "object" && "type" in value) {
+    if (value.type === "quiesce" || value.type === "release_quiesce") {
+      return "id" in value && validRequestId(value.id)
+        ? { type: value.type, id: value.id }
+        : null;
+    }
+    if (value.type === "shutdown" && "quiesceId" in value) {
+      return validRequestId(value.quiesceId) && !("force" in value)
+        ? { type: "shutdown", quiesceId: value.quiesceId }
+        : null;
+    }
+  }
+  // A prompt's `source` is the caller's metadata: carried, never read.
+  // The caller validates what comes back on the turn's events.
+  return parseSessionCommand(value) as ClientMessage | null;
+}
+
+/** The build a host was started from. */
+type HostBuild = { version: string; revision: string | null };
+
+type Welcome = HostWelcome & {
+  hostBuild?: HostBuild;
+  promptReceiptSupported?: true;
+  quiesceSupported?: true;
+  /** Answers `hello {replayComplete}` with `replay_complete`. Hosts from
+   * origin/main and v1.7.28 lack it. */
+  replayCompleteSupported?: true;
+  hostInstanceId?: string;
+  /** The open turn, if one is running. */
+  turn: { seq: number; startedAt: string; source?: CallerSource } | null;
+  /** Current ACP commands, including skills; refreshed on each reconnect. */
+  commands: acp.AvailableCommand[];
+  /** The session's config options as they stand; absent from older hosts. */
+  configOptions?: acp.SessionConfigOption[];
+  permissions?: PermissionRequest[];
+};
+
+export type HostMessage =
+  | SessionReply<DriverEvent, Welcome>
+  | {
+      type: "prompt_receipt_result";
+      id: string;
+      journalId: string;
+      state: PromptReceiptState;
+    }
+  | { type: "quiesce_result"; id: string; state: "idle" | "busy" }
+  | { type: "quiesce_shutdown_result"; id: string; accepted: boolean }
+  /** A set_config took; the engine's options after it. */
+  | { type: "config_set"; id: string; options: acp.SessionConfigOption[] }
+  | { type: "permissions"; requests: PermissionRequest[] }
+  | {
+      type: "mcp_inventory_result";
+      id: string;
+      result: McpInventoryResult;
+    }
+  | { type: "background_work_result"; id: string; result: BackgroundSnapshot };
