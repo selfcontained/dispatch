@@ -1,3 +1,4 @@
+import { TaskGoalProgress } from "./task-goal-progress";
 import { TaskLabels } from "./task-labels";
 import { useState } from "react";
 import type { Task, TaskBoard, TaskColumn } from "@/hooks/use-tasks";
@@ -137,6 +138,10 @@ export function TaskList({
                     onClick={() => openTask(task.id)}
                   >
                     <span className="block truncate">{task.title}</span>
+                    <TaskGoalProgress
+                      counts={task.goalCounts}
+                      className="mt-1 max-w-72 font-normal"
+                    />
                     <TaskLabels labels={task.labels} />
                   </RowButton>
                   <div className="hidden md:block">
