@@ -34,6 +34,7 @@ const runnerManagementScreens = new Map([
 ]);
 
 const baselinePath = "scripts/runner-boundary-baseline.json";
+const rekeysPath = "scripts/runner-boundary-rekeys.json";
 const packages = [
   "runner-protocol",
   "runner-client",
@@ -1112,15 +1113,81 @@ export function compareHits(hits, baseline) {
   return errors;
 }
 
-export function compareHistory(previous, next) {
-  if (!previous) return []; // Initial adoption on a branch without a baseline.
+// Reviewed T40 moves remain counted debt; these exact records only explain
+// additions to history. They never suppress source hits or permit count growth.
+function exactMoveKey(value) {
+  return (
+    value &&
+    Object.keys(value).sort().join(",") === "detail,file,kind" &&
+    typeof value.file === "string" &&
+    /\.[cm]?[jt]sx?$/.test(value.file) &&
+    !/[\*?\[\]{}]/.test(value.file) &&
+    typeof value.kind === "string" &&
+    typeof value.detail === "string" &&
+    value.detail.length > 0 &&
+    !/[\*?\[\]{}]/.test(value.detail)
+  );
+}
+
+export function rekeyErrors(records, baseline) {
+  if (!Array.isArray(records))
+    return ["Move re-keys must be an exact-entry list."];
+  const entries = indexEntries(baseline);
+  const seen = new Set();
+  const errors = [];
+  for (const record of records) {
+    if (
+      !record ||
+      !exactMoveKey(record.key) ||
+      !["moves-with-workload", "route-through-runner"].includes(record.class) ||
+      record.task !== "T40" ||
+      typeof record.reason !== "string" ||
+      !record.reason.trim() ||
+      /[\r\n]/.test(record.reason) ||
+      Object.hasOwn(record, "supersedes") ===
+        Object.hasOwn(record, "movedDependency") ||
+      (record.supersedes !== undefined &&
+        (!Array.isArray(record.supersedes) ||
+          !record.supersedes.length ||
+          !record.supersedes.every(exactMoveKey))) ||
+      (record.movedDependency !== undefined &&
+        (typeof record.movedDependency !== "string" ||
+          !/^apps\/.+\.[cm]?[jt]sx?$/.test(record.movedDependency) ||
+          /[\*?\[\]{}]/.test(record.movedDependency)))
+    ) {
+      errors.push("Invalid exact move re-key record.");
+      continue;
+    }
+    const id = key(record.key);
+    if (seen.has(id))
+      errors.push(`Duplicate move re-key: ${diagnostic(record.key)}`);
+    seen.add(id);
+    const entry = entries.get(id);
+    if (!entry) errors.push(`Stale move re-key: ${diagnostic(record.key)}`);
+    else if (entry.task !== record.task || entry.class !== record.class)
+      errors.push(`Move re-key metadata mismatch: ${diagnostic(record.key)}`);
+  }
+  return errors;
+}
+
+export function compareHistory(previous, next, rekeys = []) {
+  if (!previous) return rekeyErrors(rekeys, next ?? []); // Initial adoption.
   if (!next)
     return [
       "The baseline was deleted. Keep an empty list when all entries are removed.",
     ];
   const before = indexEntries(previous);
   const after = indexEntries(next);
-  const errors = [];
+  const errors = rekeyErrors(rekeys, next);
+  const validRekeys = errors.length
+    ? new Map()
+    : new Map(rekeys.map((record) => [key(record.key), record]));
+  const moveTotal = (entries) =>
+    [...entries.values()].reduce(
+      (total, entry) => total + (/^R[25] /.test(entry.kind) ? entry.count : 0),
+      0
+    );
+  const moveTotalDoesNotRise = moveTotal(after) <= moveTotal(before);
   const archiveDialog = "apps/web/src/components/app/delete-agent-dialog.tsx";
   const retiredDialogHitIds = [
     key({ file: archiveDialog, kind: "R6 locator", detail: "runner://" }),
@@ -1151,6 +1218,15 @@ export function compareHistory(previous, next) {
 
   for (const [id, entry] of after) {
     const parent = before.get(id);
+    const move = validRekeys.get(id);
+    if (
+      !parent &&
+      move &&
+      /^R[25] /.test(entry.kind) &&
+      moveTotalDoesNotRise &&
+      (!move.supersedes || move.supersedes.every((old) => !after.has(key(old))))
+    )
+      continue;
     // T05 replaces the checkout placement fork with one temporary delegation.
     if (
       !parent &&
@@ -1249,7 +1325,8 @@ export function historyErrors(root, base, head) {
     "--full-history",
     `${base}..${head}`,
     "--",
-    baselinePath
+    baselinePath,
+    rekeysPath
   )
     .trim()
     .split("\n")
@@ -1263,7 +1340,11 @@ export function historyErrors(root, base, head) {
     const entries = atRevision(root, commit, baselinePath);
     for (const parent of parents) {
       const before = atRevision(root, parent, baselinePath);
-      for (const error of compareHistory(before, entries))
+      for (const error of compareHistory(
+        before,
+        entries,
+        atRevision(root, commit, rekeysPath) ?? []
+      ))
         errors.push(`${commit.slice(0, 12)} ${error}`);
     }
   }
@@ -1376,9 +1457,15 @@ function run(args) {
   }
   const baseline = JSON.parse(read(baselinePath));
   errors.push(...compareHits(hits, baseline));
+  const rekeys = JSON.parse(read(rekeysPath) ?? "[]");
+  errors.push(...rekeyErrors(rekeys, baseline));
   if (staged)
     errors.push(
-      ...compareHistory(atRevision(root, "HEAD", baselinePath), baseline)
+      ...compareHistory(
+        atRevision(root, "HEAD", baselinePath),
+        baseline,
+        rekeys
+      )
     );
   if (!errors.length) {
     const counts = {};

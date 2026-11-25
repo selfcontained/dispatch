@@ -163,3 +163,7 @@ resolved imports still receive all ordinary boundary checks. Unknown or mutated
 bindings remain violations. Single owners retain manager, ACP runtime, local
 adapter, remote service and supervisor files; fallback removal still requires the
 lead's recovery decision.
+
+T40 reviewed moves may re-key counted R2/R5 debt only through exact records in
+scripts/runner-boundary-rekeys.json, with combined R2+R5 non-increasing and superseded keys removed.
+Stale records fail; remove records with their debt, and empty the list before the final seal.

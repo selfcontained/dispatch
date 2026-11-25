@@ -10,6 +10,7 @@ import {
   countHits,
   historyErrors,
   ownMachineCapabilities,
+  rekeyErrors,
   scanSource,
 } from "./check-runner-boundary.mjs";
 import { restrictionHits } from "./runner-restrictions.mjs";
@@ -486,4 +487,74 @@ test("every exact own-machine grant accepts only its named capability", () => {
       file
     );
   }
+});
+
+test("T40 exact move re-keys explain additions without increasing combined debt", () => {
+  const old = {
+    file: app + "agents/acp/runtime.ts",
+    kind: "R2 host import",
+    detail: app + "agents/acp/host-client",
+    task: "T04",
+    count: 2,
+  };
+  const entry = {
+    file: old.file,
+    kind: "R5 Dispatch to client transport",
+    detail: "@dispatch/runner-client/host-client",
+    task: "T40",
+    count: 1,
+    class: "route-through-runner",
+  };
+  const keyOf = ({ file, kind, detail }) => ({ file, kind, detail });
+  const record = {
+    key: keyOf(entry),
+    task: "T40",
+    class: entry.class,
+    reason: "Host client moved into its package.",
+    supersedes: [keyOf(old)],
+  };
+  assert.deepEqual(compareHistory([old], [entry], [record]), []);
+  assert.ok(
+    compareHistory([old], [entry]).some((e) =>
+      e.startsWith("Baseline may only shrink")
+    )
+  );
+  assert.ok(
+    compareHistory([old], [{ ...entry, count: 3 }], [record]).some((e) =>
+      e.startsWith("Baseline may only shrink")
+    )
+  );
+  assert.ok(
+    compareHistory(
+      [old, { ...old, file: app + "spare.ts", count: 5 }],
+      [old, entry],
+      [record]
+    ).some((e) => e.startsWith("Baseline may only shrink"))
+  );
+  for (const rule of ["R1", "R3", "R6", "R7"]) {
+    const forbidden = { ...entry, kind: rule + " addition" };
+    assert.ok(
+      compareHistory(
+        [old],
+        [forbidden],
+        [{ ...record, key: keyOf(forbidden) }]
+      ).some((e) => e.startsWith("Baseline may only shrink"))
+    );
+  }
+  assert.ok(
+    rekeyErrors([record], []).some((e) => e.startsWith("Stale move re-key"))
+  );
+  const dependency = {
+    ...record,
+    movedDependency: app + "agents/acp/host-client.ts",
+  };
+  delete dependency.supersedes;
+  assert.deepEqual(compareHistory([old], [entry], [dependency]), []);
+  assert.ok(
+    rekeyErrors([{ ...dependency, movedDependency: "apps/**" }], [entry]).length
+  );
+  assert.ok(
+    compareHistory([old], [{ ...entry, count: 2 }], [record]).length === 0
+  );
+  assert.ok(rekeyErrors([record, record], [entry]).length);
 });

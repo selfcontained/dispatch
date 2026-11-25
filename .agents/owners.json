@@ -87,6 +87,7 @@
         "scripts/runner-local-parity*.mjs",
         "scripts/runner-local-parity/**",
         "scripts/runner-boundary-baseline.json",
+        "scripts/runner-boundary-rekeys.json",
         "scripts/runner-restrictions.mjs",
         "docs/04-agent-lifecycle.md",
         "scripts/e2e-remote-runners.sh",
