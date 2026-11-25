@@ -13,7 +13,10 @@ import {
   type Res,
   type Runner,
 } from "@dispatch/runner-protocol/contract";
-import { checkoutRunners } from "../runners/directory.js";
+import {
+  checkoutRunners,
+  type RunnerComposition,
+} from "../runners/directory.js";
 import {
   finishArchiveCheckout,
   runnerArchiveExecutor,
@@ -42,7 +45,7 @@ export function archiveRunner(
   child: (() => Runner | undefined) | undefined,
   row: ArchiveCheckoutAgent,
   placement: Placement
-): Runner {
+): Runner & Pick<RunnerComposition, "cleanupBudgetMs"> {
   const { directory } = checkoutRunners(
     { child },
     { ...row, workspacePath: null, placement }

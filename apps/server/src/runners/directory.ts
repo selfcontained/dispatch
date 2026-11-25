@@ -64,8 +64,19 @@ export interface CheckoutRunner extends Runner {
   ): Promise<CheckoutCommandFile | null>;
 }
 
+/** What the composition supplies with each runner, by its own rules. */
+export type RunnerComposition = {
+  settings: RunnerSettings;
+  /**
+   * Main's budget for an archive's checkout cleanup, where the runner is
+   * this machine (main's 60 s); none where the runner's own transport
+   * bounds it.
+   */
+  cleanupBudgetMs?: number;
+};
+
 interface CheckoutDirectory extends Runners {
-  for(placement: Placement): CheckoutRunner & { settings: RunnerSettings };
+  for(placement: Placement): CheckoutRunner & RunnerComposition;
 }
 
 const localDescription: RunnerDescription = {
@@ -102,13 +113,13 @@ export function runnerDirectory(
 ): CheckoutDirectory {
   const location = agent ? legacySessionLocation(agent) : null;
   return {
-    for(selected: Placement): CheckoutRunner & { settings: RunnerSettings } {
+    for(selected: Placement): CheckoutRunner & RunnerComposition {
       const boundAgent =
         agent && samePlacement(selected, agent.placement) ? agent : undefined;
       if (samePlacement(selected, controllerPlacement))
         return Object.assign(
           createLocalCheckoutRunner(boundAgent, localDescription, child?.()),
-          { settings: localRunnerSettings }
+          { settings: localRunnerSettings, cleanupBudgetMs: 60_000 }
         );
 
       const id = placementRunner(selected);

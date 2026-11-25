@@ -14,7 +14,10 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanupAgentWorktree } from "../src/agents/archive.js";
 import { workspaceWorkload } from "../src/agents/checkout-worker.js";
 import { runnerDirectory } from "../src/runners/directory.js";
-import { controllerPlacement } from "../src/runners/placement.js";
+import {
+  controllerPlacement,
+  placementForRunner,
+} from "../src/runners/placement.js";
 
 let root: string;
 let worktree: string;
@@ -39,9 +42,10 @@ const agent = () => ({
   placement: controllerPlacement,
 });
 
-/** A child that owns the worktree; its release is `release`. */
-function owningChild(release: () => Promise<unknown>) {
+/** A child that owns the worktree; `slow` never answers. */
+function owningChild(slow?: string) {
   const call = vi.fn(async (op: string, input: { path?: string }) => {
+    if (op === slow) return new Promise(() => {});
     if (op === "path.resolve")
       return workspaceWorkload.resolvePath(input.path!, input);
     if (op === "workspace.describe")
@@ -53,7 +57,7 @@ function owningChild(release: () => Promise<unknown>) {
         borrowers: [],
         checkout: null,
       };
-    if (op === "workspace.release") return release();
+    if (op === "workspace.release") return { removed: true };
     throw new Error(`unexpected ${op}`);
   });
   const child = {
@@ -63,7 +67,7 @@ function owningChild(release: () => Promise<unknown>) {
   return { child, call };
 }
 
-function archive(child: Runner) {
+function archive(child: Runner, mode: "force" | "auto" = "force") {
   const logger = {
     warn: vi.fn(),
     info: vi.fn(),
@@ -81,7 +85,7 @@ function archive(child: Runner) {
       logger,
       { bindWorkspace: async () => false },
       agent(),
-      "force",
+      mode,
       undefined,
       runner
     ),
@@ -89,7 +93,7 @@ function archive(child: Runner) {
 }
 
 it("force reads no checkout state before removing, as main", async () => {
-  const { child, call } = owningChild(async () => ({ removed: true }));
+  const { child, call } = owningChild();
   const { outcome } = archive(child);
   expect(await outcome).toEqual({ kind: "released" });
   // The archive's own calls: the co-owner spelling, then the removal. The
@@ -102,30 +106,46 @@ it("force reads no checkout state before removing, as main", async () => {
   ]);
 });
 
-it("keeps a checkout whose removal outlasts main's 60 s, with main's warning", async () => {
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-  const here = vi.spyOn(workspaceWorkload, "release");
-  const { child, call } = owningChild(() => new Promise(() => {}));
-  const { outcome, logger } = archive(child);
-  let settled: unknown;
-  void outcome.then((value) => (settled = value));
-  await vi.advanceTimersByTimeAsync(59_000);
-  expect(settled).toBeUndefined();
-  await vi.advanceTimersByTimeAsync(1_000);
-  expect(await outcome).toEqual({ kind: "kept", reason: "failed" });
-  expect(logger.warn).toHaveBeenCalledWith(
-    expect.objectContaining({
-      err: expect.objectContaining({
-        message: "Worktree cleanup timed out after 60000ms",
+it.each([
+  ["the co-owner read", "path.resolve", "force"],
+  ["the observation", "workspace.observe", "auto"],
+  ["the removal", "workspace.release", "force"],
+] as const)(
+  "keeps a checkout when %s outlasts main's 60 s cleanup, with main's warning",
+  async (_, slow, mode) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const here = vi.spyOn(workspaceWorkload, "release");
+    const { child, call } = owningChild(slow);
+    const { outcome, logger } = archive(child, mode);
+    let settled: unknown;
+    void outcome.then((value) => (settled = value));
+    // Main's budget runs from the start of the cleanup.
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(settled).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(await outcome).toEqual({ kind: "kept", reason: "failed" });
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        err: expect.objectContaining({
+          message: "Worktree cleanup timed out after 60000ms",
+        }),
+        worktreePath: worktree,
       }),
-      worktreePath: worktree,
-    }),
-    "Worktree cleanup failed; leaving on disk."
+      "Worktree cleanup failed; leaving on disk."
+    );
+    // Nothing is sent twice, and nothing is made here.
+    expect(
+      call.mock.calls.filter(([op]) => op === "workspace.release").length
+    ).toBeLessThanOrEqual(1);
+    expect(here).not.toHaveBeenCalled();
+    here.mockRestore();
+  }
+);
+
+it("gives an enrolled runner no cleanup budget: its transport bounds it", () => {
+  const enrolled = runnerDirectory({}).for(placementForRunner("enrolled-1"));
+  expect(enrolled.cleanupBudgetMs).toBeUndefined();
+  expect(runnerDirectory({}).for(controllerPlacement).cleanupBudgetMs).toBe(
+    60_000
   );
-  // Sent once; nothing is made again here.
-  expect(
-    call.mock.calls.filter(([op]) => op === "workspace.release")
-  ).toHaveLength(1);
-  expect(here).not.toHaveBeenCalled();
-  here.mockRestore();
 });

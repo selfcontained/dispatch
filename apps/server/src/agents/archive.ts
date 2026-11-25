@@ -16,6 +16,7 @@ import {
   type ArchiveCheckoutHooks,
   type ArchiveOutcome,
 } from "./archive-policy.js";
+import type { RunnerComposition } from "../runners/directory.js";
 import type { Runner } from "@dispatch/runner-protocol/contract";
 import type { RemoteRunnerService } from "./remote/service.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
@@ -83,11 +84,11 @@ async function getChildAgentIds(
   return result.rows.map((row) => row.id);
 }
 
-const WORKTREE_CLEANUP_TIMEOUT_MS = 60_000;
-
 /**
  * Finish a local checkout through the shared archive sequence. Callers send
- * runner-placed agents to `releaseRemoteCheckout` instead.
+ * runner-placed agents to `releaseRemoteCheckout` instead. The runner's
+ * cleanup budget, when the composition gives it one (main's 60 s on this
+ * machine), bounds the whole cleanup: co-owner read, observation, removal.
  */
 export async function cleanupAgentWorktree(
   pool: Pool,
@@ -96,9 +97,10 @@ export async function cleanupAgentWorktree(
   agent: ArchiveCheckoutAgent,
   mode: WorktreeCleanupMode,
   hooks: ArchiveCheckoutHooks | undefined,
-  runner: Runner
+  runner: Runner & Pick<RunnerComposition, "cleanupBudgetMs">
 ): Promise<ArchiveOutcome> {
   if (!agent.worktreePath) return { kind: "kept", reason: "notManaged" };
+  const budget = runner.cleanupBudgetMs;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
@@ -110,17 +112,19 @@ export async function cleanupAgentWorktree(
         localArchiveExecutor(pool, agent, localRunner, runner),
         hooks
       ),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () =>
-            reject(
-              new Error(
-                `Worktree cleanup timed out after ${WORKTREE_CLEANUP_TIMEOUT_MS}ms`
-              )
-            ),
-          WORKTREE_CLEANUP_TIMEOUT_MS
-        );
-      }),
+      ...(budget === undefined
+        ? []
+        : [
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(
+                () =>
+                  reject(
+                    new Error(`Worktree cleanup timed out after ${budget}ms`)
+                  ),
+                budget
+              );
+            }),
+          ]),
     ]);
   } catch (err) {
     logger.warn(
