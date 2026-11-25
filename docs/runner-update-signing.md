@@ -21,9 +21,10 @@ openssl genpkey -algorithm Ed25519 -out runner-a.private.pem
 openssl pkey -in runner-a.private.pem -pubout -out runner-a.public.pem
 ```
 
-1. Add `["runner-a", \`<complete SPKI PEM from runner-a.public.pem>\`]` to the
-   active slot in
-   [update-keys.ts](../apps/server/src/agents/remote/update-keys.ts).
+1. Add `["runner-a", \`<complete SPKI PEM from runner-a.public.pem>\`]`to the
+active slot of`productionRunnerUpdateKeys` in
+   [update-format.ts](../packages/runner-protocol/src/update-format.ts). Use the
+   standby slot in the same map for rotation.
    Commit the public PEM and its stable key ID, and merge them before cutting
    the first native release with signed updates.
 2. Store the private PKCS#8 PEM in the repository's GitHub Actions secret

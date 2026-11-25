@@ -1,20 +1,24 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { createHash, createPrivateKey, sign } from "node:crypto";
+import {
+  createHash,
+  createPrivateKey,
+  createPublicKey,
+  sign,
+  verify,
+} from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
-  canonicalRunnerManifest,
+  canonicalManifestBytes,
   runnerExecutableMember,
   RUNNER_ARCHES,
   RUNNER_UPDATE_KEY_ID,
   RUNNER_UPDATE_VERSION,
-  verifyRunnerUpdateEnvelope,
-} from "../apps/server/src/agents/remote/update-manifest.ts";
-import {
+  verifySignedManifest,
   productionRunnerUpdateKeys,
   RUNNER_UPDATE_DEV_KEY_ID,
-} from "../apps/server/src/agents/remote/update-keys.ts";
+} from "../packages/runner-protocol/src/update-format.ts";
 import { loadRunnerDevKey } from "./runner-dev-key.mjs";
 
 const [mode, version, arch, archive, output, ...extra] = process.argv.slice(2);
@@ -67,12 +71,18 @@ if ((await exited) !== 0 || size === 0)
 const manifest = { version, os: "linux", arch, sha256: hash.digest("hex") };
 const signature = sign(
   null,
-  canonicalRunnerManifest(manifest),
+  canonicalManifestBytes(manifest),
   privateKey
 ).toString("base64");
 const envelope = { manifest, signatures: [{ keyId, signature }] };
-verifyRunnerUpdateEnvelope(
+verifySignedManifest(
   envelope,
-  dev ? new Map([[keyId, dev.publicKey]]) : productionRunnerUpdateKeys
+  dev ? new Map([[keyId, dev.publicKey]]) : productionRunnerUpdateKeys,
+  (pem, bytes, signature) => {
+    const key = createPublicKey(pem);
+    return (
+      key.asymmetricKeyType === "ed25519" && verify(null, bytes, key, signature)
+    );
+  }
 );
 await writeFile(output, JSON.stringify(envelope) + "\n");
