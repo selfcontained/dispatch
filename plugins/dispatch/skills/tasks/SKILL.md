@@ -12,7 +12,7 @@ does not imply that a task needs creating or moving.
 ## Read before you act
 
 ```
-task_list  projectId?, column?, assignedToMe?, archived?
+task_list  projectId?, column? | columns?, ids?, fields?, labels?, assignedToMe?, archived?
 task_get   id
 task_watch id
 task_unwatch id
@@ -27,9 +27,23 @@ task_board_unwatch projectId?
 Columns may have optional capacity limits. `task_list` includes `columnCapacity` entries with each column's `capacity` (null means unlimited) and `activeTaskCount` (all non-archived tasks, regardless of filters). Creating, moving, or restoring into a full column returns `column_capacity_exceeded` with the column, count, and limit. Leave the refused task where it is and explain the blockage; edits, moves out, and archiving remain possible. Capacity gates entry into its own column only: a trigger in an earlier queue does not reserve a later work slot. Do not change limits or project configuration unless asked.
 
 `task_list` returns thin rows and the board's `columns` **keys**. Filter by
-`column`, `assignedToMe`, or `archived: true` when useful. Read the relevant
-task with `task_get` before changing it: it includes the body, column key,
-links, agents, last 30 events, `latestFailure`, `launching`, and attachments.
+`column` (or several with `columns`), `labels`, `assignedToMe`, `ids`, or
+`archived: true`; filters combine. `fields` picks row fields (`id` is always
+returned), adding `links` and `body`. To review many tasks, scan, then read the
+chosen ones in one call instead of one `task_get` each:
+
+```js
+task_list({
+  columns: ["done", "in_review"],
+  fields: ["id", "title", "column", "links"],
+});
+task_list({ ids: candidateIds, fields: ["id", "title", "body"] });
+```
+
+`body` needs `ids` (at most 50 per call). Ids outside your board are simply
+absent. Read the relevant task with `task_get` before changing it: it includes
+the body, column key, links, agents, last 30 events, `latestFailure`,
+`launching`, and attachments.
 A task launch briefing already names the board's column keys, done column, and
 columns that launch templates; use that briefing when it answers your question.
 

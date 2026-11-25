@@ -2463,6 +2463,291 @@ describe("task tools", () => {
   });
 });
 
+describe("task_list column, id and field selection", () => {
+  type Row = Record<string, unknown> & { id: string };
+  const rowsOf = (result: { structuredContent?: Record<string, unknown> }) =>
+    result.structuredContent!.tasks as Row[];
+
+  /**
+   * A sanitized stand-in for the frozen November 23 release scan: 48 board
+   * tasks, 26 done + 3 in review, 9 of those 29 linked. Links elsewhere on
+   * the board prove the column filter, not the link, picks the candidates.
+   */
+  async function seedReleaseBoard() {
+    const plan: Array<[string, number, number]> = [
+      ["done", 26, 7],
+      ["in_review", 3, 2],
+      ["in_progress", 4, 2],
+      ["ready", 6, 0],
+      ["backlog", 9, 1],
+    ];
+    const seeded: Array<{
+      id: string;
+      column: string;
+      body: string;
+      links: unknown[];
+    }> = [];
+    let n = 0;
+    for (const [key, count, linked] of plan) {
+      const column = await columnId(key);
+      for (let i = 0; i < count; i++) {
+        const id = `tsk_release_${String(++n).padStart(2, "0")}`;
+        const links =
+          i < linked
+            ? [
+                {
+                  kind: "pr",
+                  label: `PR #${1500 + n}`,
+                  url: `https://github.com/example/dispatch/pull/${1500 + n}`,
+                },
+              ]
+            : [];
+        const body = `## Outcome\n\nRelease evidence for task ${n}.\n\n${"Detail line.\n".repeat(20)}`;
+        await pool.query(
+          `INSERT INTO tasks (id, project_id, column_id, title, body, position, links, created_by_kind, completed_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 'user', CASE WHEN $8 THEN now() END)`,
+          [
+            id,
+            projectId,
+            column,
+            `Release task ${n}`,
+            body,
+            n,
+            JSON.stringify(links),
+            key === "done",
+          ]
+        );
+        seeded.push({ id, column: key, body, links });
+      }
+    }
+    return seeded;
+  }
+
+  it("scans candidates across columns, then batch-reads their evidence in one call", async () => {
+    await insertAgent("agt_reader", "idle");
+    const seeded = await seedReleaseBoard();
+    const foreign = await service.createTask(
+      {
+        projectId: otherProjectId,
+        title: "Foreign secret",
+        body: "Not yours",
+      },
+      USER
+    );
+    const call = tools("agt_reader", projectId);
+    const bytes = (r: { content: Array<{ text: string }> }) =>
+      Buffer.byteLength(r.content[0]!.text);
+
+    // Legacy shape: one thin list, then one task_get per task.
+    const legacyList = await call("task_list", {});
+    expect(rowsOf(legacyList)).toHaveLength(48);
+    let legacyBytes = bytes(legacyList);
+    const legacyEvidence = new Map<string, Record<string, unknown>>();
+    for (const row of rowsOf(legacyList)) {
+      const detail = await call("task_get", { id: row.id });
+      legacyBytes += bytes(detail);
+      legacyEvidence.set(row.id, detail.structuredContent!);
+    }
+
+    // Pass 1: candidates and their links.
+    const scan = await call("task_list", {
+      columns: ["done", "in_review"],
+      fields: ["id", "title", "column", "links"],
+    });
+    expect(scan.isError).toBeUndefined();
+    const candidates = rowsOf(scan);
+    expect(candidates).toHaveLength(29);
+    expect(
+      candidates.every(
+        (t) => Object.keys(t).sort().join() === "column,id,links,title"
+      )
+    ).toBe(true);
+    expect(candidates.filter((t) => t.column === "done")).toHaveLength(26);
+    expect(candidates.filter((t) => t.column === "in_review")).toHaveLength(3);
+    const linked = candidates.filter((t) => (t.links as unknown[]).length > 0);
+    expect(linked).toHaveLength(9);
+    expect(
+      candidates.find((t) => !(t.links as unknown[]).length)!.links
+    ).toEqual([]);
+    // Board-wide metadata is unchanged by the filter.
+    expect(scan.structuredContent!.columnCapacity).toEqual(
+      legacyList.structuredContent!.columnCapacity
+    );
+    expect(scan.structuredContent!.boardWatching).toBe(false);
+
+    // Pass 2: bodies for the selected candidates, with a foreign and a
+    // missing id mixed in. Neither leaks.
+    const read = await call("task_list", {
+      ids: [...linked.map((t) => t.id), foreign.id, "tsk_missing"],
+      fields: ["id", "title", "body"],
+    });
+    expect(read.isError).toBeUndefined();
+    const evidence = rowsOf(read);
+    expect(evidence.map((t) => t.id)).toEqual(linked.map((t) => t.id));
+    expect(read.content[0]!.text).not.toContain(foreign.id);
+    expect(read.content[0]!.text).not.toContain("Foreign secret");
+    for (const row of evidence) {
+      expect(Object.keys(row).sort()).toEqual(["body", "id", "title"]);
+      const legacy = legacyEvidence.get(row.id)!;
+      expect(row.body).toBe(legacy.body);
+      expect(row.title).toBe(legacy.title);
+      expect(seeded.find((s) => s.id === row.id)!.body).toBe(row.body);
+    }
+    for (const row of linked)
+      expect(row.links).toEqual(legacyEvidence.get(row.id)!.links);
+
+    const projectedBytes = bytes(scan) + bytes(read);
+    expect(projectedBytes).toBeLessThan(legacyBytes);
+    if (process.env.DISPATCH_TASK_LIST_EVIDENCE_PATH)
+      await writeFile(
+        process.env.DISPATCH_TASK_LIST_EVIDENCE_PATH,
+        JSON.stringify(
+          {
+            fixture: "sanitized 48-task release board",
+            legacy: { calls: 49, bytes: legacyBytes },
+            projected: {
+              calls: 2,
+              bytes: projectedBytes,
+              scanBytes: bytes(scan),
+              scanRows: candidates.length,
+              readBytes: bytes(read),
+              readRows: evidence.length,
+            },
+            sameEvidence: true,
+          },
+          null,
+          2
+        )
+      );
+  });
+
+  it("reads any number of selected ids in a fixed number of queries", async () => {
+    await insertAgent("agt_reader", "idle");
+    const seeded = await seedReleaseBoard();
+    const call = tools("agt_reader", projectId);
+    await call("task_list", {}); // settle default columns
+    const spy = vi.spyOn(pool, "query");
+    const countFor = async (ids: string[]) => {
+      spy.mockClear();
+      const result = await call("task_list", {
+        ids,
+        fields: ["id", "body", "links"],
+      });
+      expect(rowsOf(result)).toHaveLength(ids.length);
+      return spy.mock.calls.length;
+    };
+    try {
+      const one = await countFor(seeded.slice(0, 1).map((s) => s.id));
+      const many = await countFor(seeded.slice(0, 40).map((s) => s.id));
+      expect(many).toBe(one);
+      expect(one).toBeLessThanOrEqual(8);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("keeps default rows and legacy column, and intersects the new filters", async () => {
+    await insertAgent("agt_reader", "idle");
+    const seeded = await seedReleaseBoard();
+    const call = tools("agt_reader", projectId);
+    const defaults = rowsOf(await call("task_list", {}));
+    expect(defaults.map((t) => t.id)).toEqual(seeded.map((s) => s.id));
+    expect(Object.keys(defaults[0]!).sort()).toEqual([
+      "assignedAgentId",
+      "column",
+      "id",
+      "labels",
+      "launchTemplateId",
+      "title",
+      "updatedAt",
+    ]);
+    expect(
+      rowsOf(await call("task_list", { column: "in_review" })).map((t) => t.id)
+    ).toEqual(seeded.filter((s) => s.column === "in_review").map((s) => s.id));
+    expect(rowsOf(await call("task_list", { columns: ["in_review"] }))).toEqual(
+      rowsOf(await call("task_list", { column: "in_review" }))
+    );
+
+    const review = seeded.filter((s) => s.column === "in_review");
+    const backlog = seeded.find((s) => s.column === "backlog")!;
+    await service.updateTask(
+      review[0]!.id,
+      { labels: [{ name: "Release", color: "green" }] },
+      USER
+    );
+    await service.updateTask(
+      backlog.id,
+      { labels: [{ name: "Release", color: "green" }] },
+      USER
+    );
+    await service.updateTask(
+      review[1]!.id,
+      { assignedAgentId: "agt_reader" },
+      USER
+    );
+    expect(
+      rowsOf(
+        await call("task_list", {
+          columns: ["done", "in_review"],
+          labels: ["release"],
+        })
+      ).map((t) => t.id)
+    ).toEqual([review[0]!.id]);
+    expect(
+      rowsOf(
+        await call("task_list", {
+          columns: ["in_review", "backlog"],
+          assignedToMe: true,
+        })
+      ).map((t) => t.id)
+    ).toEqual([review[1]!.id]);
+    expect(
+      rowsOf(
+        await call("task_list", {
+          columns: ["in_review"],
+          ids: [review[2]!.id, backlog.id],
+        })
+      ).map((t) => t.id)
+    ).toEqual([review[2]!.id]);
+    // Selected ids keep the board's ordering, not the request's.
+    expect(
+      rowsOf(await call("task_list", { ids: [backlog.id, review[0]!.id] })).map(
+        (t) => t.id
+      )
+    ).toEqual([review[0]!.id, backlog.id]);
+
+    await service.archiveTask(review[2]!.id, USER);
+    expect(rowsOf(await call("task_list", { ids: [review[2]!.id] }))).toEqual(
+      []
+    );
+    expect(
+      rowsOf(
+        await call("task_list", { ids: [review[2]!.id], archived: true })
+      ).map((t) => t.id)
+    ).toEqual([review[2]!.id]);
+    expect(
+      rowsOf(await call("task_list", { columns: ["done"], ids: [backlog.id] }))
+    ).toEqual([]);
+  });
+
+  it("rejects ambiguous, unknown and unbounded requests", async () => {
+    await insertAgent("agt_reader", "idle");
+    const call = tools("agt_reader", projectId);
+    const both = await call("task_list", {
+      column: "done",
+      columns: ["done"],
+    });
+    expect(both.isError).toBe(true);
+    expect(both.content[0]!.text).toMatch(/not both/);
+    const unknown = await call("task_list", { columns: ["done", "shipped"] });
+    expect(unknown.isError).toBe(true);
+    expect(unknown.content[0]!.text).toMatch(/"shipped" not found/);
+    const bodies = await call("task_list", { fields: ["id", "body"] });
+    expect(bodies.isError).toBe(true);
+    expect(bodies.content[0]!.text).toMatch(/body needs ids/);
+  });
+});
+
 // ── Review follow-ups ───────────────────────────────────────────────
 
 describe("concurrent transitions", () => {
