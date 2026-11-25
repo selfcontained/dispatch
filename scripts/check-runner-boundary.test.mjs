@@ -2,13 +2,14 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import { test } from "node:test";
 import {
   compareHistory,
   compareHits,
   countHits,
   historyErrors,
+  ownMachineCapabilities,
   scanSource,
 } from "./check-runner-boundary.mjs";
 import { restrictionHits } from "./runner-restrictions.mjs";
@@ -391,6 +392,98 @@ test("host DTOs alone may reference ACP SDK types, never runtime values", () => 
       scanSource(file, source, declared).some(
         (hit) => hit.kind === "R5 package import"
       )
+    );
+  }
+});
+
+test("own-machine grants are exact paths and capabilities", () => {
+  for (const file of [app + "db/migrate.ts", app + "local-tls.ts"]) {
+    assert.deepEqual(scanSource(file, 'import "node:os";'), []);
+    assert.ok(
+      scanSource(file, 'import "node:worker_threads";').some(
+        (h) => h.kind === "R2 host access"
+      )
+    );
+  }
+  for (const file of [
+    app + "db/new-migration.ts",
+    app + "new.ts",
+    app + "new/local-tls.ts",
+  ]) {
+    assert.ok(
+      scanSource(file, 'import "node:os"; import "node:fs";').length >= 2
+    );
+  }
+  assert.deepEqual(
+    scanSource(app + "diagnostics.ts", 'import "./shared/lib/run-command.js";'),
+    []
+  );
+  assert.ok(
+    scanSource(app + "diagnostics.ts", 'import "./shared/git/git-context.js";')
+      .length
+  );
+  assert.ok(
+    scanSource(app + "new.ts", 'import "./shared/lib/run-command.js";').length
+  );
+});
+
+test("computed imports resolve only preceding literal const bindings in the same scope", () => {
+  const file = "apps/web/src/lib/pwa-update.ts";
+  assert.deepEqual(
+    scanSource(
+      file,
+      'function init() { const pwaModule = "virtual:pwa-register"; void import(pwaModule); }'
+    ),
+    []
+  );
+  for (const source of [
+    'let target = "virtual:pwa-register"; import(target);',
+    'const target = prefix + "fs"; import(target);',
+    'const target = "virtual:pwa-register"; target = other; import(target);',
+    'const target = "virtual:pwa-register"; function f(target) { import(target); }',
+    'import(target); const target = "virtual:pwa-register";',
+    'const target = "virtual:pwa-register"; const f = (target) => import(target);',
+  ])
+    assert.ok(
+      scanSource(file, source).some((h) => h.kind === "R2 computed import"),
+      source
+    );
+  for (const source of [
+    'const target = "node:fs"; import(target);',
+    'const target = "./shared/git/git-context.js"; import(target);',
+  ])
+    assert.ok(
+      scanSource(app + "new.ts", source).some((h) => h.kind.startsWith("R2 ")),
+      source
+    );
+});
+
+test("every exact own-machine grant accepts only its named capability", () => {
+  const sources = {
+    fs: 'import "node:fs";',
+    os: 'import "node:os";',
+    process: 'import "node:child_process";',
+    openssl: 'Bun.spawn(["openssl", "version"]);',
+    du: 'Bun.spawn(["du", "-sk", path]);',
+    child_process: 'import "node:child_process";',
+    "loopback fetch": 'fetch("http://127.0.0.1:9123/health");',
+  };
+  for (const [file, capabilities] of ownMachineCapabilities) {
+    for (const [capability, reason] of capabilities) {
+      assert.ok(reason.length > 0);
+      let source = sources[capability];
+      if (capability.startsWith("import:")) {
+        const target = capability.slice("import:".length);
+        source = `import "${posix.relative(posix.dirname(file), target).replace(/^(?!\.)/, "./")}.js";`;
+      }
+      assert.ok(source, capability);
+      assert.deepEqual(scanSource(file, source), [], `${file}: ${capability}`);
+    }
+    assert.ok(
+      scanSource(file, 'process.getBuiltinModule("fs");').some(
+        (h) => h.kind === "R2 host access"
+      ),
+      file
     );
   }
 });

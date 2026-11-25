@@ -1141,24 +1141,10 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/db/migrate.ts",
-    "kind": "R2 host access",
-    "detail": "os",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/db/migrations/0054_runner_registrations.sql",
     "kind": "R1 locator",
     "detail": "runner:// in SQL",
     "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/diagnostics.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/lib/run-command",
-    "task": "T04",
     "count": 1
   },
   {
@@ -1274,27 +1260,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/local-tls.ts",
-    "kind": "R2 host access",
-    "detail": "child_process",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/local-tls.ts",
-    "kind": "R2 host access",
-    "detail": "os",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/local-tls.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/process/child-environment",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/main.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/acp/host/main",
@@ -1354,20 +1319,6 @@
     "file": "apps/server/src/main.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/terminal/runner-worker",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/observability/artifact-storage.ts",
-    "kind": "R2 host access",
-    "detail": "child_process",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/observability/artifact-storage.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/process/child-environment",
     "task": "T04",
     "count": 1
   },
@@ -1491,27 +1442,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/release-candidate-store.ts",
-    "kind": "R2 host access",
-    "detail": "os",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/release-store.ts",
-    "kind": "R2 host access",
-    "detail": "os",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/release-tarball-cache.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/lib/run-command",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/routes/agents/checkout-response.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/files/workspace-view",
@@ -1617,13 +1547,6 @@
     "count": 2
   },
   {
-    "file": "apps/server/src/routes/release.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/lib/run-command",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/routes/system.ts",
     "kind": "R2 host access",
     "detail": "os",
@@ -1705,34 +1628,6 @@
     "kind": "R1 placement call",
     "detail": "agentWorkspaceDir(parent)",
     "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/server/release-artifact.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/process/child-environment",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/server/release-runtime.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/process/child-environment",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/server/runner-artifacts.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/lib/run-command",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/server/runner-dev-key.ts",
-    "kind": "R2 host access",
-    "detail": "os",
-    "task": "T04",
     "count": 1
   },
   {
@@ -2058,13 +1953,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/startup/shell-environment.ts",
-    "kind": "R2 host access",
-    "detail": "os",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/stream-manager.ts",
     "kind": "R2 host access",
     "detail": "loopback fetch",
@@ -2177,27 +2065,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/update-recovery/linux.ts",
-    "kind": "R2 host access",
-    "detail": "loopback fetch",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/update-recovery/linux.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/lib/run-command",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/update-recovery/linux.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/process/child-environment",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/web/src/components/app/chat/chat-delivery-meta.tsx",
     "kind": "R6 placement call",
     "detail": "remotePlacement(agent.cwd)",
@@ -2244,13 +2111,6 @@
     "kind": "R6 protocol value import",
     "detail": "@dispatch/runner-protocol/engine-management",
     "task": "T38",
-    "count": 1
-  },
-  {
-    "file": "apps/web/src/lib/pwa-update.ts",
-    "kind": "R2 computed import",
-    "detail": "import()",
-    "task": "T04",
     "count": 1
   },
   {
