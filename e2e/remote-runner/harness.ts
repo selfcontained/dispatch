@@ -236,7 +236,9 @@ export async function requestConnection(
       { timeout: 75_000 },
       (error, _stdout, stderr) => {
         failure = error
-          ? new Error(`Runner connect failed: ${stderr.trim() || error.code}`)
+          ? new Error(
+              `Runner connect failed: ${JSON.stringify({ code: error.code, signal: error.signal, killed: error.killed, stderr: stderr.trim() })}`
+            )
           : null;
         resolve(error === null);
       }
@@ -271,7 +273,7 @@ export async function requestConnection(
     .getByRole("dialog", { name: label, exact: true })
     .getByTestId("runner-approval");
   await expect(form).toBeVisible();
-  return { form, code, finished };
+  return { form, code, finished, failure: () => failure?.message };
 }
 
 export function startRunner(name: GuestName) {
@@ -327,11 +329,34 @@ export async function enrollViaUi(
     )
   )
     crashRunner(name);
-  const { form, code, finished } = await requestConnection(page, name);
+  const { form, code, finished, failure } = await requestConnection(page, name);
   await form.getByLabel("Runner name").fill(name);
   await form.getByLabel("Pairing code").fill(code);
+  const approvalResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      /\/connect\/[^/]+\/approve$/.test(new URL(response.url()).pathname)
+  );
   await form.getByRole("button", { name: "Approve runner" }).click();
-  expect(await finished).toBe(true);
+  const response = await approvalResponse;
+  const approved = await response.text();
+  const connected = await finished;
+  const diagnostics = connected
+    ? undefined
+    : JSON.stringify(
+        {
+          connect: failure(),
+          approval: { status: response.status(), body: approved },
+          runnerLog: guest(
+            name,
+            "tail -80 /var/log/runner.log 2>/dev/null || true"
+          ),
+          processes: guest(name, "ps -eo pid,ppid,stat,args"),
+        },
+        null,
+        2
+      );
+  expect(connected, diagnostics).toBe(true);
   startRunner(name);
   await expect
     .poll(async () => (await runnerRow(request, name))?.status, {
