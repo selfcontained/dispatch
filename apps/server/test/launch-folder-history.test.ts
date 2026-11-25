@@ -31,7 +31,11 @@ async function setup(remote = false) {
         ]
       : []),
   ];
-  const query = vi.fn(async () => ({ rows }));
+  const query = vi.fn(async (_sql: string, params: unknown[]) => ({
+    rows: params.includes("local")
+      ? rows.filter((row) => row.agent_id === "controller")
+      : rows,
+  }));
   await registerActivityHistoryRoutes(app, { pool: { query } } as never);
   app.get("/api/runners", async () => ({
     runners: [{ id: "fixture", name: "Fixture", status: "offline" }],
@@ -53,7 +57,7 @@ async function setup(remote = false) {
   return { app, targets, query };
 }
 it.each(["", "?limit=1", "?limit=50&search=unchanged"])(
-  "pins main's controller history bytes and query arguments %s",
+  "pins main's controller history bytes and scopes query membership %s",
   async (suffix) => {
     const { app, targets, query } = await setup();
     query.mockClear();
@@ -61,7 +65,11 @@ it.each(["", "?limit=1", "?limit=50&search=unchanged"])(
     const args = query.mock.calls[0];
     const projected = await app.inject(targets[0].historyUrl + suffix);
     expect(projected.body).toBe(main.body);
-    expect(query.mock.calls[1]).toEqual(args);
+    expect(query.mock.calls[1]![1]).toEqual([
+      ...args![1].slice(0, -1),
+      "local",
+      args![1].at(-1),
+    ]);
   }
 );
 it("excludes runner agents and stored locators without rejecting ordinary folder strings", async () => {

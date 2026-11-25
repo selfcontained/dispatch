@@ -159,6 +159,7 @@ import {
   type CheckoutQuery,
   type CheckoutReply,
 } from "./remote/protocol.js";
+import { repositoryRecord } from "../runners/repository-identity.js";
 import { WORKTREE_LOCAL_CONFIG_FILES } from "./worktree-local-config-files.js";
 import {
   parseRepository,
@@ -2914,7 +2915,9 @@ export class AgentManager {
         input.templateId ?? null,
         input.projectId ?? null,
         p.effort,
-        repository ? JSON.stringify(repository) : null,
+        repository
+          ? JSON.stringify(repositoryRecord(placement, repository))
+          : null,
         runnerManaged,
         useWorktreeOf ?? null,
         runnerIdForPlacement(placement),
@@ -3563,9 +3566,13 @@ export class AgentManager {
       }
       return await this.runtime.launch({
         agentId: agent.id,
-        repository: binding?.runner_preparation
-          ? undefined
-          : (binding?.runner_repository ?? undefined),
+        repository:
+          binding?.runner_preparation || !binding?.runner_repository
+            ? undefined
+            : {
+                url: binding.runner_repository.url,
+                checkout: binding.runner_repository.checkout,
+              },
         ...(binding?.runner_worktree_owner && {
           useWorktreeOf: binding.runner_worktree_owner,
         }),

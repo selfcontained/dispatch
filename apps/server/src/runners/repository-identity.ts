@@ -99,3 +99,45 @@ export const PROJECT_IDENTITY_SQL =
 /** A session's recorded repository URL, by agent id (its checkout owner's when borrowed). */
 export const SESSION_REPOSITORY_SQL =
   "SELECT owner.runner_repository->>'url' AS url FROM agents a JOIN agents owner ON owner.id = COALESCE(a.runner_worktree_owner, a.id) WHERE a.id = $1";
+
+/**
+ * Persist the session's canonical repository identity alongside its clone URL.
+ * Clone URLs retain their semantics; identity never parses URLs in SQL. Local
+ * records retain main's exact bytes. Current runners write this at creation;
+ * earlier development rows are deliberately not backfilled.
+ */
+export function repositoryRecord<T extends { url: string }>(
+  placement: Placement,
+  repository: T | null
+): T | (T & { identityKey: string | null }) | null {
+  if (!repository || sameRunner(placement, controllerPlacement))
+    return repository;
+  return { ...repository, identityKey: sessionRepositoryKey(repository.url) };
+}
+
+/**
+ * SQL twin of the launch-folder identity rule, as an agents relation with a
+ * resolved history_identity column. The local arm keeps main's folder bytes;
+ * the other arm reads canonical keys at their persistence boundaries. Keeping
+ * the arms set-based avoids costly scalar subplans (and JIT) on local history.
+ */
+export const HISTORY_IDENTITY_SQL = `(
+  SELECT a.*, COALESCE(a.launch_cwd, a.git_context->>'repoRoot', a.cwd) AS history_identity
+  FROM agents a WHERE a.runner_id = 'local'
+  UNION ALL
+  SELECT a.*, CASE WHEN p.id IS NOT NULL
+      THEN COALESCE(p.repo_root, p.repository)
+      ELSE owner.runner_repository->>'identityKey' END AS history_identity
+  FROM agents a
+  LEFT JOIN projects p ON p.id = a.project_id
+  LEFT JOIN agents owner ON owner.id = COALESCE(a.runner_worktree_owner, a.id)
+  WHERE a.runner_id <> 'local'
+)`;
+
+/** History presentation data; local response objects retain main's shape. */
+export function historyProjectFields(
+  placement: Placement,
+  project: string | null
+): { project?: string | null } {
+  return sameRunner(placement, controllerPlacement) ? {} : { project };
+}

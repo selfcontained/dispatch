@@ -335,10 +335,16 @@ function AgentHistoryList({
                           <td className="hidden px-2 py-2 text-muted-foreground sm:table-cell">
                             <span
                               className="truncate"
-                              title={agent.gitContext?.repoRoot ?? agent.cwd}
+                              title={
+                                agent.project === undefined
+                                  ? (agent.gitContext?.repoRoot ?? agent.cwd)
+                                  : (agent.project ?? "")
+                              }
                             >
                               {shortProjectName(
-                                agent.gitContext?.repoRoot ?? agent.cwd
+                                agent.project === undefined
+                                  ? (agent.gitContext?.repoRoot ?? agent.cwd)
+                                  : (agent.project ?? "")
                               )}
                             </span>
                           </td>

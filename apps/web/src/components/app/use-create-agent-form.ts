@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
 import {
   useLaunchTargets,
   useLaunchTargetData,
@@ -165,19 +164,12 @@ export function useCreateAgentForm({
   const [submitError, setSubmitError] = useState<unknown>();
   const {
     history: cwdHistory,
+    suggestionsUrl: historyUrl,
     removableHistory: removableCwdHistory,
     historyMetadata: cwdHistoryMetadata,
     add: addCwdHistory,
     remove: removeCwdHistory,
-  } = useCwdHistory();
-  const historyUrl = launch.target?.historyUrl
-    ? `${launch.target.historyUrl}?${new URLSearchParams({ candidates: JSON.stringify(cwdHistory) })}`
-    : "";
-  const folderHistory = useQuery({
-    queryKey: ["launch-folder-history", historyUrl],
-    enabled: Boolean(historyUrl),
-    queryFn: () => api<{ projects: string[] }>(historyUrl),
-  });
+  } = useCwdHistory(launch.target?.historyUrl ?? "");
   const targetData = useLaunchTargetData(launch.target, {
     directory: createCwd,
     projectId: createProjectId,
@@ -525,7 +517,7 @@ export function useCreateAgentForm({
     setCreateBaseBranch,
     createNewBranch,
     setCreateNewBranch,
-    cwdHistory: folderHistory.data?.projects ?? [],
+    cwdHistory,
     historyUrl,
     removableCwdHistory,
     cwdHistoryMetadata,

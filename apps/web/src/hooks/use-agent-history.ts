@@ -23,6 +23,7 @@ export type HistoryAgent = {
   type: string;
   status: string;
   cwd: string;
+  project?: string | null;
   worktreePath: string | null;
   worktreeBranch: string | null;
   gitContext: {
