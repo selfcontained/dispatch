@@ -167,6 +167,7 @@ beforeAll(async () => {
 
   const logger = { info() {}, warn() {}, error() {}, debug() {} } as never;
   const manager = {
+    checkoutReadRunners: () => ({}),
     getAgent: async () => ({
       id: "agt_caller",
       name: "Caller",
