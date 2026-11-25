@@ -70,6 +70,9 @@ const now = (
   );
 
 /** Valid folders, answered by main's in-process read. */
+/** The runners the manager passes: its own, with the child. */
+const viaChild = { local: undefined, child: () => child.session };
+
 const paths = [".agents/personas", "src", "src/deep", "missing", ".git"];
 /** Not a checkout folder: refused before any read, as today. */
 const invalid = ["", "../outside", "src/../a", "./src"];
@@ -118,9 +121,7 @@ describe("listFiles for a local agent", () => {
   it.each(paths)("%j answers as main's, from a real child", async (path) => {
     const here = vi.spyOn(localCheckoutWorkload, "run");
     try {
-      expect(await now(path, { child: () => child.session })).toEqual(
-        await main(repo, path)
-      );
+      expect(await now(path, viaChild)).toEqual(await main(repo, path));
     } finally {
       here.mockRestore();
     }
@@ -130,7 +131,7 @@ describe("listFiles for a local agent", () => {
     expect(await now("notes", undefined, moved)).toEqual(
       await main(moved, "notes")
     );
-    expect(await now("notes", { child: () => child.session }, moved)).toEqual(
+    expect(await now("notes", viaChild, moved)).toEqual(
       await main(moved, "notes")
     );
   });
@@ -138,10 +139,22 @@ describe("listFiles for a local agent", () => {
   it.each(invalid)(
     "%j is refused as an invalid query, as today",
     async (path) => {
-      for (const runners of [undefined, { child: () => child.session }])
+      for (const runners of [undefined, viaChild])
         expect(await now(path, runners)).toEqual({
           error: ["AgentError", "Invalid checkout query.", null],
         });
     }
   );
+});
+
+describe("listFiles through the agent's runner", () => {
+  it("is served by a healthy child: nothing runs here", async () => {
+    const here = vi.spyOn(localCheckoutWorkload, "run");
+    try {
+      expect(await now("src", viaChild)).toEqual(await main(repo, "src"));
+      expect(here).not.toHaveBeenCalled();
+    } finally {
+      here.mockRestore();
+    }
+  });
 });

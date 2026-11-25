@@ -314,10 +314,12 @@ export function createLocalCheckoutRunner(
         code: "invalid",
         message: "Invalid native checkout binding.",
       });
+    // A file listing (`filesOnly`) is an inspection read, as on main.
     const views =
       op !== "checkout.read" &&
       op !== "checkout.changes" &&
-      op !== "checkout.defaultFiles";
+      op !== "checkout.defaultFiles" &&
+      !(op === "checkout.list" && (request as { filesOnly?: true }).filesOnly);
     const row = { baseBranch: null, ...agent };
     // The folder the agent was launched in: where main looks for its icon.
     const launched = target.checkout === "launch";
