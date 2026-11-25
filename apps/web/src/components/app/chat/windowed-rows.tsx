@@ -460,6 +460,38 @@ export function useWindowedRows({
     [captureAnchor]
   );
 
+  // ---- the list's floor -----------------------------------------------------
+  /**
+   * The list never measures shorter than its rows add up to, as of the last
+   * commit or measurement. Swapping rows for a spacer is not atomic for the
+   * layout: React removes the old rows before it grows the spacer, and
+   * WebKit can lay out in between, see the content end there and clamp
+   * scrollTop to it. A feed opened at its bottom then landed thousands of
+   * px up in history, with no write from here and the final layout
+   * unchanged. A row shrinking ahead of its regrowth does the same. The
+   * floor holds the height through that, and comes down once the rows
+   * really are shorter: it is lowered after the commit or measurement that
+   * makes them so.
+   */
+  const paddingRef = useRef<number | null>(null);
+  const applyFloor = useCallback(() => {
+    const container = containerRef.current;
+    if (!container || !windowing) return;
+    if (paddingRef.current === null) {
+      const style = getComputedStyle(container);
+      paddingRef.current =
+        (parseFloat(style.paddingTop) || 0) +
+        (parseFloat(style.paddingBottom) || 0);
+    }
+    let total = paddingRef.current;
+    for (const key of keysRef.current) {
+      total += heights.get(key) ?? estimatedHeight;
+    }
+    container.style.minHeight = `${total}px`;
+  }, [estimatedHeight, heights, windowing]);
+  const applyFloorRef = useRef(applyFloor);
+  applyFloorRef.current = applyFloor;
+
   // ---- measuring rows ------------------------------------------------------
   const rowObserverRef = useRef<ResizeObserver | null>(null);
   const keepPlaceRef = useRef(keepPlace);
@@ -488,6 +520,7 @@ export function useWindowedRows({
         }
       }
       if (!changed) return;
+      applyFloorRef.current();
       keepPlaceRef.current();
       scheduleRangeRef.current();
     });
@@ -604,9 +637,19 @@ export function useWindowedRows({
     []
   );
   useLayoutEffect(() => {
+    applyFloor();
     keepPlace();
     if (windowing) scheduleRange();
-  }, [keepPlace, scheduleRange, windowing, keys, range, pinned, focusKey]);
+  }, [
+    applyFloor,
+    keepPlace,
+    scheduleRange,
+    windowing,
+    keys,
+    range,
+    pinned,
+    focusKey,
+  ]);
 
   // ---- what to render -------------------------------------------------------
   // The range is kept by index, but it means rows: when rows land above

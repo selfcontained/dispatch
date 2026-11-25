@@ -74,6 +74,34 @@ const RUN = /run:(\d+)/;
 // `signed-out:<file>` fails the turn as an engine whose sign-in lapsed while
 // that file exists; removing it stands in for signing in again.
 const SIGNED_OUT = /signed-out:(\S+)/;
+// `stream-long-N` answers with a reply whose length and shape vary with N
+// (paragraphs, a list, a code block), so a run of them seeds a long stream
+// of realistic, unevenly tall rows.
+const STREAM_LONG = /stream-long-(\d+)/;
+function longReply(n) {
+  const sentence =
+    "The change keeps the reader's place while rows above it measure themselves, and the follow-the-bottom path stays as it was. ";
+  const parts = [`Reply ${n}.`];
+  for (let i = 0; i < 1 + ((n * 7) % 6); i += 1)
+    parts.push(sentence.repeat(1 + ((n + i) % 4)));
+  if (n % 4 === 0)
+    parts.push(
+      Array.from(
+        { length: 3 + (n % 5) },
+        (_, i) => `- item ${i + 1} of reply ${n}`
+      ).join("\n")
+    );
+  if (n % 3 === 0)
+    parts.push(
+      "```ts\n" +
+        Array.from(
+          { length: 4 + (n % 9) },
+          (_, i) => `const line${i} = ${n} * ${i};`
+        ).join("\n") +
+        "\n```"
+    );
+  return parts.join("\n\n");
+}
 const sleeping = new Map();
 const steeringMessages = new Map();
 
@@ -396,10 +424,13 @@ const agent = {
           ...(PROFILE.cost ? { cost: { amount: 0.42, currency: "USD" } } : {}),
         });
       }
-      for (const piece of [
-        "You said: ",
-        text.replace(/^[\s\S]*?--- DISPATCH CHAT[^\n]*\n/, ""),
-      ]) {
+      const streamLong = STREAM_LONG.exec(text);
+      for (const piece of streamLong
+        ? [longReply(Number(streamLong[1]))]
+        : [
+            "You said: ",
+            text.replace(/^[\s\S]*?--- DISPATCH CHAT[^\n]*\n/, ""),
+          ]) {
         await emit({
           sessionUpdate: "agent_message_chunk",
           content: { type: "text", text: piece },
