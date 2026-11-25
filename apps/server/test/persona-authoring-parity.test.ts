@@ -19,7 +19,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { inspectCheckout } from "../src/agents/checkout-inspection.js";
+import { inspectCheckout } from "./helpers/checkout-inspection.js";
 import {
   upsertCheckoutPersona,
   upsertPersona,

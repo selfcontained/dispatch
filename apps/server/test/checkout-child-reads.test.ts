@@ -26,7 +26,7 @@ import {
   checkoutHandlers,
   checkoutOpens,
 } from "../../../packages/runner/src/core/checkout.js";
-import { checkoutWorkload } from "../src/agents/checkout-worker.js";
+import { checkoutWorkload } from "./helpers/checkout-workload.js";
 import {
   inspectAgentCheckout,
   readAgentStats,
@@ -35,7 +35,7 @@ import {
   target,
 } from "../src/agents/checkout-runner.js";
 import { readCheckoutView } from "../src/agents/checkout-view.js";
-import { inspectCheckout } from "../src/agents/checkout-inspection.js";
+import { inspectCheckout } from "./helpers/checkout-inspection.js";
 import { controllerPlacement } from "../src/runners/placement.js";
 import { runnerDirectory } from "../src/runners/directory.js";
 import { detectAgentIcon, readAgentIcon } from "../src/agents/checkout-icon.js";

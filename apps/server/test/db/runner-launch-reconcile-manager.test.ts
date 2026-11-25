@@ -182,7 +182,7 @@ const remote = {
     const { target, ...rest } = request;
     const directory = servedCheckout;
     if (!directory) return undefined;
-    return import("../../src/agents/checkout-worker.js").then(
+    return import("../helpers/checkout-workload.js").then(
       ({ checkoutWorkload }) =>
         checkoutWorkload.run(op as never, { directory, request: rest } as never)
     );
