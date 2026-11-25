@@ -448,6 +448,7 @@ function sanitizeVersion(output: string): string | null {
 
 export class EngineRunnerExecutor {
   private installingBundledPackage = false;
+  private hostCeilingLogged = false;
   private readonly workload: EngineWorkload;
   private readonly wrap: NonNullable<EngineRunnerExecutorConfig["wrap"]>;
 
@@ -532,6 +533,7 @@ export class EngineRunnerExecutor {
       this.hostWorker = child;
       // Keep diagnostics out of the framed stdout channel.
       child.stderr.on("data", () => {});
+      this.hostCeilingLogged = false;
       const lines = createInterface({ input: child.stdout });
       lines.on("line", (line) => {
         try {
@@ -539,9 +541,22 @@ export class EngineRunnerExecutor {
           const pending = this.hostPending.get(response.id);
           if (!pending) return;
           this.hostPending.delete(response.id);
-          if (response.error)
+          if (response.error) {
+            // Worker stderr is intentionally private. Relay this known safety
+            // alarm explicitly so it reaches the supervisor's service log.
+            if (
+              response.error.code === "busy" &&
+              response.error.message ===
+                "Engine update host request-id safety ceiling reached." &&
+              !this.hostCeilingLogged
+            ) {
+              this.hostCeilingLogged = true;
+              console.error(
+                "Engine update host request-id safety ceiling reached; no request ids were evicted."
+              );
+            }
             pending.reject(new RunnerCallError(response.error));
-          else pending.resolve(response.data);
+          } else pending.resolve(response.data);
         } catch {
           child.kill();
         }

@@ -1190,8 +1190,20 @@ export function localEngineCalls(
       const runner = child();
       if (runner?.connection.state === "ready")
         try {
-          return await runner.call(op, input, options);
+          // A spawn id is deduplicated only by its owning host. Do not replay
+          // a possibly delivered spawn after that child (and its ids) is gone.
+          const attempt =
+            op === "engine.update.spawn"
+              ? { ...options, wait: false }
+              : options;
+          return await runner.call(op, input, attempt);
         } catch (error) {
+          if (
+            op === "engine.update.spawn" &&
+            error instanceof RunnerCallError &&
+            error.code === "unknown_outcome"
+          )
+            throw error;
           const byId = op !== "engine.list" && op !== "engine.login.start";
           if (
             !childMissed(error) &&

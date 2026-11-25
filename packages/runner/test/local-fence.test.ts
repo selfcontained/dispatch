@@ -202,6 +202,37 @@ describe("local runner write fence (real processes)", () => {
     expect(await codeOf(exec(runner, "during-exec"))).toBe("fenced");
     expect(await codeOf(call(runner, "runner.health", {}))).toBe("ok");
     expect(await codeOf(call(runner, "runner.describe", {}))).toBe("ok");
+    expect(
+      await call(runner, "engine.update.inspect", { engine: "codex" })
+    ).toMatchObject({
+      canUpdate: false,
+      reason: "Fixture manual installation.",
+    });
+    expect(await call(runner, "engine.update.probe", { pids: [123] })).toEqual({
+      alive: [false],
+      version: "1.0.0",
+    });
+    expect(
+      await call(runner, "engine.operation", { operationId: "fixture" })
+    ).toMatchObject({
+      operationId: "fixture",
+      running: false,
+      output: "fixture recovery output",
+    });
+    expect(
+      await codeOf(
+        call(runner, "engine.update.spawn", {
+          requestId: "fixture",
+          command: { executable: "fixture", args: [] },
+          timeoutMs: 1000,
+        })
+      )
+    ).toBe("fenced");
+    expect(
+      await codeOf(
+        call(runner, "engine.update.release", { operationId: "fixture" })
+      )
+    ).toBe("fenced");
     // No handler saw the refused writes.
     expect(received(root)).toHaveLength(1);
 

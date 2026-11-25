@@ -498,6 +498,8 @@ export async function withEngineUpdates(statuses: EngineStatus[]) {
 export type UpdateObserver = {
   output?: (chunk: string) => void;
   spawned?: (pid: number) => Promise<void>;
+  /** Host ports use this to settle a gate after its held process exits. */
+  closed?: () => void;
 };
 export const observedUpdateRunner =
   (observer: UpdateObserver = {}): CommandRunner =>
@@ -576,10 +578,12 @@ export const observedUpdateRunner =
       }, timeoutMs);
       child.on("error", (error) => {
         clearTimeout(timer);
+        observer.closed?.();
         reject(error);
       });
       child.on("close", (code) => {
         clearTimeout(timer);
+        observer.closed?.();
         void recorded.then(
           () =>
             resolve({ exitCode: timedOut ? 1 : (code ?? 1), stdout, stderr }),
@@ -989,6 +993,7 @@ type Entry = {
   abort: () => void;
   started: Promise<Res<"engine.update.spawn">>;
   done: Promise<void>;
+  finishedAt?: number;
 };
 const notFound = () =>
   new RunnerCallError({
@@ -1024,19 +1029,96 @@ export function installationOnWire(
 /** One port instance, used identically in the child and the in-process fallback. */
 export class EngineUpdateHost {
   private readonly operations = new Map<string, Entry>();
-  constructor(private readonly runner = observedUpdateRunner) {}
+  // These compact ids outlive the heavy result so a late duplicate never spawns.
+  private readonly tombstones = new Map<
+    string,
+    "running" | "completed" | "failed" | "never_released"
+  >();
+  private expiryTimer?: ReturnType<typeof setTimeout>;
+  private readonly retentionMs: number;
+  private readonly now: () => number;
+  private readonly maxRequestIds: number;
+  private readonly log: (message: string) => void;
+  private ceilingLogged = false;
+
+  constructor(
+    private readonly runner = observedUpdateRunner,
+    options: {
+      retentionMs?: number;
+      now?: () => number;
+      maxRequestIds?: number;
+      log?: (message: string) => void;
+    } = {}
+  ) {
+    this.retentionMs = options.retentionMs ?? 10 * 60_000;
+    this.now = options.now ?? (() => performance.now());
+    this.maxRequestIds = options.maxRequestIds ?? 100_000;
+    this.log = options.log ?? console.error;
+  }
+
+  private expire(): void {
+    clearTimeout(this.expiryTimer);
+    this.expiryTimer = undefined;
+    let next = Infinity;
+    const now = this.now();
+    for (const [id, entry] of this.operations) {
+      if (entry.finishedAt === undefined) continue;
+      const remaining = entry.finishedAt + this.retentionMs - now;
+      if (remaining <= 0) this.operations.delete(id);
+      else next = Math.min(next, remaining);
+    }
+    if (Number.isFinite(next)) {
+      this.expiryTimer = setTimeout(() => this.expire(), next);
+      this.expiryTimer.unref?.();
+    }
+  }
+
+  private expired(): never {
+    throw new RunnerCallError({
+      code: "unknown_outcome",
+      message: "Engine operation result is no longer retained.",
+    });
+  }
 
   async spawn(
     request: Req<"engine.update.spawn">
   ): Promise<Res<"engine.update.spawn">> {
+    this.expire();
     const prior = this.operations.get(request.requestId);
     if (prior) return prior.started;
+    if (this.tombstones.has(request.requestId)) this.expired();
+    if (this.tombstones.size >= this.maxRequestIds) {
+      if (!this.ceilingLogged) {
+        this.log(
+          `Engine update host reached its ${this.maxRequestIds} request-id safety ceiling; new commands will not start. Existing ids remain protected.`
+        );
+        this.ceilingLogged = true;
+      }
+      throw new RunnerCallError({
+        code: "busy",
+        message: "Engine update host request-id safety ceiling reached.",
+      });
+    }
+    this.tombstones.set(request.requestId, "running");
+    let released = false;
+    let aborted = false;
     let release!: () => void;
     let abort!: () => void;
     const gate = new Promise<void>((resolve, reject) => {
-      release = resolve;
-      abort = () =>
-        reject(new Error("Engine operation gate was not committed."));
+      release = () => {
+        if (aborted) return;
+        released = true;
+        resolve();
+      };
+      abort = () => {
+        if (released) return;
+        aborted = true;
+        reject(
+          new Error(
+            "Engine operation gate was never released; command did not run."
+          )
+        );
+      };
     });
     void gate.catch(() => {});
     let started!: (value: Res<"engine.update.spawn">) => void;
@@ -1056,18 +1138,23 @@ export class EngineUpdateHost {
       output: "",
       outputOffset: 0,
     };
-    this.operations.set(request.requestId, {
-      state,
-      release,
-      abort,
-      started: start,
-      done,
-    });
+    const entry: Entry = { state, release, abort, started: start, done };
+    this.operations.set(request.requestId, entry);
+    const complete = (kind: "completed" | "failed" | "never_released") => {
+      state.running = false;
+      entry.finishedAt = this.now();
+      this.tombstones.set(request.requestId, kind);
+      finished();
+      this.expire();
+    };
     const run: CommandRunner = this.runner({
       spawned: async (pid) => {
         state.pid = pid;
         started({ operationId: request.requestId, pid });
         await gate;
+      },
+      closed: () => {
+        if (!released) abort();
       },
       output: (chunk) => {
         state.output = (state.output + chunk).slice(-64_000);
@@ -1084,14 +1171,12 @@ export class EngineUpdateHost {
           stdout: result.stdout,
           stderr: result.stderr,
         };
-        state.running = false;
-        finished();
+        complete("completed");
       },
       (error: unknown) => {
         state.error = String(error);
-        state.running = false;
         failed(error);
-        finished();
+        complete(released ? "failed" : "never_released");
       }
     );
     return start;
@@ -1100,8 +1185,12 @@ export class EngineUpdateHost {
   async release(
     request: Req<"engine.update.release">
   ): Promise<Res<"engine.update.release">> {
+    this.expire();
     const entry = this.operations.get(request.operationId);
-    if (!entry) throw notFound();
+    if (!entry) {
+      if (this.tombstones.has(request.operationId)) this.expired();
+      throw notFound();
+    }
     if (request.abort) entry.abort();
     else entry.release();
     await entry.done;
@@ -1111,8 +1200,12 @@ export class EngineUpdateHost {
   async operation(
     request: Req<"engine.operation">
   ): Promise<Res<"engine.operation">> {
+    this.expire();
     const entry = this.operations.get(request.operationId);
-    if (!entry) throw notFound();
+    if (!entry) {
+      if (this.tombstones.has(request.operationId)) this.expired();
+      throw notFound();
+    }
     return structuredClone(entry.state);
   }
 

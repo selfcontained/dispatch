@@ -20,6 +20,51 @@ import type { EngineCalls } from "../src/runners/local.js";
 import { EngineRunnerExecutor } from "../src/agents/remote/engine-runner-executor.js";
 
 describe("persistent workload engine port", () => {
+  it("relays the request-id safety alarm to the supervisor log without forwarding private stderr", async () => {
+    const home = await mkdtemp(
+      path.join(os.tmpdir(), "dispatch-engine-alarm-")
+    );
+    const worker = path.join(home, "worker.mjs");
+    await writeFile(
+      worker,
+      `
+import { createInterface } from 'node:readline';
+createInterface({ input: process.stdin }).on('line', (line) => {
+  const { id } = JSON.parse(line);
+  console.error('fixture private diagnostics');
+  console.log(JSON.stringify({ id, error: { code: 'busy', message: 'Engine update host request-id safety ceiling reached.' } }));
+});
+`
+    );
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const executor = new EngineRunnerExecutor({
+      uid: 1000,
+      gid: 1000,
+      env: { HOME: home, PATH: process.env.PATH },
+      engines: {},
+      hostCommand: [process.execPath, worker],
+      wrap: (bin, args) => ({ bin, args }),
+    });
+    try {
+      for (let i = 0; i < 2; i++) {
+        await expect(
+          executor.callHost("engine.update.spawn", {
+            requestId: String(i),
+            command: { executable: "fixture", args: [] },
+            timeoutMs: 1000,
+          })
+        ).rejects.toMatchObject({ code: "busy" });
+      }
+      expect(log).toHaveBeenCalledExactlyOnceWith(
+        "Engine update host request-id safety ceiling reached; no request ids were evicted."
+      );
+    } finally {
+      executor.close();
+      log.mockRestore();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   it("retains plugin failure details and cache across request connections", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "dispatch-engine-host-"));
     const bin = path.join(home, "fixture-cli");

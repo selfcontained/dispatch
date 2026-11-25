@@ -1,4 +1,21 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { localEngineCalls, inProcessEngines } from "../src/runners/local.js";
+import { startTestLocalRunner } from "./helpers/local-runner-child.js";
+
+const roots: string[] = [];
+const root = () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dispatch-update-retention-"));
+  roots.push(dir);
+  return dir;
+};
+afterEach(() => {
+  vi.useRealTimers();
+  for (const dir of roots.splice(0))
+    rmSync(dir, { recursive: true, force: true });
+});
 import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 import {
   EngineUpdateOperations,
@@ -215,5 +232,262 @@ describe("runner gated update execution", () => {
     expect(child).toHaveBeenCalledExactlyOnceWith(
       process.platform === "win32" ? 12345 : -12345
     );
+  });
+});
+
+describe("engine update host lifetime", () => {
+  const request = (requestId: string, timeoutMs = 1000) => ({
+    requestId,
+    command: { executable: "/usr/bin/true", args: [] },
+    timeoutMs,
+  });
+
+  it("expires heavy results by age but never spawns a late duplicate", async () => {
+    vi.useFakeTimers();
+    const command = vi.fn();
+    const host = new EngineUpdateHost(
+      (observer) => async () => {
+        await observer.spawned?.(12345);
+        command();
+        observer.output?.("x".repeat(64_000));
+        return { exitCode: 0, stdout: "x".repeat(32_000), stderr: "" };
+      },
+      { retentionMs: 100, now: Date.now }
+    );
+    for (let i = 0; i < 200; i++) {
+      await host.spawn(request(String(i)));
+      await host.release({ operationId: String(i) });
+    }
+    // A normal reconnect can still read a completed result.
+    expect(await host.operation({ operationId: "199" })).toMatchObject({
+      running: false,
+      result: { exitCode: 0 },
+    });
+    await vi.advanceTimersByTimeAsync(101);
+    const retained = host as unknown as {
+      operations: Map<string, unknown>;
+      tombstones: Map<string, string>;
+    };
+    expect(retained.operations.size).toBe(0);
+    expect(retained.tombstones.size).toBe(200);
+    expect(new Set(retained.tombstones.values())).toEqual(
+      new Set(["completed"])
+    );
+    await expect(host.spawn(request("0"))).rejects.toMatchObject({
+      code: "unknown_outcome",
+    });
+    await expect(host.operation({ operationId: "199" })).rejects.toMatchObject({
+      code: "unknown_outcome",
+    });
+    await expect(host.release({ operationId: "199" })).rejects.toMatchObject({
+      code: "unknown_outcome",
+    });
+    expect(command).toHaveBeenCalledTimes(200);
+    host.close();
+  });
+
+  it("logs loudly at the id safety ceiling and retains every existing id", async () => {
+    const command = vi.fn(),
+      log = vi.fn();
+    const host = new EngineUpdateHost(
+      (observer) => async () => {
+        await observer.spawned?.(12345);
+        command();
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+      { maxRequestIds: 2, log }
+    );
+    for (const id of ["a", "b"]) {
+      await host.spawn(request(id));
+      await host.release({ operationId: id });
+    }
+    await expect(host.spawn(request("c"))).rejects.toMatchObject({
+      code: "busy",
+    });
+    await expect(host.spawn(request("d"))).rejects.toMatchObject({
+      code: "busy",
+    });
+    expect(log).toHaveBeenCalledOnce();
+    expect(log.mock.calls[0][0]).toContain("2 request-id safety ceiling");
+    await host.spawn(request("a"));
+    expect(command).toHaveBeenCalledTimes(2);
+    host.close();
+  });
+
+  it.each(["timeout", "shutdown"])(
+    "an unreleased gate becomes terminal after %s without running",
+    async (kind) => {
+      const marker = path.join(root(), "ran");
+      const host = new EngineUpdateHost();
+      const { operationId } = await host.spawn({
+        requestId: kind,
+        command: {
+          executable: "/bin/sh",
+          args: ["-c", 'printf ran > "$1"', "fixture", marker],
+        },
+        timeoutMs: kind === "timeout" ? 20 : 1000,
+      });
+      if (kind === "shutdown") host.close();
+      await vi.waitFor(async () =>
+        expect(await host.operation({ operationId })).toMatchObject({
+          running: false,
+          error: expect.stringContaining("never released; command did not run"),
+        })
+      );
+      // A late release cannot turn the rejected gate into an execution.
+      await host.release({ operationId });
+      expect(existsSync(marker)).toBe(false);
+      host.close();
+    }
+  );
+
+  it("the real local child settles a timed-out gate through the same engine port", async () => {
+    const state = root();
+    const marker = path.join(state, "ran");
+    const runner = startTestLocalRunner(state, { env: { HOME: state } });
+    try {
+      await runner.ready();
+      const { operationId } = await runner.session.call("engine.update.spawn", {
+        requestId: "local-timeout",
+        command: {
+          executable: "/bin/sh",
+          args: ["-c", 'printf ran > "$1"', "fixture", marker],
+        },
+        timeoutMs: 20,
+      });
+      await vi.waitFor(async () =>
+        expect(
+          await runner.session.call("engine.operation", { operationId })
+        ).toMatchObject({
+          running: false,
+          error: expect.stringContaining("never released; command did not run"),
+        })
+      );
+      expect(existsSync(marker)).toBe(false);
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it("never retries a possibly delivered local spawn in a restarted or fallback host", async () => {
+    const state = root();
+    const crash = path.join(state, "crash-after-spawn");
+    writeFileSync(crash, "");
+    const runner = startTestLocalRunner(state, {
+      env: { HOME: state, RUNNER_DIE_AFTER_ENGINE_SPAWN: crash },
+    });
+    const fallback = inProcessEngines({ claudeBin: "fixture" });
+    const spawn = vi.spyOn(fallback, "updateSpawn");
+    try {
+      await runner.ready();
+      await runner.session.call("runner.health", {});
+      const calls = localEngineCalls(() => runner.session, fallback);
+      await expect(
+        calls.call("engine.update.spawn", request("lost-ack", 20))
+      ).rejects.toMatchObject({
+        code: "unknown_outcome",
+      });
+      await runner.ready(1);
+      expect(runner.pids).toHaveLength(2);
+      expect(spawn).not.toHaveBeenCalled();
+      await expect(
+        runner.session.call("engine.operation", { operationId: "lost-ack" })
+      ).rejects.toMatchObject({ code: "not_found" });
+    } finally {
+      fallback.close();
+      await runner.stop();
+    }
+  });
+
+  it("the durable coordinator never replays a lost spawn acknowledgement after restart", async () => {
+    let records = {};
+    const store: EngineOperationStore = {
+      exclusive: async (work) => work(records),
+    };
+    const call = vi.fn(async (_op: string, _request: unknown) => {
+      throw new RunnerCallError({
+        code: "unknown_outcome",
+        message: "Fixture lost spawn acknowledgement",
+      });
+    });
+    const options = {
+      ...engineUpdatePort({ call } as unknown as EngineCalls),
+      verify: async () => "1.0.0",
+      prepare: async () => ({
+        realPath: "/fixture/codex",
+        source: "npm" as const,
+        canUpdate: true,
+        reason: "fixture",
+        command: "fixture",
+        latestKey: "unknown:",
+        target: "fixture",
+        run: { executable: "/usr/bin/true", args: [] },
+      }),
+    };
+    const first = new EngineUpdateOperations(store, options);
+    await first.start("codex", {});
+    await vi.waitFor(async () =>
+      expect((await first.read()).codex).toMatchObject({
+        status: "interrupted",
+        message:
+          "Server continuity was lost. The update outcome is unknown; verify the installed version before retrying.",
+      })
+    );
+    const restarted = new EngineUpdateOperations(store, options);
+    expect((await restarted.read()).codex?.status).toBe("interrupted");
+    expect(call).toHaveBeenCalledOnce();
+    expect(call.mock.calls[0][0]).toBe("engine.update.spawn");
+  });
+
+  it("expired results keep main's unknown outcome and recover only by probing", async () => {
+    let records = {};
+    const host = new EngineUpdateHost(
+      (observer) => async () => {
+        await observer.spawned?.(12345);
+        return { exitCode: 0, stdout: "fixture success", stderr: "" };
+      },
+      { retentionMs: 0 }
+    );
+    const call = vi.fn(async (op: string, input: never) => {
+      if (op === "engine.update.spawn") return host.spawn(input);
+      if (op === "engine.update.release") return host.release(input);
+      if (op === "engine.operation") return host.operation(input);
+      if (op === "engine.update.probe")
+        return { alive: [false], version: "2.0.0" };
+      throw new Error(op);
+    });
+    const manager = new EngineUpdateOperations(
+      { exclusive: async (work) => work(records) },
+      {
+        ...engineUpdatePort({ call } as unknown as EngineCalls),
+        prepare: async () => ({
+          realPath: "/fixture/codex",
+          source: "npm",
+          canUpdate: true,
+          reason: "fixture",
+          command: "fixture",
+          latestKey: "unknown:",
+          target: "fixture",
+          run: { executable: "/usr/bin/true", args: [] },
+        }),
+      }
+    );
+    await manager.start("codex", {});
+    await vi.waitFor(async () =>
+      expect((await manager.read()).codex).toMatchObject({
+        status: "interrupted",
+        retryBlocked: false,
+        message:
+          "Server continuity was lost. The update outcome is unknown; verify the installed version before retrying.",
+      })
+    );
+    expect(
+      call.mock.calls.filter(([op]) => op === "engine.update.spawn")
+    ).toHaveLength(1);
+    expect(call.mock.calls).toContainEqual([
+      "engine.update.probe",
+      { pids: [12345], groups: true },
+    ]);
+    host.close();
   });
 });
