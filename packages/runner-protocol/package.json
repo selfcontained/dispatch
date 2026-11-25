@@ -13,7 +13,8 @@
     "./github-pr-observation": "./src/github-pr-observation.ts",
     "./plugin-engines": "./src/plugin-engines.ts",
     "./engine-sign-in": "./src/engine-sign-in.ts",
-    "./engine-plans": "./src/engine-plans.ts"
+    "./engine-plans": "./src/engine-plans.ts",
+    "./diff-types": "./src/diff-types.ts"
   },
   "files": [
     "src"

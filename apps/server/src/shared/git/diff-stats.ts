@@ -1,4 +1,7 @@
-import type { DiffStats, DiffTotals } from "@dispatch/shared";
+import type {
+  DiffStats,
+  DiffTotals,
+} from "@dispatch/runner-protocol/diff-types";
 
 import { resolveBaseRef } from "./base-ref.js";
 import {
@@ -10,9 +13,12 @@ import { isTestFile } from "./test-files.js";
 import { runCommand, type CommandRunner } from "../lib/run-command.js";
 
 // The diff stats shape is a contract with the web client, so it lives in
-// @dispatch/shared. Re-exported here because this module is where the rest of
+// @dispatch/runner-protocol/diff-types. Re-exported here because this module is where the rest of
 // the server reaches for it.
-export type { DiffStats, DiffTotals } from "@dispatch/shared";
+export type {
+  DiffStats,
+  DiffTotals,
+} from "@dispatch/runner-protocol/diff-types";
 
 export type DiffStatsComputation =
   | { kind: "success"; stats: DiffStats }
