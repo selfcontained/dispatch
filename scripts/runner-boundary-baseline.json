@@ -10,14 +10,6 @@
   {
     "file": "apps/server/src/agents/acp/local-host-entry.ts",
     "kind": "R5 Dispatch to runner",
-    "detail": "@dispatch/runner/host/engine-spec",
-    "task": "T40",
-    "count": 1,
-    "class": "moves-with-workload"
-  },
-  {
-    "file": "apps/server/src/agents/acp/local-host-entry.ts",
-    "kind": "R5 Dispatch to runner",
     "detail": "@dispatch/runner/host/host-command",
     "task": "T40",
     "count": 1,

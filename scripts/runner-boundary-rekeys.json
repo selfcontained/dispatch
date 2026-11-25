@@ -1,5 +1,5 @@
 {
-  "budget": 21,
+  "budget": 20,
   "importers": [
     "apps/server/src/agents/acp/host-search-path.ts",
     "apps/server/src/agents/acp/local-host-entry.ts",
@@ -110,19 +110,6 @@
       "movedDependency": "apps/server/src/agents/acp/engine-bin-dir.ts",
       "type": "package-import",
       "target": "packages/runner/src/host/engine-bin-dir.ts"
-    },
-    {
-      "key": {
-        "file": "apps/server/src/agents/acp/local-host-entry.ts",
-        "kind": "R5 Dispatch to runner",
-        "detail": "@dispatch/runner/host/engine-spec"
-      },
-      "task": "T40",
-      "class": "moves-with-workload",
-      "reason": "Host module moved before its workload importer.",
-      "movedDependency": "apps/server/src/agents/acp/engine-spec.ts",
-      "type": "package-import",
-      "target": "packages/runner/src/host/engine-spec.ts"
     },
     {
       "key": {

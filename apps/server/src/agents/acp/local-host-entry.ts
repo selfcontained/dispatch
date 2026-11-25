@@ -30,7 +30,7 @@ import {
   isAcpEngine,
   type AcpEngineId,
   type EngineBins,
-} from "@dispatch/runner/host/engine-spec";
+} from "@dispatch/runner-protocol/host";
 import {
   agentLaunchBindings,
   prepareHostLaunch,
