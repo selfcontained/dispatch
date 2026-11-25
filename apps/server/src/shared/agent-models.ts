@@ -51,7 +51,11 @@ export function catalogUnion(runnerIds: readonly string[]) {
   return models;
 }
 
-type CatalogRead = (runnerId: string, agentType: AgentType) => void;
+type CatalogRead = (
+  runnerId: string,
+  agentType: AgentType,
+  model?: string
+) => void;
 let catalogRead: CatalogRead | undefined;
 export function onStoredModelCatalogRead(listener: CatalogRead): () => void {
   catalogRead = listener;
@@ -60,12 +64,16 @@ export function onStoredModelCatalogRead(listener: CatalogRead): () => void {
   };
 }
 /** These user-facing reads return the snapshot before scheduling any I/O. */
-export function readStoredModelCatalog(runnerId: string, agentType: AgentType) {
+export function readStoredModelCatalog(
+  runnerId: string,
+  agentType: AgentType,
+  model?: string
+) {
   const result = {
     defaultModel: agentModelDefaults(runnerId)[agentType] ?? null,
     models: getAgentModelOptions(agentType, runnerId),
   };
-  catalogRead?.(runnerId, agentType);
+  catalogRead?.(runnerId, agentType, model);
   return result;
 }
 export function readStoredAgentModelCatalog(runnerId = "local") {

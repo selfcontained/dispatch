@@ -25,6 +25,12 @@ import {
   setLearnedAgentModels,
 } from "../src/shared/agent-models.js";
 import { RunnerCallError } from "@dispatch/runner-protocol/contract";
+import {
+  recordEngineModels,
+  readModelObservation,
+} from "../src/agents/engine-models.js";
+import type { AgentType } from "../src/shared/agent-types.js";
+import type { Res } from "@dispatch/runner-protocol/contract";
 
 const refreshers: ModelCatalogRefresh[] = [];
 let stop: (() => void) | undefined;
@@ -75,6 +81,20 @@ function fixture() {
     rows.set(
       namespaced(settings, `agent_models_refresh:${engine}`),
       JSON.stringify({ refreshedAt: timestamp })
+    );
+    rows.set(
+      namespaced(settings, `agent_models_observation:${engine}`),
+      JSON.stringify({
+        revision: 1,
+        observedAt: timestamp,
+        effort: Object.fromEntries(
+          result.models
+            .filter(
+              (m: { id: string; effort?: unknown }) => m.effort !== undefined
+            )
+            .map((m: { id: string }) => [m.id, timestamp])
+        ),
+      })
     );
     setLearnedAgentModels(engine, result.models, result.defaultModel, id);
     return true;
@@ -132,6 +152,404 @@ function deferred<T>() {
   });
   return { promise, resolve };
 }
+
+/** Real transaction/learning seam; only the engine process and SQL transport are fixtures. */
+function orderingFixture() {
+  let now = Date.now();
+  const rows = new Map<string, string>();
+  let transaction: Map<string, string> | undefined;
+  const query = async (sql: string, args: string[] = []) => {
+    if (sql === "BEGIN") transaction = new Map(rows);
+    if (sql === "COMMIT" && transaction) {
+      rows.clear();
+      for (const [key, value] of transaction) rows.set(key, value);
+      transaction = undefined;
+    }
+    if (sql === "ROLLBACK") transaction = undefined;
+    if (sql.includes("FROM runner_registrations"))
+      return { rows: [{ id: "alpha" }, { id: "beta" }] };
+    const store = transaction ?? rows;
+    if (sql.includes("INSERT INTO settings")) store.set(args[0]!, args[1]!);
+    return {
+      rows: store.has(args[0]!) ? [{ value: store.get(args[0]!) }] : [],
+    };
+  };
+  const pool = {
+    query,
+    connect: async () => ({ query, release() {} }),
+  } as unknown as Pool;
+  const settings = (id: string) =>
+    id === "local" ? localRunnerSettings : enrolledRunnerSettings(id);
+  const listing = vi.fn(
+    async (
+      _id: string,
+      input: { engine: string; model?: string }
+    ): Promise<Res<"engine.models">> => ({
+      current: input.model ?? "a",
+      defaultModel: "a",
+      models: [
+        { id: "a", label: "A", effort: [] },
+        { id: "b", label: "B" },
+        { id: "c", label: "C" },
+      ],
+    })
+  );
+  const online = new Map<string, boolean>(),
+    blocked = new Map<string, boolean>();
+  const changed = vi.fn();
+  const create = () => {
+    const service = new ModelCatalogRefresh({
+      pool,
+      now: () => now,
+      changed,
+      resolve: (id) => ({
+        settings: settings(id),
+        online: online.get(id) !== false,
+        enabled: true,
+        blocked: blocked.get(id),
+        calls: {
+          call: async (
+            op: string,
+            input: { engine: string; model?: string }
+          ) =>
+            op === "engine.list"
+              ? {
+                  entries: ["claude", "codex", "opencode"].map((id) => ({
+                    id,
+                    installed: true,
+                    signedIn: true,
+                    actions: ["login"],
+                  })),
+                }
+              : listing(id, input),
+        } as never,
+      }),
+    });
+    refreshers.push(service);
+    return service;
+  };
+  const service = create();
+  const report = async (id: string, engine: AgentType, model = "report") =>
+    recordEngineModels(
+      { pool, logger: { info() {} } as never },
+      { id: "agent", type: engine, model: null },
+      [
+        {
+          id: "model",
+          name: "Model",
+          type: "select",
+          currentValue: model,
+          options: [{ value: model, name: model }],
+        },
+      ],
+      true,
+      { runnerId: id, settings: settings(id) }
+    );
+  return {
+    service,
+    create,
+    rows,
+    pool,
+    settings,
+    listing,
+    changed,
+    online,
+    blocked,
+    report,
+    advance: (ms: number) => {
+      now += ms;
+    },
+  };
+}
+async function flush() {
+  for (let i = 0; i < 40; i++) await Promise.resolve();
+}
+
+describe("discovery FIFO and observation ordering", () => {
+  it("serializes three cold engines and repeated reads never add duplicate work", async () => {
+    const f = orderingFixture();
+    const gate = deferred<Res<"engine.models">>();
+    f.listing.mockReturnValueOnce(gate.promise);
+    for (let i = 0; i < 100; i++)
+      for (const engine of ["claude", "codex", "opencode"] as const)
+        f.service.request("alpha", engine);
+    await flush();
+    expect(f.listing).toHaveBeenCalledTimes(1);
+    gate.resolve({ current: "a", models: [{ id: "a", label: "A" }] });
+    await Promise.all(
+      ["claude", "codex", "opencode"].map((engine) =>
+        f.service.settled("alpha", engine as AgentType)
+      )
+    );
+    expect(f.listing.mock.calls.map(([, input]) => input.engine)).toEqual([
+      "claude",
+      "codex",
+      "opencode",
+    ]);
+    for (const engine of ["claude", "codex", "opencode"] as const)
+      expect(getLearnedAgentModels(engine, "alpha")).toBeDefined();
+  });
+  it.each(["fenced", "offline", "reported"])(
+    "allows two runners in parallel but rechecks a queued runner when %s",
+    async (reason) => {
+      const f = orderingFixture();
+      const gate = deferred<Res<"engine.models">>();
+      f.listing
+        .mockReturnValueOnce(gate.promise)
+        .mockReturnValueOnce(gate.promise);
+      f.service.request("alpha", "codex");
+      f.service.request("alpha", "opencode");
+      f.service.request("beta", "codex");
+      await flush();
+      expect(f.listing.mock.calls.map(([id]) => id)).toEqual(["alpha", "beta"]);
+      if (reason === "fenced") f.blocked.set("alpha", true);
+      if (reason === "offline") f.online.set("alpha", false);
+      if (reason === "reported") await f.report("alpha", "opencode");
+      gate.resolve({ current: "a", models: [{ id: "a", label: "A" }] });
+      await Promise.all([
+        f.service.settled("alpha", "opencode"),
+        f.service.settled("beta", "codex"),
+      ]);
+      expect(f.listing).toHaveBeenCalledTimes(2);
+    }
+  );
+  it("caps a cold validation's total wait at 40 seconds without blocking pickers", async () => {
+    vi.useFakeTimers();
+    const f = orderingFixture();
+    f.listing.mockImplementation(() => new Promise(() => {}));
+    f.service.request("alpha", "claude");
+    f.service.request("alpha", "codex");
+    const scope = f.service.validate("alpha", "opencode", {
+      model: "unseeded",
+    });
+    let finished = false;
+    void scope.then(() => {
+      finished = true;
+    });
+    await vi.advanceTimersByTimeAsync(39_999);
+    expect(finished).toBe(false);
+    expect(readStoredModelCatalog("alpha", "opencode")).toEqual({
+      defaultModel: null,
+      models: [],
+    });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await scope).toBe(false);
+  });
+  it("uses the same validation deadline for queued never-observed effort", async () => {
+    vi.useFakeTimers();
+    const f = orderingFixture();
+    f.service.request("alpha", "opencode");
+    await f.service.settled("alpha", "opencode");
+    f.listing.mockImplementation(() => new Promise(() => {}));
+    f.service.request("alpha", "claude");
+    f.service.request("alpha", "codex");
+    const validated = f.service.validate("alpha", "opencode", {
+      model: "b",
+      effort: "high",
+    });
+    await vi.advanceTimersByTimeAsync(40_000);
+    expect(await validated).toBe(false); // Engine scope, including effort validation.
+  });
+  it.each(["local", "alpha"])(
+    "a %s report teaches effort age and a superseded effort fetch has no backoff",
+    async (id) => {
+      const f = orderingFixture();
+      await f.report(id, "opencode");
+      f.service.read(id, "opencode", "report");
+      await f.service.settled(id, "opencode", "report");
+      expect(f.listing).not.toHaveBeenCalled();
+      const report = () =>
+        recordEngineModels(
+          { pool: f.pool, logger: { info() {} } as never },
+          { id: "agent", type: "opencode", model: null },
+          [
+            {
+              id: "model",
+              name: "Model",
+              type: "select",
+              currentValue: "a",
+              options: [
+                { value: "a", name: "A" },
+                { value: "b", name: "B" },
+              ],
+            },
+          ],
+          true,
+          { runnerId: id, settings: f.settings(id) }
+        );
+      await report();
+      const gate = deferred<Res<"engine.models">>();
+      f.listing.mockReturnValueOnce(gate.promise);
+      f.service.read(id, "opencode", "b");
+      await flush();
+      await report();
+      const saved = new Map(f.rows);
+      gate.resolve({
+        current: "b",
+        models: [{ id: "b", label: "Outdated", effort: [] }],
+      });
+      await f.service.settled(id, "opencode", "b");
+      expect(f.rows).toEqual(saved);
+      expect(f.changed).not.toHaveBeenCalled();
+      f.service.read(id, "opencode", "b");
+      await f.service.settled(id, "opencode", "b");
+      expect(f.listing).toHaveBeenCalledTimes(2);
+    }
+  );
+  it.each([
+    ["local", undefined],
+    ["alpha", undefined],
+    ["local", "b"],
+    ["alpha", "b"],
+  ] as const)(
+    "discards %s stale discovery (selected %s) after a committed report, including after restart",
+    async (id, model) => {
+      const f = orderingFixture();
+      if (model) {
+        f.service.request(id, "opencode");
+        await f.service.settled(id, "opencode");
+        f.changed.mockClear();
+      }
+      const gate = deferred<Res<"engine.models">>();
+      f.listing.mockReturnValueOnce(gate.promise);
+      f.service.request(id, "opencode", model);
+      await flush();
+      await f.report(id, "opencode");
+      const saved = new Map(f.rows);
+      gate.resolve({
+        current: "stale",
+        models: [{ id: "stale", label: "Stale" }],
+      });
+      await f.service.settled(id, "opencode", model);
+      expect(f.rows).toEqual(saved);
+      expect(getLearnedAgentModels("opencode", id)?.map((m) => m.id)).toEqual([
+        "report",
+      ]);
+      expect(f.changed).not.toHaveBeenCalled();
+      // A report resets the durable one-hour age; no stale-refresh backoff is stored.
+      const restarted = f.create();
+      restarted.request(id, "opencode");
+      await restarted.settled(id, "opencode");
+      expect(f.listing).toHaveBeenCalledTimes(model ? 2 : 1);
+      expect(
+        (await readModelObservation(f.pool, f.settings(id), "opencode"))
+          .revision
+      ).toBe(model ? 2 : 1);
+      f.advance(MODEL_REFRESH_AGE_MS + 1000);
+      restarted.request(id, "opencode");
+      await restarted.settled(id, "opencode");
+      expect(f.listing).toHaveBeenCalledTimes(model ? 3 : 2);
+    }
+  );
+  it("persists effort ages across restart, preserves retained ages, and retries only a selected stale model", async () => {
+    const f = orderingFixture();
+    f.service.request("alpha", "opencode");
+    await f.service.settled("alpha", "opencode");
+    const initial = await readModelObservation(
+      f.pool,
+      f.settings("alpha"),
+      "opencode"
+    );
+    expect(Object.keys(initial.effort)).toEqual(["a"]);
+    f.advance(MODEL_REFRESH_AGE_MS / 2);
+    f.listing.mockResolvedValueOnce({
+      current: "b",
+      models: [
+        { id: "a", label: "A" },
+        { id: "b", label: "B", effort: [] },
+        { id: "c", label: "C" },
+      ],
+    });
+    f.service.read("alpha", "opencode", "b");
+    await f.service.settled("alpha", "opencode", "b");
+    const observed = await readModelObservation(
+      f.pool,
+      f.settings("alpha"),
+      "opencode"
+    );
+    expect(observed.effort.a).toBe(initial.effort.a);
+    expect(observed.effort.b).not.toBe(initial.effort.a);
+    const restarted = f.create();
+    restarted.read("alpha", "opencode", "b");
+    await restarted.settled("alpha", "opencode", "b");
+    expect(f.listing).toHaveBeenCalledTimes(2);
+    f.advance(MODEL_REFRESH_AGE_MS);
+    // Simulate a fresh unrelated catalog observation: b alone is stale.
+    f.rows.set(
+      namespaced(f.settings("alpha"), "agent_models_refresh:opencode"),
+      JSON.stringify({
+        refreshedAt: new Date(
+          Date.parse(observed.observedAt!) + MODEL_REFRESH_AGE_MS
+        ).toISOString(),
+      })
+    );
+    restarted.read("alpha", "opencode", "b");
+    await restarted.settled("alpha", "opencode", "b");
+    expect(f.listing.mock.calls.map(([, input]) => input.model)).toEqual([
+      undefined,
+      "b",
+      "b",
+    ]);
+    expect(f.listing.mock.calls.some(([, input]) => input.model === "c")).toBe(
+      false
+    );
+  });
+  it.each(["local", "alpha"])(
+    "returns %s selected effort immediately, serializes models and publishes updates",
+    async (id) => {
+      const f = orderingFixture();
+      f.service.request(id, "opencode");
+      await f.service.settled(id, "opencode");
+      f.changed.mockClear();
+      f.listing.mockClear();
+      const gate = deferred<Res<"engine.models">>();
+      f.listing
+        .mockReturnValueOnce(gate.promise)
+        .mockImplementationOnce(async () => ({
+          current: "c",
+          models: [
+            { id: "a", label: "A", effort: [] },
+            { id: "b", label: "B", effort: [{ value: "high", name: "High" }] },
+            { id: "c", label: "C", effort: [] },
+          ],
+        }));
+      stop = onStoredModelCatalogRead((runner, engine, model) =>
+        f.service.read(runner, engine, model)
+      );
+      for (let i = 0; i < 50; i++) {
+        expect(
+          readStoredModelCatalog(id, "opencode", "b").models.find(
+            (m) => m.id === "b"
+          )?.effort
+        ).toBeUndefined();
+        readStoredModelCatalog(id, "opencode", "c");
+      }
+      await flush();
+      expect(f.listing).toHaveBeenCalledTimes(1);
+      gate.resolve({
+        current: "b",
+        models: [
+          { id: "a", label: "A", effort: [] },
+          { id: "b", label: "B", effort: [{ value: "high", name: "High" }] },
+          { id: "c", label: "C" },
+        ],
+      });
+      await f.service.settled(id, "opencode", "c");
+      expect(f.listing.mock.calls.map(([, input]) => input.model)).toEqual([
+        "b",
+        "c",
+      ]);
+      expect(f.changed).toHaveBeenCalledWith(id, "opencode");
+      expect(
+        readStoredModelCatalog(id, "opencode", "b").models.find(
+          (m) => m.id === "b"
+        )?.effort?.[0]?.value
+      ).toBe("high");
+      await f.service.settled(id, "opencode", "b");
+      expect(f.listing).toHaveBeenCalledTimes(2);
+    }
+  );
+});
 
 describe("stored model catalog revalidation", () => {
   it("returns the stored snapshot immediately and single-flights concurrent reads for an hour", async () => {
@@ -554,6 +972,36 @@ describe.each(validationTargets)(
         effort: "turbo",
       });
       expect(f.listing).toHaveBeenCalledOnce();
+    });
+    it("keeps the engine freshness aligned with a foreground effort listing", async () => {
+      const f = validationFixture();
+      f.listing.mockResolvedValueOnce({
+        defaultModel: "a",
+        models: [
+          { id: "a", label: "A", effort: [] },
+          { id: "b", label: "B" },
+        ],
+      });
+      await modelScopeFor(target, "opencode", { model: "a" });
+      f.advance(MODEL_REFRESH_AGE_MS - 1000);
+      f.listing.mockResolvedValueOnce({
+        defaultModel: "a",
+        current: "b",
+        models: [
+          { id: "a", label: "A", effort: [] },
+          { id: "b", label: "B", effort: [{ value: "high", name: "High" }] },
+        ],
+      } as never);
+      await modelScopeFor(target, "opencode", { model: "b", effort: "high" });
+      expect(f.listing).toHaveBeenCalledTimes(2);
+      f.advance(1000);
+      readStoredModelCatalog(id, "opencode");
+      await f.service.settled(id, "opencode");
+      expect(f.listing).toHaveBeenCalledTimes(2);
+      f.advance(MODEL_REFRESH_AGE_MS - 1000);
+      readStoredModelCatalog(id, "opencode");
+      await f.service.settled(id, "opencode");
+      expect(f.listing).toHaveBeenCalledTimes(3);
     });
     it.each(["offline", "failed", "fenced", "timeout"])(
       "does not reject never-fetched effort after %s",
