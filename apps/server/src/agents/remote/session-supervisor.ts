@@ -20,7 +20,7 @@ import {
 import type { Socket } from "node:net";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import type { BuildIdentity } from "../build-identity.js";
+import type { BuildIdentity } from "@dispatch/runner-protocol/build-identity";
 import {
   agentLaunchBindings,
   prepareHostLaunch,

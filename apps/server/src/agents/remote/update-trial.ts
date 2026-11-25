@@ -13,10 +13,9 @@ import { promisify } from "node:util";
 import { childProcessEnv } from "../../shared/process/child-environment.js";
 import { setTimeout as pause } from "node:timers/promises";
 import {
-  embeddedBuild,
   isBuildIdentity,
   type BuildIdentity,
-} from "../build-identity.js";
+} from "@dispatch/runner-protocol/build-identity";
 import type {
   RunnerInstalledBuild,
   RunnerUpdateReason,
@@ -630,7 +629,10 @@ export async function runTrial(options: {
   );
 }
 
-export async function runRunnerUpdateTrial(argv: string[]) {
+export async function runRunnerUpdateTrial(
+  argv: string[],
+  inputs: { build: BuildIdentity }
+) {
   if (
     process.platform !== "linux" ||
     process.getuid?.() !== 0 ||
@@ -646,7 +648,7 @@ export async function runRunnerUpdateTrial(argv: string[]) {
     layout: RUNNER_UPDATE_LAYOUT,
     uid: 0,
     boot: argv[0] === "boot",
-    build: embeddedBuild,
+    build: inputs.build,
     system: systemdSupervisor(),
     verify: (fence) =>
       fence.target.arch === process.arch

@@ -5,7 +5,7 @@ import { modelScopeFor, validateAgentModel } from "../shared/agent-models.js";
 import {
   normalizeBaseBranch,
   assertSafeRefName,
-} from "../shared/git/worktree.js";
+} from "@dispatch/runner-protocol";
 import { templateWorktreeConfig } from "./worktree-config.js";
 import type { TemplateRecord } from "./store.js";
 

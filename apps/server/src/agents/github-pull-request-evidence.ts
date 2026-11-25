@@ -11,7 +11,7 @@ import {
 import {
   pullRequestObservation,
   pullRequestQueryArgs,
-} from "./pull-request-reader.js";
+} from "@dispatch/runner-protocol/github-pr-observation";
 
 type Run = (
   args: string[],

@@ -6,7 +6,7 @@ import {
   type EngineOperationStore,
   type Installation,
   type UpdateObserver,
-} from "../src/agents/engine-updates.js";
+} from "./helpers/native-engine-updates.js";
 import type { RunCommandResult } from "../src/shared/lib/run-command.js";
 
 function store(): EngineOperationStore {

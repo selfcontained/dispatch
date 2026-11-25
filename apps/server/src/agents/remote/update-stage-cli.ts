@@ -1,7 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { lstat, open, rename, rm } from "node:fs/promises";
 import path from "node:path";
-import { packageVersion } from "../../generated/runtime-assets.js";
 import {
   compiledRunnerDevKey,
   compiledRunnerUpdateKeys,
@@ -78,7 +77,10 @@ async function recordResult(state: string, uid: number, result: object) {
 }
 
 /** `dispatch runner-update-stage <version>_linux_<arch>_<sha256>` */
-export async function runRunnerUpdateStage(argv: string[]) {
+export async function runRunnerUpdateStage(
+  argv: string[],
+  inputs: { packageVersion: string }
+) {
   const { layout, host, trustedUid } = layoutAndHost();
   if (argv.length !== 1) {
     console.error(
@@ -92,7 +94,7 @@ export async function runRunnerUpdateStage(argv: string[]) {
       layout,
       keys: compiledRunnerUpdateKeys(),
       host,
-      installedVersion: packageVersion,
+      installedVersion: inputs.packageVersion,
       trustedUid,
     });
     let compatibilityError: string | undefined;

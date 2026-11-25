@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { constants, createReadStream } from "node:fs";
 import { chmod, copyFile, lstat, unlink } from "node:fs/promises";
 import path from "node:path";
-import { isBuildIdentity } from "../build-identity.js";
+import { isBuildIdentity } from "@dispatch/runner-protocol/build-identity";
 import type { RunnerCompatibility } from "./update-handoff.js";
 import {
   candidatePath,

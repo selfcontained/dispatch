@@ -7,7 +7,7 @@
  */
 import type { CodeownersConfig } from "../../personas/codeowners.js";
 import { resolveCodeowners } from "../../personas/codeowners.js";
-import { isTestFile } from "../../shared/git/test-files.js";
+import { isTestFile } from "@dispatch/runner-protocol";
 
 export const MERGE_RISK_EVIDENCE_LIMIT = 12 * 1024;
 

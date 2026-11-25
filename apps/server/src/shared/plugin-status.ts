@@ -33,8 +33,11 @@ import path from "node:path";
 import { readFile } from "node:fs/promises";
 
 import { withEngineBinDir } from "@dispatch/runner/host/engine-bin-dir";
-import { isPluginAgentType, PLUGIN_AGENT_TYPES } from "./agent-types.js";
-import type { PluginAgentType } from "./agent-types.js";
+import {
+  isPluginEngine as isPluginAgentType,
+  PLUGIN_ENGINES as PLUGIN_AGENT_TYPES,
+  type PluginEngine as PluginAgentType,
+} from "@dispatch/runner-protocol/plugin-engines";
 import { compareSemver } from "./lib/compare-semver.js";
 import { errorMessage } from "./lib/error-message.js";
 import { runCommand, type CommandRunner } from "./lib/run-command.js";

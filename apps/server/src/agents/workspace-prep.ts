@@ -1,7 +1,10 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
 
-import type { FastifyBaseLogger } from "fastify";
+export type WorkspaceLogger = {
+  info(fields: Record<string, unknown>, message: string): void;
+  warn(fields: Record<string, unknown>, message: string): void;
+};
 
 import { withToolSearchPath } from "../shared/lib/tool-environment.js";
 import { runCommand } from "../shared/lib/run-command.js";
@@ -49,11 +52,16 @@ export type WorkspaceProgress = {
 export async function setupAgentWorkspace(
   originalCwd: string,
   worktreePath: string,
-  logger: Pick<FastifyBaseLogger, "info" | "warn">,
+  logger: WorkspaceLogger,
+  localConfigFiles: readonly string[],
   onProgress?: (progress: WorkspaceProgress) => Promise<void>
 ): Promise<void> {
   await onProgress?.({ phase: "env" });
-  const copied = await copyLocalConfigFiles(originalCwd, worktreePath);
+  const copied = await copyLocalConfigFiles(
+    originalCwd,
+    worktreePath,
+    localConfigFiles
+  );
   if (copied.length > 0) {
     logger.info(
       { worktreePath, files: copied },
@@ -66,7 +74,7 @@ export async function setupAgentWorkspace(
 
 export async function installWorkspaceDependencies(
   worktreePath: string,
-  logger: Pick<FastifyBaseLogger, "info" | "warn">,
+  logger: WorkspaceLogger,
   onProgress?: (progress: WorkspaceProgress) => Promise<void>
 ): Promise<boolean> {
   await onProgress?.({ phase: "deps" });

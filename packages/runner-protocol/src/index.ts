@@ -11,3 +11,7 @@ export * from "./checkout-command.js";
 export * from "./terminal.js";
 export * from "./update.js";
 export * from "./checkout-reads.js";
+export * from "./git-helpers.js";
+export * from "./path-classification.js";
+export * from "./checkout-helpers.js";
+export * from "./checkout-observation.js";

@@ -15,7 +15,7 @@ import {
   isBuildIdentity,
   isHostInstanceId,
   type BuildIdentity,
-} from "../build-identity.js";
+} from "@dispatch/runner-protocol/build-identity";
 import { isOpaqueId } from "@dispatch/runner-protocol";
 import type { WorkloadCommand } from "./session-storage.js";
 

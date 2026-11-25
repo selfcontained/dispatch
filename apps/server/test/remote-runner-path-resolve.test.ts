@@ -1,3 +1,5 @@
+import { embeddedBuild } from "../src/agents/build-identity.js";
+import { gitSha, packageVersion } from "../src/generated/runtime-assets.js";
 /*
  * The Linux runner's path.resolve (a launch folder an agent on this runner
  * names, D7): resolved by a worker the supervisor starts under the
@@ -209,6 +211,8 @@ it("resolves a folder as the workload, never as the supervisor", async () => {
     throw end;
   });
   const running = runRemoteRunner(config, {
+    build: embeddedBuild,
+    healthBuild: { version: packageVersion, revision: gitSha },
     updateLayout: {
       config,
       installed: path.join(root, "dispatch"),

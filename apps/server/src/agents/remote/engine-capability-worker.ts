@@ -26,7 +26,10 @@ import {
   engineSpecFor,
   type EngineBins,
 } from "@dispatch/runner/host/engine-spec";
-import { modelOptionOf, engineEffortOption } from "../engine-models.js";
+import {
+  modelOptionOf,
+  engineEffortOption,
+} from "@dispatch/runner-protocol/engine-options";
 import {
   CodexResetError,
   consumeCodexLimitReset,

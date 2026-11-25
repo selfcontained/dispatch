@@ -1,4 +1,4 @@
-import { embeddedBuild } from "../build-identity.js";
+import type { BuildIdentity } from "@dispatch/runner-protocol/build-identity";
 import { childProcessEnv } from "../../shared/process/child-environment.js";
 import { executionArgs, setpriv } from "./workload-identity.js";
 import { runnerHealthSampler } from "./health.js";
@@ -408,6 +408,8 @@ type WorkspacePreparationFactory = (options: {
 }>;
 
 export type RunnerUpdateOptions = {
+  build: BuildIdentity;
+  healthBuild: { version: string; revision: string | null };
   updateLayout?: RunnerUpdateLayout;
   fenceStore?: FenceStore;
   updater?: RunnerUpdater;
@@ -449,7 +451,7 @@ export function startTerminalWorker(
 
 export async function runRemoteRunner(
   filename: string,
-  updateOptions: RunnerUpdateOptions = {}
+  updateOptions: RunnerUpdateOptions
 ) {
   const config: RunnerConfig = JSON.parse(readFileSync(filename, "utf8"));
   const endpoint = new URL(config.endpoint);
@@ -532,7 +534,8 @@ export async function runRemoteRunner(
     key: readFileSync(config.key),
   };
   const sampleHealth = runnerHealthSampler(
-    path.dirname(updateLayout.installed)
+    path.dirname(updateLayout.installed),
+    updateOptions.healthBuild
   );
   // gh and git come from the workload account's own login environment, the
   // one its agent sessions get, not from whatever the system package put in
@@ -683,7 +686,7 @@ export async function runRemoteRunner(
       (() => {
         throw new Error("Runner session core is missing.");
       }),
-    build: embeddedBuild,
+    build: updateOptions.build,
     streamHelper: updateOptions.streamHelper,
     resolveBins,
     env,
@@ -788,7 +791,7 @@ export async function runRemoteRunner(
   const updates = createRunnerUpdateAgent({
     identity:
       updateOptions.updateIdentity === undefined
-        ? await detectSelfUpdate(updateLayout)
+        ? await detectSelfUpdate(updateLayout, updateOptions.build)
         : updateOptions.updateIdentity,
     admission,
     updater:

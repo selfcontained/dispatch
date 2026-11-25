@@ -1,8 +1,9 @@
+import { packageVersion } from "../src/generated/runtime-assets.js";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, it, vi } from "vitest";
-import { runRunnerUpdateStage } from "../src/agents/remote/update-stage-cli.js";
+import { runRunnerUpdateStage as runWorkloadUpdateStage } from "../src/agents/remote/update-stage-cli.js";
 import { probeStagedRunner } from "../src/agents/remote/update-probe.js";
 import {
   parseRunnerUpdateInstance,
@@ -93,3 +94,7 @@ it("records and logs the floor with a downgrade refusal", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+function runRunnerUpdateStage(argv: string[]) {
+  return runWorkloadUpdateStage(argv, { packageVersion });
+}

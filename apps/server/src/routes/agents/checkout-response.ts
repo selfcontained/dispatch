@@ -1,10 +1,7 @@
 import type { FastifyReply } from "fastify";
 import type { CheckoutView } from "@dispatch/runner-protocol";
-import { imageMimeType } from "../../shared/git/diff-image.js";
-import {
-  WorkspaceError,
-  workspaceViewError,
-} from "../../files/workspace-view.js";
+import { imageMimeType } from "@dispatch/runner-protocol";
+import { WorkspaceError, workspaceViewError } from "@dispatch/runner-protocol";
 import { AgentError } from "../../agents/errors.js";
 import type { AgentManager, AgentRecord } from "../../agents/manager.js";
 export async function serveCheckoutView(

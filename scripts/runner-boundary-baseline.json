@@ -76,13 +76,6 @@
   {
     "file": "apps/server/src/agents/archive-checkout.ts",
     "kind": "R2 host import",
-    "detail": "apps/server/src/agents/checkout-observation",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/archive-checkout.ts",
-    "kind": "R2 host import",
     "detail": "apps/server/src/agents/local-runner",
     "task": "T04",
     "count": 1
@@ -194,13 +187,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/checkout-intent.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/worktree",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/checkout-runner.ts",
     "kind": "R1 placement call",
     "detail": "agentWorkspaceDir(agent)",
@@ -225,13 +211,6 @@
     "file": "apps/server/src/agents/checkout-runner.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/checkout-inspection",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/checkout-runner.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/diff-stats",
     "task": "T04",
     "count": 1
   },
@@ -318,13 +297,6 @@
     "kind": "R1 placement call",
     "detail": "agentDiffPath(agent)",
     "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/diff-stats-refresher.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/diff-stats",
-    "task": "T04",
     "count": 1
   },
   {
@@ -589,27 +561,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/merge-risk/evidence.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/test-files",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/merge-risk/explanation-diff.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/diff-file-rules",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/merge-risk/explanation-diff.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/test-files",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/provider-plans.ts",
     "kind": "R2 host access",
     "detail": "child_process",
@@ -677,21 +628,7 @@
   {
     "file": "apps/server/src/agents/remote/engine-capability-worker.ts",
     "kind": "R5 runner to Dispatch",
-    "detail": "apps/server/src/agents/engine-models",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/engine-capability-worker.ts",
-    "kind": "R5 runner to Dispatch",
     "detail": "apps/server/src/agents/remote/engine-capability-result",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/engine-manager.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/engine-updates",
     "task": "T04",
     "count": 1
   },
@@ -720,13 +657,6 @@
     "file": "apps/server/src/agents/remote/github-runner-executor.ts",
     "kind": "R5 runner to Dispatch",
     "detail": "apps/server/src/agents/github-pull-request-evidence",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/github-runner-executor.ts",
-    "kind": "R5 runner to Dispatch",
-    "detail": "apps/server/src/agents/pull-request-reader",
     "task": "T04",
     "count": 1
   },
@@ -765,13 +695,6 @@
     "kind": "R5 protocol leak",
     "detail": "case \"repo\":",
     "task": "T09",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/runner.ts",
-    "kind": "R5 runner to Dispatch",
-    "detail": "apps/server/src/agents/build-identity",
-    "task": "T04",
     "count": 1
   },
   {
@@ -845,13 +768,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/remote/session-processes.ts",
-    "kind": "R5 runner to Dispatch",
-    "detail": "apps/server/src/agents/build-identity",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/remote/session-storage.ts",
     "kind": "R5 protocol leak",
     "detail": "dispatchReviewBase",
@@ -898,13 +814,6 @@
   {
     "file": "apps/server/src/agents/remote/session-supervisor.ts",
     "kind": "R5 runner to Dispatch",
-    "detail": "apps/server/src/agents/build-identity",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/session-supervisor.ts",
-    "kind": "R5 runner to Dispatch",
     "detail": "apps/server/src/agents/remote/repository",
     "task": "T04",
     "count": 1
@@ -921,13 +830,6 @@
     "kind": "R7 restriction",
     "detail": "N35 Runner archive conditionally releases and defers to borrowers",
     "task": "T20",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/update-agent.ts",
-    "kind": "R5 runner to Dispatch",
-    "detail": "apps/server/src/agents/build-identity",
-    "task": "T04",
     "count": 1
   },
   {
@@ -975,13 +877,6 @@
   {
     "file": "apps/server/src/agents/remote/update-probe.ts",
     "kind": "R5 runner to Dispatch",
-    "detail": "apps/server/src/agents/build-identity",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/update-probe.ts",
-    "kind": "R5 runner to Dispatch",
     "detail": "apps/server/src/agents/remote/update-handoff",
     "task": "T04",
     "count": 1
@@ -994,23 +889,9 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/remote/update-stage-cli.ts",
-    "kind": "R5 runner to Dispatch",
-    "detail": "apps/server/src/generated/runtime-assets",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/remote/update-state-file.ts",
     "kind": "R2 host access",
     "detail": "fs/promises",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/update-trial.ts",
-    "kind": "R5 runner to Dispatch",
-    "detail": "apps/server/src/agents/build-identity",
     "task": "T04",
     "count": 1
   },
@@ -1061,13 +942,6 @@
     "file": "apps/server/src/agents/remote/workload-tools.ts",
     "kind": "R5 runner to Dispatch",
     "detail": "apps/server/src/shared/lib/tool-environment",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/types.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/worktree-status",
     "task": "T04",
     "count": 1
   },
@@ -1473,27 +1347,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/routes/agents/checkout-response.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/files/workspace-view",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/agents/checkout-response.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/diff-image",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/agents/lifecycle-routes.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/diff-image",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/routes/agents/shared.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/provider-plans",
@@ -1653,13 +1506,6 @@
     "kind": "R1 placement call",
     "detail": "agentWorkspaceDir(parent)",
     "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/server/ui-events.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/diff-stats",
-    "task": "T04",
     "count": 1
   },
   {
@@ -1901,20 +1747,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/shared/mcp/tool-error.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/worktree",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/shared/mcp/tool-error.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/github/pr",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/shared/plugin-status.ts",
     "kind": "R2 host access",
     "detail": "fs/promises",
@@ -2003,20 +1835,6 @@
     "file": "apps/server/src/tasks/service.ts",
     "kind": "R2 host access",
     "detail": "fs/promises",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/templates/resolve-launch.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/worktree",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/terminal/manager.ts",
-    "kind": "R2 host access",
-    "detail": "process.kill",
     "task": "T04",
     "count": 1
   },

@@ -10,7 +10,7 @@ import {
 import { shouldSuggestSessionRename } from "../../agents/launch-guidance.js";
 import { StreamServiceError } from "../../chat/service.js";
 import { serveCheckoutView } from "./checkout-response.js";
-import { isImageFile } from "../../shared/git/diff-image.js";
+import { isImageFile } from "@dispatch/runner-protocol";
 import type { AgentRouteDeps } from "./shared.js";
 
 /**

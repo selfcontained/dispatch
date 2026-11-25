@@ -16,12 +16,21 @@ import {
   type Req,
   type Res,
 } from "@dispatch/runner-protocol/contract";
-import { WORKTREE_LOCAL_CONFIG_FILES } from "./worktree-local-config-files.js";
-import {
-  runnerWorktree,
-  type LaunchDirectory,
-  type WorktreeRequest,
-} from "./workspace-launch.js";
+/** Legacy receipt shape; policy mapping is supplied by the controller. */
+export type WorktreeRequest = {
+  name: string;
+  branch: string;
+  baseBranch?: string;
+  createNewBranch: boolean;
+  location?: "nested" | "sibling";
+};
+type RunnerWorktree = NonNullable<Req<"workspace.prepare">["worktree"]>;
+type OriginReader = (path: string) => Promise<string>;
+
+export type WorkspacePreparationInputs = {
+  runnerWorktree(request: WorktreeRequest): RunnerWorktree;
+  localConfigFiles: readonly string[];
+};
 
 /**
  * What a launch folder is on this machine (`path.resolve`, the local
@@ -31,7 +40,7 @@ import {
  */
 export async function resolvePath(
   raw: string,
-  readOrigin: (path: string) => Promise<string>,
+  readOrigin: OriginReader,
   options: Omit<Req<"path.resolve">, "path"> = {},
   /** The platform's project root of a canonical folder (main's `resolveProjectRoot`). */
   projectRootOf?: (canonical: string) => Promise<string>
@@ -108,15 +117,13 @@ export async function resolvePath(
 }
 
 /** The launch folder in process: the same port, answered with main's errors. */
-export async function resolveLaunchDirectory(
+export async function resolveLaunchDirectory<T>(
   rawCwd: string,
-  mapDirectory: (path: Res<"path.resolve">) => LaunchDirectory,
-  readOrigin: (path: string) => Promise<string>
-): Promise<LaunchDirectory> {
-  return mapDirectory(await resolvePath(rawCwd, readOrigin));
+  launchDirectory: (resolved: Res<"path.resolve">) => T,
+  readOrigin: OriginReader
+): Promise<T> {
+  return launchDirectory(await resolvePath(rawCwd, readOrigin));
 }
-
-export type { LaunchDirectory, WorktreeRequest };
 
 /*
  * The preparation receipt in the session's state directory. The runner owns
@@ -126,7 +133,6 @@ export type { LaunchDirectory, WorktreeRequest };
  * in the app's shape), and tells whether an earlier build left one.
  */
 const RECEIPT_FILE = "workspace-preparation";
-type RunnerWorktree = ReturnType<typeof runnerWorktree>;
 type Receipt = {
   source: string;
   sourceIdentity: string;
@@ -169,7 +175,7 @@ async function writeReceipt(dir: string, receipt: Receipt) {
 const legacy = (request: Receipt["request"]): request is WorktreeRequest =>
   "createNewBranch" in request;
 
-export function createWorkspacePreparation() {
+export function createWorkspacePreparation(inputs: WorkspacePreparationInputs) {
   return {
     /** True once a launch asked for its own worktree in this state dir. */
     async requested(dir: string) {
@@ -184,8 +190,8 @@ export function createWorkspacePreparation() {
       if (!receipt || !legacy(receipt.request)) return;
       await writeReceipt(dir, {
         ...receipt,
-        request: runnerWorktree(receipt.request),
-        copy: receipt.copy ?? [...WORKTREE_LOCAL_CONFIG_FILES],
+        request: inputs.runnerWorktree(receipt.request),
+        copy: receipt.copy ?? [...inputs.localConfigFiles],
         install: receipt.install ?? true,
       });
     },

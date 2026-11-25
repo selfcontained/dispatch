@@ -30,7 +30,7 @@ class EngineManager extends ActualEngineManager {
   }
 }
 import { localEngineWorkload } from "../src/agents/remote/engine-runner-executor.js";
-import type { EngineUpdateOperations } from "../src/agents/engine-updates.js";
+import type { EngineUpdateOperations } from "./helpers/native-engine-updates.js";
 import { localEngineCalls, type EngineCalls } from "../src/runners/local.js";
 
 vi.mock("../src/agents/engine-availability.js", async () => {

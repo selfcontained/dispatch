@@ -1,3 +1,4 @@
+import { WORKTREE_LOCAL_CONFIG_FILES } from "../src/agents/worktree-local-config-files.js";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -8,7 +9,8 @@ vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(),
 }));
 
-const { setupAgentWorkspace } = await import("../src/agents/workspace-prep.js");
+const { setupAgentWorkspace: setupWorkloadWorkspace } =
+  await import("../src/agents/workspace-prep.js");
 const { withToolSearchPath } =
   await import("../src/shared/lib/tool-environment.js");
 const { runCommand } = await import("../src/shared/lib/run-command.js");
@@ -177,3 +179,20 @@ describe("setupAgentWorkspace — auto deps install", () => {
     expect(warnSpy.mock.calls[0]?.[1]).toBe("Dependency install failed.");
   });
 });
+
+function setupAgentWorkspace(
+  ...[source, destination, logger, progress]: [
+    string,
+    string,
+    Parameters<typeof setupWorkloadWorkspace>[2],
+    Parameters<typeof setupWorkloadWorkspace>[4]?,
+  ]
+) {
+  return setupWorkloadWorkspace(
+    source,
+    destination,
+    logger,
+    WORKTREE_LOCAL_CONFIG_FILES,
+    progress
+  );
+}
