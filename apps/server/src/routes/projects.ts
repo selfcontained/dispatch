@@ -221,7 +221,11 @@ export async function registerProjectRoutes(
       const repository =
         input.repository !== undefined
           ? projectRepositoryUrl(input.repository)
-          : repoRoot && (await inferProjectRepository(repoRoot));
+          : repoRoot &&
+            (await inferProjectRepository(
+              repoRoot,
+              agents?.checkoutReadRunners() ?? {}
+            ));
       const result = await store.create({ ...input, repoRoot, repository });
       await snapshotRepositoryIcon(result);
       publishUiEvent({ type: "project.changed" });

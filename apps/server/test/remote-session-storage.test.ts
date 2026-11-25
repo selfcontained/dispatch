@@ -1,3 +1,4 @@
+import { inferRepositoryUrl } from "../src/agents/checkout-worker.js";
 import { spawn } from "node:child_process";
 import { runnerGitArgs } from "../src/agents/remote/runner.js";
 import { execFile } from "node:child_process";
@@ -25,7 +26,6 @@ import {
 } from "../src/agents/remote/protocol.js";
 
 import {
-  inferRepositoryUrl,
   parseRepository,
   repositoryUrl,
 } from "../src/agents/remote/repository.js";

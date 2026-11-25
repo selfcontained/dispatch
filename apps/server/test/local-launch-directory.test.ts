@@ -1,3 +1,4 @@
+import { inferRepositoryUrl } from "../src/agents/checkout-worker.js";
 import { launchDirectory } from "../src/agents/workspace-launch.js";
 /*
  * Where a local launch starts (`resolveLaunchDirectory`), pinned before it
@@ -127,5 +128,5 @@ describe("local launch directory", () => {
 });
 
 function resolveLaunchDirectory(raw: string) {
-  return resolveWorkloadDirectory(raw, launchDirectory);
+  return resolveWorkloadDirectory(raw, launchDirectory, inferRepositoryUrl);
 }

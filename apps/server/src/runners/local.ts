@@ -136,7 +136,8 @@ function forgetBinding(child: Runner, session: string) {
 async function childBinding(
   child: Runner,
   session: Req<"workspace.describe">["session"],
-  signal: AbortSignal
+  signal: AbortSignal,
+  singleAttempt = false
 ): Promise<ChildBinding | null> {
   const cache = bindingCache(child);
   const key = sessionToWire(session);
@@ -144,10 +145,11 @@ async function childBinding(
   if (known !== undefined) return known;
   const selects = cache.selects.get(key) ?? 0;
   try {
+    const attempt = singleAttempt ? { signal, wait: false } : { signal };
     const described = await child.call(
       "workspace.describe",
       { session },
-      { signal }
+      attempt
     );
     const binding = {
       path: displayPath(described.path),
@@ -843,6 +845,80 @@ export function createLocalCheckoutRunner(
           input as Req<"workspace.release">,
           options as CallOptions<"workspace.release">
         ) as Promise<Res<K>>;
+      if (op === "git.roots") {
+        const request = input as Req<"git.roots">;
+        const target = request.target;
+        let directory: string | null;
+        if ("path" in target) directory = displayPath(target.path);
+        else if (
+          "session" in target &&
+          sessionToWire(target.session) === agent?.id
+        )
+          directory = commandDirectory(agent, target.checkout ?? "current");
+        else
+          throw new RunnerCallError({
+            code: "invalid",
+            message: "Invalid native checkout binding.",
+          });
+        if (directory === null)
+          throw new RunnerCallError({
+            code: "not_found",
+            message: "The session checkout is unavailable.",
+          });
+        if (child?.connection.state === "ready") {
+          try {
+            const attempt = {
+              ...(options as CallOptions<"git.roots">),
+              wait: false,
+            };
+            const signal = AbortSignal.any([
+              AbortSignal.timeout(CHILD_WAIT_MS),
+              ...(options?.signal ? [options.signal] : []),
+            ]);
+            if (
+              !("session" in target) ||
+              names(
+                await childBinding(child, target.session, signal, true),
+                target.checkout ?? "current",
+                directory
+              )
+            )
+              return (await child.call(
+                "git.roots",
+                request,
+                attempt
+              )) as Res<K>;
+          } catch (error) {
+            if (!childUnavailable(error)) throw error;
+            options?.signal?.throwIfAborted();
+          }
+        }
+        return checkoutWorkload.run(
+          "git.roots",
+          { directory, request: {} },
+          { signal: options?.signal }
+        ) as Promise<Res<K>>;
+      }
+      if (op === "git.origin") {
+        const request = input as Req<"git.origin">;
+        if (child?.connection.state === "ready") {
+          try {
+            const attempt = {
+              ...(options as CallOptions<"git.origin">),
+              wait: false,
+            };
+            return (await child.call("git.origin", request, attempt)) as Res<K>;
+          } catch (error) {
+            if (!childUnavailable(error)) throw error;
+            options?.signal?.throwIfAborted();
+          }
+        }
+        return checkoutWorkload.run(
+          "git.origin",
+          { directory: request.path, request },
+          { signal: options?.signal }
+        ) as Promise<Res<K>>;
+      }
       if (op === "path.resolve")
         return resolvePath(
           input as Req<"path.resolve">,

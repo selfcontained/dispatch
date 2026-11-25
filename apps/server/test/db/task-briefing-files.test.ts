@@ -1,3 +1,4 @@
+import { readRepositoryRoot } from "../helpers/task-scope.js";
 import { launchPersonaScope } from "../../src/personas/persona-scope.js";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -151,6 +152,7 @@ beforeEach(async () => {
   );
   templateId = template.id;
   tasks = new TaskService({
+    readRepositoryRoot,
     pool,
     filesRoot: config.filesRoot,
     getAgent: async (id) => {

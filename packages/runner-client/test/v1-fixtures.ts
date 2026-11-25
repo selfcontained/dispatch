@@ -226,6 +226,23 @@ export const results: ResultFixture[] = [
   {
     command: s("gitQuery", {
       operation: {
+        op: "git.roots",
+        request: { target: { path: "/srv/work" } },
+      },
+    }),
+    value: json({
+      data: { repositoryRoot: "/srv/work", checkoutRoot: "/srv/work" },
+    }),
+  },
+  {
+    command: s("gitQuery", {
+      operation: { op: "git.origin", request: { path: "/srv/work" } },
+    }),
+    value: json({ data: { url: "https://example.com/repo" } }),
+  },
+  {
+    command: s("gitQuery", {
+      operation: {
         op: "git.branches",
         request: { target: { repository: "https://example.com/repo" } },
       },

@@ -1,3 +1,4 @@
+import { readRepositoryRoot } from "./helpers/task-scope.js";
 import { launchPersonaScope } from "../src/personas/persona-scope.js";
 import type { Pool } from "pg";
 import {
@@ -120,6 +121,7 @@ const templateById = (id: string) =>
 
 function taskService() {
   return new TaskService({
+    readRepositoryRoot,
     pool,
     filesRoot: "/tmp/dispatch-model-scope-files",
     getAgent: async () => null,

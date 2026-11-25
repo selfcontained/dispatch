@@ -1,3 +1,4 @@
+import { readRepositoryRoot } from "./helpers/task-scope.js";
 import { describe, expect, it, vi } from "vitest";
 import { TaskService, type TaskServiceDeps } from "../src/tasks/service.js";
 
@@ -16,6 +17,7 @@ describe("unsubscribe delivery ownership", () => {
             : [],
       }));
       const service = new TaskService({
+        readRepositoryRoot,
         pool: { query },
         getAgent: async () => ({ id: "caller", projectId: "project" }),
         watches: { schedule: vi.fn(), cancel },

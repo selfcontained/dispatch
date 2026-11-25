@@ -1,3 +1,6 @@
+import { promisify } from "node:util";
+import { childProcessEnv } from "../shared/process/child-environment.js";
+import { repositoryUrl, projectRepositoryUrl } from "@dispatch/runner-protocol";
 import type { DefinitionParser } from "./default-branch-files.js";
 export type CheckoutWorkloadInputs = { parseDefinition: DefinitionParser };
 import { json } from "node:stream/consumers";
@@ -44,11 +47,12 @@ import {
   inspectCheckout,
   inspectionRoot,
   observeGitCheckout,
+  resolveInspectionRoots,
 } from "./checkout-inspection.js";
 import { resolvePath } from "./workspace.js";
 import { resolveProjectRoot } from "../projects/resolve-root.js";
 import { SharedCheckoutWatches, watchCheckout } from "./checkout-watch.js";
-import { spawn } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
 import { loginShellCommand } from "@dispatch/runner/host/host-command";
 import { readCheckoutCommandFile } from "./checkout-inspection.js";
 import {
@@ -488,6 +492,21 @@ async function readGitQuery<K extends GitQueryName>(
   request: Omit<Req<K>, "target">,
   repository?: string
 ): Promise<Res<K>> {
+  if (op === "git.roots")
+    return (await resolveInspectionRoots(directory)) as Res<K>;
+  if (op === "git.origin") {
+    try {
+      return {
+        url: projectRepositoryUrl(
+          await inferRepositoryUrl(
+            (request as unknown as Req<"git.origin">).path
+          )
+        ),
+      } as Res<K>;
+    } catch {
+      return { url: null } as Res<K>;
+    }
+  }
   const url =
     repository === undefined ? undefined : parseRunnerRepositoryUrl(repository);
   if (repository !== undefined && (!url || op === "git.base"))
@@ -553,6 +572,8 @@ export function createCheckoutWorkload(inputs: CheckoutWorkloadInputs) {
             (input as Input<"git.context">).checkoutBranch
           )) as Res<K>;
         if (
+          op === "git.origin" ||
+          op === "git.roots" ||
           op === "git.defaultBranch" ||
           op === "git.branches" ||
           op === "git.base"
@@ -689,6 +710,8 @@ export async function runCheckoutWorker(
     return;
   }
   if (
+    op === "git.roots" ||
+    op === "git.origin" ||
     op === "git.defaultBranch" ||
     op === "git.branches" ||
     op === "git.base"
@@ -697,7 +720,9 @@ export async function runCheckoutWorker(
     if (!operations[op].request.check(request))
       throw new Error("Invalid Git query.");
     const repository =
-      "repository" in request.target ? request.target.repository : undefined;
+      "target" in request && "repository" in request.target
+        ? request.target.repository
+        : undefined;
     try {
       const data = await readGitQuery(op, cwd ?? "/", request, repository);
       process.stdout.write(JSON.stringify({ data }));
@@ -1036,7 +1061,7 @@ const repositoryCache = {
 export const workspaceWorkload = {
   /** Main's launch folder resolution and project matching (`path.resolve`). */
   resolvePath: (raw: string, options?: Omit<Req<"path.resolve">, "path">) =>
-    resolvePath(raw, options, resolveProjectRoot),
+    resolvePath(raw, inferRepositoryUrl, options, resolveProjectRoot),
   /** A session file handed over where it is: the app's `files.put`. */
   putFile: (source: string, { mustExist }: { mustExist: boolean }) =>
     sessionFilesWorkload.put(source, mustExist ? "prompt" : "reference"),
@@ -1601,4 +1626,36 @@ export async function writeCheckoutFile(
     (options.descriptors ?? descriptorWalk()) ? writeByDescriptor : writeByPath;
   await write(root, segments, data, request.expectedDigest);
   return { digest: textDigest(request.data) };
+}
+
+const execute = promisify(execFile);
+
+export async function inferRepositoryUrl(cwd: string): Promise<string> {
+  const env = Object.fromEntries(
+    Object.entries(childProcessEnv()).filter(([key]) => !key.startsWith("GIT_"))
+  );
+  try {
+    const { stdout } = await execute(
+      "git",
+      [
+        "-C",
+        cwd,
+        "config",
+        "--local",
+        "--no-includes",
+        "--null",
+        "--get-all",
+        "remote.origin.url",
+      ],
+      { env, timeout: 5_000, maxBuffer: 8_192 }
+    );
+    const [origin, end, ...extra] = stdout.split("\0");
+    if (origin && end === "" && extra.length === 0)
+      return repositoryUrl(origin, true);
+  } catch {
+    // Git or the origin may be unavailable. Never expose raw origin text.
+  }
+  throw new Error(
+    "The project has no unambiguous HTTPS repository origin. Enter its repository URL."
+  );
 }

@@ -1,3 +1,4 @@
+import { readRepositoryRoot } from "./helpers/task-scope.js";
 import { launchPersonaScope } from "../src/personas/persona-scope.js";
 import {
   afterAll,
@@ -189,6 +190,7 @@ beforeEach(async () => {
     throw new Error("no launches here");
   };
   tasks = new TaskService({
+    readRepositoryRoot,
     pool,
     watches,
     getAgent: async (id) =>

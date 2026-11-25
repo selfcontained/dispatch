@@ -257,6 +257,31 @@ export function createEnrolledCheckoutRunner(
           target as { repository: string }
         ) as Promise<Res<K>>;
       }
+      if (
+        op === "git.roots" &&
+        !("session" in (input as Req<"git.roots">).target)
+      ) {
+        if (!service)
+          throw new RunnerCallError({
+            code: "unavailable",
+            message: "The runner is unavailable.",
+          });
+        return service.readRepositoryRoots(
+          runnerId,
+          input as Req<"git.roots">
+        ) as Promise<Res<K>>;
+      }
+      if (op === "git.origin") {
+        if (!service)
+          throw new RunnerCallError({
+            code: "unavailable",
+            message: "The runner is unavailable.",
+          });
+        return service.readRepositoryOrigin(
+          runnerId,
+          input as Req<"git.origin">
+        ) as Promise<Res<K>>;
+      }
       // A folder on this runner, as its workload account resolves it.
       if (op === "path.resolve") {
         if (!service)
@@ -380,6 +405,7 @@ export function createEnrolledCheckoutRunner(
       if (
         op !== "checkout.exec" &&
         op !== "git.context" &&
+        op !== "git.roots" &&
         op !== "git.branches" &&
         op !== "git.defaultBranch" &&
         op !== "git.base" &&
@@ -434,6 +460,7 @@ export function createEnrolledCheckoutRunner(
       }
 
       if (
+        op === "git.roots" ||
         op === "git.branches" ||
         op === "git.defaultBranch" ||
         op === "git.base"
@@ -444,7 +471,7 @@ export function createEnrolledCheckoutRunner(
             message: `Unsupported operation: ${op}`,
           });
         const query = { op, request: input } as GitQuery;
-        const { target } = query.request;
+        const { target } = input as Req<"git.branches">;
         if ("session" in target && sessionToWire(target.session) !== agent.id)
           throw new RunnerCallError({
             code: "invalid",

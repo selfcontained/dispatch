@@ -14,7 +14,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { admitLaunch } from "../src/agents/launch-admission.js";
 import { AgentManager } from "../src/agents/manager.js";
-import { resolvePath } from "../src/agents/workspace.js";
+import { resolvePath } from "./helpers/workspace-paths.js";
 import { launchDirectory } from "../src/agents/workspace-launch.js";
 import { checkoutReadPlacement } from "../src/runners/placement.js";
 

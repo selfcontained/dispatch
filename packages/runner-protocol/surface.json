@@ -2886,6 +2886,84 @@
       "timeout": "default",
       "capability": "baseline"
     },
+    "git.roots": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "target": {
+            "union": [
+              {
+                "object": {
+                  "session": {
+                    "opaque": "SessionHandle"
+                  },
+                  "checkout": {
+                    "optional": {
+                      "literal": ["current", "launch", "moved"]
+                    }
+                  }
+                }
+              },
+              {
+                "object": {
+                  "path": {
+                    "opaque": "RunnerPath"
+                  }
+                }
+              },
+              {
+                "object": {
+                  "repository": "string"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "response": {
+        "object": {
+          "repositoryRoot": {
+            "nullable": {
+              "opaque": "RunnerPath"
+            }
+          },
+          "checkoutRoot": {
+            "nullable": {
+              "opaque": "RunnerPath"
+            }
+          }
+        }
+      },
+      "errors": [],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "git.origin": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "path": "string"
+        }
+      },
+      "response": {
+        "object": {
+          "url": {
+            "nullable": "string"
+          }
+        }
+      },
+      "errors": [],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
     "git.context": {
       "scope": "session",
       "kind": "call",

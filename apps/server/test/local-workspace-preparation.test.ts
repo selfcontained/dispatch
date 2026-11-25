@@ -1,3 +1,4 @@
+import { inferRepositoryUrl } from "../src/agents/checkout-worker.js";
 import { runnerWorktree } from "../src/agents/workspace-launch.js";
 import { WORKTREE_LOCAL_CONFIG_FILES } from "../src/agents/worktree-local-config-files.js";
 import { launchDirectory } from "../src/agents/workspace-launch.js";
@@ -479,7 +480,7 @@ it("refuses preparation while the child is frozen, and writes nothing", async ()
 });
 
 function resolveLaunchDirectory(raw: string) {
-  return resolveWorkloadDirectory(raw, launchDirectory);
+  return resolveWorkloadDirectory(raw, launchDirectory, inferRepositoryUrl);
 }
 
 it("upgrades legacy local receipts with the controller's exact mapping and config list", async () => {
