@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import { TaskGoalProgress } from "./task-goal-progress";
 import { TaskGoalList, goalChangeLines } from "./task-goal-list";
@@ -45,4 +45,21 @@ it("describes goal activity", () => {
     })
   ).toEqual(["Added “A”", "Renamed “A” to “B”", "Retired “B”"]);
   expect(goalChangeLines({})).toEqual([]);
+});
+
+it("sweeps once when a mounted bar goes from incomplete to complete", () => {
+  const view = render(<TaskGoalProgress counts={{ completed: 2, total: 2 }} />);
+  // Already complete on first render: no celebration.
+  expect(screen.queryByTestId("goal-complete-sweep")).toBeNull();
+  view.rerender(<TaskGoalProgress counts={{ completed: 1, total: 3 }} />);
+  expect(screen.queryByTestId("goal-complete-sweep")).toBeNull();
+  view.rerender(<TaskGoalProgress counts={{ completed: 3, total: 3 }} />);
+  const sweep = screen.getByTestId("goal-complete-sweep");
+  // jsdom has no AnimationEvent, so React listens for the prefixed name.
+  fireEvent(sweep, new Event("webkitAnimationEnd", { bubbles: true }));
+  expect(screen.queryByTestId("goal-complete-sweep")).toBeNull();
+  // Retiring an open goal to reach completion also counts.
+  view.rerender(<TaskGoalProgress counts={{ completed: 3, total: 4 }} />);
+  view.rerender(<TaskGoalProgress counts={{ completed: 3, total: 3 }} />);
+  expect(screen.getByTestId("goal-complete-sweep")).toBeTruthy();
 });
