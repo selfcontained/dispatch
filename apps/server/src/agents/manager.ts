@@ -3566,9 +3566,13 @@ export class AgentManager {
       }
       return await this.runtime.launch({
         agentId: agent.id,
-        repository: binding?.runner_preparation
-          ? undefined
-          : (binding?.runner_repository ?? undefined),
+        repository:
+          binding?.runner_preparation || !binding?.runner_repository
+            ? undefined
+            : {
+                url: binding.runner_repository.url,
+                checkout: binding.runner_repository.checkout,
+              },
         ...(binding?.runner_worktree_owner && {
           useWorktreeOf: binding.runner_worktree_owner,
         }),
