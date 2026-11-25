@@ -555,6 +555,36 @@ describe.each(validationTargets)(
       });
       expect(f.listing).toHaveBeenCalledOnce();
     });
+    it("keeps the engine freshness aligned with a foreground effort listing", async () => {
+      const f = validationFixture();
+      f.listing.mockResolvedValueOnce({
+        defaultModel: "a",
+        models: [
+          { id: "a", label: "A", effort: [] },
+          { id: "b", label: "B" },
+        ],
+      });
+      await modelScopeFor(target, "opencode", { model: "a" });
+      f.advance(MODEL_REFRESH_AGE_MS - 1000);
+      f.listing.mockResolvedValueOnce({
+        defaultModel: "a",
+        current: "b",
+        models: [
+          { id: "a", label: "A", effort: [] },
+          { id: "b", label: "B", effort: [{ value: "high", name: "High" }] },
+        ],
+      } as never);
+      await modelScopeFor(target, "opencode", { model: "b", effort: "high" });
+      expect(f.listing).toHaveBeenCalledTimes(2);
+      f.advance(1000);
+      readStoredModelCatalog(id, "opencode");
+      await f.service.settled(id, "opencode");
+      expect(f.listing).toHaveBeenCalledTimes(2);
+      f.advance(MODEL_REFRESH_AGE_MS - 1000);
+      readStoredModelCatalog(id, "opencode");
+      await f.service.settled(id, "opencode");
+      expect(f.listing).toHaveBeenCalledTimes(3);
+    });
     it.each(["offline", "failed", "fenced", "timeout"])(
       "does not reject never-fetched effort after %s",
       async (reason) => {

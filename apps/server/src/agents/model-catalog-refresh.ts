@@ -235,6 +235,11 @@ export class ModelCatalogRefresh {
       if (this.closed || !current()) return;
       entry.success = Date.parse(refreshedAt);
       entry.retryAt = 0;
+      if (model) {
+        const catalogEntry = this.state(runnerId, engine);
+        catalogEntry.success = entry.success;
+        catalogEntry.retryAt = 0;
+      }
       if (changed) this.deps.changed?.(runnerId, engine);
     } catch (error) {
       entry.retryAt = now() + MODEL_REFRESH_BACKOFF_MS;
