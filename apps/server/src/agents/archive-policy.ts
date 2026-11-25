@@ -176,7 +176,8 @@ export async function finishArchiveCheckout(
   }
 }
 
-async function localCoOwner(
+/** Main's co-owner rule for a row that records its worktree (exported for its pin). */
+export async function localCoOwner(
   pool: Pool,
   agent: ArchiveCheckoutAgent,
   runner: Runner
