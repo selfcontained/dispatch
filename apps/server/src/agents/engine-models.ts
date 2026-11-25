@@ -180,7 +180,8 @@ async function learnEngineCatalog(
       const known =
         choice.id === report.current
           ? effort
-          : previous.find((old) => old.id === choice.id)?.effort;
+          : (choice.effort ??
+            previous.find((old) => old.id === choice.id)?.effort);
       return known === undefined ? choice : { ...choice, effort: known };
     });
     const defaultModel =

@@ -15,6 +15,7 @@ import {
   loadLearnedAgentModels,
   modelOptionOf,
   recordEngineModels,
+  recordDiscoveredModels,
 } from "../src/agents/engine-models.js";
 import {
   agentModelDefaults,
@@ -752,4 +753,79 @@ it("persists changed live effort and clears it when the model stops offering eff
     expect.stringContaining("SET effort"),
     ["a", null]
   );
+});
+
+it("teaches a runner refresh through shared availability and retains all reported effort", async () => {
+  forgetLearnedAgentModels();
+  const rows = new Map<string, string>();
+  const pool = withClient({
+    query: vi.fn(async (sql: string, args: string[] = []) => {
+      if (sql.includes("FROM runner_registrations"))
+        return { rows: [{ id: "refresh-runner" }] };
+      if (sql.includes("INSERT INTO settings")) rows.set(args[0]!, args[1]!);
+      return {
+        rows: rows.has(args[0]!) ? [{ value: rows.get(args[0]!) }] : [],
+      };
+    }),
+  }) as never;
+  const settings = enrolledRunnerSettings("refresh-runner");
+  const context = { runnerId: "refresh-runner", settings };
+  const local = getAgentModelOptions("codex");
+  await updateModelAvailability(pool, "codex", { autoEnable: false });
+  const effort = [
+    { value: "high", name: "High", description: "Every word from the engine" },
+  ];
+  const result = {
+    defaultModel: "a",
+    current: "a",
+    models: [
+      { id: "a", label: "A", effort },
+      { id: "b", label: "B", effort },
+    ],
+  };
+  await recordDiscoveredModels(
+    pool,
+    "codex",
+    result,
+    context,
+    "2026-01-01T00:00:00Z"
+  );
+  expect(getAgentModelOptions("codex", "refresh-runner")).toEqual(
+    result.models
+  );
+  expect(getAgentModelOptions("codex")).toEqual(local);
+  expect(getAgentModelAvailability("codex").disabled).toEqual(["a", "b"]);
+  expect(getReportedModelHistory("refresh-runner", "codex")).toEqual({
+    known: ["a", "b"],
+    unseen: ["a", "b"],
+  });
+  await updateModelAvailability(pool, "codex", { model: "a", enabled: true });
+  await recordDiscoveredModels(
+    pool,
+    "codex",
+    {
+      ...result,
+      models: [
+        { id: "a", label: "A", effort },
+        {
+          id: "b",
+          label: "B",
+          effort: [
+            {
+              value: "low",
+              name: "Low",
+              description: "Updated engine description",
+            },
+          ],
+        },
+      ],
+    },
+    context,
+    "2026-01-01T01:00:00Z"
+  );
+  expect(getAgentModelAvailability("codex").disabled).toEqual(["b"]);
+  expect(
+    getAgentModelOptions("codex", "refresh-runner")[1]?.effort?.[0]?.description
+  ).toBe("Updated engine description");
+  forgetLearnedAgentModels();
 });
