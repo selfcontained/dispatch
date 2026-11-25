@@ -17,6 +17,7 @@ export type LaunchTarget = {
     error?: string;
   };
   dataUrl: string;
+  historyUrl?: string;
   branchesUrl: string;
   defaultBaseBranch: string;
   launchFields: LaunchFields;

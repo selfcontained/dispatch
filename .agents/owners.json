@@ -6,6 +6,7 @@
         "apps/server/src/routes/system.ts",
         "apps/server/src/routes/launch-targets.ts",
         "apps/server/test/launch-targets.test.ts",
+        "apps/server/test/launch-folder-history.test.ts",
         "apps/server/test/launch-branches.test.ts",
         "apps/server/test/launch-api-targets.test.ts",
         "apps/web/src/hooks/use-launch-targets*",

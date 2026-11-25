@@ -195,6 +195,7 @@ function CreateAgentDialogContent({
                       value={form.createCwd}
                       onChange={form.setCreateCwd}
                       history={form.cwdHistory}
+                      historyUrl={form.historyUrl}
                       removableHistory={form.removableCwdHistory}
                       historyMetadata={form.cwdHistoryMetadata}
                       onRemoveHistory={form.removeCwdHistory}

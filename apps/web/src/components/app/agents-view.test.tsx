@@ -702,7 +702,7 @@ describe("AgentsView dialogs", () => {
     expect(resolve()).toBe("/repos/selected");
   });
 
-  it("skips remote selections and history when suggesting a local folder", () => {
+  it("passes main’s selected-agent default to the dialog; projection owns its target", () => {
     const remote = makeAgent({ id: "r1", cwd: "runner://linux/@session" });
     window.localStorage.setItem("dispatch:lastUsedAgentCwd", remote.cwd);
     Object.assign(H.state, {
@@ -713,7 +713,7 @@ describe("AgentsView dialogs", () => {
     mount();
     expect(
       (propsOf("AgentsViewDialogs").resolveCreateDefaultCwd as () => string)()
-    ).toBe("/repos/local");
+    ).toBe("runner://linux/@session");
   });
 
   it("falls back to the newest agent, then nothing", () => {

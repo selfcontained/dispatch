@@ -1126,8 +1126,12 @@ describe("agent launch projection", () => {
           directory || (projectId ? "/repo/a" : "")
         )
       );
-      if (targetKey === "opaque-repository")
+      if (targetKey === "opaque-repository") {
         expect(result.current.createProjectId).toBe(projectId);
+        act(() => result.current.chooseTarget(controller.key));
+        expect(result.current.createCwd).toBe("");
+        expect(result.current.createProjectId).toBe(null);
+      }
     }
   );
 });
@@ -1161,4 +1165,70 @@ it("keeps main's saved-model payload while a new folder's location data loads", 
     cwd: destination,
     model: "retained",
   });
+});
+
+it.each(["pending", "failed"])(
+  "never exposes a selected runner locator while its projection is %s",
+  async (state) => {
+    const fallback = apiMock.getMockImplementation()!;
+    apiMock.mockImplementation((url, opts) =>
+      url === "/api/v1/launch-targets"
+        ? Promise.resolve({ targets: [controller, repositoryTarget] })
+        : url.startsWith("/api/v1/launch-targets/saved/agent/")
+          ? state === "failed"
+            ? Promise.reject(new Error("fixture projection failure"))
+            : new Promise(() => {})
+          : fallback(url, opts)
+    );
+    const { result } = await setup({
+      sourceAgentId: "selected",
+      resolveDefaultCwd: () => "runner://fixture/@session",
+    });
+    expect(result.current.createCwd).toBe("");
+    expect(result.current.cwdHistory).toEqual([]);
+    if (state === "failed")
+      await waitFor(() =>
+        expect(result.current.launch.projection.isError).toBe(true)
+      );
+    act(() => result.current.chooseTarget(controller.key));
+    expect(result.current.createCwd).toBe("");
+    expect(result.current.cwdHistory).toEqual([]);
+  }
+);
+
+it("offers only server-validated folder history, including after a projection failure", async () => {
+  window.localStorage.setItem(
+    CWD_HISTORY_KEY,
+    JSON.stringify(["runner://fixture/@session", "/repo/prior"])
+  );
+  const fallback = apiMock.getMockImplementation()!;
+  apiMock.mockImplementation((url, opts) =>
+    url === "/api/v1/launch-targets"
+      ? Promise.resolve({
+          targets: [{ ...controller, historyUrl: "/fixture-safe-history" }],
+        })
+      : url.startsWith("/fixture-safe-history?")
+        ? Promise.resolve({ projects: ["/repo/prior"] })
+        : url.startsWith("/api/v1/launch-targets/saved/agent/")
+          ? Promise.reject(new Error("fixture projection failure"))
+          : fallback(url, opts)
+  );
+  const { result } = await setup({
+    sourceAgentId: "selected",
+    resolveDefaultCwd: () => "runner://fixture/@session",
+  });
+  await waitFor(() =>
+    expect(result.current.launch.projection.isError).toBe(true)
+  );
+  expect(result.current.createCwd).toBe("");
+  act(() => result.current.chooseTarget(controller.key));
+  await waitFor(() =>
+    expect(result.current.cwdHistory).toEqual(["/repo/prior"])
+  );
+  expect(result.current.createCwd).toBe("");
+  expect(
+    apiMock.mock.calls.some(([url]) =>
+      url.includes(encodeURIComponent("runner://fixture/@session"))
+    )
+  ).toBe(true);
 });
