@@ -177,7 +177,13 @@ describe("vocabulary (E8)", () => {
 
   it("allows only exact compatibility bytes in their exact host files", () => {
     const entries = Object.values(hostVocabularyCompatibility).flat();
-    expect(entries).toHaveLength(23);
+    expect(entries).toHaveLength(22);
+    expect(
+      isHostCompatibilityToken(
+        "packages/runner/src/host/first-prompt.ts",
+        "personaContext"
+      )
+    ).toBe(false);
     for (const entry of entries) {
       expect(entry.file.startsWith("packages/runner/src/host/")).toBe(true);
       expect(entry.reason.length).toBeGreaterThan(0);
