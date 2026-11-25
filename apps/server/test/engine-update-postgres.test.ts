@@ -1,3 +1,4 @@
+import { enrolledRunnerSettings } from "../src/runners/settings-namespace.js";
 import {
   afterAll,
   beforeAll,
@@ -178,7 +179,7 @@ describe("engine update settings persistence in isolated Postgres", () => {
       options
     );
     const remote = new EngineUpdateOperations(
-      engineOperationStore(pool, "runner:fixture"),
+      engineOperationStore(pool, enrolledRunnerSettings("fixture")),
       options
     );
     const first = await local.start("codex", {});
@@ -188,11 +189,11 @@ describe("engine update settings persistence in isolated Postgres", () => {
     expect((await remote.read()).claude?.id).toBe(second.id);
     expect((await remote.read()).codex).toBeUndefined();
     const rows = await pool.query(
-      "SELECT key FROM settings WHERE key LIKE 'engine_update_operations%' ORDER BY key"
+      "SELECT key FROM settings WHERE key = 'engine_update_operations' OR key LIKE 'runner:%:engine_update_operations' ORDER BY key"
     );
     expect(rows.rows.map((row) => row.key)).toEqual([
       "engine_update_operations",
-      "engine_update_operations:runner:fixture",
+      "runner:fixture:engine_update_operations",
     ]);
     wait.release();
     await completed(local);

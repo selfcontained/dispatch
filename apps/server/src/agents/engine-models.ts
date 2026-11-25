@@ -2,6 +2,11 @@ import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
+import {
+  localRunnerSettings,
+  namespaced,
+  type RunnerSettings,
+} from "../runners/settings-namespace.js";
 import { getSetting, setSetting } from "../db/settings.js";
 import {
   getAgentModelOptions,
@@ -13,7 +18,8 @@ import { AGENT_TYPES, type AgentType } from "../shared/agent-types.js";
 import { recordListedModels } from "./model-availability.js";
 
 /** The settings key an engine's learned list lives under. */
-const settingKey = (agentType: AgentType) => `agent_models:${agentType}`;
+const settingKey = (agentType: AgentType, settings = localRunnerSettings) =>
+  namespaced(settings, `agent_models:${agentType}`);
 
 type StoredEngineModels = {
   models: AgentModelOption[];
@@ -76,9 +82,13 @@ export function modelOptionOf(
 }
 
 /** At boot: what earlier sessions taught, so the pickers are right before any engine runs again. */
-export async function loadLearnedAgentModels(pool: Pool): Promise<void> {
+export async function loadLearnedAgentModels(
+  pool: Pool,
+  runnerId = "local",
+  settings: RunnerSettings = localRunnerSettings
+): Promise<void> {
   for (const agentType of AGENT_TYPES) {
-    const raw = await getSetting(pool, settingKey(agentType));
+    const raw = await getSetting(pool, settingKey(agentType, settings));
     if (!raw) continue;
     try {
       // Ignore the old E2E fixture catalog until a real engine reports.
@@ -91,7 +101,12 @@ export async function loadLearnedAgentModels(pool: Pool): Promise<void> {
           stored.models.some((model) => model?.id === "other-model")
         )
       ) {
-        setLearnedAgentModels(agentType, stored.models, stored.defaultModel);
+        setLearnedAgentModels(
+          agentType,
+          stored.models,
+          stored.defaultModel,
+          runnerId
+        );
       }
     } catch {
       // A corrupt entry is replaced the next time the engine reports.

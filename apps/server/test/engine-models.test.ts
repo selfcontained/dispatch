@@ -1,3 +1,4 @@
+import { enrolledRunnerSettings } from "../src/runners/settings-namespace.js";
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -224,6 +225,40 @@ describe("recordEngineModels", () => {
     await loadLearnedAgentModels(p as never);
     expect(getAgentModelOptions("codex")).toEqual(before);
     expect(agentModelDefaults().codex).toBeUndefined();
+  });
+
+  it("loads a runner's own key without changing the local catalog", async () => {
+    const before = getAgentModelOptions("codex");
+    const p = {
+      query: vi.fn(async (_sql: string, args: string[]) => ({
+        rows:
+          args[0] === "runner:runner-a:agent_models:codex"
+            ? [
+                {
+                  value: JSON.stringify({
+                    models: [{ id: "runner-model", label: "Runner" }],
+                    defaultModel: "runner-model",
+                  }),
+                },
+              ]
+            : [],
+      })),
+    };
+    await loadLearnedAgentModels(
+      p as never,
+      "runner-a",
+      enrolledRunnerSettings("runner-a")
+    );
+    expect(getAgentModelOptions("codex")).toEqual(before);
+    expect(getAgentModelOptions("codex", "runner-a")).toEqual([
+      { id: "runner-model", label: "Runner" },
+    ]);
+    expect(agentModelDefaults("runner-a").codex).toBe("runner-model");
+    expect(
+      p.query.mock.calls.every(([, args]) =>
+        args[0]?.startsWith("runner:runner-a:agent_models:")
+      )
+    ).toBe(true);
   });
 
   it("stores the running model on the agent and the list for its type", async () => {

@@ -7,9 +7,25 @@ export type AgentModelOption = {
   label: string;
   /** Absent until observed; empty means unsupported. */ effort?: import("@dispatch/shared").AgentConfigChoice[];
 };
-const learnedDefaults = new Map<AgentType, string>();
-export function agentModelDefaults(): Partial<Record<AgentType, string>> {
-  return Object.fromEntries(learnedDefaults);
+const catalogs = new Map<
+  string,
+  {
+    learned: Map<AgentType, readonly AgentModelOption[]>;
+    defaults: Map<AgentType, string>;
+  }
+>();
+function catalogFor(runnerId: string) {
+  let catalog = catalogs.get(runnerId);
+  if (!catalog) {
+    catalog = { learned: new Map(), defaults: new Map() };
+    catalogs.set(runnerId, catalog);
+  }
+  return catalog;
+}
+export function agentModelDefaults(
+  runnerId = "local"
+): Partial<Record<AgentType, string>> {
+  return Object.fromEntries(catalogFor(runnerId).defaults);
 }
 
 /**
@@ -62,13 +78,14 @@ export const AGENT_MODEL_OPTIONS: Partial<
  * opened on this machine. Learned lists replace the seed above for their
  * type: they are the engine's own words, for this install and this login.
  */
-const learned = new Map<AgentType, readonly AgentModelOption[]>();
 
 export function setLearnedAgentModels(
   agentType: AgentType,
   options: readonly AgentModelOption[],
-  defaultModel?: string
+  defaultModel?: string,
+  runnerId = "local"
 ): void {
+  const { learned, defaults: learnedDefaults } = catalogFor(runnerId);
   if (options.length === 0) return;
   if (defaultModel) learnedDefaults.set(agentType, defaultModel);
   learned.set(
@@ -79,15 +96,15 @@ export function setLearnedAgentModels(
 
 /** Tests reset what earlier tests taught. */
 export function forgetLearnedAgentModels(): void {
-  learned.clear();
-  learnedDefaults.clear();
+  catalogs.clear();
   availability.clear();
 }
 
 export function getLearnedAgentModels(
-  agentType: AgentType
+  agentType: AgentType,
+  runnerId = "local"
 ): readonly AgentModelOption[] | undefined {
-  return learned.get(agentType);
+  return catalogFor(runnerId).learned.get(agentType);
 }
 
 /**
@@ -150,19 +167,25 @@ export function selectableAgentModels(
 }
 
 export function getAgentModelOptions(
-  agentType: AgentType
+  agentType: AgentType,
+  runnerId = "local"
 ): readonly AgentModelOption[] {
-  return learned.get(agentType) ?? AGENT_MODEL_OPTIONS[agentType] ?? [];
+  return (
+    catalogFor(runnerId).learned.get(agentType) ??
+    AGENT_MODEL_OPTIONS[agentType] ??
+    []
+  );
 }
 
 /** The catalog the pickers read: learned lists over the seed, per type. */
-export function agentModelCatalog(): Partial<
-  Record<AgentType, readonly AgentModelOption[]>
-> {
+export function agentModelCatalog(
+  runnerId = "local"
+): Partial<Record<AgentType, readonly AgentModelOption[]>> {
   const catalog: Partial<Record<AgentType, readonly AgentModelOption[]>> = {
     ...AGENT_MODEL_OPTIONS,
   };
-  for (const [agentType, options] of learned) catalog[agentType] = options;
+  for (const [agentType, options] of catalogFor(runnerId).learned)
+    catalog[agentType] = options;
   return catalog;
 }
 

@@ -1276,7 +1276,7 @@ async function registerRoutes() {
     let coordinator = updateCoordinators.get(key);
     if (!coordinator) {
       coordinator = new EngineUpdateOperations(
-        engineOperationStore(pool, key),
+        engineOperationStore(pool, engineCalls(scope).settings),
         {
           ...engineUpdatePort(engineCalls(scope)),
           onError: (error) =>

@@ -1,3 +1,8 @@
+import {
+  localRunnerSettings,
+  namespaced,
+  type RunnerSettings,
+} from "../runners/settings-namespace.js";
 import type { Req, Res } from "@dispatch/runner-protocol/contract";
 import type { EngineCalls } from "../runners/local.js";
 import { RunnerCallError } from "@dispatch/runner-protocol/contract";
@@ -666,22 +671,15 @@ const OPERATION_KEY = "engine_update_operations";
 /** One transaction lock covers all engines, including shared brew/npm prefixes. */
 export function engineOperationStore(
   pool: Pool,
-  scopeKey = "local"
+  settings: RunnerSettings = localRunnerSettings
 ): EngineOperationStore {
-  const operationKey =
-    scopeKey === "local" ? OPERATION_KEY : `${OPERATION_KEY}:${scopeKey}`;
+  const operationKey = namespaced(settings, OPERATION_KEY);
   return {
     async exclusive(work) {
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
-        if (scopeKey === "local")
-          await client.query("SELECT pg_advisory_xact_lock(1852271177, 1)");
-        else
-          await client.query(
-            "SELECT pg_advisory_xact_lock(1852271177, hashtext($1))",
-            [operationKey]
-          );
+        await client.query(settings.updateLock.sql, settings.updateLock.values);
         const result = await client.query<{ value: string }>(
           "SELECT value FROM settings WHERE key = $1",
           [operationKey]
