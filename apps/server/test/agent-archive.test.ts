@@ -1001,6 +1001,75 @@ describe("executeArchive", () => {
       expect(cb.onComplete).toHaveBeenCalledWith(["parent", "child"]);
     });
 
+    it.each(["cwd", "launch_cwd"] as const)(
+      "preserves the parent's checkout for a failed standard child that references it through %s",
+      async (column) => {
+        const checkout = "/tmp/wt-parent";
+        const parent = makeAgent("parent", {
+          worktreePath: checkout,
+          archiveCleanupMode: "force",
+        });
+        const child = makeAgent("child", {
+          parentAgentId: parent.id,
+          cwd: column === "cwd" ? checkout : "/tmp/wt-child",
+          ...(column === "launch_cwd"
+            ? { launchCwd: checkout, worktreePath: "/tmp/wt-child" }
+            : {}),
+        });
+        let childFailed = false;
+        const pool = makePool(async (sql: string, params?: unknown[]) => {
+          if (
+            sql.includes("parent_agent_id") &&
+            sql.includes("FROM agents") &&
+            params?.[0] === parent.id
+          ) {
+            return { rows: [{ id: child.id }], rowCount: 1 };
+          }
+          if (
+            childFailed &&
+            params?.[0] === parent.id &&
+            (params[3] as string[] | undefined)?.includes(checkout) &&
+            sql.includes(`OR ${column} = ANY($4::text[])`)
+          ) {
+            return { rows: [{ id: child.id }], rowCount: 1 };
+          }
+          return defaultQueryImpl(sql);
+        });
+        const lookup = makeAgentLookup([parent, child]);
+        const deps = makeDeps({
+          pool: pool as never,
+          getRequiredAgent: lookup,
+          getAgent: lookup,
+        });
+        const failure = new Error("database volume is in use");
+        vi.mocked(runLifecycleHook)
+          .mockResolvedValueOnce(undefined)
+          .mockResolvedValueOnce(undefined)
+          .mockRejectedValueOnce(failure);
+        vi.mocked(deps.setAgentStatus).mockImplementation(
+          async (id, status) => {
+            if (id === child.id && status === "error") childFailed = true;
+          }
+        );
+
+        const callbacks = makeCallbacks();
+        await executeArchive(deps, parent.id, callbacks);
+
+        expect(deps.setAgentStatus).toHaveBeenCalledWith(
+          child.id,
+          "error",
+          failure.message
+        );
+        expect(cleanupGitWorktree).not.toHaveBeenCalled();
+        expect(callbacks.onComplete).toHaveBeenCalledWith([parent.id]);
+        expect(deletedAgentIds(pool)).toEqual([parent.id]);
+
+        await executeArchive(deps, child.id, callbacks);
+        expect(callbacks.onComplete).toHaveBeenCalledWith([child.id]);
+        expect(deletedAgentIds(pool)).toEqual([parent.id, child.id]);
+      }
+    );
+
     it("does not cascade when the agent has no children", async () => {
       const parent = makeAgent("parent");
 

@@ -830,9 +830,13 @@ cmd_restart() {
   # shellcheck disable=SC2064
   trap "
     if [ -f \"$sf_backup\" ] && [ ! -f \"$sf\" ]; then
-      mv \"$sf_backup\" \"$sf\"
-      echo 'Restart aborted; restored prior state file so dispatch-dev down can clean up.' >&2
+      if mv \"$sf_backup\" \"$sf\"; then
+        echo 'Restart aborted; restored prior state file so dispatch-dev down can clean up.' >&2
+      else
+        echo 'Restart aborted; could not restore the prior state file.' >&2
+      fi
     fi
+    release_create_lock
   " EXIT
 
   cmd_up

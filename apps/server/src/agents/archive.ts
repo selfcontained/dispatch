@@ -109,10 +109,9 @@ async function cleanupAgentWorktree(
 
   const run = async () => {
     // No uniqueness constraint on either column, so two live rows can name one
-    // worktree; removing it would take the other agent's work. Another agent
-    // that moved its workspace into this worktree counts too. Workspaces are
-    // stored as real paths while worktree_path keeps the path it was created
-    // under, so match both spellings (/tmp vs /private/tmp, symlinked roots).
+    // worktree. A surviving child can also need this checkout to retry its
+    // archive hook, either through cwd or the launch-checkout fallback.
+    // Match literal and real paths (/tmp vs /private/tmp, symlinked roots).
     const worktreeSpellings = [
       ...new Set([worktreePath, await realpathOrSelf(worktreePath)]),
     ];
@@ -123,7 +122,8 @@ async function cleanupAgentWorktree(
          AND id <> $1
          AND (worktree_path = $2
               OR workspace_path = ANY($4::text[])
-              OR (role = 'review' AND cwd = ANY($4::text[]))
+              OR cwd = ANY($4::text[])
+              OR launch_cwd = ANY($4::text[])
               OR ($3::text IS NOT NULL AND worktree_branch = $3))
        LIMIT 1`,
       [id, worktreePath, agent.worktreeBranch, worktreeSpellings]
@@ -296,8 +296,8 @@ export async function executeArchive(
       if (updated) callbacks.onPhaseChange(updated);
     };
 
-    // Stop dependents before removing this checkout. Reviewers can share it
-    // through cwd while their display parent is elsewhere.
+    // Stop dependents before removing this checkout. Children and reviewers
+    // can both share it through their working directories.
     const tCascade = Date.now();
     const cascadedIds: string[] = [];
     try {

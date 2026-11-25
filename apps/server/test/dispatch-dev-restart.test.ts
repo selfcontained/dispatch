@@ -1,5 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -20,8 +21,9 @@ function fixture(running: "true" | "false" | "missing" | "error") {
   const suffix = path.basename(dir).toLowerCase();
   const state = `/tmp/dispatch-dev-${suffix}.env`;
   const logs = `/tmp/dispatch-dev-${suffix}`;
+  const lock = `${logs}.create-lock`;
   cleanups.push(() => {
-    for (const file of [dir, state, `${state}.restart-backup`, logs])
+    for (const file of [dir, state, `${state}.restart-backup`, logs, lock])
       rmSync(file, { recursive: true, force: true });
   });
   const tools = path.join(dir, "bin");
@@ -76,7 +78,7 @@ esac
         TEST_KILL_HOST_PID: killHostPid ? String(killHostPid) : "",
       },
     });
-  return { run, calls, state, saved, logs };
+  return { run, calls, state, saved, logs, lock, tools };
 }
 
 function startHost(logs: string): ChildProcess {
@@ -143,6 +145,28 @@ describe("dev database state after stop", () => {
       expect(dockerCalls).not.toContain("down");
     }
   );
+
+  it("restores the saved state and releases the lock if log creation fails", () => {
+    const { run, state, saved, logs, lock, tools } = fixture("true");
+    writeFileSync(
+      path.join(tools, "mkdir"),
+      `#!/bin/bash
+if [ "$1" = -p ] && [ "$2" = "${logs}" ]; then
+  echo "fixture: cannot create log directory" >&2
+  exit 73
+fi
+exec /bin/mkdir "$@"
+`,
+      { mode: 0o755 }
+    );
+
+    const result = run("restart");
+
+    expect(result.status).toBe(73);
+    expect(result.stderr).toContain("fixture: cannot create log directory");
+    expect(readFileSync(state, "utf8")).toBe(saved);
+    expect(existsSync(lock)).toBe(false);
+  });
 
   it("rejects a host killed during restart even before Node reaps it", async () => {
     const { run, logs } = fixture("false");
