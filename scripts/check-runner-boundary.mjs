@@ -615,8 +615,8 @@ export function scanSource(file, source, declared = new Set()) {
     const locators = [...source.matchAll(/runner:\/\//gi)];
     // This migration copies placement out of historical locators once.
     const historicalBackfill =
-      file === server + "db/migrations/0064_agent_runner_id.sql" ||
-      file === server + "db/migrations/0065_saved_launch_locations.sql";
+      file === server + "db/migrations/0065_agent_runner_id.sql" ||
+      file === server + "db/migrations/0066_saved_launch_locations.sql";
     for (const _ of locators.slice(historicalBackfill ? 1 : 0))
       hit("R1 locator", "runner:// in SQL");
     return hits;
@@ -1398,6 +1398,26 @@ export function compareHistory(previous, next, rekeys = [], context = {}) {
   });
 
   for (const [id, entry] of after) {
+    // A byte-identical file rename (a renumbered migration) keeps its entry:
+    // same kind, detail and fields, no larger count, and the old key is gone.
+    const renamedFrom = context.renames?.get(entry.file);
+    const renamedParent = renamedFrom
+      ? before.get(key({ ...entry, file: renamedFrom }))
+      : undefined;
+    if (
+      !before.has(id) &&
+      renamedParent &&
+      !after.has(key({ ...entry, file: renamedFrom })) &&
+      entry.count <= renamedParent.count &&
+      Object.keys(entry).every(
+        (field) =>
+          field === "count" ||
+          field === "file" ||
+          entry[field] === renamedParent[field]
+      ) &&
+      Object.keys(renamedParent).every((field) => Object.hasOwn(entry, field))
+    )
+      continue;
     const parent = before.get(id);
     const move = validRekeys.get(id);
     if (
@@ -1521,6 +1541,23 @@ function ancestor(root, before, after) {
   }
 }
 
+/** New path -> old path for files renamed with identical content (R100). */
+function exactRenames(root, ...range) {
+  const renames = new Map();
+  const fields = git(
+    root,
+    "diff",
+    "--name-status",
+    "-M100%",
+    "--diff-filter=R",
+    "-z",
+    ...range
+  ).split("\0");
+  for (let i = 0; i + 2 < fields.length; i += 3)
+    if (fields[i] === "R100") renames.set(fields[i + 2], fields[i + 1]);
+  return renames;
+}
+
 export function historyErrors(root, base, head) {
   // Full history retains merges that could otherwise hide a grow-then-shrink.
   const commits = git(
@@ -1552,6 +1589,7 @@ export function historyErrors(root, base, head) {
         {
           previousPolicy: atRevision(root, parent, rekeysPath) ?? [],
           baseRevision: parent,
+          renames: exactRenames(root, parent, commit),
           read: (file) => revisionText(root, commit, file),
           isAncestor: (a, b) => ancestor(root, a, b),
           inheritedPolicies: parents
@@ -1682,6 +1720,7 @@ function run(args) {
         {
           previousPolicy: atRevision(root, "HEAD", rekeysPath) ?? [],
           baseRevision: git(root, "rev-parse", "HEAD").trim(),
+          renames: exactRenames(root, "--cached", "HEAD"),
           read,
           isAncestor: (a, b) => ancestor(root, a, b),
           inheritedPolicies: (() => {

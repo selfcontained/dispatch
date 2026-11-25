@@ -770,3 +770,39 @@ test("budget/importer growth requires the reviewed fixture naming commit 81662d1
   }
   assert.ok(rekeyErrors([{ key: {} }], []).length);
 });
+
+// A renumbered migration is the same debt under a new file name.
+test("history keeps an entry across a byte-identical file rename only", () => {
+  const old = {
+    file: app + "db/migrations/0054_runner_registrations.sql",
+    kind: "R1 locator",
+    detail: "runner:// in SQL",
+    task: "T07",
+    count: 1,
+  };
+  const moved = {
+    ...old,
+    file: app + "db/migrations/0055_runner_registrations.sql",
+  };
+  const renames = new Map([[moved.file, old.file]]);
+  assert.deepEqual(compareHistory([old], [moved], [], { renames }), []);
+  // Not a recorded rename: still new debt.
+  assert.equal(compareHistory([old], [moved], [], {}).length, 1);
+  assert.equal(
+    compareHistory([old], [moved], [], { renames: new Map() }).length,
+    1
+  );
+  // The old key must be gone, the count must not grow, the fields must match.
+  assert.ok(compareHistory([old], [old, moved], [], { renames }).length);
+  assert.ok(
+    compareHistory([old], [{ ...moved, count: 2 }], [], { renames }).length
+  );
+  assert.ok(
+    compareHistory([old], [{ ...moved, detail: "another hit" }], [], {
+      renames,
+    }).length
+  );
+  assert.ok(
+    compareHistory([old], [{ ...moved, task: "T40" }], [], { renames }).length
+  );
+});
