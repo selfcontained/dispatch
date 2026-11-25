@@ -377,7 +377,6 @@ export async function launchViaUi(
     cwd?: string;
     runnerId?: string;
     projectName?: string;
-    pullRequest?: string;
     prompt: string;
     restricted?: boolean;
   }
@@ -403,16 +402,6 @@ export async function launchViaUi(
     await page
       .getByRole("option", { name: opts.projectName, exact: true })
       .click();
-    if (opts.pullRequest) {
-      await page.getByTestId("create-agent-new-branch").click();
-      await page.getByTestId("create-agent-base-branch").click();
-      await page
-        .getByPlaceholder("Branch name or GitHub PR URL")
-        .fill(opts.pullRequest);
-      await page
-        .getByRole("option", { name: opts.pullRequest, exact: true })
-        .click();
-    }
   } else await page.getByTestId("create-agent-cwd").fill(opts.cwd ?? "/tmp");
   if (opts.restricted) {
     // "Start in full access mode" is on by default; permission prompts need it off.

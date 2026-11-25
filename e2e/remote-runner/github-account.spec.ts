@@ -1,12 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { expect, test } from "@playwright/test";
-import { authHeaders, deleteAgentViaAPI } from "../helpers";
+import { authHeaders, deleteAgentViaAPI, trackAgent } from "../helpers";
 import {
   enrollViaUi,
   guest,
   guestOk,
-  launchViaUi,
   runnerRow,
   settledTurns,
   state,
@@ -101,13 +100,45 @@ test("GitHub sign-in, private checkout and sign-out belong to the selected runne
   });
   expect(project.ok(), await project.text()).toBe(true);
 
-  const agent = await launchViaUi(page, {
-    runnerId: ids.get("scratch"),
-    projectName,
-    pullRequest: "https://github.com/fixture-scratch/private/pull/42",
-    name: "Private checkout",
-    prompt: "proof-reviewed-checkout post-private-pr",
+  const projectId = (await project.json()).id;
+  // The shared form follows main's listed-branch picker. PR URLs remain an
+  // API launch input; exercise the actual picker before launching that case.
+  const targets = await request.get("/api/v1/launch-targets", {
+    headers: authHeaders(),
   });
+  const target = (await targets.json()).targets.find(
+    (item: { selectionFields: { runner?: string } }) =>
+      item.selectionFields.runner === ids.get("scratch")
+  );
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.getByTestId("create-agent-button").click();
+  await page.getByTestId("create-agent-runner").click();
+  await page.getByTestId(`create-agent-runner-option-${target.key}`).click();
+  await page.getByTestId("create-agent-runner-project").click();
+  await page.getByRole("option", { name: projectName, exact: true }).click();
+  await page.getByTestId("create-agent-base-branch").click();
+  await page.getByRole("option", { name: "review-topic", exact: true }).click();
+  await expect(page.getByTestId("create-agent-base-branch")).toHaveText(
+    "review-topic"
+  );
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  const launched = await request.post("/api/v1/agents", {
+    headers: authHeaders(),
+    data: {
+      runner: ids.get("scratch"),
+      projectId,
+      type: "claude",
+      useWorktree: true,
+      createNewBranch: false,
+      fullAccess: true,
+      baseBranch: "https://github.com/fixture-scratch/private/pull/42",
+      name: "Private checkout",
+      initialPrompt: "proof-reviewed-checkout post-private-pr",
+    },
+  });
+  expect(launched.status(), await launched.text()).toBe(201);
+  const { agent } = await launched.json();
+  if (agent.id) trackAgent(agent.id);
   expect(agent.id).toBeTruthy();
   try {
     await page.goto("/agents/" + agent.id, { waitUntil: "domcontentloaded" });
