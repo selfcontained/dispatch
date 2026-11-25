@@ -14,7 +14,8 @@
     "./plugin-engines": "./src/plugin-engines.ts",
     "./engine-sign-in": "./src/engine-sign-in.ts",
     "./engine-plans": "./src/engine-plans.ts",
-    "./diff-types": "./src/diff-types.ts"
+    "./diff-types": "./src/diff-types.ts",
+    "./git-context": "./src/git-context.ts"
   },
   "files": [
     "src"
