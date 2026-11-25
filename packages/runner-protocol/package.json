@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./engine-management": "./src/engine-management.ts",
-    "./contract": "./src/contract/index.ts"
+    "./contract": "./src/contract/index.ts",
+    "./host": "./src/host.ts"
   },
   "files": [
     "src"
@@ -15,5 +16,11 @@
     "check": "tsc -p tsconfig.json && tsc -p tsconfig.portable.json && tsc -p tsconfig.test.json",
     "test": "vitest run --root .",
     "surface": "tsx scripts/write-surface.ts"
+  },
+  "peerDependencies": {
+    "@agentclientprotocol/sdk": "1.8.0"
+  },
+  "devDependencies": {
+    "@agentclientprotocol/sdk": "1.8.0"
   }
 }

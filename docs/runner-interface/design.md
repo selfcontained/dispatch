@@ -688,7 +688,7 @@ These appear as connection state, OS errors, engine `actions` or one of the four
 ### 3.1 Packages
 
 ```
-packages/runner-protocol/     operations, types, validators, errors. No Node, no dependencies.
+packages/runner-protocol/     operations, types, validators, errors. No Node; host event DTOs alone have a type-only ACP SDK 1.8.0 peer dependency because ACP payloads pass through verbatim (no runtime SDK import).
 packages/runner-client/       byte framing, connection, session/replay client,
   src/transport/              local socket, TLS service side
   src/launcher/               spawn, handshake, lifeline, freeze, import

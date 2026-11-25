@@ -26,7 +26,7 @@ import {
   type EngineScope,
 } from "@dispatch/runner-protocol/engine-management";
 
-import type { AcpEngineId } from "../acp/engine-spec.js";
+import type { AcpEngineId } from "@dispatch/runner-protocol/host";
 import type { EngineUpdateOperations } from "../engine-updates.js";
 import type { EngineCalls } from "../../runners/local.js";
 

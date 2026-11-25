@@ -123,7 +123,7 @@ import {
 import { createAgentMcpToken, createJobMcpToken } from "../auth.js";
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { AvailableCommand } from "@agentclientprotocol/sdk";
-import type { DriverEvent } from "./acp/driver.js";
+import type { DriverEvent } from "@dispatch/runner-protocol/host";
 import { recordEngineModels, recordEngineEffort } from "./engine-models.js";
 import { syncTurnUsage } from "./usage-recorder.js";
 import type {
@@ -131,7 +131,7 @@ import type {
   PromptOptions,
   PromptImage,
 } from "./acp/prompt-source.js";
-import { isAcpEngine } from "./acp/engine-spec.js";
+import { isAcpEngine } from "@dispatch/runner-protocol/host";
 import {
   agentStreamDirectory,
   settleWorkspace,

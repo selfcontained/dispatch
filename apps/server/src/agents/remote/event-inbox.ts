@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import type { DriverEvent } from "../acp/driver.js";
+import type { DriverEvent } from "@dispatch/runner-protocol/host";
 
 type Receipt = { journalId: string; seq: number; event: DriverEvent };
 

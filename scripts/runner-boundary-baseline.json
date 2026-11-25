@@ -21,20 +21,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/acp/host-protocol.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/acp/driver",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/acp/host-protocol.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/acp/engine-spec",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/acp/host/main.ts",
     "kind": "R5 runner to Dispatch",
     "detail": "apps/server/src/agents/acp/host-protocol",
@@ -79,13 +65,6 @@
   {
     "file": "apps/server/src/agents/acp/runtime.ts",
     "kind": "R2 host import",
-    "detail": "apps/server/src/agents/acp/driver",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/acp/runtime.ts",
-    "kind": "R2 host import",
     "detail": "apps/server/src/agents/acp/host-client",
     "task": "T04",
     "count": 1
@@ -94,13 +73,6 @@
     "file": "apps/server/src/agents/acp/runtime.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/acp/host-command",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/acp/stream-recorder.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/acp/driver",
     "task": "T04",
     "count": 1
   },
@@ -471,13 +443,6 @@
   {
     "file": "apps/server/src/agents/engine-updates.ts",
     "kind": "R2 host import",
-    "detail": "apps/server/src/agents/acp/engine-spec",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/engine-updates.ts",
-    "kind": "R2 host import",
     "detail": "apps/server/src/agents/engine-availability",
     "task": "T04",
     "count": 1
@@ -591,20 +556,6 @@
     "file": "apps/server/src/agents/manager.ts",
     "kind": "R2 host access",
     "detail": "fs/promises",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/manager.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/acp/driver",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/manager.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/acp/engine-spec",
     "task": "T04",
     "count": 1
   },
@@ -730,13 +681,6 @@
   {
     "file": "apps/server/src/agents/remote/engine-manager.ts",
     "kind": "R2 host import",
-    "detail": "apps/server/src/agents/acp/engine-spec",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/engine-manager.ts",
-    "kind": "R2 host import",
     "detail": "apps/server/src/agents/engine-updates",
     "task": "T04",
     "count": 1
@@ -759,13 +703,6 @@
     "file": "apps/server/src/agents/remote/enrollment.ts",
     "kind": "R2 host access",
     "detail": "fs/promises",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/event-inbox.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/acp/driver",
     "task": "T04",
     "count": 1
   },
@@ -1106,13 +1043,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/runtime.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/acp/driver",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/types.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/shared/git/worktree-status",
@@ -1207,20 +1137,6 @@
     "file": "apps/server/src/agents/worktree-local-config.ts",
     "kind": "R2 host access",
     "detail": "fs/promises",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/chat/service.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/acp/driver",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/config.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/acp/engine-spec",
     "task": "T04",
     "count": 1
   },
@@ -1659,13 +1575,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/scheduled-messages/service.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/acp/driver",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/server.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/engine-updates",
@@ -2040,13 +1949,6 @@
     "file": "apps/server/src/shared/repo-icon.ts",
     "kind": "R2 host access",
     "detail": "fs/promises",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/startup/acp-adapter.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/acp/engine-spec",
     "task": "T04",
     "count": 1
   },

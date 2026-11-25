@@ -2,7 +2,7 @@
  * Engine inventory and sign-in, served by the core from the platform's
  * engine port, which runs every CLI as the workload account.
  */
-import type { CallHandlers } from "../local/socket-server.js";
+import type { CallHandlers } from "../handlers.js";
 import type { Platform } from "../platform/types.js";
 
 export function engineHandlers(platform: Platform): CallHandlers {

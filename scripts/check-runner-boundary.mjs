@@ -688,6 +688,12 @@ export function scanSource(file, source, declared = new Set()) {
         .slice(0, specifier.startsWith("@") ? 2 : 1)
         .join("/");
       const builtin = tsNodeBuiltins.has(specifier.replace(/^node:/, ""));
+      // Host events carry ACP payloads verbatim. Only their DTO owner may
+      // reference SDK types; no SDK runtime import enters the protocol.
+      const hostSdkTypes =
+        file === "packages/runner-protocol/src/host.ts" &&
+        typeOnly &&
+        specifier === "@agentclientprotocol/sdk";
       const forbidden =
         name === "pg" ||
         name === "fastify" ||
@@ -695,7 +701,8 @@ export function scanSource(file, source, declared = new Set()) {
         name === "@dispatch/shared" ||
         (packageName === "runner-protocol" &&
           !isRelative &&
-          name !== "@dispatch/runner-protocol") ||
+          name !== "@dispatch/runner-protocol" &&
+          !hostSdkTypes) ||
         ((packageName === "runner-client" ||
           packageName === "runner-conformance") &&
           name === "@dispatch/runner") ||

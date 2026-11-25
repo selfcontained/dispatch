@@ -1,6 +1,6 @@
 import { startupAcpAdapter } from "./startup/acp-adapter.js";
 import "dotenv/config";
-import type { EngineBins } from "./agents/acp/engine-spec.js";
+import type { EngineBins } from "@dispatch/runner-protocol/host";
 import { parseListenHosts } from "./multi-listener.js";
 import { Client } from "pg";
 import { readFileSync } from "node:fs";

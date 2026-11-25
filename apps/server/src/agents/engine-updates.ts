@@ -20,7 +20,7 @@ import {
   withEngineVersions,
   type EngineStatus,
 } from "./engine-availability.js";
-import type { AcpEngineId } from "./acp/engine-spec.js";
+import type { AcpEngineId } from "@dispatch/runner-protocol/host";
 import type {
   CommandRunner,
   RunCommandResult,

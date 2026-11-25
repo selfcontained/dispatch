@@ -68,7 +68,7 @@ export type PromptSource = {
 type DispatchPromptSource = PromptSource;
 
 /** The host carries a source opaquely; within Dispatch it is this one. */
-declare module "./host/types.js" {
+declare module "@dispatch/runner-protocol/host" {
   interface CallerSourceRegistry {
     source: DispatchPromptSource;
   }

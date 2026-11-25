@@ -1,4 +1,4 @@
-import type { EngineBins } from "../acp/engine-spec.js";
+import type { EngineBins } from "@dispatch/runner-protocol/host";
 import {
   loadProviderPlans,
   consumeCodexLimitReset,
@@ -44,7 +44,7 @@ import {
   type EngineSupportedAction,
 } from "@dispatch/runner-protocol/engine-management";
 
-import type { AcpEngineId } from "../acp/engine-spec.js";
+import type { AcpEngineId } from "@dispatch/runner-protocol/host";
 import {
   compareVersions,
   engineStatuses,

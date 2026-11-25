@@ -39,9 +39,6 @@ export type {
   CallerSource,
 } from "./host/types.js";
 
-export type DriverUpdate = acp.SessionUpdate;
-export type DriverUsage = acp.Usage;
-
 /**
  * Advertise the UNSTABLE session notices and compaction updates. Without
  * them the adapters fold the same information into agent text, as they did
@@ -73,85 +70,16 @@ export type DriverLaunch = {
   env: NodeJS.ProcessEnv;
 };
 
-export type DriverEvent =
-  /** Input accepted into the existing turn, journaled before its settlement. */
-  | {
-      type: "steered";
-      agentId: string;
-      text: string;
-      source?: CallerSource;
-      receiptId?: string;
-      at?: string;
-    }
-  | {
-      type: "prompt_delivered";
-      agentId: string;
-      receiptId: string;
-      source?: CallerSource;
-      at: string;
-    }
-  | {
-      type: "steering_picked_up";
-      agentId: string;
-      receiptId: string;
-      source?: CallerSource;
-      at: string;
-    }
-  /** Live host snapshot, emitted by the runtime with seq 0; never replayed from the journal. */
-  | { type: "permissions"; agentId: string; requests: AgentPermissionRequest[] }
-  | { type: "update"; agentId: string; update: DriverUpdate }
-  /**
-   * The engine's session config options, whole: once the session opens and
-   * again whenever the engine changes them. The model option is where the
-   * server learns which model is really running and which it could run.
-   */
-  | {
-      type: "config";
-      agentId: string;
-      options: acp.SessionConfigOption[];
-      /** Set by the host before journaling. Older hosts have unknown provenance. */
-      catalogSource?: "engine" | "override";
-    }
-  | {
-      type: "turn";
-      agentId: string;
-      state: "started";
-      text: string;
-      /**
-       * What this prompt is, as the sender knew it. Dispatch puts the
-       * block id in the envelope for the agent to quote back; this is the
-       * same id for Dispatch's own use, so nothing has to read the
-       * envelope back off the wire to find out what opened the turn.
-       */
-      source?: CallerSource;
-      /** The model the engine runs this turn on, when it publishes one. */
-      model?: string;
-      /** The ACP session the turn runs in: its usage belongs to that session. */
-      sessionId?: string;
-    }
-  | {
-      type: "turn";
-      agentId: string;
-      state: "settled";
-      stopReason?: acp.StopReason;
-      /** Cumulative session usage reported with the prompt response. */
-      usage?: DriverUsage;
-      error?: string;
-      /**
-       * The adapter's category for a failed turn (`server_error`,
-       * `overloaded`, `transport_lost`…), when it gave one.
-       */
-      errorKind?: string;
-    }
-  | {
-      type: "exit";
-      agentId: string;
-      code: number | null;
-      signal: string | null;
-      stderrTail: string;
-      /** True when Dispatch asked the child to stop; false for a crash. */
-      expected: boolean;
-    };
+export type {
+  DriverEvent,
+  DriverUpdate,
+  DriverUsage,
+} from "@dispatch/runner-protocol/host";
+import type {
+  DriverEvent,
+  DriverUpdate,
+  DriverUsage,
+} from "@dispatch/runner-protocol/host";
 
 export type DriverListener = (event: DriverEvent) => void;
 
