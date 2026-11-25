@@ -223,6 +223,29 @@ function neverSent(error: unknown) {
   return error instanceof RunnerCallError && error.code === "unavailable";
 }
 
+/** Main's budget for a checkout cleanup on this machine. */
+const CLEANUP_BUDGET_MS = 60_000;
+
+/**
+ * Main's budget for a cleanup: past it the checkout is left on disk and the
+ * archive goes on; the work is neither stopped nor started again.
+ */
+function withinCleanupBudget<T>(work: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    work,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new Error(`Worktree cleanup timed out after ${CLEANUP_BUDGET_MS}ms`)
+          ),
+        CLEANUP_BUDGET_MS
+      );
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 /**
  * The update fence each local runner session answers to: its parent's own
  * (`LocalRunnerProcess.frozen`), wanted across the child's restarts.
@@ -561,7 +584,14 @@ export function createLocalCheckoutRunner(
    * gets `unknown_outcome` and archive leaves the checkout on disk, as main
    * does when its cleanup fails.
    */
-  async function release(
+  function release(
+    input: Req<"workspace.release">,
+    options?: CallOptions<"workspace.release">
+  ): Promise<Res<"workspace.release">> {
+    return withinCleanupBudget(releaseNow(input, options));
+  }
+
+  async function releaseNow(
     input: Req<"workspace.release">,
     options?: CallOptions<"workspace.release">
   ): Promise<Res<"workspace.release">> {
