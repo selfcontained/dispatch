@@ -1,3 +1,8 @@
+import { relative } from "node:path";
+import {
+  hostVocabularyCompatibility,
+  isHostCompatibilityToken,
+} from "./host-vocabulary-compatibility.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -153,7 +158,59 @@ describe("vocabulary (E8)", () => {
       "../runner-client/src/launcher",
       "../runner-client/src/transport",
     ])
-      expect(vocabularyHits(root, `${root}/${dir}`)).toEqual([]);
+      expect(
+        vocabularyHits(
+          root,
+          `${root}/${dir}`,
+          usesDispatchVocabulary,
+          (file, token) =>
+            isHostCompatibilityToken(
+              relative(
+                fileURLToPath(new URL("../../../", import.meta.url)),
+                file
+              ),
+              token
+            )
+        )
+      ).toEqual([]);
+  });
+
+  it("allows only exact compatibility bytes in their exact host files", () => {
+    const entries = Object.values(hostVocabularyCompatibility).flat();
+    expect(entries).toHaveLength(23);
+    for (const entry of entries) {
+      expect(entry.file.startsWith("packages/runner/src/host/")).toBe(true);
+      expect(entry.reason.length).toBeGreaterThan(0);
+      expect(usesDispatchVocabulary(entry.token)).toBe(true);
+      expect(isHostCompatibilityToken(entry.file, entry.token)).toBe(true);
+      expect(
+        isHostCompatibilityToken("packages/runner/src/other.ts", entry.token)
+      ).toBe(false);
+      expect(
+        isHostCompatibilityToken("packages/runner/src/host/new.ts", entry.token)
+      ).toBe(false);
+      expect(
+        isHostCompatibilityToken(
+          entry.file.replace("packages/runner/", "packages/runner-client/"),
+          entry.token
+        )
+      ).toBe(false);
+      expect(
+        isHostCompatibilityToken(entry.file, "DISPATCH_NEW_HOST_FLAG")
+      ).toBe(false);
+    }
+    expect(
+      isHostCompatibilityToken(
+        "packages/runner/src/host/host-env.ts",
+        "preparePersonaContext"
+      )
+    ).toBe(false);
+    expect(
+      isHostCompatibilityToken(
+        "packages/runner/src/host/engine-spec.ts",
+        "personaDelivery"
+      )
+    ).toBe(false);
   });
 
   it("detects a planted term", () => {

@@ -50,7 +50,8 @@ function files(dir: string): string[] {
 export function vocabularyHits(
   root: string,
   dir: string,
-  uses: (text: string) => boolean = usesDispatchVocabulary
+  uses: (text: string) => boolean = usesDispatchVocabulary,
+  allowed: (file: string, token: string) => boolean = () => false
 ) {
   const hits: string[] = [];
   for (const file of files(dir)) {
@@ -67,7 +68,7 @@ export function vocabularyHits(
           : ts.isStringLiteralLike(node)
             ? node.text
             : undefined;
-      if (text !== undefined && uses(text))
+      if (text !== undefined && uses(text) && !allowed(file, text))
         hits.push(`${relative(root, file)}: ${text}`);
       ts.forEachChild(node, visit);
     };
