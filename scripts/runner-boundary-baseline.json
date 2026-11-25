@@ -861,13 +861,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/remote/update-coordinator.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/remote/update-verify",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/remote/update-fence-store.ts",
     "kind": "R5 runner to Dispatch",
     "detail": "apps/server/src/agents/remote/update-admission",

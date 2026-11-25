@@ -32,13 +32,13 @@ import {
   RunnerAcknowledgementLost,
   RunnerRevoked,
 } from "../src/agents/remote/service.js";
+import { generateRunnerKey } from "../src/agents/remote/x509.js";
 import {
-  generateRunnerKey,
   issueAuthority,
   issueClient,
   issueServer,
   runnerPublicKey,
-} from "../src/agents/remote/x509.js";
+} from "../src/agents/remote/certificate-authority.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 const HOST = "127.0.0.1";

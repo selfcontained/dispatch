@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./update-format": "./src/update-format.ts",
     "./engine-management": "./src/engine-management.ts",
     "./contract": "./src/contract/index.ts",
     "./host": "./src/host.ts",
