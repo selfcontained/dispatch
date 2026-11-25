@@ -210,7 +210,8 @@
         "apps/server/test/launch-guidance.test.ts",
         "apps/server/test/session-naming.test.ts",
         "apps/server/test/db/session-naming.test.ts",
-        "docs/session-naming.md"
+        "docs/session-naming.md",
+        "apps/server/test/helpers/native-engine-updates.ts"
       ],
       "personas": ["agent-runtime-owner"]
     },

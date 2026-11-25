@@ -14,7 +14,7 @@ import {
   engineOperationStore,
   observeModelUpdates,
   type Installation,
-} from "../src/agents/engine-updates.js";
+} from "./helpers/native-engine-updates.js";
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./db/setup.js";
 
 let pool: Pool;

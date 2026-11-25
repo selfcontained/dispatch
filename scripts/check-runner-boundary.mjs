@@ -60,6 +60,15 @@ const machineExports = new Set([
 // Capabilities are limited to the resources Dispatch owns in each location.
 export const ownMachineCapabilities = new Map([
   [
+    "apps/server/src/agents/engine-update-operations.ts",
+    new Map([
+      [
+        "process.kill",
+        "liveness probe of Dispatch's own update-coordinator process (ownerPid); child PIDs are probed on their runner",
+      ],
+    ]),
+  ],
+  [
     "apps/server/src/agents/file-seed.ts",
     new Map([["fs", "Dispatch blob storage"]]),
   ],

@@ -189,12 +189,12 @@ import { registerLaunchTargetRoutes } from "./routes/launch-targets.js";
 import { registerSystemRoutes } from "./routes/system.js";
 import { registerEngineLoginRoutes } from "./routes/engine-login.js";
 import { registerEngineManagementRoutes } from "./routes/engine-management.js";
+import { engineUpdatePort } from "./agents/engine-updates.js";
 import {
-  engineUpdatePort,
   EngineUpdateOperations,
   engineOperationStore,
   observeModelUpdates,
-} from "./agents/engine-updates.js";
+} from "./agents/engine-update-operations.js";
 import { EngineManager } from "./agents/remote/engine-manager.js";
 import { remoteEngineTransport } from "./agents/remote/engine-transport.js";
 import {

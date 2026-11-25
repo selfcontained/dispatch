@@ -684,13 +684,6 @@
   {
     "file": "apps/server/src/agents/remote/engine-manager.ts",
     "kind": "R2 host import",
-    "detail": "apps/server/src/agents/engine-updates",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/engine-manager.ts",
-    "kind": "R2 host import",
     "detail": "apps/server/src/agents/local-runner-engine",
     "task": "T04",
     "count": 1

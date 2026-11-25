@@ -56,12 +56,12 @@ import {
   setUserAvatar,
 } from "../user-avatar-settings.js";
 
+import { engineUpdatePort } from "../agents/engine-updates.js";
 import {
   EngineUpdateOperations,
   engineOperationStore,
-  engineUpdatePort,
   runnerEngineStatuses,
-} from "../agents/engine-updates.js";
+} from "../agents/engine-update-operations.js";
 import {
   ACP_ENGINE_IDS,
   type AcpEngineId,
