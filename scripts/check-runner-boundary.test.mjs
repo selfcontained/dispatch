@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -6,6 +7,8 @@ import { join, posix } from "node:path";
 import { test } from "node:test";
 import {
   compareHistory,
+  compareMovePolicyHistory,
+  movePolicyFixture,
   compareHits,
   countHits,
   historyErrors,
@@ -489,13 +492,13 @@ test("every exact own-machine grant accepts only its named capability", () => {
   }
 });
 
-test("T40 exact move re-keys explain additions without increasing combined debt", () => {
+function moveFixture() {
   const old = {
     file: app + "agents/acp/runtime.ts",
     kind: "R2 host import",
     detail: app + "agents/acp/host-client",
     task: "T04",
-    count: 2,
+    count: 1,
   };
   const entry = {
     file: old.file,
@@ -507,54 +510,237 @@ test("T40 exact move re-keys explain additions without increasing combined debt"
   };
   const keyOf = ({ file, kind, detail }) => ({ file, kind, detail });
   const record = {
+    type: "package-import",
     key: keyOf(entry),
+    target: "packages/runner-client/src/host-client.ts",
     task: "T40",
     class: entry.class,
-    reason: "Host client moved into its package.",
+    reason: "Host client moved.",
     supersedes: [keyOf(old)],
   };
-  assert.deepEqual(compareHistory([old], [entry], [record]), []);
+  const policy = { budget: 1, importers: [entry.file], records: [record] };
+  const files = new Map([
+    [
+      "packages/runner-client/package.json",
+      JSON.stringify({ exports: { "./host-client": "./src/host-client.ts" } }),
+    ],
+    [record.target, "export {};"],
+    ["packages/runner/src/host/main.ts", "export {};"],
+    [app + "agents/engine-availability.ts", "export {};"],
+  ]);
+  const read = (file) => files.get(file);
+  const context = { previousPolicy: { ...policy, records: [] }, read };
+  return { old, entry, record, policy, context, read, keyOf, files };
+}
+
+test("exact package moves remain counted, may expose debt, and cannot admit unrelated hits", () => {
+  const { old, entry, record, policy, context, read, keyOf, files } =
+    moveFixture();
+  assert.deepEqual(compareHistory([old], [entry], policy, context), []);
+  assert.deepEqual(
+    compareHistory([old], [{ ...entry, count: 3 }], policy, context),
+    []
+  );
   assert.ok(
-    compareHistory([old], [entry]).some((e) =>
-      e.startsWith("Baseline may only shrink")
+    compareHistory([old], [entry], { ...policy, records: [] }, context).some(
+      (e) => e.startsWith("Baseline may only shrink")
     )
   );
+  assert.ok(compareHistory([old], [old, entry], policy, context).length);
   assert.ok(
-    compareHistory([old], [{ ...entry, count: 3 }], [record]).some((e) =>
-      e.startsWith("Baseline may only shrink")
-    )
+    compareHistory([entry], [{ ...entry, count: 2 }], policy, context).length
   );
   assert.ok(
-    compareHistory(
-      [old, { ...old, file: app + "spare.ts", count: 5 }],
-      [old, entry],
-      [record]
-    ).some((e) => e.startsWith("Baseline may only shrink"))
+    rekeyErrors(policy, [], read).some((e) => e.startsWith("Stale move re-key"))
   );
-  for (const rule of ["R1", "R3", "R6", "R7"]) {
+  assert.ok(rekeyErrors({ ...policy, budget: 0 }, [entry], read).length);
+  assert.ok(rekeyErrors({ ...policy, importers: [] }, [entry], read).length);
+  assert.ok(
+    rekeyErrors(
+      {
+        ...policy,
+        records: [{ ...record, target: "apps/server/src/host.ts" }],
+      },
+      [entry],
+      read
+    ).length
+  );
+  files.delete(record.target);
+  assert.ok(rekeyErrors(policy, [entry], read).length);
+  files.set(record.target, "export {};");
+  files.set(
+    "packages/runner-client/package.json",
+    JSON.stringify({
+      exports: { "./host-client": "../../apps/server/src/main.ts" },
+    })
+  );
+  assert.ok(rekeyErrors(policy, [entry], read).length);
+  for (const rule of ["R1", "R2", "R3", "R6", "R7"]) {
     const forbidden = { ...entry, kind: rule + " addition" };
     assert.ok(
       compareHistory(
         [old],
         [forbidden],
-        [{ ...record, key: keyOf(forbidden) }]
+        { ...policy, records: [{ ...record, key: keyOf(forbidden) }] },
+        context
       ).some((e) => e.startsWith("Baseline may only shrink"))
     );
   }
   assert.ok(
-    rekeyErrors([record], []).some((e) => e.startsWith("Stale move re-key"))
+    rekeyErrors({ ...policy, importers: ["apps/**"] }, [entry], read).length
   );
-  const dependency = {
-    ...record,
-    movedDependency: app + "agents/acp/host-client.ts",
+});
+
+test("input seams are only main's app providers for consumers that exist in packages", () => {
+  const { read, keyOf } = moveFixture();
+  const entry = {
+    file: app + "main.ts",
+    kind: "R2 host import",
+    detail: app + "agents/engine-availability",
+    task: "T40",
+    count: 1,
+    class: "moves-with-workload",
   };
-  delete dependency.supersedes;
-  assert.deepEqual(compareHistory([old], [entry], [dependency]), []);
+  const record = {
+    type: "input-seam",
+    key: keyOf(entry),
+    class: entry.class,
+    task: "T40",
+    reason: "Supply the existing provider to the moved host.",
+    provider: app + "agents/engine-availability.ts",
+    consumers: ["packages/runner/src/host/main.ts"],
+    movedDependency: app + "agents/acp/host/main.ts",
+  };
+  const policy = { budget: 1, importers: [], records: [record] };
+  const context = { previousPolicy: { ...policy, records: [] }, read };
+  assert.deepEqual(compareHistory([], [entry], policy, context), []);
+  const other = { ...entry, file: app + "other.ts" };
   assert.ok(
-    rekeyErrors([{ ...dependency, movedDependency: "apps/**" }], [entry]).length
+    rekeyErrors(
+      {
+        ...policy,
+        importers: [other.file],
+        records: [{ ...record, key: keyOf(other) }],
+      },
+      [other],
+      read
+    ).length
   );
   assert.ok(
-    compareHistory([old], [{ ...entry, count: 2 }], [record]).length === 0
+    rekeyErrors(
+      { ...policy, records: [{ ...record, consumers: [app + "main.ts"] }] },
+      [entry],
+      read
+    ).length
   );
-  assert.ok(rekeyErrors([record, record], [entry]).length);
+  assert.ok(
+    rekeyErrors(
+      {
+        ...policy,
+        records: [{ ...record, consumers: ["packages/runner/src/missing.ts"] }],
+      },
+      [entry],
+      read
+    ).length
+  );
+  const moved = {
+    ...entry,
+    detail: "@dispatch/runner/host/engine-availability",
+  };
+  assert.ok(
+    rekeyErrors(
+      {
+        ...policy,
+        records: [
+          {
+            ...record,
+            key: keyOf(moved),
+            provider: "packages/runner/src/host/engine-availability.ts",
+          },
+        ],
+      },
+      [moved],
+      read
+    ).length
+  );
+  assert.ok(
+    rekeyErrors(policy, [entry], (file) =>
+      file === record.provider ? undefined : read(file)
+    ).some((e) => e.startsWith("Stale or invalid"))
+  );
+});
+
+test("budget/importer growth requires the reviewed fixture naming commit 81662d1b", () => {
+  // Future increases must name their reviewed base commit here and in the fixture.
+  assert.equal(
+    movePolicyFixture.initialAdoption.commit.slice(0, 8),
+    "81662d1b"
+  );
+  assert.deepEqual(movePolicyFixture.reviewedIncreases, []);
+  assert.equal(movePolicyFixture.initialAdoption.budget, 21);
+  const { policy } = moveFixture();
+  assert.ok(compareMovePolicyHistory(policy, { ...policy, budget: 2 }).length);
+  assert.ok(
+    compareMovePolicyHistory(policy, {
+      ...policy,
+      importers: [...policy.importers, app + "new.ts"],
+    }).length
+  );
+  assert.deepEqual(
+    compareMovePolicyHistory(policy, { budget: 0, importers: [], records: [] }),
+    []
+  );
+  assert.ok(compareMovePolicyHistory(policy, []).length);
+  const initial = {
+    budget: 21,
+    importers: movePolicyFixture.initialAdoption.importers,
+    records: [],
+  };
+  assert.deepEqual(
+    compareMovePolicyHistory([], initial, {
+      baseRevision: movePolicyFixture.initialAdoption.commit,
+    }),
+    []
+  );
+  assert.ok(
+    compareMovePolicyHistory(
+      [],
+      { ...initial, budget: 22 },
+      { baseRevision: movePolicyFixture.initialAdoption.commit }
+    ).length
+  );
+  assert.ok(
+    compareMovePolicyHistory([], initial, { baseRevision: "unreviewed" }).length
+  );
+  assert.deepEqual(
+    compareMovePolicyHistory([], initial, { inheritedPolicies: [initial] }),
+    []
+  );
+  assert.ok(
+    compareMovePolicyHistory(
+      [],
+      { ...initial, importers: [...initial.importers, app + "new.ts"] },
+      { inheritedPolicies: [initial] }
+    ).length
+  );
+  assert.deepEqual(
+    movePolicyFixture.frozenLegacyPolicies.map((item) =>
+      item.commit.slice(0, 8)
+    ),
+    ["fb86dd1d", "81662d1b"]
+  );
+  for (const snapshot of movePolicyFixture.frozenLegacyPolicies) {
+    const policy = JSON.parse(
+      execFileSync(
+        "git",
+        ["show", snapshot.commit + ":scripts/runner-boundary-rekeys.json"],
+        { encoding: "utf8" }
+      )
+    );
+    assert.equal(
+      createHash("sha256").update(JSON.stringify(policy)).digest("hex"),
+      snapshot.sha256
+    );
+  }
+  assert.ok(rekeyErrors([{ key: {} }], []).length);
 });

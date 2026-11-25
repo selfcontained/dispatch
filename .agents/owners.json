@@ -88,6 +88,7 @@
         "scripts/runner-local-parity/**",
         "scripts/runner-boundary-baseline.json",
         "scripts/runner-boundary-rekeys.json",
+        "scripts/fixtures/runner-boundary-rekey-policy.json",
         "scripts/opencode-v2-smoke.mjs",
         "scripts/runner-restrictions.mjs",
         "docs/04-agent-lifecycle.md",

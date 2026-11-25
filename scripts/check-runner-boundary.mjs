@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { builtinModules } from "node:module";
@@ -35,6 +36,13 @@ const runnerManagementScreens = new Map([
 
 const baselinePath = "scripts/runner-boundary-baseline.json";
 const rekeysPath = "scripts/runner-boundary-rekeys.json";
+const rekeyFixturePath = "scripts/fixtures/runner-boundary-rekey-policy.json";
+export const movePolicyFixture = JSON.parse(
+  readFileSync(
+    new URL("./fixtures/runner-boundary-rekey-policy.json", import.meta.url),
+    "utf8"
+  )
+);
 const packages = [
   "runner-protocol",
   "runner-client",
@@ -1114,7 +1122,7 @@ export function compareHits(hits, baseline) {
 }
 
 // Reviewed T40 moves remain counted debt; these exact records only explain
-// additions to history. They never suppress source hits or permit count growth.
+// additions to history. They never suppress source hits; new edges consume a reviewed budget.
 function exactMoveKey(value) {
   return (
     value &&
@@ -1129,7 +1137,7 @@ function exactMoveKey(value) {
   );
 }
 
-export function rekeyErrors(records, baseline) {
+function legacyRekeyErrors(records, baseline) {
   if (!Array.isArray(records))
     return ["Move re-keys must be an exact-entry list."];
   const entries = indexEntries(baseline);
@@ -1170,18 +1178,180 @@ export function rekeyErrors(records, baseline) {
   return errors;
 }
 
-export function compareHistory(previous, next, rekeys = []) {
-  if (!previous) return rekeyErrors(rekeys, next ?? []); // Initial adoption.
+function exactSourceFile(file, prefix) {
+  return (
+    typeof file === "string" &&
+    file.startsWith(prefix) &&
+    posix.normalize(file) === file &&
+    /\.[cm]?[jt]sx?$/.test(file) &&
+    !/[\*?\[\]{}]/.test(file)
+  );
+}
+function repositoryText(file) {
+  const path = fileURLToPath(new URL("../" + file, import.meta.url));
+  return existsSync(path) ? readFileSync(path, "utf8") : undefined;
+}
+function packageImportTarget(specifier, read) {
+  const match = /^@dispatch\/(runner|runner-client)(?:\/(.+))?$/.exec(
+    specifier
+  );
+  if (!match) return;
+  const root = "packages/" + match[1] + "/";
+  try {
+    const exports = JSON.parse(read(root + "package.json")).exports;
+    const target = exports[match[2] ? "./" + match[2] : "."];
+    if (typeof target !== "string" || !target.startsWith("./")) return;
+    const path = posix.normalize(root + target);
+    if (exactSourceFile(path, root) && read(path) !== undefined) return path;
+  } catch {
+    /* Missing or invalid manifests cannot authorize a move. */
+  }
+}
+function recordsOf(policy) {
+  return Array.isArray(policy) ? policy : (policy?.records ?? []);
+}
+function sameAllocation(a, b) {
+  return (
+    a?.budget === b?.budget &&
+    Array.isArray(a?.importers) &&
+    JSON.stringify([...a.importers].sort()) ===
+      JSON.stringify([...b.importers].sort())
+  );
+}
+export function compareMovePolicyHistory(before, after, context = {}) {
+  if (Array.isArray(after))
+    return before && !Array.isArray(before)
+      ? ["Move policy cannot return to its frozen historical format."]
+      : [];
+  if (!after || !Array.isArray(after.importers))
+    return ["Invalid move policy."];
+  if (
+    before &&
+    !Array.isArray(before) &&
+    after.budget <= before.budget &&
+    after.importers.every((file) => before.importers.includes(file))
+  )
+    return [];
+  // A merge may inherit an already audited allocation; it cannot union allocations.
+  if (
+    context.inheritedPolicies?.some((policy) => sameAllocation(policy, after))
+  )
+    return [];
+  const initial = movePolicyFixture.initialAdoption;
+  if (
+    (!before || Array.isArray(before)) &&
+    sameAllocation(initial, after) &&
+    (context.baseRevision === initial.commit ||
+      context.isAncestor?.(initial.commit, context.baseRevision))
+  )
+    return [];
+  if (
+    movePolicyFixture.reviewedIncreases.some(
+      (review) =>
+        review.commit === context.baseRevision && sameAllocation(review, after)
+    )
+  )
+    return [];
+  return [
+    "Move policy budget/importers may only shrink; increases need a reviewed fixture naming the base commit.",
+  ];
+}
+export function rekeyErrors(policy, baseline, read = repositoryText) {
+  const historical = Array.isArray(policy);
+  const records = recordsOf(policy);
+  const errors = [];
+  if (historical) {
+    const digest = createHash("sha256")
+      .update(JSON.stringify(policy))
+      .digest("hex");
+    if (
+      policy.length &&
+      !movePolicyFixture.frozenLegacyPolicies.some(
+        (item) => item.sha256 === digest
+      )
+    )
+      return [
+        "Move policy historical format is frozen to the named reviewed commits.",
+      ];
+  } else if (
+    !policy ||
+    Object.keys(policy).sort().join(",") !== "budget,importers,records" ||
+    !Number.isSafeInteger(policy.budget) ||
+    policy.budget < 0 ||
+    !Array.isArray(policy.records) ||
+    !Array.isArray(policy.importers) ||
+    policy.importers.some((file) => !exactSourceFile(file, "apps/")) ||
+    new Set(policy.importers).size !== policy.importers.length
+  )
+    return ["Invalid exact move policy."];
+  else if (records.length > policy.budget)
+    errors.push("Move record count exceeds its reviewed budget.");
+  errors.push(...legacyRekeyErrors(records, baseline));
+  if (errors.length) return errors;
+  const listed = new Set(records.map((record) => key(record.key)));
+  for (const entry of baseline)
+    if (entry.task === "T40" && entry.class && !listed.has(key(entry)))
+      errors.push(`Unrecorded move baseline: ${diagnostic(entry)}`);
+  if (historical) return errors; // Immutable snapshots only; new moves use the budgeted format.
+  const current = indexEntries(baseline);
+  for (const record of records) {
+    if (record.supersedes?.some((old) => current.has(key(old))))
+      errors.push(`Superseded move entry remains: ${diagnostic(record.key)}`);
+    if (record.type === "package-import") {
+      const target = packageImportTarget(record.key.detail, read);
+      if (
+        !["R5 Dispatch to runner", "R5 Dispatch to client transport"].includes(
+          record.key.kind
+        ) ||
+        !policy.importers.includes(record.key.file) ||
+        !target ||
+        record.target !== target
+      )
+        errors.push(
+          `Invalid package move target/importer: ${diagnostic(record.key)}`
+        );
+    } else if (record.type === "input-seam") {
+      if (
+        record.key.file !== "apps/server/src/main.ts" ||
+        record.key.kind !== "R2 host import" ||
+        !exactSourceFile(record.provider, "apps/") ||
+        record.provider.replace(/\.[cm]?[jt]sx?$/, "") !== record.key.detail ||
+        read(record.provider) === undefined
+      )
+        errors.push(
+          `Stale or invalid composition-root input seam: ${diagnostic(record.key)}`
+        );
+      if (
+        !Array.isArray(record.consumers) ||
+        !record.consumers.length ||
+        record.consumers.some(
+          (file) =>
+            !exactSourceFile(file, "packages/") || read(file) === undefined
+        )
+      )
+        errors.push(
+          `Input seam consumer must exist under packages/: ${diagnostic(record.key)}`
+        );
+    } else errors.push(`Unknown move record type: ${diagnostic(record.key)}`);
+  }
+  return errors;
+}
+
+export function compareHistory(previous, next, rekeys = [], context = {}) {
+  if (!previous) return rekeyErrors(rekeys, next ?? [], context.read); // Initial adoption.
   if (!next)
     return [
       "The baseline was deleted. Keep an empty list when all entries are removed.",
     ];
   const before = indexEntries(previous);
   const after = indexEntries(next);
-  const errors = rekeyErrors(rekeys, next);
+  const errors = rekeyErrors(rekeys, next, context.read);
+  errors.push(
+    ...compareMovePolicyHistory(context.previousPolicy, rekeys, context)
+  );
   const validRekeys = errors.length
     ? new Map()
-    : new Map(rekeys.map((record) => [key(record.key), record]));
+    : new Map(recordsOf(rekeys).map((record) => [key(record.key), record]));
   const moveTotal = (entries) =>
     [...entries.values()].reduce(
       (total, entry) => total + (/^R[25] /.test(entry.kind) ? entry.count : 0),
@@ -1223,7 +1393,7 @@ export function compareHistory(previous, next, rekeys = []) {
       !parent &&
       move &&
       /^R[25] /.test(entry.kind) &&
-      moveTotalDoesNotRise &&
+      (!Array.isArray(rekeys) || moveTotalDoesNotRise) &&
       (!move.supersedes || move.supersedes.every((old) => !after.has(key(old))))
     )
       continue;
@@ -1317,6 +1487,29 @@ function atRevision(root, revision, path) {
   }
 }
 
+function revisionText(root, revision, file) {
+  try {
+    return git(root, "show", revision ? `${revision}:${file}` : `:${file}`);
+  } catch (error) {
+    if (
+      error.status === 128 &&
+      /does not exist|exists on disk|not in the index/.test(
+        error.stderr?.toString()
+      )
+    )
+      return undefined;
+    throw error;
+  }
+}
+function ancestor(root, before, after) {
+  try {
+    git(root, "merge-base", "--is-ancestor", before, after);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function historyErrors(root, base, head) {
   // Full history retains merges that could otherwise hide a grow-then-shrink.
   const commits = git(
@@ -1326,7 +1519,8 @@ export function historyErrors(root, base, head) {
     `${base}..${head}`,
     "--",
     baselinePath,
-    rekeysPath
+    rekeysPath,
+    rekeyFixturePath
   )
     .trim()
     .split("\n")
@@ -1343,7 +1537,16 @@ export function historyErrors(root, base, head) {
       for (const error of compareHistory(
         before,
         entries,
-        atRevision(root, commit, rekeysPath) ?? []
+        atRevision(root, commit, rekeysPath) ?? [],
+        {
+          previousPolicy: atRevision(root, parent, rekeysPath) ?? [],
+          baseRevision: parent,
+          read: (file) => revisionText(root, commit, file),
+          isAncestor: (a, b) => ancestor(root, a, b),
+          inheritedPolicies: parents
+            .filter((p) => p !== parent)
+            .map((p) => atRevision(root, p, rekeysPath)),
+        }
       ))
         errors.push(`${commit.slice(0, 12)} ${error}`);
     }
@@ -1458,13 +1661,32 @@ function run(args) {
   const baseline = JSON.parse(read(baselinePath));
   errors.push(...compareHits(hits, baseline));
   const rekeys = JSON.parse(read(rekeysPath) ?? "[]");
-  errors.push(...rekeyErrors(rekeys, baseline));
+  errors.push(...rekeyErrors(rekeys, baseline, read));
   if (staged)
     errors.push(
       ...compareHistory(
         atRevision(root, "HEAD", baselinePath),
         baseline,
-        rekeys
+        rekeys,
+        {
+          previousPolicy: atRevision(root, "HEAD", rekeysPath) ?? [],
+          baseRevision: git(root, "rev-parse", "HEAD").trim(),
+          read,
+          isAncestor: (a, b) => ancestor(root, a, b),
+          inheritedPolicies: (() => {
+            try {
+              return [
+                atRevision(
+                  root,
+                  git(root, "rev-parse", "--verify", "MERGE_HEAD").trim(),
+                  rekeysPath
+                ),
+              ];
+            } catch {
+              return [];
+            }
+          })(),
+        }
       )
     );
   if (!errors.length) {
