@@ -16,7 +16,7 @@ import { runLifecycleHook } from "../src/agents/lifecycle-hooks.js";
 import type { AgentRecord } from "../src/agents/types.js";
 import { controllerPlacement } from "../src/runners/placement.js";
 import { repoCommandEnvironment } from "../src/shared/lib/tool-environment.js";
-import { loadRepoTools } from "../src/shared/mcp/repo-tools.js";
+import { loadRepoTools } from "./helpers/local-repo-tools.js";
 
 const roots: string[] = [];
 afterEach(async () => {
