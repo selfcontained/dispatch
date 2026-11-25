@@ -127,6 +127,8 @@
         "apps/server/src/shared/plugin-status.ts",
         "apps/server/test/plugin-routes.test.ts",
         "apps/server/test/engine-plugin-port.test.ts",
+        "apps/server/test/engine-update-cache-order.test.ts",
+        "apps/server/test/engine-capability-routing.test.ts",
         "apps/server/test/engine-update-port.test.ts",
         "apps/server/test/engine-update-postgres.test.ts",
         "apps/server/test/fixtures/local-runner-entry.ts",
