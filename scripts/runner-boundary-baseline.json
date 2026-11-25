@@ -76,13 +76,6 @@
   {
     "file": "apps/server/src/agents/archive-checkout.ts",
     "kind": "R2 host import",
-    "detail": "apps/server/src/agents/checkout-observation",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/archive-checkout.ts",
-    "kind": "R2 host import",
     "detail": "apps/server/src/agents/local-runner",
     "task": "T04",
     "count": 1
@@ -218,13 +211,6 @@
     "file": "apps/server/src/agents/checkout-runner.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/checkout-inspection",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/checkout-runner.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/diff-stats",
     "task": "T04",
     "count": 1
   },
@@ -1452,27 +1438,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/routes/agents/checkout-response.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/files/workspace-view",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/agents/checkout-response.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/diff-image",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/agents/lifecycle-routes.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/diff-image",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/routes/agents/shared.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/provider-plans",
@@ -1982,13 +1947,6 @@
     "file": "apps/server/src/tasks/service.ts",
     "kind": "R2 host access",
     "detail": "fs/promises",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/terminal/manager.ts",
-    "kind": "R2 host access",
-    "detail": "process.kill",
     "task": "T04",
     "count": 1
   },

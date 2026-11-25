@@ -21,7 +21,7 @@ import {
   type ArchiveOutcome,
 } from "./archive-policy.js";
 import type { createLocalRunner } from "./local-runner.js";
-import { observeBoundCheckout } from "./checkout-observation.js";
+import { observeBoundCheckout } from "@dispatch/runner-protocol";
 import { AgentError } from "./errors.js";
 import type { RemoteRunnerService } from "./remote/service.js";
 import { enrolledArchiveCheckout } from "../runners/enrolled/checkout.js";
