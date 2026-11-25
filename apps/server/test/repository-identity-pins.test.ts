@@ -22,7 +22,7 @@ import { inspectAgentCheckout } from "../src/agents/checkout-runner.js";
 import { JobService } from "../src/jobs/service.js";
 import { controllerPlacement } from "../src/runners/placement.js";
 import { resolveRepoRoot } from "../src/shared/git/git-context.js";
-import { agentTaskProject } from "../src/tasks/agent-scope.js";
+import { agentTaskProject } from "./helpers/task-scope.js";
 
 let tmp: string;
 let root: string;
@@ -165,7 +165,7 @@ describe("loop handoff key pins (jobs)", () => {
     };
     const service = new JobService(
       {} as never,
-      {} as never,
+      { checkoutReadRunners: () => ({}) } as never,
       { warn() {}, info() {}, error() {} } as never,
       {} as never,
       brain as never
@@ -219,5 +219,26 @@ describe("loop handoff key pins (jobs)", () => {
     ],
   ])("%s", async (_name, input, expected) => {
     expect(await handoffKey(input())).toBe(expected());
+  });
+});
+
+it("keeps main's worktree repository key when a partial task record has no launch cwd", async () => {
+  const workspace = join(root, "wt");
+  expect(await resolveRepoRoot(workspace)).toBe(join(root, "repo"));
+  const scope = vi.fn(async () => null);
+  await agentTaskProject(
+    {
+      id: "agt_partial_scope",
+      cwd: null,
+      worktreePath: null,
+      workspacePath: workspace,
+      baseBranch: null,
+      placement: controllerPlacement,
+    },
+    scope
+  );
+  expect(scope).toHaveBeenCalledExactlyOnceWith({
+    projectId: null,
+    paths: [join(root, "repo"), workspace],
   });
 });

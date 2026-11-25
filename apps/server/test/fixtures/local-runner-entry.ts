@@ -26,6 +26,9 @@ const dieOnce = (marker: string | undefined) => {
   }
 };
 
+if (process.env.RUNNER_FIXTURE_CWD)
+  process.chdir(process.env.RUNNER_FIXTURE_CWD);
+
 const engines = localEnginePort();
 // Fixture-only provider acts: no provider or ambient credentials are ever read.
 if (process.env.RUNNER_FIXTURE_RESET_LOG) {

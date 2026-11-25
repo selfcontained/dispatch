@@ -950,6 +950,72 @@ export function createLocalCheckoutRunner(
           input as Req<"workspace.release">,
           options as CallOptions<"workspace.release">
         ) as Promise<Res<K>>;
+      if (op === "git.roots") {
+        const request = input as Req<"git.roots">;
+        const target = request.target;
+        let directory: string | null;
+        if ("path" in target) directory = displayPath(target.path);
+        else if (
+          "session" in target &&
+          sessionToWire(target.session) === agent?.id
+        )
+          directory = commandDirectory(agent, target.checkout ?? "current");
+        else
+          throw new RunnerCallError({
+            code: "invalid",
+            message: "Invalid native checkout binding.",
+          });
+        if (directory === null)
+          throw new RunnerCallError({
+            code: "not_found",
+            message: "The session checkout is unavailable.",
+          });
+        // One attempt, by the rule for every read: for a session, only
+        // when the child holds that checkout at the row's directory.
+        const answered =
+          (!("session" in target) ||
+            (await childHolds(
+              target.session,
+              target.checkout ?? "current",
+              directory,
+              options
+            ))) &&
+          (await attempt(
+            (child) =>
+              child.call(
+                "git.roots",
+                request,
+                once(options as CallOptions<"git.roots">)
+              ),
+            readMissed,
+            options?.signal
+          ));
+        if (answered) return answered.value as Res<K>;
+        return checkoutWorkload.run(
+          "git.roots",
+          { directory, request: {} },
+          { signal: options?.signal }
+        ) as Promise<Res<K>>;
+      }
+      if (op === "git.origin") {
+        const request = input as Req<"git.origin">;
+        const answered = await attempt(
+          (child) =>
+            child.call(
+              "git.origin",
+              request,
+              once(options as CallOptions<"git.origin">)
+            ),
+          readMissed,
+          options?.signal
+        );
+        if (answered) return answered.value as Res<K>;
+        return checkoutWorkload.run(
+          "git.origin",
+          { directory: request.path, request },
+          { signal: options?.signal }
+        ) as Promise<Res<K>>;
+      }
       if (op === "path.resolve")
         return resolvePath(
           input as Req<"path.resolve">,

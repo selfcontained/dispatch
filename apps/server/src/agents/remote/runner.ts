@@ -26,6 +26,7 @@ import { hostCommand, selfCommand } from "@dispatch/runner/host/host-command";
 import {
   RunnerCallError,
   displayPath,
+  pathFromWire,
   runnerError,
   sessionFromWire,
   sessionToWire,
@@ -1163,7 +1164,10 @@ export async function runRemoteRunner(
           }
           case "gitQuery": {
             const { op, request } = command.operation;
-            const { target: gitTarget } = request;
+            const gitTarget =
+              "target" in request
+                ? request.target
+                : { path: pathFromWire(request.path) };
             const gitEnv = await checkoutGitEnv();
             const run = (cwd?: string) =>
               runCheckoutWorker(

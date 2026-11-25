@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import { gitContextFrom } from "../../agents/git-context-value.js";
-import type { AgentGitContext } from "../../agents/types.js";
+import type { GitContext } from "@dispatch/runner-protocol/git-context";
 import {
   runCommand as defaultRunCommand,
   type CommandRunner,
@@ -17,7 +17,7 @@ export type ProbeOptions = {
 };
 
 export type ProbeResult =
-  | { status: "ok"; value: AgentGitContext | null }
+  | { status: "ok"; value: GitContext | null }
   | { status: "error" };
 
 export function normalizePath(value: string): string {

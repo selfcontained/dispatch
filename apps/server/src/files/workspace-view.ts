@@ -8,7 +8,7 @@ import { lstat, open, realpath } from "node:fs/promises";
 import path from "node:path";
 import { imageDimensionsFromBuffer } from "./image-dimensions.js";
 import { detectFileType } from "./file-type.js";
-import { WorkspaceError } from "../shared/lib/workspace-error.js";
+import { WorkspaceError } from "@dispatch/runner-protocol";
 
 const MAX_ENTRIES = 500;
 const MAX_BYTES = 1_048_576;

@@ -137,6 +137,13 @@ export function checkoutHandlers(
   }
 
   const handlers: CallHandlers = {
+    async "git.origin"(input) {
+      return platform.workload.run(
+        "git.origin",
+        { directory: input.path, request: input },
+        {}
+      );
+    },
     async "workspace.describe"({ session }) {
       const binding = await store.get(sessionToWire(session));
       if (!binding) throw notBound();
@@ -188,7 +195,7 @@ export function checkoutHandlers(
     );
   };
   for (const op of [
-    ...WORKER_OPS.filter((op) => op !== "git.context"),
+    ...WORKER_OPS.filter((op) => op !== "git.context" && op !== "git.origin"),
     ...EXEC_OPS,
     ...WRITE_OPS,
   ]) {

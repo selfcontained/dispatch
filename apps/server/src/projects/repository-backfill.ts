@@ -1,3 +1,4 @@
+import type { CheckoutCommandRunners } from "../runners/directory.js";
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool, PoolClient } from "pg";
 import { inferProjectRepository } from "../agents/remote/repository.js";
@@ -163,7 +164,8 @@ async function recordRepository(
 export async function backfillProjectRepositories(
   pool: Pool,
   log: Pick<FastifyBaseLogger, "info" | "warn">,
-  onMerge: () => void = () => {}
+  onMerge: () => void = () => {},
+  runners: CheckoutCommandRunners = {}
 ) {
   try {
     const { rows } = await pool.query<Candidate>(
@@ -172,7 +174,10 @@ export async function backfillProjectRepositories(
     );
     for (const project of rows) {
       try {
-        const repository = await inferProjectRepository(project.repo_root);
+        const repository = await inferProjectRepository(
+          project.repo_root,
+          runners
+        );
         if (!repository) continue;
         const result = await recordRepository(pool, project, repository);
         if (!result) continue;

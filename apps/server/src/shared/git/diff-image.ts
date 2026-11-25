@@ -4,7 +4,10 @@ import { realpath, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { childProcessEnv } from "../process/child-environment.js";
 
-import { DIFF_IMAGE_MAX_BYTES, type DiffImageInfo } from "@dispatch/shared";
+import {
+  DIFF_IMAGE_MAX_BYTES,
+  type DiffImageInfo,
+} from "@dispatch/runner-protocol/diff-types";
 
 import { imageMimeType, isImageFile } from "@dispatch/runner-protocol";
 export { imageMimeType, isImageFile } from "@dispatch/runner-protocol";
