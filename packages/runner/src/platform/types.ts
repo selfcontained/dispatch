@@ -93,6 +93,7 @@ export interface Platform {
  * it lands in the configuration its agents read.
  */
 export interface EnginePort {
+  models(request: Req<"engine.models">): Promise<Res<"engine.models">>;
   usage(request: Req<"engine.usage">): Promise<Res<"engine.usage">>;
   quotaReset(
     request: Req<"engine.quota.reset">

@@ -1047,6 +1047,7 @@ export type LocalRunnerFence = {
 };
 
 export type EngineCallName =
+  | "engine.models"
   | "engine.usage"
   | "engine.quota.reset"
   | "engine.update.inspect"
@@ -1082,6 +1083,7 @@ const childMissed = (error: unknown) =>
 
 /** The posix-user engine port, as this process runs it while the child is away. */
 export type InProcessEngines = {
+  models(request: Req<"engine.models">): Promise<Res<"engine.models">>;
   usage(request: Req<"engine.usage">): Promise<Res<"engine.usage">>;
   quotaReset(
     request: Req<"engine.quota.reset">
@@ -1139,6 +1141,7 @@ export function inProcessEngines(
         });
       return run(...args);
     };
+  port.models = guard(port.models.bind(port));
   port.quotaReset = guard(port.quotaReset.bind(port));
   port.updateSpawn = guard(port.updateSpawn.bind(port));
   port.updateRelease = guard(port.updateRelease.bind(port));
@@ -1162,6 +1165,10 @@ export function localEngineCalls(
     options?: CallOptions<K>
   ): Promise<Res<K>> {
     switch (op) {
+      case "engine.models":
+        return (await inProcess.models(
+          input as Req<"engine.models">
+        )) as Res<K>;
       case "engine.usage":
         return (await inProcess.usage(input as Req<"engine.usage">)) as Res<K>;
       case "engine.quota.reset":
@@ -1236,6 +1243,12 @@ export function localEngineCalls(
           const attempt = singleAttempt ? { ...options, wait: false } : options;
           return await runner.call(op, input, attempt);
         } catch (error) {
+          if (
+            op === "engine.models" &&
+            error instanceof RunnerCallError &&
+            error.code === "fenced"
+          )
+            throw error;
           if (
             singleAttempt &&
             (!(error instanceof RunnerCallError) ||

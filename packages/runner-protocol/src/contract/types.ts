@@ -280,6 +280,7 @@ export const engineChoice = object({
   description: optional(string),
 });
 export const engineModels = object({
+  current: optional(string),
   defaultModel: nullable(string),
   models: array(
     object({

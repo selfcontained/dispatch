@@ -1155,6 +1155,7 @@ async function registerRoutes() {
   });
   const localEnginesInProcess = inProcessEngines(
     {
+      adapter: config.acpAdapter,
       claudeBin: config.claudeBin,
       codexBin: config.codexBin,
       opencodeBin: config.opencodeBin,

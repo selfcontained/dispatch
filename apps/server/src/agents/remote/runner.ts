@@ -555,7 +555,13 @@ export async function runRemoteRunner(
       config.home === "/var/lib/dispatch-runner/home" &&
       passwdShell === "/usr/sbin/nologin"
   );
+  // Hosts and catalog reads take an adapter override only through their bins.
+  const [adapterBin, ...adapterArgs] = config.adapter ?? [];
+  const bins: HostLaunch["bins"] = adapterBin
+    ? { ...config.bins, adapter: { bin: adapterBin, args: adapterArgs } }
+    : config.bins;
   const engineExecutor = new EngineRunnerExecutor({
+    adapter: bins.adapter,
     hostCommand: () => self("runner-engine-host"),
     bundledRuntime: process.versions.bun ? process.execPath : undefined,
     uid: config.uid,
@@ -572,11 +578,6 @@ export async function runRemoteRunner(
   });
   const closeEngines = () => engineExecutor.close();
   process.once("exit", closeEngines);
-  // Hosts and catalog reads take an adapter override only through their bins.
-  const [adapterBin, ...adapterArgs] = config.adapter ?? [];
-  const bins: HostLaunch["bins"] = adapterBin
-    ? { ...config.bins, adapter: { bin: adapterBin, args: adapterArgs } }
-    : config.bins;
   async function resolveBins(
     engine?: RunnerEngine
   ): Promise<HostLaunch["bins"]> {

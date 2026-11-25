@@ -4285,6 +4285,9 @@
       },
       "response": {
         "object": {
+          "current": {
+            "optional": "string"
+          },
           "defaultModel": {
             "nullable": "string"
           },

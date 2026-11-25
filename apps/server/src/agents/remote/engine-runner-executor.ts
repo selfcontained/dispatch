@@ -1,3 +1,4 @@
+import type { EngineBins } from "../acp/engine-spec.js";
 import {
   loadProviderPlans,
   consumeCodexLimitReset,
@@ -83,6 +84,7 @@ export type EngineListParts = {
 
 export type EngineWorkloadPlatform = {
   providerOptions?: ProviderPlanOptions;
+  models?: (request: Req<"engine.models">) => Promise<Res<"engine.models">>;
   plugins?: ReadonlyMap<string, PluginStatusChecker>;
   inspectUpdate?: (
     engine: string,
@@ -110,6 +112,18 @@ export class EngineWorkload {
 
   constructor(private readonly platform: EngineWorkloadPlatform) {
     this.logins = new EngineLogins(platform.logins);
+  }
+
+  async models(request: Req<"engine.models">): Promise<Res<"engine.models">> {
+    if (
+      !RUNNER_ENGINES.includes(request.engine as RunnerEngine) ||
+      !this.platform.models
+    )
+      throw new RunnerCallError({
+        code: "unsupported",
+        message: "Engine model listing unavailable.",
+      });
+    return this.platform.models(request);
   }
 
   usage(_request: Req<"engine.usage">) {
@@ -296,7 +310,9 @@ export class EngineWorkload {
  * shell. `bins` are the configured CLIs (`DISPATCH_CLAUDE_BIN` and so on).
  */
 export function localEngineWorkload(
-  bins: Partial<Record<AcpEngineId, string>>,
+  bins: Partial<Record<AcpEngineId, string>> & {
+    adapter?: EngineBins["adapter"];
+  },
   seams: Pick<EngineLoginDeps, "command" | "env" | "linkTimeoutMs"> & {
     providerOptions?: ProviderPlanOptions;
     updates?: Partial<Record<AcpEngineId, ManagedCommand>>;
@@ -305,6 +321,19 @@ export function localEngineWorkload(
 ): EngineWorkload {
   const statuses = () => engineStatuses(bins, seams.env ?? process.env);
   return new EngineWorkload({
+    models: async (request) => {
+      const { readCatalog } = await import("./engine-capability-worker.js");
+      return readCatalog(
+        request.engine as RunnerEngine,
+        {
+          claudeBin: bins.claude ?? "claude",
+          codexBin: bins.codex ?? null,
+          opencodeBin: bins.opencode,
+          adapter: bins.adapter,
+        },
+        request.model
+      );
+    },
     providerOptions: seams.providerOptions,
     inspectUpdate: async (engine, action, presentation) => {
       const status = (await statuses()).find((row) => row.id === engine);
@@ -435,6 +464,7 @@ export type RunnerEngineConfig = {
 export type EngineRunnerExecutorConfig = {
   uid: number;
   gid: number;
+  adapter?: EngineBins["adapter"];
   bundledRuntime?: string;
   /** Merged into every spawned process's environment (HOME, PATH, CA, …). */
   env: NodeJS.ProcessEnv;
@@ -673,8 +703,14 @@ export class EngineRunnerExecutor {
       this.hostPending.set(id, { resolve, reject })
     );
     worker.stdin.write(
-      JSON.stringify({ id, call: { op, request }, bins, updates, installs }) +
-        "\n"
+      JSON.stringify({
+        id,
+        call: { op, request },
+        bins,
+        updates,
+        installs,
+        adapter: this.config.adapter,
+      }) + "\n"
     );
     return (await response) as Res<K>;
   }

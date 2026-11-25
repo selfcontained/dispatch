@@ -625,6 +625,7 @@ export const sessionFilesWorkload = {
  */
 export function localEnginePort(bins = configuredLaunchEnvironment()?.bins) {
   return localEngineWorkload({
+    adapter: bins?.adapter,
     claude: bins?.claudeBin ?? "claude",
     ...(bins?.codexBin && { codex: bins.codexBin }),
     ...(bins?.opencodeBin && { opencode: bins.opencodeBin }),

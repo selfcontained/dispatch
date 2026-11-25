@@ -9,6 +9,7 @@ export function engineHandlers(platform: Platform): CallHandlers {
   const { engines } = platform;
   if (!engines) return {};
   return {
+    "engine.models": (request) => engines.models(request),
     "engine.usage": (request) => engines.usage(request),
     "engine.quota.reset": (request) => engines.quotaReset(request),
     "engine.update.inspect": (request) => engines.updateInspect(request),
