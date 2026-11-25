@@ -1153,11 +1153,16 @@ async function registerRoutes() {
     bins: { claude: config.claudeBin, codex: config.codexBin },
     logger: app.log,
   });
-  const localEnginesInProcess = inProcessEngines({
-    claudeBin: config.claudeBin,
-    codexBin: config.codexBin,
-    opencodeBin: config.opencodeBin,
-  });
+  const localEnginesInProcess = inProcessEngines(
+    {
+      claudeBin: config.claudeBin,
+      codexBin: config.codexBin,
+      opencodeBin: config.opencodeBin,
+    },
+    () =>
+      localRunnerProcess?.frozen ??
+      updateRecoveryRuntime.localRunnerStartsFrozen()
+  );
   app.addHook("onClose", async () => localEnginesInProcess.close());
   const engineCalls = (scope: EngineScope) =>
     scopedEngineCalls(

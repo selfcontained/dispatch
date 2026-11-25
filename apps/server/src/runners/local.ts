@@ -1125,9 +1125,25 @@ export type InProcessEngines = {
 
 /** The child's engine port in this process, with the app's configured CLIs. */
 export function inProcessEngines(
-  bins: Parameters<typeof localEnginePort>[0]
+  bins: Parameters<typeof localEnginePort>[0],
+  frozen: () => boolean = () => false
 ): InProcessEngines {
-  return localEnginePort(bins);
+  const port = localEnginePort(bins);
+  const guard =
+    <A extends unknown[], R>(run: (...args: A) => R) =>
+    (...args: A): R => {
+      if (frozen())
+        throw new RunnerCallError({
+          code: "fenced",
+          message: "The runner is frozen for an update",
+        });
+      return run(...args);
+    };
+  port.quotaReset = guard(port.quotaReset.bind(port));
+  port.updateSpawn = guard(port.updateSpawn.bind(port));
+  port.updateRelease = guard(port.updateRelease.bind(port));
+  port.pluginApply = guard(port.pluginApply.bind(port));
+  return port;
 }
 
 /**
@@ -1222,8 +1238,8 @@ export function localEngineCalls(
         } catch (error) {
           if (
             singleAttempt &&
-            error instanceof RunnerCallError &&
-            error.code === "unknown_outcome"
+            (!(error instanceof RunnerCallError) ||
+              error.code !== "unavailable")
           )
             throw error;
           const byId = op !== "engine.list" && op !== "engine.login.start";
@@ -1249,6 +1265,7 @@ export function localRunnerOf(process: LocalRunnerProcess | undefined) {
 }
 
 export type LocalRunnerProcess = LocalRunnerFence & {
+  readonly frozen: boolean;
   /** The child as a `Runner`: one connection, retried while unavailable. */
   runner: LocalRunnerSession;
   stop(graceMs?: number): Promise<void>;
@@ -1476,6 +1493,9 @@ export function startLocalRunnerProcess(options: {
   });
   return {
     runner,
+    get frozen() {
+      return fence.wanted;
+    },
     activity: fence.activity,
     freeze: fence.freeze,
     async thaw() {

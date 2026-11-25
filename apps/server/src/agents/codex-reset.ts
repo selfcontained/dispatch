@@ -16,6 +16,9 @@ export type RedeemCodexReset = (
   idempotencyKey?: string
 ) => Promise<CodexResetResult>;
 
+// Main has one active spend for the entire Dispatch process; replay maps stay scoped.
+const processSpend = { active: false };
+
 /** Process-local, account-wide protection shared by HTTP and MCP. Entries (including
  * ambiguous failures) live for ten minutes after completion. Never evict a live
  * entry to admit work. Restarting this process loses protection; callers must reuse
@@ -37,7 +40,6 @@ export function createCodexResetCoordinator(deps: {
     string,
     { expiresAt: number; result: Promise<CodexResetResult> }
   >();
-  let active = false;
   return (idempotencyKey) => {
     const key = idempotencyKey ?? "legacy-ui";
     for (const [id, entry] of entries) {
@@ -45,12 +47,14 @@ export function createCodexResetCoordinator(deps: {
     }
     const previous = entries.get(key);
     if (previous) return previous.result;
-    if (active || entries.size >= maxEntries) {
+    if (processSpend.active || entries.size >= maxEntries) {
       return Promise.resolve({
         outcome: null,
         error: {
-          reason: active ? "reset_in_progress" : "idempotency_capacity",
-          message: active
+          reason: processSpend.active
+            ? "reset_in_progress"
+            : "idempotency_capacity",
+          message: processSpend.active
             ? "Another account-shared reset is in progress. Check usage before making a new request."
             : "Reset replay protection is full. Wait ten minutes before making a new request.",
           possiblyConsumed: false,
@@ -59,7 +63,7 @@ export function createCodexResetCoordinator(deps: {
         refreshError: null,
       });
     }
-    active = true;
+    processSpend.active = true;
     const entry = {
       expiresAt: Infinity,
       result: undefined! as Promise<CodexResetResult>,
@@ -114,7 +118,7 @@ export function createCodexResetCoordinator(deps: {
         return { outcome, error, usage, refreshError };
       })
       .finally(() => {
-        active = false;
+        processSpend.active = false;
         entry.expiresAt = now() + retentionMs;
       });
     entries.set(key, entry);
