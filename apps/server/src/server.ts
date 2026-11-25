@@ -124,7 +124,11 @@ import { JobNotifier } from "./notifications/job-notifier.js";
 import { FocusTracker } from "./focus-tracker.js";
 import { PresenceTracker, toastRecipients } from "./presence-tracker.js";
 import { registerPresenceActivity } from "./server/presence-activity.js";
-import { AGENT_TYPES, setEnabledAgentTypes } from "./agent-type-settings.js";
+import {
+  AGENT_TYPES,
+  getEnabledAgentTypes,
+  setEnabledAgentTypes,
+} from "./agent-type-settings.js";
 import { JobService } from "./jobs/service.js";
 import { TemplateService } from "./templates/service.js";
 import { ReleaseLogStreamProcessor } from "./release-log-stream.js";
@@ -1355,7 +1359,9 @@ async function registerRoutes() {
     },
   });
   await registerEngineLoginRoutes(app, engineManager);
-  await registerEngineManagementRoutes(app, engineManager);
+  await registerEngineManagementRoutes(app, engineManager, {
+    enabledAgentTypes: () => getEnabledAgentTypes(pool),
+  });
   await registerUpdateRecoveryRoutes(app, updateRecoveryRuntime.routeDeps);
   await registerResourceRoutes(app, { pool, resources: serviceResources });
   await registerRoutingShadowRoutes(

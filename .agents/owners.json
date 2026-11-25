@@ -117,6 +117,7 @@
         "apps/server/test/codex-reset.test.ts",
         "apps/server/test/provider-plans.test.ts",
         "apps/server/src/routes/plugin.ts",
+        "apps/server/src/shared/plugin-status.ts",
         "apps/server/test/plugin-routes.test.ts",
         "apps/server/test/engine-plugin-port.test.ts",
         "apps/server/test/engine-update-port.test.ts",

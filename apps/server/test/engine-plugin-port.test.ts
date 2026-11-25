@@ -27,7 +27,7 @@ function fixture() {
     update: vi.fn(async () => result),
   };
   const port = new EngineWorkload({
-    plugins,
+    plugins: new Map([["dispatch@dispatch", plugins]]),
     installations: async () => [],
     logins: { resolveBin: async () => null },
   });

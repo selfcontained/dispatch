@@ -7,6 +7,7 @@ import {
 import { EngineUpdateHost, installationOnWire } from "../engine-updates.js";
 import {
   createPluginStatusChecker,
+  PLUGIN_ID,
   isPluginAgentType,
   type PluginStatusChecker,
 } from "../../shared/plugin-status.js";
@@ -75,13 +76,12 @@ export type EngineListParts = {
 };
 
 export type EngineWorkloadPlatform = {
-  plugins?: PluginStatusChecker;
+  plugins?: ReadonlyMap<string, PluginStatusChecker>;
   inspectUpdate?: (
     engine: string,
     action?: "install" | "update",
     presentation?: boolean
   ) => Promise<Res<"engine.update.inspect">>;
-  pluginBin?: (engine: "claude" | "codex") => Promise<string>;
   /** Every engine's installation, with only the parts asked for. */
   installations(parts: EngineListParts): Promise<EngineInstallation[]>;
   /** How this platform finds and runs an engine's CLI for a sign-in. */
@@ -99,19 +99,10 @@ const notFound = () =>
  */
 export class EngineWorkload {
   private readonly updateHost = new EngineUpdateHost();
-  private readonly plugins: PluginStatusChecker;
   private readonly logins: EngineLogins;
 
   constructor(private readonly platform: EngineWorkloadPlatform) {
     this.logins = new EngineLogins(platform.logins);
-    this.plugins =
-      platform.plugins ??
-      createPluginStatusChecker({
-        binFor: async (engine) =>
-          platform.pluginBin
-            ? await platform.pluginBin(engine)
-            : ((await platform.logins.resolveBin(engine)) ?? engine),
-      });
   }
 
   async updateInspect(
@@ -144,19 +135,22 @@ export class EngineWorkload {
   private pluginEngine(request: { engine: string; plugin: string }) {
     if (
       !isPluginAgentType(request.engine) ||
-      request.plugin !== "dispatch@dispatch"
+      !this.platform.plugins?.has(request.plugin)
     )
       throw new RunnerCallError({
         code: "unsupported",
         message: "Plugin is unavailable.",
       });
-    return request.engine;
+    return {
+      engine: request.engine,
+      checker: this.platform.plugins.get(request.plugin)!,
+    };
   }
   async pluginStatus(
     request: Req<"engine.plugin.status">
   ): Promise<Res<"engine.plugin.status">> {
-    const engine = this.pluginEngine(request);
-    const status = await this.plugins.getStatus(engine, {
+    const { engine, checker } = this.pluginEngine(request);
+    const status = await checker.getStatus(engine, {
       forceRefresh: request.refresh,
     });
     return { ...status, actions: status.installed ? ["update"] : ["install"] };
@@ -164,8 +158,8 @@ export class EngineWorkload {
   async pluginApply(
     request: Req<"engine.plugin.apply">
   ): Promise<Res<"engine.plugin.apply">> {
-    const engine = this.pluginEngine(request);
-    const result = await this.plugins[request.action](engine);
+    const { engine, checker } = this.pluginEngine(request);
+    const result = await checker[request.action](engine);
     return {
       ...result.status,
       ranCommands: result.ranCommands,
@@ -324,8 +318,17 @@ export function localEngineWorkload(
         });
       return installationOnWire(installation);
     },
-    pluginBin: async (engine) =>
-      (await findEngineBin(bins[engine] ?? engine)) ?? bins[engine] ?? engine,
+    plugins: new Map([
+      [
+        PLUGIN_ID,
+        createPluginStatusChecker({
+          binFor: async (engine) =>
+            (await findEngineBin(bins[engine] ?? engine)) ??
+            bins[engine] ??
+            engine,
+        }),
+      ],
+    ]),
     async installations(parts) {
       const found = await statuses();
       const versioned =

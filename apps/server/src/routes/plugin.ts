@@ -6,6 +6,7 @@ import type { Pool } from "pg";
 import { getEnabledAgentTypes } from "../agent-type-settings.js";
 import {
   isPluginAgentType,
+  PLUGIN_ID,
   PLUGIN_AGENT_TYPES,
   type PluginStatusChecker,
 } from "../shared/plugin-status.js";
@@ -92,7 +93,7 @@ export function runnerPluginChecker(
       request: Req<K>
     ): Promise<Res<K>>;
   },
-  plugin = "dispatch@dispatch"
+  plugin = PLUGIN_ID
 ): PluginStatusChecker {
   function status(
     engine: "claude" | "codex",

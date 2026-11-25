@@ -1,3 +1,4 @@
+import { PLUGIN_AGENT_TYPES } from "../shared/agent-types.js";
 import {
   isEngineCapabilityOperation,
   isEngineOperation,
@@ -83,7 +84,8 @@ const currentLoginSchema = z.object({
  */
 export async function registerEngineManagementRoutes(
   app: FastifyInstance,
-  manager: EngineManager
+  manager: EngineManager,
+  options: { enabledAgentTypes?: () => Promise<readonly string[]> } = {}
 ): Promise<void> {
   app.get("/api/v1/engine-management/inventory", async (request, reply) => {
     const scope = parseScopeQuery(request.query);
@@ -120,6 +122,18 @@ export async function registerEngineManagementRoutes(
       if (!scope.success) {
         return reply.code(400).send({ error: "Invalid scope or operation." });
       }
+      if (
+        (operation.type === "plugin_status" ||
+          operation.type === "plugin_install" ||
+          operation.type === "plugin_update") &&
+        !(
+          await (options.enabledAgentTypes?.() ??
+            Promise.resolve(PLUGIN_AGENT_TYPES))
+        ).includes(operation.engine)
+      )
+        return reply
+          .code(400)
+          .send({ error: `${operation.engine} is not an enabled agent type.` });
       return { ack: await manager.rpc(scope.data, operation) };
     }
     const body = operationBodySchema.safeParse(request.body);
