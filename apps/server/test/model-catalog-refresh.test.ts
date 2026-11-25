@@ -552,20 +552,63 @@ describe.each(validationTargets)(
       await modelScopeFor(target, "opencode", { model: "b", effort: "turbo" });
       expect(f.listing).toHaveBeenCalledOnce();
     });
-    it("does not reject on never-fetched effort when that fetch fails", async () => {
+    it.each(["offline", "failed", "fenced", "timeout"])(
+      "does not reject never-fetched effort after %s",
+      async (reason) => {
+        const f = validationFixture();
+        setLearnedAgentModels("opencode", [{ id: "a", label: "A" }], "a", id);
+        const settings =
+          id === "local" ? localRunnerSettings : enrolledRunnerSettings(id);
+        f.rows.set(
+          namespaced(settings, "agent_models_refresh:opencode"),
+          JSON.stringify({
+            refreshedAt: new Date(Date.UTC(2026, 0, 1)).toISOString(),
+          })
+        );
+        if (reason === "offline") f.setOnline(false);
+        else if (reason === "timeout") {
+          vi.useFakeTimers();
+          f.listing.mockReturnValueOnce(new Promise(() => {}));
+        } else
+          f.listing.mockRejectedValueOnce(
+            new RunnerCallError({
+              code: reason === "fenced" ? "fenced" : "internal",
+              message: "Fixture effort fetch failed",
+            })
+          );
+        const pending = modelScopeFor(target, "opencode", {
+          model: "a",
+          effort: "unreported",
+        });
+        if (reason === "timeout") await vi.advanceTimersByTimeAsync(20_001);
+        const scope = await pending;
+        expect(validateAgentEffort("opencode", "unreported", "a", scope)).toBe(
+          "unreported"
+        );
+        expect(
+          getLearnedAgentModels("opencode", id)?.[0]?.effort
+        ).toBeUndefined();
+        expect(f.listing).toHaveBeenCalledTimes(reason === "offline" ? 0 : 1);
+      }
+    );
+    it("rejects an unknown model immediately after a successful refresh, while an hourly refresh waits", async () => {
       const f = validationFixture();
-      setLearnedAgentModels("opencode", [{ id: "a", label: "A" }], "a", id);
-      f.setOnline(false);
+      await modelScopeFor(target, "opencode", { model: "new" });
+      f.advance(MODEL_REFRESH_AGE_MS);
+      const listing = deferred<Awaited<ReturnType<typeof f.listing>>>();
+      f.listing.mockReturnValueOnce(listing.promise);
       const scope = await modelScopeFor(target, "opencode", {
-        model: "a",
-        effort: "unreported",
+        model: "absent",
       });
-      expect(validateAgentEffort("opencode", "unreported", "a", scope)).toBe(
-        "unreported"
+      expect(() => validateAgentModel("opencode", "absent", scope)).toThrow(
+        'Model "absent" is not supported for opencode. Choose a configured model or omit model for the CLI default.'
       );
-      expect(
-        getLearnedAgentModels("opencode", id)?.[0]?.effort
-      ).toBeUndefined();
+      await vi.waitFor(() => expect(f.listing).toHaveBeenCalledTimes(2));
+      listing.resolve({
+        defaultModel: "new",
+        models: [{ id: "new", label: "New", effort: [] }],
+      });
+      await f.service.settled(id, "opencode");
     });
   }
 );

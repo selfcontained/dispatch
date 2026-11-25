@@ -34,7 +34,7 @@ type Entry = {
   pending?: Promise<void>;
 };
 
-/** Dispatch-owned freshness. Reads schedule work; they never await this coordinator. */
+/** Dispatch-owned freshness. Pickers schedule work; cold launch validation joins it. */
 export class ModelCatalogRefresh {
   private entries = new Map<string, Entry>();
   private closed = false;
@@ -245,7 +245,7 @@ export class ModelCatalogRefresh {
       });
     }
   }
-  /** Useful to owners shutting down and to fixture tests; user reads never call it. */
+  /** Join pending work for launch validation and fixture tests; never for pickers. */
   async settled(
     runnerId: string,
     engine: AgentType,
