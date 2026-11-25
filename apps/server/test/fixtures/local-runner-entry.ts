@@ -24,6 +24,14 @@ const dieOnce = (marker: string | undefined) => {
   }
 };
 
+const engines = localEnginePort();
+const updateSpawn = engines.updateSpawn.bind(engines);
+engines.updateSpawn = async (request) => {
+  const result = await updateSpawn(request);
+  dieOnce(process.env.RUNNER_DIE_AFTER_ENGINE_SPAWN);
+  return result;
+};
+
 await runCli(process.argv.slice(2), {
   // The app's own build, as `main.ts local-runner` reports it.
   build: {
@@ -31,7 +39,7 @@ await runCli(process.argv.slice(2), {
     ...(embeddedBuild.revision && { revision: embeddedBuild.revision }),
   },
   platform: {
-    engines: localEnginePort(),
+    engines,
     workload: checkoutWorkload,
     workspace: {
       ...workspaceWorkload,
