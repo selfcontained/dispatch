@@ -48,7 +48,11 @@ import {
   scheduledMessagesKey,
 } from "@/components/app/scheduled-messages";
 import { isTurnEntry } from "@/components/app/chat/turn/trace";
-import { isOpenInput } from "@/hooks/use-inbox";
+import {
+  isOpenInput,
+  INBOX_REVIEWS_QUERY_PREFIX,
+  inboxReviewsQueryKey,
+} from "@/hooks/use-inbox";
 import { CHAT_UNREAD_QUERY_KEY } from "@/hooks/use-chat-unread-summary";
 import { AGENT_REVIEWS_QUERY_KEY } from "@/hooks/use-agent-review-summary";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
@@ -289,6 +293,32 @@ function reconcileThreadEntry(
     return;
   }
   queryClient.setQueryData<StreamThreadResponse>(key, update);
+}
+
+/** Reviews have independent pagination; refetch their authoritative projection.
+ * Protect the first fetch from swallowing an event that arrived mid-request. */
+function invalidateInboxReviews(
+  queryClient: QueryClient,
+  rootId?: string
+): void {
+  for (const query of queryClient.getQueryCache().findAll({
+    queryKey:
+      rootId === undefined
+        ? INBOX_REVIEWS_QUERY_PREFIX
+        : inboxReviewsQueryKey(rootId),
+  })) {
+    if (
+      query.state.fetchStatus === "fetching" &&
+      query.state.data === undefined
+    ) {
+      invalidateOnceFirstFetchSettles(queryClient, query.queryKey);
+    } else {
+      void queryClient.invalidateQueries({
+        queryKey: query.queryKey,
+        exact: true,
+      });
+    }
+  }
 }
 
 function invalidateReviewSummary(queryClient: QueryClient): void {
@@ -566,6 +596,7 @@ export function useSSE(authState: AuthState): void {
             queryKey: CHAT_UNREAD_QUERY_KEY,
           });
           invalidateReviewSummary(queryClient);
+          invalidateInboxReviews(queryClient);
           // `stream.changed` is not replayed after a gap, so every mounted
           // feed (and open thread) refetches on (re)connect — otherwise an
           // open Chat tab keeps missing whatever landed while the stream was
@@ -660,6 +691,7 @@ export function useSSE(authState: AuthState): void {
               block.blocks?.some((shown) => shown.kind === "review"))
           ) {
             invalidateReviewSummary(queryClient);
+            invalidateInboxReviews(queryClient, payload.agentId);
           }
           // Closing an ask changes the agent's derived Waiting activity.
           // The stream row updates the card, but the sidebar agent cache
@@ -700,6 +732,7 @@ export function useSSE(authState: AuthState): void {
         if (payload.type === "stream.changed") {
           void queryClient.invalidateQueries({ queryKey: ["agent-preview"] });
           invalidateStreamFeed(queryClient, payload.agentId);
+          invalidateInboxReviews(queryClient, payload.agentId);
           void queryClient.invalidateQueries({
             queryKey: [...STREAM_QUERY_PREFIX, payload.agentId, "thread"],
           });
@@ -984,6 +1017,7 @@ export function useSSE(authState: AuthState): void {
       reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
       openSSE();
       // Catch up immediately even if the new connection cannot deliver its snapshot.
+      invalidateInboxReviews(queryClient);
       void queryClient.invalidateQueries({ queryKey: STREAM_QUERY_PREFIX });
     };
 
