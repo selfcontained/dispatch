@@ -1,6 +1,15 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -11,6 +20,7 @@ import { runnerGitArgsFor } from "../src/agents/remote/runner.js";
 import {
   WorkloadTools,
   cacheWorkloadPath,
+  enterDirectory,
   workloadPathProbe,
   workloadLoginCommand,
   parseWorkloadTools,
@@ -204,4 +214,50 @@ it("points Git's credential helper at the resolved gh", () => {
   expect(runnerGitArgsFor("/home/a b/gh")).toContain(
     "credential.https://github.com.helper=!'/home/a b/gh' auth git-credential"
   );
+});
+
+it("enters the authorized folder only as itself, after privilege is dropped", async () => {
+  const base = await realpath(root);
+  const folder = path.join(base, "folder");
+  const other = path.join(base, "other");
+  const sealed = path.join(base, "sealed");
+  for (const dir of [folder, other, sealed]) await mkdir(dir);
+  const enter = (dir: string) =>
+    execute(
+      enterDirectory(dir)[0]!,
+      [...enterDirectory(dir).slice(1), "pwd", "-P"],
+      {
+        cwd: "/",
+      }
+    ).then(
+      ({ stdout }) => ({ ran: stdout.trim() }),
+      (error: { code: number; stderr: string }) => ({
+        code: error.code,
+        stderr: error.stderr,
+      })
+    );
+
+  expect(await enter(folder)).toEqual({ ran: folder });
+  // Swapped for a link after it was authorized: another folder, one the
+  // account cannot enter, or nothing there at all. Nothing runs.
+  await rename(folder, path.join(base, "moved"));
+  await symlink(other, folder);
+  expect(await enter(folder)).toMatchObject({
+    code: 125,
+    stderr: expect.stringContaining("unavailable to the runner workload"),
+  });
+  await rm(folder);
+  // Root enters any folder; the workload account, as here, cannot.
+  if (process.getuid?.() !== 0) {
+    await chmod(sealed, 0o000);
+    try {
+      await symlink(sealed, folder);
+      expect(await enter(folder)).toMatchObject({ code: 125 });
+      expect(await enter(sealed)).toMatchObject({ code: 125 });
+    } finally {
+      await chmod(sealed, 0o755);
+    }
+    await rm(folder);
+  }
+  expect(await enter(folder)).toMatchObject({ code: 125 });
 });

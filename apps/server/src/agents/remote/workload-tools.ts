@@ -9,6 +9,22 @@ export const systemTools: Record<WorkloadTool, string> = {
   git: "/usr/bin/git",
 };
 
+/**
+ * Enter `dir` as the workload, after privilege is dropped, then run the rest
+ * of the command. The physical directory must be `dir` itself: a path swapped
+ * for a link since it was authorized, or one the workload cannot enter, runs
+ * nothing. The privileged launcher never changes into a workload path.
+ */
+export function enterDirectory(dir: string): string[] {
+  return [
+    "/bin/sh",
+    "-c",
+    'cd -P -- "$1" 2>/dev/null && [ "$(pwd -P)" = "$1" ] || { printf "dispatch: %s is unavailable to the runner workload\\n" "$1" >&2; exit 125; }; shift; exec "$@"',
+    "dispatch-enter",
+    dir,
+  ];
+}
+
 export const githubCredentialKey = "credential.https://github.com.helper";
 
 /** Git runs credential helpers through a shell. */
