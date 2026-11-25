@@ -178,4 +178,6 @@ Remove each record with its baseline entry; the final seal requires zero records
 
 The controller composition root temporarily supplies the existing Zod capability parser to the enrolled engine acknowledgment adapter. Once the workload moves, import the same parser at the adapter and remove the composition callback.
 
+The controller owns `files/session-file-io.ts` and `files/open-workspace-file.ts`. They open a controller-held source for lazy delivery through `files.put`. At the workload move, copy only `openRegularFile`, `openLinuxDirectory` and their required constants into the runner for checkout and session workers. Compare both implementations against the same regular-file, symlink and directory fixtures on each supported platform. The controller retains the existing `fs` and `fs/promises` own-machine accesses in `open-workspace-file.ts`.
+
 The workload engineUpdatePort wrapper serves the legacy detected-update executor. Delete it with that executor. Fold the shared operation facade into the controller when the controller is its only caller.
