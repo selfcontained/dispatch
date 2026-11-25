@@ -1,18 +1,1 @@
-import type {
-  CheckoutObservation,
-  CheckoutState,
-} from "@dispatch/runner-protocol";
-
-export function observeBoundCheckout(
-  agentId: string,
-  owner: string,
-  borrowers: string[],
-  checkout: CheckoutState | null
-): CheckoutObservation {
-  return {
-    ownership: owner === agentId ? "owned" : "borrowed",
-    owner,
-    borrowers,
-    checkout,
-  };
-}
+export { observeBoundCheckout } from "@dispatch/runner-protocol";

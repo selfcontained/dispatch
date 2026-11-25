@@ -1,29 +1,10 @@
+export { shouldExcludePath } from "@dispatch/runner-protocol";
 import { openRegularFile } from "../../files/open-workspace-file.js";
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 
-const EXCLUDED_BASENAMES = new Set([
-  "pnpm-lock.yaml",
-  "package-lock.json",
-  "yarn.lock",
-  "bun.lockb",
-  "bun.lock",
-  "Cargo.lock",
-  "Gemfile.lock",
-  "poetry.lock",
-  "uv.lock",
-  "Podfile.lock",
-  "Package.resolved",
-  "composer.lock",
-  "mix.lock",
-]);
-
 const UNTRACKED_MAX_BYTES = 1_024 * 1_024;
 const BINARY_PROBE_BYTES = 8_192;
-
-export function shouldExcludePath(filePath: string): boolean {
-  return EXCLUDED_BASENAMES.has(path.basename(filePath));
-}
 
 /**
  * Expand git's brace-compressed rename form into the paths it stands for.
