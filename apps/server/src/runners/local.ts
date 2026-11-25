@@ -598,7 +598,8 @@ export function createLocalCheckoutRunner(
   ): Promise<Res<"path.resolve">> {
     if (child?.connection.state === "ready")
       try {
-        return await child.call("path.resolve", input, options);
+        const attempt = { ...options, wait: false };
+        return await child.call("path.resolve", input, attempt);
       } catch (error) {
         if (!childUnavailable(error)) throw error;
         options?.signal?.throwIfAborted();

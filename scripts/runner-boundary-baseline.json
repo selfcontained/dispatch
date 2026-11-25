@@ -1142,20 +1142,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/jobs/service.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/git-context",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/jobs/service.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/lib/run-command",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/main.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/checkout-worker",
@@ -1312,20 +1298,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/projects/matching.ts",
-    "kind": "R2 host access",
-    "detail": "fs/promises",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/projects/matching.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/projects/resolve-root",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/projects/resolve-root.ts",
     "kind": "R2 host access",
     "detail": "child_process",
@@ -1422,13 +1394,6 @@
     "detail": "apps/server/src/shared/plugin-status",
     "task": "T04",
     "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/projects.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/projects/resolve-root",
-    "task": "T04",
-    "count": 2
   },
   {
     "file": "apps/server/src/routes/system.ts",

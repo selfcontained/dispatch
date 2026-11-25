@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { matchingProjects } from "../src/projects/matching.js";
+import { matchingProjects } from "./helpers/project-matching.js";
 
 describe("starting directory project matching", () => {
   let root: string;
