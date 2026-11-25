@@ -110,7 +110,9 @@ else { console.error('fixture raw probe failure'); process.exitCode = 1; }
     const version = path.join(home, "version");
     const file = async (name: string, content: string) => {
       const target = path.join(prefix, name);
-      await mkdir(path.dirname(target), { recursive: true });
+      // Main rejects group-writable package prefixes. Keep this fixture
+      // user-owned independently of the test host's umask.
+      await mkdir(path.dirname(target), { recursive: true, mode: 0o755 });
       await writeFile(target, content, { mode: 0o755 });
       return target;
     };
