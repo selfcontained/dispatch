@@ -1,3 +1,5 @@
+import { registerLaunchTargetRoutes } from "../src/routes/launch-targets.js";
+import { placementForRunner } from "../src/runners/placement.js";
 import Fastify from "fastify";
 import { beforeAll, afterAll, beforeEach, expect, it } from "vitest";
 import { setupTestDb, teardownTestDb } from "./db/setup.js";
@@ -20,6 +22,26 @@ beforeAll(async () => {
     parseActivityQuery: () => ({}),
     timeRangeClause: () => ({ clause: "", params: [] }),
     escapeLike: (s: string) => s,
+  } as never);
+  app.get("/api/runners", async () => ({
+    runners: [{ id: "fixture", name: "Fixture", status: "offline" }],
+  }));
+  app.get("/api/v1/projects", async () => []);
+  await registerLaunchTargetRoutes(app, {
+    agents: {
+      getAgent: async (id: string) => {
+        const result = await pool.query(
+          "SELECT runner_id FROM agents WHERE id=$1",
+          [id]
+        );
+        return result.rows[0]
+          ? { placement: placementForRunner(result.rows[0].runner_id) }
+          : undefined;
+      },
+    },
+    runners: {},
+    templates: {},
+    tasks: {},
   } as never);
 });
 afterAll(async () => {
@@ -223,4 +245,39 @@ it("filters runner projects and keeps local folders separate in agent pagination
   expect(local.agents[0]).not.toHaveProperty("historyRunner");
   expect(local.agents[0]).not.toHaveProperty("historyProject");
   expect(local.agents.map((a: { id: string }) => a.id)).toEqual(["c"]);
+});
+
+it("pins current local-only target response and unchanged empty project-target history", async () => {
+  await pool.query(
+    `INSERT INTO agents (id,launch_cwd,cwd,created_at) VALUES ('local','/work/alpha','/work/alpha','2026-01-01T00:00:00Z')`
+  );
+  const targets = (await app.inject("/api/v1/launch-targets")).json().targets;
+  const main = await app.inject("/api/v1/history/projects");
+  expect((await app.inject(targets[0].historyUrl)).body).toBe(main.body);
+  expect((await app.inject(targets[1].historyUrl)).body).toBe(
+    '{"projects":[],"projectOptions":[]}'
+  );
+});
+
+it("retains mixed local groups and computes target counts, recency and icon only from target members", async () => {
+  await pool.query(`INSERT INTO projects VALUES ('p','/work/alpha','https://example.com/alpha');
+    INSERT INTO agents (id,runner_id,launch_cwd,cwd,project_id,created_at) VALUES
+    ('local-old','local','/work/alpha','/work/alpha',null,'2026-01-01T00:00:00Z'),
+    ('local-new','local','/work/alpha','/work/alpha',null,'2026-01-02T00:00:00Z'),
+    ('runner','fixture','runner://fixture/@session','runner://fixture/@session','p','2026-01-03T00:00:00Z')`);
+  const targets = (await app.inject("/api/v1/launch-targets")).json().targets;
+  expect((await app.inject(targets[0].historyUrl)).json()).toEqual({
+    projects: ["/work/alpha"],
+    projectOptions: [
+      {
+        path: "/work/alpha",
+        usageCount: 2,
+        latestCreatedAt: "2026-01-02T00:00:00.000Z",
+        iconUrl: "/api/v1/agents/local-new/repo-icon",
+      },
+    ],
+  });
+  expect((await app.inject(targets[1].historyUrl)).body).toBe(
+    '{"projects":[],"projectOptions":[]}'
+  );
 });

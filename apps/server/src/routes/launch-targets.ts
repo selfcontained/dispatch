@@ -198,22 +198,9 @@ export async function registerLaunchTargetRoutes(
       projectOptions: Array<{ path: string; iconUrl?: string }>;
     }>(
       request,
-      `/api/v1/history/projects?${query({ search: q.search, limit: q.limit })}`
+      `/api/v1/history/projects?${query({ search: q.search, limit: q.limit, runnerId: target.id })}`
     );
-    const accepted = await Promise.all(
-      history.projectOptions.map(async (option) => {
-        const id = option.iconUrl?.match(/\/agents\/([^/]+)\/repo-icon/)?.[1];
-        const agent = id
-          ? await deps.agents.getAgent(decodeURIComponent(id))
-          : undefined;
-        return agent && identityKey(agent.placement, option.path) !== null
-          ? option
-          : null;
-      })
-    );
-    const projectOptions = accepted.filter(
-      (option): option is NonNullable<typeof option> => option !== null
-    );
+    const projectOptions = history.projectOptions;
     const candidates: unknown = q.candidates ? JSON.parse(q.candidates) : [];
     const folders = Array.isArray(candidates)
       ? candidates.filter(

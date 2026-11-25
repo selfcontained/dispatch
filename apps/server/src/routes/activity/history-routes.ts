@@ -34,6 +34,10 @@ async function handleHistoryProjects(
       `(LOWER(a.history_identity) LIKE $${params.length} OR LOWER(regexp_replace(a.history_identity, '/+$', '')) LIKE $${params.length})`
     );
   }
+  if (typeof query.runnerId === "string") {
+    params.push(query.runnerId);
+    where.push(`a.runner_id = $${params.length}`);
+  }
   params.push(limit);
 
   const result = await deps.pool.query<{
