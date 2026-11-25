@@ -40,7 +40,6 @@ import {
   sanitizeAgentNameForPrompt,
   type AgentRelation,
 } from "../agents/lineage.js";
-import { resolveRepoRoot } from "../shared/git/git-context.js";
 import {
   assertValidStoredFileName,
   resolveFilesDir,
@@ -195,7 +194,8 @@ async function addressableAgents<
   senderRepoRoot: string | null,
   crossRepo: boolean,
   project: (id: string | null | undefined) => Promise<ProjectIdentity | null>,
-  repository: (agentId: string) => Promise<string | null>
+  repository: (agentId: string) => Promise<string | null>,
+  repositoryRoot: (agent: T) => Promise<string | null>
 ): Promise<T[]> {
   const sender = all.find((a) => a.id === agentId);
   const senderParentId = sender?.parentAgentId ?? null;
@@ -225,7 +225,7 @@ async function addressableAgents<
       placement: a.placement ?? checkoutReadPlacement(a.cwd),
       repositoryRoot: () =>
         // agent cwd not in a git repo — skip
-        resolveRepoRoot(a.workspacePath ?? a.cwd).catch(() => null),
+        repositoryRoot(a).catch(() => null),
       project: () => project(a.projectId),
       repository: () => repository(a.id),
     });
@@ -910,7 +910,13 @@ async function handleListAgentsForAgent(
         await deps.pool.query<{ url: string | null }>(SESSION_REPOSITORY_SQL, [
           id,
         ])
-      ).rows[0]?.url ?? null
+      ).rows[0]?.url ?? null,
+    async (agent) => {
+      const reply = await deps.agentManager.inspectCheckout(agent, {
+        kind: "roots",
+      });
+      return reply.kind === "roots" ? reply.repositoryRoot : null;
+    }
   );
   // Two different scopes, deliberately.
   //

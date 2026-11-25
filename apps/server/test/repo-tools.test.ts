@@ -13,7 +13,7 @@ vi.mock("../src/shared/lib/run-command.js", () => ({
 }));
 
 const { loadRepoTools, loadRepoHooks } =
-  await import("../src/shared/mcp/repo-tools.js");
+  await import("./helpers/local-repo-tools.js");
 const { runCommand } = await import("../src/shared/lib/run-command.js");
 
 const tempDirs: string[] = [];

@@ -21,7 +21,7 @@ import {
   restoreLegacyMacLaunchAgentEnvironment,
   shouldRestoreLegacyMacEnvironment,
 } from "../src/startup/shell-environment.js";
-import { loadRepoTools } from "../src/shared/mcp/repo-tools.js";
+import { loadRepoTools } from "./helpers/local-repo-tools.js";
 
 const tempDirs: string[] = [];
 
