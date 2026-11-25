@@ -3,7 +3,7 @@ import { constants } from "node:fs";
 import { lstat, open, realpath } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { embeddedBuild } from "../build-identity.js";
+import type { BuildIdentity } from "@dispatch/runner-protocol/build-identity";
 import {
   encodeUpdateStatus,
   RUNNER_SELF_UPDATE_PROTOCOL,
@@ -880,6 +880,7 @@ export function systemdRunnerUpdater(
  */
 export async function detectSelfUpdate(
   layout: RunnerUpdateLayout,
+  embeddedBuild: BuildIdentity,
   unitFile = UPDATER_UNIT
 ): Promise<UpdateIdentity | null> {
   try {

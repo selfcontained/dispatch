@@ -1,3 +1,5 @@
+import { embeddedBuild } from "../src/agents/build-identity.js";
+import { gitSha, packageVersion } from "../src/generated/runtime-assets.js";
 import { parseReadyFrame } from "@dispatch/runner-protocol";
 import { EventEmitter } from "node:events";
 import {
@@ -207,7 +209,9 @@ describe("runner update fence", () => {
   const request = (id: string, command: object) =>
     emit({ type: "request", id, command });
 
-  async function start(options: RunnerUpdateOptions) {
+  async function start(
+    options: Omit<RunnerUpdateOptions, "build" | "healthBuild">
+  ) {
     socket = Object.assign(new EventEmitter(), {
       write: vi.fn((_line: string, flushed?: () => void) => {
         if (!flushed) return true;
@@ -222,7 +226,11 @@ describe("runner update fence", () => {
     dial.mockReturnValueOnce(socket).mockImplementation(() => {
       throw end;
     });
-    running = runRemoteRunner(config, options).catch((error) => error);
+    running = runRemoteRunner(config, {
+      build: embeddedBuild,
+      healthBuild: { version: packageVersion, revision: gitSha },
+      ...options,
+    }).catch((error) => error);
     await vi.waitFor(() => expect(dial).toHaveBeenCalledTimes(1));
     socket.emit("secureConnect");
     return parseReadyFrame(frames()[0]);

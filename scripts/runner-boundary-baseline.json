@@ -770,13 +770,6 @@
   {
     "file": "apps/server/src/agents/remote/runner.ts",
     "kind": "R5 runner to Dispatch",
-    "detail": "apps/server/src/agents/build-identity",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/runner.ts",
-    "kind": "R5 runner to Dispatch",
     "detail": "apps/server/src/agents/remote/health",
     "task": "T04",
     "count": 1
@@ -891,13 +884,6 @@
   {
     "file": "apps/server/src/agents/remote/session-supervisor.ts",
     "kind": "R5 runner to Dispatch",
-    "detail": "apps/server/src/agents/build-identity",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/session-supervisor.ts",
-    "kind": "R5 runner to Dispatch",
     "detail": "apps/server/src/agents/remote/repository",
     "task": "T04",
     "count": 1
@@ -914,13 +900,6 @@
     "kind": "R7 restriction",
     "detail": "N35 Runner archive conditionally releases and defers to borrowers",
     "task": "T20",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/update-agent.ts",
-    "kind": "R5 runner to Dispatch",
-    "detail": "apps/server/src/agents/build-identity",
-    "task": "T04",
     "count": 1
   },
   {
@@ -980,23 +959,9 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/remote/update-stage-cli.ts",
-    "kind": "R5 runner to Dispatch",
-    "detail": "apps/server/src/generated/runtime-assets",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/remote/update-state-file.ts",
     "kind": "R2 host access",
     "detail": "fs/promises",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/update-trial.ts",
-    "kind": "R5 runner to Dispatch",
-    "detail": "apps/server/src/agents/build-identity",
     "task": "T04",
     "count": 1
   },
