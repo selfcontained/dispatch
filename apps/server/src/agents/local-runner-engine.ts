@@ -7,7 +7,6 @@ import type {
 } from "@dispatch/runner-protocol/engine-management";
 
 import {
-  agentModelCatalog,
   agentModelDefaults,
   getAgentModelOptions,
 } from "../shared/agent-models.js";
@@ -137,13 +136,6 @@ export function createLocalEngineRunner(
 
   return {
     handle,
-    readModelCatalog: () => ({
-      models: agentModelCatalog(),
-      defaults: agentModelDefaults(),
-    }),
-    readModelOptions: async (
-      engine: Parameters<typeof getAgentModelOptions>[0]
-    ) => getAgentModelOptions(engine),
     // The existing native surfaces retain the richer legacy presentation
     // and local snapshots. The optional protocol above has a bounded reply.
     readProviderPlans: () => loadProviderPlans(providerOptions),

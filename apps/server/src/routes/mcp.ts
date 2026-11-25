@@ -1,3 +1,4 @@
+import { getAgentModelOptions } from "../shared/agent-models.js";
 import {
   createLocalEngineRunner,
   type LocalEngineRunner,
@@ -155,10 +156,7 @@ type McpRouteDeps = {
   usageWatches?: UsageCallbacks["usageWatches"];
   providerPlans?: ReturnType<typeof createProviderPlansReporter>;
   runnerEngines?: RunnerEngineTransport;
-  localEngines?: Pick<
-    LocalEngineRunner,
-    "readProviderPlans" | "readModelOptions"
-  >;
+  localEngines?: Pick<LocalEngineRunner, "readProviderPlans">;
   config: {
     authToken: string;
   };
@@ -424,7 +422,7 @@ export async function registerMcpRoutes(
         ? usageForRunner(placement.runner)
         : {
             providerPlans,
-            modelOptions: localEngines.readModelOptions,
+            modelOptions: async (agentType) => getAgentModelOptions(agentType),
             usageWatches: deps.usageWatches,
             redeemCodexReset: bearerToken ? deps.redeemCodexReset : undefined,
           }),
@@ -540,7 +538,7 @@ export async function registerMcpRoutes(
         ? usageForRunner(placement.runner)
         : {
             providerPlans,
-            modelOptions: localEngines.readModelOptions,
+            modelOptions: async (agentType) => getAgentModelOptions(agentType),
             usageWatches: deps.usageWatches,
             redeemCodexReset: bearerToken ? deps.redeemCodexReset : undefined,
           }),
