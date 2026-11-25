@@ -159,6 +159,7 @@ import {
   type CheckoutQuery,
   type CheckoutReply,
 } from "./remote/protocol.js";
+import { repositoryRecord } from "../runners/repository-identity.js";
 import { WORKTREE_LOCAL_CONFIG_FILES } from "./worktree-local-config-files.js";
 import {
   parseRepository,
@@ -2914,7 +2915,9 @@ export class AgentManager {
         input.templateId ?? null,
         input.projectId ?? null,
         p.effort,
-        repository ? JSON.stringify(repository) : null,
+        repository
+          ? JSON.stringify(repositoryRecord(placement, repository))
+          : null,
         runnerManaged,
         useWorktreeOf ?? null,
         runnerIdForPlacement(placement),

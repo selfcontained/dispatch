@@ -99,3 +99,18 @@ export const PROJECT_IDENTITY_SQL =
 /** A session's recorded repository URL, by agent id (its checkout owner's when borrowed). */
 export const SESSION_REPOSITORY_SQL =
   "SELECT owner.runner_repository->>'url' AS url FROM agents a JOIN agents owner ON owner.id = COALESCE(a.runner_worktree_owner, a.id) WHERE a.id = $1";
+
+/**
+ * Persist the session's canonical repository identity alongside its clone URL.
+ * Clone URLs retain their semantics; identity never parses URLs in SQL. Local
+ * records retain main's exact bytes. Current runners write this at creation;
+ * earlier development rows are deliberately not backfilled.
+ */
+export function repositoryRecord<T extends { url: string }>(
+  placement: Placement,
+  repository: T | null
+): T | (T & { identityKey: string | null }) | null {
+  if (!repository || sameRunner(placement, controllerPlacement))
+    return repository;
+  return { ...repository, identityKey: sessionRepositoryKey(repository.url) };
+}
