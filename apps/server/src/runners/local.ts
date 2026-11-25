@@ -838,6 +838,26 @@ export function createLocalCheckoutRunner(
           input as Req<"workspace.release">,
           options as CallOptions<"workspace.release">
         ) as Promise<Res<K>>;
+      if (op === "git.origin") {
+        const request = input as Req<"git.origin">;
+        if (child?.connection.state === "ready") {
+          try {
+            return (await child.call(
+              "git.origin",
+              request,
+              options as CallOptions<"git.origin">
+            )) as Res<K>;
+          } catch (error) {
+            if (!childUnavailable(error)) throw error;
+            options?.signal?.throwIfAborted();
+          }
+        }
+        return checkoutWorkload.run(
+          "git.origin",
+          { directory: request.path, request },
+          { signal: options?.signal }
+        ) as Promise<Res<K>>;
+      }
       if (op === "path.resolve")
         return resolvePath(
           input as Req<"path.resolve">,

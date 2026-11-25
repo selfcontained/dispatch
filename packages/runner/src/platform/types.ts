@@ -25,6 +25,7 @@ export const WORKER_OPS = [
   "git.context",
   "git.defaultBranch",
   "git.branches",
+  "git.origin",
 ] as const;
 
 /** Commands the workload runs. They may write, so the fence refuses them. */

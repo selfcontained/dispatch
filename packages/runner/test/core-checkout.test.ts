@@ -394,3 +394,23 @@ describe("core repository reads", () => {
     ).rejects.toMatchObject({ code: "unsupported" });
   });
 });
+
+it("reads origin without a session binding while frozen, passing the path verbatim", async () => {
+  const { connection, calls, fence } = await harness(() => ({
+    url: "https://example.com/repo",
+  }));
+  await fence.freeze();
+  cleanups.push(() => fence.thaw());
+  expect(
+    await connection.call("git.origin", { path: "~/verbatim path" })
+  ).toEqual({ url: "https://example.com/repo" });
+  expect(calls).toEqual([
+    {
+      op: "git.origin",
+      input: {
+        directory: "~/verbatim path",
+        request: { path: "~/verbatim path" },
+      },
+    },
+  ]);
+});

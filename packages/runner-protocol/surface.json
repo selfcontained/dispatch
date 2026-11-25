@@ -2886,6 +2886,28 @@
       "timeout": "default",
       "capability": "baseline"
     },
+    "git.origin": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "path": "string"
+        }
+      },
+      "response": {
+        "object": {
+          "url": {
+            "nullable": "string"
+          }
+        }
+      },
+      "errors": [],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
     "git.context": {
       "scope": "session",
       "kind": "call",

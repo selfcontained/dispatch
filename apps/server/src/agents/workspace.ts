@@ -11,7 +11,6 @@ import {
 import path from "node:path";
 
 import { probeGitContext } from "../shared/git/git-context.js";
-import { inferRepositoryUrl } from "./remote/repository.js";
 import {
   pathFromWire,
   type Req,
@@ -19,7 +18,6 @@ import {
 } from "@dispatch/runner-protocol/contract";
 import { WORKTREE_LOCAL_CONFIG_FILES } from "./worktree-local-config-files.js";
 import {
-  launchDirectory,
   runnerWorktree,
   type LaunchDirectory,
   type WorktreeRequest,
@@ -33,6 +31,7 @@ import {
  */
 export async function resolvePath(
   raw: string,
+  readOrigin: (path: string) => Promise<string>,
   options: Omit<Req<"path.resolve">, "path"> = {},
   /** The platform's project root of a canonical folder (main's `resolveProjectRoot`). */
   projectRootOf?: (canonical: string) => Promise<string>
@@ -89,9 +88,7 @@ export async function resolvePath(
   const probed = await probeGitContext(canonicalPath, { timeoutMs: 5_000 });
   const git = probed.status === "ok" ? probed.value : null;
   // A pull request launch names its repository from this origin.
-  const origin = git
-    ? await inferRepositoryUrl(canonicalPath).catch(() => null)
-    : null;
+  const origin = git ? await readOrigin(canonicalPath).catch(() => null) : null;
   return {
     ...none,
     canonicalPath: pathFromWire(canonicalPath),
@@ -112,9 +109,11 @@ export async function resolvePath(
 
 /** The launch folder in process: the same port, answered with main's errors. */
 export async function resolveLaunchDirectory(
-  rawCwd: string
+  rawCwd: string,
+  mapDirectory: (path: Res<"path.resolve">) => LaunchDirectory,
+  readOrigin: (path: string) => Promise<string>
 ): Promise<LaunchDirectory> {
-  return launchDirectory(await resolvePath(rawCwd));
+  return mapDirectory(await resolvePath(rawCwd, readOrigin));
 }
 
 export type { LaunchDirectory, WorktreeRequest };

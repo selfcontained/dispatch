@@ -578,6 +578,16 @@ export const operations = {
   }),
 
   /* Git context */
+  "git.origin": op({
+    scope: "runner",
+    kind: "call",
+    request: object({ path: string }),
+    response: object({ url: nullable(string) }),
+    errors: [],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
   "git.context": op({
     scope: "session",
     kind: "call",

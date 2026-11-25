@@ -29,7 +29,7 @@ import {
 } from "@dispatch/runner-client/launcher";
 import { LocalRunnerSession } from "@dispatch/runner-client/session";
 import { createLocalRunner } from "../src/agents/local-runner.js";
-import { resolveLaunchDirectory } from "../src/agents/workspace.js";
+import { resolveLaunchDirectory } from "./helpers/workspace-paths.js";
 import {
   prepareLocalWorkspace,
   resumeLocalWorkspace,
