@@ -176,6 +176,8 @@ T40 move records stay counted, with exact approved importers and verified packag
 The move list has a reviewed record budget and shrinking importer list; growth requires the named-commit policy fixture. Frozen historical list snapshots only replay existing commits.
 Remove each record with its baseline entry; the final seal requires zero records and zero budget.
 
+The first workload vocabulary allowances preserve the on-disk `.dispatch` repository folder in `workload/shared/icon-scan.ts` and the `DISPATCH_AGENT_ID` key tools read in `workload/shared/lib/tool-environment.ts`. Each allowance matches only its exact file and token.
+
 At the atomic workload move, change four imports from the enrolled framing facade. In `agents/remote/runner.ts`, import `runnerReplyTimeoutMs` and `scheduleDeadline` from `@dispatch/runner-client/v1/connection`, and `wireFrames`, `FlowStreams`, `acceptsStreams` and the `StreamFrame` type from `@dispatch/runner-client/v1/node`. In `agents/remote/enrollment.ts` and `terminal/runner-worker.ts`, import `wireFrames` from the same Node entry. The controller's `runners/enrolled/v1-framing.ts` facade stays with the enrolled adapter. Delete it with its last legacy caller and retire or redirect the corresponding test fixtures.
 
 Launch-form probes move with the atomic workload rename. `agents/local-workspace-probes.ts` is in the manifest, but the boundary scanner currently treats it as app-owned. Wiring it to `agents/checkout-worker.ts` before relocation adds an R5 import. Moving its implementation to `agents/workspace.ts` creates new R2 keys for `os` and `shared/lib/run-command`. Keep the current `routes/system.ts` import until the move.

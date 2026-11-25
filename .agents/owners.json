@@ -86,6 +86,7 @@
         "apps/server/test/runner-*.test.ts",
         "apps/server/test/helpers/remote-acp-fixture.ts",
         "apps/server/test/helpers/codex-mcp-probe.mjs",
+        "apps/server/test/runner-workload-private-copies.test.ts",
         "packages/runner-protocol/**",
         "packages/runner/**",
         "packages/runner-client/**",
