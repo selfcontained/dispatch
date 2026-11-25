@@ -125,6 +125,10 @@ Three lanes that share no files. A task that must touch another lane's file wait
 
 Enrolled runners retain the existing 300-second read transport deadline for native-mode folder/project definition reads. This is intended enrolled-runner behavior. Native listing uses plain `readdir` and never opens entries; native file reads use plain `readFile`, with no helper process or new timeout. A FIFO read waits for a writer as main does, subject to the existing enrolled transport deadline.
 
+## Open differences — must close before the seal
+
+- **Local consuming reads:** local read deadline starts a second reader while the child is still reading (consuming reads, e.g. FIFO). The in-flight FIFO byte-parity pin is an expected failure until the adapter keeps waiting for a responsive child; the adapter owner flips it to a normal pass. The fixture-paused native list/read deadline pins currently expect one fallback and must also change with that fix (paused but responsive child means keep waiting).
+
 ## Known gaps accepted by the owner
 
 - **T35 session persona listing:** session checkout listings omit a directory, dangling link or FIFO named `*.md`; main’s native loader warns for directory/dangling entries and waits for a FIFO writer.

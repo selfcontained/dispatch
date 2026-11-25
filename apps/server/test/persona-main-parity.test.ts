@@ -177,6 +177,7 @@ describe("local personas match origin/main", () => {
     };
     await registerPersonaRoutes(app, {
       agentManager: {
+        checkoutReadRunners: () => ({}),
         getAgent: async () => agent,
         inspectCheckout: (_agent: unknown, query: never) =>
           inspectCheckout(worktree, query, { recordedBase: false }),

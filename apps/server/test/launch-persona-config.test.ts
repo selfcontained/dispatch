@@ -15,6 +15,7 @@ import { upsertPersona } from "./helpers/native-persona-authoring.js";
 let pool: Pool;
 let directory: string;
 const manager = {
+  checkoutReadRunners: () => ({}),
   createAgent: vi.fn<AgentManager["createAgent"]>(async (_input, options) => {
     const id = randomUUID();
     await pool.query(

@@ -1,3 +1,4 @@
+import type { CheckoutCommandRunners } from "../runners/directory.js";
 import type { DefaultBranchFilesReply } from "@dispatch/runner-protocol";
 import {
   DefaultBranchFiles,
@@ -55,7 +56,11 @@ export class PersonaCatalogCache {
     this.files = new DefaultBranchFiles(run, now);
   }
 
-  async get(cwd: string, waitForRefresh = false): Promise<PersonaCatalog> {
+  async get(
+    cwd: string,
+    waitForRefresh: boolean,
+    runners: CheckoutCommandRunners
+  ): Promise<PersonaCatalog> {
     const reply = await this.files.get(
       cwd,
       [...PERSONA_DIRS],
@@ -66,7 +71,7 @@ export class PersonaCatalogCache {
     const warnings: string[] = [];
     const root = await resolveRepoRoot(cwd).catch(() => cwd);
     return {
-      personas: await loadPersonas(root, warnings),
+      personas: await loadPersonas(root, warnings, runners),
       warnings,
       refreshing: false,
       updatedAt: null,

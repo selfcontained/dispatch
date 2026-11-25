@@ -14,7 +14,7 @@ import { errorMessage } from "../../src/shared/lib/error-message.js";
 import {
   parseFrontmatter,
   PERSONA_SIZE_WARNING_BYTES,
-} from "../../src/personas/loader.js";
+} from "./persona-loader.js";
 import {
   LEGACY_PERSONAS_DIR,
   PERSONA_DIRS,

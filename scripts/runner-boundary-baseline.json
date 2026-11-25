@@ -1186,13 +1186,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/personas/loader.ts",
-    "kind": "R2 host access",
-    "detail": "fs/promises",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/personas/resolve.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/shared/git/git-context",

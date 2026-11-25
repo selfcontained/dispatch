@@ -20,7 +20,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import {
-  PersonaCatalogCache,
+  PersonaCatalogCache as ProductionPersonaCatalogCache,
   PERSONA_REFRESH_MS,
 } from "../src/personas/catalog.js";
 import {
@@ -585,3 +585,9 @@ it("the enrolled runner's self-exec worker receives the exact definition parser"
     "Could not load persona .agents/personas/b-link.md: unsupported file or larger than 256 KiB.",
   ]);
 });
+
+class PersonaCatalogCache extends ProductionPersonaCatalogCache {
+  override get(cwd: string, wait = false) {
+    return super.get(cwd, wait, {});
+  }
+}
