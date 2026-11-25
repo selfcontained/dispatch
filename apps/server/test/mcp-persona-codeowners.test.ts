@@ -1,3 +1,9 @@
+import {
+  setLearnedAgentModels,
+  forgetLearnedAgentModels,
+} from "../src/shared/agent-models.js";
+import { afterEach } from "vitest";
+afterEach(forgetLearnedAgentModels);
 import { access, readFile, readdir } from "node:fs/promises";
 import Fastify from "fastify";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -267,6 +273,18 @@ describe("code owner launches through the checkout boundary", () => {
   );
 
   it("creates direct and owner reviewers with a runner-only model and effort", async () => {
+    setLearnedAgentModels(
+      "claude",
+      [
+        {
+          id: "runner-custom/review",
+          label: "Runner Review",
+          effort: [{ value: "runner-effort", name: "Runner effort" }],
+        },
+      ],
+      "runner-custom/review",
+      "linux"
+    );
     const { handlers, agentManager } = setup({
       cwd: "runner://linux/@session",
     });

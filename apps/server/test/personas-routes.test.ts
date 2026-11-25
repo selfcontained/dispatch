@@ -1,4 +1,10 @@
 import {
+  setLearnedAgentModels,
+  forgetLearnedAgentModels,
+} from "../src/shared/agent-models.js";
+import { afterEach } from "vitest";
+afterEach(forgetLearnedAgentModels);
+import {
   afterAll,
   beforeAll,
   beforeEach,
@@ -214,6 +220,18 @@ describe("POST /api/v1/agents/:id/launch-persona", () => {
   });
 
   it("passes a runner-only reviewer model and effort to the kickoff", async () => {
+    setLearnedAgentModels(
+      "opencode",
+      [
+        {
+          id: "runner-custom/review",
+          label: "Runner Review",
+          effort: [{ value: "runner-effort", name: "Runner effort" }],
+        },
+      ],
+      "runner-custom/review",
+      "linux"
+    );
     deps.agentManager.getAgent.mockResolvedValueOnce({
       id: "agt_parent",
       cwd: "runner://linux/@session",
