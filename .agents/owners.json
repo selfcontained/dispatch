@@ -324,6 +324,7 @@
         "apps/server/test/project-root-caller-parity.test.ts",
         "apps/server/test/project-root-child-recovery.test.ts",
         "apps/server/test/project-root-child-cwd.test.ts",
+        "apps/server/test/git-roots-manager-child-recovery.test.ts",
         "apps/server/test/git-roots-routing.test.ts",
         "apps/server/test/task-scope-order.test.ts",
         "apps/server/test/helpers/task-scope.ts",

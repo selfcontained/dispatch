@@ -13,6 +13,7 @@ import {
 } from "@dispatch/runner-protocol";
 import {
   RunnerCallError,
+  displayPath,
   sessionFromWire,
   type Res,
   type Runner,
@@ -168,6 +169,20 @@ export async function inspectAgentCheckout(
 ): Promise<CheckoutReply> {
   if (!isCheckoutQuery(query))
     throw new AgentError("Invalid checkout query.", 400);
+  if (query.kind === "roots") {
+    const roots = await readThrough(() =>
+      sessionRunner(runners, agent).call("git.roots", { target: target(agent) })
+    );
+    return {
+      kind: "roots",
+      checkoutRoot:
+        roots.checkoutRoot === null ? null : displayPath(roots.checkoutRoot),
+      repositoryRoot:
+        roots.repositoryRoot === null
+          ? null
+          : displayPath(roots.repositoryRoot),
+    };
+  }
   const operation: Inspect = {
     kind: "inspectCheckout",
     agentId: agent.id,
