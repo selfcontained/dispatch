@@ -1232,8 +1232,10 @@ export function compareMovePolicyHistory(before, after, context = {}) {
     after.importers.every((file) => before.importers.includes(file))
   )
     return [];
-  // A merge may inherit an already audited allocation; it cannot union allocations.
+  // Only unbudgeted parents may inherit an audited allocation. A budgeted
+  // parent retains its tighter bound even when a sibling has an older allowance.
   if (
+    (!before || Array.isArray(before)) &&
     context.inheritedPolicies?.some((policy) => sameAllocation(policy, after))
   )
     return [];

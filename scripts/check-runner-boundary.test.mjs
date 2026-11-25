@@ -691,6 +691,17 @@ test("budget/importer growth requires the reviewed fixture naming commit 81662d1
     []
   );
   assert.ok(compareMovePolicyHistory(policy, []).length);
+  assert.ok(
+    compareMovePolicyHistory({ ...policy, budget: 0, records: [] }, policy, {
+      inheritedPolicies: [policy],
+    }).length
+  );
+  assert.ok(
+    compareMovePolicyHistory({ ...policy, importers: [] }, policy, {
+      inheritedPolicies: [policy],
+    }).length
+  );
+
   const initial = {
     budget: 21,
     importers: movePolicyFixture.initialAdoption.importers,
