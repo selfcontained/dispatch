@@ -191,7 +191,10 @@ it("runs GitHub calls with the resolved gh and looks again when it disappears", 
     status: "signed-out",
   });
   expect(lookups).toBe(2);
-  expect(new Set(bins)).toEqual(new Set([own]));
+  // A signed-out read also clears the account's Git credential include.
+  expect(new Set(bins.filter((bin) => path.basename(bin) === "gh"))).toEqual(
+    new Set([own])
+  );
 });
 
 it("points Git's credential helper at the resolved gh", () => {

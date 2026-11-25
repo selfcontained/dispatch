@@ -502,6 +502,7 @@
         "apps/server/test/github-runner-executor.test.ts",
         "apps/server/test/github-pull-request-status.test.ts",
         "apps/server/test/runner-github-auth.test.ts",
+        "apps/server/test/local-github-git-config-pin.test.ts",
         "packages/runner-protocol/src/github.ts",
         "apps/server/test/*login-link*"
       ],
