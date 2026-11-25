@@ -120,7 +120,11 @@ export async function callCheckoutRead<K extends CheckoutReadName>(
   const streamed = service.streamCheckoutRead?.(placement, op, request, signal);
   if (streamed) return streamed;
   // The legacy inspection carrier has no selector; it can only read current.
-  if (request.target.checkout === "launch")
+  if (
+    request.target.checkout === "launch" ||
+    ((op === "checkout.list" || op === "checkout.read") &&
+      (request as Req<"checkout.read">).mode === "native")
+  )
     throw new RunnerCallError({
       code: "unsupported",
       message: `Unsupported operation: ${op}`,
