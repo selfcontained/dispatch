@@ -1,4 +1,4 @@
-import type { BuildIdentity } from "../build-identity.js";
+import type { BuildIdentity } from "@dispatch/runner-protocol/build-identity";
 
 export type HandoffFormats = { reads: readonly number[]; writes: number };
 

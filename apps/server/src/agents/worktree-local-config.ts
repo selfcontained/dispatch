@@ -1,13 +1,6 @@
 import { constants, open } from "node:fs/promises";
 import path from "node:path";
 
-import { WORKTREE_LOCAL_CONFIG_FILES } from "./worktree-local-config-files.js";
-
-export {
-  assertTopLevelFileName,
-  WORKTREE_LOCAL_CONFIG_FILES,
-} from "./worktree-local-config-files.js";
-
 /**
  * Copy the listed files that exist in `sourceRoot` into `worktreePath`,
  * returning what was copied. Best-effort: a missing source is a no-op
@@ -31,7 +24,7 @@ export {
 export async function copyLocalConfigFiles(
   sourceRoot: string,
   worktreePath: string,
-  names: readonly string[] = WORKTREE_LOCAL_CONFIG_FILES
+  names: readonly string[]
 ): Promise<string[]> {
   const copied: string[] = [];
 

@@ -1,3 +1,4 @@
+import { gitSha, packageVersion } from "../src/generated/runtime-assets.js";
 import { mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -78,7 +79,12 @@ describe("the last maintenance failure", () => {
       await writeFile(file, "1:2 v1.2.3\n");
       await utimes(file, new Date(installedAt), new Date(installedAt));
     }
-    return (await runnerHealthSampler(runtime)([])).maintenanceFailure;
+    return (
+      await runnerHealthSampler(runtime, {
+        version: packageVersion,
+        revision: gitSha,
+      })([])
+    ).maintenanceFailure;
   }
 
   it("is superseded by a build installed after it", async () => {

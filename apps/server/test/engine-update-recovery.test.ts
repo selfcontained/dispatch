@@ -6,7 +6,7 @@ import {
   EngineUpdateOperations,
   observedUpdateRunner,
   type EngineOperationStore,
-} from "../src/agents/engine-updates.js";
+} from "./helpers/native-engine-updates.js";
 
 describe("fake installer recovery with real owned subprocesses", () => {
   it.each(["claude", "codex"] as const)(

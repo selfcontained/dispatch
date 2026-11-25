@@ -1,3 +1,6 @@
+import { runnerWorktree } from "../src/agents/workspace-launch.js";
+import { WORKTREE_LOCAL_CONFIG_FILES } from "../src/agents/worktree-local-config-files.js";
+import { launchDirectory } from "../src/agents/workspace-launch.js";
 /*
  * Local launch preparation through the real local runner child (T18): the
  * app's request goes to `workspace.prepare` on a child running the app's own
@@ -29,7 +32,7 @@ import {
 } from "@dispatch/runner-client/launcher";
 import { LocalRunnerSession } from "@dispatch/runner-client/session";
 import { createLocalRunner } from "../src/agents/local-runner.js";
-import { resolveLaunchDirectory } from "../src/agents/workspace.js";
+import { resolveLaunchDirectory as resolveWorkloadDirectory } from "../src/agents/workspace.js";
 import {
   prepareLocalWorkspace,
   resumeLocalWorkspace,
@@ -473,4 +476,61 @@ it("refuses preparation while the child is frozen, and writes nothing", async ()
   expect(await app.bindWorkspace("frozen")).toBe(false);
   expect(await worktrees(checkout)).toBe(1);
   await child().fence(false, 10_000);
+});
+
+function resolveLaunchDirectory(raw: string) {
+  return resolveWorkloadDirectory(raw, launchDirectory);
+}
+
+it("upgrades legacy local receipts with the controller's exact mapping and config list", async () => {
+  const state = await mkdtemp(path.join(os.tmpdir(), "workspace-inputs-"));
+  try {
+    const directory = path.join(state, "legacy");
+    await mkdir(directory);
+    const request = {
+      name: "legacy",
+      branch: "topic",
+      createNewBranch: true,
+      location: "nested" as const,
+    };
+    const receipt = {
+      source: "/source",
+      sourceIdentity: "source",
+      cwd: "/source",
+      request,
+    };
+    await writeFile(
+      path.join(directory, "workspace-preparation"),
+      JSON.stringify(receipt)
+    );
+    expect(await createLocalRunner(state).bindWorkspace("legacy")).toBe(true);
+    expect(
+      JSON.parse(
+        await readFile(path.join(directory, "workspace-preparation"), "utf8")
+      )
+    ).toEqual({
+      ...receipt,
+      request: runnerWorktree(request),
+      copy: [...WORKTREE_LOCAL_CONFIG_FILES],
+      install: true,
+    });
+  } finally {
+    await rm(state, { recursive: true, force: true });
+  }
+});
+
+it("keeps the Linux entry on its privsep workspace composition", async () => {
+  const main = await readFile(
+    new URL("../src/main.ts", import.meta.url),
+    "utf8"
+  );
+  const linux = main.slice(
+    main.indexOf('process.argv[2] === "remote-runner"'),
+    main.indexOf('process.argv[2] === "local-runner"')
+  );
+  expect(linux).toContain('await import("@dispatch/runner/cli")');
+  expect(linux).toContain(
+    "createWorkspacePreparation: createRemoteWorkspacePreparation"
+  );
+  expect(linux).not.toContain('import("./agents/workspace.js")');
 });

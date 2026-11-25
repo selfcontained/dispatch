@@ -7,7 +7,11 @@
     ".": "./src/index.ts",
     "./engine-management": "./src/engine-management.ts",
     "./contract": "./src/contract/index.ts",
-    "./host": "./src/host.ts"
+    "./host": "./src/host.ts",
+    "./engine-options": "./src/engine-options.ts",
+    "./build-identity": "./src/build-identity.ts",
+    "./github-pr-observation": "./src/github-pr-observation.ts",
+    "./plugin-engines": "./src/plugin-engines.ts"
   },
   "files": [
     "src"

@@ -110,17 +110,23 @@ if (process.argv[2]?.startsWith("recovery-")) {
 } else if (process.argv[2] === "runner-update-trial") {
   const { runRunnerUpdateTrial } =
     await import("./agents/remote/update-trial.js");
-  await runRunnerUpdateTrial(process.argv.slice(3));
+  const { embeddedBuild } = await import("./agents/build-identity.js");
+  await runRunnerUpdateTrial(process.argv.slice(3), { build: embeddedBuild });
 } else if (process.argv[2] === "runner-update-stage") {
   const { runRunnerUpdateStage } =
     await import("./agents/remote/update-stage-cli.js");
-  await runRunnerUpdateStage(process.argv.slice(3));
+  const { packageVersion } = await import("./generated/runtime-assets.js");
+  await runRunnerUpdateStage(process.argv.slice(3), { packageVersion });
 } else if (process.argv[2] === "remote-runner") {
-  const { streamHelper } = await import("./generated/runtime-assets.js");
+  const { streamHelper, packageVersion, gitSha } =
+    await import("./generated/runtime-assets.js");
+  const { embeddedBuild } = await import("./agents/build-identity.js");
   const { runRemoteRunner } = await import("./agents/remote/runner.js");
   const { createRemoteWorkspacePreparation, createSessionCore } =
     await import("@dispatch/runner/cli");
   await runRemoteRunner(process.argv[3]!, {
+    build: embeddedBuild,
+    healthBuild: { version: packageVersion, revision: gitSha },
     streamHelper,
     createWorkspacePreparation: createRemoteWorkspacePreparation,
     createSessions: createSessionCore,

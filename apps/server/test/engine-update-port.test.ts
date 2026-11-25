@@ -42,7 +42,7 @@ import {
   type EngineOperationStore,
   EngineUpdateHost,
   engineUpdatePort,
-} from "../src/agents/engine-updates.js";
+} from "./helpers/native-engine-updates.js";
 import type { EngineCalls } from "../src/runners/local.js";
 
 function fixture() {

@@ -29,15 +29,11 @@ export function isAgentType(value: unknown): value is AgentType {
 }
 
 // Agent types with a Dispatch plugin, used by plugin update detection.
-export const PLUGIN_AGENT_TYPES = ["claude", "codex"] as const;
-export type PluginAgentType = (typeof PLUGIN_AGENT_TYPES)[number];
-
-export function isPluginAgentType(value: unknown): value is PluginAgentType {
-  return (
-    typeof value === "string" &&
-    (PLUGIN_AGENT_TYPES as readonly string[]).includes(value)
-  );
-}
+export {
+  PLUGIN_ENGINES as PLUGIN_AGENT_TYPES,
+  isPluginEngine as isPluginAgentType,
+  type PluginEngine as PluginAgentType,
+} from "@dispatch/runner-protocol/plugin-engines";
 
 export function sanitizeEnabledAgentTypes(value: unknown): AgentType[] {
   if (!Array.isArray(value)) {

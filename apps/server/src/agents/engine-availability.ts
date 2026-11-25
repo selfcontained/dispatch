@@ -66,18 +66,8 @@ async function executable(candidate: string): Promise<boolean> {
 }
 
 /** Numeric order of two version strings ("0.155.1" > "0.154.0"); unknown sorts lowest. */
-export function compareVersions(a: string | null, b: string | null): number {
-  if (a === b) return 0;
-  if (a === null) return -1;
-  if (b === null) return 1;
-  const pa = a.split(/\D+/).filter(Boolean).map(Number);
-  const pb = b.split(/\D+/).filter(Boolean).map(Number);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
-    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (d !== 0) return d;
-  }
-  return 0;
-}
+export { compareVersions } from "@dispatch/runner-protocol/engine-options";
+import { compareVersions } from "@dispatch/runner-protocol/engine-options";
 
 /**
  * Where an engine's CLI is, or null; always an absolute path.

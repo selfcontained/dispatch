@@ -2,7 +2,6 @@ import os from "node:os";
 import path from "node:path";
 import { readFile, lstat } from "node:fs/promises";
 import { hostFile } from "@dispatch/runner-client/host-framing";
-import { gitSha, packageVersion } from "../../generated/runtime-assets.js";
 import { parseMaintenanceFailure, type RunnerHealth } from "./protocol.js";
 
 async function readMetric(file: string) {
@@ -69,7 +68,10 @@ async function currentMaintenanceFailure(runtime: string) {
 }
 
 /** `runtime` is the directory the installer keeps the build and records in. */
-export function runnerHealthSampler(runtime: string) {
+export function runnerHealthSampler(
+  runtime: string,
+  build: { version: string; revision: string | null }
+) {
   const group = cgroupDirectory();
   let previous: CpuReading | undefined;
   return async (liveHostDirs: string[]): Promise<RunnerHealth> => {
@@ -119,8 +121,8 @@ export function runnerHealthSampler(runtime: string) {
     const memoryUsed = limited ? Number(memCurrent) : hostTotal - os.freemem();
     const maintenanceFailure = await currentMaintenanceFailure(runtime);
     return {
-      version: packageVersion,
-      ...(gitSha ? { revision: gitSha } : {}),
+      version: build.version,
+      ...(build.revision ? { revision: build.revision } : {}),
       ...(maintenanceFailure ? { maintenanceFailure } : {}),
       sessions: liveHostDirs.length,
       working: working.filter(Boolean).length,

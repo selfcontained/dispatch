@@ -32,7 +32,7 @@ class EngineManager extends ActualEngineManager {
     });
   }
 }
-import type { EngineUpdateOperations } from "../src/agents/engine-updates.js";
+import type { EngineUpdateOperations } from "./helpers/native-engine-updates.js";
 import {
   localEngineCalls,
   type InProcessEngines,

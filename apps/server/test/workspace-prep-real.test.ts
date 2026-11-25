@@ -1,3 +1,4 @@
+import { WORKTREE_LOCAL_CONFIG_FILES } from "../src/agents/worktree-local-config-files.js";
 import {
   mkdtemp,
   mkdir,
@@ -10,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import type { FastifyBaseLogger } from "fastify";
 import { expect, it, vi } from "vitest";
-import { setupAgentWorkspace } from "../src/agents/workspace-prep.js";
+import { setupAgentWorkspace as setupWorkloadWorkspace } from "../src/agents/workspace-prep.js";
 import { runCommand } from "../src/shared/lib/run-command.js";
 import { withToolSearchPath } from "../src/shared/lib/tool-environment.js";
 
@@ -103,3 +104,20 @@ it("installs real pnpm dependencies with service PATH, no CI, and ignored stdin"
     await rm(root, { recursive: true, force: true });
   }
 }, 120_000);
+
+function setupAgentWorkspace(
+  ...[source, destination, logger, progress]: [
+    string,
+    string,
+    Parameters<typeof setupWorkloadWorkspace>[2],
+    Parameters<typeof setupWorkloadWorkspace>[4]?,
+  ]
+) {
+  return setupWorkloadWorkspace(
+    source,
+    destination,
+    logger,
+    WORKTREE_LOCAL_CONFIG_FILES,
+    progress
+  );
+}
