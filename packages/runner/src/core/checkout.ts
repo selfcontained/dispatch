@@ -13,7 +13,7 @@ import {
   type Target,
 } from "@dispatch/runner-protocol/contract";
 import { Duplex } from "node:stream";
-import type { CallHandlers, OpenHandlers } from "../local/socket-server.js";
+import type { CallHandlers, OpenHandlers } from "../handlers.js";
 import type { BindingStore, StoredBinding } from "../local/bindings.js";
 import {
   EXEC_OPS,

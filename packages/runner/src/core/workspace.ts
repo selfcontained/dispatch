@@ -43,10 +43,7 @@ import {
   repositoryCheckout,
   worktreeRequest,
 } from "@dispatch/runner-protocol/contract";
-import type {
-  CallHandlers,
-  ConnectionContext,
-} from "../local/socket-server.js";
+import type { CallHandlers, ConnectionContext } from "../handlers.js";
 import {
   git,
   isLinkedWorktreeRoot,
