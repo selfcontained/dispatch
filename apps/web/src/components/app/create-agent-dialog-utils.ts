@@ -136,13 +136,24 @@ export function useCwdHistory(historyUrl?: string) {
         `${suggestionsUrl}${suggestionsUrl.includes("?") ? "&" : "?"}limit=50`
       );
 
-      return (
+      const options =
         payload.projectOptions ??
         payload.projects.map((path) => ({
           path,
           usageCount: 0,
           latestCreatedAt: "",
-        }))
+        }));
+      if (!scoped) return options;
+      // The target validates browser-only candidates too. They have no server
+      // usage row, but still take their existing browser usage below.
+      const byPath = new Map(options.map((option) => [option.path, option]));
+      return payload.projects.map(
+        (path) =>
+          byPath.get(path) ?? {
+            path,
+            usageCount: 0,
+            latestCreatedAt: "",
+          }
       );
     },
     staleTime: 60_000,
