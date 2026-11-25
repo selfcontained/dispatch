@@ -2019,6 +2019,114 @@ describe("runner session supervision", () => {
     );
   });
 
+  describe("a folder an agent named (D7)", () => {
+    const workspace = MANAGED_WORKSPACE;
+    const asWorkload = async (bin: string, args: string[]) =>
+      bin === "realpath"
+        ? (await realpath(args.at(-1)!)) + "\n"
+        : execFileSync(bin, args, {
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "ignore"],
+          });
+    /** The files the core's privsep store writes for a named folder. */
+    async function bindFolder(folder: string) {
+      const bindings = path.join(state, "bindings");
+      await writeFile(path.join(bindings, agentId), "\0folder");
+      await writeFile(path.join(bindings, `${agentId}.cwd`), folder);
+    }
+    async function namedFolder() {
+      const folder = await realpath(await mkdtemp(path.join(root, "named-")));
+      await writeFile(path.join(folder, "keep.txt"), "the user's work\n");
+      return folder;
+    }
+    const bytes = async (folder: string) =>
+      Object.fromEntries(
+        await Promise.all(
+          (await readdir(folder)).map(async (name) => [
+            name,
+            await readFile(path.join(folder, name), "utf8"),
+          ])
+        )
+      );
+
+    it("starts the host in the folder, resolved again as the workload", async () => {
+      const runner = await start([], asWorkload);
+      const folder = await namedFolder();
+      await bindFolder(folder);
+      await runner.launch(launch(workspace), undefined);
+      expect(processes.spawn).toHaveBeenCalledTimes(1);
+      expect(processes.spawn.mock.calls[0]![1]).toBe(folder);
+      await expect(runner.checkoutDirectory(agentId, workspace)).resolves.toBe(
+        folder
+      );
+    });
+
+    it("is never the runner's checkout: observed external, kept by every release", async () => {
+      const runner = await start([], asWorkload);
+      const folder = await namedFolder();
+      await bindFolder(folder);
+      await runner.launch(launch(workspace), undefined);
+      const before = await bytes(folder);
+      expect(
+        await runner.checkoutRelease(agentId, workspace, { kind: "observe" })
+      ).toEqual({
+        ownership: "external",
+        owner: null,
+        borrowers: [],
+        checkout: null,
+      });
+      await runner.stop(agentId, workspace, true);
+      await expect(
+        runner.releaseWorkspace(agentId, workspace, async () => true)
+      ).resolves.toBe(false);
+      expect(await bytes(folder)).toEqual(before);
+      expect(
+        await runner.checkoutRelease(agentId, workspace, {
+          kind: "release",
+          expectedState: null,
+        })
+      ).toBe("released");
+      expect(await bytes(folder)).toEqual(before);
+    });
+
+    it("fails the launch when the folder no longer resolves where it was bound", async () => {
+      const runner = await start([], asWorkload);
+      const folder = await namedFolder();
+      const elsewhere = await namedFolder();
+      await bindFolder(folder);
+      // Swapped for a link after it was resolved.
+      await rm(folder, { recursive: true });
+      await symlink(elsewhere, folder);
+      await expect(runner.launch(launch(workspace), undefined)).rejects.toThrow(
+        "The named folder changed since it was resolved."
+      );
+      // Gone altogether.
+      await rm(folder);
+      await expect(runner.launch(launch(workspace), undefined)).rejects.toThrow(
+        "unavailable to the runner workload"
+      );
+      expect(processes.spawn).not.toHaveBeenCalled();
+    });
+
+    it("keeps the prepared-checkout rule for every other prepared session", async () => {
+      const runner = await start([], asWorkload, undefined, {
+        resumePreparedCheckout: async () => ({
+          path: "/tmp/elsewhere",
+          checkoutRoot: "/tmp/elsewhere",
+        }),
+      } as never);
+      const bindings = path.join(state, "bindings");
+      await writeFile(path.join(bindings, agentId), "\0managed");
+      await writeFile(path.join(bindings, `${agentId}.repository`), "null");
+      await mkdir(path.join(state, "sessions", agentId), { mode: 0o751 });
+      await chmod(path.join(state, "sessions", agentId), 0o751);
+      await expect(runner.launch(launch(workspace), undefined)).rejects.toThrow(
+        "The prepared checkout binding changed."
+      );
+      expect(processes.spawn).not.toHaveBeenCalled();
+    });
+  });
+
   it("shares a configured workspace with separate host state and no folder cleanup", async () => {
     const running = await start(["configured", "other"]);
     await running.launch(launch("configured"), root);
