@@ -1,3 +1,4 @@
+import { shouldSkipAutomaticMacPathProbe } from "../shared/mac-path-privacy.js";
 import {
   inProcessEngines,
   localEngineCalls,
@@ -268,7 +269,7 @@ export async function registerSystemRoutes(
         .send({ error: "path query parameter is required." });
     }
     const resolved = resolveTilde(query.path.trim());
-    return inspectLocalPath(resolved);
+    return inspectLocalPath(resolved, shouldSkipAutomaticMacPathProbe);
   });
 
   app.get("/api/v1/system/path-completions", async (request, reply) => {
@@ -278,7 +279,10 @@ export async function registerSystemRoutes(
         .code(400)
         .send({ error: "prefix query parameter is required." });
     }
-    return completeLocalPath(query.prefix.trim());
+    return completeLocalPath(
+      query.prefix.trim(),
+      shouldSkipAutomaticMacPathProbe
+    );
   });
 
   app.get("/api/v1/git/branches", async (request, reply) => {
