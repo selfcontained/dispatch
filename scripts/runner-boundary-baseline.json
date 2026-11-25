@@ -1037,7 +1037,7 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/db/migrations/0054_runner_registrations.sql",
+    "file": "apps/server/src/db/migrations/0055_runner_registrations.sql",
     "kind": "R1 locator",
     "detail": "runner:// in SQL",
     "task": "T07",
