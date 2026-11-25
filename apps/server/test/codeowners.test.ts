@@ -1,3 +1,4 @@
+import { collectOwnerReviewFiles } from "../src/shared/git/owner-review-files.js";
 import {
   mkdtemp,
   mkdir,
@@ -10,7 +11,6 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  collectOwnerReviewFiles,
   launchOwnerReviewPlan,
   hasCodeowners,
   loadCodeowners,
