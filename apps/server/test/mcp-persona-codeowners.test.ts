@@ -279,7 +279,7 @@ describe("code owner launches through the checkout boundary", () => {
   );
 
   it.each(["taught", "first refresh", "failed refresh"] as const)(
-    "creates direct and owner reviewers with a runner-only model and effort (%s)",
+    "creates direct and owner reviewers with the available catalog and effort (%s)",
     async (source) => {
       if (source === "taught")
         setLearnedAgentModels(
@@ -315,9 +315,19 @@ describe("code owner launches through the checkout boundary", () => {
       const options = {
         context: "Review",
         agentType: "claude" as const,
-        model: "runner-custom/review",
+        model: source === "failed refresh" ? "opus" : "runner-custom/review",
         effort: "runner-effort",
       };
+      if (source === "failed refresh")
+        await expect(
+          handlers.launchPersonaAgent("parent", {
+            ...options,
+            model: "runner-custom/review",
+            persona: "owner-one",
+          })
+        ).rejects.toThrow(
+          'Model "runner-custom/review" is not supported for claude. Choose a configured model or omit model for the CLI default.'
+        );
       await handlers.launchPersonaAgent("parent", {
         ...options,
         persona: "owner-one",
