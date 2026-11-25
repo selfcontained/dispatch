@@ -221,3 +221,24 @@ describe("loop handoff key pins (jobs)", () => {
     expect(await handoffKey(input())).toBe(expected());
   });
 });
+
+it("keeps main's worktree repository key when a partial task record has no launch cwd", async () => {
+  const workspace = join(root, "wt");
+  expect(await resolveRepoRoot(workspace)).toBe(join(root, "repo"));
+  const scope = vi.fn(async () => null);
+  await agentTaskProject(
+    {
+      id: "agt_partial_scope",
+      cwd: null,
+      worktreePath: null,
+      workspacePath: workspace,
+      baseBranch: null,
+      placement: controllerPlacement,
+    },
+    scope
+  );
+  expect(scope).toHaveBeenCalledExactlyOnceWith({
+    projectId: null,
+    paths: [join(root, "repo"), workspace],
+  });
+});

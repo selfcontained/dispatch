@@ -63,6 +63,31 @@ it("does not turn a runner's same-spelled path into a controller folder key", as
   );
   expect(scope).toHaveBeenCalledExactlyOnceWith({
     projectId: null,
-    paths: [null, cwd],
+    paths: [null, null],
+  });
+});
+
+it("never forwards an enrolled runner's raw physical path as a controller folder key", async () => {
+  const scope = vi.fn(
+    async (input: { paths: Array<string | null | undefined> }) =>
+      input.paths.some((path) => path?.startsWith("/shared/repo"))
+        ? "controller-project"
+        : null
+  );
+  const readRoot = vi.fn(async () => "/shared/repo");
+  expect(
+    await agentTaskProject(
+      {
+        ...agent("/shared/repo/sub"),
+        placement: placementForRunner("scope-runner"),
+      },
+      scope,
+      readRoot
+    )
+  ).toBeNull();
+  expect(readRoot).toHaveBeenCalledTimes(1);
+  expect(scope).toHaveBeenCalledExactlyOnceWith({
+    projectId: null,
+    paths: [null, null],
   });
 });
