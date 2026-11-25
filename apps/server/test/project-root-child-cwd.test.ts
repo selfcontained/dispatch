@@ -43,7 +43,9 @@ it("anchors a relative controller folder before a child with a different cwd rea
         git: false,
         projectRoot: true,
       },
-      { wait: false }
+      // One attempt with the adapter's own read deadline, none of the
+      // transport's.
+      expect.objectContaining({ wait: false, timeoutMs: null })
     );
     const missing = path.relative(process.cwd(), path.join(root, "missing"));
     // Compare with main's unchanged helper in the same Bun runtime as the real
