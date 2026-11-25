@@ -1,3 +1,4 @@
+import { placementForRunner } from "../src/runners/placement.js";
 import {
   afterAll,
   beforeAll,
@@ -69,6 +70,7 @@ function createMockDeps() {
       getAgent: vi.fn(async () => ({
         id: "agt_test1",
         cwd: "/tmp/test",
+        placement: placementForRunner("local"),
         persona: null,
         parentAgentId: null,
         baseBranch: "main",
@@ -159,6 +161,7 @@ beforeEach(() => {
   deps.agentManager.getAgent.mockResolvedValue({
     id: "agt_test1",
     cwd: "/tmp/test",
+    placement: placementForRunner("local"),
     persona: null,
     parentAgentId: null,
     baseBranch: "main",
@@ -357,6 +360,7 @@ describe("runner-scoped manifests", () => {
       deps.agentManager.getAgent.mockResolvedValue({
         ...(await deps.agentManager.getAgent()),
         cwd: "runner://rnr_alpha/proof",
+        placement: placementForRunner("rnr_alpha"),
       });
       deps.agentManager.inspectCheckout.mockImplementation(
         async (_agent, query) =>
@@ -421,7 +425,11 @@ describe("runner-scoped manifests", () => {
       }
     );
     const list = async (cwd: string) => {
-      deps.agentManager.getAgent.mockResolvedValue({ ...agent, cwd });
+      deps.agentManager.getAgent.mockResolvedValue({
+        ...agent,
+        cwd,
+        placement: placementForRunner(new URL(cwd).hostname),
+      });
       const res = await app.inject({
         method: "POST",
         url: "/api/mcp/agt_test1",
@@ -610,6 +618,7 @@ it("denies agent MCP after the agent's runner registration is revoked", async ()
   deps.agentManager.getAgent.mockResolvedValueOnce({
     ...agent,
     cwd: "runner://rnr_old/proof",
+    placement: placementForRunner("rnr_old"),
   });
   const response = await app.inject({
     method: "POST",

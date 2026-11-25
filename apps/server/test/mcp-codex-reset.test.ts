@@ -1,3 +1,4 @@
+import { placementForRunner } from "../src/runners/placement.js";
 import * as agentModels from "../src/shared/agent-models.js";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -227,8 +228,8 @@ esac
         fetchUsage,
       },
     });
-    const readModels = vi.spyOn(agentModels, "agentModelCatalog");
-    const readChoices = vi.spyOn(agentModels, "getAgentModelOptions");
+    const readModels = vi.spyOn(agentModels, "readStoredAgentModelCatalog");
+    const readChoices = vi.spyOn(agentModels, "readStoredModelCatalog");
     const providerPlans = createProviderPlansReporter({
       load: () =>
         loadProviderPlans({
@@ -253,6 +254,7 @@ esac
       getAgent: async (id: string) => ({
         id,
         cwd: process.cwd(),
+        placement: placementForRunner("local"),
         fullAccess: false,
       }),
       listAgents: async () => [],
@@ -370,7 +372,7 @@ esac
               },
             ],
           });
-          expect(readChoices).toHaveBeenCalledWith("codex");
+          expect(readChoices).toHaveBeenCalledWith("local", "codex");
           const invalid = await client.callTool({
             name: "redeem_codex_reset",
             arguments: { idempotencyKey: "not-a-uuid" },
