@@ -1,3 +1,4 @@
+import { TaskGoalProgress, goalProgressText } from "./task-goal-progress";
 import { TaskLabels } from "./task-labels";
 import { useState } from "react";
 import type { Task, TaskBoard, TaskColumn } from "@/hooks/use-tasks";
@@ -134,9 +135,23 @@ export function TaskList({
                 >
                   <RowButton
                     className="block min-w-0 rounded-sm font-medium hover:bg-transparent hover:underline"
+                    // Button children are presentational: carry progress in the name.
+                    aria-label={
+                      task.goalCounts?.total
+                        ? [
+                            task.title,
+                            goalProgressText(task.goalCounts),
+                            ...(task.labels ?? []).map((label) => label.name),
+                          ].join(", ")
+                        : undefined
+                    }
                     onClick={() => openTask(task.id)}
                   >
                     <span className="block truncate">{task.title}</span>
+                    <TaskGoalProgress
+                      counts={task.goalCounts}
+                      className="mt-1 max-w-72 font-normal"
+                    />
                     <TaskLabels labels={task.labels} />
                   </RowButton>
                   <div className="hidden md:block">

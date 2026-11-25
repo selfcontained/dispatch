@@ -27,7 +27,7 @@ import {
 } from "../routes/agent-startup.js";
 import type { TaskAttachment } from "./types.js";
 import type { FastifyBaseLogger } from "fastify";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 
 import { AGENT_TYPES, type AgentType } from "../agent-type-settings.js";
 import type { AgentRecord } from "../agents/types.js";
@@ -44,6 +44,17 @@ import type { LaunchPersonaScope } from "../personas/persona-scope.js";
 import { resolvePersona } from "../personas/resolve.js";
 import type { TemplateRecord } from "../templates/store.js";
 import { agentTaskProject, type TaskRootReader } from "./agent-scope.js";
+import {
+  GOAL_REQUEST_ID_MAX_LENGTH,
+  GoalInputError,
+  goalCounts,
+  goalAddPayload,
+  goalEditPayload,
+  goalRequestFingerprint,
+  planGoalAdds,
+  planGoalEdits,
+  type PlannedGoalEdit,
+} from "./goals.js";
 import { newTaskId, TaskStore, type TaskPatch } from "./store.js";
 import type {
   CreateTaskColumnInput,
@@ -56,9 +67,24 @@ import type {
   TaskColumn,
   TaskColumnTrigger,
   TaskDetail,
+  TaskGoal,
+  TaskGoalChange,
+  TaskGoalCounts,
+  TaskGoalEdit,
   TaskLink,
   UpdateTaskInput,
 } from "./types.js";
+
+/** What a goal write returns: the task's goals after it. */
+export type TaskGoalsResult = {
+  taskId: string;
+  goals: TaskGoal[];
+  goalCounts: TaskGoalCounts;
+  /** What this call changed; empty when it was a no-op. */
+  changes: TaskGoalChange[];
+  /** True when a repeated requestId returned the first call's result. */
+  replayed?: boolean;
+};
 
 /** An error a route answers with `status` and, when set, a `code`. */
 export class TaskError extends Error {
@@ -1196,16 +1222,160 @@ export class TaskService {
     eventLimit = TASK_EVENTS_DETAIL_LIMIT
   ): Promise<TaskDetail> {
     const task = await this.requireTask(id);
-    const [agents, events] = await Promise.all([
+    const [agents, events, goals] = await Promise.all([
       this.store.listTaskAgents(id),
       this.store.listEvents(id, eventLimit),
+      this.store.listGoals(id),
     ]);
     return {
       ...task,
+      // From the same rows as the list, so the summary never disagrees.
+      goalCounts: goalCounts(goals),
+      goals,
       agents,
       events,
       attachments: await this.listAttachments(id),
     };
+  }
+
+  /** Appends goals; titles matching a current goal are skipped. */
+  async addGoals(
+    id: string,
+    titles: string[],
+    caller: TaskCaller,
+    opts: { requestId?: string; publish?: boolean } = {}
+  ): Promise<TaskGoalsResult> {
+    return this.writeGoals(
+      id,
+      caller,
+      goalAddPayload(titles),
+      opts.requestId,
+      async (goals, db) => {
+        const planned = planGoalAdds(goals, titles);
+        let position = goals.reduce((max, g) => Math.max(max, g.position), -1);
+        const changes: TaskGoalChange[] = [];
+        for (const title of planned) {
+          const goal = await this.store.insertGoal(id, title, ++position, db);
+          changes.push({ goalId: goal.id, op: "added", title });
+        }
+        return changes;
+      },
+      opts.publish
+    );
+  }
+
+  /** Renames, completes, reopens or retires goals by ID, all or none. */
+  async editGoals(
+    id: string,
+    edits: TaskGoalEdit[],
+    caller: TaskCaller,
+    opts: { requestId?: string } = {}
+  ): Promise<TaskGoalsResult> {
+    return this.writeGoals(
+      id,
+      caller,
+      goalEditPayload(edits),
+      opts.requestId,
+      async (goals, db) => {
+        const { writes, changes } = planGoalEdits(id, goals, edits);
+        for (const write of writes) await this.writeGoal(write, db);
+        return changes;
+      }
+    );
+  }
+
+  private async writeGoal(write: PlannedGoalEdit, db: PoolClient) {
+    await this.store.updateGoal(
+      write.goalId,
+      { title: write.title, state: write.state },
+      db
+    );
+  }
+
+  /**
+   * One goal write: under the task's row lock, replay a seen requestId or
+   * apply `run` to the current goals and record its changes and actor in
+   * the same transaction.
+   */
+  private async writeGoals(
+    id: string,
+    caller: TaskCaller,
+    payload: unknown,
+    requestId: string | undefined,
+    run: (goals: TaskGoal[], db: PoolClient) => Promise<TaskGoalChange[]>,
+    publish = true
+  ): Promise<TaskGoalsResult> {
+    if (
+      requestId !== undefined &&
+      (!requestId.trim() || requestId.length > GOAL_REQUEST_ID_MAX_LENGTH)
+    )
+      throw invalid(
+        `requestId must be 1–${GOAL_REQUEST_ID_MAX_LENGTH} characters.`
+      );
+    const fingerprint = goalRequestFingerprint(payload);
+    let projectId = "";
+    const result = await this.store.transaction(async (db) => {
+      const task = await this.store.lockTask(id, db);
+      if (!task) throw notFound("Task");
+      projectId = task.projectId;
+      if (requestId !== undefined) {
+        const seen = await this.store.getGoalRequest(id, requestId, db);
+        if (seen) {
+          if (seen.fingerprint !== fingerprint)
+            throw new TaskError(
+              "This requestId was already used for a different goal write.",
+              409,
+              "request_id_reused"
+            );
+          // The first call's changes, against the goals as they are now.
+          const goals = await this.store.listGoals(id, db);
+          return {
+            ...(seen.result as TaskGoalsResult),
+            goals,
+            goalCounts: goalCounts(goals),
+            replayed: true,
+          };
+        }
+      }
+      let changes: TaskGoalChange[];
+      try {
+        changes = await run(await this.store.listGoals(id, db), db);
+      } catch (error) {
+        if (error instanceof GoalInputError) throw invalid(error.message);
+        throw error;
+      }
+      if (changes.length) {
+        await this.store.touchTask(id, db);
+        await this.store.insertEvent(
+          id,
+          "goals_changed",
+          actorOf(caller),
+          { changes },
+          db
+        );
+      }
+      const goals = await this.store.listGoals(id, db);
+      const result: TaskGoalsResult = {
+        taskId: id,
+        goals,
+        goalCounts: goalCounts(goals),
+        changes,
+      };
+      if (requestId !== undefined) {
+        await this.store.pruneGoalRequests(id, db);
+        await this.store.insertGoalRequest(
+          id,
+          requestId,
+          fingerprint,
+          result,
+          db
+        );
+      }
+      return result;
+    });
+    if (publish && !result.replayed && result.changes.length)
+      this.publish(projectId, id);
+    return result;
   }
 
   async createTask(
@@ -1249,6 +1419,14 @@ export class TaskService {
     await this.validateNewLabelLengths(input.projectId, labels.data);
     const title = input.title.trim();
     if (!title) throw invalid("title is required.");
+    if (input.goals?.length) {
+      try {
+        planGoalAdds([], input.goals);
+      } catch (error) {
+        if (error instanceof GoalInputError) throw invalid(error.message);
+        throw error;
+      }
+    }
     const columns = await this.ensureColumns(input.projectId);
     const initialColumn = input.columnId
       ? columns.find((c) => c.id === input.columnId)
@@ -1332,6 +1510,17 @@ export class TaskService {
     await this.store.insertEvent(id, "created", actor, {
       columnId: column.id,
     });
+    // Goals exist before any launch; a failure removes the whole task.
+    if (input.goals?.length) {
+      try {
+        // Published below with the creation, never before a rollback.
+        await this.addGoals(id, input.goals, caller, { publish: false });
+      } catch (error) {
+        await this.store.deleteTask(id);
+        await this.cleanupAttachments(id);
+        throw error;
+      }
+    }
     if (column.trigger?.fireOnCreate) {
       await this.fireTrigger(await this.requireTask(id), column, caller);
     }
