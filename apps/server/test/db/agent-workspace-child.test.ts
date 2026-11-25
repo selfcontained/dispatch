@@ -51,8 +51,7 @@ vi.mock("../../src/shared/git/worktree.js", async () => {
 });
 
 const { AgentManager } = await import("../../src/agents/manager.js");
-const { resolveWorkspace } =
-  await import("../../src/agents/workspace-target.js");
+const { resolveWorkspace } = await import("../helpers/main-workspace.js");
 const { checkoutWorkload, workspaceWorkload } =
   await import("../helpers/checkout-workload.js");
 
