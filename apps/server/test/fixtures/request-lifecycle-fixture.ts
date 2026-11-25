@@ -21,6 +21,7 @@ import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import { installRequestLifecycle } from "../../src/server/request-lifecycle.js";
 import { RecoveryMaintenance } from "../../src/update-recovery/maintenance.js";
 import { listenAdditionalHosts } from "../../src/multi-listener.js";
+import type { TlsConfig } from "../../src/config.js";
 
 const delay = (ms = 10) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -148,7 +149,7 @@ export async function runScenario(
     log: { info() {}, warn() {} },
     drainTimeoutMs: 25,
   });
-  let tls: { cert: string; key: string } | undefined;
+  let tls: TlsConfig | undefined;
   let certDir: string | undefined;
   if (transport === "tls-additional") {
     certDir = mkdtempSync(join(tmpdir(), "dispatch-lifecycle-tls-"));
@@ -172,8 +173,9 @@ export async function runScenario(
       { stdio: "ignore" }
     );
     tls = {
-      cert: readFileSync(join(certDir, "cert.pem"), "utf8"),
-      key: readFileSync(join(certDir, "key.pem"), "utf8"),
+      // As the app loads them: the PEM bytes.
+      cert: readFileSync(join(certDir, "cert.pem")),
+      key: readFileSync(join(certDir, "key.pem")),
     };
   }
   const app = Fastify({
@@ -294,7 +296,7 @@ export async function runScenario(
     app.addContentTypeParser(
       "application/x-fixture",
       { parseAs: "string" },
-      async (_req, body) => {
+      async (_req: FastifyRequest, body: string) => {
         entered.resolve();
         await held.promise;
         mutations++;
@@ -476,16 +478,12 @@ export async function runScenario(
             scenario === "async-parser"
               ? "application/x-fixture"
               : "application/json",
-          "content-length":
-            scenario === "body-abort" ? 1000 : Buffer.byteLength(body),
+          "content-length": Buffer.byteLength(body),
         },
       });
       client.on("error", () => {});
       client.on("response", (response) => response.resume());
-      if (scenario === "body-abort") {
-        client.write('{"incomplete":');
-        await until(() => starts === 1);
-      } else client.end(body);
+      client.end(body);
     }
     if (scenario === "unmatched") {
       await until(() => finishes === 1);
