@@ -227,10 +227,19 @@ describe("recordEngineModels", () => {
         },
       ],
     });
-    expect([...values.keys()]).toEqual([
-      "agent_model_availability:codex",
-      "agent_models:codex",
-    ]);
+    // Main's storage remains byte-for-byte; discovery metadata is additive.
+    expect(
+      [...values.keys()].filter(
+        (key) =>
+          !key.startsWith("agent_models_observation:") &&
+          !key.startsWith("agent_models_refresh:")
+      )
+    ).toEqual(["agent_model_availability:codex", "agent_models:codex"]);
+    expect(JSON.parse(values.get("agent_models_observation:codex")!)).toEqual({
+      revision: 2,
+      observedAt: expect.any(String),
+      effort: { "gpt-a": expect.any(String), "gpt-b": expect.any(String) },
+    });
     expect(agentModelDefaults().codex).toBe("gpt-a");
     forgetLearnedAgentModels();
     await loadLearnedAgentModels(p as never);

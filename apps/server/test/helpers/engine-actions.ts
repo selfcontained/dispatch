@@ -13,10 +13,11 @@ export function fixtureEngineActions(
   const actions: ConstructorParameters<
     typeof EngineManager
   >[0]["engineActions"] = {
-    models: (scope, engine) =>
+    models: (scope, engine, model) =>
       readStoredModelCatalog(
         scope.kind === "local" ? "local" : scope.runnerId,
-        engine
+        engine,
+        model
       ),
     usage(scope) {
       const key = engineScopeKey(scope);

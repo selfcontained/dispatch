@@ -12,11 +12,16 @@ import {
   agentModelDefaults,
   type ModelValidationRequest,
 } from "../shared/agent-models.js";
-import { recordDiscoveredModels } from "./engine-models.js";
+import {
+  recordDiscoveredModels,
+  readModelObservation,
+  SupersededModelObservation,
+} from "./engine-models.js";
 import { RunnerCallError, type Res } from "@dispatch/runner-protocol/contract";
 
 export const MODEL_REFRESH_AGE_MS = 60 * 60_000;
 export const MODEL_REFRESH_BACKOFF_MS = 60_000;
+export const MODEL_VALIDATION_WAIT_MS = 40_000;
 
 type Target = {
   settings: RunnerSettings;
@@ -37,6 +42,7 @@ type Entry = {
 /** Dispatch-owned freshness. Pickers schedule work; cold launch validation joins it. */
 export class ModelCatalogRefresh {
   private entries = new Map<string, Entry>();
+  private queues = new Map<string, Promise<void>>();
   private closed = false;
   constructor(
     private deps: {
@@ -49,7 +55,8 @@ export class ModelCatalogRefresh {
         result: Res<"engine.models">,
         settings: RunnerSettings,
         refreshedAt: string,
-        selectedModel?: string
+        selectedModel?: string,
+        expectedRevision?: number
       ) => Promise<boolean>;
       changed?: (runnerId: string, engine: AgentType) => void;
       failed?: (details: {
@@ -73,13 +80,7 @@ export class ModelCatalogRefresh {
     const entry = this.state(runnerId, engine, model);
     if (entry.pending) return;
     const now = this.deps.now?.() ?? Date.now();
-    if (
-      !entry.dirty &&
-      (now < entry.retryAt ||
-        (entry.success !== undefined &&
-          now - entry.success < MODEL_REFRESH_AGE_MS))
-    )
-      return;
+    if (!entry.dirty && now < entry.retryAt) return;
     let target: Target | undefined;
     try {
       target = this.deps.resolve(runnerId, engine);
@@ -93,13 +94,13 @@ export class ModelCatalogRefresh {
       (!entry.dirty && (!target.enabled || !target.online || target.blocked))
     )
       return;
-    entry.pending = this.refresh(
-      runnerId,
-      engine,
-      entry,
-      target,
-      model
-    ).finally(() => {
+    const previous = this.queues.get(runnerId) ?? Promise.resolve();
+    const pending = previous.then(() =>
+      this.refresh(runnerId, engine, entry, model)
+    );
+    this.queues.set(runnerId, pending);
+    entry.pending = pending.finally(() => {
+      if (this.queues.get(runnerId) === pending) this.queues.delete(runnerId);
       entry.pending = undefined;
       if (entry.again && !this.closed) {
         entry.again = false;
@@ -107,21 +108,34 @@ export class ModelCatalogRefresh {
       }
     });
   }
+  /** Specific effort reads return stored data and enqueue only the selected model. */
+  read(runnerId: string, engine: AgentType, model?: string): void {
+    this.request(runnerId, engine);
+    const selected = model?.trim();
+    if (selected) this.request(runnerId, engine, selected);
+  }
   /** Only launch validation waits, and only until a first observation exists. */
   async validate(
     runnerId: string,
     engine: AgentType,
     request: ModelValidationRequest = {}
   ): Promise<boolean> {
+    const deadline = Date.now() + MODEL_VALIDATION_WAIT_MS;
     const observed = () =>
       getLearnedAgentModels(engine, runnerId) !== undefined;
     this.request(runnerId, engine);
-    if (!observed()) await this.settled(runnerId, engine);
+    if (
+      !observed() &&
+      !(await this.waitForValidation(runnerId, engine, deadline))
+    )
+      return false;
     if (!observed()) return false;
     const model = request.model?.trim() || agentModelDefaults(runnerId)[engine];
     const option = getAgentModelOptions(engine, runnerId).find(
       (choice) => choice.id === model
     );
+    if (request.effort != null && model && option)
+      this.request(runnerId, engine, model);
     if (
       request.effort != null &&
       model &&
@@ -129,16 +143,40 @@ export class ModelCatalogRefresh {
       option.effort === undefined
     ) {
       // An in-flight default listing may already supply this model's effort.
-      await this.settled(runnerId, engine);
+      if (!(await this.waitForValidation(runnerId, engine, deadline)))
+        return false;
       const updated = getAgentModelOptions(engine, runnerId).find(
         (choice) => choice.id === model
       );
       if (updated && updated.effort === undefined) {
         this.request(runnerId, engine, model);
-        await this.settled(runnerId, engine, model);
+        if (!(await this.waitForValidation(runnerId, engine, deadline, model)))
+          return false;
       }
     }
     return true;
+  }
+  private async waitForValidation(
+    runnerId: string,
+    engine: AgentType,
+    deadline: number,
+    model?: string
+  ) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        this.settled(runnerId, engine, model).then(() => true),
+        new Promise<boolean>((resolve) => {
+          timer = setTimeout(
+            () => resolve(false),
+            Math.max(0, deadline - Date.now())
+          );
+          timer.unref();
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
   /** A successful installation/update or sign-in invalidates durable freshness. */
   invalidate(runnerId: string, engine: AgentType): void {
@@ -155,17 +193,19 @@ export class ModelCatalogRefresh {
     runnerId: string,
     engine: AgentType,
     entry: Entry,
-    target: Target,
     model?: string
   ) {
     const now = () => this.deps.now?.() ?? Date.now();
-    const key = namespaced(target.settings, `agent_models_refresh:${engine}`);
     const generation = entry.generation;
     const engineGeneration = this.state(runnerId, engine).generation;
     const current = () =>
       generation === entry.generation &&
       engineGeneration === this.state(runnerId, engine).generation;
     try {
+      // Resolve again at the front of the FIFO: queued eligibility is not authority.
+      const target = this.deps.resolve(runnerId, engine);
+      if (!target) return;
+      const key = namespaced(target.settings, `agent_models_refresh:${engine}`);
       if (entry.dirty) {
         await setSetting(
           this.deps.pool,
@@ -176,7 +216,30 @@ export class ModelCatalogRefresh {
       }
       if (!target.enabled || !target.online || target.blocked || this.closed)
         return;
-      if (entry.success === undefined && !model) {
+      const observation = await readModelObservation(
+        this.deps.pool,
+        target.settings,
+        engine
+      );
+      if (
+        model &&
+        !getAgentModelOptions(engine, runnerId).some(
+          (choice) => choice.id === model
+        )
+      )
+        return;
+      if (model) {
+        const timestamp = observation.effort[model];
+        entry.success = timestamp
+          ? Date.parse(timestamp)
+          : Number.NEGATIVE_INFINITY;
+        if (
+          getAgentModelOptions(engine, runnerId).find(
+            (choice) => choice.id === model
+          )?.effort === undefined
+        )
+          entry.success = Number.NEGATIVE_INFINITY;
+      } else {
         const raw = await getSetting(this.deps.pool, key);
         let value = Number.NEGATIVE_INFINITY;
         try {
@@ -209,6 +272,7 @@ export class ModelCatalogRefresh {
       )
         return;
       if (this.closed || !current()) return;
+      const revision = observation.revision;
       const result = await boundedCall(target.calls, "engine.models", {
         engine,
         ...(model && { model }),
@@ -222,7 +286,8 @@ export class ModelCatalogRefresh {
             result,
             target.settings,
             refreshedAt,
-            model
+            model,
+            revision
           )
         : await recordDiscoveredModels(
             this.deps.pool,
@@ -230,7 +295,8 @@ export class ModelCatalogRefresh {
             result,
             { runnerId, settings: target.settings },
             refreshedAt,
-            model
+            model,
+            revision
           );
       if (this.closed || !current()) return;
       entry.success = Date.parse(refreshedAt);
@@ -242,6 +308,11 @@ export class ModelCatalogRefresh {
       }
       if (changed) this.deps.changed?.(runnerId, engine);
     } catch (error) {
+      if (error instanceof SupersededModelObservation) {
+        entry.success = undefined;
+        entry.retryAt = 0;
+        return;
+      }
       entry.retryAt = now() + MODEL_REFRESH_BACKOFF_MS;
       this.deps.failed?.({
         runnerId,

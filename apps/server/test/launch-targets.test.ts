@@ -7,6 +7,7 @@ import Fastify from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import { registerLaunchTargetRoutes } from "../src/routes/launch-targets.js";
 import { resolveSavedTarget } from "../src/runners/saved-location.js";
+import { onStoredModelCatalogRead } from "../src/shared/agent-models.js";
 
 const catalog = {
   models: {
@@ -153,6 +154,26 @@ async function setup(projectFailure = false) {
 }
 
 describe("launch target adapter", () => {
+  it("passes only the selected effort model into stored reads on either target", async () => {
+    const { get, targets } = await setup();
+    const scheduled = vi.fn();
+    const stop = onStoredModelCatalogRead(scheduled);
+    try {
+      for (const [index, id, engine] of [
+        [0, "local", "claude"],
+        [1, "fixture", "codex"],
+      ] as const) {
+        const response = await get(
+          `${targets[index].dataUrl}?agentType=${engine}&model=selected`
+        );
+        expect(response.statusCode).toBe(200);
+        expect(scheduled).toHaveBeenCalledWith(id, engine, "selected");
+      }
+      expect(scheduled).toHaveBeenCalledTimes(2);
+    } finally {
+      stop();
+    }
+  });
   it("requires the existing authentication and uses opaque keys with offline choices retained", async () => {
     const { app, targets } = await setup();
     expect(

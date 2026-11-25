@@ -543,7 +543,7 @@ describe("model catalogs and sign-in refresh triggers", () => {
             catalog: { defaultModel: id, models: [{ id, label: id, effort }] },
           },
         });
-        expect(scheduled).toHaveBeenCalledWith(id, "codex");
+        expect(scheduled).toHaveBeenCalledWith(id, "codex", id);
       }
       expect(remote.send).not.toHaveBeenCalled();
       expect(engines.call).not.toHaveBeenCalled();

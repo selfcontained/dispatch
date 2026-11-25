@@ -14,6 +14,8 @@ import {
   recordEngineModels,
   recordDiscoveredModels,
   loadLearnedAgentModels,
+  readModelObservation,
+  SupersededModelObservation,
 } from "../src/agents/engine-models.js";
 import { loadModelAvailability } from "../src/agents/model-availability.js";
 import {
@@ -42,6 +44,55 @@ beforeEach(async () => {
 
 const logger = { info: vi.fn() } as never;
 describe("atomic catalog learning", () => {
+  it.each(["local", "revision-fixture"])(
+    "checks %s refresh revision inside the SQL transaction before any state is changed",
+    async (runnerId) => {
+      const settings =
+        runnerId === "local"
+          ? localRunnerSettings
+          : enrolledRunnerSettings(runnerId);
+      const context = { runnerId, settings };
+      const old = await readModelObservation(pool, settings, "codex");
+      await recordEngineModels(
+        { pool, logger },
+        { id: "missing-fixture-agent", type: "codex", model: null },
+        [
+          {
+            id: "model",
+            name: "Model",
+            type: "select",
+            currentValue: "new-report",
+            options: [{ value: "new-report", name: "New report" }],
+          },
+        ],
+        true,
+        context
+      );
+      const before = (
+        await pool.query("SELECT key,value FROM settings ORDER BY key")
+      ).rows;
+      await expect(
+        recordDiscoveredModels(
+          pool,
+          "codex",
+          { current: "stale", models: [{ id: "stale", label: "Stale" }] },
+          context,
+          "2026-01-01T00:00:00Z",
+          undefined,
+          old.revision
+        )
+      ).rejects.toBeInstanceOf(SupersededModelObservation);
+      expect(
+        (await pool.query("SELECT key,value FROM settings ORDER BY key")).rows
+      ).toEqual(before);
+      expect(
+        agentModelCatalog(runnerId).codex?.map((model) => model.id)
+      ).toEqual(["new-report"]);
+      expect(
+        (await readModelObservation(pool, settings, "codex")).revision
+      ).toBe(old.revision + 1);
+    }
+  );
   it.each(["local report", "runner report", "refresh"] as const)(
     "publishes nothing on a failed %s write, then allows the next observation",
     async (source) => {

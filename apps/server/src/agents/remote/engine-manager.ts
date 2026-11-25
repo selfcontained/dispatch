@@ -101,7 +101,8 @@ export class EngineManager {
         calls(scope: EngineScope): EngineCalls;
         models(
           scope: EngineScope,
-          engine: RunnerEngine
+          engine: RunnerEngine,
+          model?: string
         ): { defaultModel: string | null; models: readonly AgentModelOption[] };
         usage(scope: EngineScope): ReturnType<typeof createRunnerUsage>;
         updates(scope: EngineScope): EngineUpdateOperations;
@@ -148,7 +149,11 @@ export class EngineManager {
     onEvent?: (event: EngineOperationEvent) => void
   ): Promise<EngineOperationAck> {
     if (operation.type === "model_catalog") {
-      const catalog = this.deps.engineActions.models(scope, operation.engine);
+      const catalog = this.deps.engineActions.models(
+        scope,
+        operation.engine,
+        operation.model
+      );
       return {
         ok: true,
         capability: {

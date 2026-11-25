@@ -1195,8 +1195,8 @@ async function registerRoutes() {
     failed: (details) =>
       app.log.debug(details, "Model catalog refresh deferred"),
   });
-  const stopCatalogReads = onStoredModelCatalogRead((runnerId, engine) =>
-    catalogRefresh.request(runnerId, engine)
+  const stopCatalogReads = onStoredModelCatalogRead((runnerId, engine, model) =>
+    catalogRefresh.read(runnerId, engine, model)
   );
   const stopCatalogValidation = onModelCatalogValidation(
     (runnerId, engine, request) =>
@@ -1404,8 +1404,12 @@ async function registerRoutes() {
       catalogRefresh.invalidate(engineCalls(scope).settings.runnerId, engine),
     engineActions: {
       calls: engineCalls,
-      models: (scope, engine) =>
-        readStoredModelCatalog(engineCalls(scope).settings.runnerId, engine),
+      models: (scope, engine, model) =>
+        readStoredModelCatalog(
+          engineCalls(scope).settings.runnerId,
+          engine,
+          model
+        ),
       updates: updatesFor,
       usage: (scope) => usageForCalls(engineCalls(scope)),
     },

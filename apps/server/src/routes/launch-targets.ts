@@ -1,6 +1,7 @@
 import {
   modelChoicesForRunner,
   getReportedModelHistory,
+  readStoredModelCatalog,
 } from "../shared/agent-models.js";
 import type { AgentType } from "../shared/agent-types.js";
 import { identityKey } from "../runners/repository-identity.js";
@@ -463,6 +464,10 @@ export async function registerLaunchTargetRoutes(
         },
       };
     }
+    // Only the currently selected model is probed; catalog reads never enumerate effort.
+    const selectedModel = q.model ?? catalog.defaults?.[engine];
+    if (selectedModel)
+      readStoredModelCatalog(target.id, engine as AgentType, selectedModel);
     const located = resolveSavedTarget(directory, {
       runner: target.id,
       projectId: q.projectId,

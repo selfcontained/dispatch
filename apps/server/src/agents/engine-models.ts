@@ -25,6 +25,42 @@ import type { Res } from "@dispatch/runner-protocol/contract";
 const settingKey = (agentType: AgentType, settings = localRunnerSettings) =>
   namespaced(settings, `agent_models:${agentType}`);
 
+/** Durable ordering and ages, separate from main's catalog bytes. */
+export type ModelObservation = {
+  revision: number;
+  observedAt?: string;
+  effort: Record<string, string>;
+};
+export class SupersededModelObservation extends Error {}
+export async function readModelObservation(
+  pool: Pool,
+  settings: RunnerSettings,
+  type: AgentType
+): Promise<ModelObservation> {
+  const raw = await getSetting(
+    pool,
+    namespaced(settings, `agent_models_observation:${type}`)
+  );
+  try {
+    const value = raw ? JSON.parse(raw) : {};
+    return {
+      revision:
+        Number.isSafeInteger(value.revision) && value.revision >= 0
+          ? value.revision
+          : 0,
+      observedAt:
+        typeof value.observedAt === "string" ? value.observedAt : undefined,
+      effort: Object.fromEntries(
+        Object.entries(value.effort ?? {}).filter(
+          (entry) => typeof entry[1] === "string"
+        )
+      ) as Record<string, string>,
+    };
+  } catch {
+    return { revision: 0, effort: {} };
+  }
+}
+
 type StoredEngineModels = {
   models: AgentModelOption[];
   defaultModel?: string;
@@ -159,12 +195,46 @@ async function learnEngineCatalog(
   options: readonly SessionConfigOption[],
   report: EngineModelReport,
   catalog: { runnerId: string; settings: RunnerSettings },
-  refresh?: { key: string; value: string }
+  refresh?: {
+    refreshedAt: string;
+    expectedRevision?: number;
+  }
 ): Promise<boolean> {
   if (report.choices.length === 0 && !refresh) return false;
   return commitModelChanges(pool, async (client) => {
+    const observation = await readModelObservation(
+      client,
+      catalog.settings,
+      agent.type
+    );
+    if (
+      refresh?.expectedRevision !== undefined &&
+      observation.revision !== refresh.expectedRevision
+    )
+      throw new SupersededModelObservation(
+        "A newer model observation committed during discovery."
+      );
+    const observedAt = refresh?.refreshedAt ?? new Date().toISOString();
+    const effortTimes = new Map(Object.entries(observation.effort));
+    // Retained effort is not a new observation of that model.
+    for (const choice of report.choices)
+      if (choice.id === report.current || choice.effort !== undefined)
+        effortTimes.set(choice.id, observedAt);
+    await setSetting(
+      client,
+      namespaced(catalog.settings, `agent_models_observation:${agent.type}`),
+      JSON.stringify({
+        revision: observation.revision + 1,
+        observedAt,
+        effort: Object.fromEntries(effortTimes),
+      })
+    );
+    await setSetting(
+      client,
+      namespaced(catalog.settings, `agent_models_refresh:${agent.type}`),
+      JSON.stringify({ refreshedAt: observedAt })
+    );
     if (report.choices.length === 0) {
-      await setSetting(client, refresh!.key, refresh!.value);
       return { result: false, publish() {} };
     }
     // Before the list is published, so a model that starts off is never offered.
@@ -204,7 +274,6 @@ async function learnEngineCatalog(
       settingKey(agent.type, catalog.settings),
       JSON.stringify(stored)
     );
-    if (refresh) await setSetting(client, refresh.key, refresh.value);
     return {
       result: modelsChanged,
       publish() {
@@ -227,7 +296,8 @@ export function recordDiscoveredModels(
   result: Res<"engine.models">,
   catalog: { runnerId: string; settings: RunnerSettings },
   refreshedAt: string,
-  selectedModel?: string
+  selectedModel?: string,
+  expectedRevision?: number
 ): Promise<boolean> {
   const current = result.current ?? result.defaultModel ?? "default";
   const effort =
@@ -249,8 +319,8 @@ export function recordDiscoveredModels(
     { current, choices: result.models },
     catalog,
     {
-      key: namespaced(catalog.settings, `agent_models_refresh:${type}`),
-      value: JSON.stringify({ refreshedAt }),
+      refreshedAt,
+      expectedRevision,
     }
   );
 }
