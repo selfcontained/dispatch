@@ -62,7 +62,7 @@ describe("path.resolve on the local runner", () => {
     expect(call).toHaveBeenCalledWith(
       "path.resolve",
       { path: "/child/answers" },
-      { wait: false }
+      expect.objectContaining({ wait: false, timeoutMs: null })
     );
   });
 

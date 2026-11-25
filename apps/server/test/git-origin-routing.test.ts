@@ -20,7 +20,7 @@ it("asks a ready local child for the verbatim origin path", async () => {
   expect(call).toHaveBeenCalledExactlyOnceWith(
     "git.origin",
     { path: "~/verbatim" },
-    { wait: false }
+    expect.objectContaining({ wait: false, timeoutMs: null })
   );
 });
 it("does not substitute a local answer for a child's operation error", async () => {
@@ -85,7 +85,10 @@ it.each(["starting", "unavailable"] as const)(
     ).toEqual({ url: null });
     // One attempt, never waiting: that attempt dials a restarted child.
     expect(call).toHaveBeenCalledTimes(1);
-    expect(call.mock.calls[0]).toContainEqual({ wait: false });
+    expect(call.mock.calls[0]![2]).toMatchObject({
+      wait: false,
+      timeoutMs: null,
+    });
   }
 );
 it.each(["unavailable", "unknown_outcome"] as const)(
