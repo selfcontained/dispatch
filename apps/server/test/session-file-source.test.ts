@@ -1,10 +1,22 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  rename,
+  rm,
+  writeFile,
+  link,
+  truncate,
+  realpath,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { buffer } from "node:stream/consumers";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { sessionFileSource } from "../src/files/session-file.js";
+import {
+  sessionFileSource,
+  openBoundedSessionFile,
+  readSessionFile,
+} from "../src/files/session-file.js";
 
 let dir: string;
 beforeEach(async () => {
@@ -53,6 +65,28 @@ describe("sessionFileSource", () => {
     );
     await expect(changed.read()).rejects.toThrow(
       "Session file changed during transfer"
+    );
+  });
+});
+
+describe("bounded session-file error bytes", () => {
+  it("preserves invalid-path, hardlink and size refusal messages", async () => {
+    for (const relative of ["../outside", "/absolute", "a/../../outside"]) {
+      await expect(openBoundedSessionFile(dir, relative)).rejects.toThrow(
+        "Invalid relative session file path."
+      );
+    }
+    const root = await realpath(dir);
+    const file = path.join(root, "notes.txt");
+    await writeFile(file, "notes");
+    await link(file, path.join(dir, "linked.txt"));
+    await expect(readSessionFile(root, "linked.txt")).rejects.toThrow(
+      "Hard-linked files cannot be collected."
+    );
+    await rm(path.join(dir, "linked.txt"));
+    await truncate(file, 20 * 1024 * 1024 + 1);
+    await expect(readSessionFile(root, "notes.txt")).rejects.toThrow(
+      "Session files are limited to 20 MiB."
     );
   });
 });
