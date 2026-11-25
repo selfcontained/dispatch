@@ -1,3 +1,4 @@
+import { checkoutWorkload } from "./helpers/checkout-workload.js";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -261,6 +262,121 @@ describe("legacy checkout reads", () => {
         })
       )
     );
+  });
+
+  it("keeps the legacy UTF-8 inspection request and response bytes", async () => {
+    const requestSession = vi.fn(async () => ({
+      value: '{"kind":"readFile","content":"legacy text"}',
+    }));
+    const { directory, placement: selected } = checkoutRunners(
+      { remote: { requestSession } as never },
+      enrolled
+    );
+    expect(
+      await directory.for(selected).call("checkout.read", {
+        target: {
+          session: sessionFromWire(enrolled.id),
+          checkout: "current",
+        },
+        path,
+        encoding: "utf8",
+        maxBytes: null,
+      })
+    ).toEqual({ data: "legacy text" });
+    expect(
+      requestSession.mock.calls.map((call) => JSON.stringify(call))
+    ).toEqual([
+      '[{"runner":"enrolled","workspace":"session-workspace"},{"kind":"inspectCheckout","agentId":"agt_123","query":{"kind":"readFile","path":".dispatch/tools.json"}}]',
+    ]);
+  });
+
+  it("streams launch files from the owned checkout and current files from the selected workspace", async () => {
+    const root = await mkdtemp(join(tmpdir(), "read-selectors-"));
+    const owned = join(root, "owned");
+    const moved = join(root, "moved");
+    await mkdir(owned);
+    await mkdir(moved);
+    const ownedBytes = Buffer.alloc(5 * 1024 * 1024, 0xff);
+    ownedBytes.set([0, 128, 239, 127]);
+    const movedBytes = Buffer.alloc(5 * 1024 * 1024, 0x80);
+    const ownedText = "owned¥".repeat(1024 * 1024);
+    const movedText = "moved¥".repeat(1024 * 1024);
+    try {
+      for (const [directory, bytes, data] of [
+        [owned, ownedBytes, ownedText],
+        [moved, movedBytes, movedText],
+      ] as const) {
+        await writeFile(join(directory, "binary"), bytes);
+        await writeFile(join(directory, "text"), data);
+      }
+      const streamCheckoutRead = vi.fn(async (_location, op, request) => {
+        const { target, ...parameters } = request;
+        return checkoutWorkload.run(
+          op,
+          {
+            directory: target.checkout === "launch" ? owned : moved,
+            request: parameters,
+          },
+          {}
+        );
+      });
+      const requestSession = vi.fn(() => {
+        throw new Error("Unexpected legacy read");
+      });
+      const { directory, placement: selected } = checkoutRunners(
+        { remote: { streamCheckoutRead, requestSession } as never },
+        enrolled
+      );
+      for (const checkout of ["current", "launch"] as const) {
+        const call = (
+          encoding: "utf8" | "base64",
+          maxBytes: number | null = null
+        ) =>
+          directory.for(selected).call("checkout.read", {
+            target: { session: sessionFromWire(enrolled.id), checkout },
+            path: encoding === "base64" ? "binary" : "text",
+            encoding,
+            maxBytes,
+          });
+        const binary = await call("base64");
+        expect(
+          Buffer.from(binary!.data, "base64").equals(
+            checkout === "launch" ? ownedBytes : movedBytes
+          )
+        ).toBe(true);
+        const text = await call("utf8");
+        expect(
+          text?.data === (checkout === "launch" ? ownedText : movedText)
+        ).toBe(true);
+        await expect(call("utf8", 1)).rejects.toMatchObject({
+          code: "too_large",
+        });
+        await expect(call("base64", 1)).rejects.toMatchObject({
+          code: "too_large",
+        });
+      }
+      expect(requestSession).not.toHaveBeenCalled();
+      expect(streamCheckoutRead).toHaveBeenCalledTimes(8);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not use legacy inspection for a launch read when streaming is unavailable", async () => {
+    const requestSession = vi.fn();
+    const { directory, placement: selected } = checkoutRunners(
+      { remote: { requestSession } as never },
+      enrolled
+    );
+    await expect(
+      directory.for(selected).call("checkout.read", {
+        target: { session: sessionFromWire(enrolled.id), checkout: "launch" },
+        path,
+        encoding: "utf8",
+        maxBytes: null,
+      })
+    ).rejects.toMatchObject({ code: "unsupported" });
+    expect(requestSession).not.toHaveBeenCalled();
   });
 
   it("still rejects a legacy inspection reply above the v1 file cap", async () => {

@@ -222,11 +222,107 @@ describe("v1 credit streams", () => {
       });
       if (frame?.type !== "request" || frame.command.kind !== "checkoutRead")
         throw new Error("Missing checkout stream");
+      expect(
+        JSON.stringify({
+          ...frame.command,
+          operation: { ...frame.command.operation, streamId: "stream" },
+        })
+      ).toBe(
+        '{"kind":"checkoutRead","workspace":"test","agentId":"reader","operation":{"op":"checkout.read","request":{"path":"large.txt","encoding":"utf8","maxBytes":null},"streamId":"stream"}}'
+      );
       expect(link.client.has(frame.command.operation.streamId)).toBe(false);
       expect(link.runner.has(frame.command.operation.streamId)).toBe(false);
     } finally {
       await link.close();
     }
+  });
+
+  it.each([
+    ["current", "utf8"],
+    ["launch", "utf8"],
+    ["current", "base64"],
+    ["launch", "base64"],
+  ] as const)(
+    "streams unlimited %s %s checkout reads",
+    async (checkout, encoding) => {
+      const bytes = Buffer.alloc(5 * 1024 * 1024, 0xff);
+      bytes.set([0, 128, 239, 127]);
+      const data =
+        encoding === "base64"
+          ? bytes.toString("base64")
+          : "¥".repeat(3 * 1024 * 1024);
+      const link = await loopback(
+        true,
+        undefined,
+        Buffer.from(JSON.stringify({ data: { data } }))
+      );
+      try {
+        const result = await receiveCheckoutRead(
+          "checkout.read",
+          {
+            target: { session: sessionFromWire("reader"), checkout },
+            path: "payload",
+            encoding,
+            maxBytes: null,
+          },
+          "test",
+          (command, signal) => link.connection.request(command, { signal }),
+          link.client
+        );
+        expect(result?.data === data).toBe(true);
+        if (encoding === "base64")
+          expect(Buffer.from(result!.data, "base64").equals(bytes)).toBe(true);
+        const frame = parseServiceFrame(link.received[0]);
+        if (frame?.type !== "request" || frame.command.kind !== "checkoutRead")
+          throw new Error("Missing checkout read frame");
+        if (checkout === "launch")
+          expect(frame.command.operation.checkout).toBe("launch");
+        else expect(frame.command.operation).not.toHaveProperty("checkout");
+        expect(frame.command.operation.request).toEqual({
+          path: "payload",
+          encoding,
+          maxBytes: null,
+        });
+      } finally {
+        await link.close();
+      }
+    }
+  );
+
+  it("round-trips old and selected read frames and rejects unknown selectors", () => {
+    const operation = {
+      op: "checkout.read",
+      request: { path: "file", encoding: "base64", maxBytes: null },
+      streamId: "stream_1",
+    };
+    const frame = {
+      type: "request",
+      id: "read_1",
+      command: {
+        kind: "checkoutRead",
+        workspace: "test",
+        agentId: "reader",
+        operation,
+      },
+    };
+    for (const checkout of [undefined, "current", "launch"] as const) {
+      const input = {
+        ...frame,
+        command: {
+          ...frame.command,
+          operation: { ...operation, ...(checkout && { checkout }) },
+        },
+      };
+      const parsed = parseServiceFrame(JSON.parse(JSON.stringify(input)));
+      expect(JSON.stringify(parsed)).toBe(JSON.stringify(input));
+    }
+    for (const checkout of ["moved", "unknown", null, 1])
+      expect(
+        parseServiceFrame({
+          ...frame,
+          command: { ...frame.command, operation: { ...operation, checkout } },
+        })
+      ).toBeNull();
   });
 
   it.each([true, false])(

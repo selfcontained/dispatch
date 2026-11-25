@@ -19,7 +19,12 @@ const checkoutReadNames = [
 export type CheckoutReadName = (typeof checkoutReadNames)[number];
 
 export type CheckoutReadRequest = {
-  [K in CheckoutReadName]: { op: K; request: Omit<Req<K>, "target"> };
+  [K in CheckoutReadName]: {
+    op: K;
+    request: Omit<Req<K>, "target">;
+    /** Omitted on existing frames: read the currently selected checkout. */
+    checkout?: "current" | "launch";
+  };
 }[CheckoutReadName];
 
 export function isCheckoutReadName(op: unknown): op is CheckoutReadName {
@@ -34,9 +39,12 @@ export function isCheckoutReadRequest(
     !isRecord(value) ||
     !isCheckoutReadName(value.op) ||
     !isRecord(value.request) ||
+    (value.checkout !== undefined &&
+      value.checkout !== "current" &&
+      value.checkout !== "launch") ||
     !operations[value.op].request.check({
       ...value.request,
-      target: { session, checkout: "current" },
+      target: { session, checkout: value.checkout ?? "current" },
     })
   )
     return false;
