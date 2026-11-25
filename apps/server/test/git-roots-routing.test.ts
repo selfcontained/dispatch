@@ -150,3 +150,48 @@ it.each(["unavailable", "unknown_outcome"] as const)(
     expect(call.mock.calls[0][2]).toMatchObject({ wait: false });
   }
 );
+
+it("manager roots use git.roots for an enrolled session and retain reply bytes", async () => {
+  const { AgentManager } = await import("../src/agents/manager.js");
+  const { placementForRunner } = await import("../src/runners/placement.js");
+  const requestSession = vi.fn(async () => ({
+    value: JSON.stringify({
+      data: {
+        checkoutRoot: "/runner/worktree",
+        repositoryRoot: "/runner/repo",
+      },
+    }),
+  }));
+  const result = await AgentManager.prototype.inspectCheckout.call(
+    {
+      checkoutReadRunners: () => ({
+        local: undefined,
+        remote: { requestSession, supportsGitQueries: () => true },
+      }),
+    } as never,
+    {
+      id: "roots-agent",
+      cwd: "runner://enrolled/session-workspace",
+      placement: placementForRunner("enrolled"),
+      worktreePath: null,
+      workspacePath: null,
+    } as never,
+    { kind: "roots" }
+  );
+  expect(JSON.stringify(result)).toBe(
+    '{"kind":"roots","checkoutRoot":"/runner/worktree","repositoryRoot":"/runner/repo"}'
+  );
+  expect(requestSession).toHaveBeenCalledExactlyOnceWith(
+    { runner: "enrolled", workspace: "session-workspace" },
+    {
+      agentId: "roots-agent",
+      kind: "gitQuery",
+      operation: {
+        op: "git.roots",
+        request: { target: { session: "roots-agent", checkout: "current" } },
+      },
+    },
+    undefined,
+    undefined
+  );
+});

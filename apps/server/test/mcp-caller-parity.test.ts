@@ -131,6 +131,12 @@ const ctx = useInjectApp({
           });
         }
         case "gitQuery":
+          if (command.operation.op === "git.roots") {
+            const { kind: _kind, ...roots } = await inspectCheckout(checkout, {
+              kind: "roots",
+            });
+            return JSON.stringify({ data: roots });
+          }
           expect(command.operation.op).toBe("git.defaultBranch");
           return JSON.stringify({ data: { branch: null } });
         case "workspacePrepare": {
