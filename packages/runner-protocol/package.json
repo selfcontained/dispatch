@@ -9,7 +9,8 @@
     "./contract": "./src/contract/index.ts",
     "./host": "./src/host.ts",
     "./engine-options": "./src/engine-options.ts",
-    "./build-identity": "./src/build-identity.ts"
+    "./build-identity": "./src/build-identity.ts",
+    "./github-pr-observation": "./src/github-pr-observation.ts"
   },
   "files": [
     "src"

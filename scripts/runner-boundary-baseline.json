@@ -717,13 +717,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/remote/github-runner-executor.ts",
-    "kind": "R5 runner to Dispatch",
-    "detail": "apps/server/src/agents/pull-request-reader",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/remote/health.ts",
     "kind": "R2 host access",
     "detail": "fs/promises",
