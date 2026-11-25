@@ -1,3 +1,4 @@
+import { identityKey } from "../runners/repository-identity.js";
 import type { AgentManager } from "../agents/manager.js";
 import {
   sameRunner,
@@ -122,6 +123,7 @@ export async function registerLaunchTargetRoutes(
     location: target.location,
     dataUrl: `${ROOT}/${target.key}`,
     branchesUrl: `${ROOT}/${target.key}/branches`,
+    historyUrl: `${ROOT}/${target.key}/history`,
     defaultBaseBranch: target.location.kind === "folder" ? "main" : "",
     launchFields: fields(target),
     selectionFields: { runner: target.id },
@@ -179,6 +181,60 @@ export async function registerLaunchTargetRoutes(
               }
             : t.location,
       })),
+    };
+  });
+
+  app.get(`${ROOT}/:key/history`, async (request) => {
+    const target = await selected(request);
+    if (target.location.kind === "project")
+      return { projects: [], projectOptions: [] };
+    const q = request.query as {
+      search?: string;
+      limit?: string;
+      candidates?: string;
+    };
+    const history = await read<{
+      projects: string[];
+      projectOptions: Array<{ path: string; iconUrl?: string }>;
+    }>(
+      request,
+      `/api/v1/history/projects?${query({ search: q.search, limit: q.limit })}`
+    );
+    const accepted = await Promise.all(
+      history.projectOptions.map(async (option) => {
+        const id = option.iconUrl?.match(/\/agents\/([^/]+)\/repo-icon/)?.[1];
+        const agent = id
+          ? await deps.agents.getAgent(decodeURIComponent(id))
+          : undefined;
+        return agent && identityKey(agent.placement, option.path) !== null
+          ? option
+          : null;
+      })
+    );
+    const projectOptions = accepted.filter(
+      (option): option is NonNullable<typeof option> => option !== null
+    );
+    const candidates: unknown = q.candidates ? JSON.parse(q.candidates) : [];
+    const folders = Array.isArray(candidates)
+      ? candidates.filter(
+          (candidate): candidate is string =>
+            typeof candidate === "string" &&
+            identityKey(
+              targetPlacement({ directory: candidate }),
+              candidate
+            ) !== null &&
+            (!q.search ||
+              candidate.toLowerCase().includes(q.search.toLowerCase()))
+        )
+      : [];
+    return {
+      projects: [
+        ...new Set([
+          ...projectOptions.map((option) => option.path),
+          ...folders,
+        ]),
+      ],
+      projectOptions,
     };
   });
 

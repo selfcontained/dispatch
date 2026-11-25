@@ -62,11 +62,20 @@ afterEach(() => {
   cleanup();
   request.mockReset();
 });
-function fixture(targets = [controller], template?: Record<string, unknown>) {
+function fixture(
+  targets = [controller],
+  template?: Record<string, unknown>,
+  models: { id: string; label: string }[] = []
+) {
   request.mockImplementation(async (url, init) => {
     if (url === "/api/v1/launch-targets") return { targets };
     if (url.startsWith("/api/v1/launch-targets/saved/"))
-      return { targetKey: enrolled.key, projectId: "project", directory: "" };
+      return {
+        targetKey:
+          template?.directory === "/repo" ? controller.key : enrolled.key,
+        projectId: "project",
+        directory: "",
+      };
     if (url === "/fixture/branches")
       return { branches: ["main"], defaultBranch: "main" };
     if (url.startsWith("/fixture/"))
@@ -74,7 +83,7 @@ function fixture(targets = [controller], template?: Record<string, unknown>) {
         agentTypes: url.startsWith(enrolled.dataUrl)
           ? ["codex"]
           : ["claude", "codex"],
-        catalog: { models: { claude: [], codex: [] } },
+        catalog: { models: { claude: models, codex: models } },
         engineOptions: [],
         effort: [],
         directory: url.startsWith(enrolled.dataUrl) ? "" : "/repo",
@@ -273,3 +282,59 @@ it("puts the target first and re-derives the engine and required project for an 
     useWorktree: false,
   });
 });
+
+it.each([
+  [false, false],
+  [false, true],
+  [true, false],
+  [true, true],
+])(
+  "matches main's settled model visibility (runner=%s, populated=%s)",
+  async (runner, populated) => {
+    const template = {
+      id: "saved",
+      name: "Nightly",
+      directory: runner ? "runner://fixture/@session" : "/repo",
+      projectId: "project",
+      agentType: "codex",
+      model: null,
+      useWorktree: false,
+      baseBranch: null,
+      branchName: null,
+      fullAccess: false,
+      callable: true,
+      allowFiles: true,
+      selfImprove: false,
+    };
+    fixture(
+      [controller, enrolled],
+      template,
+      populated ? [{ id: "fixture-model", label: "Fixture model" }] : []
+    );
+    mount(
+      <Routes>
+        <Route
+          path="/automations/templates/:templateId"
+          element={
+            <TemplateDetailPane enabledAgentTypes={["claude", "codex"]} />
+          }
+        />
+      </Routes>,
+      "/automations/templates/saved"
+    );
+    await screen.findByRole("heading", { name: "Nightly" });
+    await waitFor(() =>
+      expect(
+        request.mock.calls.some(([url]) =>
+          url.startsWith(runner ? enrolled.dataUrl : controller.dataUrl)
+        )
+      ).toBe(true)
+    );
+    await waitFor(() =>
+      expect(screen.queryByText("Loading models…")).toBeNull()
+    );
+    expect(Boolean(screen.queryByRole("combobox", { name: "Model" }))).toBe(
+      populated
+    );
+  }
+);

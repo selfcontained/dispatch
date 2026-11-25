@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import {
   useLaunchTargets,
   useLaunchTargetData,
@@ -118,19 +119,24 @@ export function useCreateAgentForm({
         : enabledAgentTypes[0]!;
   });
   const [folderCwd, setCreateCwd] = useState(() => {
+    if (sourceAgentId) return "";
     const resolved = resolveDefaultCwd().trim();
     return resolved || readLastUsedCwd();
   });
   const sourceInitialized = useRef<string | null>(null);
   const folderEdited = useRef(false);
   useEffect(() => {
-    if (sourceInitialized.current === sourceAgentId || folderEdited.current)
+    if (
+      launch.changed ||
+      sourceInitialized.current === sourceAgentId ||
+      folderEdited.current
+    )
       return;
     if (sourceAgentId && launch.projection.data) {
       sourceInitialized.current = sourceAgentId;
       setCreateCwd(launch.projection.data.directory);
     }
-  }, [sourceAgentId, launch.projection.data]);
+  }, [sourceAgentId, launch.projection.data, launch.changed]);
   const createCwd =
     project?.repoRoot ??
     (sourceAgentId && launch.projection.isPending ? "" : folderCwd);
@@ -164,6 +170,14 @@ export function useCreateAgentForm({
     add: addCwdHistory,
     remove: removeCwdHistory,
   } = useCwdHistory();
+  const historyUrl = launch.target?.historyUrl
+    ? `${launch.target.historyUrl}?${new URLSearchParams({ candidates: JSON.stringify(cwdHistory) })}`
+    : "";
+  const folderHistory = useQuery({
+    queryKey: ["launch-folder-history", historyUrl],
+    enabled: Boolean(historyUrl),
+    queryFn: () => api<{ projects: string[] }>(historyUrl),
+  });
   const targetData = useLaunchTargetData(launch.target, {
     directory: createCwd,
     projectId: createProjectId,
@@ -453,6 +467,10 @@ export function useCreateAgentForm({
     engines: targetData.info?.engineOptions ?? null,
     chooseTarget: (key: string) => {
       launch.choose(key);
+      if (sourceAgentId) {
+        setCreateCwd("");
+        setLocationChoice({ projectId: null });
+      }
       setCreateEffort(null);
     },
     submitError,
@@ -507,7 +525,8 @@ export function useCreateAgentForm({
     setCreateBaseBranch,
     createNewBranch,
     setCreateNewBranch,
-    cwdHistory,
+    cwdHistory: folderHistory.data?.projects ?? [],
+    historyUrl,
     removableCwdHistory,
     cwdHistoryMetadata,
     removeCwdHistory,

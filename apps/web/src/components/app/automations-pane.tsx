@@ -1,3 +1,5 @@
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import { SidebarTop } from "./sidebar-top";
 import { useProjectScope } from "@/hooks/use-projects";
 import { useProjectNavigate } from "@/hooks/use-projects";
@@ -165,7 +167,7 @@ function TemplateListContent({
   );
 }
 
-function TemplateListItem({
+export function TemplateListItem({
   template,
   enabledAgentTypes,
   selected,
@@ -177,6 +179,14 @@ function TemplateListItem({
   onSelect: () => void;
 }): JSX.Element {
   const [launchDialogOpen, setLaunchDialogOpen] = useState(false);
+  const { data: location } = useQuery({
+    queryKey: ["saved-launch-target", "template", template.id],
+    enabled: !template.description,
+    queryFn: () =>
+      api<{ locationLabel: string }>(
+        `/api/v1/launch-targets/saved/template/${encodeURIComponent(template.id)}`
+      ),
+  });
 
   const handleLaunch = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -212,9 +222,9 @@ function TemplateListItem({
             ) : (
               <div
                 className="truncate font-mono text-label-sm text-muted-foreground"
-                title={template.directory}
+                title={location?.locationLabel}
               >
-                {shortPath(template.directory)}
+                {shortPath(location?.locationLabel ?? "")}
               </div>
             )}
           </div>

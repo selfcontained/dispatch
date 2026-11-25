@@ -1,3 +1,5 @@
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import { LaunchTargetError } from "./launch-target-error";
 import type { TemplateTarget } from "./use-template-target";
 import { RunnerPicker } from "./runner-picker";
@@ -197,6 +199,15 @@ export function TemplateConfigFields({
     remove: removeCwdHistory,
   } = useCwdHistory();
 
+  const historyUrl = target?.launch.target?.historyUrl
+    ? `${target.launch.target.historyUrl}?${new URLSearchParams({ candidates: JSON.stringify(cwdHistory) })}`
+    : "";
+  const folderHistory = useQuery({
+    queryKey: ["launch-folder-history", historyUrl],
+    enabled: Boolean(target && historyUrl),
+    queryFn: () => api<{ projects: string[] }>(historyUrl),
+  });
+
   const detectedArgs = useMemo(
     () => (prompt ? parseTemplateArgs(prompt) : []),
     [prompt]
@@ -299,7 +310,10 @@ export function TemplateConfigFields({
               value={directory}
               onChange={onDirectoryChange}
               placeholder="/path/to/repo"
-              history={cwdHistory}
+              history={
+                target ? (folderHistory.data?.projects ?? []) : cwdHistory
+              }
+              historyUrl={target ? historyUrl : undefined}
               removableHistory={removableCwdHistory}
               historyMetadata={cwdHistoryMetadata}
               onRemoveHistory={removeCwdHistory}
