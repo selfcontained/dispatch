@@ -257,6 +257,18 @@ export function createEnrolledCheckoutRunner(
           target as { repository: string }
         ) as Promise<Res<K>>;
       }
+      // A folder on this runner, as its workload account resolves it.
+      if (op === "path.resolve") {
+        if (!service)
+          throw new RunnerCallError({
+            code: "unavailable",
+            message: "The runner is unavailable.",
+          });
+        return service.resolveRunnerPath(
+          runnerId,
+          input as Req<"path.resolve">
+        ) as Promise<Res<K>>;
+      }
       // A repository's default-branch files before any session exists.
       if (
         op === "checkout.defaultFiles" &&

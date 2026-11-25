@@ -152,6 +152,31 @@ it("negotiates advertised v1 capabilities independently on each ready frame", ()
   expect(
     parseReadyFrame({ ...ready, checkoutWrite: 1, repositoryFiles: "yes" })
   ).toEqual(ready);
+  // A runner that resolves folders as its workload says so, true only.
+  expect(parseReadyFrame({ ...ready, pathResolve: true })).toEqual({
+    ...ready,
+    pathResolve: true,
+  });
+  expect(parseReadyFrame({ ...ready, pathResolve: "yes" })).toEqual(ready);
+});
+
+it("parses a folder resolution only as path.resolve with a valid request", () => {
+  const command = (operation: unknown) =>
+    parseServiceFrame({
+      type: "request",
+      id: "r1",
+      command: {
+        kind: "pathResolve",
+        agentId: "@path",
+        workspace: "@session",
+        operation,
+      },
+    });
+  expect(
+    command({ op: "path.resolve", request: { path: "~/src" } })
+  ).not.toBeNull();
+  expect(command({ op: "path.complete", request: { path: "/" } })).toBeNull();
+  expect(command({ op: "path.resolve", request: { path: 1 } })).toBeNull();
 });
 
 it("parses the persona commands only for their own operation and target", () => {

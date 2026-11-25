@@ -1368,23 +1368,28 @@ describe("createMcpHandlers", () => {
         useWorktree: true,
         baseBranch: "develop",
       });
-      // Another folder on its runner would need a move after start (N1).
-      await expect(
-        handlers.launchAgent("agt_test1", {
-          name: "elsewhere",
-          prompt: "work",
-          cwd: "/home/runner/other",
-        })
-      ).rejects.toThrow("another runner");
-      // A runner address is not a folder, for any caller.
+      // Another folder: a folder on the caller's runner (D7), carried apart
+      // from the launch's cwd so the manager places it on that runner.
+      await handlers.launchAgent("agt_test1", {
+        name: "elsewhere",
+        prompt: "work",
+        cwd: "/home/runner/other",
+      });
+      expect(lastLaunch()[0]).toMatchObject({
+        cwd: "/home/runner/other",
+        launcherFolder: "/home/runner/other",
+        launchedByAgentId: "agt_test1",
+        parentAgentId: "agt_test1",
+      });
+      // A runner address is not a folder, for any caller: main's error.
       await expect(
         handlers.launchAgent("agt_test1", {
           name: "foreign",
           prompt: "work",
           cwd: "runner://another/@session",
         })
-      ).rejects.toThrow("another runner");
-      expect(deps.agentManager.createAgent).toHaveBeenCalledTimes(7);
+      ).rejects.toThrow("Working directory must be an absolute path.");
+      expect(deps.agentManager.createAgent).toHaveBeenCalledTimes(8);
     });
 
     it("treats a runner address from a local caller as main's folder", async () => {

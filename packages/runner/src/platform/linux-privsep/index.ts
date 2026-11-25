@@ -242,13 +242,12 @@ export async function createRemoteWorkspacePreparation(
         });
       if (op === "workspace.prepare") {
         const { source } = request as Req<"workspace.prepare">;
+        // A directory with no worktree is a folder the agent named (D7):
+        // bound as external, never the runner's to remove.
         if (
           !("repository" in source) &&
           !("session" in source) &&
-          !(
-            "directory" in source &&
-            (request as Req<"workspace.prepare">).worktree
-          )
+          !("directory" in source)
         )
           throw new RunnerCallError({
             code: "unsupported",

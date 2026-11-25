@@ -32,7 +32,10 @@ import {
   createLinuxPrivsep,
   createRemoteWorkspacePreparation,
 } from "../src/platform/linux-privsep/index.js";
-import { MANAGED_BINDING } from "../src/platform/linux-privsep/bindings.js";
+import {
+  FOLDER_BINDING,
+  MANAGED_BINDING,
+} from "../src/platform/linux-privsep/bindings.js";
 import type { RepositoryPort } from "../src/platform/types.js";
 
 const ROOT = 0;
@@ -125,6 +128,8 @@ class FakeFs implements PrivsepFs {
 
 let fs: FakeFs;
 let workload: Array<{ argv: string[]; git: boolean }>;
+/** Paths the workload can resolve, and where they lead. */
+let workloadPaths: Map<string, string>;
 const asWorkload = async (
   executable: string,
   args: string[],
@@ -138,6 +143,13 @@ const asWorkload = async (
     return "";
   }
   if (executable === "git") return "https://example.test/o/r.git\n";
+  if (executable === "realpath") {
+    // The workload's own view: links it may follow, folders it may reach.
+    const target = args.at(-1)!;
+    const resolved = workloadPaths.get(target);
+    if (!resolved) throw new Error(`realpath: ${target}: No such file`);
+    return `${resolved}\n`;
+  }
   throw new Error(`unexpected ${executable}`);
 };
 
@@ -150,6 +162,7 @@ const clones: Omit<RepositoryPort, "location" | "remove"> = {
 function installed() {
   fs = new FakeFs();
   workload = [];
+  workloadPaths = new Map();
   fs.dir("/", ROOT, ROOT, 0o755);
   fs.dir("/var", ROOT, ROOT, 0o755);
   fs.dir("/var/lib", ROOT, ROOT, 0o755);
@@ -509,16 +522,58 @@ describe("linux-privsep bindings over the supervisor's files", () => {
     expect(await store.select("agt_none", null)).toBeNull();
   });
 
-  it("refuses to bind anything but its own prepared checkout", async () => {
+  it("refuses to bind a worktree anywhere but its own place", async () => {
     const { bindings: store } = await platform();
     await expect(
       store.bindPrepared({
         session: "agt_dir",
         path: "/srv/project",
         currentPath: null,
-        worktree: null,
+        worktree: { path: "/srv/project", branch: "b", base: "main" },
       })
     ).rejects.toMatchObject({ code: "unsupported" });
+    expect(await fs.read(`${STATE}/bindings/agt_dir`)).toBeNull();
+  });
+
+  it("binds a folder an agent named where the workload resolves it, as external", async () => {
+    const { bindings: store } = await platform();
+    workloadPaths.set("/home/w/link", "/srv/project");
+    const bound = await store.bindPrepared({
+      session: "agt_dir",
+      path: "/home/w/link",
+      currentPath: null,
+      worktree: null,
+    });
+    // Resolved by the workload, never by the supervisor.
+    expect(workload.map(({ argv }) => argv)).toContainEqual([
+      "realpath",
+      "-e",
+      "--",
+      "/home/w/link",
+    ]);
+    expect(await fs.read(`${STATE}/bindings/agt_dir`)).toBe(FOLDER_BINDING);
+    expect(await fs.read(`${STATE}/bindings/agt_dir.cwd`)).toBe("/srv/project");
+    expect(bound).toMatchObject({
+      path: "/srv/project",
+      checkout: { path: "/srv/project", ownership: "external" },
+    });
+    // Nothing was made or changed in the runner's own session store.
+    expect(fs.children(`${STATE}/sessions`)).toEqual([]);
+  });
+
+  it("answers main's error for a folder the workload cannot resolve", async () => {
+    const { bindings: store } = await platform();
+    await expect(
+      store.bindPrepared({
+        session: "agt_dir",
+        path: "/root/private",
+        currentPath: null,
+        worktree: null,
+      })
+    ).rejects.toMatchObject({
+      code: "not_found",
+      message: "Working directory does not exist or is not a directory.",
+    });
     expect(await fs.read(`${STATE}/bindings/agt_dir`)).toBeNull();
   });
 

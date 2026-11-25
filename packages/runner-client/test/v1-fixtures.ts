@@ -246,6 +246,49 @@ export const results: ResultFixture[] = [
     value: json({ data: { base: "trunk" } }),
   },
   {
+    command: {
+      workspace,
+      agentId: "@path",
+      kind: "pathResolve",
+      operation: { op: "path.resolve", request: { path: "~/src/app" } },
+    } as Command,
+    value: json({
+      data: {
+        resolvedPath: "/home/workload/src/app",
+        canonicalPath: "/srv/app",
+        exists: true,
+        isDirectory: true,
+        isGitRepo: false,
+        privacyRestricted: false,
+        projectRoot: null,
+        git: null,
+      },
+    }),
+  },
+  {
+    command: {
+      workspace,
+      agentId: "@path",
+      kind: "pathResolve",
+      operation: {
+        op: "path.resolve",
+        request: { path: "/srv/missing", git: false },
+      },
+    } as Command,
+    value: json({
+      data: {
+        resolvedPath: "/srv/missing",
+        canonicalPath: null,
+        exists: false,
+        isDirectory: false,
+        isGitRepo: false,
+        privacyRestricted: false,
+        projectRoot: null,
+        git: null,
+      },
+    }),
+  },
+  {
     command: s("checkoutWrite", {
       operation: {
         op: "checkout.write",

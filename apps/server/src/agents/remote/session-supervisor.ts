@@ -246,6 +246,11 @@ export const UNRECONCILED_DEPENDENCIES =
 
 const managedBinding = "\0managed";
 const sharedBindingPrefix = managedBinding + ":";
+/**
+ * A folder the agent named (D7), prepared by the core with no worktree: its
+ * `.cwd` holds the path the workload resolved. Never the runner's to remove.
+ */
+const folderBinding = "\0folder";
 const storageKeyPattern = /^(agt_[a-z0-9]+|opaque-[A-Za-z0-9_-]{43})$/;
 const readOptional = (file: string) =>
   readFile(file, "utf8").catch(missingPath);
@@ -256,6 +261,15 @@ function checkoutOwner(binding: string | null) {
   if (!storageKeyPattern.test(key))
     throw new Error("Invalid runner checkout binding.");
   return key;
+}
+
+/** A binding in the managed workspace: owned, borrowed or a named folder. */
+function managedKind(binding: string | null) {
+  return (
+    binding === managedBinding ||
+    binding === folderBinding ||
+    checkoutOwner(binding) !== null
+  );
 }
 
 function containsDirectory(root: string, dir: string) {
@@ -647,9 +661,12 @@ export async function createSessionSupervisor(
       throw new Error("This runner session has been archived.");
     if (owner && (await readBinding(owner)) !== managedBinding)
       throw new Error("The author does not own a checkout on this runner.");
-    const launch = managed
-      ? await managedDirectory(owner ?? key)
-      : await configuredDirectory(key, configuredCwd);
+    const launch =
+      managed && binding === folderBinding
+        ? await namedFolder(key)
+        : managed
+          ? await managedDirectory(owner ?? key)
+          : await configuredDirectory(key, configuredCwd);
     const borrowed = await readOptional(borrowedFile(key));
     return borrowed && borrowed !== launch
       ? authorizedDirectory(borrowed)
@@ -680,6 +697,18 @@ export async function createSessionSupervisor(
     }
     await checkedDirectory(dir);
     return dir;
+  }
+
+  /**
+   * A named folder, resolved again as the workload: it must still be the
+   * directory the workload resolved when it was bound, or nothing starts.
+   */
+  async function namedFolder(key: string) {
+    const bound = await readOptional(cwdFile(key));
+    if (!bound) throw new Error("The named folder is unavailable.");
+    if ((await authorizedDirectory(bound)) !== bound)
+      throw new Error("The named folder changed since it was resolved.");
+    return bound;
   }
 
   async function selectedDirectory(
@@ -782,7 +811,7 @@ export async function createSessionSupervisor(
     }
     if (!matchesWorkspace(binding, workspace))
       throw new Error("Agent is not bound to this workspace");
-    if (!managedTarget(workspace))
+    if (!managedTarget(workspace) || binding === folderBinding)
       return {
         ownership: "external",
         owner: null,
@@ -915,16 +944,22 @@ export async function createSessionSupervisor(
       throw new Error("This runner session has been archived.");
 
     const binding = await readBinding(key);
+    // A named folder is bound only by the core's preparation, never here.
+    const folder = managed && !owner && binding === folderBinding;
     const bindingValue = owner
       ? sharedBindingPrefix + owner
-      : managed
-        ? managedBinding
-        : workspace;
+      : folder
+        ? folderBinding
+        : managed
+          ? managedBinding
+          : workspace;
     if (binding !== null && binding !== bindingValue)
       throw new Error("Agent is not bound to this workspace or checkout");
     // Core-prepared sessions launch from their receipt under the same session lock.
     const prepared =
-      managed && !owner ? await config.resumePreparedCheckout?.(agentId) : null;
+      managed && !owner && !folder
+        ? await config.resumePreparedCheckout?.(agentId)
+        : null;
     if (
       prepared &&
       ((await readBinding(key)) !== managedBinding ||
@@ -989,7 +1024,10 @@ export async function createSessionSupervisor(
     await cleanHost(key, identity);
     checkUntrackedSocket(key);
     await cleanLegacyHost(key);
-    if (prepared) {
+    if (folder) {
+      // Resolved again as the workload; a folder that moved fails the launch.
+      cwd = await namedFolder(key);
+    } else if (prepared) {
       cwd = displayPath(prepared.path);
     } else if (managed && !owner) {
       const parsed =
@@ -1175,7 +1213,7 @@ export async function createSessionSupervisor(
 
   function matchesWorkspace(binding: string | null, workspace: string) {
     return managedTarget(workspace)
-      ? binding === managedBinding || checkoutOwner(binding) !== null
+      ? managedKind(binding)
       : binding === workspace;
   }
 
@@ -1198,7 +1236,7 @@ export async function createSessionSupervisor(
       if (
         binding === null ||
         !(managedWorkspace
-          ? binding === managedBinding || checkoutOwner(binding) !== null
+          ? managedKind(binding)
           : config.workspaces.has(binding))
       )
         return false;
@@ -1474,9 +1512,11 @@ export async function createSessionSupervisor(
           stored === null
             ? null
             : (JSON.parse(stored) as RunnerRepository | null);
+        // A worktree the core prepared from a session or a folder records
+        // `{}`: no repository cache to hold, only the checkout to release.
         const removed =
           stored === null ||
-          (repository
+          (repository?.url
             ? await repositories.inCache(repository.url, release)
             : await release(null));
         if (!removed) return false;
@@ -1806,7 +1846,7 @@ export async function createSessionSupervisor(
           if (
             binding === null ||
             !(managedWorkspace
-              ? binding === managedBinding || checkoutOwner(binding) !== null
+              ? managedKind(binding)
               : config.workspaces.has(binding))
           )
             return null;

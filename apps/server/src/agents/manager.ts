@@ -272,6 +272,12 @@ type CreateAgentInput = {
   parentAgentId?: string;
   /** Launcher of this agent, recorded even when it is not the parent. */
   launchedByAgentId?: string;
+  /**
+   * A folder the launcher named, other than its own: a path on the
+   * launcher's runner, resolved and checked there as its account (D7). Its
+   * placement is the launcher's, whatever the path says.
+   */
+  launcherFolder?: string;
   personaContext?: string;
   reviewAgentType?: AgentType | null;
   cliSessionId?: string;
@@ -2377,6 +2383,24 @@ export class AgentManager {
       ? await this.getAgent(input.parentAgentId)
       : null;
     if (input.parentAgentId) input.projectId = parent?.projectId ?? null;
+    // A folder the launcher named is on the launcher's runner: the launch
+    // takes the launcher's session location, never one the path implies.
+    let folder: string | undefined;
+    if (
+      input.launcherFolder !== undefined &&
+      input.launchedByAgentId &&
+      !checkoutOwner
+    ) {
+      const by =
+        input.launchedByAgentId === parent?.id
+          ? parent
+          : await this.getAgent(input.launchedByAgentId);
+      if (!by) throw new AgentError("Launching agent not found.", 404);
+      if (launchSessionLocation(by.cwd, by.placement)) {
+        folder = input.launcherFolder;
+        input.cwd = by.cwd;
+      }
+    }
     const placement =
       checkoutOwner?.placement ?? checkoutReadPlacement(input.cwd);
     let location = launchSessionLocation(input.cwd, placement);
@@ -2391,7 +2415,12 @@ export class AgentManager {
           ? parent
           : await this.getAgent(launcherId)
         : null;
-    if (location && launcher && sameRunner(placement, launcher.placement)) {
+    if (
+      location &&
+      launcher &&
+      folder === undefined &&
+      sameRunner(placement, launcher.placement)
+    ) {
       checkoutOwner ??= launcher;
       // An independent agent belongs to its folder's project.
       if (!input.parentAgentId) input.projectId = checkoutOwner.projectId;
@@ -2404,11 +2433,22 @@ export class AgentManager {
         input.cwd = checkoutOwner.cwd;
       }
     }
+    // The named folder, resolved on that runner as its account with main's
+    // rules and errors, before anything is recorded.
+    const launcherDirectory =
+      folder === undefined
+        ? undefined
+        : launchDirectory(await this.resolveLaunchPath(placement, folder));
     // A launch that names a repository and no project joins that
-    // repository's project, as a local folder joins the project it matches.
+    // repository's project, as a local folder joins the project it matches;
+    // a named folder joins its checkout's repository's project (D8).
     if (location && !input.projectId && !input.parentAgentId && !checkoutOwner)
       input.projectId =
-        (await this.repositoryProject(input.repository)) ?? undefined;
+        (await this.repositoryProject(
+          launcherDirectory
+            ? launcherDirectory.origin && { url: launcherDirectory.origin }
+            : input.repository
+        )) ?? undefined;
     if (input.projectId) {
       const project = (
         await this.pool.query<{
@@ -2484,6 +2524,7 @@ export class AgentManager {
       placement,
       location,
       directory,
+      launcherDirectory,
       projectRoot,
       projectRepository,
       checkoutOwner,
@@ -2513,6 +2554,7 @@ export class AgentManager {
       location,
       checkoutOwner,
       projectRepository,
+      launcherDirectory,
     }: Awaited<ReturnType<AgentManager["resolveCreateTarget"]>>
   ) {
     const remote = this.remote;
@@ -2536,7 +2578,8 @@ export class AgentManager {
       (held?.sessionWorkspaceSource ??
         remote?.supportsSessionWorkspaceSource?.(location))
     );
-    const projectSource = prepares && !checkoutOwner;
+    // A named folder is prepared from that folder, not the project's.
+    const projectSource = prepares && !checkoutOwner && !launcherDirectory;
     const borrowed = Boolean(
       location && checkoutOwner && input.useWorktree === false
     );
@@ -2574,6 +2617,12 @@ export class AgentManager {
     });
     if (!admission.ok)
       throw new AgentError(admission.message, admission.statusCode);
+    // The folder is bound by the runner's preparation before the host starts.
+    if (launcherDirectory && !prepares)
+      throw new AgentError(
+        "Update the runner to restart its prepared workspace.",
+        409
+      );
     if (projectSource && !projectRepository)
       throw new AgentError(
         input.projectId
@@ -2610,6 +2659,7 @@ export class AgentManager {
     options: CreateAgentOptions,
     {
       directory: resolvedDirectory,
+      launcherDirectory,
       location,
       placement,
       projectRoot,
@@ -2687,45 +2737,56 @@ export class AgentManager {
       directory?.git.status === "ok" && directory.git.value
         ? directory.canonicalPath
         : undefined;
-    const checkoutContext = directory
+    const checkoutContext = launcherDirectory
       ? {
+          // The folder's checkout on its runner, as a local folder's: the
+          // runner resolves its base; no Git runs on this machine.
           defaultBranch: async () => "main",
-          ...(localGit && {
-            repository: async () => directory.origin ?? undefined,
-            pullRequestHead: (target: PullRequestTarget) =>
-              getPullRequestHead({ cwd: localGit, ...target }),
-            forkPullRequests: false,
-          }),
-        }
-      : {
-          ...(checkoutOwner &&
-            sessionSource && { defaultBranch: async () => "main" }),
-          ...(origin &&
-            location &&
-            remote && {
-              ...(!projectSource &&
-                !sessionSource && {
-                  defaultBranch: () =>
-                    runnerDefaultBranch(origin, (owner, repo) =>
-                      remote.listGitHubBranches(
-                        runnerIdForPlacement(placement),
-                        owner,
-                        repo
-                      )
-                    ),
-                }),
-              repository: async () => origin,
-              pullRequestHead: ({ owner, repo, number }: PullRequestTarget) =>
-                remote.lookupGitHubPullRequestHead(
-                  runnerIdForPlacement(placement),
-                  owner,
-                  repo,
-                  number
-                ),
-              ...(checkoutOwner &&
-                sessionSource && { forkPullRequests: false }),
+          ...(launcherDirectory.git.status === "ok" &&
+            launcherDirectory.git.value && {
+              repository: async () => launcherDirectory.origin ?? undefined,
+              forkPullRequests: false,
             }),
-        };
+        }
+      : directory
+        ? {
+            defaultBranch: async () => "main",
+            ...(localGit && {
+              repository: async () => directory.origin ?? undefined,
+              pullRequestHead: (target: PullRequestTarget) =>
+                getPullRequestHead({ cwd: localGit, ...target }),
+              forkPullRequests: false,
+            }),
+          }
+        : {
+            ...(checkoutOwner &&
+              sessionSource && { defaultBranch: async () => "main" }),
+            ...(origin &&
+              location &&
+              remote && {
+                ...(!projectSource &&
+                  !sessionSource && {
+                    defaultBranch: () =>
+                      runnerDefaultBranch(origin, (owner, repo) =>
+                        remote.listGitHubBranches(
+                          runnerIdForPlacement(placement),
+                          owner,
+                          repo
+                        )
+                      ),
+                  }),
+                repository: async () => origin,
+                pullRequestHead: ({ owner, repo, number }: PullRequestTarget) =>
+                  remote.lookupGitHubPullRequestHead(
+                    runnerIdForPlacement(placement),
+                    owner,
+                    repo,
+                    number
+                  ),
+                ...(checkoutOwner &&
+                  sessionSource && { forkPullRequests: false }),
+              }),
+          };
     // Remember the icon of the folder the launch reads, before a managed
     // worktree can change the agent's effective cwd (main's warm-up). A
     // launch with no folder to read yet warms up once its session exists.
@@ -2750,7 +2811,11 @@ export class AgentManager {
         ? { url: repository.url, checkout: repository.checkout }
         : null;
     let preparation: WorkspacePreparation | null = null;
-    if (checkoutOwner && sessionSource) {
+    if (launcherDirectory) {
+      // The request a local launch from that folder records, prepared on
+      // the child's own session before its host starts.
+      preparation = localPreparation(launcherDirectory, worktree);
+    } else if (checkoutOwner && sessionSource) {
       preparation = {
         source: { session: sessionFromWire(checkoutOwner.id) },
         ...(worktree && { worktree: runnerWorktree(worktree) }),

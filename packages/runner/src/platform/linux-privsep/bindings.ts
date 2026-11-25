@@ -30,7 +30,7 @@
  * by an older build and finishes on that path (`legacy`).
  */
 import { createHash } from "node:crypto";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 import type { LauncherBinding } from "@dispatch/runner-client/launcher";
 import {
@@ -54,6 +54,11 @@ import {
 import type { WorkloadCommand } from "./location.js";
 
 export const MANAGED_BINDING = "\0managed";
+/**
+ * A folder an agent named (D7), bound with no worktree: its `.cwd` holds the
+ * path the workload resolved. External: the runner never removes it.
+ */
+export const FOLDER_BINDING = "\0folder";
 const KEY = /^(agt_[a-z0-9]+|opaque-[A-Za-z0-9_-]{43})$/;
 /** Today's files a session's binding is read from. */
 const LEGACY = [
@@ -290,6 +295,26 @@ export class PrivsepBindings extends BindingStore {
     const held = await this.get(input.session);
     if (held) return held;
     const key = storageKey(input.session);
+    if (!input.worktree) {
+      // A named folder: resolved as the workload, the only account that
+      // touches it, and recorded where that account found it.
+      const resolved = await this.asWorkload("realpath", [
+        "-e",
+        "--",
+        input.path,
+      ]).then(
+        (out) => out.replace(/\n$/, ""),
+        () => null
+      );
+      if (!resolved || !isAbsolute(resolved))
+        throw new RunnerCallError({
+          code: "not_found",
+          message: "Working directory does not exist or is not a directory.",
+        });
+      await this.fs.writePrivate(this.paths.bindings, `${key}.cwd`, resolved);
+      await this.fs.writePrivate(this.paths.bindings, key, FOLDER_BINDING);
+      return this.bound(input.session);
+    }
     const checkout = this.checkoutOf(input.session);
     const receipt = await this.receipt(input.session);
     const recorded = receipt?.repository;

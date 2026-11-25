@@ -1,10 +1,4 @@
 {
-  "call/launch_agent/other-folder": {
-    "rule": "N1",
-    "task": "T36",
-    "local": "accepted",
-    "runner": "tool:A child launch cannot select a checkout on another runner or outside the caller's project."
-  },
   "call/task_list/no-project": {
     "rule": "N18",
     "task": "T34",
