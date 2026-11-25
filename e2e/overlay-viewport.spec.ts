@@ -36,18 +36,24 @@ for (const viewport of [
         })),
       })
     );
-    await page.route("**/api/v1/agent-models", (route) =>
-      route.fulfill({
+    await page.route("**/api/v1/launch-targets/*?*", async (route) => {
+      const response = await route.fetch();
+      const data = await response.json();
+      return route.fulfill({
         json: {
-          models: {
-            claude: Array.from({ length: 40 }, (_, i) => ({
-              id: `model-${i}`,
-              label: `Model ${i}`,
-            })),
+          ...data,
+          catalog: {
+            ...data.catalog,
+            models: {
+              claude: Array.from({ length: 40 }, (_, i) => ({
+                id: `model-${i}`,
+                label: `Model ${i}`,
+              })),
+            },
           },
         },
-      })
-    );
+      });
+    });
     await loadApp(page);
     if (viewport.width < 768) {
       await expect(
@@ -108,18 +114,24 @@ test("phone overlays respect nonzero safe areas, including an upward PR popover"
         })),
       })
     );
-    await page.route("**/api/v1/agent-models", (route) =>
-      route.fulfill({
+    await page.route("**/api/v1/launch-targets/*?*", async (route) => {
+      const response = await route.fetch();
+      const data = await response.json();
+      return route.fulfill({
         json: {
-          models: {
-            claude: Array.from({ length: 40 }, (_, i) => ({
-              id: `m-${i}`,
-              label: `Model ${i}`,
-            })),
+          ...data,
+          catalog: {
+            ...data.catalog,
+            models: {
+              claude: Array.from({ length: 40 }, (_, i) => ({
+                id: `m-${i}`,
+                label: `Model ${i}`,
+              })),
+            },
           },
         },
-      })
-    );
+      });
+    });
     await page.route(`**/api/v1/agents/${agent.id}/pull-requests`, (route) =>
       route.fulfill({
         json: {
