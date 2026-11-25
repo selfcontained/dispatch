@@ -85,3 +85,58 @@ it("pins main local folder rendering including browser usage, ordering and serve
       .map((o) => o.querySelector("img")?.getAttribute("src") ?? null)
   ).toEqual(["/local-beta.png", "/local-alpha.png", null]);
 });
+
+function ScopedPicker() {
+  const history = useCwdHistory("/fixture-target-history");
+  return (
+    <PathInput
+      label="Folder"
+      value=""
+      onChange={() => {}}
+      showValidation={false}
+      history={history.history}
+      historyUrl={history.suggestionsUrl}
+      historyMetadata={history.historyMetadata}
+    />
+  );
+}
+it("renders the same local suggestions with scoped server data and the existing browser merge", async () => {
+  window.localStorage.setItem(
+    CWD_HISTORY_KEY,
+    JSON.stringify(["/work/beta", "/remembered"])
+  );
+  window.localStorage.setItem(
+    CWD_HISTORY_USAGE_KEY,
+    JSON.stringify({ "/work/beta": 5, "/remembered": 1 })
+  );
+  apiMock.mockImplementation(async (url) => {
+    if (!url.startsWith("/fixture-target-history?"))
+      throw new Error("Unexpected global history request: " + url);
+    return { ...payload, projects: [...payload.projects, "/remembered"] };
+  });
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <ScopedPicker />
+    </QueryClientProvider>
+  );
+  await waitFor(() => expect(apiMock).toHaveBeenCalled());
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Show suggestions" })
+  );
+  await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(3));
+  expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
+    "beta/work/beta5",
+    "alpha/work/alpha2",
+    "remembered/remembered1",
+  ]);
+  expect(
+    screen
+      .getAllByRole("option")
+      .map((o) => o.querySelector("img")?.getAttribute("src") ?? null)
+  ).toEqual(["/local-beta.png", "/local-alpha.png", null]);
+  expect(
+    apiMock.mock.calls.every(([url]) =>
+      url.startsWith("/fixture-target-history?")
+    )
+  ).toBe(true);
+});

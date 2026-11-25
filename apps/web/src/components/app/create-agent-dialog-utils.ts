@@ -112,18 +112,29 @@ export function removeCwdFromHistory(cwd: string): string[] {
   return next;
 }
 
-export function useCwdHistory() {
+export function useCwdHistory(historyUrl?: string) {
   const [history, setHistory] = useState<string[]>(() => readCwdHistory());
   const [usage, setUsage] = useState<Record<string, number>>(() =>
     readCwdHistoryUsage()
   );
+  const scoped = historyUrl !== undefined;
+  const suggestionsUrl = scoped
+    ? historyUrl
+      ? `${historyUrl}${historyUrl.includes("?") ? "&" : "?"}${new URLSearchParams({ candidates: JSON.stringify(history) })}`
+      : ""
+    : "/api/v1/history/projects";
   const { data: projectOptions = [] } = useQuery<ProjectHistoryOption[]>({
-    queryKey: ["history", "projects", "cwd-suggestions"],
+    queryKey: scoped
+      ? ["history", "projects", "cwd-suggestions", suggestionsUrl]
+      : ["history", "projects", "cwd-suggestions"],
+    enabled: suggestionsUrl !== "",
     queryFn: async () => {
       const payload = await api<{
         projectOptions?: ProjectHistoryOption[];
         projects: string[];
-      }>("/api/v1/history/projects?limit=50");
+      }>(
+        `${suggestionsUrl}${suggestionsUrl.includes("?") ? "&" : "?"}limit=50`
+      );
 
       return (
         payload.projectOptions ??
@@ -187,7 +198,8 @@ export function useCwdHistory() {
   );
 
   return {
-    history: mergedHistory,
+    history: scoped ? apiHistory : mergedHistory,
+    suggestionsUrl,
     removableHistory: history,
     historyMetadata,
     add,

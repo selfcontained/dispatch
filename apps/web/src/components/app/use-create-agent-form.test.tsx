@@ -1232,3 +1232,51 @@ it("offers only server-validated folder history, including after a projection fa
     )
   ).toBe(true);
 });
+
+it("takes folder list, counts and icons from the selected target response", async () => {
+  const fallback = apiMock.getMockImplementation()!;
+  apiMock.mockImplementation((url, opts) => {
+    if (url === "/api/v1/launch-targets")
+      return Promise.resolve({
+        targets: [{ ...controller, historyUrl: "/fixture-target-history" }],
+      });
+    if (url.startsWith("/fixture-target-history?"))
+      return Promise.resolve({
+        projects: ["/work/alpha"],
+        projectOptions: [
+          {
+            path: "/work/alpha",
+            usageCount: 2,
+            latestCreatedAt: "2026-01-01",
+            iconUrl: "/local-alpha.png",
+          },
+        ],
+      });
+    if (url.startsWith("/api/v1/history/projects"))
+      return Promise.resolve({
+        projects: ["/work/alpha"],
+        projectOptions: [
+          {
+            path: "/work/alpha",
+            usageCount: 3,
+            latestCreatedAt: "2026-01-02",
+            iconUrl: "/runner-alpha.png",
+          },
+        ],
+      });
+    return fallback(url, opts);
+  });
+  const { result } = await setup();
+  await waitFor(() =>
+    expect(result.current.cwdHistory).toEqual(["/work/alpha"])
+  );
+  expect(result.current.cwdHistoryMetadata["/work/alpha"]).toEqual({
+    usageCount: 2,
+    iconUrl: "/local-alpha.png",
+  });
+  expect(
+    apiMock.mock.calls.some(([url]) =>
+      url.startsWith("/api/v1/history/projects")
+    )
+  ).toBe(false);
+});
