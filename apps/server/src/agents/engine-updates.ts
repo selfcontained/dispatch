@@ -1,3 +1,6 @@
+import type { Req, Res } from "@dispatch/runner-protocol/contract";
+import type { EngineCalls } from "../runners/local.js";
+import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 import { access, constants, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -13,7 +16,10 @@ import {
   type EngineStatus,
 } from "./engine-availability.js";
 import type { AcpEngineId } from "./acp/engine-spec.js";
-import type { CommandRunner } from "../shared/lib/run-command.js";
+import type {
+  CommandRunner,
+  RunCommandResult,
+} from "../shared/lib/run-command.js";
 import { childProcessEnv } from "../shared/process/child-environment.js";
 
 const packages = {
@@ -654,16 +660,27 @@ export interface EngineOperationStore {
 }
 const OPERATION_KEY = "engine_update_operations";
 /** One transaction lock covers all engines, including shared brew/npm prefixes. */
-export function engineOperationStore(pool: Pool): EngineOperationStore {
+export function engineOperationStore(
+  pool: Pool,
+  scopeKey = "local"
+): EngineOperationStore {
+  const operationKey =
+    scopeKey === "local" ? OPERATION_KEY : `${OPERATION_KEY}:${scopeKey}`;
   return {
     async exclusive(work) {
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
-        await client.query("SELECT pg_advisory_xact_lock(1852271177, 1)");
+        if (scopeKey === "local")
+          await client.query("SELECT pg_advisory_xact_lock(1852271177, 1)");
+        else
+          await client.query(
+            "SELECT pg_advisory_xact_lock(1852271177, hashtext($1))",
+            [operationKey]
+          );
         const result = await client.query<{ value: string }>(
           "SELECT value FROM settings WHERE key = $1",
-          [OPERATION_KEY]
+          [operationKey]
         );
         const records: OperationRecords = result.rows[0]
           ? JSON.parse(result.rows[0].value)
@@ -672,7 +689,7 @@ export function engineOperationStore(pool: Pool): EngineOperationStore {
         await client.query(
           `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, NOW())
            ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
-          [OPERATION_KEY, JSON.stringify(records)]
+          [operationKey, JSON.stringify(records)]
         );
         await client.query("COMMIT");
         return value;
@@ -713,10 +730,12 @@ export class EngineUpdateOperations {
     private readonly options: {
       prepare?: (
         id: AcpEngineId,
-        overrides: Partial<Record<AcpEngineId, string>>
+        overrides: Partial<Record<AcpEngineId, string>>,
+        action?: "install" | "update"
       ) => Promise<Installation>;
       runner?: (observer: UpdateObserver) => CommandRunner;
       mayExist?: (pid: number) => boolean;
+      processExists?: (pid: number) => Promise<boolean>;
       verify?: (
         bin: string,
         phase: "before" | "after"
@@ -724,7 +743,7 @@ export class EngineUpdateOperations {
       onError?: (error: unknown) => void;
     } = {}
   ) {}
-  private recover(records: OperationRecords) {
+  private async recover(records: OperationRecords) {
     for (const record of Object.values(records)) {
       if (record.status === "running" && record.owner !== this.owner) {
         record.status = "interrupted";
@@ -733,16 +752,18 @@ export class EngineUpdateOperations {
           "Server continuity was lost. The update outcome is unknown; verify the installed version before retrying.";
       }
       if (record.status === "interrupted") {
-        const exists = this.options.mayExist ?? mayExist;
-        // Existence is only a reason to BLOCK. Never assume a recovered PID is
-        // ours or signal it. Same-PID hot reloads cannot use owner PID liveness.
-        // The gate plus the interrupted/ID write fence prevents a superseded
-        // executor from releasing a new command, including another engine.
+        const ownerExists = this.options.mayExist ?? mayExist;
+        const childExists = (pid: number) =>
+          this.options.processExists
+            ? this.options.processExists(pid)
+            : ownerExists(pid);
+        // ownerPid belongs to Dispatch; childPid belongs to the target runner.
+        // Recovered identifiers are probes only and are never signalled.
         record.retryBlocked =
-          (record.ownerPid !== process.pid && exists(record.ownerPid)) ||
+          (record.ownerPid !== process.pid && ownerExists(record.ownerPid)) ||
           (!record.childPid
             ? !record.spawnGated
-            : exists(
+            : await childExists(
                 process.platform === "win32"
                   ? record.childPid
                   : -record.childPid
@@ -765,7 +786,7 @@ export class EngineUpdateOperations {
     const pending = [...this.pendingTerminal];
     const result = await this.store.exclusive(async (records) => {
       this.reconcileTerminal(records);
-      this.recover(records);
+      await this.recover(records);
       return Object.fromEntries(
         Object.entries(records).map(([id, record]) => [
           id,
@@ -786,18 +807,22 @@ export class EngineUpdateOperations {
   }
   async start(
     id: AcpEngineId,
-    overrides: Partial<Record<AcpEngineId, string>>
+    overrides: Partial<Record<AcpEngineId, string>>,
+    action: "install" | "update" = "update"
   ) {
     const installation = await (this.options.prepare
-      ? this.options.prepare(id, overrides)
+      ? this.options.prepare(id, overrides, action)
       : engineStatuses(overrides).then((statuses) =>
           inspectInstallation(statuses.find((status) => status.id === id)!)
         ));
     if (!installation.canUpdate || !installation.run)
-      throw new Error(installation.reason);
+      throw new RunnerCallError({
+        code: "unsupported",
+        message: installation.reason,
+      });
     const operation = await this.store.exclusive(async (records) => {
       this.reconcileTerminal(records);
-      this.recover(records);
+      await this.recover(records);
       if (
         Object.values(records).some(
           (record) => record.status === "running" || record.retryBlocked
@@ -831,14 +856,16 @@ export class EngineUpdateOperations {
     void this.execute(
       operation,
       installation.run,
-      installation.probePath ?? installation.realPath!
+      installation.probePath ?? installation.realPath!,
+      action
     ).catch((error) => this.options.onError?.(error));
     return publicOperation(operation);
   }
   private async execute(
     record: StoredOperation,
     command: Command,
-    probePath: string
+    probePath: string,
+    action: "install" | "update" = "update"
   ) {
     let output = "";
     const save = async () => {
@@ -916,24 +943,31 @@ export class EngineUpdateOperations {
       clearEngineVersionCache();
       const version = await probe("after");
       const advanced = Boolean(
-        before && version && compareVersions(version, before) > 0
+        action === "install"
+          ? success && version
+          : before && version && compareVersions(version, before) > 0
       );
       record.status = advanced ? "succeeded" : "failed";
       record.message = advanced
-        ? `Update completed. Verified installed version ${version}.`
+        ? `${action === "install" ? "Install" : "Update"} completed. Verified installed version ${version}.`
         : success
           ? "Update command completed, but a newer installed version could not be verified. Recheck status before retrying."
           : "Update command failed. Review the output before retrying.";
     } catch (error) {
-      record.status = "failed";
-      record.message = "Update failed. Review the output before retrying.";
+      const unknown =
+        error instanceof RunnerCallError &&
+        ["unavailable", "unknown_outcome", "not_found"].includes(error.code);
+      record.status = unknown ? "interrupted" : "failed";
+      record.message = unknown
+        ? "Server continuity was lost. The update outcome is unknown; verify the installed version before retrying."
+        : "Update failed. Review the output before retrying.";
       output = (output + "\n" + String(error)).slice(-64_000);
     } finally {
       clearInterval(timer);
       clearEngineVersionCache();
-      record.phase = "complete";
+      if (record.status !== "interrupted") record.phase = "complete";
       record.finishedAt = new Date().toISOString();
-      record.retryBlocked = false;
+      record.retryBlocked = record.status === "interrupted";
       // Drain in-flight snapshots before writing the terminal result.
       await writes.catch(() => {});
       record.output = output;
@@ -943,4 +977,275 @@ export class EngineUpdateOperations {
         this.pendingTerminal.delete(record.engineId);
     }
   }
+}
+
+type ProcessState = Extract<
+  Res<"engine.operation">,
+  { type: "operation_state" }
+>;
+type Entry = {
+  state: ProcessState;
+  release: () => void;
+  abort: () => void;
+  started: Promise<Res<"engine.update.spawn">>;
+  done: Promise<void>;
+};
+const notFound = () =>
+  new RunnerCallError({
+    code: "not_found",
+    message: "Engine operation not found.",
+  });
+
+export function installationOnWire(
+  installation: Installation
+): Res<"engine.update.inspect"> {
+  const command = (value: NonNullable<Installation["run"]>) => ({
+    executable: value.executable,
+    args: value.args,
+    ...(value.env && {
+      env: Object.fromEntries(
+        Object.entries(value.env).filter(
+          (entry): entry is [string, string] => typeof entry[1] === "string"
+        )
+      ),
+    }),
+  });
+  return {
+    ...installation,
+    run: installation.run && {
+      ...command(installation.run),
+      ...(installation.run.refresh && {
+        refresh: command(installation.run.refresh),
+      }),
+    },
+  };
+}
+
+/** One port instance, used identically in the child and the in-process fallback. */
+export class EngineUpdateHost {
+  private readonly operations = new Map<string, Entry>();
+  constructor(private readonly runner = observedUpdateRunner) {}
+
+  async spawn(
+    request: Req<"engine.update.spawn">
+  ): Promise<Res<"engine.update.spawn">> {
+    const prior = this.operations.get(request.requestId);
+    if (prior) return prior.started;
+    let release!: () => void;
+    let abort!: () => void;
+    const gate = new Promise<void>((resolve, reject) => {
+      release = resolve;
+      abort = () =>
+        reject(new Error("Engine operation gate was not committed."));
+    });
+    void gate.catch(() => {});
+    let started!: (value: Res<"engine.update.spawn">) => void;
+    let failed!: (error: unknown) => void;
+    const start = new Promise<Res<"engine.update.spawn">>((resolve, reject) => {
+      started = resolve;
+      failed = reject;
+    });
+    let finished!: () => void;
+    const done = new Promise<void>((resolve) => {
+      finished = resolve;
+    });
+    const state: ProcessState = {
+      type: "operation_state",
+      operationId: request.requestId,
+      running: true,
+      output: "",
+      outputOffset: 0,
+    };
+    this.operations.set(request.requestId, {
+      state,
+      release,
+      abort,
+      started: start,
+      done,
+    });
+    const run: CommandRunner = this.runner({
+      spawned: async (pid) => {
+        state.pid = pid;
+        started({ operationId: request.requestId, pid });
+        await gate;
+      },
+      output: (chunk) => {
+        state.output = (state.output + chunk).slice(-64_000);
+        state.outputOffset += chunk.length;
+      },
+    });
+    void run(request.command.executable, request.command.args, {
+      env: request.command.env,
+      timeoutMs: request.timeoutMs,
+    }).then(
+      (result: RunCommandResult) => {
+        state.result = {
+          exitCode: result.exitCode,
+          stdout: result.stdout,
+          stderr: result.stderr,
+        };
+        state.running = false;
+        finished();
+      },
+      (error: unknown) => {
+        state.error = String(error);
+        state.running = false;
+        failed(error);
+        finished();
+      }
+    );
+    return start;
+  }
+
+  async release(
+    request: Req<"engine.update.release">
+  ): Promise<Res<"engine.update.release">> {
+    const entry = this.operations.get(request.operationId);
+    if (!entry) throw notFound();
+    if (request.abort) entry.abort();
+    else entry.release();
+    await entry.done;
+    return {};
+  }
+
+  async operation(
+    request: Req<"engine.operation">
+  ): Promise<Res<"engine.operation">> {
+    const entry = this.operations.get(request.operationId);
+    if (!entry) throw notFound();
+    return structuredClone(entry.state);
+  }
+
+  close(): void {
+    // A gate that never received its durable acknowledgement must not run.
+    for (const entry of this.operations.values()) entry.abort();
+  }
+
+  async probe(
+    request: Req<"engine.update.probe">
+  ): Promise<Res<"engine.update.probe">> {
+    const alive = request.pids.map((pid) =>
+      mayExist(
+        request.groups && process.platform !== "win32" ? -Math.abs(pid) : pid
+      )
+    );
+    clearEngineVersionCache();
+    return {
+      alive,
+      version: request.bin ? await engineVersion(request.bin) : null,
+    };
+  }
+}
+
+export function engineUpdatePort(engines: EngineCalls) {
+  return {
+    prepare: async (
+      engine: "claude" | "codex" | "opencode",
+      _overrides: Partial<Record<AcpEngineId, string>>,
+      action: "install" | "update" = "update"
+    ): Promise<Installation> =>
+      engines.call("engine.update.inspect", { engine, action }),
+    verify: async (bin: string) =>
+      (await engines.call("engine.update.probe", { pids: [], bin })).version,
+    processExists: async (pid: number) => {
+      try {
+        return (
+          (
+            await engines.call("engine.update.probe", {
+              pids: [Math.abs(pid)],
+              groups: true,
+            })
+          ).alive[0] ?? true
+        );
+      } catch (error) {
+        if (
+          error instanceof RunnerCallError &&
+          ["unavailable", "unknown_outcome", "not_found"].includes(error.code)
+        )
+          return true;
+        throw error;
+      }
+    },
+    runner:
+      (observer: UpdateObserver): CommandRunner =>
+      async (executable, args, options) => {
+        const env =
+          options?.env &&
+          Object.fromEntries(
+            Object.entries(options.env).filter(
+              (entry): entry is [string, string] => typeof entry[1] === "string"
+            )
+          );
+        const operation = await engines.call("engine.update.spawn", {
+          requestId: randomUUID(),
+          command: { executable, args, ...(env && { env }) },
+          timeoutMs: options?.timeoutMs ?? 120_000,
+        });
+        try {
+          // The host is still blocked on stdin until this durable PID write commits.
+          await observer.spawned?.(operation.pid);
+        } catch (error) {
+          await engines
+            .call("engine.update.release", {
+              operationId: operation.operationId,
+              abort: true,
+            })
+            .catch(() => {});
+          throw error;
+        }
+        let releaseError: unknown;
+        const released = engines
+          .call("engine.update.release", { operationId: operation.operationId })
+          .catch((error: unknown) => {
+            releaseError = error;
+          });
+        let offset = 0;
+        while (true) {
+          if (releaseError) throw releaseError;
+          const state = await engines.call("engine.operation", {
+            operationId: operation.operationId,
+          });
+          if (state.type !== "operation_state")
+            throw new Error("Invalid engine process state.");
+          if (state.outputOffset > offset)
+            observer.output?.(
+              state.output.slice(
+                -Math.min(state.outputOffset - offset, state.output.length)
+              )
+            );
+          offset = state.outputOffset;
+          if (state.error) throw new Error(state.error);
+          if (state.result) {
+            await released;
+            if (releaseError) throw releaseError;
+            return state.result;
+          }
+          if (!state.running)
+            throw new RunnerCallError({
+              code: "unknown_outcome",
+              message: "Engine process outcome is unavailable.",
+            });
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      },
+  };
+}
+
+/** Main's full engine presentation, gathered from the target's engine operations. */
+export async function runnerEngineStatuses(engines: EngineCalls) {
+  const { entries } = await engines.call("engine.list", {
+    refresh: true,
+    include: [],
+  });
+  return Promise.all(
+    entries.map(async (entry) => {
+      const inspection = await engines.call("engine.update.inspect", {
+        engine: entry.id,
+        presentation: true,
+      });
+      if (!inspection.status)
+        throw new Error("Incomplete engine status result.");
+      return inspection.status;
+    })
+  );
 }

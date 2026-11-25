@@ -9,6 +9,13 @@ export function engineHandlers(platform: Platform): CallHandlers {
   const { engines } = platform;
   if (!engines) return {};
   return {
+    "engine.update.inspect": (request) => engines.updateInspect(request),
+    "engine.update.spawn": (request) => engines.updateSpawn(request),
+    "engine.update.release": (request) => engines.updateRelease(request),
+    "engine.update.probe": (request) => engines.updateProbe(request),
+    "engine.operation": (request) => engines.operation(request),
+    "engine.plugin.status": (request) => engines.pluginStatus(request),
+    "engine.plugin.apply": (request) => engines.pluginApply(request),
     "engine.list": (request) => engines.list(request),
     "engine.login.start": (request, context) =>
       engines.loginStart(request, (login) =>

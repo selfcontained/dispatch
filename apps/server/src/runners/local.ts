@@ -1,3 +1,7 @@
+import type {
+  EngineScope,
+  EngineHostCallName,
+} from "@dispatch/runner-protocol/engine-management";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import {
   displayPath,
@@ -1038,6 +1042,13 @@ export type LocalRunnerFence = {
 };
 
 export type EngineCallName =
+  | "engine.update.inspect"
+  | "engine.update.spawn"
+  | "engine.update.release"
+  | "engine.update.probe"
+  | "engine.operation"
+  | "engine.plugin.status"
+  | "engine.plugin.apply"
   | "engine.list"
   | "engine.login.start"
   | "engine.login.submit"
@@ -1062,6 +1073,26 @@ const childMissed = (error: unknown) =>
 
 /** The posix-user engine port, as this process runs it while the child is away. */
 export type InProcessEngines = {
+  updateInspect(
+    request: Req<"engine.update.inspect">
+  ): Promise<Res<"engine.update.inspect">>;
+  updateSpawn(
+    request: Req<"engine.update.spawn">
+  ): Promise<Res<"engine.update.spawn">>;
+  updateRelease(
+    request: Req<"engine.update.release">
+  ): Promise<Res<"engine.update.release">>;
+  updateProbe(
+    request: Req<"engine.update.probe">
+  ): Promise<Res<"engine.update.probe">>;
+  operation(request: Req<"engine.operation">): Promise<Res<"engine.operation">>;
+
+  pluginStatus(
+    request: Req<"engine.plugin.status">
+  ): Promise<Res<"engine.plugin.status">>;
+  pluginApply(
+    request: Req<"engine.plugin.apply">
+  ): Promise<Res<"engine.plugin.apply">>;
   list(request: Req<"engine.list">): Promise<Res<"engine.list">>;
   loginStart(
     request: Req<"engine.login.start">,
@@ -1102,6 +1133,34 @@ export function localEngineCalls(
     options?: CallOptions<K>
   ): Promise<Res<K>> {
     switch (op) {
+      case "engine.update.inspect":
+        return (await inProcess.updateInspect(
+          input as Req<"engine.update.inspect">
+        )) as Res<K>;
+      case "engine.update.spawn":
+        return (await inProcess.updateSpawn(
+          input as Req<"engine.update.spawn">
+        )) as Res<K>;
+      case "engine.update.release":
+        return (await inProcess.updateRelease(
+          input as Req<"engine.update.release">
+        )) as Res<K>;
+      case "engine.update.probe":
+        return (await inProcess.updateProbe(
+          input as Req<"engine.update.probe">
+        )) as Res<K>;
+      case "engine.operation":
+        return (await inProcess.operation(
+          input as Req<"engine.operation">
+        )) as Res<K>;
+      case "engine.plugin.status":
+        return (await inProcess.pluginStatus(
+          input as Req<"engine.plugin.status">
+        )) as Res<K>;
+      case "engine.plugin.apply":
+        return (await inProcess.pluginApply(
+          input as Req<"engine.plugin.apply">
+        )) as Res<K>;
       case "engine.list":
         return (await inProcess.list(input as Req<"engine.list">)) as Res<K>;
       case "engine.login.start":
@@ -1416,4 +1475,63 @@ export function localTerminal(
       rows: 24,
     });
   });
+}
+
+/** The adapter owns target routing and disconnected-inventory presentation. */
+export function scopedEngineCalls(
+  local: EngineCalls,
+  remote:
+    | {
+        callEngine<K extends EngineHostCallName>(
+          runnerId: string,
+          op: K,
+          request: Req<K>
+        ): Promise<Res<K>>;
+        engineInventorySnapshot?(
+          runnerId: string
+        ): Res<"engine.list">["entries"] | undefined;
+        lastEngineInventory?(
+          runnerId: string
+        ): Res<"engine.list">["entries"] | undefined;
+      }
+    | undefined,
+  scope: EngineScope
+): EngineCalls {
+  if (scope.kind === "local") return local;
+  const runnerId = scope.runnerId;
+  return {
+    call: async (op, request) => {
+      if (!remote)
+        throw new RunnerCallError({
+          code: "unavailable",
+          message: "The runner is unavailable.",
+        });
+      if (op === "engine.list" && !(request as Req<"engine.list">).refresh) {
+        const cached = remote.engineInventorySnapshot?.(runnerId);
+        if (cached) return { entries: cached } as Res<typeof op>;
+      }
+      try {
+        return await remote.callEngine(runnerId, op, request);
+      } catch (error) {
+        if (
+          op !== "engine.list" ||
+          !(error instanceof RunnerCallError) ||
+          !["unavailable", "unknown_outcome", "fenced"].includes(error.code)
+        )
+          throw error;
+        const last = remote.lastEngineInventory?.(runnerId);
+        return {
+          entries: last?.map((entry) => ({ ...entry, actions: [] })) ?? [],
+          available: last !== undefined,
+        } as Res<typeof op>;
+      }
+    },
+  };
+}
+
+/** The legacy local identity is an alias of the controller runner. */
+export function engineScopeForRunner(runnerId: string): EngineScope {
+  return runnerId === runnerIdToWire(LOCAL_RUNNER_ID)
+    ? { kind: "local" }
+    : { kind: "runner", runnerId };
 }

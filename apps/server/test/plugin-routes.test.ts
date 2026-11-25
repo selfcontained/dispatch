@@ -1,7 +1,11 @@
 import Fastify from "fastify";
 import type { Pool } from "pg";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createLocalEngineRunner } from "../src/agents/local-runner-engine.js";
+import {
+  createPluginStatusChecker,
+  type PluginStatusLogger,
+} from "../src/shared/plugin-status.js";
+import { findEngineBin } from "../src/agents/engine-availability.js";
 import { registerPluginRoutes } from "../src/routes/plugin.js";
 
 const mocks = vi.hoisted(() => ({
@@ -32,12 +36,24 @@ vi.mock("../src/shared/plugin-status.js", async (original) => ({
   },
 }));
 afterEach(() => vi.resetAllMocks());
+// The route pins depend on the checker interface, not the removed local side channel.
+function pluginsForTest(options: {
+  bins?: { claude: string; codex: string };
+  logger?: PluginStatusLogger;
+}) {
+  const bins = options.bins ?? { claude: "claude", codex: "codex" };
+  return createPluginStatusChecker({
+    binFor: async (engine) =>
+      (await findEngineBin(bins[engine])) ?? bins[engine],
+    logger: options.logger,
+  });
+}
 async function request(body: unknown) {
   const app = Fastify();
   try {
     await registerPluginRoutes(app, {
       pool: {} as Pool,
-      plugins: createLocalEngineRunner({ logger: app.log }).plugins,
+      plugins: pluginsForTest({ logger: app.log }),
     });
     return await app.inject({
       method: "POST",
@@ -97,10 +113,10 @@ describe("plugin CLI resolution", () => {
     const app = Fastify();
     await registerPluginRoutes(app, {
       pool: {} as Pool,
-      plugins: createLocalEngineRunner({
+      plugins: pluginsForTest({
         bins: { claude: "claude", codex: "codex" },
         logger: app.log,
-      }).plugins,
+      }),
     });
     await app.close();
     mocks.findEngineBin.mockImplementation(async (bin: string) =>
@@ -112,5 +128,123 @@ describe("plugin CLI resolution", () => {
     );
     // Not found anywhere: the configured name, so the probe reports it.
     await expect(mocks.checkerDeps!.binFor("codex")).resolves.toBe("codex");
+  });
+});
+
+// Parity pin: origin/main 6ab845b2 routes/plugin.ts. Keep these assertions
+// unchanged when moving the checker behind the runner interface.
+describe("main plugin route parity", () => {
+  it.each(["true", "1", "false", "0", "TRUE", ""])(
+    "preserves enabled-type order and refresh parsing for %j",
+    async (refresh) => {
+      const app = Fastify();
+      const status = (agentType: string) => ({
+        agentType,
+        installed: false,
+        enabled: false,
+        currentVersion: null,
+        latestVersion: null,
+        updateAvailable: false,
+      });
+      mocks.enabled.mockResolvedValue(["codex", "opencode", "claude"]);
+      mocks.getStatus.mockImplementation(async (type) => status(type));
+      try {
+        await registerPluginRoutes(app, {
+          pool: {} as Pool,
+          plugins: pluginsForTest({ logger: app.log }),
+        });
+        const response = await app.inject({
+          method: "GET",
+          url: `/api/v1/plugin/status?refresh=${refresh}`,
+        });
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toEqual({
+          statuses: [status("claude"), status("codex")],
+        });
+        expect(mocks.getStatus.mock.calls).toEqual([
+          ["claude", { forceRefresh: refresh === "true" || refresh === "1" }],
+          ["codex", { forceRefresh: refresh === "true" || refresh === "1" }],
+        ]);
+      } finally {
+        await app.close();
+      }
+    }
+  );
+  it("returns an empty statuses envelope when no plugin engine is enabled", async () => {
+    const app = Fastify();
+    mocks.enabled.mockResolvedValue(["opencode"]);
+    try {
+      await registerPluginRoutes(app, {
+        pool: {} as Pool,
+        plugins: pluginsForTest({ logger: app.log }),
+      });
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/plugin/status",
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ statuses: [] });
+      expect(mocks.getStatus).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+describe("runner-keyed plugin aliases", () => {
+  it("uses the target checker with main's full failure response", async () => {
+    const app = Fastify();
+    mocks.enabled.mockResolvedValue(["codex"]);
+    const status = {
+      agentType: "codex" as const,
+      installed: false,
+      enabled: false,
+      currentVersion: null,
+      latestVersion: null,
+      updateAvailable: false,
+      detectionError: "Fixture remote probe detail",
+    };
+    const result = {
+      status,
+      error: "Fixture curated failure",
+      ranCommands: ["plugin marketplace upgrade dispatch --json"],
+      probeFailed: true,
+    };
+    const remote = {
+      getStatus: vi.fn(async () => status),
+      update: vi.fn(async () => result),
+      install: vi.fn(async () => result),
+    };
+    const runnerPlugins = vi.fn(() => remote);
+    try {
+      await registerPluginRoutes(app, {
+        pool: {} as Pool,
+        plugins: pluginsForTest({}),
+        runnerPlugins,
+      });
+      const read = await app.inject({
+        method: "GET",
+        url: "/api/v1/runners/fixture-runner/plugin/status?refresh=1",
+      });
+      expect(read.statusCode).toBe(200);
+      expect(read.json()).toEqual({ statuses: [status] });
+      expect(remote.getStatus).toHaveBeenCalledWith("codex", {
+        forceRefresh: true,
+      });
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/runners/fixture-runner/plugin/update",
+        payload: { agentType: "codex" },
+      });
+      expect(response.statusCode).toBe(502);
+      expect(response.json()).toEqual({
+        error: result.error,
+        ranCommands: result.ranCommands,
+        status,
+      });
+      expect(runnerPlugins).toHaveBeenCalledWith("fixture-runner");
+    } finally {
+      await app.close();
+    }
   });
 });

@@ -1,3 +1,4 @@
+import { runnerPluginChecker } from "../../routes/plugin.js";
 import {
   createLocalEngineRunner,
   type LocalEngineRunner,
@@ -14,7 +15,6 @@ import {
   type EngineLoginEngine,
 } from "@dispatch/shared";
 import {
-  RUNNER_ENGINES,
   engineScopeKey,
   isEngineCapabilityOperation,
   type EngineInventoryEntry,
@@ -32,8 +32,8 @@ import type { EngineCalls } from "../../runners/local.js";
  * One place to read engine status and run install/update/sign-in, for any
  * placement. The inventory (`engine.list`) and sign-in (`engine.login.*`)
  * go through the placement's runner: the local child (or, while it is away,
- * the same port in process) or an enrolled runner over its transport. Local
- * update still runs main's `EngineUpdateOperations` (T29). This class has
+ * the same port in process) or an enrolled runner over its transport.
+ * Install/update use the same durable coordinator for every target. This class has
  * no socket of its own.
  */
 
@@ -94,6 +94,10 @@ export class EngineManager {
     private readonly deps: {
       local: LocalEngineDeps;
       remote: RunnerEngineTransport;
+      engineActions: {
+        calls(scope: EngineScope): EngineCalls;
+        updates(scope: EngineScope): EngineUpdateOperations;
+      };
     }
   ) {
     this.localCapabilities =
@@ -125,10 +129,7 @@ export class EngineManager {
 
   /** Null while a runner's engines are not known yet. */
   async inventory(scope: EngineScope): Promise<EngineInventoryEntry[] | null> {
-    const entries =
-      scope.kind === "local"
-        ? await this.localInventory()
-        : await this.remoteInventory(scope);
+    const entries = await this.readInventory(scope, false);
     if (entries) this.emitChanged(scope, entries);
     return entries;
   }
@@ -138,6 +139,84 @@ export class EngineManager {
     operation: EngineOperation,
     onEvent?: (event: EngineOperationEvent) => void
   ): Promise<EngineOperationAck> {
+    if (operation.type === "contract")
+      return {
+        ok: true,
+        result: await this.deps.engineActions
+          .calls(scope)
+          .call(operation.call.op, operation.call.request as never),
+      };
+    if (operation.type === "install" || operation.type === "update") {
+      try {
+        const updates = this.deps.engineActions.updates(scope);
+        const started =
+          operation.type === "install"
+            ? await updates.start(operation.engine, {}, "install")
+            : await updates.start(
+                operation.engine,
+                this.deps.local.overrides ?? {}
+              );
+        return { ok: true, operationId: started.id };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+          ...(operation.type === "install" &&
+            error instanceof RunnerCallError &&
+            error.code === "unsupported" && { unsupported: true }),
+        };
+      }
+    }
+    if (
+      operation.type === "plugin_status" ||
+      operation.type === "plugin_install" ||
+      operation.type === "plugin_update"
+    ) {
+      const checker = runnerPluginChecker(
+        this.deps.engineActions.calls(scope),
+        operation.plugin
+      );
+      try {
+        const change =
+          operation.type === "plugin_install"
+            ? await checker.install(operation.engine)
+            : operation.type === "plugin_update"
+              ? await checker.update(operation.engine)
+              : null;
+        if (change?.error)
+          return {
+            ok: false,
+            error: change.error,
+            ranCommands: change.ranCommands,
+            probeFailed: change.probeFailed,
+            status: {
+              ...change.status,
+              actions: change.status.installed ? ["update"] : ["install"],
+            },
+          };
+        const status =
+          change?.status ?? (await checker.getStatus(operation.engine));
+        return {
+          ok: true,
+          ...(change && {
+            ranCommands: change.ranCommands,
+            probeFailed: change.probeFailed,
+          }),
+          capability: {
+            type: "plugin_status",
+            status: {
+              ...status,
+              actions: status.installed ? ["update"] : ["install"],
+            },
+          },
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
     const ack =
       scope.kind === "local"
         ? await this.localRpc(operation)
@@ -154,12 +233,7 @@ export class EngineManager {
       operation.type !== "status" &&
       operation.type !== "login_status"
     ) {
-      const entries =
-        scope.kind === "local"
-          ? await this.localInventory().catch(() => null)
-          : await this.remoteInventory(scope, { force: true }).catch(
-              () => null
-            );
+      const entries = await this.readInventory(scope, true).catch(() => null);
       if (entries) this.emitChanged(scope, entries);
     }
     return ack;
@@ -256,11 +330,20 @@ export class EngineManager {
     logins.set(login.engine as RunnerEngine, login.id);
   }
 
-  private async localInventory(): Promise<EngineInventoryEntry[]> {
-    const { entries } = await this.deps.local.engines.call("engine.list", {
-      refresh: true,
-    });
-    return entries as EngineInventoryEntry[];
+  async operations(scope: EngineScope) {
+    return this.deps.engineActions.updates(scope).read();
+  }
+
+  private async readInventory(
+    scope: EngineScope,
+    refresh: boolean
+  ): Promise<EngineInventoryEntry[] | null> {
+    const result = await this.deps.engineActions
+      .calls(scope)
+      .call("engine.list", { refresh });
+    return result.available === false
+      ? null
+      : (result.entries as EngineInventoryEntry[]);
   }
 
   /** A local sign-in operation through the local runner, as a wire v1 ack. */
@@ -311,84 +394,21 @@ export class EngineManager {
     }
   }
 
-  private async remoteInventory(
-    scope: Extract<EngineScope, { kind: "runner" }>,
-    opts: { force?: boolean } = {}
-  ): Promise<EngineInventoryEntry[] | null> {
-    const cached = opts.force
-      ? undefined
-      : this.deps.remote.cachedInventory?.(scope.runnerId);
-    if (cached) return cached;
-    let result: EngineInventoryEntry[] = [];
-    const ack = await this.deps.remote.send(
-      scope.runnerId,
-      { type: "status" },
-      (event) => {
-        if (event.type === "inventory") result = event.entries;
-      }
-    );
-    if (!ack.ok) {
-      // A failed read, as behind an update fence, doesn't mean "not
-      // installed". Nothing can be changed there until a read succeeds.
-      if (!ack.unsupported)
-        return (
-          this.deps.remote
-            .lastKnownInventory?.(scope.runnerId)
-            ?.map((entry) => ({ ...entry, actions: [] })) ?? null
-        );
-      // Unsupported: report every engine as unknown rather than throwing,
-      // so the UI can show "unavailable" instead of an error page.
-      return RUNNER_ENGINES.map((id) => ({
-        id,
-        label: LABELS[id],
-        installed: false,
-        signedIn: null,
-        version: null,
-        actions: [],
-      }));
-    }
-    return result;
-  }
-
   private async localRpc(
     operation: EngineOperation
   ): Promise<EngineOperationAck> {
-    const { updates, overrides } = this.deps.local;
     if (isEngineCapabilityOperation(operation)) {
       return this.localCapabilities.handle(operation);
     }
     switch (operation.type) {
       case "status":
         return { ok: true };
-      case "install":
-        return {
-          ok: false,
-          error: `${LABELS[operation.engine]} is installed manually on this machine; there is no automatic install here.`,
-          unsupported: true,
-        };
-      case "update": {
-        if (!isAcpEngine(operation.engine)) {
-          return {
-            ok: false,
-            error: `${LABELS[operation.engine]} has no update path.`,
-          };
-        }
-        try {
-          const op = await updates.start(operation.engine, overrides ?? {});
-          return { ok: true, operationId: op.id };
-        } catch (error) {
-          return { ok: false, error: (error as Error).message };
-        }
-      }
       case "login_start":
       case "login_submit":
       case "login_cancel":
       case "login_status":
         return this.localLogin(operation);
     }
+    throw new Error("Engine operation was not routed.");
   }
-}
-
-function isAcpEngine(engine: RunnerEngine): engine is AcpEngineId {
-  return engine === "claude" || engine === "codex" || engine === "opencode";
 }

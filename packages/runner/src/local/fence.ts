@@ -29,6 +29,9 @@ export const SERVED_WHILE_FROZEN: ReadonlySet<string> = new Set([
   "github.pr.diff",
   // Engine reads: which CLIs are here and how a sign-in stands.
   "engine.list",
+  "engine.operation",
+  "engine.update.inspect",
+  "engine.update.probe",
   "engine.login.status",
 ]);
 

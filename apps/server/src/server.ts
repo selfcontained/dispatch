@@ -1,3 +1,7 @@
+import {
+  engineScopeKey,
+  type EngineScope,
+} from "@dispatch/runner-protocol/engine-management";
 import { launchPersonaScope } from "./personas/persona-scope.js";
 import { localLaunchSettings } from "./agents/acp/launch-env.js";
 import {
@@ -7,6 +11,8 @@ import {
 } from "./runners/placement.js";
 import { runnerDirectory } from "./runners/directory.js";
 import {
+  scopedEngineCalls,
+  engineScopeForRunner,
   inProcessEngines,
   localEngineCalls,
   localRunnerOf,
@@ -118,7 +124,11 @@ import { JobNotifier } from "./notifications/job-notifier.js";
 import { FocusTracker } from "./focus-tracker.js";
 import { PresenceTracker, toastRecipients } from "./presence-tracker.js";
 import { registerPresenceActivity } from "./server/presence-activity.js";
-import { AGENT_TYPES, setEnabledAgentTypes } from "./agent-type-settings.js";
+import {
+  AGENT_TYPES,
+  getEnabledAgentTypes,
+  setEnabledAgentTypes,
+} from "./agent-type-settings.js";
 import { JobService } from "./jobs/service.js";
 import { TemplateService } from "./templates/service.js";
 import { ReleaseLogStreamProcessor } from "./release-log-stream.js";
@@ -179,6 +189,7 @@ import { registerSystemRoutes } from "./routes/system.js";
 import { registerEngineLoginRoutes } from "./routes/engine-login.js";
 import { registerEngineManagementRoutes } from "./routes/engine-management.js";
 import {
+  engineUpdatePort,
   EngineUpdateOperations,
   engineOperationStore,
 } from "./agents/engine-updates.js";
@@ -188,7 +199,7 @@ import {
   runnerModelCatalogSource,
 } from "./agents/remote/engine-transport.js";
 import { setRunnerModelCatalogSource } from "./shared/agent-models.js";
-import { registerPluginRoutes } from "./routes/plugin.js";
+import { registerPluginRoutes, runnerPluginChecker } from "./routes/plugin.js";
 import { registerResourceRoutes } from "./routes/resources.js";
 import {
   dateTruncTz,
@@ -1239,10 +1250,55 @@ async function registerRoutes() {
   });
   app.addHook("onClose", async () => localEnginesInProcess.close());
   const engineUpdates = new EngineUpdateOperations(engineOperationStore(pool), {
+    ...engineUpdatePort(
+      localEngineCalls(
+        () => localRunnerOf(localRunnerProcess),
+        localEnginesInProcess
+      )
+    ),
     onError: (error) =>
       app.log.error({ err: error }, "Engine update persistence failed"),
   });
+  const engineCalls = (scope: EngineScope) =>
+    scopedEngineCalls(
+      localEngineCalls(
+        () => localRunnerOf(localRunnerProcess),
+        localEnginesInProcess
+      ),
+      remoteRunner,
+      scope
+    );
+  const updateCoordinators = new Map<string, EngineUpdateOperations>([
+    ["local", engineUpdates],
+  ]);
+  const updatesFor = (scope: EngineScope) => {
+    const key = engineScopeKey(scope);
+    let coordinator = updateCoordinators.get(key);
+    if (!coordinator) {
+      coordinator = new EngineUpdateOperations(
+        engineOperationStore(pool, key),
+        {
+          ...engineUpdatePort(engineCalls(scope)),
+          onError: (error) =>
+            app.log.error({ err: error }, "Engine update persistence failed"),
+        }
+      );
+      updateCoordinators.set(key, coordinator);
+    }
+    return coordinator;
+  };
   await registerSystemRoutes(app, {
+    runnerEngines: (runnerId) => {
+      const scope = engineScopeForRunner(runnerId);
+      return {
+        engineCalls: engineCalls(scope),
+        engineUpdates: updatesFor(scope),
+      };
+    },
+    engineCalls: localEngineCalls(
+      () => localRunnerOf(localRunnerProcess),
+      localEnginesInProcess
+    ),
     localEngines,
     engineUpdates,
     runnerBranches: remoteRunner?.listRepositoryBranches.bind(remoteRunner),
@@ -1280,6 +1336,7 @@ async function registerRoutes() {
     },
   });
   const engineManager = new EngineManager({
+    engineActions: { calls: engineCalls, updates: updatesFor },
     local: {
       engines: localEngineCalls(
         () => localRunnerOf(localRunnerProcess),
@@ -1302,7 +1359,9 @@ async function registerRoutes() {
     },
   });
   await registerEngineLoginRoutes(app, engineManager);
-  await registerEngineManagementRoutes(app, engineManager);
+  await registerEngineManagementRoutes(app, engineManager, {
+    enabledAgentTypes: () => getEnabledAgentTypes(pool),
+  });
   await registerUpdateRecoveryRoutes(app, updateRecoveryRuntime.routeDeps);
   await registerResourceRoutes(app, { pool, resources: serviceResources });
   await registerRoutingShadowRoutes(
@@ -1348,7 +1407,17 @@ async function registerRoutes() {
     clearInterval(shadowRetention);
   });
 
-  await registerPluginRoutes(app, { pool, plugins: localEngines.plugins });
+  await registerPluginRoutes(app, {
+    runnerPlugins: (runnerId) =>
+      runnerPluginChecker(engineCalls(engineScopeForRunner(runnerId))),
+    pool,
+    plugins: runnerPluginChecker(
+      localEngineCalls(
+        () => localRunnerOf(localRunnerProcess),
+        localEnginesInProcess
+      )
+    ),
+  });
 
   await registerBrainRoutes(app, {
     brainStore,

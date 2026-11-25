@@ -11,6 +11,7 @@ import { createSessionCore, runCli } from "@dispatch/runner/cli";
 import { embeddedBuild } from "../../src/agents/build-identity.js";
 import {
   checkoutWorkload,
+  localEnginePort,
   workspaceWorkload,
 } from "../../src/agents/checkout-worker.js";
 import { localTerminalHandlers } from "../../src/terminal/runner-worker.js";
@@ -30,6 +31,7 @@ await runCli(process.argv.slice(2), {
     ...(embeddedBuild.revision && { revision: embeddedBuild.revision }),
   },
   platform: {
+    engines: localEnginePort(),
     workload: checkoutWorkload,
     workspace: {
       ...workspaceWorkload,

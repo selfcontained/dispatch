@@ -555,13 +555,6 @@
   {
     "file": "apps/server/src/agents/local-runner-engine.ts",
     "kind": "R3 local method",
-    "detail": "plugins",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner-engine.ts",
-    "kind": "R3 local method",
     "detail": "readModelCatalog",
     "task": "T04",
     "count": 1
@@ -802,13 +795,6 @@
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/local-runner-engine",
     "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/engine-runner-executor.ts",
-    "kind": "R7 restriction",
-    "detail": "N34 Engine updates require configured commands",
-    "task": "T29",
     "count": 1
   },
   {
@@ -1823,13 +1809,6 @@
     "file": "apps/server/src/routes/system.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/acp/engine-spec",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/system.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/engine-availability",
     "task": "T04",
     "count": 1
   },

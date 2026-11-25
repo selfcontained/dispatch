@@ -2,11 +2,17 @@ import type { CheckoutReadName } from "@dispatch/runner-protocol";
 import {
   runnerIdFromWire,
   RunnerCallError,
+  operations,
+  runnerError,
   type RunnerDescription,
   type Req,
   type Res,
 } from "@dispatch/runner-protocol/contract";
-import { isEngineCapabilityOperation } from "@dispatch/runner-protocol/engine-management";
+import {
+  isEngineCapabilityOperation,
+  type EngineHostCallName,
+  type EngineHostCall,
+} from "@dispatch/runner-protocol/engine-management";
 import { projectRepositoryUrl } from "./repository.js";
 import { X509Certificate } from "node:crypto";
 import { readFileSync, watchFile, unwatchFile } from "node:fs";
@@ -27,6 +33,8 @@ import {
   type FileSource,
   RunnerConnection,
   RunnerUnavailable,
+  RunnerUpdateFenced,
+  RunnerAcknowledgementLost,
 } from "../../runners/enrolled/v1-framing.js";
 export {
   RunnerUnavailable,
@@ -2008,6 +2016,70 @@ export class RemoteRunnerService {
       { type: "update_cancel", attemptId, reason },
       epoch
     );
+  }
+
+  /** Same request/reply path as Git/file operations; no extra connection or fallback. */
+  async callEngine<K extends EngineHostCallName>(
+    runnerId: string,
+    op: K,
+    request: Req<K>
+  ): Promise<Res<K>> {
+    try {
+      const { value, channel } = await this.requestRunner(runnerId, {
+        kind: "engine",
+        operation: {
+          type: "contract",
+          call: { op, request } as EngineHostCall,
+        },
+      });
+      channel?.destroy();
+      if (typeof value !== "string")
+        throw new RunnerCallError({
+          code: "unknown_outcome",
+          message: "Invalid engine operation reply.",
+        });
+      const ack = JSON.parse(value);
+      if (!ack || typeof ack !== "object" || typeof ack.ok !== "boolean")
+        throw new RunnerCallError({
+          code: "unknown_outcome",
+          message: "Invalid engine operation reply.",
+        });
+      if (ack.failure !== undefined && !runnerError.check(ack.failure))
+        throw new RunnerCallError({
+          code: "unknown_outcome",
+          message: "Invalid engine operation reply.",
+        });
+      if (!ack.ok)
+        throw new RunnerCallError(
+          ack.failure ?? { code: "failed", message: ack.error }
+        );
+      if (!operations[op].response.check(ack.result))
+        throw new RunnerCallError({
+          code: "unknown_outcome",
+          message: "Invalid engine operation result.",
+        });
+      return ack.result as Res<K>;
+    } catch (error) {
+      if (error instanceof RunnerCallError) throw error;
+      if (error instanceof SyntaxError)
+        throw new RunnerCallError({
+          code: "unknown_outcome",
+          message: "Invalid engine operation reply.",
+        });
+      if (error instanceof RunnerUpdateFenced)
+        throw new RunnerCallError({ code: "fenced", message: error.message });
+      if (error instanceof RunnerAcknowledgementLost)
+        throw new RunnerCallError({
+          code: "unknown_outcome",
+          message: error.message,
+        });
+      if (error instanceof RunnerUnavailable)
+        throw new RunnerCallError({
+          code: "unavailable",
+          message: error.message,
+        });
+      throw error;
+    }
   }
 
   async requestRunner(runnerId: string, operation: RunnerOperation) {

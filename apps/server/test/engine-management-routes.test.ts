@@ -1,11 +1,27 @@
+import { fixtureEngineActions } from "./helpers/engine-actions.js";
 import Fastify from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { registerEngineManagementRoutes } from "../src/routes/engine-management.js";
 import {
-  EngineManager,
+  EngineManager as ActualEngineManager,
   type RunnerEngineTransport,
 } from "../src/agents/remote/engine-manager.js";
+
+// T29 actions are supplied separately from legacy inventory/sign-in fixture transport.
+class EngineManager extends ActualEngineManager {
+  constructor(
+    deps: Omit<
+      ConstructorParameters<typeof ActualEngineManager>[0],
+      "engineActions"
+    >
+  ) {
+    super({
+      ...deps,
+      engineActions: fixtureEngineActions(deps),
+    });
+  }
+}
 import type { EngineCalls } from "../src/runners/local.js";
 import type { EngineUpdateOperations } from "../src/agents/engine-updates.js";
 import type { AgentRecord } from "@dispatch/shared";
@@ -197,4 +213,37 @@ describe("engine-management routes", () => {
 
     await test.close();
   });
+  it.each([{ kind: "local" }, { kind: "runner", runnerId: "fixture" }])(
+    "applies main's enabled plugin types to %j",
+    async (scope) => {
+      const app = Fastify();
+      const rpc = vi.fn();
+      try {
+        await registerEngineManagementRoutes(
+          app,
+          { rpc } as unknown as EngineManager,
+          { enabledAgentTypes: async () => ["claude"] }
+        );
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/v1/engine-management/operations",
+          payload: {
+            scope,
+            operation: {
+              type: "plugin_install",
+              engine: "codex",
+              plugin: "dispatch@dispatch",
+            },
+          },
+        });
+        expect(response.statusCode).toBe(400);
+        expect(response.json()).toEqual({
+          error: "codex is not an enabled agent type.",
+        });
+        expect(rpc).not.toHaveBeenCalled();
+      } finally {
+        await app.close();
+      }
+    }
+  );
 });

@@ -1,3 +1,4 @@
+import { fixtureEngineActions } from "./helpers/engine-actions.js";
 import { describe, expect, it, vi } from "vitest";
 
 import type { EngineLogin } from "@dispatch/shared";
@@ -5,9 +6,24 @@ import type { EngineOperationEvent } from "@dispatch/runner-protocol/engine-mana
 import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 
 import {
-  EngineManager,
+  EngineManager as ActualEngineManager,
   type RunnerEngineTransport,
 } from "../src/agents/remote/engine-manager.js";
+
+// T29 actions are supplied separately from legacy inventory/sign-in fixture transport.
+class EngineManager extends ActualEngineManager {
+  constructor(
+    deps: Omit<
+      ConstructorParameters<typeof ActualEngineManager>[0],
+      "engineActions"
+    >
+  ) {
+    super({
+      ...deps,
+      engineActions: fixtureEngineActions(deps),
+    });
+  }
+}
 import { localEngineWorkload } from "../src/agents/remote/engine-runner-executor.js";
 import type { EngineUpdateOperations } from "../src/agents/engine-updates.js";
 import { localEngineCalls, type EngineCalls } from "../src/runners/local.js";
@@ -105,7 +121,15 @@ function fakeUpdates(
   overrides: Partial<EngineUpdateOperations> = {}
 ): EngineUpdateOperations {
   return {
-    start: vi.fn(async () => ({ id: "op-1" })),
+    start: vi.fn(async (_engine, _overrides, action) => {
+      if (action === "install")
+        throw new RunnerCallError({
+          code: "unsupported",
+          message:
+            "Claude Code is installed manually on this machine; there is no automatic install here.",
+        });
+      return { id: "op-1" };
+    }),
     read: vi.fn(async () => ({})),
     ...overrides,
   } as unknown as EngineUpdateOperations;
@@ -376,7 +400,7 @@ describe("EngineManager runner scope", () => {
     ]);
   });
 
-  it("falls back to unknown entries when a runner doesn't support engine management", async () => {
+  it("does not invent inventory when a runner rejects the current operation", async () => {
     const transport = fakeTransport({
       send: vi.fn(async () => ({
         ok: false,
@@ -388,14 +412,9 @@ describe("EngineManager runner scope", () => {
       local: { engines: fakeEngines(), updates: fakeUpdates() },
       remote: transport,
     });
-    const inventory = await manager.inventory({
-      kind: "runner",
-      runnerId: "r1",
-    });
-    expect(inventory.every((e) => !e.installed && e.signedIn === null)).toBe(
-      true
-    );
-    expect(inventory).toHaveLength(3);
+    await expect(
+      manager.inventory({ kind: "runner", runnerId: "r1" })
+    ).rejects.toMatchObject({ code: "unsupported" });
   });
 
   it("announces nothing while a runner's engines are unknown", async () => {
