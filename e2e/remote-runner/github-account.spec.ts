@@ -131,7 +131,7 @@ test("GitHub sign-in, private checkout and sign-out belong to the selected runne
       useWorktree: true,
       createNewBranch: false,
       fullAccess: true,
-      baseBranch: "https://github.com/fixture-scratch/private/pull/42",
+      pullRequest: "https://github.com/fixture-scratch/private/pull/42",
       name: "Private checkout",
       initialPrompt: "proof-reviewed-checkout post-private-pr",
     },
