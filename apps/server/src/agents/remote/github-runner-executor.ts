@@ -422,8 +422,10 @@ export class GitHubRunnerExecutor {
     private readonly tools: WorkloadToolResolver = fixedWorkloadTools,
     private readonly managePrivateGitIdentity = false
   ) {
+    // Global Git writes belong to the configured home's ~/.gitconfig.
+    const { GIT_CONFIG_GLOBAL: _redirect, ...accountEnv } = env;
     this.env = {
-      ...env,
+      ...accountEnv,
       GH_HOST: host,
       GH_PROMPT_DISABLED: "1",
       GH_NO_UPDATE_NOTIFIER: "1",
@@ -510,60 +512,68 @@ export class GitHubRunnerExecutor {
     });
   }
 
-  private credentialFile() {
+  /**
+   * Both paths come from the account's configured home, never from
+   * GIT_CONFIG_GLOBAL or XDG_CONFIG_HOME, which a shell can point elsewhere.
+   * ~/.gitconfig is always part of the account's global configuration.
+   */
+  private credentialPaths() {
     const home = this.env.HOME;
     if (!home || !path.isAbsolute(home))
       throw new Error("The workload account has no home directory.");
-    return path.join(home, githubCredentialInclude);
-  }
-
-  private async includesCredential(file: string, signal: AbortSignal) {
-    try {
-      const paths = await this.runCommand(
-        "git",
-        ["config", "--global", "--get-all", "include.path"],
-        signal
-      );
-      return paths.split("\n").includes(file);
-    } catch (error) {
-      if ((error as { code?: number }).code === 1) return false;
-      throw error;
-    }
+    return {
+      config: path.join(home, ".gitconfig"),
+      file: path.join(home, githubCredentialInclude),
+    };
   }
 
   /** Point the account's plain git at gh's login for github.com. */
   private async addCredentialHelper(signal: AbortSignal) {
     const helper = githubCredentialHelper(await this.tools.resolve("gh"));
     if (this.credentialState === helper) return;
-    const file = this.credentialFile();
+    const { config, file } = this.credentialPaths();
     this.credentialState = undefined;
-    await this.runWorkload("/bin/mkdir", ["-p", path.dirname(file)], signal);
+    await this.runWorkload(
+      "/bin/mkdir",
+      ["-p", "-m", "700", path.dirname(file)],
+      signal
+    );
     await this.runCommand(
       "git",
       ["config", "--file", file, "--replace-all", githubCredentialKey, helper],
       signal
     );
-    // Appended, so helpers the account already had keep their priority.
-    if (!(await this.includesCredential(file, signal)))
-      await this.runCommand(
-        "git",
-        ["config", "--global", "--add", "include.path", file],
-        signal
-      );
+    await this.runWorkload("/bin/chmod", ["600", file], signal);
+    // One locked write: replaces our exact line, or adds it when absent, so
+    // concurrent or repeated sign-ins never add a second line.
+    await this.runCommand(
+      "git",
+      [
+        "config",
+        "--file",
+        config,
+        "--replace-all",
+        "include.path",
+        file,
+        exactPattern(file),
+      ],
+      signal
+    );
     this.credentialState = helper;
   }
 
   /** Remove exactly what addCredentialHelper wrote; safe to repeat. */
   private async removeCredentialHelper(signal: AbortSignal) {
     if (this.credentialState === "absent") return;
-    const file = this.credentialFile();
+    const { config, file } = this.credentialPaths();
     this.credentialState = undefined;
     try {
       await this.runCommand(
         "git",
         [
           "config",
-          "--global",
+          "--file",
+          config,
           "--unset-all",
           "include.path",
           exactPattern(file),
@@ -571,8 +581,9 @@ export class GitHubRunnerExecutor {
         signal
       );
     } catch (error) {
-      // 5: nothing matched, so there was nothing to remove.
-      if ((error as { code?: number }).code !== 5) throw error;
+      // 5: nothing matched; 1: no ~/.gitconfig. Nothing to remove either way.
+      const { code } = error as { code?: number };
+      if (code !== 5 && code !== 1) throw error;
     }
     await this.runWorkload("/bin/rm", ["-f", file], signal);
     await this.runWorkload("/bin/rmdir", [path.dirname(file)], signal).catch(
