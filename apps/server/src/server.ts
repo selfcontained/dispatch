@@ -8,6 +8,7 @@ import {
   enrolledRunnerId,
   isOnEnrolledRunner,
   placementForEnrolledId,
+  runnerIdForPlacement,
 } from "./runners/placement.js";
 import { runnerDirectory } from "./runners/directory.js";
 import {
@@ -1647,8 +1648,13 @@ export async function initializeApp(options?: {
     app.log.error({ err: error }, "Runner listener failed to start");
   }
   // The model lists engines published in earlier sessions, for the pickers.
-  await loadLearnedAgentModels(pool);
-  await loadModelAvailability(pool);
+  const catalogRunners = runnerDirectory({ remote: remoteRunner });
+  for (const { placement } of await catalogRunners.list()) {
+    const runnerId = runnerIdForPlacement(placement);
+    const { settings } = catalogRunners.for(placement);
+    await loadLearnedAgentModels(pool, runnerId, settings);
+    await loadModelAvailability(pool, { runnerId, settings });
+  }
   serviceResources.setCollectionEnabled(
     await readServiceResourcesCollectionEnabled(pool)
   );

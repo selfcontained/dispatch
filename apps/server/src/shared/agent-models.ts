@@ -98,6 +98,7 @@ export function setLearnedAgentModels(
 export function forgetLearnedAgentModels(): void {
   catalogs.clear();
   availability.clear();
+  reportedHistory.clear();
 }
 
 export function getLearnedAgentModels(
@@ -121,6 +122,38 @@ export type AgentModelAvailability = {
   /** Every id the engine has ever listed; null before its first list. */
   known: readonly string[] | null;
 };
+export type AgentModelHistory = Pick<
+  AgentModelAvailability,
+  "known" | "unseen"
+>;
+const reportedHistory = new Map<string, Map<AgentType, AgentModelHistory>>();
+export function getReportedModelHistory(
+  runnerId: string,
+  agentType: AgentType
+): AgentModelHistory {
+  return (
+    reportedHistory.get(runnerId)?.get(agentType) ?? { known: null, unseen: [] }
+  );
+}
+export function setReportedModelHistory(
+  runnerId: string,
+  agentType: AgentType,
+  history: AgentModelHistory
+): void {
+  let histories = reportedHistory.get(runnerId);
+  if (!histories) {
+    histories = new Map();
+    reportedHistory.set(runnerId, histories);
+  }
+  histories.set(agentType, history);
+}
+
+/** Interim owner policy: runner choices are shared and read-only. */
+export function modelChoicesForRunner(_runnerId: string, agentType: AgentType) {
+  const { autoEnable, disabled } = getAgentModelAvailability(agentType);
+  return { autoEnable, disabled };
+}
+
 const availability = new Map<AgentType, AgentModelAvailability>();
 
 export function setAgentModelAvailability(

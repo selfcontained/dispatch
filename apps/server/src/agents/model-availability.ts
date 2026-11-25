@@ -1,8 +1,15 @@
+import {
+  localRunnerSettings,
+  namespaced,
+  type RunnerSettings,
+} from "../runners/settings-namespace.js";
 import type { Pool } from "pg";
 
 import { getSetting, setSetting } from "../db/settings.js";
 import {
   getAgentModelAvailability,
+  getReportedModelHistory,
+  setReportedModelHistory,
   getAgentModelOptions,
   getLearnedAgentModels,
   selectableAgentModels,
@@ -56,7 +63,36 @@ function strings(value: unknown): string[] {
  * before this setting existed takes that list as the baseline, so none of
  * them read as new.
  */
-export async function loadModelAvailability(pool: Pool): Promise<void> {
+export async function loadModelAvailability(
+  pool: Pool,
+  catalog: { runnerId: string; settings: RunnerSettings } = {
+    runnerId: "local",
+    settings: localRunnerSettings,
+  }
+): Promise<void> {
+  if (catalog.settings.modelReports === "history") {
+    for (const agentType of AGENT_TYPES) {
+      let stored: { known?: unknown; unseen?: unknown } | null = null;
+      try {
+        const raw = await getSetting(
+          pool,
+          namespaced(catalog.settings, settingKey(agentType))
+        );
+        if (raw) stored = JSON.parse(raw);
+      } catch (error) {
+        if (!(error instanceof SyntaxError)) throw error;
+      }
+      setReportedModelHistory(catalog.runnerId, agentType, {
+        known: Array.isArray(stored?.known)
+          ? strings(stored.known)
+          : (getLearnedAgentModels(agentType, catalog.runnerId)?.map(
+              ({ id }) => id
+            ) ?? null),
+        unseen: strings(stored?.unseen),
+      });
+    }
+    return;
+  }
   for (const agentType of AGENT_TYPES) {
     let stored: Partial<AgentModelAvailability> | null = null;
     try {
@@ -85,8 +121,32 @@ export async function loadModelAvailability(pool: Pool): Promise<void> {
 export function recordListedModels(
   pool: Pool,
   agentType: AgentType,
-  ids: readonly string[]
+  ids: readonly string[],
+  catalog: { runnerId: string; settings: RunnerSettings } = {
+    runnerId: "local",
+    settings: localRunnerSettings,
+  }
 ): Promise<boolean> {
+  if (catalog.settings.modelReports === "history") {
+    const result = queue.then(async () => {
+      const current = getReportedModelHistory(catalog.runnerId, agentType);
+      const found = ids.filter((id) => !current.known?.includes(id));
+      if (current.known && found.length === 0) return false;
+      const history = {
+        known: current.known ? [...current.known, ...found] : [...ids],
+        unseen: current.known ? [...current.unseen, ...found] : current.unseen,
+      };
+      await setSetting(
+        pool,
+        namespaced(catalog.settings, settingKey(agentType)),
+        JSON.stringify(history)
+      );
+      setReportedModelHistory(catalog.runnerId, agentType, history);
+      return true;
+    });
+    queue = result.catch(() => {});
+    return result;
+  }
   return change(pool, agentType, (current) => {
     const { known } = current;
     if (!known) return { ...current, known: [...ids] };

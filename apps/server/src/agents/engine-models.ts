@@ -125,13 +125,17 @@ export async function recordEngineModels(
   deps: { pool: Pool; logger: FastifyBaseLogger },
   agent: { id: string; type: AgentType; model: string | null },
   options: readonly SessionConfigOption[],
-  learnCatalog = true
+  learnCatalog = true,
+  catalog: { runnerId: string; settings: RunnerSettings } = {
+    runnerId: "local",
+    settings: localRunnerSettings,
+  }
 ): Promise<{ modelChanged: boolean; modelsChanged: boolean }> {
   const report = modelOptionOf(options);
   if (!report) return { modelChanged: false, modelsChanged: false };
   const modelsChanged =
     learnCatalog &&
-    (await learnEngineCatalog(deps.pool, agent, options, report));
+    (await learnEngineCatalog(deps.pool, agent, options, report, catalog));
   if (report.current === agent.model)
     return { modelChanged: false, modelsChanged };
   await deps.pool.query(
@@ -149,16 +153,18 @@ async function learnEngineCatalog(
   pool: Pool,
   agent: { type: AgentType; model: string | null },
   options: readonly SessionConfigOption[],
-  report: EngineModelReport
+  report: EngineModelReport,
+  catalog: { runnerId: string; settings: RunnerSettings }
 ): Promise<boolean> {
   if (report.choices.length === 0) return false;
   // Before the list is published, so a model that starts off is never offered.
   const filterChanged = await recordListedModels(
     pool,
     agent.type,
-    report.choices.map(({ id }) => id)
+    report.choices.map(({ id }) => id),
+    catalog
   );
-  const previous = getAgentModelOptions(agent.type);
+  const previous = getAgentModelOptions(agent.type, catalog.runnerId);
   const effort = engineEffortOption(options);
   report.choices = report.choices.map((choice) => {
     const known =
@@ -168,18 +174,29 @@ async function learnEngineCatalog(
     return known === undefined ? choice : { ...choice, effort: known };
   });
   const defaultModel =
-    agent.model === null ? report.current : agentModelDefaults()[agent.type];
+    agent.model === null
+      ? report.current
+      : agentModelDefaults(catalog.runnerId)[agent.type];
   const modelsChanged =
     filterChanged ||
     !sameModels(previous, report.choices) ||
-    defaultModel !== agentModelDefaults()[agent.type];
-  setLearnedAgentModels(agent.type, report.choices, defaultModel);
+    defaultModel !== agentModelDefaults(catalog.runnerId)[agent.type];
+  setLearnedAgentModels(
+    agent.type,
+    report.choices,
+    defaultModel,
+    catalog.runnerId
+  );
   const stored: StoredEngineModels = {
     models: report.choices,
     defaultModel,
     seenAt: new Date().toISOString(),
   };
-  await setSetting(pool, settingKey(agent.type), JSON.stringify(stored));
+  await setSetting(
+    pool,
+    settingKey(agent.type, catalog.settings),
+    JSON.stringify(stored)
+  );
   return modelsChanged;
 }
 
