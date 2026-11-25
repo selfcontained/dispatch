@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { ProviderPlansResponse } from "@dispatch/shared";
 import {
-  createProviderPlansReporter,
   CodexResetError,
   type CodexResetOutcome,
-} from "./provider-plans.js";
+} from "@dispatch/runner-protocol/engine-plans";
+import { createProviderPlansReporter } from "./provider-plans-reporter.js";
 
 export type CodexResetResult = {
   outcome: CodexResetOutcome | null;

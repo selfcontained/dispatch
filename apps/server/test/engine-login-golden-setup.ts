@@ -131,7 +131,6 @@ export async function buildEngineLoginApp(
         () => child,
         opts.via === "child" ? untouchable() : inProcess
       ),
-      capabilities: { handle: async () => ({ ok: true }) },
       updates: {} as EngineUpdateOperations,
     },
     remote: { send: async () => ({ ok: false, error: "No runners." }) },

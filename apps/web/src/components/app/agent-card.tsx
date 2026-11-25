@@ -208,6 +208,7 @@ function AgentCardImpl({
                   fullAccessEnabled={fullAccessEnabled}
                 >
                   <SubAgentRows
+                    parentId={agent.id}
                     childAgents={childAgents}
                     seats={seats}
                     viewingId={connectedAgentId}

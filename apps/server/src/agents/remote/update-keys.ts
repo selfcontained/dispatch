@@ -1,12 +1,11 @@
-// Provision the active and standby public keys here as [key ID, SPKI PEM] pairs.
-// See docs/runner-update-signing.md.
-export const productionRunnerUpdateKeys: ReadonlyMap<string, string> = new Map([
-  // Active key slot.
-  // Standby rotation key slot.
-]);
-
-export const RUNNER_UPDATE_DEV_KEY_ID = "dispatch-local-dev";
-
+import {
+  productionRunnerUpdateKeys,
+  RUNNER_UPDATE_DEV_KEY_ID,
+} from "@dispatch/runner-protocol/update-format";
+export {
+  productionRunnerUpdateKeys,
+  RUNNER_UPDATE_DEV_KEY_ID,
+} from "@dispatch/runner-protocol/update-format";
 // The Bun build script substitutes a literal public key. Runtime environment
 // variables cannot give a compiled production binary a development trust root.
 declare const DISPATCH_COMPILED_RUNNER_DEV_KEY: string | undefined;

@@ -1,3 +1,4 @@
+import { connectCliCommand } from "../src/agents/remote/enrollment-commands.js";
 import { createHash, X509Certificate } from "node:crypto";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import http from "node:http";
@@ -16,18 +17,15 @@ import {
   it,
   vi,
 } from "vitest";
-import {
-  connectCliCommand,
-  runRunnerConnect,
-} from "../src/agents/remote/enrollment.js";
+import { runRunnerConnect } from "../src/agents/remote/enrollment.js";
 import { RunnerRegistry } from "../src/agents/remote/registry.js";
 import { RemoteRunnerService } from "../src/agents/remote/service.js";
+import { generateRunnerKey } from "../src/agents/remote/x509.js";
 import {
-  generateRunnerKey,
   issueAuthority,
   issueServer,
   runnerPublicKey,
-} from "../src/agents/remote/x509.js";
+} from "../src/agents/remote/certificate-authority.js";
 import {
   wireFrames,
   type Frame,

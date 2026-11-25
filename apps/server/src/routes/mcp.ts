@@ -17,7 +17,7 @@ import type { Pool } from "pg";
 import type { SharedUiEvent } from "@dispatch/shared";
 
 import { getEnabledAgentTypes } from "../agent-type-settings.js";
-import { createProviderPlansReporter } from "../agents/provider-plans.js";
+import type { ProviderPlansReporter } from "../agents/provider-plans-reporter.js";
 import type { UsageCallbacks } from "../shared/mcp/usage-tools.js";
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import { remotePlacement } from "@dispatch/runner-protocol";
@@ -155,12 +155,12 @@ type McpRouteDeps = {
   pullRequests?: Pick<PullRequestRefresher, "get">;
   riskEnabled?: () => Promise<boolean>;
   usageForAgent?: (id: string) => Promise<{
-    providerPlans: ReturnType<typeof createProviderPlansReporter>;
+    providerPlans: ProviderPlansReporter;
     redeemCodexReset: RedeemCodexReset;
   }>;
   redeemCodexReset?: RedeemCodexReset;
   usageWatches?: UsageCallbacks["usageWatches"];
-  providerPlans?: ReturnType<typeof createProviderPlansReporter>;
+  providerPlans?: ProviderPlansReporter;
   runnerEngines?: RunnerEngineTransport;
   config: {
     authToken: string;

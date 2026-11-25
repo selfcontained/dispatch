@@ -75,3 +75,65 @@ export function parseConnectCreated(value: unknown): ConnectCreated | null {
 export function parseConnectPoll(value: unknown): ConnectPoll | null {
   return isConnectPoll(value) ? value : null;
 }
+
+/** Normalize `AB:CD:…` and bare hex to the colon form Node reports. */
+export function normalizeFingerprint(value: string) {
+  const hex = value.replace(/[^a-fA-F0-9]/g, "").toUpperCase();
+  if (hex.length !== 64) throw new Error("Expected a SHA-256 fingerprint");
+  return hex.match(/../g)!.join(":");
+}
+
+/** Display names only; placements address runners by registration id. */
+export function validRunnerName(name: unknown): name is string {
+  return (
+    typeof name === "string" &&
+    name === name.trim() &&
+    name.length > 0 &&
+    name.length <= 64 &&
+    !/[\x00-\x1f\x7f-\x9f]/u.test(name)
+  );
+}
+
+export function formatEnrollmentHost(host: string, ipVersion: number) {
+  return ipVersion === 6 ? `[${host}]` : host;
+}
+
+export function formatPairingCommand(input: {
+  host: string;
+  port: number;
+  caFingerprint: string;
+  code: string;
+}) {
+  const pin = normalizeFingerprint(input.caFingerprint)
+    .replace(/:/g, "")
+    .toLowerCase();
+  return [
+    "dispatch-runner remote-runner-pair",
+    `--endpoint https://${input.host}:${input.port}`,
+    `--ca-sha256 ${pin}`,
+    `--code ${input.code}`,
+  ].join(" ");
+}
+
+/**
+ * Unlike `pairingCommand`, this is not single-use: the runner supplies its
+ * own one-time code at connect time, so the same invocation can be copied
+ * onto any number of clean runners. The target is always this listener's
+ * own pinned CA and port — reachable and verifiable even when the ordinary
+ * Dispatch API is loopback-only or plain HTTP, since nothing about it
+ * depends on the main API's own binding or certificate.
+ */
+export function formatConnectCommand(
+  input: {
+    host: string;
+    port: number;
+    caFingerprint: string;
+  },
+  encodePin: (hex: string) => string
+) {
+  const pin = normalizeFingerprint(input.caFingerprint).replace(/:/g, "");
+  const service = new URL(`https://${input.host}:${input.port}`);
+  // The fragment conveys trust from Settings and is never sent over HTTP.
+  service.hash = `sha256=${encodePin(pin)}`;
+  return `sudo dispatch-runner connect '${service.href}'`;
+}

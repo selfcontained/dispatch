@@ -37,8 +37,7 @@ export type DrainOutcome = "drained" | "timeout" | "cancelled" | "store_failed";
 
 export const UPDATE_FENCED_MESSAGE =
   "The runner is updating; the operation was not started.";
-export const TERMINAL_UPDATE_MESSAGE =
-  "The runner is updating. This terminal was closed; reopen it after the update.";
+export { TERMINAL_UPDATE_MESSAGE } from "@dispatch/runner-protocol";
 /** Time for a reply already produced by an admitted operation to flush. */
 export const FENCE_FLUSH_MARGIN_MS = 5_000;
 export const TERMINAL_UPDATE_GRACE_MS = 5_000;

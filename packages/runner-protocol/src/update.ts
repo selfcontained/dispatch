@@ -396,3 +396,6 @@ export function parseUpdateStatus(value: unknown): UpdateStatusFrame | null {
     }),
   };
 }
+
+export const TERMINAL_UPDATE_MESSAGE =
+  "The runner is updating. This terminal was closed; reopen it after the update.";

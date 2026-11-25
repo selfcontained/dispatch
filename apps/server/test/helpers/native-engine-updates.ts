@@ -1,3 +1,4 @@
+export { engineUpdatePort } from "../../src/agents/engine-update-operations.js";
 import { EngineUpdateOperations as Coordinator } from "../../src/agents/engine-update-operations.js";
 import {
   inspectInstallation,

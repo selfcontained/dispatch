@@ -22,58 +22,6 @@ import { generateRunnerKey, normalizeFingerprint } from "./x509.js";
  * the code, generates its private key locally and only sends the public key.
  */
 
-/** Display names only; placements address runners by registration id. */
-export function validRunnerName(name: unknown): name is string {
-  return (
-    typeof name === "string" &&
-    name === name.trim() &&
-    name.length > 0 &&
-    name.length <= 64 &&
-    !/[\x00-\x1f\x7f-\x9f]/u.test(name)
-  );
-}
-
-export function formatHost(host: string) {
-  return isIP(host) === 6 ? `[${host}]` : host;
-}
-
-export function pairingCommand(input: {
-  host: string;
-  port: number;
-  caFingerprint: string;
-  code: string;
-}) {
-  const pin = normalizeFingerprint(input.caFingerprint)
-    .replace(/:/g, "")
-    .toLowerCase();
-  return [
-    "dispatch-runner remote-runner-pair",
-    `--endpoint https://${formatHost(input.host)}:${input.port}`,
-    `--ca-sha256 ${pin}`,
-    `--code ${input.code}`,
-  ].join(" ");
-}
-
-/**
- * Unlike `pairingCommand`, this is not single-use: the runner supplies its
- * own one-time code at connect time, so the same invocation can be copied
- * onto any number of clean runners. The target is always this listener's
- * own pinned CA and port — reachable and verifiable even when the ordinary
- * Dispatch API is loopback-only or plain HTTP, since nothing about it
- * depends on the main API's own binding or certificate.
- */
-export function connectCliCommand(input: {
-  host: string;
-  port: number;
-  caFingerprint: string;
-}) {
-  const pin = normalizeFingerprint(input.caFingerprint).replace(/:/g, "");
-  const service = new URL(`https://${formatHost(input.host)}:${input.port}`);
-  // The fragment conveys trust from Settings and is never sent over HTTP.
-  service.hash = `sha256=${Buffer.from(pin, "hex").toString("base64url")}`;
-  return `sudo dispatch-runner connect '${service.href}'`;
-}
-
 /**
  * Check a CA certificate the service presented against the pinned SHA-256
  * fingerprint of its DER bytes. Only public bytes are involved.
