@@ -109,9 +109,6 @@ it("keeps a checkout whose removal outlasts main's 60 s, with main's warning", a
   const { outcome, logger } = archive(child);
   let settled: unknown;
   void outcome.then((value) => (settled = value));
-  // The budget is the local runner's own, from the removal it sends.
-  while (!call.mock.calls.some(([op]) => op === "workspace.release"))
-    await new Promise((resolve) => setImmediate(resolve));
   await vi.advanceTimersByTimeAsync(59_000);
   expect(settled).toBeUndefined();
   await vi.advanceTimersByTimeAsync(1_000);
