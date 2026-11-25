@@ -525,7 +525,7 @@ export async function inspectionRoot(cwd: string, requireGit: boolean) {
   return { root };
 }
 
-async function resolveInspectionRoots(cwd: string) {
+export async function resolveInspectionRoots(cwd: string) {
   const repositoryRoot = await resolveRepoRoot(cwd, {
     commandRunner: run,
   }).catch(() => null);

@@ -108,7 +108,8 @@ export type GitQueryName =
   | "git.defaultBranch"
   | "git.branches"
   | "git.base"
-  | "git.origin";
+  | "git.origin"
+  | "git.roots";
 export type GitQuery = {
   [K in GitQueryName]: { op: K; request: Req<K> };
 }[GitQueryName];
@@ -656,7 +657,8 @@ function isCommand(value: unknown): value is Command {
       const op = value.operation;
       return (
         isRecord(op) &&
-        (op.op === "git.origin" ||
+        (op.op === "git.roots" ||
+          op.op === "git.origin" ||
           op.op === "git.branches" ||
           op.op === "git.defaultBranch" ||
           op.op === "git.base") &&

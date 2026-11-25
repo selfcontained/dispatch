@@ -82,7 +82,7 @@ import * as z from "zod/v4";
 
 import { AgentManager } from "./agents/manager.js";
 import type { AgentRecord } from "./agents/manager.js";
-import { agentTaskProject } from "./tasks/agent-scope.js";
+import { agentTaskProject, runnerTaskRootReader } from "./tasks/agent-scope.js";
 import {
   validateSession,
   getOrCreateAuthToken,
@@ -792,8 +792,10 @@ const streamService = new StreamService({
   agentProject: async (agentId) => {
     const agent = await agentManager.getAgent(agentId);
     if (!agent) return null;
-    return agentTaskProject(agent, (input) =>
-      taskService.projectForAgent(input)
+    return agentTaskProject(
+      agent,
+      (input) => taskService.projectForAgent(input),
+      runnerTaskRootReader(() => agentManager.checkoutReadRunners())
     );
   },
   log: app.log,
@@ -825,6 +827,9 @@ agentManager.onStreamWrite((agentId) => {
 });
 jobService.setBrainStore(brainStore);
 const taskService: TaskService = new TaskService({
+  readRepositoryRoot: runnerTaskRootReader(() =>
+    agentManager.checkoutReadRunners()
+  ),
   watches: {
     schedule: (id) => taskWatches.schedule(id),
     cancel: (id, agentId) => taskWatches.cancel(id, agentId),
@@ -845,7 +850,11 @@ const taskWatches = new TaskWatchNotifier({
   projectForAgent: async (id) => {
     const agent = await agentManager.getAgent(id);
     return agent
-      ? agentTaskProject(agent, (input) => taskService.projectForAgent(input))
+      ? agentTaskProject(
+          agent,
+          (input) => taskService.projectForAgent(input),
+          runnerTaskRootReader(() => agentManager.checkoutReadRunners())
+        )
       : null;
   },
   deliver: async (agentId, text, options) => {
@@ -1715,8 +1724,11 @@ export async function initializeApp(options?: {
     app.log.warn("SKIP_MIGRATIONS=1 — skipping database migrations");
   } else {
     await runMigrations();
-    void backfillProjectRepositories(pool, app.log, () =>
-      uiEventBroker.publish({ type: "project.changed" })
+    void backfillProjectRepositories(
+      pool,
+      app.log,
+      () => uiEventBroker.publish({ type: "project.changed" }),
+      agentManager.checkoutReadRunners()
     );
   }
   localRunnerDatabaseReady.resolve();

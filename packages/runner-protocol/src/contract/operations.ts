@@ -578,6 +578,19 @@ export const operations = {
   }),
 
   /* Git context */
+  "git.roots": op({
+    scope: "runner",
+    kind: "call",
+    request: object({ target }),
+    response: object({
+      repositoryRoot: nullable(runnerPath),
+      checkoutRoot: nullable(runnerPath),
+    }),
+    errors: [],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
   "git.origin": op({
     scope: "runner",
     kind: "call",

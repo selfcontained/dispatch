@@ -768,6 +768,7 @@ export function encodeCommand(input: Decoded | LegacyCommand): Command {
       operation: encodeGitHub(op, r, extras),
     };
   if (
+    op === "git.roots" ||
     op === "git.origin" ||
     op === "git.defaultBranch" ||
     op === "git.branches" ||
@@ -1082,6 +1083,7 @@ export function decodeResult<K extends OpName>(
       return out({ text: value as string });
     case "terminal.open":
       return out(parse(value));
+    case "git.roots":
     case "git.origin":
     case "git.defaultBranch":
     case "git.branches":
@@ -1283,6 +1285,7 @@ export function encodeResult<K extends OpName>(
       return res.state === "live";
     case "session.logs":
       return res.text as string;
+    case "git.roots":
     case "git.origin":
     case "git.defaultBranch":
     case "git.branches":

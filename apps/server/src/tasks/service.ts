@@ -43,7 +43,7 @@ import { resolveTemplateLaunch } from "../templates/resolve-launch.js";
 import type { LaunchPersonaScope } from "../personas/persona-scope.js";
 import { resolvePersona } from "../personas/resolve.js";
 import type { TemplateRecord } from "../templates/store.js";
-import { agentTaskProject } from "./agent-scope.js";
+import { agentTaskProject, type TaskRootReader } from "./agent-scope.js";
 import { newTaskId, TaskStore, type TaskPatch } from "./store.js";
 import type {
   CreateTaskColumnInput,
@@ -144,6 +144,7 @@ export type TaskLaunchRequest = {
 };
 
 export type TaskServiceDeps = {
+  readRepositoryRoot: TaskRootReader;
   pool: Pool;
   watches?: {
     schedule(taskId: string): void;
@@ -329,7 +330,8 @@ export class TaskService {
         worktreePath: agent.worktreePath ?? null,
         baseBranch: agent.baseBranch ?? null,
       },
-      (input) => this.projectForAgent(input)
+      (input) => this.projectForAgent(input),
+      this.deps.readRepositoryRoot
     );
     if (projectId !== expectedProjectId)
       throw new TaskError("You can only watch your own project's board.", 403);
@@ -409,7 +411,8 @@ export class TaskService {
         worktreePath: agent.worktreePath ?? null,
         baseBranch: agent.baseBranch ?? null,
       },
-      (input) => this.projectForAgent(input)
+      (input) => this.projectForAgent(input),
+      this.deps.readRepositoryRoot
     );
     if (projectId !== task.projectId)
       throw new TaskError("Task belongs to another project.", 403);

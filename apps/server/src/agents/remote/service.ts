@@ -2211,6 +2211,38 @@ export class RemoteRunnerService {
     }
   }
 
+  async readRepositoryRoots(
+    runnerId: string,
+    request: Req<"git.roots">
+  ): Promise<Res<"git.roots">> {
+    const peer = this.peers.get(runnerId);
+    if (peer?.gitQueries)
+      for (const workspace of peer.workspaces) {
+        const placement = { runner: runnerId, workspace };
+        if (!this.workspacePeer(placement)) continue;
+        const op = "git.roots";
+        const { value } = await this.requestSession(placement, {
+          agentId: "@git",
+          kind: "gitQuery",
+          operation: { op, request },
+        });
+        try {
+          return decodeResult(
+            { op, request, absent: [], extras: { workspace } },
+            value
+          );
+        } catch (error) {
+          if (error instanceof ResultError)
+            throw new RunnerCallError(error.error);
+          throw error;
+        }
+      }
+    throw new RunnerCallError({
+      code: "unavailable",
+      message: "The runner is unavailable.",
+    });
+  }
+
   async readRepositoryOrigin(
     runnerId: string,
     request: Req<"git.origin">

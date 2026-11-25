@@ -45,6 +45,7 @@ import {
   inspectCheckout,
   inspectionRoot,
   observeGitCheckout,
+  resolveInspectionRoots,
 } from "./checkout-inspection.js";
 import { resolvePath } from "./workspace.js";
 import { resolveProjectRoot } from "../projects/resolve-root.js";
@@ -484,6 +485,8 @@ async function readGitQuery<K extends GitQueryName>(
   request: Omit<Req<K>, "target">,
   repository?: string
 ): Promise<Res<K>> {
+  if (op === "git.roots")
+    return (await resolveInspectionRoots(directory)) as Res<K>;
   if (op === "git.origin") {
     try {
       return {
@@ -561,6 +564,7 @@ export const checkoutWorkload = {
           (input as Input<"git.context">).checkoutBranch
         )) as Res<K>;
       if (
+        op === "git.roots" ||
         op === "git.origin" ||
         op === "git.defaultBranch" ||
         op === "git.branches" ||
@@ -692,6 +696,7 @@ export async function runCheckoutWorker(argv: string[]): Promise<void> {
     return;
   }
   if (
+    op === "git.roots" ||
     op === "git.origin" ||
     op === "git.defaultBranch" ||
     op === "git.branches" ||

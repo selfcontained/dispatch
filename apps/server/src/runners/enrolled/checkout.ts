@@ -257,6 +257,20 @@ export function createEnrolledCheckoutRunner(
           target as { repository: string }
         ) as Promise<Res<K>>;
       }
+      if (
+        op === "git.roots" &&
+        !("session" in (input as Req<"git.roots">).target)
+      ) {
+        if (!service)
+          throw new RunnerCallError({
+            code: "unavailable",
+            message: "The runner is unavailable.",
+          });
+        return service.readRepositoryRoots(
+          runnerId,
+          input as Req<"git.roots">
+        ) as Promise<Res<K>>;
+      }
       if (op === "git.origin") {
         if (!service)
           throw new RunnerCallError({
@@ -391,6 +405,7 @@ export function createEnrolledCheckoutRunner(
       if (
         op !== "checkout.exec" &&
         op !== "git.context" &&
+        op !== "git.roots" &&
         op !== "git.branches" &&
         op !== "git.defaultBranch" &&
         op !== "git.base" &&
@@ -445,6 +460,7 @@ export function createEnrolledCheckoutRunner(
       }
 
       if (
+        op === "git.roots" ||
         op === "git.branches" ||
         op === "git.defaultBranch" ||
         op === "git.base"

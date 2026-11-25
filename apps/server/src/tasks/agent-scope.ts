@@ -2,10 +2,46 @@ import {
   agentWorkspaceDir,
   type WorkspaceTargetAgent,
 } from "../agents/workspace-target.js";
-import { remotePlacement } from "@dispatch/runner-protocol";
-import { resolveRepoRoot } from "../shared/git/git-context.js";
+import {
+  displayPath,
+  sessionFromWire,
+  type Placement,
+} from "@dispatch/runner-protocol/contract";
+import {
+  runnerDirectory,
+  type CheckoutCommandRunners,
+} from "../runners/directory.js";
+import { checkoutReadPlacement } from "../runners/placement.js";
+import { identityKey } from "../runners/repository-identity.js";
 
-type ScopedAgent = WorkspaceTargetAgent & { projectId?: string | null };
+type ScopedAgent = WorkspaceTargetAgent & {
+  id: string;
+  placement?: Placement;
+  projectId?: string | null;
+};
+export type TaskRootReader = (agent: ScopedAgent) => Promise<string | null>;
+
+/** The current roots on the agent's runner, without branch or icon probes. */
+export function runnerTaskRootReader(
+  runners: () => CheckoutCommandRunners
+): TaskRootReader {
+  return async (agent) => {
+    if (!agent.cwd) return null;
+    const placement = agent.placement ?? checkoutReadPlacement(agent.cwd);
+    const selected = {
+      ...agent,
+      cwd: agent.cwd,
+      workspacePath: agent.workspacePath ?? null,
+      placement,
+    };
+    const roots = await runnerDirectory(runners(), selected)
+      .for(placement)
+      .call("git.roots", { target: { session: sessionFromWire(agent.id) } });
+    return roots.repositoryRoot === null
+      ? null
+      : displayPath(roots.repositoryRoot);
+  };
+}
 
 type ProjectForAgent = (input: {
   projectId?: string | null;
@@ -29,15 +65,19 @@ export function taskScopeInput(
 /** The agent's task project, resolved the way its task tools resolve it. */
 export async function agentTaskProject(
   agent: ScopedAgent,
-  projectForAgent: ProjectForAgent
+  projectForAgent: ProjectForAgent,
+  readRepositoryRoot: TaskRootReader
 ): Promise<string | null> {
   if (agent.projectId) return agent.projectId;
   // Probed live, as the MCP routes do, never from cached git context.
   const workspaceDir = agentWorkspaceDir(agent) ?? agent.cwd;
   let repoRoot: string | null = null;
-  if (workspaceDir && !remotePlacement(workspaceDir)) {
+  if (workspaceDir) {
     try {
-      repoRoot = await resolveRepoRoot(workspaceDir);
+      repoRoot = identityKey(
+        agent.placement ?? checkoutReadPlacement(agent.cwd),
+        await readRepositoryRoot(agent)
+      );
     } catch {}
   }
   return projectForAgent(taskScopeInput(null, workspaceDir, repoRoot));

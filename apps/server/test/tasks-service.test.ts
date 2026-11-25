@@ -1,3 +1,4 @@
+import { readRepositoryRoot } from "./helpers/task-scope.js";
 import { teachKnownSeedCatalogs } from "./helpers/model-catalog-validation.js";
 import { beforeEach as beforeKnownCatalog } from "vitest";
 beforeKnownCatalog(teachKnownSeedCatalogs);
@@ -49,7 +50,7 @@ import {
   forgetLearnedAgentModels,
   setAgentModelAvailability,
 } from "../src/shared/agent-models.js";
-import { agentTaskProject, taskScopeInput } from "../src/tasks/agent-scope.js";
+import { agentTaskProject, taskScopeInput } from "./helpers/task-scope.js";
 import { chatUrlSchema } from "../src/chat/validation.js";
 import { resolveRepoRoot } from "../src/shared/git/git-context.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
@@ -114,6 +115,7 @@ function build(
   overrides: Partial<ConstructorParameters<typeof TaskService>[0]> = {}
 ): TaskService {
   return new TaskService({
+    readRepositoryRoot,
     pool,
     filesRoot: storageRoot,
     getAgent: async (id) => agents.get(id) ?? null,
@@ -2916,6 +2918,7 @@ describe("tool project scope", () => {
       );
     };
     const base = {
+      id: "agt_project_scope",
       projectId: null,
       cwd: path.join(root, "elsewhere"),
       worktreePath: null,

@@ -22,7 +22,7 @@ import { inspectAgentCheckout } from "../src/agents/checkout-runner.js";
 import { JobService } from "../src/jobs/service.js";
 import { controllerPlacement } from "../src/runners/placement.js";
 import { resolveRepoRoot } from "../src/shared/git/git-context.js";
-import { agentTaskProject } from "../src/tasks/agent-scope.js";
+import { agentTaskProject } from "./helpers/task-scope.js";
 
 let tmp: string;
 let root: string;

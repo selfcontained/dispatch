@@ -414,3 +414,21 @@ it("reads origin without a session binding while frozen, passing the path verbat
     },
   ]);
 });
+
+it("reads live roots without a session binding while frozen", async () => {
+  const roots = {
+    repositoryRoot: pathFromWire("/repo"),
+    checkoutRoot: pathFromWire("/repo/work"),
+  };
+  const { connection, calls, fence } = await harness(() => roots);
+  await fence.freeze();
+  cleanups.push(() => fence.thaw());
+  expect(
+    await connection.call("git.roots", {
+      target: { path: pathFromWire("/repo/work") },
+    })
+  ).toEqual(roots);
+  expect(calls).toEqual([
+    { op: "git.roots", input: { directory: "/repo/work", request: {} } },
+  ]);
+});
