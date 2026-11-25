@@ -511,20 +511,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/launch-admission.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(sourceCwd)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/launch-admission.ts",
-    "kind": "R7 restriction",
-    "detail": "N1 Launch target bound to caller",
-    "task": "T36",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/local-runner-engine.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/engine-availability",

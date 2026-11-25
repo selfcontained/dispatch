@@ -338,7 +338,6 @@ describe("launch_agent's folder, as main resolves it", () => {
     for (const cwd of folders()) {
       const request = {
         caller: "mcpChild",
-        sourceCwd: "/caller",
         sourceWorkdir: "/caller",
         cwd,
       } as const;
@@ -358,6 +357,148 @@ describe("launch_agent's folder, as main resolves it", () => {
             })
           : { ok: true, cwd }
       );
+    }
+  });
+});
+
+describe("launch_agent's folder from a runner caller (D7)", () => {
+  let root: string;
+  beforeAll(async () => {
+    root = await realpath(await mkdtemp(path.join(os.tmpdir(), "runner-")));
+    await mkdir(path.join(root, "home", "app"), { recursive: true });
+    await mkdir(path.join(root, "app"));
+    await symlink(path.join(root, "app"), path.join(root, "link"));
+    await writeFile(path.join(root, "file"), "");
+    await mkdir(path.join(root, "locked", "inner"), { recursive: true });
+    await chmod(path.join(root, "locked"), 0o000);
+    vi.stubEnv("HOME", path.join(root, "home"));
+  });
+  afterAll(async () => {
+    vi.unstubAllEnvs();
+    await chmod(path.join(root, "locked"), 0o755);
+    await rm(root, { recursive: true, force: true });
+  });
+
+  /**
+   * Admission through the manager up to its preparation, for a launcher
+   * on runner `test`. Every folder question goes to `resolveLaunchPath`,
+   * answered as the runner's workload worker answers it.
+   */
+  async function launchFrom(
+    launcherFolder: string,
+    input: Partial<Launch> = {}
+  ) {
+    const asked: { runner: string; path: string }[] = [];
+    const launcher = {
+      id: ownerId,
+      cwd: managed,
+      placement: checkoutReadPlacement(managed),
+      projectId: null,
+      fullAccess: false,
+    };
+    const admitted = new Error("admitted");
+    const manager = Object.assign(Object.create(AgentManager.prototype), {
+      getAgent: vi.fn(async (id) => (id === ownerId ? launcher : null)),
+      remote: {
+        available: () => true,
+        isManagedWorkspace: () => true,
+        supportsPreparedLaunch: () => true,
+        supportsSessionWorkspaceSource: () => true,
+        supportsSessionFiles: () => true,
+        supportsSharedWorktree: () => true,
+      },
+      config: { agentRuntime: "acp" },
+      pool: { query: vi.fn(async () => ({ rows: [] })) },
+      resolveLaunchPath: vi.fn(async (placement, raw, options) => {
+        asked.push({ runner: JSON.stringify(placement), path: raw });
+        return resolvePath(raw, options);
+      }),
+      prepareCreate: vi.fn(async (input, _options, target) => {
+        throw Object.assign(admitted, { input, target });
+      }),
+    }) as AgentManager;
+    try {
+      await AgentManager.prototype.createAgent.call(manager, {
+        cwd: launcherFolder,
+        launcherFolder,
+        launchedByAgentId: ownerId,
+        parentAgentId: ownerId,
+        ...input,
+      });
+    } catch (error) {
+      if (error === admitted) {
+        const { input: launched, target } = admitted as unknown as {
+          input: Launch;
+          target: { placement: unknown; launcherDirectory?: { cwd: string } };
+        };
+        return {
+          asked,
+          cwd: launched.cwd,
+          placement: JSON.stringify(target.placement),
+          folder: target.launcherDirectory?.cwd,
+        };
+      }
+      return { asked, error: (error as Error).message };
+    }
+    throw new Error("Launch test must stop before creating an agent");
+  }
+
+  const runner = JSON.stringify(checkoutReadPlacement(managed));
+
+  it("resolves the folder on the caller's runner and keeps its locator", async () => {
+    for (const raw of [`${root}/app`, `${root}/app/../app`, `${root}/link`]) {
+      const result = await launchFrom(raw);
+      expect(result, raw).toEqual({
+        asked: [{ runner, path: raw }],
+        cwd: managed,
+        placement: runner,
+        folder: await mainWorkingDirectory(raw),
+      });
+    }
+    // `~` is the runner account's HOME, resolved there.
+    expect(await launchFrom("~/app")).toMatchObject({
+      asked: [{ runner, path: "~/app" }],
+      placement: runner,
+      folder: path.join(root, "home", "app"),
+    });
+  });
+
+  it("answers a bad folder with main's error, from the caller's runner", async () => {
+    for (const raw of [
+      "relative/app",
+      `${root}/missing`,
+      `${root}/file`,
+      `${root}/locked/inner`,
+      // Neither another runner's locator nor a bare path moves the launch.
+      "runner://another/@session",
+    ]) {
+      const result = await launchFrom(raw);
+      expect(result, raw).toEqual({
+        asked: [{ runner, path: raw }],
+        error: (await outcome(() => mainWorkingDirectory(raw))).error,
+      });
+    }
+  });
+
+  it("never places a named folder on the controller or another runner", async () => {
+    for (const raw of ["/", "/etc", `${root}/app`, "runner://another/@x"]) {
+      const result = await launchFrom(raw);
+      for (const question of result.asked)
+        expect(question.runner, raw).toBe(runner);
+      if ("placement" in result) expect(result.placement).toBe(runner);
+    }
+  });
+
+  it("admits an unreadable folder its account can reach, as main does", async () => {
+    const sealed = `${root}/sealed`;
+    await mkdir(sealed, { mode: 0o000 });
+    try {
+      expect(await launchFrom(sealed)).toMatchObject({
+        placement: runner,
+        folder: await mainWorkingDirectory(sealed),
+      });
+    } finally {
+      await chmod(sealed, 0o755);
     }
   });
 });

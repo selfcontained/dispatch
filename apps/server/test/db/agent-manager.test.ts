@@ -1194,6 +1194,157 @@ describe("AgentManager", () => {
       }
     });
 
+    it("launches a runner caller's child in a folder it names on that runner (D7)", async () => {
+      const cwd = "runner://runner-test/@session";
+      const projectId = "named-folder-project";
+      await pool.query(
+        "INSERT INTO projects (id, name, repository) VALUES ($1, 'Runner', 'https://example.test/named-folder')",
+        [projectId]
+      );
+      let prepareError: object | null = null;
+      const requestSession = vi.fn(
+        async (_location: unknown, { kind }: { kind: string }) => ({
+          value: JSON.stringify(
+            kind === "workspacePrepare" && prepareError
+              ? { error: prepareError }
+              : {
+                  data: { path: "/srv/other", moved: false, origin: null },
+                }
+          ),
+        })
+      );
+      // The runner's own answer, as its workload worker resolves the path.
+      const resolveRunnerPath = vi.fn(
+        async (_runner: string, { path: raw }: { path: string }) => ({
+          resolvedPath: raw,
+          canonicalPath: raw === "/srv/missing" ? null : raw,
+          exists: raw !== "/srv/missing",
+          isDirectory: raw !== "/srv/missing",
+          isGitRepo: false,
+          privacyRestricted: false,
+          projectRoot: null,
+          git: null,
+        })
+      );
+      const remote = {
+        available: () => true,
+        isManagedWorkspace: () => true,
+        supportsPreparedLaunch: () => true,
+        supportsSessionWorkspaceSource: () => true,
+        originFor: () => "https://example.test",
+        requestSession,
+        resolveRunnerPath,
+      } as unknown as RemoteRunnerService;
+      const manager = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      const parent = await manager.createAgent({
+        cwd,
+        projectId,
+        useWorktree: false,
+      });
+      const named = (folder: string, more: object = {}) =>
+        manager.createAgent({
+          cwd: folder,
+          launcherFolder: folder,
+          parentAgentId: parent.id,
+          launchedByAgentId: parent.id,
+          useWorktree: false,
+          ...more,
+        });
+
+      for (const useWorktree of [false, true]) {
+        requestSession.mockClear();
+        resolveRunnerPath.mockClear();
+        const child = await named("/srv/other", {
+          useWorktree,
+          ...(useWorktree && { baseBranch: "develop", createNewBranch: false }),
+        });
+        // Resolved on the caller's runner, never on this machine.
+        expect(resolveRunnerPath).toHaveBeenCalledWith("runner-test", {
+          path: "/srv/other",
+        });
+        expect(child).toMatchObject({
+          cwd,
+          projectId,
+          parentAgentId: parent.id,
+          status: "running",
+        });
+        expect(requestSession).toHaveBeenCalledWith(
+          { runner: "runner-test", workspace: "@session" },
+          expect.objectContaining({
+            agentId: child.id,
+            kind: "workspacePrepare",
+            operation: {
+              source: { directory: "/srv/other" },
+              ...(useWorktree && {
+                worktree: expect.objectContaining({
+                  base: "develop",
+                  create: false,
+                }),
+              }),
+              copyIgnored: expect.any(Array),
+              installDependencies: true,
+            },
+          }),
+          expect.any(Function),
+          undefined
+        );
+        // Its own session: it borrows nothing of its launcher's.
+        expect(lastLaunch().agentId).toBe(child.id);
+        expect(lastLaunch().useWorktreeOf).toBeUndefined();
+        const { rows } = await pool.query(
+          "SELECT runner_id, runner_worktree_owner, runner_preparation FROM agents WHERE id = $1",
+          [child.id]
+        );
+        expect(rows[0]).toMatchObject({
+          runner_id: "runner-test",
+          runner_worktree_owner: null,
+          runner_preparation: { source: { directory: "/srv/other" } },
+        });
+      }
+
+      // A folder that does not exist there: main's 400, before any record.
+      requestSession.mockClear();
+      const before = (await pool.query("SELECT count(*) FROM agents")).rows[0]
+        .count;
+      await expect(named("/srv/missing")).rejects.toMatchObject({
+        statusCode: 400,
+        message: "Working directory does not exist or is not a directory.",
+      });
+      expect(
+        (await pool.query("SELECT count(*) FROM agents")).rows[0].count
+      ).toBe(before);
+      expect(requestSession).not.toHaveBeenCalled();
+
+      // A preparation the runner refuses fails the launch; the launcher's
+      // checkout is never asked for or released.
+      requestSession.mockClear();
+      prepareError = {
+        code: "not_found",
+        message: "Working directory does not exist or is not a directory.",
+      };
+      const failed = await named("/srv/other").catch((error) => error);
+      const sessions = requestSession.mock.calls.map(
+        ([, request]) => (request as { agentId: string }).agentId
+      );
+      expect(sessions).not.toContain(parent.id);
+      const failedId =
+        failed?.id ??
+        (
+          await pool.query(
+            "SELECT id FROM agents WHERE parent_agent_id = $1 ORDER BY created_at DESC LIMIT 1",
+            [parent.id]
+          )
+        ).rows[0].id;
+      expect((await manager.getAgent(failedId))?.status).not.toBe("running");
+      expect(await manager.getAgent(parent.id)).toMatchObject({
+        cwd,
+        status: "running",
+      });
+    });
+
     it("settles an unattempted remote launch while offline and prepares once on Start", async () => {
       const cwd = "runner://runner-test/@session";
       const projectId = "remote-create-crash-project";
