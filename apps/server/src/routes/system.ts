@@ -62,7 +62,10 @@ import {
   engineUpdatePort,
   runnerEngineStatuses,
 } from "../agents/engine-updates.js";
-import { ACP_ENGINE_IDS, type AcpEngineId } from "../agents/acp/engine-spec.js";
+import {
+  ACP_ENGINE_IDS,
+  type AcpEngineId,
+} from "@dispatch/runner-protocol/host";
 
 const INSTANCE_NAME_KEY = "instance_name";
 const modelIdField = z.string().min(1).max(256);

@@ -348,13 +348,6 @@
   {
     "file": "apps/server/src/agents/engine-availability.ts",
     "kind": "R2 host import",
-    "detail": "apps/server/src/agents/acp/engine-spec",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/engine-availability.ts",
-    "kind": "R2 host import",
     "detail": "apps/server/src/shared/lib/run-command",
     "task": "T04",
     "count": 1
@@ -1267,6 +1260,14 @@
   {
     "file": "apps/server/src/main.ts",
     "kind": "R2 host import",
+    "detail": "apps/server/src/agents/engine-availability",
+    "task": "T40",
+    "count": 1,
+    "class": "moves-with-workload"
+  },
+  {
+    "file": "apps/server/src/main.ts",
+    "kind": "R2 host import",
     "detail": "apps/server/src/agents/remote/engine-capability-worker",
     "task": "T04",
     "count": 1
@@ -1305,6 +1306,14 @@
     "detail": "apps/server/src/agents/workspace-prep",
     "task": "T04",
     "count": 1
+  },
+  {
+    "file": "apps/server/src/main.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/process/owned-processes",
+    "task": "T40",
+    "count": 1,
+    "class": "moves-with-workload"
   },
   {
     "file": "apps/server/src/main.ts",
@@ -1541,13 +1550,6 @@
     "file": "apps/server/src/routes/system.ts",
     "kind": "R2 host access",
     "detail": "os",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/system.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/acp/engine-spec",
     "task": "T04",
     "count": 1
   },

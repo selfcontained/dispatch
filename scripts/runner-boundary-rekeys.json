@@ -77,5 +77,27 @@
         "detail": "apps/server/src/agents/acp/host-protocol"
       }
     ]
+  },
+  {
+    "key": {
+      "file": "apps/server/src/main.ts",
+      "kind": "R2 host import",
+      "detail": "apps/server/src/agents/engine-availability"
+    },
+    "class": "moves-with-workload",
+    "task": "T40",
+    "reason": "The composition root supplies the same engine-version function as an explicit host input.",
+    "movedDependency": "apps/server/src/agents/acp/host/main.ts"
+  },
+  {
+    "key": {
+      "file": "apps/server/src/main.ts",
+      "kind": "R2 host import",
+      "detail": "apps/server/src/shared/process/owned-processes"
+    },
+    "class": "moves-with-workload",
+    "task": "T40",
+    "reason": "The composition root supplies the same process-ownership functions as explicit host inputs.",
+    "movedDependency": "apps/server/src/agents/acp/driver.ts"
   }
 ]

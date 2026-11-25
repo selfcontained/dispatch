@@ -6,10 +6,6 @@ import {
   type BackgroundNotification,
 } from "./background-ingress.js";
 import { BackgroundWorkRegistry } from "./background-work.js";
-import {
-  ownedEnvironment,
-  killOwnedProcesses,
-} from "../../shared/process/owned-processes.js";
 import { setTimeout as delay } from "node:timers/promises";
 import { parseMcpInventory } from "./host/mcp-inventory.js";
 import { PermissionRequests } from "./permissions.js";
@@ -346,16 +342,25 @@ export async function resolveExecutable(
   );
 }
 
+export type DriverProcessOwnership = {
+  ownedEnvironment(env: NodeJS.ProcessEnv): {
+    marker: string;
+    env: NodeJS.ProcessEnv;
+  };
+  killOwnedProcesses(marker: string): void;
+};
+
 function defaultSpawn(
   bin: string,
   args: string[],
-  opts: { cwd: string; env: NodeJS.ProcessEnv }
+  opts: { cwd: string; env: NodeJS.ProcessEnv },
+  ownership: DriverProcessOwnership
 ): ChildProcessLike {
   // Its own process group: an adapter spawns the engine CLI as a child of
   // its own, and a signal to the adapter alone leaves that CLI running with
   // full-access permissions and a live MCP token. signalChild targets the
   // group.
-  const owned = ownedEnvironment(opts.env);
+  const owned = ownership.ownedEnvironment(opts.env);
   const child = nodeSpawn(bin, args, {
     ...opts,
     env: owned.env,
@@ -373,12 +378,16 @@ const ownedChildren = new WeakMap<object, string>();
  * the child's pid (it leads its own group, see defaultSpawn); a child
  * without a pid, or one whose group is already gone, gets the plain kill.
  */
-function signalChild(child: ChildProcessLike, signal: NodeJS.Signals): void {
+function signalChild(
+  child: ChildProcessLike,
+  signal: NodeJS.Signals,
+  ownership: DriverProcessOwnership
+): void {
   const marker = ownedChildren.get(child);
   let cleanupError: unknown;
   if (marker && signal === "SIGKILL") {
     try {
-      killOwnedProcesses(marker);
+      ownership.killOwnedProcesses(marker);
     } catch (err) {
       cleanupError = err;
     }
@@ -436,6 +445,7 @@ export class AcpDriver {
   constructor(
     private readonly opts: {
       spawn?: SpawnFn;
+      ownership: DriverProcessOwnership;
       onPermissions?: (
         agentId: string,
         requests: AgentPermissionRequest[]
@@ -450,7 +460,10 @@ export class AcpDriver {
     this.permissions = new PermissionRequests((agentId) => {
       this.opts.onPermissions?.(agentId, this.permissions.list(agentId));
     });
-    this.spawnFn = opts.spawn ?? defaultSpawn;
+    this.spawnFn =
+      opts.spawn ??
+      ((bin, args, options) =>
+        defaultSpawn(bin, args, options, opts.ownership));
     this.resolveBinary = opts.resolveBinary;
   }
 
@@ -524,7 +537,8 @@ export class AcpDriver {
     const bin = await this.resolveBinary(engine.bin, env);
     signal.throwIfAborted();
     const child = this.spawnFn(bin, engine.args, { cwd: launch.cwd, env });
-    const killOnAbort = () => signalChild(child, "SIGKILL");
+    const killOnAbort = () =>
+      signalChild(child, "SIGKILL", this.opts.ownership);
     signal.addEventListener("abort", killOnAbort, { once: true });
     // Both listeners go on before any await: a spawn failure (ENOENT, EACCES,
     // missing cwd) is an `error` event with no `exit`, and an unhandled one
@@ -544,7 +558,7 @@ export class AcpDriver {
       const marker = ownedChildren.get(child);
       if (marker) {
         try {
-          killOwnedProcesses(marker);
+          this.opts.ownership.killOwnedProcesses(marker);
         } catch (err) {
           this.opts.logger.warn(
             { err, agentId: launch.agentId },
@@ -656,7 +670,7 @@ export class AcpDriver {
       },
     };
     if (!child.stdin || !child.stdout) {
-      signalChild(child, "SIGKILL");
+      signalChild(child, "SIGKILL", this.opts.ownership);
       throw new Error("Agent connection failed: child has no stdio pipes");
     }
     const stream = acp.ndJsonStream(
@@ -913,7 +927,7 @@ export class AcpDriver {
     if (!outcome.ok) {
       abandoned = true;
       handshake.catch(() => {});
-      signalChild(child, "SIGKILL");
+      signalChild(child, "SIGKILL", this.opts.ownership);
       // A spawn failure aborts the handshake too, and that rejection can win
       // the race; the child's own exit reason is the useful one.
       const reason = signal.aborted
@@ -1537,12 +1551,12 @@ export class AcpDriver {
       ]);
     entry.child.stdin?.end();
     if (!(await exitedWithin(TEARDOWN_STEP_MS)))
-      signalChild(entry.child, "SIGTERM");
+      signalChild(entry.child, "SIGTERM", this.opts.ownership);
     if (!(await exitedWithin(TEARDOWN_STEP_MS)))
-      signalChild(entry.child, "SIGKILL");
+      signalChild(entry.child, "SIGKILL", this.opts.ownership);
     await entry.exited;
     const marker = ownedChildren.get(entry.child);
-    if (marker) killOwnedProcesses(marker);
+    if (marker) this.opts.ownership.killOwnedProcesses(marker);
     this.live.delete(agentId);
   }
 
@@ -1560,7 +1574,7 @@ export class AcpDriver {
     for (const [agentId, entry] of this.live) {
       this.permissions.cancel(agentId);
       try {
-        signalChild(entry.child, "SIGKILL");
+        signalChild(entry.child, "SIGKILL", this.opts.ownership);
         killed.push(agentId);
       } catch (err) {
         this.opts.logger.warn(

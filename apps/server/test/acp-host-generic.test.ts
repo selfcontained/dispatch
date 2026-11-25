@@ -250,7 +250,6 @@ describe("the host's import closure", () => {
       "agents/acp/background-ingress.ts",
       "agents/acp/background-work.ts",
       "agents/acp/driver.ts",
-      "agents/acp/engine-bin-dir.ts",
       "agents/acp/engine-spec.ts",
       "agents/acp/host-command.ts",
       "agents/acp/host-env.ts",
@@ -261,13 +260,7 @@ describe("the host's import closure", () => {
       "agents/acp/host/prompt-images.ts",
       "agents/acp/host/types.ts",
       "agents/acp/opencode-instructions.ts",
-      "agents/acp/package-bin-dir.ts",
       "agents/acp/permissions.ts",
-      "agents/engine-availability.ts",
-      "shared/lib/run-command.ts",
-      "shared/lib/tool-environment.ts",
-      "shared/process/child-environment.js",
-      "shared/process/owned-processes.js",
     ]);
   });
 });

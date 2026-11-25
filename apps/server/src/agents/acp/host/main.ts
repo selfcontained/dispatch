@@ -26,6 +26,7 @@ import path from "node:path";
 import {
   AcpDriver,
   type DriverEvent,
+  type DriverProcessOwnership,
   type CallerSource,
   resolveExecutable,
   TEARDOWN_STEP_MS,
@@ -33,7 +34,6 @@ import {
 import { openCodeInstructionsEnv } from "../opencode-instructions.js";
 import { buildHostEnv } from "../host-env.js";
 import { engineSpecFor } from "../engine-spec.js";
-import { engineVersion } from "../../engine-availability.js";
 import {
   type ClientMessage,
   encodeMessage,
@@ -47,6 +47,8 @@ import {
 
 /** What the caller supplies besides the state directory. */
 export type AgentHostOptions = {
+  ownership: DriverProcessOwnership;
+  engineVersion: (bin: string) => Promise<string | null>;
   /** The build this host runs, reported to clients that set an instance ID. */
   build: { version: string; revision: string | null };
   /** How the engine CLI is found and the engine's PATH is extended. */
@@ -232,6 +234,7 @@ async function main(argv: string[], options: AgentHostOptions): Promise<void> {
   let submittedPrompts = 0;
   let mutatingRequests = 0;
   const driver = new AcpDriver({
+    ownership: options.ownership,
     logger,
     resolveBinary: (bin, env) =>
       resolveExecutable(bin, env, searchPath.isPackageBinDir),
@@ -693,7 +696,7 @@ async function main(argv: string[], options: AgentHostOptions): Promise<void> {
           agentId,
           engine: launch.engine,
           cli: engineCli,
-          version: await engineVersion(engineCli),
+          version: await options.engineVersion(engineCli),
         },
         "host: engine CLI"
       );
