@@ -51,7 +51,9 @@ export function RunnerPicker({
   targets,
   value,
   onChange,
+  live = false,
 }: {
+  live?: boolean;
   targets: LaunchTarget[];
   value?: string;
   onChange: (key: string) => void;
@@ -82,6 +84,7 @@ export function RunnerPicker({
               <SelectItem
                 key={target.key}
                 value={target.key}
+                disabled={live && target.status !== "online"}
                 data-testid={`create-agent-runner-option-${target.key}`}
               >
                 <RunnerOption
