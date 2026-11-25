@@ -54,6 +54,7 @@
         "apps/server/src/routes/runner-*.ts",
         "apps/server/test/remote-*.test.ts",
         "apps/server/test/checkout-*.test.ts",
+        "apps/server/test/diff-stats-refresher.test.ts",
         "apps/server/test/archive-policy.test.ts",
         "apps/server/test/effective-base.test.ts",
         "apps/server/test/launch-admission.test.ts",
