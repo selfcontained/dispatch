@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { AgentGitContext } from "./types.js";
+import type { GitContext } from "@dispatch/runner-protocol/git-context";
 
 /** Compose a gitContext from a checkout's probed roots and branch. */
 export function gitContextFrom(input: {
@@ -7,7 +7,7 @@ export function gitContextFrom(input: {
   branch: string;
   worktreePath: string;
   repoIconPath: string | null;
-}): AgentGitContext {
+}): GitContext {
   return {
     repoRoot: input.repoRoot,
     branch: input.branch,
