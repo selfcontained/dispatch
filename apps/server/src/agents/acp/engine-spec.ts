@@ -55,7 +55,7 @@ export type EngineSpec = {
    * opening a turn). Raw slash commands leave the guidance pending.
    * `instructions_file`: the host adds a private file to OpenCode config.
    */
-  personaDelivery: "system_prompt" | "first_prompt" | "instructions_file";
+  guidanceDelivery: "system_prompt" | "first_prompt" | "instructions_file";
   fullAccess: FullAccess;
   /** Declare `_meta["subagent-transcript"]` at initialize and nest by parentToolUseId. */
   subagentTranscripts: boolean;
@@ -99,7 +99,7 @@ export function engineSpecFor(
         ...adapterCommand(engine, bins),
         // V2 supports full access only; native effective denies still apply.
         env: {},
-        personaDelivery: "instructions_file",
+        guidanceDelivery: "instructions_file",
         fullAccess: { kind: "permission_request" },
         subagentTranscripts: false,
       };
@@ -117,7 +117,7 @@ export function engineSpecFor(
         // default it on for every Claude launch. See
         // https://github.com/anthropics/claude-code/issues/80606.
         envDefaults: { CLAUDE_CODE_ARTIFACT: "1" },
-        personaDelivery: "system_prompt",
+        guidanceDelivery: "system_prompt",
         fullAccess: { kind: fullAccess ? "args" : "approval" },
         subagentTranscripts: true,
       };
@@ -132,7 +132,7 @@ export function engineSpecFor(
           NO_BROWSER: "1",
           CODEX_PATH: bin,
         },
-        personaDelivery: "first_prompt",
+        guidanceDelivery: "first_prompt",
         fullAccess: { kind: fullAccess ? "env" : "approval" },
         subagentTranscripts: false,
       };

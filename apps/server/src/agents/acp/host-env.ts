@@ -63,7 +63,7 @@ export async function prepareHostLaunch(
       ...environment,
       agentId: launch.agentId,
     }),
-    personaContext: await preparePersonaContext(dir, launch.personaContext),
+    personaContext: await preparePromptContext(dir, launch.personaContext),
   };
 }
 
@@ -79,7 +79,7 @@ export async function writeHostLaunch(
 }
 
 /** Keep the snapshot in the private host directory so restarts can recover it. */
-export async function preparePersonaContext(
+export async function preparePromptContext(
   stateDir: string,
   context: string | null | undefined
 ): Promise<string | null> {

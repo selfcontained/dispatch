@@ -708,16 +708,16 @@ async function main(argv: string[], options: AgentHostOptions): Promise<void> {
       effort: resume ? null : (launch.effort ?? null),
       model: launch.model,
       systemPromptAppend:
-        spec.personaDelivery === "system_prompt" ? launch.systemPrompt : null,
+        spec.guidanceDelivery === "system_prompt" ? launch.systemPrompt : null,
       firstPromptAppend: firstPromptContext(
-        spec.personaDelivery,
+        spec.guidanceDelivery,
         launch.systemPrompt,
         launch.personaContext
       ),
       mcp: launch.mcp,
       sessionId: resume,
       env:
-        spec.personaDelivery === "instructions_file"
+        spec.guidanceDelivery === "instructions_file"
           ? await openCodeInstructionsEnv(
               hostFile(stateDir, "instructions"),
               launch.systemPrompt,

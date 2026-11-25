@@ -9,7 +9,7 @@ describe("engineSpecFor", () => {
     expect(spec).toMatchObject({
       bin: "/x/opencode",
       args: ["acp"],
-      personaDelivery: "instructions_file",
+      guidanceDelivery: "instructions_file",
       fullAccess: { kind: "permission_request" },
     });
     expect(spec.env.OPENCODE_PERMISSION).toBeUndefined();

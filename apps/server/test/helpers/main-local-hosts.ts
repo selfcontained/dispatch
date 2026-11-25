@@ -19,7 +19,7 @@ import {
   hostCommand,
   loginShellCommand,
 } from "../../src/agents/acp/host-command.js";
-import { preparePersonaContext } from "../../src/agents/acp/host-env.js";
+import { preparePromptContext } from "../../src/agents/acp/host-env.js";
 import {
   hostFile,
   type HostLaunch,
@@ -111,7 +111,7 @@ export function mainLocalHosts(agentStateRoot: string) {
       effort: input.effort ?? null,
       fullAccess: input.fullAccess ?? true,
       systemPrompt: input.systemPrompt,
-      personaContext: await preparePersonaContext(dir, input.personaContext),
+      personaContext: await preparePromptContext(dir, input.personaContext),
       mcp: input.mcp,
       env: input.env,
       pathPrefix: input.pathPrefix,
