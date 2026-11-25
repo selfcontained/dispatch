@@ -39,6 +39,25 @@ type ToolResult = {
 /** Events `task_get` returns; the board shows the full history. */
 const TOOL_EVENT_LIMIT = 30;
 
+/** Most task ids one `task_list` call may select. */
+export const TASK_LIST_IDS_MAX = 50;
+/** The row fields `task_list` returns when no `fields` are named. */
+const TASK_LIST_DEFAULT_FIELDS = [
+  "id",
+  "title",
+  "column",
+  "assignedAgentId",
+  "labels",
+  "launchTemplateId",
+  "updatedAt",
+] as const;
+const TASK_LIST_FIELDS = [
+  ...TASK_LIST_DEFAULT_FIELDS,
+  "links",
+  "body",
+] as const;
+type TaskListField = (typeof TASK_LIST_FIELDS)[number];
+
 function ok(value: object): ToolResult {
   return {
     content: [{ type: "text", text: jsonText(value) }],
@@ -179,14 +198,41 @@ export function registerTaskTools(
       "task_list",
       {
         description:
-          "List tasks on your project's board. Thin rows plus ordered column capacities and triggers; task_get has the body, agents and activity.",
+          "List tasks on your project's board. Thin rows plus ordered column capacities and triggers; task_get has one task's full detail (agents, goals, activity). " +
+          "Filters combine (AND). Scan, then batch-read: " +
+          `task_list({ columns: ["done", "in_review"], fields: ["id", "title", "column", "links"] }) then task_list({ ids: [...], fields: ["id", "title", "body"] }) (up to ${TASK_LIST_IDS_MAX} ids). ` +
+          "Ids not on your board are simply absent.",
         inputSchema: {
           projectId: z.string().min(1).optional(),
           column: z
             .string()
             .min(1)
             .optional()
-            .describe("Only tasks in this column (its key, e.g. in_review)."),
+            .describe(
+              "Only tasks in this column (its key, e.g. in_review). Use columns for several; not both."
+            ),
+          columns: z
+            .array(z.string().min(1))
+            .min(1)
+            .max(50)
+            .optional()
+            .describe("Only tasks in ANY of these column keys."),
+          ids: z
+            .array(z.string().min(1).max(200))
+            .min(1)
+            .max(TASK_LIST_IDS_MAX)
+            .optional()
+            .describe(
+              `Only these task ids (at most ${TASK_LIST_IDS_MAX}). Required to read body.`
+            ),
+          fields: z
+            .array(z.enum(TASK_LIST_FIELDS))
+            .min(1)
+            .max(TASK_LIST_FIELDS.length)
+            .optional()
+            .describe(
+              "Row fields to return; id is always included. Omit for the default thin row. links works on any list; body needs ids."
+            ),
           labels: z
             .array(z.string().trim().min(1).max(40))
             .max(100)
@@ -203,19 +249,56 @@ export function registerTaskTools(
       },
       async (args) => {
         try {
+          if (args.column !== undefined && args.columns !== undefined)
+            throw new TaskError("Pass column or columns, not both.", 400);
+          const fields = new Set<TaskListField>(
+            args.fields ?? TASK_LIST_DEFAULT_FIELDS
+          );
+          if (fields.has("body") && !args.ids)
+            throw new TaskError(
+              `Reading body needs ids (at most ${TASK_LIST_IDS_MAX}); list candidates first, then pass their ids.`,
+              400
+            );
           const board = await service.getBoard(
             await projectFor(args.projectId),
-            { archived: args.archived }
+            {
+              archived: args.archived,
+              ...(args.ids ? { ids: [...new Set(args.ids)] } : {}),
+            }
           );
           const keyOf = new Map(board.columns.map((c) => [c.id, c.key]));
-          if (args.column && !board.columns.some((c) => c.key === args.column))
+          const columnKeys = new Set(
+            args.columns ?? (args.column ? [args.column] : [])
+          );
+          const unknown = [...columnKeys].filter(
+            (key) => !board.columns.some((c) => c.key === key)
+          );
+          if (unknown.length)
             throw new TaskError(
-              `Column "${args.column}" not found. Columns: ${board.columns.map((c) => c.key).join(", ")}.`,
+              `Column${unknown.length > 1 ? "s" : ""} ${unknown.map((key) => `"${key}"`).join(", ")} not found. Columns: ${board.columns.map((c) => c.key).join(", ")}.`,
               400
             );
           const labelNames = new Set(
             (args.labels ?? []).map((name) => name.toLowerCase())
           );
+          const row = (t: Task) => {
+            const full: Record<TaskListField, unknown> = {
+              id: t.id,
+              title: t.title,
+              column: keyOf.get(t.columnId) ?? null,
+              assignedAgentId: t.assignedAgentId,
+              labels: t.labels ?? [],
+              launchTemplateId: t.launchTemplateId,
+              updatedAt: t.updatedAt,
+              links: t.links ?? [],
+              body: t.body,
+            };
+            return Object.fromEntries(
+              TASK_LIST_FIELDS.filter(
+                (field) => field === "id" || fields.has(field)
+              ).map((field) => [field, full[field]])
+            );
+          };
           const tasks = board.tasks
             .filter(
               (t) =>
@@ -225,18 +308,11 @@ export function registerTaskTools(
                 )
             )
             .filter(
-              (t) => !args.column || keyOf.get(t.columnId) === args.column
+              (t) =>
+                !columnKeys.size || columnKeys.has(keyOf.get(t.columnId) ?? "")
             )
             .filter((t) => !args.assignedToMe || t.assignedAgentId === agentId)
-            .map((t) => ({
-              id: t.id,
-              title: t.title,
-              column: keyOf.get(t.columnId) ?? null,
-              assignedAgentId: t.assignedAgentId,
-              labels: t.labels ?? [],
-              launchTemplateId: t.launchTemplateId,
-              updatedAt: t.updatedAt,
-            }));
+            .map(row);
           return ok({
             projectId: board.projectId,
             boardWatching: await service.boardWatching(

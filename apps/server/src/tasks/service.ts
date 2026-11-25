@@ -516,7 +516,7 @@ export class TaskService {
 
   async getBoard(
     projectId: string,
-    filter: { archived?: boolean } = {}
+    filter: { archived?: boolean; ids?: readonly string[] } = {}
   ): Promise<TaskBoard> {
     await this.requireProject(projectId);
     const columns = await this.ensureColumns(projectId);
@@ -537,6 +537,7 @@ export class TaskService {
     const tasks = await this.store.listTasks({
       projectId,
       archived: filter.archived,
+      ids: filter.ids,
     });
     return {
       projectId,

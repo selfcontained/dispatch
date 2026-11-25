@@ -249,3 +249,124 @@ it("enforces board watch identity and project contracts over real agent/job/admi
   );
   console.info(`Safe board-watch transport evidence: ${evidencePath}`);
 });
+
+it("filters task_list by columns and batch-reads selected fields over the real agent MCP transport", async () => {
+  const project = "prj_list_transport";
+  const foreignProject = "prj_list_foreign";
+  for (const id of [project, foreignProject])
+    await ctx.pool.query(
+      `INSERT INTO projects (id, name, repo_root, color) VALUES ($1, $1, $2, '#336699')`,
+      [id, `/tmp/${id}`]
+    );
+  await ctx.pool.query(
+    `INSERT INTO agents (id, name, type, status, cwd, project_id) VALUES ('agt_list_reader', 'reader', 'codex', 'stopped', '/tmp', $1)`,
+    [project]
+  );
+  const token = (
+    await ctx.pool.query(`SELECT value FROM settings WHERE key = 'auth_token'`)
+  ).rows[0].value;
+  const bearer = ctx.auth.createAgentMcpToken(token, "agt_list_reader");
+  let requestId = 0;
+  const call = async (name: string, args: object = {}) => {
+    const response = await fetch(`${base}/api/mcp/agt_list_reader`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${bearer}`,
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: ++requestId,
+        method: "tools/call",
+        params: { name, arguments: args },
+      }),
+    });
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    const data = text.split("\n").find((line) => line.startsWith("data: "));
+    return JSON.parse(data ? data.slice(6) : text).result as {
+      isError?: boolean;
+      content: Array<{ text: string }>;
+      structuredContent: {
+        boardWatching: boolean;
+        columnCapacity: unknown[];
+        tasks: Array<Record<string, unknown>>;
+      };
+    };
+  };
+  const all = await call("task_list"); // creates the default columns
+  expect(all.structuredContent.tasks).toEqual([]);
+  const columnIds = new Map(
+    (
+      await ctx.pool.query<{ key: string; id: string }>(
+        `SELECT key, id FROM task_columns WHERE project_id = $1`,
+        [project]
+      )
+    ).rows.map((r) => [r.key, r.id])
+  );
+  const foreignColumn = (
+    await ctx.pool.query(
+      `INSERT INTO task_columns (id, project_id, key, name, position) VALUES ('col_list_foreign', $1, 'done', 'Done', 0) RETURNING id`,
+      [foreignProject]
+    )
+  ).rows[0].id;
+  const pr = { kind: "pr", label: "PR #1", url: "https://example.com/pr/1" };
+  for (const [id, projectId, column, links] of [
+    ["tsk_list_done", project, columnIds.get("done"), [pr]],
+    ["tsk_list_review", project, columnIds.get("in_review"), []],
+    ["tsk_list_ready", project, columnIds.get("ready"), [pr]],
+    ["tsk_list_foreign", foreignProject, foreignColumn, [pr]],
+  ] as const)
+    await ctx.pool.query(
+      `INSERT INTO tasks (id, project_id, column_id, title, body, position, links, created_by_kind)
+       VALUES ($1, $2, $3, $1, $4, 1, $5, 'user')`,
+      [id, projectId, column, `body of ${id}`, JSON.stringify(links)]
+    );
+
+  const scan = await call("task_list", {
+    columns: ["done", "in_review"],
+    fields: ["id", "column", "links"],
+  });
+  expect(scan.isError).toBeFalsy();
+  expect(scan.structuredContent.tasks).toEqual([
+    { id: "tsk_list_done", column: "done", links: [pr] },
+    { id: "tsk_list_review", column: "in_review", links: [] },
+  ]);
+  expect(scan.structuredContent.boardWatching).toBe(false);
+  expect(
+    (await call("task_list", { column: "ready" })).structuredContent.tasks.map(
+      (t) => t.id
+    )
+  ).toEqual(["tsk_list_ready"]);
+
+  const read = await call("task_list", {
+    ids: ["tsk_list_done", "tsk_list_foreign", "tsk_list_nope"],
+    fields: ["body"],
+  });
+  expect(read.isError).toBeFalsy();
+  expect(read.structuredContent.tasks).toEqual([
+    { id: "tsk_list_done", body: "body of tsk_list_done" },
+  ]);
+  expect(read.content[0]!.text).not.toContain("tsk_list_foreign");
+  // Only foreign ids: an empty collection, indistinguishable from missing.
+  expect(
+    (await call("task_list", { ids: ["tsk_list_foreign"], fields: ["body"] }))
+      .structuredContent.tasks
+  ).toEqual([]);
+  expect(
+    (await call("task_list", { ids: ["tsk_list_nope"], fields: ["body"] }))
+      .structuredContent.tasks
+  ).toEqual([]);
+
+  for (const args of [
+    { fields: ["body"] },
+    { column: "done", columns: ["done"] },
+    { columns: ["shipped"] },
+    { fields: ["secret"] },
+    { ids: Array.from({ length: 51 }, (_, i) => `tsk_${i}`) },
+  ])
+    expect((await call("task_list", args)).isError, JSON.stringify(args)).toBe(
+      true
+    );
+});
