@@ -5,17 +5,19 @@ import type { Pool } from "pg";
 import { MANAGED_WORKSPACE, remotePlacement } from "@dispatch/runner-protocol";
 import {
   archiveRunner,
-  releaseRemoteCheckout,
   type ArchiveCheckoutAgent,
   type LocalArchiveRunner,
 } from "./archive-checkout.js";
 import {
+  archiveExecutor,
+  archiveFailure,
   cascadeMode,
   finishArchiveCheckout,
-  localArchiveExecutor,
+  runnerArchiveExecutor,
   type ArchiveCheckoutHooks,
   type ArchiveOutcome,
 } from "./archive-policy.js";
+import type { RunnerComposition } from "../runners/directory.js";
 import type { Runner } from "@dispatch/runner-protocol/contract";
 import type { RemoteRunnerService } from "./remote/service.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
@@ -83,51 +85,65 @@ async function getChildAgentIds(
   return result.rows.map((row) => row.id);
 }
 
-const WORKTREE_CLEANUP_TIMEOUT_MS = 60_000;
+/** The agent's runner, with what the composition gives it for archives. */
+export type ArchiveRunner = Runner &
+  Pick<RunnerComposition, "archive" | "cleanupBudgetMs"> & {
+    /** False on a peer without bound release (snapshot release instead). */
+    serves?: (op: "workspace.release") => boolean;
+  };
 
 /**
- * Finish a local checkout through the shared archive sequence. Callers send
- * runner-placed agents to `releaseRemoteCheckout` instead.
+ * Finish an agent's checkout on its runner through the one archive
+ * sequence. The runner's archive policy decides the co-owner rule, the
+ * force skip and what a failure means; its cleanup budget, when the
+ * composition gives one (main's 60 s on this machine), bounds the whole
+ * cleanup: co-owner read, observation, removal.
  */
-export async function cleanupAgentWorktree(
+export async function archiveCheckout(
   pool: Pool,
   logger: FastifyBaseLogger,
-  localRunner: LocalArchiveRunner,
   agent: ArchiveCheckoutAgent,
   mode: WorktreeCleanupMode,
+  /** The agent's host stopped. */
+  stopped: boolean,
   hooks: ArchiveCheckoutHooks | undefined,
-  runner: Runner
+  runner: ArchiveRunner,
+  /** Serves the snapshot release on a peer without bound release. */
+  remote?: RemoteRunnerService
 ): Promise<ArchiveOutcome> {
-  if (!agent.worktreePath) return { kind: "kept", reason: "notManaged" };
+  const policy = runner.archive;
+  if (policy.coOwner === "recorded" && !agent.worktreePath)
+    return { kind: "kept", reason: "notManaged" };
+  const executor =
+    runner.serves?.("workspace.release") === false
+      ? runnerArchiveExecutor(agent, remote, stopped, policy)
+      : archiveExecutor(pool, agent, runner, stopped);
+  const budget = runner.cleanupBudgetMs;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      finishArchiveCheckout(
-        pool,
-        logger,
-        agent,
-        mode,
-        localArchiveExecutor(pool, agent, localRunner, runner),
-        hooks
-      ),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () =>
-            reject(
-              new Error(
-                `Worktree cleanup timed out after ${WORKTREE_CLEANUP_TIMEOUT_MS}ms`
-              )
-            ),
-          WORKTREE_CLEANUP_TIMEOUT_MS
-        );
-      }),
+      finishArchiveCheckout(pool, logger, agent, mode, executor, hooks),
+      ...(budget === undefined
+        ? []
+        : [
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(
+                () =>
+                  reject(
+                    new Error(`Worktree cleanup timed out after ${budget}ms`)
+                  ),
+                budget
+              );
+            }),
+          ]),
     ]);
   } catch (err) {
+    const failure = archiveFailure(policy);
     logger.warn(
       { err, agentId: agent.id, worktreePath: agent.worktreePath },
-      "Worktree cleanup failed; leaving on disk."
+      failure.message
     );
-    return { kind: "kept", reason: "failed" };
+    return failure.outcome;
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -152,25 +168,20 @@ export async function finishCheckout(
   const hooks = { durations, onCleanupStart };
   // Every runner placement, managed or a configured workspace, finishes on
   // its runner: offline, the release stays pending and is retried.
-  const outcome = remotePlacement(agent.cwd)
-    ? await releaseRemoteCheckout(
-        deps.pool,
-        deps.logger,
-        agent,
-        mode,
-        deps.remote,
-        stopped,
-        hooks
-      )
-    : await cleanupAgentWorktree(
-        deps.pool,
-        deps.logger,
-        deps.localRunner,
-        agent,
-        mode,
-        hooks,
-        archiveRunner(deps.localRunnerChild, agent, agent.placement)
-      );
+  const outcome = await archiveCheckout(
+    deps.pool,
+    deps.logger,
+    agent,
+    mode,
+    stopped,
+    hooks,
+    archiveRunner(
+      { child: deps.localRunnerChild, remote: deps.remote },
+      agent,
+      agent.placement
+    ),
+    deps.remote
+  );
   return outcome.kind === "pending";
 }
 

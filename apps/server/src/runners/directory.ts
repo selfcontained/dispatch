@@ -64,8 +64,61 @@ export interface CheckoutRunner extends Runner {
   ): Promise<CheckoutCommandFile | null>;
 }
 
+/** What the composition supplies with each runner, by its own rules. */
+export type RunnerComposition = {
+  settings: RunnerSettings;
+  /**
+   * Main's budget for an archive's checkout cleanup, where the runner is
+   * this machine (main's 60 s); none where the runner's own transport
+   * bounds it.
+   */
+  cleanupBudgetMs?: number;
+  /** How an archive finishes this runner's checkouts (N35: one owner decision). */
+  archive: ArchivePolicy;
+};
+
+/**
+ * The two archive rules in use, as the composition gives them per runner.
+ * The archive executor reads only this, never the placement or the row.
+ */
+export type ArchivePolicy = {
+  /**
+   * `recorded` (main's): the worktree the row records is the agent's own; no
+   * recorded worktree is not managed; another live row naming it keeps it,
+   * and removal releases the observed snapshot. `observed` (N35): the
+   * runner reports ownership and borrowers, and removal is the caller's
+   * decision carried out by the runner (bound release).
+   */
+  coOwner: "recorded" | "observed";
+  /** Force removes without observing first (main: no Git status or fetch). */
+  forceSkipsObserve: boolean;
+  /**
+   * What an error anywhere in the cleanup means: `kept` (main's warning,
+   * left on disk) or `pending` (retried).
+   */
+  failure: "kept" | "pending";
+  /** The runner refuses to release a checkout while its host still runs. */
+  awaitsStoppedHost: boolean;
+};
+
+/** Main's archive rule, for the runner on this machine. */
+export const localArchivePolicy: ArchivePolicy = {
+  coOwner: "recorded",
+  forceSkipsObserve: true,
+  failure: "kept",
+  awaitsStoppedHost: false,
+};
+
+/** The enrolled runners' archive rule (N35). */
+export const enrolledArchivePolicy: ArchivePolicy = {
+  coOwner: "observed",
+  forceSkipsObserve: false,
+  failure: "pending",
+  awaitsStoppedHost: true,
+};
+
 interface CheckoutDirectory extends Runners {
-  for(placement: Placement): CheckoutRunner & { settings: RunnerSettings };
+  for(placement: Placement): CheckoutRunner & RunnerComposition;
 }
 
 const localDescription: RunnerDescription = {
@@ -102,13 +155,17 @@ export function runnerDirectory(
 ): CheckoutDirectory {
   const location = agent ? legacySessionLocation(agent) : null;
   return {
-    for(selected: Placement): CheckoutRunner & { settings: RunnerSettings } {
+    for(selected: Placement): CheckoutRunner & RunnerComposition {
       const boundAgent =
         agent && samePlacement(selected, agent.placement) ? agent : undefined;
       if (samePlacement(selected, controllerPlacement))
         return Object.assign(
           createLocalCheckoutRunner(boundAgent, localDescription, child?.()),
-          { settings: localRunnerSettings }
+          {
+            settings: localRunnerSettings,
+            cleanupBudgetMs: 60_000,
+            archive: localArchivePolicy,
+          }
         );
 
       const id = placementRunner(selected);
@@ -134,7 +191,10 @@ export function runnerDirectory(
           },
           legacyView
         ),
-        { settings: enrolledRunnerSettings(runnerIdToWire(id)) }
+        {
+          settings: enrolledRunnerSettings(runnerIdToWire(id)),
+          archive: enrolledArchivePolicy,
+        }
       );
     },
     list() {
