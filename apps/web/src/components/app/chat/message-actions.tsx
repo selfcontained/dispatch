@@ -14,11 +14,11 @@ import {
   SmilePlus,
 } from "lucide-react";
 import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-} from "@/components/ui/dropdown-menu";
+  ActionMenu,
+  ActionMenuTrigger,
+  ActionMenuContent,
+  ActionMenuItem,
+} from "@/components/ui/action-menu";
 import {
   Dialog,
   DialogBody,
@@ -97,8 +97,12 @@ export function MessageActions({
         <PopoverAnchor asChild>
           <div className="flex items-center gap-0.5">
             {copy}
-            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-              <DropdownMenuTrigger asChild>
+            <ActionMenu
+              label="Message actions"
+              open={menuOpen}
+              onOpenChange={setMenuOpen}
+            >
+              <ActionMenuTrigger asChild>
                 <IconButton
                   size="icon-sm"
                   className={`${POST_ACTION_BUTTON} data-[state=open]:opacity-100`}
@@ -112,14 +116,14 @@ export function MessageActions({
                     />
                   </span>
                 </IconButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
+              </ActionMenuTrigger>
+              <ActionMenuContent
                 align="end"
                 onCloseAutoFocus={(event) => {
                   if (panel) event.preventDefault();
                 }}
               >
-                <DropdownMenuItem
+                <ActionMenuItem
                   className="flex items-center gap-2 text-foreground"
                   onSelect={() => {
                     setMenuOpen(false);
@@ -128,18 +132,18 @@ export function MessageActions({
                 >
                   <Info className="h-4 w-4" />
                   Message metadata
-                </DropdownMenuItem>
+                </ActionMenuItem>
                 {onReply && (
-                  <DropdownMenuItem
+                  <ActionMenuItem
                     className="flex items-center gap-2 text-foreground"
                     onSelect={onReply}
                   >
                     <MessageSquarePlus className="h-4 w-4" />
                     Reply in thread
-                  </DropdownMenuItem>
+                  </ActionMenuItem>
                 )}
                 {onReact && (
-                  <DropdownMenuItem
+                  <ActionMenuItem
                     className="flex items-center gap-2 text-foreground disabled-state"
                     disabled={reactionsDisabled}
                     title={
@@ -154,10 +158,10 @@ export function MessageActions({
                   >
                     <SmilePlus className="h-4 w-4" />
                     React
-                  </DropdownMenuItem>
+                  </ActionMenuItem>
                 )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+              </ActionMenuContent>
+            </ActionMenu>
           </div>
         </PopoverAnchor>
         <PopoverContent
