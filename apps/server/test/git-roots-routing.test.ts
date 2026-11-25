@@ -166,7 +166,7 @@ it("manager roots use git.roots for an enrolled session and retain reply bytes",
     {
       checkoutReadRunners: () => ({
         local: undefined,
-        remote: { requestSession },
+        remote: { requestSession, supportsGitQueries: () => true },
       }),
     } as never,
     {
