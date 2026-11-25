@@ -1,3 +1,6 @@
+import { teachKnownSeedCatalogs } from "../helpers/model-catalog-validation.js";
+import { beforeEach as beforeKnownCatalog } from "vitest";
+beforeKnownCatalog(teachKnownSeedCatalogs);
 import { describe, expect, it, vi } from "vitest";
 
 import * as personaResolver from "../../src/personas/resolve.js";

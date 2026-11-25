@@ -557,12 +557,21 @@ async function handleLaunchAgent(
   // this the MCP path silently forced "sibling".
   const worktreeLocation = await getWorktreeLocation(deps.pool);
 
-  const scope = await modelScopeFor(
-    cwd,
-    agentType as (typeof CLI_AGENT_TYPES)[number]
-  );
   const templateModel =
     template?.agentType === agentType ? template.model : undefined;
+  const scope = await modelScopeFor(
+    cwd,
+    agentType as (typeof CLI_AGENT_TYPES)[number],
+    {
+      model: input.model !== undefined ? input.model : templateModel,
+      effort:
+        input.effort !== undefined
+          ? input.effort
+          : template?.agentType === agentType
+            ? template.effort
+            : null,
+    }
+  );
   // The template's own model is a saved choice; any other is a new one.
   const model = validateAgentModelChoice(
     agentType as (typeof CLI_AGENT_TYPES)[number],

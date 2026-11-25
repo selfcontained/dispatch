@@ -829,3 +829,64 @@ it("teaches a runner refresh through shared availability and retains all reporte
   ).toBe("Updated engine description");
   forgetLearnedAgentModels();
 });
+
+it("keeps the CLI default when validation fetches another model's effort", async () => {
+  forgetLearnedAgentModels();
+  const rows = new Map<string, string>();
+  const pool = withClient({
+    query: vi.fn(async (sql: string, args: string[] = []) => {
+      if (sql.includes("INSERT INTO settings")) rows.set(args[0]!, args[1]!);
+      return {
+        rows: rows.has(args[0]!) ? [{ value: rows.get(args[0]!) }] : [],
+      };
+    }),
+  }) as never;
+  const context = {
+    runnerId: "selected-model",
+    settings: enrolledRunnerSettings("selected-model"),
+  };
+  await recordDiscoveredModels(
+    pool,
+    "codex",
+    {
+      current: "a",
+      defaultModel: "a",
+      models: [
+        { id: "a", label: "A", effort: [] },
+        { id: "b", label: "B" },
+      ],
+    },
+    context,
+    "2026-01-01T00:00:00Z"
+  );
+  await recordDiscoveredModels(
+    pool,
+    "codex",
+    {
+      current: "b",
+      defaultModel: "a",
+      models: [
+        { id: "a", label: "A" },
+        {
+          id: "b",
+          label: "B",
+          effort: [
+            { value: "high", name: "High", description: "Selected effort" },
+          ],
+        },
+      ],
+    },
+    context,
+    "2026-01-01T01:00:00Z",
+    "b"
+  );
+  expect(agentModelDefaults("selected-model").codex).toBe("a");
+  expect(
+    getAgentModelOptions("codex", "selected-model")[1]?.effort?.[0]?.description
+  ).toBe("Selected effort");
+  expect(
+    JSON.parse(rows.get("runner:selected-model:agent_models:codex")!)
+      .defaultModel
+  ).toBe("a");
+  forgetLearnedAgentModels();
+});

@@ -226,7 +226,8 @@ export function recordDiscoveredModels(
   type: AgentType,
   result: Res<"engine.models">,
   catalog: { runnerId: string; settings: RunnerSettings },
-  refreshedAt: string
+  refreshedAt: string,
+  selectedModel?: string
 ): Promise<boolean> {
   const current = result.current ?? result.defaultModel ?? "default";
   const effort =
@@ -243,7 +244,7 @@ export function recordDiscoveredModels(
   ];
   return learnEngineCatalog(
     pool,
-    { type, model: null },
+    { type, model: selectedModel ?? null },
     options,
     { current, choices: result.models },
     catalog,

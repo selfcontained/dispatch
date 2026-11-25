@@ -6,6 +6,12 @@ import {
   type RunnerSettings,
 } from "../runners/settings-namespace.js";
 import { getSetting, setSetting } from "../db/settings.js";
+import {
+  getLearnedAgentModels,
+  getAgentModelOptions,
+  agentModelDefaults,
+  type ModelValidationRequest,
+} from "../shared/agent-models.js";
 import { recordDiscoveredModels } from "./engine-models.js";
 import { RunnerCallError, type Res } from "@dispatch/runner-protocol/contract";
 
@@ -42,7 +48,8 @@ export class ModelCatalogRefresh {
         engine: AgentType,
         result: Res<"engine.models">,
         settings: RunnerSettings,
-        refreshedAt: string
+        refreshedAt: string,
+        selectedModel?: string
       ) => Promise<boolean>;
       changed?: (runnerId: string, engine: AgentType) => void;
       failed?: (details: {
@@ -52,8 +59,8 @@ export class ModelCatalogRefresh {
       }) => void;
     }
   ) {}
-  private state(runnerId: string, engine: AgentType) {
-    const key = JSON.stringify([runnerId, engine]);
+  private state(runnerId: string, engine: AgentType, model?: string) {
+    const key = JSON.stringify([runnerId, engine, model]);
     let entry = this.entries.get(key);
     if (!entry) {
       entry = { retryAt: 0, generation: 0, dirty: false, again: false };
@@ -61,9 +68,9 @@ export class ModelCatalogRefresh {
     }
     return entry;
   }
-  request(runnerId: string, engine: AgentType): void {
+  request(runnerId: string, engine: AgentType, model?: string): void {
     if (this.closed) return;
-    const entry = this.state(runnerId, engine);
+    const entry = this.state(runnerId, engine, model);
     if (entry.pending) return;
     const now = this.deps.now?.() ?? Date.now();
     if (
@@ -86,15 +93,52 @@ export class ModelCatalogRefresh {
       (!entry.dirty && (!target.enabled || !target.online || target.blocked))
     )
       return;
-    entry.pending = this.refresh(runnerId, engine, entry, target).finally(
-      () => {
-        entry.pending = undefined;
-        if (entry.again && !this.closed) {
-          entry.again = false;
-          this.request(runnerId, engine);
-        }
+    entry.pending = this.refresh(
+      runnerId,
+      engine,
+      entry,
+      target,
+      model
+    ).finally(() => {
+      entry.pending = undefined;
+      if (entry.again && !this.closed) {
+        entry.again = false;
+        this.request(runnerId, engine);
       }
+    });
+  }
+  /** Only launch validation waits, and only until a first observation exists. */
+  async validate(
+    runnerId: string,
+    engine: AgentType,
+    request: ModelValidationRequest = {}
+  ): Promise<boolean> {
+    const observed = () =>
+      getLearnedAgentModels(engine, runnerId) !== undefined;
+    this.request(runnerId, engine);
+    if (!observed()) await this.settled(runnerId, engine);
+    if (!observed()) return false;
+    const model = request.model ?? agentModelDefaults(runnerId)[engine];
+    const option = getAgentModelOptions(engine, runnerId).find(
+      (choice) => choice.id === model
     );
+    if (
+      request.effort != null &&
+      model &&
+      option &&
+      option.effort === undefined
+    ) {
+      // An in-flight default listing may already supply this model's effort.
+      await this.settled(runnerId, engine);
+      const updated = getAgentModelOptions(engine, runnerId).find(
+        (choice) => choice.id === model
+      );
+      if (updated && updated.effort === undefined) {
+        this.request(runnerId, engine, model);
+        await this.settled(runnerId, engine, model);
+      }
+    }
+    return true;
   }
   /** A successful installation/update or sign-in invalidates durable freshness. */
   invalidate(runnerId: string, engine: AgentType): void {
@@ -111,11 +155,16 @@ export class ModelCatalogRefresh {
     runnerId: string,
     engine: AgentType,
     entry: Entry,
-    target: Target
+    target: Target,
+    model?: string
   ) {
     const now = () => this.deps.now?.() ?? Date.now();
     const key = namespaced(target.settings, `agent_models_refresh:${engine}`);
     const generation = entry.generation;
+    const engineGeneration = this.state(runnerId, engine).generation;
+    const current = () =>
+      generation === entry.generation &&
+      engineGeneration === this.state(runnerId, engine).generation;
     try {
       if (entry.dirty) {
         await setSetting(
@@ -123,11 +172,11 @@ export class ModelCatalogRefresh {
           key,
           JSON.stringify({ refreshedAt: null })
         );
-        if (generation === entry.generation) entry.dirty = false;
+        if (current()) entry.dirty = false;
       }
       if (!target.enabled || !target.online || target.blocked || this.closed)
         return;
-      if (entry.success === undefined) {
+      if (entry.success === undefined && !model) {
         const raw = await getSetting(this.deps.pool, key);
         let value = Number.NEGATIVE_INFINITY;
         try {
@@ -140,7 +189,12 @@ export class ModelCatalogRefresh {
           ? value
           : Number.NEGATIVE_INFINITY;
       }
-      if (now() - entry.success < MODEL_REFRESH_AGE_MS || this.closed) return;
+      if (
+        (entry.success !== undefined &&
+          now() - entry.success < MODEL_REFRESH_AGE_MS) ||
+        this.closed
+      )
+        return;
       entry.retryAt = now() + MODEL_REFRESH_BACKOFF_MS;
       const inventory = await boundedCall(target.calls, "engine.list", {
         refresh: true,
@@ -154,11 +208,12 @@ export class ModelCatalogRefresh {
         (installed.signedIn !== true && installed.actions.includes("login"))
       )
         return;
-      if (this.closed || generation !== entry.generation) return;
+      if (this.closed || !current()) return;
       const result = await boundedCall(target.calls, "engine.models", {
         engine,
+        ...(model && { model }),
       });
-      if (this.closed || generation !== entry.generation) return;
+      if (this.closed || !current()) return;
       const refreshedAt = new Date(now()).toISOString();
       const changed = this.deps.learn
         ? await this.deps.learn(
@@ -166,16 +221,18 @@ export class ModelCatalogRefresh {
             engine,
             result,
             target.settings,
-            refreshedAt
+            refreshedAt,
+            model
           )
         : await recordDiscoveredModels(
             this.deps.pool,
             engine,
             result,
             { runnerId, settings: target.settings },
-            refreshedAt
+            refreshedAt,
+            model
           );
-      if (this.closed || generation !== entry.generation) return;
+      if (this.closed || !current()) return;
       entry.success = Date.parse(refreshedAt);
       entry.retryAt = 0;
       if (changed) this.deps.changed?.(runnerId, engine);
@@ -189,8 +246,12 @@ export class ModelCatalogRefresh {
     }
   }
   /** Useful to owners shutting down and to fixture tests; user reads never call it. */
-  async settled(runnerId: string, engine: AgentType): Promise<void> {
-    const entry = this.state(runnerId, engine);
+  async settled(
+    runnerId: string,
+    engine: AgentType,
+    model?: string
+  ): Promise<void> {
+    const entry = this.state(runnerId, engine, model);
     while (entry.pending) await entry.pending;
   }
   close() {

@@ -16,6 +16,7 @@ import type { AppConfig } from "../src/config.js";
 import { JobService } from "../src/jobs/service.js";
 import {
   forgetLearnedAgentModels,
+  getAgentModelOptions,
   modelScopeFor,
   setLearnedAgentModels,
   validateAgentModel,
@@ -66,6 +67,9 @@ afterAll(async () => {
 beforeEach(() => {
   forgetLearnedAgentModels();
   loggerWarn.mockClear();
+  // These cases exercise an authoritative catalog; cold validation is covered
+  // by the real coordinator in model-catalog-refresh and reviewer fixtures.
+  setLearnedAgentModels("claude", getAgentModelOptions("claude"));
   setLearnedAgentModels(
     "claude",
     [

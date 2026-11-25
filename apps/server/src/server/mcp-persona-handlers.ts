@@ -112,7 +112,10 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     if (!enabledAgentTypes.includes(agentType)) {
       throw new Error(`${agentType} agents are disabled in settings.`);
     }
-    const scope = await modelScopeFor(parent.cwd, agentType);
+    const scope = await modelScopeFor(parent.cwd, agentType, {
+      model: opts.model,
+      effort: opts.effort,
+    });
     const model = validateAgentModelChoice(
       agentType,
       opts.model,

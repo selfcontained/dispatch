@@ -1,4 +1,7 @@
-import { remotePlacement } from "@dispatch/runner-protocol";
+import {
+  checkoutReadPlacement,
+  runnerIdForPlacement,
+} from "../runners/placement.js";
 
 import { CLI_AGENT_TYPES, type AgentType } from "./agent-types.js";
 
@@ -357,20 +360,37 @@ export type RunnerModelCatalogSource = (
   models: readonly AgentModelOption[];
 } | null>;
 
-/** Launch validation reads the same stored catalog as the picker. */
+export type ModelValidationRequest = {
+  model?: string | null;
+  effort?: unknown;
+};
+type CatalogValidation = (
+  runnerId: string,
+  agentType: AgentType,
+  request: ModelValidationRequest
+) => Promise<boolean>;
+let catalogValidation: CatalogValidation | undefined;
+export function onModelCatalogValidation(
+  validator: CatalogValidation
+): () => void {
+  catalogValidation = validator;
+  return () => {
+    if (catalogValidation === validator) catalogValidation = undefined;
+  };
+}
+
+/** Launches establish an authoritative catalog; picker reads never wait. */
 export async function modelScopeFor(
   target: string | null | undefined,
-  agentType: AgentType
+  agentType: AgentType,
+  request: ModelValidationRequest = {}
 ): Promise<ModelScope> {
-  const placement = target ? remotePlacement(target) : null;
-  if (!placement) {
-    readStoredModelCatalog("local", agentType);
-    return LOCAL_MODEL_SCOPE;
-  }
-  return {
-    kind: "runner",
-    ...readStoredModelCatalog(placement.runner, agentType),
-  };
+  const runnerId = runnerIdForPlacement(checkoutReadPlacement(target));
+  const ready = catalogValidation
+    ? await catalogValidation(runnerId, agentType, request)
+    : getLearnedAgentModels(agentType, runnerId) !== undefined;
+  if (!ready) return { kind: "engine" };
+  return { kind: "runner", ...readStoredModelCatalog(runnerId, agentType) };
 }
 
 /** The ids a scope offers for a type; null when the engine checks at launch. */
@@ -525,8 +545,9 @@ export function resolveAgentModelForUpdate(params: {
   if (
     params.inputAgentType !== undefined &&
     params.existingModel !== null &&
-    ((options !== null &&
-      !options.some((option) => option.id === params.existingModel)) ||
+    ((!sameType && options === null) ||
+      (options !== null &&
+        !options.some((option) => option.id === params.existingModel)) ||
       (!sameType &&
         getAgentModelAvailability(nextAgentType).disabled.includes(
           params.existingModel

@@ -44,5 +44,12 @@
     "main": "[]",
     "head": "[{\"effort\":[],\"id\":\"default-model\",\"label\":\"Default model\"},{\"id\":\"other-model\",\"label\":\"Other model\"}]",
     "decision": "Owner 2026-11-25: stale-while-revalidate model discovery on every runner"
+  },
+  {
+    "scenario": "model-catalog-refresh",
+    "path": "unseeded OpenCode validation",
+    "main": "400",
+    "head": "200",
+    "decision": "Owner 2026-11-25: stale-while-revalidate model discovery on every runner; validation awaits its first observation."
   }
 ]

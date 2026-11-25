@@ -1,9 +1,14 @@
+import { validationCatalogFixture } from "./helpers/model-catalog-validation.js";
+const validationFixtures: ReturnType<typeof validationCatalogFixture>[] = [];
 import {
   setLearnedAgentModels,
   forgetLearnedAgentModels,
 } from "../src/shared/agent-models.js";
 import { afterEach } from "vitest";
-afterEach(forgetLearnedAgentModels);
+afterEach(() => {
+  for (const fixture of validationFixtures.splice(0)) fixture.close();
+  forgetLearnedAgentModels();
+});
 import { access, readFile, readdir } from "node:fs/promises";
 import Fastify from "fastify";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -272,46 +277,65 @@ describe("code owner launches through the checkout boundary", () => {
     }
   );
 
-  it("creates direct and owner reviewers with a runner-only model and effort", async () => {
-    setLearnedAgentModels(
-      "claude",
-      [
-        {
-          id: "runner-custom/review",
-          label: "Runner Review",
-          effort: [{ value: "runner-effort", name: "Runner effort" }],
-        },
-      ],
-      "runner-custom/review",
-      "linux"
-    );
-    const { handlers, agentManager } = setup({
-      cwd: "runner://linux/@session",
-    });
-    const options = {
-      context: "Review",
-      agentType: "claude" as const,
-      model: "runner-custom/review",
-      effort: "runner-effort",
-    };
-    await handlers.launchPersonaAgent("parent", {
-      ...options,
-      persona: "owner-one",
-    });
-    const review = await handlers.launchOwnerReviews("parent", {
-      ...options,
-      personas: ["owner-one"],
-    });
-    expect(review.failures).toEqual([]);
-    expect(agentManager.createAgent).toHaveBeenCalledTimes(2);
-    for (const [launch] of agentManager.createAgent.mock.calls) {
-      expect(launch).toMatchObject({
+  it.each(["taught", "first refresh", "failed refresh"] as const)(
+    "creates direct and owner reviewers with a runner-only model and effort (%s)",
+    async (source) => {
+      if (source === "taught")
+        setLearnedAgentModels(
+          "claude",
+          [
+            {
+              id: "runner-custom/review",
+              label: "Runner Review",
+              effort: [{ value: "runner-effort", name: "Runner effort" }],
+            },
+          ],
+          "runner-custom/review",
+          "linux"
+        );
+      else
+        validationFixtures.push(
+          validationCatalogFixture(
+            "linux",
+            "claude",
+            [
+              {
+                id: "runner-custom/review",
+                label: "Runner Review",
+                effort: [{ value: "runner-effort", name: "Runner effort" }],
+              },
+            ],
+            source === "failed refresh"
+          )
+        );
+      const { handlers, agentManager } = setup({
         cwd: "runner://linux/@session",
-        model: options.model,
-        effort: options.effort,
       });
+      const options = {
+        context: "Review",
+        agentType: "claude" as const,
+        model: "runner-custom/review",
+        effort: "runner-effort",
+      };
+      await handlers.launchPersonaAgent("parent", {
+        ...options,
+        persona: "owner-one",
+      });
+      const review = await handlers.launchOwnerReviews("parent", {
+        ...options,
+        personas: ["owner-one"],
+      });
+      expect(review.failures).toEqual([]);
+      expect(agentManager.createAgent).toHaveBeenCalledTimes(2);
+      for (const [launch] of agentManager.createAgent.mock.calls) {
+        expect(launch).toMatchObject({
+          cwd: "runner://linux/@session",
+          model: options.model,
+          effort: options.effort,
+        });
+      }
     }
-  });
+  );
 
   it.each(["/checkout", "runner://linux/@session"])(
     "inherits full engine access for direct and owner reviews in %s",

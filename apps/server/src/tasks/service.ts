@@ -617,7 +617,8 @@ export class TaskService {
     try {
       const scope = await modelScopeFor(
         savedLaunchTarget(locatedTemplate).cwd,
-        agentType ?? template.agentType
+        agentType ?? template.agentType,
+        { model: trigger.model, effort: trigger.effort }
       );
       model =
         validateAgentModel(
@@ -912,7 +913,7 @@ export class TaskService {
         return validateAgentModel(
           agentType,
           model,
-          await modelScopeFor(target, agentType)
+          await modelScopeFor(target, agentType, { model })
         );
       } catch (error) {
         rejection ??= error;

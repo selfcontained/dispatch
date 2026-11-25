@@ -199,6 +199,7 @@ import { EngineManager } from "./agents/remote/engine-manager.js";
 import { remoteEngineTransport } from "./agents/remote/engine-transport.js";
 import {
   onStoredModelCatalogRead,
+  onModelCatalogValidation,
   readStoredModelCatalog,
 } from "./shared/agent-models.js";
 import { ModelCatalogRefresh } from "./agents/model-catalog-refresh.js";
@@ -1197,7 +1198,12 @@ async function registerRoutes() {
   const stopCatalogReads = onStoredModelCatalogRead((runnerId, engine) =>
     catalogRefresh.request(runnerId, engine)
   );
+  const stopCatalogValidation = onModelCatalogValidation(
+    (runnerId, engine, request) =>
+      catalogRefresh.validate(runnerId, engine, request)
+  );
   app.addHook("onClose", async () => {
+    stopCatalogValidation();
     stopCatalogReads();
     catalogRefresh.close();
   });

@@ -245,6 +245,17 @@ export const product = [
     title: "Stored catalog reads revalidate OpenCode without a session turn",
     async run(w) {
       await w.api("GET", "/api/v1/agent-models");
+      const directory = await w.repo("catalog-validation");
+      // Saving a model choice uses validation, which joins that first refresh.
+      // No agent is launched and no prompt is sent.
+      const validation = await w.api("POST", "/api/v1/templates", {
+        name: "First OpenCode choice",
+        directory,
+        agentType: "opencode",
+        model: "other-model",
+        fullAccess: true,
+      });
+      w.record("unseeded OpenCode validation", validation.status);
       // The existing isolated fixture delays session/new by 700ms. No agent
       // or prompt is created; main has no picker-triggered discovery.
       let result;

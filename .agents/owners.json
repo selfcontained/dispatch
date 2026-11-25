@@ -165,6 +165,7 @@
         "apps/server/test/model-availability.test.ts",
         "apps/server/src/agents/model-catalog-refresh.ts",
         "apps/server/test/model-catalog-refresh.test.ts",
+        "apps/server/test/helpers/model-catalog-validation.ts",
         "apps/server/test/engine-models*.test.ts",
         "apps/web/src/hooks/use-model-availability*",
         "docs/agent-model-catalog.md",
