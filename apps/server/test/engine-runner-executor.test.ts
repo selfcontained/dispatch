@@ -591,7 +591,8 @@ else if (args === "auth login") {
               type: "login_status",
               loginId: started.login!.id,
             })
-          ).login?.status
+          ).login?.status,
+        { timeout: 5000 }
       )
       .toBe("succeeded");
     const done = await executor.handle({
