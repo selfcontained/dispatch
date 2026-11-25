@@ -60,6 +60,8 @@ Every remote change so far follows one pattern: a negotiated capability flag in 
 
 Boundary rules: **R1** placement reads, locators and controller-machine imports in Dispatch; **R2** host access (fs, process, os, git) from Dispatch code; **R3** local adapter methods and in-process side channels that bypass the child; **R5** Dispatch vocabulary or imports crossing the package boundary (either way); **R6** placement reads and protocol values in the web app; **R7** named "runner can do less" restrictions (design, Appendix D; anchors in `runner-restrictions.mjs`).
 
+**Current counts:** R1 65, R2 257, R3 6, R5 45, R6 7, R7 10. R6 exempts only the explicitly listed runner management screens (settings, health, updates and runner GitHub account); general UI and shared hooks remain covered.
+
 **Starting line:** R1 77, R2 269, R3 15, R5 49, R6 34, R7 19. Every task lowers at least one; none may raise any.
 
 Commit style: a move and a behaviour change are separate commits. Take main at each milestone and move the parity pin (`scripts/runner-local-parity/main-pin.json`) only in that merge commit.
@@ -120,6 +122,12 @@ Three lanes that share no files. A task that must touch another lane's file wait
 - **One remote pattern.** Capability flag in `ready`, credited streams for capable peers, legacy frames byte-identical. Old peers stay supported until T40.
 
 ## Known gaps accepted by the owner
+
+- **T39 / N26 deferred past this PR:** ports, previews and screencast for runner agents remain a known gap, like Open in IDE. T40 does not wait for T39.
+- The message "Queued until the runner reconnects" stays as worded.
+- **Plain git after runner GitHub sign-in fixed** (merged `57667634`): the workload account's global Git config includes gh's credential helper for https://github.com; sign-out removes the include. Runner revocation still does not sign gh out on that machine; SSH remotes and non-github.com hosts are not covered.
+- **T29 merged** (`06decbeb`): engine install, update and plugins use the runner's engine operations; N34 is closed. Dispatch stays the durable coordinator for update operations; the host implementation stays app-local behind EnginePort until T40.
+- **Open runner gaps:** N1 other-folder launch on the caller's runner; configured-workspace IDE locator; runner "checkout gone" 503 versus main's dialog; a runner project target's folder history is empty in the create form; PR-URL/typed-branch entry was removed from the form (the API still accepts it); local `files.get` and some archive/checkout reads still run in process.
 
 - `login_link` from a runner agent when Dispatch listens only on loopback (D11).
 - Open in IDE for runner agents: main's one-machine rule (D11).

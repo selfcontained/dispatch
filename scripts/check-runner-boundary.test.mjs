@@ -341,3 +341,38 @@ test("CI rejects an intermediate addition even when the final baseline shrinks",
     rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+// The same source must remain prohibited outside exact management paths.
+test("R6 exempts only explicitly listed runner management screens", () => {
+  const source =
+    'import { remotePlacement } from "@dispatch/runner-protocol"; remotePlacement(agent.cwd)?.runner;';
+  for (const screen of ["settings", "health", "update", "github-account"]) {
+    assert.deepEqual(
+      scanSource(`apps/web/src/components/app/runner-${screen}.tsx`, source),
+      []
+    );
+  }
+  for (const file of [
+    web,
+    "apps/web/src/components/app/chat/composer-meta.tsx",
+    "apps/web/src/hooks/use-runner-engines.ts",
+    "apps/web/src/components/app/runner-new-management-screen.tsx",
+    "apps/web/src/components/app/new/runner-settings.tsx",
+  ]) {
+    const hits = scanSource(file, source);
+    assert.equal(
+      hits.filter((hit) => hit.kind.startsWith("R6 ")).length,
+      3,
+      file
+    );
+    assert.ok(compareHits(countHits(hits), []).length > 0, file);
+  }
+});
+
+test("runner management exemption does not suppress other rules", () => {
+  const hits = scanSource(
+    "apps/web/src/components/app/runner-settings.tsx",
+    'import "@dispatch/runner";'
+  );
+  assert.ok(hits.some((hit) => hit.kind === "R5 Dispatch to runner"));
+});
