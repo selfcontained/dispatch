@@ -2,6 +2,7 @@ import { validationCatalogFixture } from "./helpers/model-catalog-validation.js"
 const validationFixtures: ReturnType<typeof validationCatalogFixture>[] = [];
 import {
   setLearnedAgentModels,
+  getLearnedAgentModels,
   forgetLearnedAgentModels,
 } from "../src/shared/agent-models.js";
 import { afterEach } from "vitest";
@@ -274,6 +275,17 @@ describe("POST /api/v1/agents/:id/launch-persona", () => {
       const [, input] = deps.streams.promptAgent.mock.calls[0]!;
       expect(input.text).toContain('model: "runner-custom/review"');
       expect(input.text).toContain('effort: "runner-effort"');
+      if (source !== "taught") {
+        expect(
+          validationFixtures[0]!.call.mock.calls.filter(
+            ([op]) => op === "engine.models"
+          )
+        ).toHaveLength(1);
+        const learned = getLearnedAgentModels("opencode", "linux");
+        if (source === "first refresh")
+          expect(learned?.[0]?.id).toBe("runner-custom/review");
+        else expect(learned).toBeUndefined();
+      }
     }
   );
 

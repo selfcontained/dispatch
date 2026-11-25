@@ -118,7 +118,7 @@ export class ModelCatalogRefresh {
     this.request(runnerId, engine);
     if (!observed()) await this.settled(runnerId, engine);
     if (!observed()) return false;
-    const model = request.model ?? agentModelDefaults(runnerId)[engine];
+    const model = request.model?.trim() || agentModelDefaults(runnerId)[engine];
     const option = getAgentModelOptions(engine, runnerId).find(
       (choice) => choice.id === model
     );

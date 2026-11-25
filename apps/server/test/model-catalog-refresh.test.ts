@@ -536,7 +536,7 @@ describe.each(validationTargets)(
       }));
       const scopes = await Promise.all(
         Array.from({ length: 20 }, () =>
-          modelScopeFor(target, "opencode", { model: "b", effort: "turbo" })
+          modelScopeFor(target, "opencode", { model: " b ", effort: "turbo" })
         )
       );
       for (const scope of scopes)
@@ -549,7 +549,10 @@ describe.each(validationTargets)(
         model: "b",
       });
       expect(readStoredModelCatalog(id, "opencode").defaultModel).toBe("a");
-      await modelScopeFor(target, "opencode", { model: "b", effort: "turbo" });
+      await modelScopeFor(target, "opencode", {
+        model: " b ",
+        effort: "turbo",
+      });
       expect(f.listing).toHaveBeenCalledOnce();
     });
     it.each(["offline", "failed", "fenced", "timeout"])(
