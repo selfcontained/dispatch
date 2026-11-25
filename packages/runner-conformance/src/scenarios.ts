@@ -844,10 +844,17 @@ const runnerGitQueries: Scenario[] = [
     id: "git.defaultBranch/checkout-path",
     async run({ runner, session }) {
       const binding = await runner.call("workspace.describe", { session });
-      const { branch } = await runner.call("git.defaultBranch", {
+      const { branch, currentBranch } = await runner.call("git.defaultBranch", {
         target: { path: binding.path },
       });
       expect(branch === "main", "The path's default branch was not found.");
+      const context = await runner.call("git.context", {
+        target: { path: binding.path },
+      });
+      expect(
+        currentBranch === (context?.branch || null),
+        "The path's current branch differs from its Git context."
+      );
     },
   },
   {
@@ -1056,7 +1063,10 @@ const workspacePreparation: Scenario[] = [
         const current = await runner.call("git.defaultBranch", {
           target: { session: legacy },
         });
-        expect(current.branch === null, "Legacy scratch checkout read failed.");
+        expect(
+          current.branch === null && current.currentBranch === null,
+          "Legacy scratch checkout read failed."
+        );
       } finally {
         await runner.call("session.stop", { session: legacy, force: true });
         await runner.call("session.discard", { session: legacy });

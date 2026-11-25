@@ -95,6 +95,7 @@ import {
   buildGitContextForWorktree,
   normalizePath,
   probeGitContext,
+  resolveCurrentBranch,
   resolveWorktreeRoot,
 } from "../shared/git/git-context.js";
 import { resolveBaseRef } from "../shared/git/base-ref.js";
@@ -599,14 +600,19 @@ async function readGitQuery<K extends GitQueryName>(
     );
     const defaultBranch = /^ref: refs\/heads\/(.+)\tHEAD$/m.exec(stdout)?.[1];
     if (op === "git.defaultBranch")
-      return { branch: defaultBranch ?? null } as Res<K>;
+      return { branch: defaultBranch ?? null, currentBranch: null } as Res<K>;
     const branches = [...stdout.matchAll(/^[a-f0-9]+\trefs\/heads\/(.+)$/gm)]
       .map((match) => match[1]!)
       .sort();
     return { branches, ...(defaultBranch && { defaultBranch }) } as Res<K>;
   }
-  if (op === "git.defaultBranch")
-    return { branch: await detectDefaultBranch(directory) } as Res<K>;
+  if (op === "git.defaultBranch") {
+    const [branch, currentBranch] = await Promise.all([
+      detectDefaultBranch(directory),
+      resolveCurrentBranch(directory).catch(() => null),
+    ]);
+    return { branch, currentBranch } as Res<K>;
+  }
   const { requested, fallback } = request as Omit<Req<"git.base">, "target">;
   return {
     base: await resolveBaseRef(directory, requested, { fallback }),

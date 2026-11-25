@@ -623,7 +623,12 @@ export const operations = {
     scope: "session",
     kind: "call",
     request: object({ target }),
-    response: object({ branch: nullable(string) }),
+    // `currentBranch` is the checkout's attached branch (null when detached,
+    // outside Git, or for a repository URL): the service's last fallback.
+    response: object({
+      branch: nullable(string),
+      currentBranch: nullable(string),
+    }),
     errors: [],
     retry: read,
     timeout: "default",

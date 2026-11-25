@@ -1,5 +1,13 @@
 import { remotePlacement, type RunnerRepository } from "./remote/protocol.js";
-import { localDefaultBranch } from "../shared/git/default-branch.js";
+import {
+  pathFromWire,
+  type Placement,
+} from "@dispatch/runner-protocol/contract";
+import {
+  runnerDirectory,
+  type CheckoutCommandRunners,
+} from "../runners/directory.js";
+import { controllerPlacement } from "../runners/placement.js";
 import {
   agentDiffPath,
   type WorkspaceTargetAgent,
@@ -15,6 +23,8 @@ export type ComparisonUse = "changes" | "review";
 
 export type ComparisonBaseAgent = WorkspaceTargetAgent & {
   worktreeBranch?: string | null;
+  /** The runner the agent's checkout is on (this machine when absent). */
+  placement?: Placement;
 };
 
 /** The launch checkout a runner session was created from, if any. */
@@ -30,7 +40,9 @@ export type LaunchCheckout = RunnerRepository["checkout"] | null | undefined;
 export async function agentComparisonBase(
   agent: ComparisonBaseAgent,
   use: ComparisonUse,
-  launch?: LaunchCheckout
+  launch?: LaunchCheckout,
+  /** The runners the service reads through; the local child when started. */
+  runners: CheckoutCommandRunners = {}
 ): Promise<string | null> {
   if (agent.workspacePath) return agent.workspaceBaseBranch ?? null;
   const isRunner = Boolean(agent.cwd && remotePlacement(agent.cwd));
@@ -56,5 +68,12 @@ export async function agentComparisonBase(
   // New runner launches have a known default in launch.base when available.
   // For older or unresolved launches the runner has the checkout's recorded base.
   const cwd = managed ? agentDiffPath(agent) : null;
-  return cwd ? localDefaultBranch(cwd) : null;
+  if (!cwd) return null;
+  // Main's chain: the repository's default, the checkout's current branch,
+  // then "main". Main's probes never fail the read, and neither does this.
+  const { branch, currentBranch } = await runnerDirectory(runners)
+    .for(agent.placement ?? controllerPlacement)
+    .call("git.defaultBranch", { target: { path: pathFromWire(cwd) } })
+    .catch(() => ({ branch: null, currentBranch: null }));
+  return branch ?? currentBranch ?? "main";
 }
