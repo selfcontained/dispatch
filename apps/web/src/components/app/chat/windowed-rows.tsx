@@ -468,22 +468,24 @@ export function useWindowedRows({
    * WebKit can lay out in between, see the content end there and clamp
    * scrollTop to it. A feed opened at its bottom then landed thousands of
    * px up in history, with no write from here and the final layout
-   * unchanged. A row shrinking ahead of its regrowth does the same. The
-   * floor holds the height through that, and comes down once the rows
-   * really are shorter: it is lowered after the commit or measurement that
-   * makes them so.
+   * unchanged. The floor holds the height through the swap, and comes down
+   * once the rows really are shorter: it is lowered after the commit or
+   * measurement that makes them so. (A row that shrinks on its own is
+   * measured after that layout, so the floor does not cover it.)
    */
-  const paddingRef = useRef<number | null>(null);
   const applyFloor = useCallback(() => {
     const container = containerRef.current;
-    if (!container || !windowing) return;
-    if (paddingRef.current === null) {
-      const style = getComputedStyle(container);
-      paddingRef.current =
-        (parseFloat(style.paddingTop) || 0) +
-        (parseFloat(style.paddingBottom) || 0);
+    if (!container) return;
+    // Every row renders when not windowing: no swaps, and no floor left over.
+    if (!windowing) {
+      container.style.minHeight = "";
+      return;
     }
-    let total = paddingRef.current;
+    // Read each time: padding can change with the breakpoint.
+    const style = getComputedStyle(container);
+    let total =
+      (parseFloat(style.paddingTop) || 0) +
+      (parseFloat(style.paddingBottom) || 0);
     for (const key of keysRef.current) {
       total += heights.get(key) ?? estimatedHeight;
     }

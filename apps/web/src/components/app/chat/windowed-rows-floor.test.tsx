@@ -48,13 +48,14 @@ function resize(el: Element, height: number) {
   }
 }
 
-function List({ keys }: { keys: string[] }) {
+function List({ keys, enabled = true }: { keys: string[]; enabled?: boolean }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const windowed = useWindowedRows({
     scrollRef,
     keys,
     align: "end",
     cacheKey: "floor-test",
+    enabled,
   });
   return (
     <div ref={scrollRef} data-testid="scroller">
@@ -114,5 +115,12 @@ describe("useWindowedRows floor", () => {
     const { getByTestId, rerender } = render(<List keys={["a", "b", "c"]} />);
     rerender(<List keys={["a", "b"]} />);
     expect(getByTestId("list").style.minHeight).toBe("240px");
+  });
+
+  it("drops the floor when the list stops windowing", () => {
+    const { getByTestId, rerender } = render(<List keys={["a", "b"]} />);
+    expect(getByTestId("list").style.minHeight).toBe("240px");
+    rerender(<List keys={["a", "b"]} enabled={false} />);
+    expect(getByTestId("list").style.minHeight).toBe("");
   });
 });
