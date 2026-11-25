@@ -144,6 +144,88 @@ describe("recordEngineModels", () => {
 
   const pool = () => ({ query: vi.fn().mockResolvedValue({ rows: [] }) });
 
+  it("round-trips main's local key, exact labels, default and effort descriptions", async () => {
+    const values = new Map<string, string>();
+    const p = {
+      query: vi.fn(async (sql: string, args: string[]) => {
+        if (sql.includes("INSERT INTO settings"))
+          values.set(args[0]!, args[1]!);
+        return {
+          rows: values.has(args[0]!) ? [{ value: values.get(args[0]!) }] : [],
+        };
+      }),
+    };
+    const effort: SessionConfigOption = {
+      id: "effort",
+      name: "Effort",
+      type: "select",
+      currentValue: "high",
+      options: [
+        {
+          value: "high",
+          name: "High",
+          description: "Engine's full description",
+        },
+      ],
+    };
+    await recordEngineModels(
+      { pool: p as never, logger },
+      { id: "a", type: "codex", model: null },
+      [
+        modelOption("gpt-a", [
+          { value: "gpt-a", name: "1 A" },
+          { value: "gpt-b", name: "B" },
+        ]),
+        effort,
+      ]
+    );
+    await recordEngineModels(
+      { pool: p as never, logger },
+      { id: "b", type: "codex", model: "gpt-b" },
+      [
+        modelOption("gpt-b", [
+          { value: "gpt-a", name: "1 A" },
+          { value: "gpt-b", name: "B" },
+        ]),
+        effort,
+      ]
+    );
+    const expected = getAgentModelOptions("codex");
+    expect(expected[0]).toEqual({
+      id: "gpt-a",
+      label: "GPT-1 A",
+      effort: [
+        {
+          value: "high",
+          name: "High",
+          description: "Engine's full description",
+        },
+      ],
+    });
+    expect([...values.keys()]).toEqual([
+      "agent_model_availability:codex",
+      "agent_models:codex",
+    ]);
+    expect(agentModelDefaults().codex).toBe("gpt-a");
+    forgetLearnedAgentModels();
+    await loadLearnedAgentModels(p as never);
+    expect(getAgentModelOptions("codex")).toEqual(expected);
+    expect(agentModelDefaults().codex).toBe("gpt-a");
+  });
+
+  it.each([
+    "{broken",
+    "null",
+    '{"models":null}',
+    '{"models":[{"id":"default-model"},{"id":"other-model"}]}',
+  ])("ignores corrupt or old main storage: %s", async (raw) => {
+    const before = getAgentModelOptions("codex");
+    const p = { query: vi.fn(async () => ({ rows: [{ value: raw }] })) };
+    await loadLearnedAgentModels(p as never);
+    expect(getAgentModelOptions("codex")).toEqual(before);
+    expect(agentModelDefaults().codex).toBeUndefined();
+  });
+
   it("stores the running model on the agent and the list for its type", async () => {
     const p = pool();
     const result = await recordEngineModels(
