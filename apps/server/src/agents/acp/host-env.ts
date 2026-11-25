@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { rootCertificates } from "node:tls";
-import type { AcpEngineId, EngineBins } from "./engine-spec.js";
+import type { AcpEngineId, EngineBins } from "@dispatch/runner-protocol/host";
 import { hostFile, type HostLaunch } from "./host-protocol.js";
 import type { HostSearchPath } from "./host/types.js";
 

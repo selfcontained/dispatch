@@ -376,3 +376,21 @@ test("runner management exemption does not suppress other rules", () => {
   );
   assert.ok(hits.some((hit) => hit.kind === "R5 Dispatch to runner"));
 });
+
+test("host DTOs alone may reference ACP SDK types, never runtime values", () => {
+  const host = "packages/runner-protocol/src/host.ts";
+  const declared = new Set(["@agentclientprotocol/sdk"]);
+  const sdk = 'import type { SessionUpdate } from "@agentclientprotocol/sdk";';
+  assert.equal(scanSource(host, sdk, declared).length, 0);
+  for (const [file, source] of [
+    [host, 'import { SessionUpdate } from "@agentclientprotocol/sdk";'],
+    [protocol, sdk],
+    [host, 'import type { Row } from "pg";'],
+  ]) {
+    assert.ok(
+      scanSource(file, source, declared).some(
+        (hit) => hit.kind === "R5 package import"
+      )
+    );
+  }
+});

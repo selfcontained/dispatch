@@ -431,7 +431,11 @@ importers:
         specifier: workspace:*
         version: link:../runner-protocol
 
-  packages/runner-protocol: {}
+  packages/runner-protocol:
+    devDependencies:
+      '@agentclientprotocol/sdk':
+        specifier: 1.8.0
+        version: 1.8.0(zod@4.6.7)
 
   packages/shared:
     dependencies:
@@ -8017,6 +8021,10 @@ snapshots:
   '@agentclientprotocol/sdk@1.8.0(zod@4.3.6)':
     dependencies:
       zod: 4.3.6
+
+  '@agentclientprotocol/sdk@1.8.0(zod@4.6.7)':
+    dependencies:
+      zod: 4.6.7
 
   '@agentclientprotocol/sdk@2.6.0(zod@4.6.7)':
     dependencies:

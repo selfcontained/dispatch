@@ -1,7 +1,11 @@
 import path from "node:path";
 import { AUTHENTICATION_REQUIRED } from "@dispatch/shared";
 
-import type { DriverEvent, DriverUpdate, DriverUsage } from "./driver.js";
+import type {
+  DriverEvent,
+  DriverUpdate,
+  DriverUsage,
+} from "@dispatch/runner-protocol/host";
 import { systemPromptSource, type PromptSource } from "./prompt-source.js";
 import type {
   CompactionPayload,

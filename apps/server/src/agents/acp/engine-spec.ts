@@ -2,27 +2,9 @@ import path from "node:path";
 
 import { selfCommand } from "./host-command.js";
 
-/** The engines the ACP runtime can drive. `agents.type` names one of these. */
-export const ACP_ENGINE_IDS = ["claude", "codex", "opencode"] as const;
-export type AcpEngineId = (typeof ACP_ENGINE_IDS)[number];
-
-export function isAcpEngine(type: string): type is AcpEngineId {
-  return (ACP_ENGINE_IDS as readonly string[]).includes(type);
-}
-
-export type EngineBins = {
-  /** Absolute path to the host's `claude`, for `CLAUDE_CODE_EXECUTABLE`. */
-  claudeBin: string;
-  /** Absolute path to the host's `codex`, for `CODEX_PATH`. */
-  codexBin: string | null;
-  /** OpenCode provides its own native ACP command. */
-  opencodeBin?: string | null;
-  /**
-   * Runs the adapter instead of this binary's own mode. Only the tests set
-   * it, to stand a fake engine in place of a real one.
-   */
-  adapter?: { bin: string; args?: string[] };
-};
+import type { AcpEngineId, EngineBins } from "@dispatch/runner-protocol/host";
+export { ACP_ENGINE_IDS, isAcpEngine } from "@dispatch/runner-protocol/host";
+export type { AcpEngineId, EngineBins } from "@dispatch/runner-protocol/host";
 
 /**
  * Claude and Codex adapters are modes of this binary (see main.ts), so each is

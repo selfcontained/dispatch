@@ -28,7 +28,7 @@ import {
   qualifyExternalMentions,
 } from "@dispatch/shared";
 import { createHash, randomUUID } from "node:crypto";
-import type { DriverEvent } from "../agents/acp/driver.js";
+import type { DriverEvent } from "@dispatch/runner-protocol/host";
 import path from "node:path";
 
 import type { Pool, PoolClient } from "pg";

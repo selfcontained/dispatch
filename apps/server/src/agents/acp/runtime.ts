@@ -34,7 +34,7 @@ import type {
 } from "@agentclientprotocol/sdk";
 
 import type { AppConfig } from "../../config.js";
-import type { DriverEvent } from "./driver.js";
+import type { DriverEvent } from "@dispatch/runner-protocol/host";
 import type {
   PromptImage,
   PromptSource,

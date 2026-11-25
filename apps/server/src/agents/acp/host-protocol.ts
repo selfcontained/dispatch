@@ -15,12 +15,12 @@ import type {
   McpInventoryResult,
   PermissionRequest,
   CallerSource,
-} from "./driver.js";
+} from "@dispatch/runner-protocol/host";
 import type {
   AvailableCommand,
   SessionConfigOption,
 } from "@agentclientprotocol/sdk";
-import type { EngineBins } from "./engine-spec.js";
+import type { EngineBins } from "@dispatch/runner-protocol/host";
 
 /**
  * What the server writes into an agent's state directory before spawning

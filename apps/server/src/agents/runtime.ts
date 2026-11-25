@@ -14,7 +14,7 @@ import type {
 import type { BuildIdentity } from "./build-identity.js";
 import type { HostLaunch, PromptReceiptState } from "./acp/host-protocol.js";
 import type { AppConfig } from "../config.js";
-import type { DriverEvent } from "./acp/driver.js";
+import type { DriverEvent } from "@dispatch/runner-protocol/host";
 import type {
   AvailableCommand,
   SessionConfigOption,
