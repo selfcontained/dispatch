@@ -40,6 +40,7 @@ import {
 import { FILE_ITEM_QUERY_PREFIX } from "@/hooks/use-files";
 import { CACHED_RELEASE_INFO_QUERY_KEY } from "@/hooks/use-cached-release-info";
 import { MAC_APP_UPDATE_QUERY_KEY } from "@/hooks/use-mac-app-update";
+import { useInbox } from "@/hooks/use-inbox";
 import { useAgentReviewSummary } from "@/hooks/use-agent-review-summary";
 import { AgentReviewIndicator } from "@/components/app/agent-review-indicator";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -556,6 +557,91 @@ describe("review summary first fetch", () => {
     cleanup();
     vi.unstubAllGlobals();
     apiMock.mockReset();
+  });
+
+  it("refreshes Inbox after an event during first fetch, retains pages and catches up on reconnect", async () => {
+    FakeEventSource.instances = [];
+    vi.stubGlobal("EventSource", FakeEventSource);
+    let resolveFirst!: (value: StreamFeedResponse) => void;
+    const empty = {
+      entries: [],
+      hasMore: false,
+      nextCursor: null,
+      unreadCount: 0,
+    };
+    let current = reviewBlock({ id: "new-review", streamId: "parent" });
+    let headReads = 0;
+    apiMock.mockImplementation((url: string) => {
+      if (!url.includes("reviewsOnly")) return Promise.resolve(empty);
+      if (url.includes("cursor="))
+        return Promise.resolve({
+          ...empty,
+          entries: [
+            blockEntry(
+              reviewBlock({
+                id: "archived-review",
+                author: { kind: "agent", agentId: "archived" },
+              })
+            ),
+          ],
+          agentNames: { archived: "Archived reviewer" },
+        });
+      if (++headReads === 1)
+        return new Promise<StreamFeedResponse>((resolve) => {
+          resolveFirst = resolve;
+        });
+      return Promise.resolve({
+        ...empty,
+        entries: [blockEntry(current)],
+        nextCursor: "older",
+        hasMore: true,
+      });
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const { result } = renderHook(
+      () => {
+        useSSE("authenticated");
+        return useInbox("parent");
+      },
+      {
+        wrapper: ({ children }: { children: ReactNode }) =>
+          createElement(QueryClientProvider, { client: queryClient }, children),
+      }
+    );
+    await waitFor(() => expect(headReads).toBe(1));
+    act(() =>
+      FakeEventSource.instances[0].emit({
+        type: "stream.entry",
+        agentId: "parent",
+        entry: blockEntry(current),
+      })
+    );
+    await act(async () => resolveFirst(empty));
+    await waitFor(() =>
+      expect(result.current.reviews.map((r) => r.id)).toEqual(["new-review"])
+    );
+    act(() => result.current.loadOlderReviews?.());
+    await waitFor(() => expect(result.current.reviews).toHaveLength(2));
+    current = {
+      ...current,
+      text: "missed while disconnected",
+      updatedAt: "2026-12-01T00:00:00.000Z",
+    };
+    act(() =>
+      FakeEventSource.instances[0].emit({ type: "snapshot", agents: [] })
+    );
+    await waitFor(() =>
+      expect(
+        result.current.reviews.find((r) => r.id === "new-review")?.text
+      ).toBe("missed while disconnected")
+    );
+    expect(result.current.reviews.map((r) => r.id)).toContain(
+      "archived-review"
+    );
+    expect(result.current.agentNames.archived).toBe("Archived reviewer");
+    queryClient.clear();
   });
 
   it("shows a review arriving during the first fetch without remounting", async () => {
@@ -1094,6 +1180,88 @@ describe("useSSE message handling", () => {
     cleanup();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it("refreshes Inbox reviews for reviews, findings, launch cards, stream changes and reconnect", () => {
+    const { queryClient, emit } = renderMessages();
+    const key = ["inbox-reviews", "agt_1"];
+    const other = ["inbox-reviews", "agt_2"];
+    const review = reviewBlock({ streamId: "agt_1" });
+    const entries = [
+      blockEntry(review),
+      ...(["fixed", "dismissed", "open"] as const).map((status) =>
+        blockEntry(
+          findingBlock(
+            "finding",
+            { severity: "major", title: "Finding", body: "Details" },
+            { reviewId: review.id, record: findingRecord(status) }
+          )
+        )
+      ),
+      blockEntry(launchBlock({ streamId: "agt_1", blocks: [review] })),
+    ];
+    for (const entry of entries) {
+      queryClient.setQueryData(key, { pages: [] });
+      queryClient.setQueryData(other, { pages: [] });
+      emit({ type: "stream.entry", agentId: "agt_1", entry });
+      expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true);
+      expect(queryClient.getQueryState(other)?.isInvalidated).toBe(false);
+    }
+    queryClient.setQueryData(key, { pages: [] });
+    emit({ type: "stream.changed", agentId: "agt_1" });
+    expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true);
+    queryClient.setQueryData(key, { pages: [] });
+    emit({
+      type: "stream.entry",
+      agentId: "agt_1",
+      entry: personRow("chat", "2026-09-02T10:00:00.000Z"),
+    });
+    expect(queryClient.getQueryState(key)?.isInvalidated).toBe(false);
+    emit({ type: "snapshot", agents: [] });
+    expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(other)?.isInvalidated).toBe(true);
+  });
+
+  it("refreshes the recipient Inbox for reviews and finding changes in a reviewer's home", () => {
+    const { queryClient, emit } = renderMessages();
+    const review = reviewBlock({ streamId: "reviewer", toAgentId: "parent" });
+    const entries = [
+      blockEntry(review),
+      ...(["fixed", "dismissed", "open"] as const).map((status) =>
+        blockEntry(
+          findingBlock(
+            "finding",
+            { severity: "major", title: "Finding", body: "Details" },
+            {
+              streamId: "reviewer",
+              toAgentId: "parent",
+              reviewId: review.id,
+              record: findingRecord(status),
+            }
+          )
+        )
+      ),
+      blockEntry(launchBlock({ streamId: "host", blocks: [review] })),
+    ];
+    for (const entry of entries) {
+      for (const root of ["reviewer", "parent", "unrelated"])
+        queryClient.setQueryData(["inbox-reviews", root], { pages: [] });
+      emit({ type: "stream.entry", agentId: "reviewer", entry });
+      expect(
+        queryClient.getQueryState(["inbox-reviews", "reviewer"])?.isInvalidated
+      ).toBe(true);
+      expect(
+        queryClient.getQueryState(["inbox-reviews", "parent"])?.isInvalidated
+      ).toBe(true);
+      expect(
+        queryClient.getQueryState(["inbox-reviews", "unrelated"])?.isInvalidated
+      ).toBe(false);
+    }
+    queryClient.setQueryData(["inbox-reviews", "parent"], { pages: [] });
+    emit({ type: "stream.changed", agentId: "reviewer" });
+    expect(
+      queryClient.getQueryState(["inbox-reviews", "parent"])?.isInvalidated
+    ).toBe(true);
   });
 
   it("replaces the agent list from a snapshot in created-at order", () => {
