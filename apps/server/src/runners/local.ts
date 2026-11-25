@@ -61,8 +61,8 @@ import {
 import {
   agentDiffPath,
   agentWorkspaceDir,
-  selectWorkspaceDirectory,
 } from "../agents/workspace-target.js";
+import { selectWorkspaceFromResolution } from "./workspace-selection.js";
 
 const checkoutWorkload = createCheckoutWorkload({
   parseDefinition: toPersonaDefinition,
@@ -695,7 +695,11 @@ export function createLocalCheckoutRunner(
     mayWriteHere();
     const home = session.worktreePath ?? session.cwd;
     const selected = input.path
-      ? await selectWorkspaceDirectory(home, displayPath(input.path))
+      ? await selectWorkspaceFromResolution(
+          home,
+          displayPath(input.path),
+          workspaceWorkload.resolvePath
+        )
       : { path: home, moved: false, repoRoot: null };
     return {
       path: pathFromWire(selected.path),
