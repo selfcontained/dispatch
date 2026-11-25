@@ -691,7 +691,17 @@ export function useSSE(authState: AuthState): void {
               block.blocks?.some((shown) => shown.kind === "review"))
           ) {
             invalidateReviewSummary(queryClient);
-            invalidateInboxReviews(queryClient, payload.agentId);
+            // Agent reviews live at the reviewer’s home, but the recipient’s
+            // Inbox also reads them. Shown reviews can have their own recipient.
+            const roots = new Set([payload.agentId]);
+            for (const review of [block, ...(block.blocks ?? [])]) {
+              if (
+                (review.kind === "review" || review.kind === "finding") &&
+                review.toAgentId
+              )
+                roots.add(review.toAgentId);
+            }
+            for (const root of roots) invalidateInboxReviews(queryClient, root);
           }
           // Closing an ask changes the agent's derived Waiting activity.
           // The stream row updates the card, but the sidebar agent cache
@@ -732,7 +742,9 @@ export function useSSE(authState: AuthState): void {
         if (payload.type === "stream.changed") {
           void queryClient.invalidateQueries({ queryKey: ["agent-preview"] });
           invalidateStreamFeed(queryClient, payload.agentId);
-          invalidateInboxReviews(queryClient, payload.agentId);
+          // This event carries no block/addressee (including removals), so
+          // refresh recipient Inboxes too rather than guessing from cached rows.
+          invalidateInboxReviews(queryClient);
           void queryClient.invalidateQueries({
             queryKey: [...STREAM_QUERY_PREFIX, payload.agentId, "thread"],
           });

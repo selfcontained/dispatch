@@ -1182,7 +1182,7 @@ describe("useSSE message handling", () => {
     vi.restoreAllMocks();
   });
 
-  it("refreshes Inbox reviews for reviews, findings, launch cards and stream changes only in their stream", () => {
+  it("refreshes Inbox reviews for reviews, findings, launch cards, stream changes and reconnect", () => {
     const { queryClient, emit } = renderMessages();
     const key = ["inbox-reviews", "agt_1"];
     const other = ["inbox-reviews", "agt_2"];
@@ -1220,6 +1220,48 @@ describe("useSSE message handling", () => {
     emit({ type: "snapshot", agents: [] });
     expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(other)?.isInvalidated).toBe(true);
+  });
+
+  it("refreshes the recipient Inbox for reviews and finding changes in a reviewer's home", () => {
+    const { queryClient, emit } = renderMessages();
+    const review = reviewBlock({ streamId: "reviewer", toAgentId: "parent" });
+    const entries = [
+      blockEntry(review),
+      ...(["fixed", "dismissed", "open"] as const).map((status) =>
+        blockEntry(
+          findingBlock(
+            "finding",
+            { severity: "major", title: "Finding", body: "Details" },
+            {
+              streamId: "reviewer",
+              toAgentId: "parent",
+              reviewId: review.id,
+              record: findingRecord(status),
+            }
+          )
+        )
+      ),
+      blockEntry(launchBlock({ streamId: "host", blocks: [review] })),
+    ];
+    for (const entry of entries) {
+      for (const root of ["reviewer", "parent", "unrelated"])
+        queryClient.setQueryData(["inbox-reviews", root], { pages: [] });
+      emit({ type: "stream.entry", agentId: "reviewer", entry });
+      expect(
+        queryClient.getQueryState(["inbox-reviews", "reviewer"])?.isInvalidated
+      ).toBe(true);
+      expect(
+        queryClient.getQueryState(["inbox-reviews", "parent"])?.isInvalidated
+      ).toBe(true);
+      expect(
+        queryClient.getQueryState(["inbox-reviews", "unrelated"])?.isInvalidated
+      ).toBe(false);
+    }
+    queryClient.setQueryData(["inbox-reviews", "parent"], { pages: [] });
+    emit({ type: "stream.changed", agentId: "reviewer" });
+    expect(
+      queryClient.getQueryState(["inbox-reviews", "parent"])?.isInvalidated
+    ).toBe(true);
   });
 
   it("replaces the agent list from a snapshot in created-at order", () => {
