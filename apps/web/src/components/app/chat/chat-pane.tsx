@@ -473,12 +473,13 @@ export const REMEMBER_THROTTLE_MS = 50;
 export const REMEMBER_SETTLE_MS = 150;
 
 /**
- * How long a place restored on return is held while the feed settles under
- * it. Rows around it mount and measure in the frames after the restore;
- * WebKit can move the scroller thousands of px while they do, further than
- * the windowed feed's own hold treats as anything but a jump, and the
- * reader came back somewhere else (which was then remembered over the
- * right place). The reader's own input ends the hold at once.
+ * How long the place a feed opens at is held while the feed settles under
+ * it: a restored row, or the bottom. Rows around it mount and measure in
+ * the frames after; WebKit can move the scroller thousands of px while they
+ * do, further than the windowed feed's own hold treats as anything but a
+ * jump. A restored reader came back somewhere else (which was then
+ * remembered over the right place), and a feed opened at the newest landed
+ * deep in history. The reader's own input ends the hold at once.
  */
 export const RESTORE_HOLD_MS = 1500;
 
@@ -591,8 +592,11 @@ export function ChatPane({
   const restoredRef = useRef(false);
   /** The windowed feed's own hold on the reader's place (see ChatFeed). */
   const placeRef = useRef<FeedPlace | null>(null);
-  /** Until when the restored place is held (see RESTORE_HOLD_MS). */
+  /** Until when the opening place is held (see RESTORE_HOLD_MS). */
   const restoreHoldUntilRef = useRef(0);
+  /** Whether the held place is the bottom rather than a restored row. */
+  const holdBottomRef = useRef(false);
+  const scrollToBottomRef = useRef<() => void>(() => {});
   const restoreHoldTimerRef = useRef<number | null>(null);
   /** While held, the restored rows stay rendered wherever the window is. */
   const [restoreHolding, setRestoreHolding] = useState(false);
@@ -604,16 +608,20 @@ export function ChatPane({
     }
     setRestoreHolding(false);
   }, []);
-  const startRestoreHold = useCallback(() => {
-    restoreHoldUntilRef.current = Date.now() + RESTORE_HOLD_MS;
-    if (restoreHoldTimerRef.current !== null)
-      window.clearTimeout(restoreHoldTimerRef.current);
-    restoreHoldTimerRef.current = window.setTimeout(
-      endRestoreHold,
-      RESTORE_HOLD_MS
-    );
-    setRestoreHolding(true);
-  }, [endRestoreHold]);
+  const startRestoreHold = useCallback(
+    (place: "row" | "bottom" = "row") => {
+      holdBottomRef.current = place === "bottom";
+      restoreHoldUntilRef.current = Date.now() + RESTORE_HOLD_MS;
+      if (restoreHoldTimerRef.current !== null)
+        window.clearTimeout(restoreHoldTimerRef.current);
+      restoreHoldTimerRef.current = window.setTimeout(
+        endRestoreHold,
+        RESTORE_HOLD_MS
+      );
+      setRestoreHolding(true);
+    },
+    [endRestoreHold]
+  );
   useEffect(
     () => () => {
       if (restoreHoldTimerRef.current !== null)
@@ -628,6 +636,18 @@ export function ChatPane({
   const reapplyRestore = useCallback((el: HTMLElement) => {
     if (restoreHoldUntilRef.current === 0) return;
     if (Date.now() >= restoreHoldUntilRef.current) return;
+    // A deliberate move away (a jump to a row, the start of a tall reply)
+    // ends the hold where it is made; this only guards against a late one.
+    if (anchoredRef.current !== 0) return;
+    if (holdBottomRef.current) {
+      // A smooth follow under way is already headed for the bottom.
+      if (
+        tailTarget.current === null &&
+        el.scrollHeight - el.clientHeight - el.scrollTop > 1
+      )
+        scrollToBottomRef.current();
+      return;
+    }
     const saved = savedPositionRef.current;
     if (saved && !saved.following && scrollToAnchor(el, saved.anchors))
       placeRef.current?.takeHere();
@@ -651,6 +671,7 @@ export function ChatPane({
     },
     [updateFollowing]
   );
+  scrollToBottomRef.current = scrollToBottom;
 
   // Give the browser the destination so the compositor can keep scrolling
   // while React handles the delivery and turn-start events on the main thread.
@@ -1010,6 +1031,7 @@ export function ChatPane({
       restoredRef.current = true;
       updateFollowing(true);
       scrollToBottom();
+      startRestoreHold("bottom");
       return;
     }
     if (!appended && !grew) return;
@@ -1020,6 +1042,7 @@ export function ChatPane({
       restoredRef.current = true;
       updateFollowing(true);
       scrollToBottom();
+      startRestoreHold("bottom");
       return;
     }
     // A turn's message landing. A long one would push its own start off the
@@ -1030,6 +1053,7 @@ export function ChatPane({
     if (tailing && landed && !streamedTurnIdsRef.current.has(landed.id)) {
       if (replyStartIfTall(el, landed.id) !== null) {
         cancelTail();
+        endRestoreHold();
         anchoredRef.current = Date.now();
         anchorTurnRef.current = landed.id;
         updateFollowing(false);
@@ -1055,6 +1079,8 @@ export function ChatPane({
     followBottom,
     cancelTail,
     seekSaved,
+    startRestoreHold,
+    endRestoreHold,
     entries,
     visibleEntries,
   ]);
@@ -1098,6 +1124,7 @@ export function ChatPane({
     scrollRef,
     () => {
       cancelTail();
+      endRestoreHold();
       anchoredRef.current = Date.now();
       anchorTurnRef.current = null;
       updateFollowing(false);

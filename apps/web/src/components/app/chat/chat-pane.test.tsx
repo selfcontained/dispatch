@@ -284,6 +284,15 @@ function agentPost(
   );
 }
 
+/**
+ * The feed holds the place it opened at against layout moving it, until the
+ * reader's first input. Tests that move the scroller themselves right after
+ * opening start once that hold is over.
+ */
+function endOpeningHold(scroll: HTMLElement) {
+  fireEvent.wheel(scroll);
+}
+
 function typeAndSend(text: string) {
   const input = screen.getByTestId("chat-composer-input");
   fireEvent.change(input, { target: { value: text } });
@@ -1097,6 +1106,7 @@ describe("ChatPane following", () => {
       };
       const { rerender, unmount } = renderPane(props);
       const scroll = screen.getByTestId("chat-scroll");
+      endOpeningHold(scroll);
       let height = 1000;
       Object.defineProperties(scroll, {
         scrollHeight: { configurable: true, get: () => height },
@@ -1170,6 +1180,7 @@ describe("ChatPane following", () => {
       const { unmount } = renderPane();
       try {
         const scroll = screen.getByTestId("chat-scroll");
+        endOpeningHold(scroll);
         const observer = observers.find(
           (observer) =>
             observer.targets.has(scroll) &&
@@ -1252,6 +1263,7 @@ describe("ChatPane following", () => {
     };
     const { rerender, unmount } = renderPane(props);
     const scroll = screen.getByTestId("chat-scroll");
+    endOpeningHold(scroll);
     let height = 1000;
     Object.defineProperties(scroll, {
       scrollHeight: { configurable: true, get: () => height },
@@ -1309,6 +1321,7 @@ describe("ChatPane following", () => {
     H.entries = [blockEntry(block({ id: "first", text: "first" }))];
     const { unmount } = renderPane();
     const scroll = screen.getByTestId("chat-scroll");
+    endOpeningHold(scroll);
     let height = 1000;
     Object.defineProperties(scroll, {
       scrollHeight: { configurable: true, get: () => height },
@@ -1444,6 +1457,42 @@ describe("ChatPane scroll memory", () => {
     // Rects are all zero here, so the row sits 50px above where it was left.
     expect(screen.getByTestId("chat-scroll").scrollTop).toBe(50);
     expect(Element.prototype.scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("holds the bottom a feed opens at while it settles, until the reader scrolls", () => {
+    H.entries = [
+      blockEntry(block({ id: "m1", text: "one" })),
+      blockEntry(block({ id: "m2", text: "two" })),
+    ];
+    const heightMock = vi
+      .spyOn(HTMLElement.prototype, "scrollHeight", "get")
+      .mockReturnValue(1000);
+    const clientMock = vi
+      .spyOn(HTMLElement.prototype, "clientHeight", "get")
+      .mockReturnValue(200);
+    vi.mocked(Element.prototype.scrollTo).mockImplementation(function (
+      this: HTMLElement
+    ) {
+      this.scrollTop = this.scrollHeight - this.clientHeight;
+    });
+    const { unmount } = renderPane();
+    try {
+      const scroll = screen.getByTestId("chat-scroll");
+      expect(scroll.scrollTop).toBe(800);
+      // Rows mounting under the newest move the scroller deep into history.
+      scroll.scrollTop = 100;
+      fireEvent.scroll(scroll);
+      expect(scroll.scrollTop).toBe(800);
+      // The reader's own scroll ends the hold where they take it.
+      fireEvent.wheel(scroll);
+      scroll.scrollTop = 100;
+      fireEvent.scroll(scroll);
+      expect(scroll.scrollTop).toBe(100);
+    } finally {
+      unmount();
+      heightMock.mockRestore();
+      clientMock.mockRestore();
+    }
   });
 
   it("holds a restored place while the feed settles, until the reader scrolls", () => {
@@ -1838,6 +1887,36 @@ describe("ChatPane jump to a block", () => {
     expect(rowOf("t1").hasAttribute("data-jump-flash")).toBe(true);
     // Not pinned to the newest message after the jump.
     expect(screen.queryByTestId("chat-jump-to-bottom")).toBeNull();
+  });
+
+  it("keeps a cold-load jump where it lands, not at the bottom opened at", () => {
+    H.entries = [
+      ...older,
+      pendingTurn("t1", "agt_1", "2026-09-02T10:01:00.000Z"),
+    ];
+    const heightMock = vi
+      .spyOn(HTMLElement.prototype, "scrollHeight", "get")
+      .mockReturnValue(1000);
+    const clientMock = vi
+      .spyOn(HTMLElement.prototype, "clientHeight", "get")
+      .mockReturnValue(200);
+    vi.mocked(Element.prototype.scrollTo).mockImplementation(function (
+      this: HTMLElement
+    ) {
+      this.scrollTop = this.scrollHeight - this.clientHeight;
+    });
+    try {
+      renderAt("?block=t1");
+      expect(rowOf("t1").hasAttribute("data-jump-flash")).toBe(true);
+      // The jump's own scroll lands mid-feed, inside the opening hold.
+      const scroll = screen.getByTestId("chat-scroll");
+      scroll.scrollTop = 300;
+      fireEvent.scroll(scroll);
+      expect(scroll.scrollTop).toBe(300);
+    } finally {
+      heightMock.mockRestore();
+      clientMock.mockRestore();
+    }
   });
 
   it("waits for a target that is not in the feed yet", () => {
