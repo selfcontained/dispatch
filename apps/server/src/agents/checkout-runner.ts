@@ -5,11 +5,8 @@ import {
   type CheckoutView,
   type CheckoutStatsOutcome,
   isCheckoutQuery,
-  isCheckoutReply,
-  remotePlacement,
   type CheckoutQuery,
   type CheckoutReply,
-  type SessionOperation,
 } from "@dispatch/runner-protocol";
 import {
   RunnerCallError,
@@ -18,8 +15,6 @@ import {
   type Res,
   type Runner,
 } from "@dispatch/runner-protocol/contract";
-import { inspectCheckout } from "./checkout-inspection.js";
-import { toPersonaDefinition } from "../personas/loader.js";
 import { AgentError } from "./errors.js";
 import type { RemoteRunnerService } from "./remote/service.js";
 import type { AgentRecord } from "./types.js";
@@ -37,7 +32,6 @@ import { checkoutReadPlacement } from "../runners/placement.js";
 import { TEST_FILE_PATTERNS } from "@dispatch/runner-protocol";
 import { WorkspaceError } from "@dispatch/runner-protocol";
 
-type Inspect = Extract<SessionOperation, { kind: "inspectCheckout" }>;
 /**
  * The runners an agent's checkout reads go through, or (as older callers
  * pass) just the remote service: local reads then run in this process.
@@ -72,10 +66,6 @@ export function sessionRunner(
     legacyView
   );
   return directory.for(placement);
-}
-
-function remoteOf(runners: CheckoutReadRunners) {
-  return readRunners(runners).remote;
 }
 
 export const target = (agent: { id?: string }) =>
@@ -148,20 +138,6 @@ function diffFromRunner(data: Res<"checkout.diff">) {
   };
 }
 
-/** The built-in runner resolves the same agent-scoped operation in process. */
-async function inspectLocalCheckout(agent: AgentRecord, operation: Inspect) {
-  const cwd = agentWorkspaceDir(agent);
-  if (!cwd || operation.agentId !== agent.id)
-    throw new AgentError("The session checkout is unavailable.", 409);
-  // The service already passed its explicit base; a native checkout never
-  // carries a runner-recorded one (as on main).
-  return inspectCheckout(cwd, operation.query, {
-    recordedBase: false,
-    unresolvedBase: "origin/main",
-    parseDefinition: toPersonaDefinition,
-  });
-}
-
 export async function inspectAgentCheckout(
   agent: AgentRecord,
   query: CheckoutQuery,
@@ -183,13 +159,9 @@ export async function inspectAgentCheckout(
           : displayPath(roots.repositoryRoot),
     };
   }
-  const operation: Inspect = {
-    kind: "inspectCheckout",
-    agentId: agent.id,
-    query,
-  };
-  const placement = remotePlacement(agent.cwd);
-  if (placement && query.kind === "listFiles") {
+  // Every query is a contract read on the agent's runner; a local one that
+  // the child cannot serve runs the same workload in the adapter.
+  if (query.kind === "listFiles") {
     const listing = await readThrough(() =>
       sessionRunner(runners, agent).call("checkout.list", {
         target: target(agent),
@@ -201,28 +173,6 @@ export async function inspectAgentCheckout(
       kind: "listFiles",
       names: listing.entries.map(({ name }) => name),
     };
-  }
-  if (
-    placement &&
-    query.kind !== "readFile" &&
-    query.kind !== "changes" &&
-    query.kind !== "defaultBranchFiles"
-  ) {
-    const remote = remoteOf(runners);
-    if (!remote)
-      throw new AgentError("The agent’s runner is unavailable.", 409);
-    const { value } = await remote.requestSession(placement, operation);
-    if (typeof value !== "string")
-      throw new AgentError("Missing runner checkout response.", 502);
-    let reply: unknown;
-    try {
-      reply = JSON.parse(value);
-    } catch {
-      throw new AgentError("Malformed runner checkout response.", 502);
-    }
-    if (!isCheckoutReply(reply, query))
-      throw new AgentError("Invalid runner checkout response.", 502);
-    return reply;
   }
   if (query.kind === "readFile") {
     const { path } = query;
@@ -258,7 +208,7 @@ export async function inspectAgentCheckout(
     );
     return { kind: "changes", ...changes };
   }
-  return inspectLocalCheckout(agent, operation);
+  throw new AgentError("Invalid checkout query.", 400);
 }
 /** Resolve the launch placement from the requester, never the display parent. */
 export function reviewerWorkspace(owner: AgentRecord) {

@@ -31,7 +31,10 @@ import {
   HOST_FILES,
   type HostLaunch,
 } from "@dispatch/runner-client/host-framing";
-import { issueAuthority, issueServer } from "../src/agents/remote/x509.js";
+import {
+  issueAuthority,
+  issueServer,
+} from "../src/agents/remote/certificate-authority.js";
 import { createAgentMcpToken, validateAgentMcpToken } from "../src/auth.js";
 import { registerMcpRoutes } from "../src/routes/mcp.js";
 import { assertAccessCeiling } from "../src/shared/access-ceiling.js";

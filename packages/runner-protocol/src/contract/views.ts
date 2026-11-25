@@ -14,6 +14,7 @@ import {
 } from "./schema.js";
 
 export const directoryListing = object({
+  names: optional(array(string)),
   truncated: boolean,
   entries: array(
     object({

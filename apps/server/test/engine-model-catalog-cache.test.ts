@@ -1,3 +1,4 @@
+import { parseEngineCapabilityResult } from "../src/agents/remote/engine-capability-result.js";
 import { forgetLearnedAgentModels } from "../src/shared/agent-models.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -29,6 +30,7 @@ function setup() {
         notify = listener;
       },
     } as unknown as RemoteRunnerService,
+    parseEngineCapabilityResult,
     log
   );
   return {

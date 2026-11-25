@@ -144,6 +144,61 @@ describe("task column MCP boundary", () => {
     });
   });
 
+  it("bounds task_list selection at the SDK boundary", async () => {
+    await withClient(false, async (client) => {
+      const inventory = await client.listTools();
+      const list = inventory.tools.find((t) => t.name === "task_list")!;
+      expect(list.description).toContain('columns: ["done", "in_review"]');
+      expect(list.inputSchema.properties).toMatchObject({
+        columns: { type: "array", minItems: 1 },
+        ids: { type: "array", minItems: 1, maxItems: 50 },
+        fields: {
+          type: "array",
+          items: {
+            enum: [
+              "id",
+              "title",
+              "column",
+              "assignedAgentId",
+              "labels",
+              "launchTemplateId",
+              "updatedAt",
+              "links",
+              "body",
+            ],
+          },
+        },
+      });
+      for (const args of [
+        { fields: ["id", "agents"] },
+        { fields: [] },
+        { ids: [] },
+        { ids: Array.from({ length: 51 }, (_, i) => `tsk_${i}`) },
+        { ids: [""] },
+        { columns: [] },
+        { columns: [""] },
+        { column: "ready", columns: ["ready"] },
+        { fields: ["body"] },
+        { columns: ["ready", "nope"] },
+      ]) {
+        const result = await client.callTool({
+          name: "task_list",
+          arguments: args,
+        });
+        expect(result.isError, JSON.stringify(args)).toBe(true);
+      }
+      const ok = await client.callTool({
+        name: "task_list",
+        arguments: {
+          ids: Array.from({ length: 50 }, (_, i) => `tsk_${i}`),
+          fields: ["body"],
+        },
+      });
+      expect(ok.isError).not.toBe(true);
+      expect(ok.structuredContent).toMatchObject({ tasks: [] });
+    });
+  });
+
   it("honors the allowed tool set", () => {
     const registerTool = vi.fn();
     registerTaskTools({ registerTool } as never, new Set(["task_list"]), {

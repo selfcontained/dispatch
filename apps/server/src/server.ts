@@ -1,3 +1,4 @@
+import { parseEngineCapabilityResult } from "./agents/remote/engine-capability-result.js";
 import {
   engineScopeKey,
   type EngineScope,
@@ -43,7 +44,6 @@ import {
 } from "./routes/portfolio.js";
 import { installRequestLifecycle } from "./server/request-lifecycle.js";
 import { createRunnerUsage } from "./agents/codex-reset.js";
-import { createLocalEngineRunner } from "./agents/local-runner-engine.js";
 import { TaskWatchNotifier } from "./tasks/watch-notifier.js";
 import { UsageWatchService } from "./agents/usage-watches.js";
 import { registerHumanTerminalRoutes } from "./routes/human-terminals.js";
@@ -189,7 +189,7 @@ import { registerLaunchTargetRoutes } from "./routes/launch-targets.js";
 import { registerSystemRoutes } from "./routes/system.js";
 import { registerEngineLoginRoutes } from "./routes/engine-login.js";
 import { registerEngineManagementRoutes } from "./routes/engine-management.js";
-import { engineUpdatePort } from "./agents/engine-updates.js";
+import { engineUpdatePort } from "./agents/engine-update-operations.js";
 import {
   EngineUpdateOperations,
   engineOperationStore,
@@ -287,7 +287,7 @@ const remoteRunner = configuredRunner({
     validateJobMcpToken(config.authToken, token, runId, agentId),
 });
 const runnerEngines = remoteRunner
-  ? remoteEngineTransport(remoteRunner, app.log)
+  ? remoteEngineTransport(remoteRunner, parseEngineCapabilityResult, app.log)
   : undefined;
 // Runner update holds: nothing is held until an update coordinator begins one.
 const runnerHolds = remoteRunner
@@ -1159,10 +1159,6 @@ async function registerRoutes() {
     withStreamFlag,
   });
 
-  const localEngines = createLocalEngineRunner({
-    bins: { claude: config.claudeBin, codex: config.codexBin },
-    logger: app.log,
-  });
   const localEnginesInProcess = inProcessEngines(
     {
       adapter: config.acpAdapter,
@@ -1427,7 +1423,6 @@ async function registerRoutes() {
         () => localRunnerOf(localRunnerProcess),
         localEnginesInProcess
       ),
-      capabilities: localEngines,
       updates: engineUpdates,
       overrides: {
         claude: config.claudeBin,

@@ -168,6 +168,37 @@ function workerError(
   });
 }
 
+/** Native definition reads retain lexical containment while following links like readFile. */
+function nativeEntry(root: string, relative: string) {
+  const resolved = path.resolve(root, relative);
+  const within = path.relative(path.resolve(root), resolved);
+  if (
+    relative.includes("\0") ||
+    path.isAbsolute(relative) ||
+    /^[a-z]:/i.test(relative) ||
+    within === ".." ||
+    within.startsWith(".." + path.sep)
+  )
+    throw new RunnerCallError({
+      code: "invalid",
+      message: "Expected a repository-relative worktree file path",
+    });
+  return resolved;
+}
+
+function nativeFailure(error: unknown): never {
+  const failure = error as NodeJS.ErrnoException;
+  throw new RunnerCallError({
+    code: "failed",
+    message: failure.message ?? String(error),
+    details: {
+      ...(typeof failure.code === "string" && { code: failure.code }),
+      ...(typeof failure.path === "string" && { path: failure.path }),
+      ...(typeof failure.syscall === "string" && { syscall: failure.syscall }),
+    },
+  });
+}
+
 /** A diff file with the request's exclusion in place of the app's own test rule. */
 function marked<F extends { path: string; isTest?: boolean }>(
   file: F,
@@ -188,6 +219,15 @@ async function work<K extends WorkerOp>(
 ): Promise<unknown> {
   switch (op) {
     case "checkout.list": {
+      const native = request as Input<"checkout.list">["request"];
+      if (native.mode === "native") {
+        const file = nativeEntry(directory, native.path);
+        try {
+          return { entries: [], names: await readdir(file), truncated: false };
+        } catch (error) {
+          nativeFailure(error);
+        }
+      }
       const { path, filesOnly, unfiltered } =
         request as Input<"checkout.list">["request"];
       if (filesOnly) {
@@ -221,6 +261,28 @@ async function work<K extends WorkerOp>(
       return readWorkspaceView(directory, { kind: "index", generation });
     }
     case "checkout.read": {
+      const native = request as Input<"checkout.read">["request"];
+      if (native.mode === "native") {
+        const file = nativeEntry(directory, native.path);
+        let bytes: Buffer;
+        try {
+          bytes = await readFile(file);
+        } catch (error) {
+          nativeFailure(error);
+        }
+        // UTF-8 reads expose decoded text, as the existing read's digest does.
+        if (native.encoding === "utf8")
+          bytes = Buffer.from(bytes.toString("utf8"));
+        if (native.maxBytes !== null && bytes.length > native.maxBytes)
+          throw new RunnerCallError({
+            code: "too_large",
+            message: `The file is larger than ${native.maxBytes} bytes`,
+          });
+        return {
+          data: bytes.toString(native.encoding),
+          digest: createHash("sha256").update(bytes).digest("hex"),
+        };
+      }
       const {
         path: file,
         maxBytes,

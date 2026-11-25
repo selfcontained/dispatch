@@ -1,4 +1,15 @@
 import { generateKeyPairSync, sign } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { parse } from "yaml";
 import { describe, expect, it } from "vitest";
 import {
   compiledRunnerUpdateKeys,
@@ -99,4 +110,47 @@ describe("runner update signatures", () => {
       verifyRunnerUpdateEnvelope(dev, compiledRunnerUpdateKeys())
     ).toThrow("no valid trusted signature");
   });
+});
+
+it("starts the release signer using only the workflow's sparse checkout", () => {
+  const root = path.resolve(import.meta.dirname, "../../..");
+  const workflow = parse(
+    readFileSync(path.join(root, ".github/workflows/release.yml"), "utf8")
+  );
+  const steps = workflow.jobs["publish-release"].steps as {
+    name: string;
+    with?: { "sparse-checkout"?: string };
+  }[];
+  const files = steps.find(
+    (step) => step.name === "Check out release signing tools"
+  )?.with?.["sparse-checkout"];
+  if (!files) throw new Error("Missing signing tools sparse checkout");
+  const checkout = mkdtempSync(path.join(tmpdir(), "runner-release-signer-"));
+  try {
+    for (const entry of files.trim().split("\n")) {
+      expect(entry).toMatch(/^\/[\w./-]+$/);
+      const destination = path.join(checkout, entry);
+      mkdirSync(path.dirname(destination), { recursive: true });
+      copyFileSync(path.join(root, entry), destination);
+    }
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--experimental-strip-types",
+        "scripts/sign-runner-update.mjs",
+        "--release",
+        "1.2.3",
+        "x64",
+        "archive.tar.gz",
+        "manifest.json",
+      ],
+      { cwd: checkout, encoding: "utf8", env: {} }
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      "Error: Set RUNNER_UPDATE_SIGNING_KEY and RUNNER_UPDATE_SIGNING_KEY_ID for native releases"
+    );
+  } finally {
+    rmSync(checkout, { recursive: true, force: true });
+  }
 });

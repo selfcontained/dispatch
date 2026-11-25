@@ -23,11 +23,11 @@ import {
   Plus,
 } from "lucide-react";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  ActionMenu,
+  ActionMenuContent,
+  ActionMenuItem,
+  ActionMenuTrigger,
+} from "@/components/ui/action-menu";
 import type { Task, TaskColumn } from "@/hooks/use-tasks";
 import { useTaskActions, useTaskDetail } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
@@ -648,8 +648,8 @@ export function TaskDetailPanel({
                                     )}
                                   </span>
                                 </Hint>
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
+                                <ActionMenu label="Agent options">
+                                  <ActionMenuTrigger asChild>
                                     <IconButton
                                       size="icon-sm"
                                       label={
@@ -676,10 +676,10 @@ export function TaskDetailPanel({
                                       )}
                                       <MoreHorizontal aria-hidden="true" />
                                     </IconButton>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent align="end">
+                                  </ActionMenuTrigger>
+                                  <ActionMenuContent align="end">
                                     {current ? (
-                                      <DropdownMenuItem
+                                      <ActionMenuItem
                                         className={MENU_ITEM}
                                         onSelect={() =>
                                           actions.update.mutate({
@@ -689,9 +689,9 @@ export function TaskDetailPanel({
                                         }
                                       >
                                         Unassign
-                                      </DropdownMenuItem>
+                                      </ActionMenuItem>
                                     ) : (
-                                      <DropdownMenuItem
+                                      <ActionMenuItem
                                         className={MENU_ITEM}
                                         onSelect={() =>
                                           actions.update.mutate({
@@ -701,9 +701,10 @@ export function TaskDetailPanel({
                                         }
                                       >
                                         Make assignee
-                                      </DropdownMenuItem>
+                                      </ActionMenuItem>
                                     )}
-                                    <DropdownMenuItem
+                                    <ActionMenuItem
+                                      className="text-danger"
                                       onSelect={() =>
                                         actions.removeAgent.mutate({
                                           id,
@@ -712,9 +713,9 @@ export function TaskDetailPanel({
                                       }
                                     >
                                       Remove from task
-                                    </DropdownMenuItem>
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
+                                    </ActionMenuItem>
+                                  </ActionMenuContent>
+                                </ActionMenu>
                               </div>
                             );
                           })}

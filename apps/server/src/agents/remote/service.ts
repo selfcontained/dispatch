@@ -95,7 +95,7 @@ import {
   formatHost,
   pairingCommand,
   validRunnerName,
-} from "./enrollment.js";
+} from "./enrollment-commands.js";
 import {
   ConnectRequestInvalid,
   PairingRejected,
@@ -103,8 +103,8 @@ import {
   RunnerRegistry,
   type Registration,
 } from "./registry.js";
-import { resolveRunnerUpdatePath } from "./update-artifact-path.js";
-import { publicKeyPin } from "./x509.js";
+import { resolveRunnerUpdatePath } from "@dispatch/runner-protocol/update-format";
+import { publicKeyPin } from "./certificate-authority.js";
 
 /** The single manually approved registration of the original prototype. */
 export type LegacyConfig = {

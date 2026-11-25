@@ -21,7 +21,7 @@ import { gunzipSync } from "node:zlib";
 import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import * as keys from "../src/agents/remote/update-keys.js";
+import * as keys from "@dispatch/runner-protocol/update-format";
 import {
   canonicalRunnerManifest,
   runnerManifestName,

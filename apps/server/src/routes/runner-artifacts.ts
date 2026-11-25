@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   resolveRunnerUpdatePath,
   RUNNER_UPDATE_PREFIX,
-} from "../agents/remote/update-artifact-path.js";
+} from "@dispatch/runner-protocol/update-format";
 import {
   createRunnerArtifactSource,
   describeRunnerArtifacts,

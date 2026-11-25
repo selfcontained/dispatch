@@ -104,48 +104,8 @@ export function parseRunnerUpdateInstance(
   };
 }
 
-function compareIdentifiers(left: string, right: string) {
-  const leftNumeric = /^[0-9]+$/.test(left);
-  const rightNumeric = /^[0-9]+$/.test(right);
-  if (leftNumeric && rightNumeric) {
-    const a = left.replace(/^0+(?=.)/, "");
-    const b = right.replace(/^0+(?=.)/, "");
-    if (a.length !== b.length) return a.length < b.length ? -1 : 1;
-    return a === b ? 0 : a < b ? -1 : 1;
-  }
-  if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1;
-  return left === right ? 0 : left < right ? -1 : 1;
-}
-
-/** SemVer precedence. A release outranks its prereleases. */
-export function compareRunnerVersions(left: string, right: string) {
-  if (!RUNNER_UPDATE_VERSION.test(left) || !RUNNER_UPDATE_VERSION.test(right))
-    throw new Error("Invalid runner version");
-  const split = (value: string) => {
-    const dash = value.indexOf("-");
-    return dash < 0
-      ? { core: value.split("."), pre: [] as string[] }
-      : {
-          core: value.slice(0, dash).split("."),
-          pre: value.slice(dash + 1).split("."),
-        };
-  };
-  const a = split(left);
-  const b = split(right);
-  for (let index = 0; index < 3; index++) {
-    const order = compareIdentifiers(a.core[index]!, b.core[index]!);
-    if (order) return order;
-  }
-  if (!a.pre.length || !b.pre.length)
-    return a.pre.length === b.pre.length ? 0 : a.pre.length ? -1 : 1;
-  for (let index = 0; index < Math.max(a.pre.length, b.pre.length); index++) {
-    if (index >= a.pre.length) return -1;
-    if (index >= b.pre.length) return 1;
-    const order = compareIdentifiers(a.pre[index]!, b.pre[index]!);
-    if (order) return order;
-  }
-  return 0;
-}
+export { compareRunnerVersions } from "@dispatch/runner-protocol/update-format";
+import { compareRunnerVersions } from "@dispatch/runner-protocol/update-format";
 
 export type RunnerUpdateLayout = {
   /** Enrolment settings: the controller endpoint and CA path. */

@@ -1,3 +1,4 @@
+import { parseEngineCapabilityResult } from "../src/agents/remote/engine-capability-result.js";
 import type { AddressInfo } from "node:net";
 import { connect, type TLSSocket } from "node:tls";
 import type { Pool } from "pg";
@@ -183,7 +184,10 @@ describe("engine wire integration", () => {
       })
     );
 
-    const transport = remoteEngineTransport(service);
+    const transport = remoteEngineTransport(
+      service,
+      parseEngineCapabilityResult
+    );
     const events: EngineOperationEvent[] = [];
     const ack = await transport.send(
       alpha.created.id,
@@ -223,7 +227,10 @@ describe("engine wire integration", () => {
       service.available({ runner: alpha.created.id, workspace: "proof" })
     );
 
-    const transport = remoteEngineTransport(service);
+    const transport = remoteEngineTransport(
+      service,
+      parseEngineCapabilityResult
+    );
     const ack = await transport.send(alpha.created.id, { type: "status" });
     expect(ack).toEqual({ ok: true });
   });
@@ -231,7 +238,10 @@ describe("engine wire integration", () => {
   it("distinguishes a disconnected peer from a connected peer lacking engine management", async () => {
     const service = makeService();
     const alpha = await enroll(service, "alpha");
-    const transport = remoteEngineTransport(service);
+    const transport = remoteEngineTransport(
+      service,
+      parseEngineCapabilityResult
+    );
     const ack = await transport.send(alpha.created.id, { type: "status" });
     expect(ack).toMatchObject({
       ok: false,

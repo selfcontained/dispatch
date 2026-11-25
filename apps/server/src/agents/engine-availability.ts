@@ -1,3 +1,8 @@
+import {
+  versionCache,
+  versionCacheGeneration,
+} from "@dispatch/runner-protocol/engine-version-cache";
+export { clearEngineVersionCache } from "@dispatch/runner-protocol/engine-version-cache";
 import { access, constants, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
@@ -154,18 +159,6 @@ export function missingEngineMessage(status: EngineStatus): string {
  * Which binary is half of what decides the models on offer; which release
  * it is decides the rest. Null when the CLI fails, hangs or says nothing.
  */
-const versionCache = new Map<
-  string,
-  { fingerprint: string; version: string | null }
->();
-
-let versionCacheGeneration = 0;
-
-export function clearEngineVersionCache(): void {
-  versionCacheGeneration += 1;
-  versionCache.clear();
-}
-
 export async function engineVersion(bin: string): Promise<string | null> {
   // Asked on every launch and every engines check; the answer only changes
   // when the file does.

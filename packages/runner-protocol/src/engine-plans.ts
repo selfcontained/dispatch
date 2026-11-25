@@ -71,3 +71,30 @@ export type ProviderPlansResponse = {
   checkedAt: string;
   providers: ProviderPlan[];
 };
+
+export type RefreshFailureReason =
+  | "account_changed"
+  | "not_signed_in"
+  | "login_expired"
+  | "login_rejected"
+  | "request_failed"
+  | "http_error"
+  | "no_usage_reported"
+  | "unexpected";
+
+/** What ChatGPT answered to a redeem: `ok`, `nothing_to_reset`, `no_credit`, or its own word. */
+export type CodexResetOutcome = {
+  code: string;
+  windowsReset: number;
+  /** The reset spent, when one was. */
+  credit: { id: string; title: string; expiresAt: string | null } | null;
+};
+
+export class CodexResetError extends Error {
+  constructor(
+    readonly reason: RefreshFailureReason,
+    message: string
+  ) {
+    super(message);
+  }
+}

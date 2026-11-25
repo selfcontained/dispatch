@@ -25,8 +25,8 @@ export const OPERATION_TASK = {
   "workspace.release": "T20",
   "path.resolve": "T17",
   "path.complete": "T17",
-  "checkout.list": "T09",
-  "checkout.read": "T09",
+  "checkout.list": "T40", // Native folder definition enumeration; original views T09.
+  "checkout.read": "T40", // Native folder definition reads; original reads T09.
   "checkout.write": "T35",
   "checkout.preview": "T09",
   "checkout.index": "T09",

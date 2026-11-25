@@ -1,21 +1,23 @@
+import {
+  compiledRunnerDevKey,
+  verifyRunnerUpdateEnvelope,
+} from "./update-trust.js";
 import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
 import { constants, createWriteStream, lstatSync, type Stats } from "node:fs";
 import { lstat, mkdtemp, open, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import {
-  compiledRunnerDevKey,
   productionRunnerUpdateKeys,
   RUNNER_UPDATE_DEV_KEY_ID,
-} from "../agents/remote/update-keys.js";
+} from "@dispatch/runner-protocol/update-format";
 import {
   runnerExecutableMember,
   runnerManifestName,
   RUNNER_ARCHES,
   RUNNER_UPDATE_MANIFEST_LIMIT,
-  verifyRunnerUpdateEnvelope,
   type RunnerArch,
-} from "../agents/remote/update-manifest.js";
+} from "@dispatch/runner-protocol/update-format";
 import {
   cachedTarballPath,
   downloadReleaseCompanion,

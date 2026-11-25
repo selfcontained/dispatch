@@ -543,6 +543,8 @@ export class TaskStore {
     projectId?: string;
     assignedAgentId?: string;
     archived?: boolean;
+    /** Only these task ids, in one query however many are named. */
+    ids?: readonly string[];
   }): Promise<Task[]> {
     const where: string[] = [
       filter.archived ? "t.archived_at IS NOT NULL" : "t.archived_at IS NULL",
@@ -555,6 +557,10 @@ export class TaskStore {
     if (filter.assignedAgentId) {
       values.push(filter.assignedAgentId);
       where.push(`t.assigned_agent_id = $${values.length}`);
+    }
+    if (filter.ids) {
+      values.push(filter.ids);
+      where.push(`t.id = ANY($${values.length}::text[])`);
     }
     const { rows } = await this.pool.query<TaskRow>(
       `SELECT ${TASK_SELECT}

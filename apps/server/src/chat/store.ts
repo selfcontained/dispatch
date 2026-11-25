@@ -1177,16 +1177,27 @@ export class BlockStore {
       author_agent_id: string;
       stream_id: string;
       thread_id: string;
+      review_id: string;
+      to_agent_id: string | null;
+      created_at: Date;
+      name: string;
+      persona: string | null;
+      archived: boolean;
       findings: Array<{ state: BlockFindingState | null }>;
     }>(
       `WITH latest AS (
-         SELECT DISTINCT ON (b.author_agent_id) b.*
+         SELECT DISTINCT ON (b.author_agent_id) b.*,
+                a.name AS reviewer_name, a.persona AS reviewer_persona,
+                (a.deleted_at IS NOT NULL) AS reviewer_archived
            FROM blocks b
            JOIN agents a ON a.id = b.author_agent_id
           WHERE b.kind = 'review' AND b.author_kind = 'agent'
           ORDER BY b.author_agent_id, b.created_at DESC, b.id DESC
        )
        SELECT r.author_agent_id, r.stream_id, COALESCE(r.thread_id, r.id)::text AS thread_id,
+              r.id::text AS review_id, r.to_agent_id, r.created_at,
+              r.reviewer_name AS name, r.reviewer_persona AS persona,
+              r.reviewer_archived AS archived,
               COALESCE(jsonb_agg(jsonb_build_object('state', f.state))
                 FILTER (WHERE f.id IS NOT NULL), '[]'::jsonb) AS findings
          FROM latest r
@@ -1203,16 +1214,25 @@ export class BlockStore {
          ) shown ON true
          LEFT JOIN blocks f ON f.id = shown.id
            AND f.stream_id = r.stream_id AND f.kind = 'finding'
-        GROUP BY r.author_agent_id, r.stream_id, r.thread_id, r.id`
+        GROUP BY r.author_agent_id, r.stream_id, r.thread_id, r.id,
+                 r.to_agent_id, r.created_at, r.reviewer_name,
+                 r.reviewer_persona, r.reviewer_archived`
     );
     const agents: AgentReviewSummary["agents"] = {};
     for (const row of result.rows) {
       agents[row.author_agent_id] = {
         streamId: row.stream_id,
         threadId: row.thread_id,
+        reviewId: row.review_id,
+        toAgentId: row.to_agent_id,
+        createdAt: new Date(row.created_at).toISOString(),
+        name: row.name,
+        persona: row.persona,
+        archived: row.archived,
         status: reviewStatus(row.findings),
         openFindings: row.findings.filter((f) => f.state?.status !== "resolved")
           .length,
+        findingCount: row.findings.length,
       };
     }
     return { agents };

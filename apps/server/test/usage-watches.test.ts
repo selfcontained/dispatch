@@ -21,7 +21,7 @@ import {
   conditionRearms,
   usageReading,
 } from "../src/agents/usage-watches.js";
-import { createProviderPlansReporter } from "../src/agents/provider-plans.js";
+import { createProviderPlansReporter } from "./helpers/provider-plans-reporter.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 const NOW = Date.parse("2026-11-11T12:00:00Z");
