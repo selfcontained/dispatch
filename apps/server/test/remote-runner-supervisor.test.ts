@@ -2078,6 +2078,47 @@ describe("runner session supervision", () => {
       );
     });
 
+    it("starts a folder session's child in the same folder, owned by neither", async () => {
+      const runner = await start([], asWorkload);
+      const folder = await namedFolder();
+      await bindFolder(folder);
+      await runner.launch(launch(workspace), undefined);
+      // The core's store bound the child to the parent's folder.
+      const bindings = path.join(state, "bindings");
+      await writeFile(path.join(bindings, reviewerId), "\0folder");
+      await writeFile(path.join(bindings, `${reviewerId}.cwd`), folder);
+      processes.spawn.mockImplementationOnce(
+        async (command, _cwd, _env, _log, save) => {
+          expect(command.at(-1)).toBe(folder);
+          await save({ ...identity, pid: 101 });
+        }
+      );
+      await runner.launch(sharedLaunch(), undefined);
+      const before = await bytes(folder);
+      for (const id of [reviewerId, agentId])
+        expect(
+          await runner.checkoutRelease(id, workspace, { kind: "observe" })
+        ).toEqual({
+          ownership: "external",
+          owner: null,
+          borrowers: [],
+          checkout: null,
+        });
+      // Either archives first; neither removes the folder or waits on the other.
+      await runner.stop(agentId, workspace, true);
+      expect(
+        await runner.checkoutRelease(agentId, workspace, {
+          kind: "release",
+          expectedState: null,
+        })
+      ).toBe("released");
+      await runner.stop(reviewerId, workspace, true);
+      await expect(
+        runner.releaseWorkspace(reviewerId, workspace, async () => true)
+      ).resolves.toBe(false);
+      expect(await bytes(folder)).toEqual(before);
+    });
+
     it("never runs the host in a folder swapped after it was authorized", async () => {
       // The runner's own composition, minus setpriv: enter, then the host.
       const runner = await start([], asWorkload, undefined, {

@@ -167,6 +167,71 @@ test("launches a child in a folder its runner account names, and archive leaves 
       ).trim()
     ).toBe(`${repo}/.git`);
 
+    // A folder agent launches as a local agent in a folder does: in its own
+    // folder, a worktree from it, and another named folder.
+    const launchFrom = async (from: string, args: Record<string, unknown>) => {
+      const reply = await mcpCall(
+        request,
+        from,
+        host(from).mcp.token,
+        "launch_agent",
+        {
+          prompt: "work",
+          child: false,
+          ...args,
+        }
+      );
+      expect(reply.isError, JSON.stringify(reply)).toBeFalsy();
+      const id = reply.structuredContent!.agentId!;
+      agents.push(id);
+      await running(request, id);
+      return id;
+    };
+    const repoAgent = await launchFrom(callerId, {
+      name: "in repo",
+      cwd: repo,
+    });
+    expect(host(repoAgent).cwd).toBe(repo);
+    const same = await launchFrom(repoAgent, { name: "same folder" });
+    expect(host(same).cwd).toBe(repo);
+    const chained = await launchFrom(repoAgent, {
+      name: "worktree from folder",
+      useWorktree: true,
+      createNewBranch: true,
+    });
+    const chainedCheckout = `/var/lib/runner/sessions/${chained}/checkout`;
+    expect(host(chained).cwd).toBe(chainedCheckout);
+    expect(
+      guest(
+        "scratch",
+        `git -c safe.directory='*' -C '${chainedCheckout}' rev-parse --path-format=absolute --git-common-dir`
+      ).trim()
+    ).toBe(`${repo}/.git`);
+    const elsewhere = await launchFrom(repoAgent, {
+      name: "another folder",
+      cwd: folder,
+    });
+    expect(host(elsewhere).cwd).toBe(folder);
+    // The folder agent archives first: its folder stays, and the agent that
+    // shares it is neither stopped nor blocked.
+    await deleteAgentViaAPI(request, repoAgent, "auto");
+    expect(contents(repo)).toBe(repoBefore);
+    await running(request, same);
+    for (const id of [same, elsewhere, chained])
+      await deleteAgentViaAPI(request, id, "auto");
+    expect(contents(repo)).toBe(repoBefore);
+    expect(contents(folder)).toBe(before);
+    await expect
+      .poll(
+        () =>
+          guest(
+            "scratch",
+            `test -e '${chainedCheckout}' && echo kept || echo gone`
+          ).trim(),
+        { timeout: 60_000 }
+      )
+      .toBe("gone");
+
     // Archive: the plain folder byte-for-byte; only the worktree goes.
     await deleteAgentViaAPI(request, plainId, "auto");
     await deleteAgentViaAPI(request, treeId, "auto");

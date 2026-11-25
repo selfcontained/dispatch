@@ -1411,6 +1411,10 @@ export async function createSessionSupervisor(
           );
         });
       }
+      // Prepared from a folder session: the child holds that folder as its
+      // own external binding, so it starts there with no owner to borrow.
+      if ((await readBinding(key)) === folderBinding)
+        return serialize(key, () => launch(command, cwd, key, null, progress));
       const owner = checkoutOwner(await readBinding(author)) ?? author;
       if (owner === key)
         throw new Error("Invalid author for a shared runner checkout.");
