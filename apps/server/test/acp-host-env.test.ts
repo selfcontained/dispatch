@@ -22,7 +22,7 @@ import {
   writeLocalHostLaunch,
 } from "../src/agents/acp/local-host-entry.js";
 import type { HostLaunch } from "@dispatch/runner-protocol/host";
-import { loginShellCommand } from "../src/agents/acp/runtime.js";
+import { loginShellCommand } from "../src/agents/acp/host-command.js";
 
 const roots: string[] = [];
 afterEach(() => {

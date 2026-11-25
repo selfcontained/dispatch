@@ -26,7 +26,6 @@ import {
   controllerPlacement,
   runnerIdForPlacement,
 } from "../../runners/placement.js";
-export { selfCommand, hostCommand, loginShellCommand } from "./host-command.js";
 
 import type { FastifyBaseLogger } from "fastify";
 import type {

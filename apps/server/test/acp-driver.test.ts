@@ -17,7 +17,7 @@ import {
   unstableSessionCapabilities,
 } from "../src/agents/acp/driver.js";
 import { isPackageBinDir } from "../src/agents/acp/package-bin-dir.js";
-import { selfCommand } from "../src/agents/acp/runtime.js";
+import { selfCommand } from "../src/agents/acp/host-command.js";
 import { createFakeAcpAgent } from "./helpers/fake-acp-agent.js";
 
 const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
