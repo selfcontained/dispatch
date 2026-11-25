@@ -173,7 +173,7 @@ it("agrees with TypeScript identities for stored rows, including borrowed reposi
         ? projectKey(row.project)
         : sessionRepositoryKey(row.repository));
     const actual = await pool.query(
-      `SELECT ${HISTORY_IDENTITY_SQL} AS key FROM agents a WHERE id=$1`,
+      `SELECT a.history_identity AS key FROM ${HISTORY_IDENTITY_SQL} a WHERE id=$1`,
       [row.id]
     );
     expect(actual.rows[0].key).toBe(expected);
@@ -182,7 +182,7 @@ it("agrees with TypeScript identities for stored rows, including borrowed reposi
     `INSERT INTO agents (id,runner_id,cwd,runner_worktree_owner,created_at) VALUES ('borrowed','fixture','runner://fixture/@borrowed','repository','2026-01-02T00:00:00Z')`
   );
   const borrowed = await pool.query(
-    `SELECT ${HISTORY_IDENTITY_SQL} AS key FROM agents a WHERE id='borrowed'`
+    `SELECT a.history_identity AS key FROM ${HISTORY_IDENTITY_SQL} a WHERE id='borrowed'`
   );
   expect(borrowed.rows[0].key).toBe("https://example.com/repo");
   const response = (await app.inject("/api/v1/history/projects")).json();

@@ -116,21 +116,23 @@ export function repositoryRecord<T extends { url: string }>(
 }
 
 /**
- * SQL twin of the launch-folder identity rule, for an agents row aliased `a`.
- * The local arm is main's expression verbatim. Project identities are already
- * canonical at their write boundary; a session without a project uses its
- * checkout owner's persisted canonical repository identity.
- * Correlated lookups are only evaluated for other runners, preserving local
- * scans and indexes without joining or materializing the history table.
+ * SQL twin of the launch-folder identity rule, as an agents relation with a
+ * resolved history_identity column. The local arm keeps main's folder bytes;
+ * the other arm reads canonical keys at their persistence boundaries. Keeping
+ * the arms set-based avoids costly scalar subplans (and JIT) on local history.
  */
-export const HISTORY_IDENTITY_SQL = `CASE WHEN a.runner_id = 'local'
-  THEN COALESCE(a.launch_cwd, a.git_context->>'repoRoot', a.cwd)
-  ELSE (SELECT CASE WHEN p.id IS NOT NULL
+export const HISTORY_IDENTITY_SQL = `(
+  SELECT a.*, COALESCE(a.launch_cwd, a.git_context->>'repoRoot', a.cwd) AS history_identity
+  FROM agents a WHERE a.runner_id = 'local'
+  UNION ALL
+  SELECT a.*, CASE WHEN p.id IS NOT NULL
       THEN COALESCE(p.repo_root, p.repository)
-      ELSE owner.runner_repository->>'identityKey' END
-    FROM agents owner LEFT JOIN projects p ON p.id = a.project_id
-    WHERE owner.id = COALESCE(a.runner_worktree_owner, a.id))
-  END`;
+      ELSE owner.runner_repository->>'identityKey' END AS history_identity
+  FROM agents a
+  LEFT JOIN projects p ON p.id = a.project_id
+  LEFT JOIN agents owner ON owner.id = COALESCE(a.runner_worktree_owner, a.id)
+  WHERE a.runner_id <> 'local'
+)`;
 
 /** History presentation data; local response objects retain main's shape. */
 export function historyProjectFields(
