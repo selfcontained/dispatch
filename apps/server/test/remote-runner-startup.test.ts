@@ -104,6 +104,7 @@ import {
   runnerReconnectDelay,
   type RunnerUpdateOptions,
 } from "../src/agents/remote/runner.js";
+import { enterDirectory } from "../src/agents/remote/workload-tools.js";
 
 it("preserves prototype storage while keeping opaque wire IDs out of paths", () => {
   expect(runnerStorageKey("agt_123456")).toBe("agt_123456");
@@ -399,9 +400,11 @@ describe("remote runner startup", () => {
         LOGNAME: "fixture",
         SHELL: expected,
       });
-      expect(supervisor.hostCommand("/state/host")).toEqual([
+      // Privilege drops, then the workload enters the folder, then the login.
+      expect(supervisor.hostCommand("/state/host", "/work/folder")).toEqual([
         "/usr/bin/setpriv",
         ...reportIdentity.mock.calls[0]![1].slice(0, -2),
+        ...enterDirectory("/work/folder"),
         "/usr/bin/env",
         "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         expected,
