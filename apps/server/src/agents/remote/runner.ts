@@ -556,7 +556,7 @@ export async function runRemoteRunner(
       passwdShell === "/usr/sbin/nologin"
   );
   const engineExecutor = new EngineRunnerExecutor({
-    hostCommand: self("runner-engine-host"),
+    hostCommand: () => self("runner-engine-host"),
     bundledRuntime: process.versions.bun ? process.execPath : undefined,
     uid: config.uid,
     gid: config.gid,

@@ -407,7 +407,7 @@ export type EngineRunnerExecutorConfig = {
   bundledRuntime?: string;
   /** Merged into every spawned process's environment (HOME, PATH, CA, …). */
   env: NodeJS.ProcessEnv;
-  hostCommand?: string[];
+  hostCommand?: string[] | (() => string[]);
   hostCall?: <K extends EngineHostCallName>(
     op: K,
     request: Req<K>
@@ -515,7 +515,9 @@ export class EngineRunnerExecutor {
       )) as Res<K>;
     if (this.config.hostCall) return this.config.hostCall(op, request);
     if (!this.hostWorker) {
-      const [bin, ...args] = this.config.hostCommand ?? [];
+      const hostCommand = this.config.hostCommand;
+      const [bin, ...args] =
+        (typeof hostCommand === "function" ? hostCommand() : hostCommand) ?? [];
       if (!bin)
         throw new RunnerCallError({
           code: "unavailable",
@@ -590,11 +592,16 @@ export class EngineRunnerExecutor {
         "engine" in request &&
         request.engine === engine
       ) {
-        for (const commands of [installs, updates]) {
+        for (const [kind, commands] of [
+          ["install", installs],
+          ["update", updates],
+        ] as const) {
           const step = commands[engine];
+          const configured = cfg?.[kind];
+          const managed = configured && this.bundledCommand(engine, configured);
           if (
-            step?.env?.BUN_BE_BUN === "1" &&
-            step.executable === this.config.bundledRuntime &&
+            step &&
+            managed &&
             !(Number((await this.probe("node")).version?.split(".")[0]) >= 22)
           ) {
             const withRuntime = {

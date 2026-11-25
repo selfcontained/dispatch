@@ -250,7 +250,14 @@ console.log('codex-cli '+require('node:fs').readFileSync(${JSON.stringify(versio
             ],
           },
         },
-        claude: { bin: path.join(home, "missing-claude") },
+        claude: {
+          bin: path.join(prefix, "bin/claude"),
+          install: {
+            executable: "/fixture/runtime",
+            args: ["custom-update"],
+            env: { BUN_BE_BUN: "1", BUN_INSTALL: prefix },
+          },
+        },
         opencode: { bin: path.join(home, "missing-opencode") },
       },
       hostCommand: [
@@ -277,6 +284,15 @@ console.log('codex-cli '+require('node:fs').readFileSync(${JSON.stringify(versio
         },
       });
       expect(commands).not.toContain("/fixture/runtime");
+      const custom = await executor.callHost("engine.update.inspect", {
+        engine: "claude",
+        action: "install",
+      });
+      expect(custom.run).toMatchObject({
+        executable: "/fixture/runtime",
+        args: ["custom-update"],
+      });
+      expect(custom.run?.refresh).toBeUndefined();
     } finally {
       executor.close();
       await rm(home, { recursive: true, force: true });
