@@ -17,13 +17,19 @@ import {
   type Req,
   type Res,
 } from "@dispatch/runner-protocol/contract";
-import { WORKTREE_LOCAL_CONFIG_FILES } from "./worktree-local-config-files.js";
-import {
-  launchDirectory,
-  runnerWorktree,
-  type LaunchDirectory,
-  type WorktreeRequest,
-} from "./workspace-launch.js";
+/** Legacy receipt shape; policy mapping is supplied by the controller. */
+export type WorktreeRequest = {
+  name: string;
+  branch: string;
+  baseBranch?: string;
+  createNewBranch: boolean;
+  location?: "nested" | "sibling";
+};
+type RunnerWorktree = NonNullable<Req<"workspace.prepare">["worktree"]>;
+export type WorkspacePreparationInputs = {
+  runnerWorktree(request: WorktreeRequest): RunnerWorktree;
+  localConfigFiles: readonly string[];
+};
 
 /**
  * What a launch folder is on this machine (`path.resolve`, the local
@@ -111,13 +117,12 @@ export async function resolvePath(
 }
 
 /** The launch folder in process: the same port, answered with main's errors. */
-export async function resolveLaunchDirectory(
-  rawCwd: string
-): Promise<LaunchDirectory> {
+export async function resolveLaunchDirectory<T>(
+  rawCwd: string,
+  launchDirectory: (resolved: Res<"path.resolve">) => T
+): Promise<T> {
   return launchDirectory(await resolvePath(rawCwd));
 }
-
-export type { LaunchDirectory, WorktreeRequest };
 
 /*
  * The preparation receipt in the session's state directory. The runner owns
@@ -127,7 +132,6 @@ export type { LaunchDirectory, WorktreeRequest };
  * in the app's shape), and tells whether an earlier build left one.
  */
 const RECEIPT_FILE = "workspace-preparation";
-type RunnerWorktree = ReturnType<typeof runnerWorktree>;
 type Receipt = {
   source: string;
   sourceIdentity: string;
@@ -170,7 +174,7 @@ async function writeReceipt(dir: string, receipt: Receipt) {
 const legacy = (request: Receipt["request"]): request is WorktreeRequest =>
   "createNewBranch" in request;
 
-export function createWorkspacePreparation() {
+export function createWorkspacePreparation(inputs: WorkspacePreparationInputs) {
   return {
     /** True once a launch asked for its own worktree in this state dir. */
     async requested(dir: string) {
@@ -185,8 +189,8 @@ export function createWorkspacePreparation() {
       if (!receipt || !legacy(receipt.request)) return;
       await writeReceipt(dir, {
         ...receipt,
-        request: runnerWorktree(receipt.request),
-        copy: receipt.copy ?? [...WORKTREE_LOCAL_CONFIG_FILES],
+        request: inputs.runnerWorktree(receipt.request),
+        copy: receipt.copy ?? [...inputs.localConfigFiles],
         install: receipt.install ?? true,
       });
     },
