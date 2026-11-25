@@ -12,6 +12,7 @@ const catalogs = new Map<
   {
     learned: Map<AgentType, readonly AgentModelOption[]>;
     defaults: Map<AgentType, string>;
+    settings?: import("../runners/settings-namespace.js").RunnerSettings;
   }
 >();
 function catalogFor(runnerId: string) {
@@ -22,6 +23,31 @@ function catalogFor(runnerId: string) {
   }
   return catalog;
 }
+export function rememberCatalogRunner(
+  runnerId: string,
+  settings: import("../runners/settings-namespace.js").RunnerSettings
+) {
+  catalogFor(runnerId).settings = settings;
+}
+export function catalogRunnerSettings(runnerId: string) {
+  return catalogs.get(runnerId)?.settings;
+}
+export function catalogUnion(runnerIds: readonly string[]) {
+  const models = agentModelCatalog();
+  for (const runnerId of runnerIds) {
+    for (const [type, options] of Object.entries(agentModelCatalog(runnerId))) {
+      const agentType = type as AgentType;
+      const current = models[agentType] ?? [];
+      const ids = new Set(current.map((model) => model.id));
+      models[agentType] = [
+        ...current,
+        ...options.filter((model) => !ids.has(model.id)),
+      ];
+    }
+  }
+  return models;
+}
+
 export function agentModelDefaults(
   runnerId = "local"
 ): Partial<Record<AgentType, string>> {
@@ -148,7 +174,7 @@ export function setReportedModelHistory(
   histories.set(agentType, history);
 }
 
-/** Interim owner policy: runner choices are shared and read-only. */
+/** Shared choices apply to every runner; reports never create a separate off-list. */
 export function modelChoicesForRunner(_runnerId: string, agentType: AgentType) {
   const { autoEnable, disabled } = getAgentModelAvailability(agentType);
   return { autoEnable, disabled };
@@ -190,10 +216,11 @@ export function agentModelAvailability(): Partial<
 
 /** The catalog less what is turned off: what can be newly chosen. */
 export function selectableAgentModels(
-  agentType: AgentType
+  agentType: AgentType,
+  runnerId = "local"
 ): readonly AgentModelOption[] {
-  const { disabled } = getAgentModelAvailability(agentType);
-  const options = getAgentModelOptions(agentType);
+  const { disabled } = modelChoicesForRunner(runnerId, agentType);
+  const options = getAgentModelOptions(agentType, runnerId);
   return disabled.length
     ? options.filter((option) => !disabled.includes(option.id))
     : options;

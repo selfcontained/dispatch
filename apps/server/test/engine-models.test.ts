@@ -270,7 +270,7 @@ describe("recordEngineModels", () => {
     ).toBe(true);
   });
 
-  it("keeps local and runner reports, history and persisted values isolated across restart", async () => {
+  it("isolates report history and catalogs while applying the shared off-list across restart", async () => {
     const rows = new Map<string, string>();
     const p = {
       query: vi.fn(async (sql: string, args: string[]) => {
@@ -314,10 +314,15 @@ describe("recordEngineModels", () => {
       true,
       context
     );
-    expect(JSON.stringify(getAgentModelAvailability("codex"))).toBe(
-      localHistory
-    );
-    expect(rows.get("agent_model_availability:codex")).toBe(localStored);
+    const sharedAfter = {
+      ...JSON.parse(localHistory),
+      disabled: ["local-off", "runner-a", "runner-b"],
+    };
+    expect(getAgentModelAvailability("codex")).toEqual(sharedAfter);
+    expect(JSON.parse(rows.get("agent_model_availability:codex")!)).toEqual({
+      ...JSON.parse(localStored!),
+      disabled: sharedAfter.disabled,
+    });
     expect(rows.get("agent_models:codex")).toBe(localCatalog);
     expect(getAgentModelOptions("codex").map((m) => m.id)).toEqual([
       "local-a",
@@ -328,12 +333,12 @@ describe("recordEngineModels", () => {
     ]);
     expect(modelChoicesForRunner("runner-a", "codex")).toEqual({
       autoEnable: false,
-      disabled: ["local-off"],
+      disabled: ["local-off", "runner-a", "runner-b"],
     });
     const historyKey = "runner:runner-a:agent_model_availability:codex";
     expect(JSON.parse(rows.get(historyKey)!)).toEqual({
       known: ["runner-a", "runner-b"],
-      unseen: ["runner-b"],
+      unseen: ["runner-a", "runner-b"],
     });
     const runnerStored = rows.get("runner:runner-a:agent_models:codex");
     const runnerHistory = rows.get(historyKey);
