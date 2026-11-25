@@ -394,7 +394,12 @@ it("duplicates persona and project configuration through the existing creation v
     });
     expect(create).toHaveBeenCalledTimes(1);
     expect(resolve).toHaveBeenCalledWith(
-      { kind: "folder", cwd: source.directory, source: "catalog" },
+      {
+        kind: "folder",
+        cwd: source.directory,
+        source: "catalog",
+        runners: expect.any(Function),
+      },
       "builder",
       "task"
     );
