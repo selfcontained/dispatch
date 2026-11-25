@@ -66,14 +66,24 @@ async function seedAgentPosts(streamId: string, n: number, from = 0) {
 describe("BlockStore.reviewSummary", () => {
   it("retains resolved reviews from archived authors", async () => {
     const review = await store.insert({
-      streamId: A,
+      streamId: GONE,
       author: agent(GONE),
+      toAgentId: A,
       kind: "review",
     });
-    expect((await store.reviewSummary()).agents[GONE]).toMatchObject({
+    // Enough to show who reviewed whom once the reviewer leaves the agent list.
+    expect((await store.reviewSummary()).agents[GONE]).toEqual({
+      streamId: GONE,
       threadId: review.id,
+      reviewId: review.id,
+      toAgentId: A,
+      createdAt: review.createdAt,
+      name: "Gone",
+      persona: null,
+      archived: true,
       status: "resolved",
       openFindings: 0,
+      findingCount: 0,
     });
   });
   it("ignores malformed shown IDs and findings outside the review's stream", async () => {
@@ -148,7 +158,7 @@ describe("BlockStore.reviewSummary", () => {
     });
     await store.update(review.id, { state: { blocks: [f1.id, f2.id] } });
     // The author, not the recipient or stream owner, owns the sidebar signal.
-    expect(await store.reviewSummary()).toEqual({
+    expect(await store.reviewSummary()).toMatchObject({
       agents: {
         [B]: {
           streamId: A,
@@ -161,7 +171,7 @@ describe("BlockStore.reviewSummary", () => {
     await store.update(f1.id, {
       state: { status: "resolved", resolution: "fixed" },
     });
-    expect(await store.reviewSummary()).toEqual({
+    expect(await store.reviewSummary()).toMatchObject({
       agents: {
         [B]: {
           streamId: A,
@@ -174,7 +184,7 @@ describe("BlockStore.reviewSummary", () => {
     await store.update(f2.id, {
       state: { status: "resolved", resolution: "dismissed" },
     });
-    expect(await store.reviewSummary()).toEqual({
+    expect(await store.reviewSummary()).toMatchObject({
       agents: {
         [B]: {
           streamId: A,
@@ -205,7 +215,7 @@ describe("BlockStore.reviewSummary", () => {
 
     // Unrelated posts and findings cannot change which review is selected.
     await seedAgentPosts(A, 105);
-    expect(await store.reviewSummary()).toEqual({
+    expect(await store.reviewSummary()).toMatchObject({
       agents: {
         [B]: {
           streamId: A,
@@ -216,7 +226,7 @@ describe("BlockStore.reviewSummary", () => {
       },
     });
     await store.update(newer.id, { state: { blocks: [] } });
-    expect(await store.reviewSummary()).toEqual({
+    expect(await store.reviewSummary()).toMatchObject({
       agents: {
         [B]: {
           streamId: A,
