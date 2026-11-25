@@ -1,3 +1,4 @@
+import { resolveWorkspace } from "./helpers/main-workspace.js";
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
@@ -9,7 +10,6 @@ import {
   agentDiffPath,
   agentStreamDirectory,
   agentWorkspaceDir,
-  resolveWorkspace,
 } from "../src/agents/workspace-target.js";
 import { detectDefaultBranch } from "../src/shared/git/default-branch.js";
 

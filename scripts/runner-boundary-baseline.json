@@ -934,21 +934,7 @@
   {
     "file": "apps/server/src/agents/workspace-target.ts",
     "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/default-branch",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/workspace-target.ts",
-    "kind": "R2 host import",
     "detail": "apps/server/src/shared/git/git-context",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/workspace-target.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/lib/run-command",
     "task": "T04",
     "count": 1
   },

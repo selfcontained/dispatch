@@ -2,13 +2,7 @@ import { remotePlacement, workspaceLocator } from "@dispatch/runner-protocol";
 import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
-import {
-  normalizePath,
-  probeGitContext,
-  resolveRepoRoot,
-} from "../shared/git/git-context.js";
-import { runCommand, type CommandRunner } from "../shared/lib/run-command.js";
-import { detectDefaultBranch } from "../shared/git/default-branch.js";
+import { normalizePath, probeGitContext } from "../shared/git/git-context.js";
 import { AgentError } from "./errors.js";
 
 const WORKSPACE_PROBE_TIMEOUT_MS = 5_000;
@@ -179,28 +173,6 @@ export async function selectWorkspaceDirectory(
     moved: workspace !== homeDir,
     repoRoot: git?.repoRoot ?? null,
   };
-}
-
-/** `settleWorkspace` with this process's probes (main's local resolution). */
-export function resolveWorkspace(
-  agent: WorkspaceTargetAgent,
-  input: { path: string | null; baseBranch?: string | null },
-  run: CommandRunner = runCommand
-): Promise<{ path: string | null; baseBranch: string | null }> {
-  const home = agent.worktreePath ?? agent.cwd;
-  return settleWorkspace(agent, input, {
-    select: async (requested) =>
-      requested
-        ? selectWorkspaceDirectory(home, requested)
-        : { path: home ?? "", moved: false, repoRoot: null },
-    launchRepoRoot: async () =>
-      home
-        ? resolveRepoRoot(await realpathOrSelf(home), {
-            timeoutMs: WORKSPACE_PROBE_TIMEOUT_MS,
-          })
-        : null,
-    defaultBranch: (dir) => detectDefaultBranch(dir, run),
-  });
 }
 
 export function isSafeBranchName(name: string): boolean {
