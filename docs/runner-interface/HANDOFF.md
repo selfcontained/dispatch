@@ -121,9 +121,13 @@ Three lanes that share no files. A task that must touch another lane's file wait
 - **Touched files need owners.** Owner coverage checks every added or modified file, not only new ones.
 - **One remote pattern.** Capability flag in `ready`, credited streams for capable peers, legacy frames byte-identical. Old peers stay supported until T40.
 
+## Native definition read transport
+
+Enrolled runners retain the existing 300-second read transport deadline for native-mode folder/project definition reads. This is intended enrolled-runner behavior. Native listing uses plain `readdir` and never opens entries; native file reads use plain `readFile`, with no helper process or new timeout. A FIFO read waits for a writer as main does, subject to the existing enrolled transport deadline.
+
 ## Known gaps accepted by the owner
 
-- **T35 session persona listing:** session checkout listings omit a directory, dangling link or FIFO named `*.md`; main’s native directory listing reports a per-file warning instead.
+- **T35 session persona listing:** session checkout listings omit a directory, dangling link or FIFO named `*.md`; main’s native loader warns for directory/dangling entries and waits for a FIFO writer.
 - **T35 ownership availability:** session persona routes read the ownership file; main’s `access()` offers ownership reviews for a directory/unreadable map and answers 400 for other access errors.
 - **T35 persona upsert:** an explicitly rejected stale digest is re-read and retried up to three attempts, then reports that the file kept changing; uncertain mutation replies are never replayed.
 

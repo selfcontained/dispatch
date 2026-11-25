@@ -31,7 +31,7 @@ if (process.env.RUNNER_FIXTURE_CWD)
 
 // Fixture-only pause after the real child accepts a native read, for loss/recovery pins.
 if (process.env.RUNNER_FIXTURE_NATIVE_PAUSE) {
-  const run = checkoutWorkload.run.bind(checkoutWorkload);
+  const run = checkoutWorkload.run;
   checkoutWorkload.run = async (op, input, options) => {
     if (
       (op === "checkout.list" || op === "checkout.read") &&

@@ -270,6 +270,9 @@ async function work<K extends WorkerOp>(
         } catch (error) {
           nativeFailure(error);
         }
+        // UTF-8 reads expose decoded text, as the existing read's digest does.
+        if (native.encoding === "utf8")
+          bytes = Buffer.from(bytes.toString("utf8"));
         if (native.maxBytes !== null && bytes.length > native.maxBytes)
           throw new RunnerCallError({
             code: "too_large",
