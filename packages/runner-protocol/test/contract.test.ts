@@ -18,8 +18,8 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 const table = Object.entries(operations as Record<string, OperationSpec>);
 
 describe("operation table (E4)", () => {
-  it("has the design's 66 operations", () => {
-    expect(table).toHaveLength(66);
+  it("has 70 operations including gated engine execution", () => {
+    expect(table).toHaveLength(70);
   });
 
   it.each(table)("%s is complete", (name, spec) => {

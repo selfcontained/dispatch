@@ -137,7 +137,6 @@ export function createLocalEngineRunner(
 
   return {
     handle,
-    plugins,
     readModelCatalog: () => ({
       models: agentModelCatalog(),
       defaults: agentModelDefaults(),

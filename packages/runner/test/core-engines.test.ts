@@ -16,6 +16,13 @@ const waiting = { ...starting, status: "waiting" as const, url: "https://x" };
 
 function port(overrides: Partial<EnginePort> = {}): EnginePort {
   return {
+    updateInspect: vi.fn(),
+    updateSpawn: vi.fn(),
+    updateRelease: vi.fn(),
+    updateProbe: vi.fn(),
+    operation: vi.fn(),
+    pluginStatus: vi.fn(),
+    pluginApply: vi.fn(),
     list: vi.fn(async () => ({ entries: [] })),
     loginStart: vi.fn(async (_request, onUpdate) => {
       onUpdate(starting);
@@ -44,6 +51,46 @@ describe("the core's engine inventory and sign-in", () => {
     expect(engines.list).toHaveBeenCalledWith({ refresh: true });
   });
 
+  it("delegates plugin reads and changes without dropping failure detail", async () => {
+    const status = {
+      agentType: "codex" as const,
+      installed: false,
+      enabled: false,
+      currentVersion: null,
+      latestVersion: null,
+      updateAvailable: false,
+      detectionError: "Fixture probe failure",
+      actions: ["install" as const],
+      ranCommands: ["plugin marketplace list --json"],
+      error: "Fixture curated error",
+      probeFailed: true,
+    };
+    const engines = port({
+      pluginStatus: vi.fn(async () => status),
+      pluginApply: vi.fn(async () => status),
+    });
+    const handlers = engineHandlers({ workload, engines });
+    const read = {
+      engine: "codex",
+      plugin: "dispatch@dispatch",
+      refresh: true,
+    };
+    const apply = {
+      engine: "codex",
+      plugin: "dispatch@dispatch",
+      action: "install" as const,
+      requestId: "fixture",
+    };
+    expect(await handlers["engine.plugin.status"]!(read, {} as never)).toEqual(
+      status
+    );
+    expect(engines.pluginStatus).toHaveBeenCalledExactlyOnceWith(read);
+    expect(await handlers["engine.plugin.apply"]!(apply, {} as never)).toEqual(
+      status
+    );
+    expect(engines.pluginApply).toHaveBeenCalledExactlyOnceWith(apply);
+  });
+
   it("reports a starting login as an event before the answer", async () => {
     const engines = port();
     const emit = vi.fn();
@@ -69,6 +116,14 @@ describe("the core's engine inventory and sign-in", () => {
     expect(engineHandlers({ workload })).toEqual({});
     expect(SERVED_WHILE_FROZEN.has("engine.list")).toBe(true);
     expect(SERVED_WHILE_FROZEN.has("engine.login.status")).toBe(true);
+    for (const op of [
+      "engine.operation",
+      "engine.update.inspect",
+      "engine.update.probe",
+    ])
+      expect(SERVED_WHILE_FROZEN.has(op)).toBe(true);
+    expect(SERVED_WHILE_FROZEN.has("engine.update.spawn")).toBe(false);
+    expect(SERVED_WHILE_FROZEN.has("engine.update.release")).toBe(false);
     expect(SERVED_WHILE_FROZEN.has("engine.login.start")).toBe(false);
   });
 });

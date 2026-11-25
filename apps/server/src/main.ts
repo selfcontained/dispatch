@@ -90,10 +90,14 @@ if (process.argv[2]?.startsWith("recovery-")) {
     process.argv[5] || undefined,
     process.argv[6] || undefined
   );
-} else if (process.argv[2] === "runner-engine-capability") {
-  const { runEngineCapabilityWorker } =
+} else if (
+  process.argv[2] === "runner-engine-capability" ||
+  process.argv[2] === "runner-engine-host"
+) {
+  const { runEngineCapabilityWorker, runEngineHostWorker } =
     await import("./agents/remote/engine-capability-worker.js");
-  await runEngineCapabilityWorker();
+  if (process.argv[2] === "runner-engine-host") await runEngineHostWorker();
+  else await runEngineCapabilityWorker();
 } else if (process.argv[2] === "runner-update-compatibility") {
   const { embeddedBuild } = await import("./agents/build-identity.js");
   const { runnerHandoff } = await import("./agents/remote/update-handoff.js");

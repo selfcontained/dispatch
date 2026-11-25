@@ -3607,6 +3607,9 @@
                 }
               }
             }
+          },
+          "available": {
+            "optional": "boolean"
           }
         }
       },
@@ -3725,6 +3728,231 @@
         ]
       }
     },
+    "engine.update.inspect": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "engine": "string",
+          "action": {
+            "optional": {
+              "literal": ["install", "update"]
+            }
+          },
+          "presentation": {
+            "optional": "boolean"
+          }
+        }
+      },
+      "response": {
+        "object": {
+          "status": {
+            "optional": {
+              "object": {
+                "id": {
+                  "literal": ["claude", "codex", "opencode"]
+                },
+                "label": "string",
+                "installed": "boolean",
+                "path": {
+                  "nullable": "string"
+                },
+                "version": {
+                  "nullable": "string"
+                },
+                "install": "string",
+                "update": {
+                  "object": {
+                    "realPath": {
+                      "nullable": "string"
+                    },
+                    "probePath": {
+                      "optional": "string"
+                    },
+                    "source": {
+                      "literal": [
+                        "native",
+                        "npm",
+                        "homebrew-formula",
+                        "homebrew-cask",
+                        "unknown"
+                      ]
+                    },
+                    "packageChannel": {
+                      "optional": "string"
+                    },
+                    "migrationWarning": {
+                      "optional": "string"
+                    },
+                    "canUpdate": "boolean",
+                    "reason": "string",
+                    "command": "string",
+                    "latestVersion": {
+                      "nullable": "string"
+                    },
+                    "latestPending": "boolean",
+                    "available": "boolean"
+                  }
+                }
+              }
+            }
+          },
+          "realPath": {
+            "nullable": "string"
+          },
+          "probePath": {
+            "optional": "string"
+          },
+          "source": {
+            "literal": [
+              "native",
+              "npm",
+              "homebrew-formula",
+              "homebrew-cask",
+              "unknown"
+            ]
+          },
+          "packageChannel": {
+            "optional": "string"
+          },
+          "migrationWarning": {
+            "optional": "string"
+          },
+          "canUpdate": "boolean",
+          "reason": "string",
+          "command": "string",
+          "latestKey": "string",
+          "target": "string",
+          "run": {
+            "optional": {
+              "object": {
+                "executable": "string",
+                "args": {
+                  "array": "string"
+                },
+                "env": {
+                  "optional": {
+                    "record": "string"
+                  }
+                },
+                "refresh": {
+                  "optional": {
+                    "object": {
+                      "executable": "string",
+                      "args": {
+                        "array": "string"
+                      },
+                      "env": {
+                        "optional": {
+                          "record": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": ["unsupported"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "engine.update.spawn": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "requestId": "string",
+          "command": {
+            "object": {
+              "executable": "string",
+              "args": {
+                "array": "string"
+              },
+              "env": {
+                "optional": {
+                  "record": "string"
+                }
+              }
+            }
+          },
+          "timeoutMs": "integer"
+        }
+      },
+      "response": {
+        "object": {
+          "operationId": "string",
+          "pid": "integer"
+        }
+      },
+      "errors": ["busy"],
+      "retry": {
+        "kind": "key",
+        "key": ["requestId"]
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "engine.update.release": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "operationId": "string",
+          "abort": {
+            "optional": "boolean"
+          }
+        }
+      },
+      "response": {
+        "object": {}
+      },
+      "errors": ["not_found"],
+      "retry": {
+        "kind": "key",
+        "key": ["operationId", "abort"]
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
+    "engine.update.probe": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "pids": {
+            "array": "integer"
+          },
+          "groups": {
+            "optional": "boolean"
+          },
+          "bin": {
+            "optional": "string"
+          }
+        }
+      },
+      "response": {
+        "object": {
+          "alive": {
+            "array": "boolean"
+          },
+          "version": {
+            "nullable": "string"
+          }
+        }
+      },
+      "errors": [],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
     "engine.operation": {
       "scope": "runner",
       "kind": "call",
@@ -3758,6 +3986,35 @@
               "engine": "string",
               "success": "boolean",
               "message": "string"
+            }
+          },
+          {
+            "object": {
+              "type": {
+                "literal": ["operation_state"]
+              },
+              "operationId": "string",
+              "pid": {
+                "optional": "integer"
+              },
+              "running": "boolean",
+              "output": "string",
+              "outputOffset": "integer",
+              "error": {
+                "optional": "string"
+              },
+              "result": {
+                "optional": {
+                  "object": {
+                    "exitCode": "integer",
+                    "stdout": "string",
+                    "stderr": "string",
+                    "truncated": {
+                      "optional": "boolean"
+                    }
+                  }
+                }
+              }
             }
           }
         ]
@@ -4175,11 +4432,35 @@
       "request": {
         "object": {
           "engine": "string",
-          "plugin": "string"
+          "plugin": "string",
+          "refresh": {
+            "optional": "boolean"
+          }
         }
       },
       "response": {
         "object": {
+          "agentType": {
+            "optional": {
+              "literal": ["claude", "codex"]
+            }
+          },
+          "detectionError": {
+            "optional": "string"
+          },
+          "ranCommands": {
+            "optional": {
+              "array": "string"
+            }
+          },
+          "error": {
+            "optional": {
+              "nullable": "string"
+            }
+          },
+          "probeFailed": {
+            "optional": "boolean"
+          },
           "installed": "boolean",
           "enabled": "boolean",
           "currentVersion": {
@@ -4218,6 +4499,27 @@
       },
       "response": {
         "object": {
+          "agentType": {
+            "optional": {
+              "literal": ["claude", "codex"]
+            }
+          },
+          "detectionError": {
+            "optional": "string"
+          },
+          "ranCommands": {
+            "optional": {
+              "array": "string"
+            }
+          },
+          "error": {
+            "optional": {
+              "nullable": "string"
+            }
+          },
+          "probeFailed": {
+            "optional": "boolean"
+          },
           "installed": "boolean",
           "enabled": "boolean",
           "currentVersion": {

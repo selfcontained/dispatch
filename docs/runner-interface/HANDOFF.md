@@ -78,7 +78,7 @@ Three lanes that share no files. A task that must touch another lane's file wait
 2. **T29 · Install, update, plugins.** One engine manager on every platform. Closes N34. _Start:_ `engine-updates.ts`, `engine-runner-executor.ts`, `plugin-status.ts`. _Trap:_ still no automatic install locally.
 3. **T30 · Catalog and learning.** Learning keyed by runner, catalog through the interface. Closes N30 (anchor in `manager.ts`: wait for lane B to leave it). _Trap:_ the learned-model settings key must stay main's.
 4. **L5 · Signed Mac and systemd validation.** Needs the owner's approval for a signed build and a machine or VM. Ask first.
-5. **T40 · Seal v1.** Delete the codec, locators, capability refusals and legacy anchors (N14, N16, N29, N35, N13 if not closed), move the runner out of `apps/server`, turn baselines into absolute bans, delete `docs/runner-interface/`. Last.
+5. **T40 · Seal v1.** Move the app-local engine/plugin host implementations (the host portions of `agents/engine-updates.ts`, `agents/remote/engine-runner-executor.ts`, the engine/plugin portions of `agents/remote/engine-capability-worker.ts`, `shared/plugin-status.ts`) into `packages/runner` when the in-process fallback is removed; T29 routes through EnginePort without a reverse package dependency. Delete the codec, locators, capability refusals and legacy anchors (N14, N16, N29, N35, N13 if not closed), move the runner out of `apps/server`, turn baselines into absolute bans, delete `docs/runner-interface/`. Last.
 
 ### Lane B: manager, admission, host, MCP
 

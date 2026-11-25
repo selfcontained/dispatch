@@ -162,4 +162,42 @@ describe("engine update settings persistence in isolated Postgres", () => {
         .codex?.output
     ).toContain(done.stdout);
   });
+  it("keeps local upgrade rows unchanged while coordinating another runner independently", async () => {
+    const wait = barrier();
+    const options = {
+      prepare: async () => installation,
+      verify: async (_bin: string, phase: "before" | "after") =>
+        phase === "before" ? "1.0.0" : "2.0.0",
+      runner: () => async () => {
+        await wait.promise;
+        return done;
+      },
+    };
+    const local = new EngineUpdateOperations(
+      engineOperationStore(pool),
+      options
+    );
+    const remote = new EngineUpdateOperations(
+      engineOperationStore(pool, "runner:fixture"),
+      options
+    );
+    const first = await local.start("codex", {});
+    const second = await remote.start("claude", {});
+    expect((await local.read()).codex?.id).toBe(first.id);
+    expect((await local.read()).claude).toBeUndefined();
+    expect((await remote.read()).claude?.id).toBe(second.id);
+    expect((await remote.read()).codex).toBeUndefined();
+    const rows = await pool.query(
+      "SELECT key FROM settings WHERE key LIKE 'engine_update_operations%' ORDER BY key"
+    );
+    expect(rows.rows.map((row) => row.key)).toEqual([
+      "engine_update_operations",
+      "engine_update_operations:runner:fixture",
+    ]);
+    wait.release();
+    await completed(local);
+    await vi.waitFor(async () =>
+      expect((await remote.read()).claude?.status).toBe("succeeded")
+    );
+  });
 });

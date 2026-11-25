@@ -68,7 +68,7 @@ export type PluginStatusLogger = {
 
 const noopLogger: PluginStatusLogger = { warn: () => {} };
 
-const PLUGIN_ID = "dispatch@dispatch";
+export const PLUGIN_ID = "dispatch@dispatch";
 const MARKETPLACE_NAME = "dispatch";
 // `plugin list` is the first CLI call of a check, often the first in a
 // while, and a cold `codex` start can take well over 10s before it answers

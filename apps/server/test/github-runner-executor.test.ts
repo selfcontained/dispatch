@@ -3,8 +3,10 @@ import {
   access,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { once } from "node:events";
@@ -12,7 +14,10 @@ import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { expect, it, vi } from "vitest";
-import { GitHubRunnerExecutor } from "../src/agents/remote/github-runner-executor.js";
+import {
+  GitHubRunnerExecutor,
+  githubCredentialInclude,
+} from "../src/agents/remote/github-runner-executor.js";
 import { runnerGitArgs } from "../src/agents/remote/runner.js";
 
 /** The running sign-in printed its code, or ended without one. */
@@ -29,7 +34,9 @@ async function fixture(
     gh: string;
     env: NodeJS.ProcessEnv;
   }) => Promise<void>,
-  privateHome = true
+  privateHome = true,
+  /** gh resolves to the fixture itself, as a workload login PATH would find it. */
+  resolvedGh = false
 ) {
   const root = await mkdtemp(path.join(os.tmpdir(), "dispatch-gh-fixture-"));
   const gh = path.join(root, "gh");
@@ -157,6 +164,11 @@ case "$1 $2" in
         ;;
       user)
         if [ -f revoked ]; then printf '(HTTP 401)\n' >&2; exit 1; fi
+        if [ -f api-down ]; then printf 'dial tcp: network is unreachable\n' >&2; exit 1; fi
+        if [ -f hold-user ]; then
+          touch user-started
+          until [ -f release-user ]; do sleep .02; done
+        fi
         test -s login
         case "$6" in
           .login) cat login ;;
@@ -193,12 +205,26 @@ esac
     const executor = new GitHubRunnerExecutor(
       env,
       (bin, args) => {
-        if (bin === "/usr/bin/git") return { bin, args };
-        expect(bin).toBe("/usr/bin/gh");
+        if (
+          [
+            "/usr/bin/git",
+            "/bin/mkdir",
+            "/bin/chmod",
+            "/bin/rm",
+            "/bin/rmdir",
+          ].includes(bin)
+        )
+          return { bin, args };
+        expect(bin).toBe(resolvedGh ? gh : "/usr/bin/gh");
         return { bin: gh, args };
       },
       undefined,
-      undefined,
+      resolvedGh
+        ? {
+            resolve: async (tool) => (tool === "gh" ? gh : "/usr/bin/git"),
+            invalidate() {},
+          }
+        : undefined,
       privateHome
     );
     const commands = new Set<Promise<unknown>>();
@@ -373,107 +399,147 @@ it("keeps a verified GitHub account usable if global Git identity setup fails", 
   });
 });
 
-it("completes a device login without setting a global credential helper", async () => {
-  await fixture(async ({ executor, root, env, gh }) => {
-    const connection = new AbortController();
-    const handle = (type: "status" | "login" | "logout") =>
-      executor.handle({ type }, connection.signal);
-    try {
-      expect(await handle("status")).toEqual({ status: "signed-out" });
-      expect(await handle("login")).toMatchObject({ status: "pending" });
-      await codeShown(executor);
-      expect(await handle("status")).toEqual({
-        status: "pending",
-        code: "ABCD-1234",
-        verificationUrl: "https://github.com/login/device",
-      });
-      expect(await handle("login")).toMatchObject({
-        status: "pending",
-        code: "ABCD-1234",
-      });
-      const authorized = executor["login"]!.finished;
-      await writeFile(path.join(root, "authorize"), "");
-      await authorized;
-      expect(await handle("status")).toEqual({
-        status: "signed-in",
-        login: "fixture-user",
-      });
-      expect(
-        await readFile(path.join(root, ".gitconfig"), "utf8")
-      ).not.toContain("credential");
-      const args = runnerGitArgs.map((arg) => arg.replace("/usr/bin/gh", gh));
-      const result = execFileSync("git", [...args, "credential", "fill"], {
-        cwd: root,
-        env: { ...env, GIT_TERMINAL_PROMPT: "0" },
-        input: "protocol=https\nhost=github.com\n\n",
-        encoding: "utf8",
-      });
-      expect(result).toContain("username=fixture-user");
-      expect(gitConfig(env, "user.name")).toBe("Fixture User");
-      expect(gitConfig(env, "user.email")).toBe(
-        "1234+fixture-user@users.noreply.github.com"
-      );
-      expect(
-        await executor.handle(
-          { type: "repositorySearch", query: "org/project" },
-          connection.signal
-        )
-      ).toEqual({
-        repositories: [
-          { name: "org/project", url: "https://github.com/org/project" },
-        ],
-      });
-      expect(
-        await executor.handle(
-          {
-            type: "pullRequestHead",
-            owner: "org",
-            repo: "project",
-            number: 42,
-          },
-          connection.signal
-        )
-      ).toEqual({ url: "https://github.com/fork/project.git", branch: "fix" });
-      await writeFile(
-        path.join(root, "graphql-response"),
-        JSON.stringify({
-          errors: [{ message: "private diagnostic" }],
-          data: {
-            repository: {
-              pullRequest: {
-                state: "OPEN",
-                title: "Partial status",
-                headRefOid: "sha",
+it("completes a device login and gives the account's plain git the login until sign-out", async () => {
+  await fixture(
+    async ({ executor, root, env, gh }) => {
+      const connection = new AbortController();
+      const handle = (type: "status" | "login" | "logout") =>
+        executor.handle({ type }, connection.signal);
+      try {
+        expect(await handle("status")).toEqual({ status: "signed-out" });
+        expect(await handle("login")).toMatchObject({ status: "pending" });
+        await codeShown(executor);
+        expect(await handle("status")).toEqual({
+          status: "pending",
+          code: "ABCD-1234",
+          verificationUrl: "https://github.com/login/device",
+        });
+        expect(await handle("login")).toMatchObject({
+          status: "pending",
+          code: "ABCD-1234",
+        });
+        const authorized = executor["login"]!.finished;
+        await writeFile(path.join(root, "authorize"), "");
+        await authorized;
+        expect(await handle("status")).toEqual({
+          status: "signed-in",
+          login: "fixture-user",
+        });
+        // The global configuration names the include, never a helper or token.
+        expect(
+          await readFile(path.join(root, ".gitconfig"), "utf8")
+        ).not.toMatch(/helper|synthetic/);
+        expect(plainCredential(env, gh)).toContain(
+          "password=synthetic-token\n"
+        );
+        const include = path.join(root, githubCredentialInclude);
+        expect(gitConfig(env, "include.path")).toBe(include);
+        expect(await readFile(include, "utf8")).not.toContain("synthetic");
+        const args = runnerGitArgs.map((arg) => arg.replace("/usr/bin/gh", gh));
+        const result = execFileSync("git", [...args, "credential", "fill"], {
+          cwd: root,
+          env: { ...env, GIT_TERMINAL_PROMPT: "0" },
+          input: "protocol=https\nhost=github.com\n\n",
+          encoding: "utf8",
+        });
+        expect(result).toContain("username=fixture-user");
+        expect(gitConfig(env, "user.name")).toBe("Fixture User");
+        expect(gitConfig(env, "user.email")).toBe(
+          "1234+fixture-user@users.noreply.github.com"
+        );
+        expect(
+          await executor.handle(
+            { type: "repositorySearch", query: "org/project" },
+            connection.signal
+          )
+        ).toEqual({
+          repositories: [
+            { name: "org/project", url: "https://github.com/org/project" },
+          ],
+        });
+        expect(
+          await executor.handle(
+            {
+              type: "pullRequestHead",
+              owner: "org",
+              repo: "project",
+              number: 42,
+            },
+            connection.signal
+          )
+        ).toEqual({
+          url: "https://github.com/fork/project.git",
+          branch: "fix",
+        });
+        await writeFile(
+          path.join(root, "graphql-response"),
+          JSON.stringify({
+            errors: [{ message: "private diagnostic" }],
+            data: {
+              repository: {
+                pullRequest: {
+                  state: "OPEN",
+                  title: "Partial status",
+                  headRefOid: "sha",
+                },
               },
             },
-          },
-        })
-      );
-      expect(
-        await executor.handle(
-          {
-            type: "pullRequestStatus",
-            owner: "org",
-            repo: "project",
-            number: 42,
-          },
-          connection.signal
-        )
-      ).toEqual({
-        state: "OPEN",
-        title: "Partial status",
-        head: "sha",
-        draft: false,
-        rollup: null,
-      });
-      await writeFile(path.join(root, "revoked"), "");
-      expect(await handle("status")).toEqual({ status: "signed-out" });
-      expect(await handle("logout")).toEqual({ status: "signed-out" });
-    } finally {
-      connection.abort();
-    }
-  });
+          })
+        );
+        expect(
+          await executor.handle(
+            {
+              type: "pullRequestStatus",
+              owner: "org",
+              repo: "project",
+              number: 42,
+            },
+            connection.signal
+          )
+        ).toEqual({
+          state: "OPEN",
+          title: "Partial status",
+          head: "sha",
+          draft: false,
+          rollup: null,
+        });
+        await writeFile(path.join(root, "revoked"), "");
+        expect(await handle("status")).toEqual({ status: "signed-out" });
+        expect(await handle("logout")).toEqual({ status: "signed-out" });
+        expect(plainCredential(env, gh)).toBe("");
+        expect(
+          await readFile(path.join(root, ".gitconfig"), "utf8")
+        ).not.toMatch(/include|dispatch-runner/);
+        await expect(access(include)).rejects.toThrow();
+      } finally {
+        connection.abort();
+      }
+    },
+    true,
+    true
+  );
 });
+
+/** What plain `git credential fill` gets for github.com, outside any repository. */
+function plainCredential(env: NodeJS.ProcessEnv, gh: string) {
+  try {
+    return execFileSync("git", ["credential", "fill"], {
+      cwd: "/",
+      env: {
+        ...env,
+        PATH: `${path.dirname(gh)}:${process.env.PATH}`,
+        GIT_TERMINAL_PROMPT: "0",
+        GIT_ASKPASS: "",
+        SSH_ASKPASS: "",
+      },
+      input: "protocol=https\nhost=github.com\n\n",
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "ignore"],
+    });
+  } catch {
+    return "";
+  }
+}
 
 function gitConfig(env: NodeJS.ProcessEnv, key: string, value?: string) {
   return execFileSync(
@@ -502,21 +568,97 @@ it("fills missing Git identity for an existing login and preserves custom values
   });
 });
 
-it("leaves an existing user's Git configuration byte-identical on status and login", async () => {
+it("adds only the credential include to an existing user's Git configuration and removes it on sign-out", async () => {
   await fixture(async ({ executor, root, env }) => {
     const signal = new AbortController().signal;
     await writeFile(path.join(root, "login"), "fixture-user");
     gitConfig(env, "user.email", "custom@example.com");
+    gitConfig(env, "credential.helper", "store");
+    // What `gh auth setup-git` writes; the second line equals Dispatch's helper.
+    gitConfig(env, "credential.https://github.com.helper", "");
+    execFileSync(
+      "git",
+      [
+        "config",
+        "--global",
+        "--add",
+        "credential.https://github.com.helper",
+        "!/usr/bin/gh auth git-credential",
+      ],
+      { env }
+    );
+    const include = path.join(root, githubCredentialInclude);
+    // Differs only where a regular expression would match any character.
+    gitConfig(env, "include.path", include.replace(".config", "Xconfig"));
     const config = path.join(root, ".gitconfig");
-    const before = await readFile(config);
-    for (const type of ["status", "login"] as const)
+    const before = await readFile(config, "utf8");
+    for (const type of ["status", "login", "status"] as const)
       expect(await executor.handle({ type }, signal)).toEqual({
         status: "signed-in",
         login: "fixture-user",
         gitIdentityUnavailable: true,
       });
-    expect(await readFile(config)).toEqual(before);
+    // Identity stays the user's; their own helper keeps running first.
+    expect(await readFile(config, "utf8")).toBe(
+      `${before}\tpath = ${include}\n`
+    );
+    // The user's lines first, then the include's: theirs keep priority.
+    expect(
+      execFileSync(
+        "git",
+        ["config", "--get-all", "credential.https://github.com.helper"],
+        { env, encoding: "utf8" }
+      )
+    ).toBe(
+      "\n!/usr/bin/gh auth git-credential\n!/usr/bin/gh auth git-credential\n"
+    );
+    expect((await stat(include)).mode & 0o777).toBe(0o600);
+    expect((await stat(path.dirname(include))).mode & 0o777).toBe(0o700);
+    expect(await executor.handle({ type: "logout" }, signal)).toEqual({
+      status: "signed-out",
+    });
+    expect(await readFile(config, "utf8")).toBe(before);
+    await expect(access(include)).rejects.toThrow();
+    // A second sign-out, or a crash replayed, finds nothing more to remove.
+    expect(await executor.handle({ type: "status" }, signal)).toEqual({
+      status: "signed-out",
+    });
+    expect(await readFile(config, "utf8")).toBe(before);
   }, false);
+});
+
+it("repairs a sign-in or sign-out interrupted between its steps", async () => {
+  await fixture(async ({ executor, root, env }) => {
+    const signal = new AbortController().signal;
+    const include = path.join(root, githubCredentialInclude);
+    // Signed in, but the process stopped before the include was written.
+    await writeFile(path.join(root, "login"), "fixture-user");
+    expect(await executor.handle({ type: "status" }, signal)).toMatchObject({
+      status: "signed-in",
+    });
+    expect(gitConfig(env, "include.path")).toBe(include);
+    // Signed out by gh, but the process stopped before the include was removed.
+    await rm(path.join(root, "login"));
+    const fresh = new GitHubRunnerExecutor(
+      env,
+      executor["wrap"],
+      undefined,
+      undefined,
+      true
+    );
+    gitConfig(env, "include.path", include);
+    expect(
+      execFileSync("git", ["config", "--global", "--get-all", "include.path"], {
+        env,
+        encoding: "utf8",
+      })
+    ).toBe(`${include}\n`);
+    expect(await fresh.handle({ type: "status" }, signal)).toEqual({
+      status: "signed-out",
+    });
+    expect(() => gitConfig(env, "include.path")).toThrow();
+    await expect(access(include)).rejects.toThrow();
+  });
 });
 
 it("binds bounded PR details and an assessed diff to the workload credential", async () => {
@@ -684,5 +826,103 @@ it("uses host-only logout only for the verified single-account CLI version", asy
     expect(await executor.handle({ type: "logout" }, signal)).toEqual({
       status: "signed-out",
     });
+  });
+});
+
+it("keeps the include when an account read fails or times out", async () => {
+  await fixture(async ({ executor, root, env }) => {
+    const include = path.join(root, githubCredentialInclude);
+    await writeFile(path.join(root, "login"), "fixture-user");
+    const signal = new AbortController().signal;
+    expect(await executor.handle({ type: "status" }, signal)).toMatchObject({
+      status: "signed-in",
+    });
+    await writeFile(path.join(root, "api-down"), "");
+    expect(await executor.handle({ type: "status" }, signal)).toMatchObject({
+      status: "unavailable",
+    });
+    await rm(path.join(root, "api-down"));
+    await writeFile(path.join(root, "hold-user"), "");
+    const timeout = new AbortController();
+    const read = executor.handle({ type: "status" }, timeout.signal);
+    while (
+      !(await access(path.join(root, "user-started")).then(
+        () => true,
+        () => false
+      ))
+    )
+      await delay(20);
+    timeout.abort();
+    expect(await read).toMatchObject({ status: "unavailable" });
+    await writeFile(path.join(root, "release-user"), "");
+    expect(gitConfig(env, "include.path")).toBe(include);
+    await access(include);
+  });
+});
+
+it("adds the include once when two runner processes read the account together", async () => {
+  await fixture(async ({ executor, root, env }) => {
+    const include = path.join(root, githubCredentialInclude);
+    await writeFile(path.join(root, "login"), "fixture-user");
+    const other = new GitHubRunnerExecutor(
+      env,
+      executor["wrap"],
+      undefined,
+      undefined,
+      true
+    );
+    const signal = new AbortController().signal;
+    for (let round = 0; round < 3; round++) {
+      other["credentialState"] = undefined;
+      executor["credentialState"] = undefined;
+      await Promise.all(
+        [executor, other, executor].map((reader) =>
+          reader.handle({ type: "status" }, signal)
+        )
+      );
+    }
+    expect(
+      execFileSync("git", ["config", "--global", "--get-all", "include.path"], {
+        env,
+        encoding: "utf8",
+      })
+    ).toBe(`${include}\n`);
+  });
+});
+
+it("writes under the configured home whatever GIT_CONFIG_GLOBAL or XDG_CONFIG_HOME say", async () => {
+  await fixture(async ({ executor, root, env }) => {
+    const elsewhere = path.join(root, "elsewhere");
+    await mkdir(elsewhere);
+    const redirected = new GitHubRunnerExecutor(
+      {
+        ...env,
+        GIT_CONFIG_GLOBAL: path.join(elsewhere, "gitconfig"),
+        XDG_CONFIG_HOME: elsewhere,
+      },
+      executor["wrap"],
+      undefined,
+      undefined,
+      true
+    );
+    await writeFile(path.join(root, "login"), "fixture-user");
+    const signal = new AbortController().signal;
+    expect(await redirected.handle({ type: "status" }, signal)).toMatchObject({
+      status: "signed-in",
+    });
+    const include = path.join(root, githubCredentialInclude);
+    expect(
+      execFileSync(
+        "git",
+        ["config", "--file", path.join(root, ".gitconfig"), "include.path"],
+        { encoding: "utf8" }
+      )
+    ).toBe(`${include}\n`);
+    expect(await readdir(elsewhere)).toEqual([]);
+    expect(await redirected.handle({ type: "logout" }, signal)).toEqual({
+      status: "signed-out",
+    });
+    await expect(access(include)).rejects.toThrow();
+    expect(await readdir(elsewhere)).toEqual([]);
   });
 });
