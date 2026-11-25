@@ -1,3 +1,4 @@
+import { parseEngineCapabilityResult } from "../src/agents/remote/engine-capability-result.js";
 import { X509Certificate } from "node:crypto";
 import { once } from "node:events";
 import http from "node:http";
@@ -323,7 +324,10 @@ describe("runner enrollment service", () => {
         service.available({ runner, workspace: "work" })
       )
     );
-    const transport = remoteEngineTransport(service);
+    const transport = remoteEngineTransport(
+      service,
+      parseEngineCapabilityResult
+    );
     const operation = { type: "model_catalog", engine: "codex" } as const;
     await expect(transport.send(currentId, operation)).resolves.toEqual({
       ok: true,

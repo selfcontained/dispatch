@@ -5,11 +5,11 @@ import type { Pool } from "pg";
 
 import { getEnabledAgentTypes } from "../agent-type-settings.js";
 import {
-  isPluginAgentType,
+  isPluginEngine as isPluginAgentType,
   PLUGIN_ID,
-  PLUGIN_AGENT_TYPES,
+  PLUGIN_ENGINES as PLUGIN_AGENT_TYPES,
   type PluginStatusChecker,
-} from "../shared/plugin-status.js";
+} from "@dispatch/runner-protocol/plugin-engines";
 
 type PluginRouteDeps = {
   pool: Pool;

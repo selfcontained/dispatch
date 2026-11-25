@@ -1,3 +1,4 @@
+import { createProviderPlansReporter } from "../src/agents/provider-plans-reporter.js";
 import { placementForRunner } from "../src/runners/placement.js";
 import * as agentModels from "../src/shared/agent-models.js";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
@@ -18,7 +19,6 @@ import {
 import {
   loadProviderPlans,
   consumeCodexLimitReset,
-  createProviderPlansReporter,
 } from "../src/agents/provider-plans.js";
 import { createPluginStatusChecker } from "../src/shared/plugin-status.js";
 import { registerPluginRoutes } from "../src/routes/plugin.js";

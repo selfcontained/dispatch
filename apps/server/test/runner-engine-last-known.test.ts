@@ -1,3 +1,4 @@
+import { parseEngineCapabilityResult } from "../src/agents/remote/engine-capability-result.js";
 import { scopedEngineCalls } from "../src/runners/local.js";
 import { Duplex } from "node:stream";
 import type { EngineInventoryEntry } from "@dispatch/runner-protocol/engine-management";
@@ -106,7 +107,7 @@ function world() {
       updates: () => ({}) as never,
     },
     local: { engines: {} as never, updates: {} as never },
-    remote: remoteEngineTransport(service),
+    remote: remoteEngineTransport(service, parseEngineCapabilityResult),
   });
   const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
   const read = async () => {

@@ -171,3 +171,7 @@ lead's recovery decision.
 T40 move records stay counted, with exact approved importers and verified package targets; only main.ts may supply app-owned providers through a separately validated input seam.
 The move list has a reviewed record budget and shrinking importer list; growth requires the named-commit policy fixture. Frozen historical list snapshots only replay existing commits.
 Remove each record with its baseline entry; the final seal requires zero records and zero budget.
+
+The controller composition root temporarily supplies the existing Zod capability parser to the enrolled engine acknowledgment adapter. Once the workload moves, import the same parser at the adapter and remove the composition callback.
+
+The workload engineUpdatePort wrapper serves the legacy detected-update executor. Delete it with that executor. Fold the shared operation facade into the controller when the controller is its only caller.

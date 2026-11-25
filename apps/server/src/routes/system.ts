@@ -57,7 +57,7 @@ import {
   setUserAvatar,
 } from "../user-avatar-settings.js";
 
-import { engineUpdatePort } from "../agents/engine-updates.js";
+import { engineUpdatePort } from "../agents/engine-update-operations.js";
 import {
   EngineUpdateOperations,
   engineOperationStore,
