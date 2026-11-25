@@ -405,3 +405,40 @@ it("the enrolled adapter sends an ambiguous reset only once", async () => {
   ).toHaveLength(1);
   expect(local.call).not.toHaveBeenCalled();
 });
+
+it("retains newer good windows after a runner refresh loses its reply", async () => {
+  vi.useFakeTimers();
+  try {
+    vi.setSystemTime(new Date("2026-11-24T12:00:00Z"));
+    const good = {
+      checkedAt: new Date().toISOString(),
+      providers: [
+        {
+          engine: "codex",
+          plan: "Pro",
+          observedAt: new Date().toISOString(),
+          windows: [
+            { id: "primary", label: "5-hour", usedPercent: 42, resetsAt: null },
+          ],
+        },
+      ],
+    };
+    let reads = 0;
+    const call = vi.fn(async () => {
+      if (++reads === 1) return good;
+      throw new Error("fixture disconnected");
+    });
+    const usage = createRunnerUsage({ call } as never);
+    await usage.providerPlans();
+    vi.advanceTimersByTime(60_001);
+    const refreshed = await usage.providerPlans();
+    expect(
+      refreshed.providers.find(({ engine }) => engine === "codex")
+    ).toEqual({
+      ...good.providers[0],
+      unavailableReason: "fixture disconnected",
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+});

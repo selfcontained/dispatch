@@ -130,8 +130,25 @@ export function createRunnerUsage(calls: {
   ): Promise<import("@dispatch/runner-protocol/contract").Res<K>>;
 }) {
   const providerPlans = createProviderPlansReporter({
-    load: async () =>
-      (await calls.call("engine.usage", {})) as ProviderPlansResponse,
+    load: async () => {
+      try {
+        return (await calls.call("engine.usage", {})) as ProviderPlansResponse;
+      } catch (failure) {
+        return {
+          checkedAt: new Date().toISOString(),
+          providers: (["claude", "codex"] as const).map((engine) => ({
+            engine,
+            plan: null,
+            observedAt: null,
+            windows: [],
+            unavailableReason:
+              failure instanceof Error
+                ? failure.message
+                : "Usage refresh failed.",
+          })),
+        };
+      }
+    },
   });
   const redeemCodexReset = createCodexResetCoordinator({
     providerPlans,
