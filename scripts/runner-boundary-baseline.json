@@ -1808,13 +1808,6 @@
   {
     "file": "apps/server/src/server.ts",
     "kind": "R2 host import",
-    "detail": "apps/server/src/agents/provider-plans",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/server.ts",
-    "kind": "R2 host import",
     "detail": "apps/server/src/shared/lib/run-command",
     "task": "T04",
     "count": 1

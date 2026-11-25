@@ -321,8 +321,8 @@ export const engineUsage = object({
       ),
       limitResets: optional(
         object({
-          available: integer,
-          applicable: integer,
+          available: number,
+          applicable: number,
           oldestExpiresAt: optional(nullable(string)),
           items: optional(
             array(

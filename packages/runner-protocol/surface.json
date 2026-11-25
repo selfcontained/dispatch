@@ -4388,8 +4388,8 @@
                 "limitResets": {
                   "optional": {
                     "object": {
-                      "available": "integer",
-                      "applicable": "integer",
+                      "available": "number",
+                      "applicable": "number",
                       "oldestExpiresAt": {
                         "optional": {
                           "nullable": "string"
@@ -4445,7 +4445,7 @@
       "response": {
         "object": {
           "code": "string",
-          "windowsReset": "integer",
+          "windowsReset": "number",
           "credit": {
             "optional": {
               "nullable": {

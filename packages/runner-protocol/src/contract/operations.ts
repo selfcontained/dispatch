@@ -15,6 +15,7 @@ import {
   integer,
   literal,
   nullable,
+  number,
   object,
   optional,
   record,
@@ -880,7 +881,7 @@ export const operations = {
     request: object({ ...engine, account: string, ...requestId }),
     response: object({
       code: string,
-      windowsReset: integer,
+      windowsReset: number,
       credit: optional(
         nullable(
           object({ id: string, title: string, expiresAt: nullable(string) })

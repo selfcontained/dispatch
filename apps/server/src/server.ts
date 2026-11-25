@@ -142,7 +142,6 @@ import {
 } from "./generated/runtime-assets.js";
 import { BrainStore } from "./brain/store.js";
 import { registerActivityRoutes } from "./routes/activity/index.js";
-import { createProviderPlansReporter } from "./agents/provider-plans.js";
 import { parseCodeowners } from "./personas/codeowners.js";
 import { LEGACY_OWNERS_PATH, OWNERS_PATH } from "./personas/paths.js";
 import { createMergeRiskGitHubSource } from "./agents/merge-risk/github-source.js";
