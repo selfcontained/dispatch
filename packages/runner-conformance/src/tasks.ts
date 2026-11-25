@@ -43,7 +43,7 @@ export const OPERATION_TASK = {
   "git.defaultBranch": "T16",
   "git.branches": "T16",
   "git.origin": "T40",
-  "git.roots": "T40",
+  "git.roots": "T40", // Includes the independent checkoutOnly probe; default roots stay unchanged.
   "git.base": "T16",
   "github.account": "T32",
   "github.login.start": "T32",

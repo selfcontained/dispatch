@@ -27,11 +27,11 @@ import {
   runnerPublicKey,
 } from "../src/agents/remote/certificate-authority.js";
 import {
-  wireFrames,
   type Frame,
   type EnrollmentRequest,
   type EnrollmentReply,
 } from "../src/agents/remote/protocol.js";
+import { wireFrames } from "../src/runners/enrolled/v1-framing.js";
 import type { StreamFrame } from "../src/runners/enrolled/v1-framing.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
