@@ -601,25 +601,10 @@ export async function runRemoteRunner(
     }
   }
   const engineAccountSecret = randomBytes(32).toString("base64url");
-  const capabilityRequests = new Set<string>();
   async function engineCapability(
     operation: EngineCapabilityOperation,
     signal: AbortSignal
   ): Promise<EngineOperationAck> {
-    const key =
-      operation.type.startsWith("plugin_") && "engine" in operation
-        ? `plugin:${operation.engine}`
-        : JSON.stringify(
-            operation.type === "codex_reset" ? operation.type : operation
-          );
-    if (capabilityRequests.has(key)) {
-      return {
-        ok: false,
-        error:
-          "An engine capability request is already in progress. Try again shortly.",
-      };
-    }
-    capabilityRequests.add(key);
     try {
       const bins = await resolveBins(
         "engine" in operation ? operation.engine : undefined
@@ -649,8 +634,6 @@ export async function runRemoteRunner(
         ok: false,
         error: "Engine capability is unavailable on this runner.",
       };
-    } finally {
-      capabilityRequests.delete(key);
     }
   }
   const asWorkload: WorkloadCommand = async (bin, args, opts) => {

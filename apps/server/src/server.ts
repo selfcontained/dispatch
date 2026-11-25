@@ -1173,8 +1173,7 @@ async function registerRoutes() {
     string,
     ReturnType<typeof createRunnerUsage>
   >();
-  function usageForRunner(runnerId: string) {
-    const calls = engineCalls(engineScopeForRunner(runnerId));
+  function usageForCalls(calls: ReturnType<typeof engineCalls>) {
     const key = calls.settings.namespace;
     let usage = usageCoordinators.get(key);
     if (!usage) {
@@ -1186,6 +1185,8 @@ async function registerRoutes() {
     }
     return usage;
   }
+  const usageForRunner = (runnerId: string) =>
+    usageForCalls(engineCalls(engineScopeForRunner(runnerId)));
   const { providerPlans, redeemCodexReset } = usageForRunner(
     runnerIdForPlacement(controllerPlacement)
   );
@@ -1355,7 +1356,11 @@ async function registerRoutes() {
     },
   });
   const engineManager = new EngineManager({
-    engineActions: { calls: engineCalls, updates: updatesFor },
+    engineActions: {
+      calls: engineCalls,
+      updates: updatesFor,
+      usage: (scope) => usageForCalls(engineCalls(scope)),
+    },
     local: {
       engines: localEngineCalls(
         () => localRunnerOf(localRunnerProcess),

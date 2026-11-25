@@ -1,3 +1,4 @@
+import type { createRunnerUsage } from "../codex-reset.js";
 import { runnerPluginChecker } from "../../routes/plugin.js";
 import {
   createLocalEngineRunner,
@@ -96,6 +97,7 @@ export class EngineManager {
       remote: RunnerEngineTransport;
       engineActions: {
         calls(scope: EngineScope): EngineCalls;
+        usage(scope: EngineScope): ReturnType<typeof createRunnerUsage>;
         updates(scope: EngineScope): EngineUpdateOperations;
       };
     }
@@ -139,6 +141,25 @@ export class EngineManager {
     operation: EngineOperation,
     onEvent?: (event: EngineOperationEvent) => void
   ): Promise<EngineOperationAck> {
+    if (operation.type === "provider_usage") {
+      return {
+        ok: true,
+        capability: {
+          type: "provider_usage",
+          usage: await this.deps.engineActions.usage(scope).providerPlans(),
+        },
+      };
+    }
+    if (operation.type === "codex_reset") {
+      const result = await this.deps.engineActions
+        .usage(scope)
+        .redeemCodexReset(operation.requestId);
+      if (result.error) return { ok: false, error: result.error.message };
+      return {
+        ok: true,
+        capability: { type: "codex_reset", ...result.outcome! },
+      };
+    }
     if (operation.type === "contract")
       return {
         ok: true,
