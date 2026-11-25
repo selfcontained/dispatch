@@ -95,6 +95,7 @@ import {
   buildGitContextForWorktree,
   normalizePath,
   probeGitContext,
+  resolveWorktreeRoot,
 } from "../shared/git/git-context.js";
 import { resolveBaseRef } from "../shared/git/base-ref.js";
 import { detectDefaultBranch } from "../shared/git/default-branch.js";
@@ -554,8 +555,14 @@ async function readGitQuery<K extends GitQueryName>(
   request: Omit<Req<K>, "target">,
   repository?: string
 ): Promise<Res<K>> {
-  if (op === "git.roots")
+  if (op === "git.roots") {
+    if ((request as Omit<Req<"git.roots">, "target">).checkoutOnly === true)
+      return {
+        repositoryRoot: null,
+        checkoutRoot: await resolveWorktreeRoot(directory).catch(() => null),
+      } as Res<K>;
     return (await resolveInspectionRoots(directory)) as Res<K>;
+  }
   if (op === "git.origin") {
     try {
       return {

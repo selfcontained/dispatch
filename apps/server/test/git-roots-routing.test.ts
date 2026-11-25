@@ -204,3 +204,50 @@ it("manager roots use git.roots for an enrolled session and retain reply bytes",
     undefined
   );
 });
+
+it("forwards checkoutOnly to a healthy local child without changing its target", async () => {
+  const call = vi.fn(async () => ({
+    repositoryRoot: null,
+    checkoutRoot: "/work",
+  }));
+  const child = { call, connection: { state: "ready" } } as unknown as Runner;
+  const request = {
+    target: { path: pathFromWire("/work") },
+    checkoutOnly: true as const,
+  };
+  expect(
+    await runnerDirectory({ child: () => child })
+      .for(controllerPlacement)
+      .call("git.roots", request)
+  ).toEqual({ repositoryRoot: null, checkoutRoot: "/work" });
+  expect(call).toHaveBeenCalledExactlyOnceWith("git.roots", request, {
+    wait: false,
+  });
+});
+
+it("forwards checkoutOnly through the enrolled root-query carrier", async () => {
+  const readRepositoryRoots = vi.fn(async () => ({
+    repositoryRoot: null,
+    checkoutRoot: "/work",
+  }));
+  const service = { readRepositoryRoots } as unknown as RemoteRunnerService;
+  const runner = createEnrolledCheckoutRunner(
+    service,
+    "test-runner",
+    null,
+    undefined,
+    () => ({}) as never
+  );
+  const request = {
+    target: { path: pathFromWire("/work") },
+    checkoutOnly: true as const,
+  };
+  expect(await runner.call("git.roots", request)).toEqual({
+    repositoryRoot: null,
+    checkoutRoot: "/work",
+  });
+  expect(readRepositoryRoots).toHaveBeenCalledExactlyOnceWith(
+    "test-runner",
+    request
+  );
+});

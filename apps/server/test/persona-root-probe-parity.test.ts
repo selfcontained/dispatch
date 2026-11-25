@@ -1,3 +1,6 @@
+import { fileURLToPath } from "node:url";
+import { execFile } from "node:child_process";
+import { checkoutWorkload } from "./helpers/checkout-workload.js";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, realpath, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -38,6 +41,41 @@ it("pins the independent worktree probe when common-directory probing fails", as
         .for(controllerPlacement)
         .call("git.roots", { target: { path: pathFromWire(repo) } })
     ).toEqual({ repositoryRoot: null, checkoutRoot: null });
+    expect(
+      await checkoutWorkload.run(
+        "git.roots",
+        { directory: repo, request: { checkoutOnly: true } },
+        {}
+      )
+    ).toEqual({ repositoryRoot: null, checkoutRoot: repo });
+    const executable = process.env.BUN_BINARY ?? "bun";
+    const child = execFile(
+      executable,
+      [
+        "--no-env-file",
+        fileURLToPath(new URL("../src/main.ts", import.meta.url)),
+        "runner-worker",
+        "git.roots",
+        repo,
+      ],
+      { timeout: 5000 }
+    );
+    const output = new Promise<string>((resolve, reject) => {
+      let data = "";
+      let errors = "";
+      child.stdout!.on("data", (chunk) => (data += chunk));
+      child.stderr!.on("data", (chunk) => (errors += chunk));
+      child.on("error", reject);
+      child.on("exit", (code) =>
+        code === 0 ? resolve(data) : reject(new Error(errors))
+      );
+    });
+    child.stdin!.end(
+      JSON.stringify({ target: { path: repo }, checkoutOnly: true })
+    );
+    expect(JSON.parse(await output)).toEqual({
+      data: { repositoryRoot: null, checkoutRoot: repo },
+    });
   } finally {
     if (before === undefined) delete process.env.PATH;
     else process.env.PATH = before;
@@ -88,6 +126,21 @@ it("pins main's independent root results for repository, worktree, plain and mis
           .for(controllerPlacement)
           .call("git.roots", { target: { path: pathFromWire(cwd) } })
       ).toEqual({ repositoryRoot, checkoutRoot });
+      const defaults = await checkoutWorkload.run(
+        "git.roots",
+        { directory: cwd, request: {} },
+        {}
+      );
+      expect(JSON.stringify(defaults)).toBe(
+        JSON.stringify({ checkoutRoot, repositoryRoot })
+      );
+      expect(
+        await checkoutWorkload.run(
+          "git.roots",
+          { directory: cwd, request: { checkoutOnly: true } },
+          {}
+        )
+      ).toEqual({ repositoryRoot: null, checkoutRoot });
     }
   } finally {
     await rm(root, { recursive: true, force: true });

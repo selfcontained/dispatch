@@ -2933,6 +2933,11 @@
                 }
               }
             ]
+          },
+          "checkoutOnly": {
+            "optional": {
+              "literal": [true]
+            }
           }
         }
       },
