@@ -15,7 +15,6 @@ import {
   validateAgentMcpToken,
   validateJobMcpToken,
 } from "../src/auth.js";
-import { createLocalEngineRunner } from "../src/agents/local-runner-engine.js";
 import {
   loadProviderPlans,
   consumeCodexLimitReset,
@@ -219,15 +218,6 @@ esac
         });
       }
     );
-    const localEngines = createLocalEngineRunner({
-      bins: { codex: codexBin, claude: codexBin },
-      providerOptions: {
-        homeDir: home,
-        env: {},
-        platform: "linux",
-        fetchUsage,
-      },
-    });
     const readModels = vi.spyOn(agentModels, "readStoredAgentModelCatalog");
     const readChoices = vi.spyOn(agentModels, "readStoredModelCatalog");
     const providerPlans = createProviderPlansReporter({
@@ -260,7 +250,6 @@ esac
       listAgents: async () => [],
     };
     const deps = {
-      localEngines,
       config: { authToken: secret },
       providerPlans,
       redeemCodexReset,
@@ -286,7 +275,7 @@ esac
       pool: deps.pool as never,
       plugins: createPluginStatusChecker({ binFor: () => codexBin }),
     });
-    await registerSystemRoutes(app, { pool: deps.pool, localEngines } as never);
+    await registerSystemRoutes(app, { pool: deps.pool } as never);
     const address = await app.listen({ host: "127.0.0.1", port: 0 });
     const transcript: unknown[] = [
       {

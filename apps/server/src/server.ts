@@ -43,7 +43,6 @@ import {
 } from "./routes/portfolio.js";
 import { installRequestLifecycle } from "./server/request-lifecycle.js";
 import { createRunnerUsage } from "./agents/codex-reset.js";
-import { createLocalEngineRunner } from "./agents/local-runner-engine.js";
 import { TaskWatchNotifier } from "./tasks/watch-notifier.js";
 import { UsageWatchService } from "./agents/usage-watches.js";
 import { registerHumanTerminalRoutes } from "./routes/human-terminals.js";
@@ -1159,10 +1158,6 @@ async function registerRoutes() {
     withStreamFlag,
   });
 
-  const localEngines = createLocalEngineRunner({
-    bins: { claude: config.claudeBin, codex: config.codexBin },
-    logger: app.log,
-  });
   const localEnginesInProcess = inProcessEngines(
     {
       adapter: config.acpAdapter,
@@ -1427,7 +1422,6 @@ async function registerRoutes() {
         () => localRunnerOf(localRunnerProcess),
         localEnginesInProcess
       ),
-      capabilities: localEngines,
       updates: engineUpdates,
       overrides: {
         claude: config.claudeBin,
