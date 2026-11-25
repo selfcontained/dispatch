@@ -34,8 +34,10 @@ export function TaskGoalProgress({
         aria-valuemax={total}
         aria-valuenow={completed}
         aria-valuetext={text}
+        // One rounded track split by hairline gaps: square inner edges read
+        // as segments of a single bar, not separate pills.
         className={cn(
-          "flex h-1.5 min-w-0 flex-1",
+          "flex h-1.5 min-w-0 flex-1 overflow-hidden rounded-full",
           total > 16 ? "gap-px" : "gap-0.5"
         )}
       >
@@ -43,7 +45,7 @@ export function TaskGoalProgress({
           <span
             key={index}
             className={cn(
-              "min-w-px flex-1 rounded-full",
+              "min-w-px flex-1",
               index < completed ? "bg-success" : "bg-foreground/tint"
             )}
           />
