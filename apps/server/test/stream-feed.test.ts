@@ -119,6 +119,74 @@ describe("composeStreamFeed", () => {
     ).toEqual(ids.sort());
     expect(second.hasMore).toBe(false);
   });
+  it("lists a reviewer's home review for the agent it reviewed, after the reviewer is archived", async () => {
+    // Reviews live at the reviewer's home and are addressed to the reviewed agent.
+    const review = await store.insert({
+      streamId: ARCHIVED_CHILD,
+      author: agent(ARCHIVED_CHILD),
+      toAgentId: A,
+      kind: "review",
+      data: { summary: "Two issues" },
+    });
+    const open = await store.insert({
+      streamId: ARCHIVED_CHILD,
+      author: agent(ARCHIVED_CHILD),
+      toAgentId: A,
+      kind: "finding",
+      threadId: review.id,
+      replyTo: review.id,
+      data: { severity: "major", title: "Open one", body: "x" },
+      state: { status: "open" },
+    });
+    const resolved = await store.insert({
+      streamId: ARCHIVED_CHILD,
+      author: agent(ARCHIVED_CHILD),
+      toAgentId: A,
+      kind: "finding",
+      threadId: review.id,
+      replyTo: review.id,
+      data: { severity: "minor", title: "Settled one", body: "y" },
+      state: { status: "resolved" },
+    });
+    await store.update(review.id, {
+      state: { blocks: [open.id, resolved.id] },
+    });
+    // A review addressed to someone else stays out of A's list.
+    await store.insert({
+      streamId: OTHER,
+      author: agent(OTHER),
+      toAgentId: OTHER,
+      kind: "review",
+    });
+    const ownReview = await store.insert({
+      streamId: A,
+      author: agent(A),
+      toAgentId: OTHER,
+      kind: "review",
+    });
+
+    const feed = await composeStreamFeed(store, A, { reviewsOnly: true });
+    expect(feed.entries.map((e) => e.block.id).sort()).toEqual(
+      [review.id, ownReview.id].sort()
+    );
+    const listed = feed.entries.find((e) => e.block.id === review.id)!.block;
+    expect(listed.streamId).toBe(ARCHIVED_CHILD);
+    expect((listed.blocks ?? []).map((b) => [b.id, b.state?.status])).toEqual([
+      [open.id, "open"],
+      [resolved.id, "resolved"],
+    ]);
+    expect(feed.agentNames[ARCHIVED_CHILD]).toBe("Archived child");
+    // The reviewer's own home still lists it once; the other parent never does.
+    const home = await composeStreamFeed(store, ARCHIVED_CHILD, {
+      reviewsOnly: true,
+    });
+    expect(home.entries.map((e) => e.block.id)).toEqual([review.id]);
+    const other = await composeStreamFeed(store, OTHER, { reviewsOnly: true });
+    expect(other.entries.some((e) => e.block.id === review.id)).toBe(false);
+    // The ordinary feed is unchanged: no other stream's blocks.
+    const plain = await composeStreamFeed(store, A);
+    expect(plain.entries.some((e) => e.block.id === review.id)).toBe(false);
+  });
   it("hydrates an archived agent named only by a silent reference", async () => {
     await store.insert({
       streamId: A,

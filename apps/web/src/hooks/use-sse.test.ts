@@ -616,6 +616,13 @@ describe("review summary first fetch", () => {
           threadId: "review-thread",
           status: "resolved",
           openFindings: 0,
+          findingCount: 0,
+          reviewId: "review",
+          toAgentId: "parent",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          name: "Reviewer",
+          persona: null,
+          archived: false,
         },
       },
     } satisfies AgentReviewSummary);
