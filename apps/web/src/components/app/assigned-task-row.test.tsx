@@ -117,3 +117,42 @@ it("shows goal progress for the row's task and none without current goals", () =
     "Task: Goals, In progress"
   );
 });
+
+it("does not celebrate when a different task takes over the row", () => {
+  state.isError = false;
+  state.columns = [{ id: "c", name: "In progress" }];
+  state.assigned = [{ id: "x", projectId: "p" }];
+  state.tasks = [
+    {
+      id: "x",
+      title: "Old",
+      columnId: "c",
+      assignedAgentId: "b",
+      archivedAt: null,
+      goalCounts: { completed: 1, total: 3 },
+    },
+  ];
+  const view = render(
+    <MemoryRouter>
+      <AssignedTaskRow agentId="b" />
+    </MemoryRouter>
+  );
+  state.assigned = [{ id: "y", projectId: "p" }];
+  state.tasks = [
+    {
+      id: "y",
+      title: "New",
+      columnId: "c",
+      assignedAgentId: "b",
+      archivedAt: null,
+      goalCounts: { completed: 3, total: 3 },
+    },
+  ];
+  view.rerender(
+    <MemoryRouter>
+      <AssignedTaskRow agentId="b" />
+    </MemoryRouter>
+  );
+  expect(screen.getByText("3 of 3 goals complete")).toBeTruthy();
+  expect(screen.queryByTestId("goal-complete-sweep")).toBeNull();
+});

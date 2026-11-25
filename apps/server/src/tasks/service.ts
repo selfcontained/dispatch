@@ -36,6 +36,8 @@ import {
   GOAL_REQUEST_ID_MAX_LENGTH,
   GoalInputError,
   goalCounts,
+  goalAddPayload,
+  goalEditPayload,
   goalRequestFingerprint,
   planGoalAdds,
   planGoalEdits,
@@ -1068,12 +1070,12 @@ export class TaskService {
     id: string,
     titles: string[],
     caller: TaskCaller,
-    opts: { requestId?: string } = {}
+    opts: { requestId?: string; publish?: boolean } = {}
   ): Promise<TaskGoalsResult> {
     return this.writeGoals(
       id,
       caller,
-      { op: "add", titles },
+      goalAddPayload(titles),
       opts.requestId,
       async (goals, db) => {
         const planned = planGoalAdds(goals, titles);
@@ -1084,7 +1086,8 @@ export class TaskService {
           changes.push({ goalId: goal.id, op: "added", title });
         }
         return changes;
-      }
+      },
+      opts.publish
     );
   }
 
@@ -1098,7 +1101,7 @@ export class TaskService {
     return this.writeGoals(
       id,
       caller,
-      { op: "edit", edits },
+      goalEditPayload(edits),
       opts.requestId,
       async (goals, db) => {
         const { writes, changes } = planGoalEdits(id, goals, edits);
@@ -1126,7 +1129,8 @@ export class TaskService {
     caller: TaskCaller,
     payload: unknown,
     requestId: string | undefined,
-    run: (goals: TaskGoal[], db: PoolClient) => Promise<TaskGoalChange[]>
+    run: (goals: TaskGoal[], db: PoolClient) => Promise<TaskGoalChange[]>,
+    publish = true
   ): Promise<TaskGoalsResult> {
     if (
       requestId !== undefined &&
@@ -1150,7 +1154,14 @@ export class TaskService {
               409,
               "request_id_reused"
             );
-          return { ...(seen.result as TaskGoalsResult), replayed: true };
+          // The first call's changes, against the goals as they are now.
+          const goals = await this.store.listGoals(id, db);
+          return {
+            ...(seen.result as TaskGoalsResult),
+            goals,
+            goalCounts: goalCounts(goals),
+            replayed: true,
+          };
         }
       }
       let changes: TaskGoalChange[];
@@ -1177,7 +1188,8 @@ export class TaskService {
         goalCounts: goalCounts(goals),
         changes,
       };
-      if (requestId !== undefined)
+      if (requestId !== undefined) {
+        await this.store.pruneGoalRequests(id, db);
         await this.store.insertGoalRequest(
           id,
           requestId,
@@ -1185,9 +1197,11 @@ export class TaskService {
           result,
           db
         );
+      }
       return result;
     });
-    if (!result.replayed && result.changes.length) this.publish(projectId, id);
+    if (publish && !result.replayed && result.changes.length)
+      this.publish(projectId, id);
     return result;
   }
 
@@ -1326,7 +1340,8 @@ export class TaskService {
     // Goals exist before any launch; a failure removes the whole task.
     if (input.goals?.length) {
       try {
-        await this.addGoals(id, input.goals, caller);
+        // Published below with the creation, never before a rollback.
+        await this.addGoals(id, input.goals, caller, { publish: false });
       } catch (error) {
         await this.store.deleteTask(id);
         await this.cleanupAttachments(id);

@@ -309,6 +309,51 @@ describe("task goals service", () => {
     ).toHaveLength(2);
   });
 
+  it("replays against current goals, canonicalizes payloads and expires old requests", async () => {
+    const task = await newTask(["A", "B"]);
+    const [a, b] = (await service.getTaskDetail(task.id)).goals;
+    const first = await service.editGoals(
+      task.id,
+      [{ goalId: a!.id, action: "complete", title: "A1" }],
+      AGENT,
+      { requestId: "edit-1" }
+    );
+    await service.editGoals(
+      task.id,
+      [{ goalId: b!.id, action: "complete" }],
+      AGENT
+    );
+    // Same edit, keys in another order: a replay, not a 409.
+    const replay = await service.editGoals(
+      task.id,
+      [{ title: "A1", action: "complete", goalId: a!.id }],
+      AGENT,
+      { requestId: "edit-1" }
+    );
+    expect(replay.replayed).toBe(true);
+    expect(replay.changes).toEqual(first.changes);
+    expect(replay.goalCounts).toEqual({ completed: 2, total: 2 });
+    expect(replay.goals.map((g) => g.state)).toEqual([
+      "completed",
+      "completed",
+    ]);
+    await pool.query(
+      `UPDATE task_goal_requests SET created_at = now() - interval '8 days' WHERE task_id = $1`,
+      [task.id]
+    );
+    await service.addGoals(task.id, ["C"], AGENT, { requestId: "add-1" });
+    const { rows } = await pool.query(
+      `SELECT request_id FROM task_goal_requests WHERE task_id = $1`,
+      [task.id]
+    );
+    expect(rows.map((r) => r.request_id)).toEqual(["add-1"]);
+  });
+
+  it("publishes a created task's goals once, with the creation", async () => {
+    const task = await newTask(["A", "B"]);
+    expect(published.filter((e) => e.taskId === task.id)).toHaveLength(1);
+  });
+
   it("keeps independent concurrent edits and same-request retries exact", async () => {
     const task = await newTask(["A", "B", "C"]);
     const [a, b, c] = (await service.getTaskDetail(task.id)).goals;

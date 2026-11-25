@@ -59,7 +59,13 @@ export function AssignedTaskRow({ agentId }: { agentId: string }) {
           <span className="block truncate text-foreground">
             {current.title}
           </span>
-          <TaskGoalProgress counts={current.goalCounts} className="my-1" />
+          {/* Keyed by task: another task taking this row starts a fresh bar
+              rather than "completing" the previous one. */}
+          <TaskGoalProgress
+            key={current.id}
+            counts={current.goalCounts}
+            className="my-1"
+          />
           <span
             className="flex items-center gap-1 text-label-xs"
             style={{

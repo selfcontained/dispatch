@@ -161,6 +161,25 @@ export function planGoalEdits(
   return { writes, changes };
 }
 
+/** Canonical request payloads: fixed field order, so equal requests hash equal. */
+export function goalAddPayload(titles: string[]) {
+  return { op: "add", titles: [...titles] };
+}
+
+export function goalEditPayload(edits: TaskGoalEdit[]) {
+  return {
+    op: "edit",
+    edits: edits.map((edit) => [
+      edit.goalId,
+      edit.title ?? null,
+      edit.action ?? null,
+    ]),
+  };
+}
+
+/** Days a requestId stays replayable. */
+export const GOAL_REQUEST_RETENTION_DAYS = 7;
+
 /** Identifies a request's payload so a reused requestId cannot change meaning. */
 export function goalRequestFingerprint(payload: unknown): string {
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex");

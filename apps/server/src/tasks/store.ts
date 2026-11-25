@@ -19,6 +19,8 @@ import type {
   TaskLink,
 } from "./types.js";
 
+import { GOAL_REQUEST_RETENTION_DAYS } from "./goals.js";
+
 type Queryable = Pool | PoolClient;
 
 export type TaskAttachmentRow = {
@@ -787,6 +789,15 @@ export class TaskStore {
       [taskId, requestId]
     );
     return rows[0] ?? null;
+  }
+
+  /** Drops this task's requestIds older than the replay window. */
+  async pruneGoalRequests(taskId: string, db: Queryable): Promise<void> {
+    await db.query(
+      `DELETE FROM task_goal_requests WHERE task_id = $1
+         AND created_at < now() - make_interval(days => $2)`,
+      [taskId, GOAL_REQUEST_RETENTION_DAYS]
+    );
   }
 
   async insertGoalRequest(
