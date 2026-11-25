@@ -489,3 +489,61 @@ describe("byte-pinned main-era host adoption", () => {
     expect(await other.promptReceipt("main-prompt")).toBe("unsupported");
   });
 });
+
+describe("host client prompt source boundary", () => {
+  for (const valid of [false, true]) {
+    it(`${valid ? "keeps" : "drops"} source metadata in both welcome and replay`, async () => {
+      const source = valid
+        ? { source: "chat", chatMessageId: "msg-source" }
+        : { product: "foreign", ticket: 7 };
+      const incoming = new PassThrough();
+      const outgoing = new PassThrough();
+      const stream = Duplex.from({ readable: incoming, writable: outgoing });
+      const decode = ndjsonDecoder<ClientMessage>();
+      const welcomed: HostMessage[] = [];
+      const replayed: unknown[] = [];
+      outgoing.on("data", (chunk) => {
+        for (const message of decode(chunk)) {
+          if (message.type !== "hello") continue;
+          incoming.write(
+            JSON.stringify({
+              ...welcome("main", { id: "source-journal", seq: 1 }),
+              turn: { seq: 1, startedAt: "2026-01-01T00:00:00.000Z", source },
+            }) + "\n"
+          );
+          incoming.write(
+            JSON.stringify({
+              type: "event",
+              seq: 1,
+              at: "2026-01-01T00:00:00.000Z",
+              event: {
+                type: "turn",
+                state: "started",
+                agentId,
+                text: "hello",
+                source,
+              },
+            }) + "\n"
+          );
+        }
+      });
+      const c = client(async () => stream, undefined, {
+        onWelcome: (value) => welcomed.push(value),
+        onEvent: (value) => replayed.push(value),
+      });
+      await c.host.connect(2_000, undefined, true);
+      expect(welcomed).toHaveLength(1);
+      expect(replayed).toHaveLength(1);
+      const turn = (welcomed[0] as Extract<HostMessage, { type: "welcome" }>)
+        .turn!;
+      const event = (replayed[0] as { event: Record<string, unknown> }).event;
+      if (valid) {
+        expect(turn).toHaveProperty("source", source);
+        expect(event).toHaveProperty("source", source);
+      } else {
+        expect(turn).not.toHaveProperty("source");
+        expect(event).not.toHaveProperty("source");
+      }
+    });
+  }
+});
