@@ -1,7 +1,6 @@
-import {
-  checkoutWorkload,
-  inferRepositoryUrl,
-} from "../src/agents/checkout-worker.js";
+import { inferRepositoryUrl } from "../src/agents/checkout-worker.js";
+import { runnerDirectory } from "../src/runners/directory.js";
+import { controllerPlacement } from "../src/runners/placement.js";
 import { projectRepositoryUrl } from "@dispatch/runner-protocol";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -55,11 +54,9 @@ it.each(cases)(
       ]);
     expect(await inferProjectRepository(cwd)).toBe(expected);
     const raw = await inferRepositoryUrl(cwd).catch(() => null);
-    const answer = await checkoutWorkload.run(
-      "git.origin",
-      { directory: cwd, request: { path: cwd } },
-      {}
-    );
+    const answer = await runnerDirectory({})
+      .for(controllerPlacement)
+      .call("git.origin", { path: cwd });
     expect(answer.url).toBe(raw === null ? null : projectRepositoryUrl(raw));
     expect(answer.url).toBe(expected);
   }

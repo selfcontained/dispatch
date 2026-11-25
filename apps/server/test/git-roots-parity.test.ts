@@ -1,4 +1,6 @@
-import { checkoutWorkload } from "../src/agents/checkout-worker.js";
+import { runnerDirectory } from "../src/runners/directory.js";
+import { controllerPlacement } from "../src/runners/placement.js";
+import { pathFromWire } from "@dispatch/runner-protocol/contract";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, rm, writeFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -47,11 +49,9 @@ it("pins main's live roots for unborn, plain, missing, file, worktree, bare and 
       checkoutRoot,
     });
     expect(
-      await checkoutWorkload.run(
-        "git.roots",
-        { directory: cwd, request: {} },
-        {}
-      )
+      await runnerDirectory({})
+        .for(controllerPlacement)
+        .call("git.roots", { target: { path: pathFromWire(cwd) } })
     ).toEqual({ repositoryRoot, checkoutRoot });
   };
   await check(repo, repo, repo);

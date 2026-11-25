@@ -12,8 +12,30 @@ import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { runnerDirectory } from "../src/runners/directory.js";
 import { controllerPlacement } from "../src/runners/placement.js";
-import { checkoutWorkload } from "../src/agents/checkout-worker.js";
 import { startTestLocalRunner } from "./helpers/local-runner-child.js";
+
+// Capture the instance constructed by runners/local.ts, not another workload.
+const fallback = vi.hoisted(() => ({
+  workload: undefined as
+    | ReturnType<
+        (typeof import("../src/agents/checkout-worker.js"))["createCheckoutWorkload"]
+      >
+    | undefined,
+}));
+vi.mock("../src/agents/checkout-worker.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/agents/checkout-worker.js")>();
+  return {
+    ...actual,
+    createCheckoutWorkload: (
+      inputs: Parameters<typeof actual.createCheckoutWorkload>[0]
+    ) => {
+      const workload = actual.createCheckoutWorkload(inputs);
+      fallback.workload = workload;
+      return workload;
+    },
+  };
+});
 
 it("git.origin reads identically when a real child dies during its Git command", async () => {
   const op = "git.origin" as const;
@@ -31,7 +53,7 @@ it("git.origin reads identically when a real child dies during its Git command",
     "https://example.com/repo.git",
   ]);
   const request = { path: repo };
-  const native = vi.spyOn(checkoutWorkload, "run");
+  const native = vi.spyOn(fallback.workload!, "run");
   await mkdir(join(root, "healthy"));
   const healthy = startTestLocalRunner(join(root, "healthy"));
   let interrupted: ReturnType<typeof startTestLocalRunner> | undefined;

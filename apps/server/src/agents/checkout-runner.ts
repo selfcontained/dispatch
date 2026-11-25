@@ -18,6 +18,7 @@ import {
   type Runner,
 } from "@dispatch/runner-protocol/contract";
 import { inspectCheckout } from "./checkout-inspection.js";
+import { toPersonaDefinition } from "../personas/loader.js";
 import { AgentError } from "./errors.js";
 import type { RemoteRunnerService } from "./remote/service.js";
 import type { AgentRecord } from "./types.js";
@@ -156,6 +157,7 @@ async function inspectLocalCheckout(agent: AgentRecord, operation: Inspect) {
   return inspectCheckout(cwd, operation.query, {
     recordedBase: false,
     unresolvedBase: "origin/main",
+    parseDefinition: toPersonaDefinition,
   });
 }
 

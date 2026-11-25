@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Runner } from "@dispatch/runner-protocol/contract";
-import { checkoutWorkload } from "../src/agents/checkout-worker.js";
+import { checkoutWorkload } from "./helpers/checkout-workload.js";
 import {
   detectAgentIcon,
   iconTarget,

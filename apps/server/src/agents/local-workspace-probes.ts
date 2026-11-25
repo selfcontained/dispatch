@@ -3,9 +3,12 @@ import path from "node:path";
 import { readdir, stat } from "node:fs/promises";
 import { runCommand } from "../shared/lib/run-command.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
-import { shouldSkipAutomaticMacPathProbe } from "../shared/mac-path-privacy.js";
+export type PathProbePolicy = (path: string, home: string) => boolean;
 
-export async function inspectLocalPath(resolved: string) {
+export async function inspectLocalPath(
+  resolved: string,
+  shouldSkipAutomaticMacPathProbe: PathProbePolicy
+) {
   if (!path.isAbsolute(resolved)) {
     return {
       exists: false,
@@ -55,7 +58,10 @@ export async function inspectLocalPath(resolved: string) {
   }
 }
 
-export async function completeLocalPath(raw: string) {
+export async function completeLocalPath(
+  raw: string,
+  shouldSkipAutomaticMacPathProbe: PathProbePolicy
+) {
   const resolved = resolveTilde(raw);
   if (!path.isAbsolute(resolved)) {
     return { completions: [] };
