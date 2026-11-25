@@ -49,6 +49,7 @@ import {
   type SessionProcesses,
 } from "../src/agents/remote/session-processes.js";
 import { readSessionFile } from "../src/files/session-file.js";
+import { enterDirectory } from "../src/agents/remote/workload-tools.js";
 import { sessionFileCommand } from "../src/agents/remote/session-files.js";
 import {
   createSessionSupervisor,
@@ -192,6 +193,13 @@ try {
   }
 );
 
+/** The folder a host enters: never the launcher's, always the command's. */
+function hostCwd([command, cwd]: [string[], string, ...unknown[]]) {
+  expect(cwd).toBe("/");
+  expect(command.at(-2)).toBe("--cwd");
+  return command.at(-1);
+}
+
 describe("runner session supervision", () => {
   let root: string;
   let state: string;
@@ -258,7 +266,8 @@ describe("runner session supervision", () => {
         bins: { claudeBin: "", codexBin: "" },
         env: {},
         workspaces: new Set(workspaces),
-        hostCommand: (dir) => ["/test-host", "--state", dir],
+        // The host enters its folder itself, after dropping privilege.
+        hostCommand: (dir, cwd) => ["/test-host", "--state", dir, "--cwd", cwd],
         sessions: createSessionCore,
         asWorkload,
         observeCheckout: (dir, scratch) =>
@@ -1524,8 +1533,10 @@ describe("runner session supervision", () => {
     await writeFile(path.join(author, "uncommitted.txt"), "author's work");
     const reviewerIdentity = { ...identity, pid: 101 };
     processes.spawn.mockImplementationOnce(
-      async (command, cwd, _env, _log, save) => {
-        expect(command.at(-1)).toBe(reviewerHost);
+      async (command, launcherCwd, _env, _log, save) => {
+        expect(launcherCwd).toBe("/");
+        const cwd = command.at(-1)!;
+        expect(command.at(-3)).toBe(reviewerHost);
         expect(cwd).toBe(author);
         expect(await readFile(path.join(cwd, "uncommitted.txt"), "utf8")).toBe(
           "author's work"
@@ -1837,7 +1848,7 @@ describe("runner session supervision", () => {
     runner.close();
     const recovered = await start([], asWorkload);
     await recovered.launch(launch(workspace), undefined);
-    expect(processes.spawn.mock.calls.at(-1)?.[1]).toBe(checkout);
+    expect(hostCwd(processes.spawn.mock.calls.at(-1)!)).toBe(checkout);
     await expect(
       recovered.checkoutDirectory(independent, workspace)
     ).resolves.toBe(independentDir);
@@ -1857,7 +1868,7 @@ describe("runner session supervision", () => {
       { ...sharedLaunch(reviewerId), agentId: nested },
       undefined
     );
-    expect(processes.spawn.mock.calls.at(-1)?.[1]).toBe(checkout);
+    expect(hostCwd(processes.spawn.mock.calls.at(-1)!)).toBe(checkout);
 
     // The runner core's binding adapter (T19b) reads these same files and
     // answers the same folder for every session this build bound.
@@ -2049,16 +2060,103 @@ describe("runner session supervision", () => {
         )
       );
 
-    it("starts the host in the folder, resolved again as the workload", async () => {
-      const runner = await start([], asWorkload);
+    it("starts the host in the folder, entered only by the workload", async () => {
+      const runner = await start([], asWorkload, undefined, {
+        hostCommand: (dir, cwd) => ["/test-host", "--state", dir, "--cwd", cwd],
+      });
       const folder = await namedFolder();
       await bindFolder(folder);
       await runner.launch(launch(workspace), undefined);
       expect(processes.spawn).toHaveBeenCalledTimes(1);
-      expect(processes.spawn.mock.calls[0]![1]).toBe(folder);
+      // The privileged launcher starts in `/`; the folder goes to the host
+      // command, which enters it after dropping privilege.
+      const [command, cwd] = processes.spawn.mock.calls[0]!;
+      expect(cwd).toBe("/");
+      expect(command.slice(-2)).toEqual(["--cwd", folder]);
       await expect(runner.checkoutDirectory(agentId, workspace)).resolves.toBe(
         folder
       );
+    });
+
+    it("starts a folder session's child in the same folder, owned by neither", async () => {
+      const runner = await start([], asWorkload);
+      const folder = await namedFolder();
+      await bindFolder(folder);
+      await runner.launch(launch(workspace), undefined);
+      // The core's store bound the child to the parent's folder.
+      const bindings = path.join(state, "bindings");
+      await writeFile(path.join(bindings, reviewerId), "\0folder");
+      await writeFile(path.join(bindings, `${reviewerId}.cwd`), folder);
+      processes.spawn.mockImplementationOnce(
+        async (command, _cwd, _env, _log, save) => {
+          expect(command.at(-1)).toBe(folder);
+          await save({ ...identity, pid: 101 });
+        }
+      );
+      await runner.launch(sharedLaunch(), undefined);
+      const before = await bytes(folder);
+      for (const id of [reviewerId, agentId])
+        expect(
+          await runner.checkoutRelease(id, workspace, { kind: "observe" })
+        ).toEqual({
+          ownership: "external",
+          owner: null,
+          borrowers: [],
+          checkout: null,
+        });
+      // Either archives first; neither removes the folder or waits on the other.
+      await runner.stop(agentId, workspace, true);
+      expect(
+        await runner.checkoutRelease(agentId, workspace, {
+          kind: "release",
+          expectedState: null,
+        })
+      ).toBe("released");
+      await runner.stop(reviewerId, workspace, true);
+      await expect(
+        runner.releaseWorkspace(reviewerId, workspace, async () => true)
+      ).resolves.toBe(false);
+      expect(await bytes(folder)).toEqual(before);
+    });
+
+    it("never runs the host in a folder swapped after it was authorized", async () => {
+      // The runner's own composition, minus setpriv: enter, then the host.
+      const runner = await start([], asWorkload, undefined, {
+        hostCommand: (_dir, cwd) => [...enterDirectory(cwd), "pwd", "-P"],
+      });
+      const folder = await namedFolder();
+      const sealed = await namedFolder();
+      await bindFolder(folder);
+      let ran: { code: number; out: string } | undefined;
+      processes.spawn.mockImplementationOnce(
+        async (command, cwd, _env, _log, save) => {
+          // Between authorization and the host: the folder becomes a link to a
+          // directory the account cannot enter.
+          await rm(folder, { recursive: true });
+          await chmod(sealed, 0o000);
+          await symlink(sealed, folder);
+          ran = await promisify(execFile)(command[0]!, command.slice(1), {
+            cwd,
+          }).then(
+            ({ stdout }) => ({ code: 0, out: stdout }),
+            (error: { code: number; stderr: string }) => ({
+              code: error.code,
+              out: error.stderr,
+            })
+          );
+          await save(identity);
+        }
+      );
+      try {
+        await runner.launch(launch(workspace), undefined);
+      } finally {
+        await chmod(sealed, 0o755);
+      }
+      // Refused whoever runs it: it cannot enter, or it is not the folder.
+      expect(ran).toEqual({
+        code: 125,
+        out: expect.stringContaining("unavailable to the runner workload"),
+      });
     });
 
     it("is never the runner's checkout: observed external, kept by every release", async () => {
@@ -2152,10 +2250,10 @@ describe("runner session supervision", () => {
     await writeFile(file, "configured work");
     processes.spawn.mockResolvedValueOnce();
     await running.launch(sharedLaunch(agentId, "configured"), root);
-    expect(processes.spawn.mock.calls.at(-1)?.[0].at(-1)).toBe(
+    expect(processes.spawn.mock.calls.at(-1)?.[0].at(-3)).toBe(
       path.join(state, "hosts", reviewerId)
     );
-    expect(processes.spawn.mock.calls.at(-1)?.[1]).toBe(configured);
+    expect(hostCwd(processes.spawn.mock.calls.at(-1)!)).toBe(configured);
     expect(await running.checkoutDirectory(reviewerId, "configured")).toBe(
       configured
     );
@@ -2278,7 +2376,7 @@ describe("runner session supervision", () => {
 
     processes.spawn.mockResolvedValueOnce();
     await running.launch(sharedLaunch(), undefined);
-    expect(processes.spawn.mock.calls[0]?.[1]).toBe(checkout);
+    expect(hostCwd(processes.spawn.mock.calls[0]!)).toBe(checkout);
     expect(await running.checkoutDirectory(reviewerId, workspace)).toBe(
       checkout
     );

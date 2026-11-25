@@ -216,7 +216,12 @@ type SupervisorOptions = {
   resolveBins?: (engine: RunnerEngine) => Promise<HostLaunch["bins"]>;
   env: NodeJS.ProcessEnv;
   workspaces: ReadonlySet<string>;
-  hostCommand: (dir: string) => string[];
+  /**
+   * The host command for state `dir`. It must enter `cwd` itself, after
+   * privilege is dropped: the launcher starts in `/` and never changes into
+   * a workload path as root.
+   */
+  hostCommand: (dir: string, cwd: string) => string[];
   asWorkload: WorkloadCommand;
   probeCheckoutGit?: (cwd: string) => Promise<Res<"git.context">>;
   githubCredentialHelper?: () => Promise<string>;
@@ -1198,8 +1203,8 @@ export async function createSessionSupervisor(
       });
     await core.spawn(
       key,
-      () => config.hostCommand(dir),
-      cwd,
+      () => config.hostCommand(dir, cwd),
+      "/",
       mcpCa && env.NODE_EXTRA_CA_CERTS === config.ca
         ? { ...env, NODE_EXTRA_CA_CERTS: undefined }
         : env,
@@ -1406,6 +1411,10 @@ export async function createSessionSupervisor(
           );
         });
       }
+      // Prepared from a folder session: the child holds that folder as its
+      // own external binding, so it starts there with no owner to borrow.
+      if ((await readBinding(key)) === folderBinding)
+        return serialize(key, () => launch(command, cwd, key, null, progress));
       const owner = checkoutOwner(await readBinding(author)) ?? author;
       if (owner === key)
         throw new Error("Invalid author for a shared runner checkout.");

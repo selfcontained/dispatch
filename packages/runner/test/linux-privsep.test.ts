@@ -561,6 +561,28 @@ describe("linux-privsep bindings over the supervisor's files", () => {
     expect(fs.children(`${STATE}/sessions`)).toEqual([]);
   });
 
+  it("binds a folder session's child to the same folder, owned by neither", async () => {
+    const { bindings: store } = await platform();
+    workloadPaths.set("/srv/project", "/srv/project");
+    await store.bindPrepared({
+      session: "agt_dir",
+      path: "/srv/project",
+      currentPath: null,
+      worktree: null,
+    });
+    const child = await store.borrow("agt_kid", "agt_dir", "/srv/project");
+    expect(child).toMatchObject({
+      path: "/srv/project",
+      checkout: { path: "/srv/project", ownership: "external" },
+    });
+    expect(child.borrowedFrom).toBeUndefined();
+    expect(await fs.read(`${STATE}/bindings/agt_kid`)).toBe(FOLDER_BINDING);
+    expect(await fs.read(`${STATE}/bindings/agt_kid.borrowed-from`)).toBeNull();
+    // The parent's binding is as it was.
+    expect(await fs.read(`${STATE}/bindings/agt_dir`)).toBe(FOLDER_BINDING);
+    expect(await fs.read(`${STATE}/bindings/agt_dir.cwd`)).toBe("/srv/project");
+  });
+
   it("answers main's error for a folder the workload cannot resolve", async () => {
     const { bindings: store } = await platform();
     await expect(

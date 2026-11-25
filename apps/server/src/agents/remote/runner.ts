@@ -96,6 +96,7 @@ import {
   githubCredentialKey,
   missingExecutable,
   systemTools,
+  enterDirectory,
   workloadLoginCommand,
   workloadToolLookup,
 } from "./workload-tools.js";
@@ -723,9 +724,20 @@ export async function runRemoteRunner(
       );
       return true;
     },
-    hostCommand: (dir) => {
+    hostCommand: (dir, cwd) => {
       admission.assertMayStartProcess();
-      return [setpriv, ...workloadLogin([...hostCommand(), "--state", dir])];
+      // Privilege drops first; only then does the workload enter `cwd`.
+      return [
+        setpriv,
+        ...childArgs,
+        ...enterDirectory(cwd),
+        ...workloadLoginCommand(
+          [...hostCommand(), "--state", dir],
+          shell,
+          config.home,
+          config.path
+        ),
+      ];
     },
     mayStartProcess: () => admission.mayStartProcess(),
     async resumePreparedCheckout(agentId) {
