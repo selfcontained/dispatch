@@ -1810,7 +1810,8 @@ export async function runRemoteRunner(
               const cwd = await supervisor.checkoutDirectory(
                 agentId,
                 workspace,
-                target?.cwd
+                target?.cwd,
+                read.checkout
               );
               signal.throwIfAborted();
               const worker = spawn(

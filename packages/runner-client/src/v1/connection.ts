@@ -254,12 +254,19 @@ export async function receiveCheckoutRead<K extends CheckoutReadName>(
   signal?: AbortSignal
 ): Promise<Res<K>> {
   const { target, ...parameters } = input as Req<CheckoutReadName>;
-  if (!("session" in target) || (target.checkout ?? "current") !== "current")
+  if (
+    !("session" in target) ||
+    !["current", "launch"].includes(target.checkout ?? "current")
+  )
     throw new RunnerCallError({
       code: "invalid",
       message: "Expected a current session checkout.",
     });
-  const operation = { op, request: parameters } as CheckoutReadRequest;
+  const operation = {
+    op,
+    request: parameters,
+    ...(target.checkout === "launch" && { checkout: "launch" as const }),
+  } as CheckoutReadRequest;
   const streamId = randomUUID();
   const controller = new AbortController();
   const active = signal

@@ -1600,16 +1600,18 @@ export async function createSessionSupervisor(
       agentId: string,
       workspace: string,
       // Only the runner's configured path may supply a missing legacy cwd.
-      configuredCwd?: string
+      configuredCwd?: string,
+      checkout: "current" | "launch" = "current"
     ): Promise<string> {
+      if (checkout !== "current" && checkout !== "launch")
+        return Promise.reject(new Error("Invalid checkout read selector."));
       const key = runnerStorageKey(agentId);
-      return serialize(key, async () =>
-        selectedDirectory(
-          key,
-          workspace,
-          await initialDirectory(key, workspace, configuredCwd)
-        )
-      );
+      return serialize(key, async () => {
+        const initial = await initialDirectory(key, workspace, configuredCwd);
+        return checkout === "launch"
+          ? initial
+          : selectedDirectory(key, workspace, initial);
+      });
     },
     gitContext(
       agentId: string,
