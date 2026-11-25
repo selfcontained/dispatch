@@ -1,5 +1,5 @@
 import type { DiffStats } from "@dispatch/shared";
-import type { DiffStatsComputation } from "../shared/git/diff-stats.js";
+import type { DiffStatsComputation } from "./checkout-result.js";
 import {
   isCheckoutView,
   type CheckoutView,
@@ -32,8 +32,8 @@ import {
   type CheckoutSession,
 } from "../runners/directory.js";
 import { checkoutReadPlacement } from "../runners/placement.js";
-import { TEST_FILE_PATTERNS } from "../shared/lib/test-file-rule.js";
-import { WorkspaceError } from "../shared/lib/workspace-error.js";
+import { TEST_FILE_PATTERNS } from "@dispatch/runner-protocol";
+import { WorkspaceError } from "@dispatch/runner-protocol";
 
 type Inspect = Extract<SessionOperation, { kind: "inspectCheckout" }>;
 /**

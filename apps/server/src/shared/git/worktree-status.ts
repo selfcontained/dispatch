@@ -1,18 +1,7 @@
+import type { WorktreeStatus } from "@dispatch/runner-protocol";
+export type { WorktreeStatus } from "@dispatch/runner-protocol";
 import { resolveBaseRef } from "./base-ref.js";
 import { runCommand } from "../lib/run-command.js";
-
-export type WorktreeStatus = {
-  hasWorktree: boolean;
-  ownership?: "owned" | "borrowed" | "external" | "none";
-  borrowers?: string[];
-  checkoutState?: string;
-  hasUnmergedCommits: boolean;
-  hasUncommittedChanges: boolean;
-  worktreePath: string | null;
-  branchName: string | null;
-  changedFiles: string[];
-  uncommittedFiles: string[];
-};
 
 export type UnmergedChanges = {
   hasUnmergedCommits: boolean;
