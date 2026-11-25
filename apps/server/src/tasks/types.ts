@@ -61,8 +61,23 @@ export type TaskLink = {
 
 export type TaskLabel = { name: string; color: string };
 
+export type TaskGoalState = "open" | "completed" | "retired";
+
+/** One verifiable outcome of a task; ordered by `position`. */
+export type TaskGoal = {
+  id: string;
+  title: string;
+  state: TaskGoalState;
+  position: number;
+};
+
+/** Board-row progress: retired goals count in neither number. */
+export type TaskGoalCounts = { completed: number; total: number };
+
 export type Task = {
   labels?: TaskLabel[];
+  /** Completed vs. current (non-retired) goals; total 0 hides progress. */
+  goalCounts?: TaskGoalCounts;
   id: string;
   projectId: string;
   columnId: string;
@@ -121,7 +136,8 @@ export type TaskEventKind =
   | "trigger_failed"
   | "agent_launched"
   | "agent_removed"
-  | "link_added";
+  | "link_added"
+  | "goals_changed";
 
 export type TaskEvent = {
   id: string;
@@ -133,7 +149,8 @@ export type TaskEvent = {
    * agent_removed {agentId, role}; trigger_launching {templateId};
    * trigger_launched/agent_launched
    * {agentId, templateId};
-   * trigger_failed {templateId, reason}; link_added {link}; updated {fields}.
+   * trigger_failed {templateId, reason}; link_added {link}; updated {fields};
+   * goals_changed {changes: TaskGoalChange[]}.
    */
   data: Record<string, unknown>;
   createdAt: string;
@@ -147,7 +164,20 @@ export type TaskAttachment = {
   url: string;
 };
 
+/** One goal edit as recorded in a `goals_changed` event. */
+export type TaskGoalChange = {
+  goalId: string;
+  op: "added" | "renamed" | "completed" | "reopened" | "retired";
+  title: string;
+  /** The previous title, for `renamed`. */
+  fromTitle?: string;
+  /** The previous state, for state changes. */
+  fromState?: TaskGoalState;
+};
+
 export type TaskDetail = Task & {
+  /** Every goal in order, retired ones included. */
+  goals: TaskGoal[];
   attachments: TaskAttachment[];
   agents: TaskAgent[];
   events: TaskEvent[];
@@ -175,6 +205,15 @@ export type CreateTaskInput = {
   columnId?: string;
   /** Defaults to the top of the column. */
   position?: number;
+  /** Initial goal titles, in order. */
+  goals?: string[];
+};
+
+/** One edit to an existing goal: a new title and/or a state action. */
+export type TaskGoalEdit = {
+  goalId: string;
+  title?: string;
+  action?: "complete" | "reopen" | "retire";
 };
 
 export type UpdateTaskInput = {
