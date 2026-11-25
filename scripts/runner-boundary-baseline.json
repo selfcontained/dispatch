@@ -613,7 +613,7 @@
     "kind": "R1 placement call",
     "detail": "remotePlacement(agent.cwd)",
     "task": "T07",
-    "count": 5
+    "count": 4
   },
   {
     "file": "apps/server/src/agents/manager.ts",
@@ -676,13 +676,6 @@
     "kind": "R2 host import",
     "detail": "apps/server/src/shared/github/pr",
     "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/manager.ts",
-    "kind": "R7 restriction",
-    "detail": "N30 Model learning local only",
-    "task": "T30",
     "count": 1
   },
   {

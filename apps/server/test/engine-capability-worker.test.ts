@@ -39,7 +39,7 @@ for await (const line of createInterface({ input: process.stdin })) {
           { value: home + "/alternate", name: home + " alternate" },
         ] },
       { id: "effort", name: "Effort", category: "thought_level", type: "select",
-        currentValue: home, options: [{ value: home, name: home }] },
+        currentValue: home, options: [{ value: home, name: home, description: "Full described effort fixture" }] },
     ],
   };
   console.log(JSON.stringify({ jsonrpc: "2.0", id, result }));
@@ -109,6 +109,11 @@ if (args === "plugin list --json") {
         },
       },
     });
+    // Legacy v1 intentionally strips descriptions. This exact byte fixture
+    // stays unchanged until live discovery moves to the typed contract.
+    expect(JSON.stringify(first.capability.catalog.models[0].effort)).toBe(
+      '[{"value":"first","name":"first"}]'
+    );
     expect(second).toMatchObject({
       ok: true,
       capability: {

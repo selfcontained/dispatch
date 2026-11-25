@@ -941,7 +941,13 @@ export class AgentManager {
       { pool: this.pool, logger: this.logger },
       { id: agent.id, type: agent.type, model: agent.model ?? null },
       options,
-      learnCatalog && !remotePlacement(agent.cwd)
+      learnCatalog,
+      {
+        runnerId: runnerIdForPlacement(agent.placement),
+        settings: runnerDirectory(this.checkoutReadRunners()).for(
+          agent.placement
+        ).settings,
+      }
     );
     const effortChanged = await recordEngineEffort(this.pool, agent, options);
     if (modelChanged || effortChanged)

@@ -274,7 +274,11 @@ export const engineOperationState = object({
   error: optional(string),
   result: optional(commandResult),
 });
-export const engineChoice = object({ value: string, name: string });
+export const engineChoice = object({
+  value: string,
+  name: string,
+  description: optional(string),
+});
 export const engineModels = object({
   defaultModel: nullable(string),
   models: array(

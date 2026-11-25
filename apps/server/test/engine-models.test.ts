@@ -1,3 +1,13 @@
+import {
+  loadModelAvailability,
+  updateModelAvailability,
+} from "../src/agents/model-availability.js";
+import {
+  getAgentModelAvailability,
+  getReportedModelHistory,
+  modelChoicesForRunner,
+} from "../src/shared/agent-models.js";
+import { enrolledRunnerSettings } from "../src/runners/settings-namespace.js";
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -143,6 +153,268 @@ describe("recordEngineModels", () => {
   afterEach(() => forgetLearnedAgentModels());
 
   const pool = () => ({ query: vi.fn().mockResolvedValue({ rows: [] }) });
+
+  it("round-trips main's local key, exact labels, default and effort descriptions", async () => {
+    const values = new Map<string, string>();
+    const p = {
+      query: vi.fn(async (sql: string, args: string[]) => {
+        if (sql.includes("INSERT INTO settings"))
+          values.set(args[0]!, args[1]!);
+        return {
+          rows: values.has(args[0]!) ? [{ value: values.get(args[0]!) }] : [],
+        };
+      }),
+    };
+    const effort: SessionConfigOption = {
+      id: "effort",
+      name: "Effort",
+      type: "select",
+      currentValue: "high",
+      options: [
+        {
+          value: "high",
+          name: "High",
+          description: "Engine's full description",
+        },
+      ],
+    };
+    await recordEngineModels(
+      { pool: p as never, logger },
+      { id: "a", type: "codex", model: null },
+      [
+        modelOption("gpt-a", [
+          { value: "gpt-a", name: "1 A" },
+          { value: "gpt-b", name: "B" },
+        ]),
+        effort,
+      ]
+    );
+    await recordEngineModels(
+      { pool: p as never, logger },
+      { id: "b", type: "codex", model: "gpt-b" },
+      [
+        modelOption("gpt-b", [
+          { value: "gpt-a", name: "1 A" },
+          { value: "gpt-b", name: "B" },
+        ]),
+        effort,
+      ]
+    );
+    const expected = getAgentModelOptions("codex");
+    expect(expected[0]).toEqual({
+      id: "gpt-a",
+      label: "GPT-1 A",
+      effort: [
+        {
+          value: "high",
+          name: "High",
+          description: "Engine's full description",
+        },
+      ],
+    });
+    expect([...values.keys()]).toEqual([
+      "agent_model_availability:codex",
+      "agent_models:codex",
+    ]);
+    expect(agentModelDefaults().codex).toBe("gpt-a");
+    forgetLearnedAgentModels();
+    await loadLearnedAgentModels(p as never);
+    expect(getAgentModelOptions("codex")).toEqual(expected);
+    expect(agentModelDefaults().codex).toBe("gpt-a");
+  });
+
+  it.each([
+    "{broken",
+    "null",
+    '{"models":null}',
+    '{"models":[{"id":"default-model"},{"id":"other-model"}]}',
+  ])("ignores corrupt or old main storage: %s", async (raw) => {
+    const before = getAgentModelOptions("codex");
+    const p = { query: vi.fn(async () => ({ rows: [{ value: raw }] })) };
+    await loadLearnedAgentModels(p as never);
+    expect(getAgentModelOptions("codex")).toEqual(before);
+    expect(agentModelDefaults().codex).toBeUndefined();
+  });
+
+  it("loads a runner's own key without changing the local catalog", async () => {
+    const before = getAgentModelOptions("codex");
+    const p = {
+      query: vi.fn(async (_sql: string, args: string[]) => ({
+        rows:
+          args[0] === "runner:runner-a:agent_models:codex"
+            ? [
+                {
+                  value: JSON.stringify({
+                    models: [{ id: "runner-model", label: "Runner" }],
+                    defaultModel: "runner-model",
+                  }),
+                },
+              ]
+            : [],
+      })),
+    };
+    await loadLearnedAgentModels(
+      p as never,
+      "runner-a",
+      enrolledRunnerSettings("runner-a")
+    );
+    expect(getAgentModelOptions("codex")).toEqual(before);
+    expect(getAgentModelOptions("codex", "runner-a")).toEqual([
+      { id: "runner-model", label: "Runner" },
+    ]);
+    expect(agentModelDefaults("runner-a").codex).toBe("runner-model");
+    expect(
+      p.query.mock.calls.every(([, args]) =>
+        args[0]?.startsWith("runner:runner-a:agent_models:")
+      )
+    ).toBe(true);
+  });
+
+  it("keeps local and runner reports, history and persisted values isolated across restart", async () => {
+    const rows = new Map<string, string>();
+    const p = {
+      query: vi.fn(async (sql: string, args: string[]) => {
+        if (sql.includes("INSERT INTO settings")) rows.set(args[0]!, args[1]!);
+        return {
+          rows: rows.has(args[0]!) ? [{ value: rows.get(args[0]!) }] : [],
+        };
+      }),
+    };
+    const deps = { pool: p as never, logger };
+    const report = (id: string) => [modelOption(id, [{ value: id, name: id }])];
+    await recordEngineModels(deps, { id: "l", type: "codex", model: null }, [
+      modelOption("local-a", [
+        { value: "local-a", name: "Local" },
+        { value: "local-off", name: "Off" },
+      ]),
+    ]);
+    await updateModelAvailability(p as never, "codex", { autoEnable: false });
+    await updateModelAvailability(p as never, "codex", {
+      model: "local-off",
+      enabled: false,
+    });
+    const localHistory = JSON.stringify(getAgentModelAvailability("codex"));
+    const localStored = rows.get("agent_model_availability:codex");
+    const localCatalog = rows.get("agent_models:codex");
+    const context = {
+      runnerId: "runner-a",
+      settings: enrolledRunnerSettings("runner-a"),
+    };
+    await recordEngineModels(
+      deps,
+      { id: "r", type: "codex", model: null },
+      report("runner-a"),
+      true,
+      context
+    );
+    await recordEngineModels(
+      deps,
+      { id: "r", type: "codex", model: "runner-a" },
+      report("runner-b"),
+      true,
+      context
+    );
+    expect(JSON.stringify(getAgentModelAvailability("codex"))).toBe(
+      localHistory
+    );
+    expect(rows.get("agent_model_availability:codex")).toBe(localStored);
+    expect(rows.get("agent_models:codex")).toBe(localCatalog);
+    expect(getAgentModelOptions("codex").map((m) => m.id)).toEqual([
+      "local-a",
+      "local-off",
+    ]);
+    expect(getAgentModelOptions("codex", "runner-a").map((m) => m.id)).toEqual([
+      "runner-b",
+    ]);
+    expect(modelChoicesForRunner("runner-a", "codex")).toEqual({
+      autoEnable: false,
+      disabled: ["local-off"],
+    });
+    const historyKey = "runner:runner-a:agent_model_availability:codex";
+    expect(JSON.parse(rows.get(historyKey)!)).toEqual({
+      known: ["runner-a", "runner-b"],
+      unseen: ["runner-b"],
+    });
+    const runnerStored = rows.get("runner:runner-a:agent_models:codex");
+    const runnerHistory = rows.get(historyKey);
+    await recordEngineModels(
+      deps,
+      { id: "l", type: "codex", model: null },
+      report("local-b")
+    );
+    expect(rows.get(historyKey)).toBe(runnerHistory);
+    expect(rows.get("runner:runner-a:agent_models:codex")).toBe(runnerStored);
+    expect(getAgentModelOptions("codex", "runner-a").map((m) => m.id)).toEqual([
+      "runner-b",
+    ]);
+    forgetLearnedAgentModels();
+    await loadLearnedAgentModels(p as never);
+    await loadModelAvailability(p as never);
+    await loadLearnedAgentModels(
+      p as never,
+      context.runnerId,
+      context.settings
+    );
+    await loadModelAvailability(p as never, context);
+    expect(getAgentModelOptions("codex").map((m) => m.id)).toEqual(["local-b"]);
+    expect(getAgentModelOptions("codex", "runner-a").map((m) => m.id)).toEqual([
+      "runner-b",
+    ]);
+    expect(getReportedModelHistory("runner-a", "codex")).toEqual(
+      JSON.parse(runnerHistory!)
+    );
+    expect(agentModelDefaults("runner-a").codex).toBe("runner-a");
+  });
+
+  it("manager learns a runner report through the same catalog path", async () => {
+    const { AgentManager } = await import("../src/agents/manager.js");
+    const { placementForRunner } = await import("../src/runners/placement.js");
+    const p = pool();
+    const before = getAgentModelOptions("codex");
+    const agent = {
+      id: "runner-agent",
+      type: "codex",
+      model: "runner-model",
+      effort: null,
+      cwd: "runner://runner-a/workspace",
+      placement: placementForRunner("runner-a"),
+    };
+    const manager = {
+      pool: p,
+      logger,
+      getAgent: async () => agent,
+      checkoutReadRunners: () => ({}),
+      modelsLearnedListeners: [],
+    };
+    const apply = (
+      AgentManager.prototype as unknown as {
+        applyEngineConfig(
+          this: unknown,
+          id: string,
+          options: SessionConfigOption[],
+          learn: boolean
+        ): Promise<void>;
+      }
+    ).applyEngineConfig;
+    await apply.call(
+      manager,
+      agent.id,
+      [
+        modelOption("runner-model", [
+          { value: "runner-model", name: "Runner" },
+        ]),
+      ],
+      true
+    );
+    expect(getAgentModelOptions("codex")).toEqual(before);
+    expect(getAgentModelOptions("codex", "runner-a").map((m) => m.id)).toEqual([
+      "runner-model",
+    ]);
+    expect(p.query).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO settings"),
+      ["runner:runner-a:agent_models:codex", expect.any(String)]
+    );
+  });
 
   it("stores the running model on the agent and the list for its type", async () => {
     const p = pool();

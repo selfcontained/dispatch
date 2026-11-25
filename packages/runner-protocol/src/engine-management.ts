@@ -74,7 +74,11 @@ export type EngineCapabilityOperation =
       plugin: string;
     };
 
-export type EngineChoice = { value: string; name: string };
+export type EngineChoice = {
+  value: string;
+  name: string;
+  description?: string;
+};
 export type EngineModelCatalog = {
   defaultModel: string | null;
   models: Array<{ id: string; label: string; effort?: EngineChoice[] }>;

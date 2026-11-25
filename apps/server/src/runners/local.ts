@@ -1,3 +1,8 @@
+import {
+  localRunnerSettings,
+  enrolledRunnerSettings,
+  type RunnerSettings,
+} from "./settings-namespace.js";
 import type {
   EngineScope,
   EngineHostCallName,
@@ -1056,6 +1061,8 @@ export type EngineCallName =
   | "engine.login.cancel";
 
 /** Engine inventory and sign-in on one runner, by protocol operation. */
+export type RunnerEngineCalls = EngineCalls & { settings: RunnerSettings };
+
 export type EngineCalls = {
   call<K extends EngineCallName>(
     op: K,
@@ -1126,7 +1133,7 @@ export function inProcessEngines(
 export function localEngineCalls(
   child: () => Runner | undefined,
   inProcess: InProcessEngines
-): EngineCalls {
+): RunnerEngineCalls {
   async function here<K extends EngineCallName>(
     op: K,
     input: Req<K>,
@@ -1186,20 +1193,22 @@ export function localEngineCalls(
     }
   }
   return {
+    settings: localRunnerSettings,
     async call(op, input, options) {
       const runner = child();
+      // Mutation replay protection belongs to the owning host. A lost
+      // acknowledgement must not replay against a restarted or fallback host.
+      const singleAttempt =
+        op === "engine.update.spawn" ||
+        op === "engine.update.release" ||
+        op === "engine.plugin.apply";
       if (runner?.connection.state === "ready")
         try {
-          // A spawn id is deduplicated only by its owning host. Do not replay
-          // a possibly delivered spawn after that child (and its ids) is gone.
-          const attempt =
-            op === "engine.update.spawn"
-              ? { ...options, wait: false }
-              : options;
+          const attempt = singleAttempt ? { ...options, wait: false } : options;
           return await runner.call(op, input, attempt);
         } catch (error) {
           if (
-            op === "engine.update.spawn" &&
+            singleAttempt &&
             error instanceof RunnerCallError &&
             error.code === "unknown_outcome"
           )
@@ -1491,7 +1500,7 @@ export function localTerminal(
 
 /** The adapter owns target routing and disconnected-inventory presentation. */
 export function scopedEngineCalls(
-  local: EngineCalls,
+  local: RunnerEngineCalls,
   remote:
     | {
         callEngine<K extends EngineHostCallName>(
@@ -1508,10 +1517,11 @@ export function scopedEngineCalls(
       }
     | undefined,
   scope: EngineScope
-): EngineCalls {
+): RunnerEngineCalls {
   if (scope.kind === "local") return local;
   const runnerId = scope.runnerId;
   return {
+    settings: enrolledRunnerSettings(runnerId),
     call: async (op, request) => {
       if (!remote)
         throw new RunnerCallError({

@@ -75,6 +75,37 @@ describe("plugin operations through the engine port", () => {
     expect(plugins.install).toHaveBeenCalledOnce();
     port.close();
   });
+  it.each(["engine.update.release", "engine.plugin.apply"] as const)(
+    "%s never retries or falls back after an uncertain reply",
+    async (op) => {
+      const { port, plugins } = fixture();
+      const release = vi.spyOn(port, "updateRelease");
+      const error = new RunnerCallError({
+        code: "unknown_outcome",
+        message: "Fixture lost acknowledgement",
+      });
+      const call = vi.fn().mockRejectedValue(error);
+      const child = {
+        connection: { state: "ready" },
+        call,
+      } as unknown as Runner;
+      const calls = localEngineCalls(() => child, port);
+      const input =
+        op === "engine.update.release"
+          ? { operationId: "fixture" }
+          : {
+              engine: "codex" as const,
+              plugin: "dispatch@dispatch",
+              action: "install" as const,
+              requestId: "fixture",
+            };
+      await expect(calls.call(op, input as never)).rejects.toBe(error);
+      expect(call).toHaveBeenCalledExactlyOnceWith(op, input, { wait: false });
+      expect(release).not.toHaveBeenCalled();
+      expect(plugins.install).not.toHaveBeenCalled();
+      port.close();
+    }
+  );
   it("rejects an unrelated plugin before invoking a host command", async () => {
     const { port, plugins } = fixture();
     await expect(

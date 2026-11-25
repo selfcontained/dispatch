@@ -1,4 +1,9 @@
 import {
+  localRunnerSettings,
+  enrolledRunnerSettings,
+  type RunnerSettings,
+} from "./settings-namespace.js";
+import {
   RUNNER_WIRE_VERSION,
   type CheckoutCommand,
   type CheckoutCommandFile,
@@ -60,7 +65,7 @@ export interface CheckoutRunner extends Runner {
 }
 
 interface CheckoutDirectory extends Runners {
-  for(placement: Placement): CheckoutRunner;
+  for(placement: Placement): CheckoutRunner & { settings: RunnerSettings };
 }
 
 const localDescription: RunnerDescription = {
@@ -97,37 +102,39 @@ export function runnerDirectory(
 ): CheckoutDirectory {
   const location = agent ? legacySessionLocation(agent) : null;
   return {
-    for(selected: Placement): CheckoutRunner {
+    for(selected: Placement): CheckoutRunner & { settings: RunnerSettings } {
       const boundAgent =
         agent && samePlacement(selected, agent.placement) ? agent : undefined;
       if (samePlacement(selected, controllerPlacement))
-        return createLocalCheckoutRunner(
-          boundAgent,
-          localDescription,
-          child?.()
+        return Object.assign(
+          createLocalCheckoutRunner(boundAgent, localDescription, child?.()),
+          { settings: localRunnerSettings }
         );
 
       const id = placementRunner(selected);
-      return createEnrolledCheckoutRunner(
-        remote,
-        runnerIdToWire(id),
-        boundAgent ? location : null,
-        boundAgent,
-        () => {
-          return (
-            remote
-              ?.runnerDescriptions?.()
-              .find((runner) => runner.runnerId === id) ?? {
-              runnerId: id,
-              displayName: runnerIdToWire(id),
-              build: { version: "" },
-              protocol: RUNNER_WIRE_VERSION,
-              engines: [],
-              capabilities: {},
-            }
-          );
-        },
-        legacyView
+      return Object.assign(
+        createEnrolledCheckoutRunner(
+          remote,
+          runnerIdToWire(id),
+          boundAgent ? location : null,
+          boundAgent,
+          () => {
+            return (
+              remote
+                ?.runnerDescriptions?.()
+                .find((runner) => runner.runnerId === id) ?? {
+                runnerId: id,
+                displayName: runnerIdToWire(id),
+                build: { version: "" },
+                protocol: RUNNER_WIRE_VERSION,
+                engines: [],
+                capabilities: {},
+              }
+            );
+          },
+          legacyView
+        ),
+        { settings: enrolledRunnerSettings(runnerIdToWire(id)) }
       );
     },
     list() {

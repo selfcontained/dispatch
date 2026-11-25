@@ -47,6 +47,26 @@ describe("operation table (E4)", () => {
     if (spec.retry.kind === "state") expect(fields).toContain(spec.retry.field);
   });
 
+  it("carries the engine's full effort description without truncation", () => {
+    const catalog = {
+      defaultModel: "model",
+      models: [
+        {
+          id: "model",
+          label: "Model",
+          effort: [
+            {
+              value: "high",
+              name: "High",
+              description: "Engine detail. ".repeat(1000),
+            },
+          ],
+        },
+      ],
+    };
+    expect(operations["engine.models"].response.check(catalog)).toBe(true);
+  });
+
   it("validators are structural, not stricter than the shape", () => {
     const launch = operations["session.launch"].request;
     const request = {
