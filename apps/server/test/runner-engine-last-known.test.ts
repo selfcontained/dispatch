@@ -31,7 +31,8 @@ function world() {
   function connect({
     fenced = false,
     reply,
-  }: { fenced?: boolean; reply?: unknown } = {}) {
+    dropRequest = false,
+  }: { fenced?: boolean; reply?: unknown; dropRequest?: boolean } = {}) {
     const socket = Object.assign(
       new Duplex({
         read() {},
@@ -40,6 +41,10 @@ function world() {
           for (const line of String(chunk).trim().split("\n")) {
             const frame = JSON.parse(line);
             if (frame.type === "request") requests.push(frame.command);
+            if (frame.type === "request" && dropRequest) {
+              queueMicrotask(() => socket.destroy());
+              continue;
+            }
             if (frame.type === "request" && !fenced) {
               const operation = frame.command.operation;
               const result =
@@ -211,5 +216,23 @@ describe("a runner's engines across its update", () => {
         pids: [],
       })
     ).rejects.toMatchObject({ code: "unknown_outcome" });
+  });
+  it("distinguishes a lost acknowledgement from a request never sent", async () => {
+    const lost = world();
+    lost.connect({ dropRequest: true });
+    await vi.waitFor(() =>
+      expect(lost.service.connectionEpoch(scope.runnerId)).not.toBeUndefined()
+    );
+    await expect(
+      lost.service.callEngine(scope.runnerId, "engine.update.probe", {
+        pids: [],
+      })
+    ).rejects.toMatchObject({ code: "unknown_outcome" });
+    const absent = world();
+    await expect(
+      absent.service.callEngine(scope.runnerId, "engine.update.probe", {
+        pids: [],
+      })
+    ).rejects.toMatchObject({ code: "unavailable" });
   });
 });

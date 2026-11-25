@@ -2068,14 +2068,14 @@ export class RemoteRunnerService {
         });
       if (error instanceof RunnerUpdateFenced)
         throw new RunnerCallError({ code: "fenced", message: error.message });
-      if (error instanceof RunnerUnavailable)
-        throw new RunnerCallError({
-          code: "unavailable",
-          message: error.message,
-        });
       if (error instanceof RunnerAcknowledgementLost)
         throw new RunnerCallError({
           code: "unknown_outcome",
+          message: error.message,
+        });
+      if (error instanceof RunnerUnavailable)
+        throw new RunnerCallError({
+          code: "unavailable",
           message: error.message,
         });
       throw error;
