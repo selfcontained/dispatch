@@ -30,7 +30,12 @@ export type MainLaunchSettings = Pick<
   "cwd" | "env" | "bins" | "pathPrefix"
 >;
 
-const logger = { info() {}, warn() {}, error() {} };
+// Quiet: the host fixture's logs are not under test.
+const logger = {
+  info(..._entry: unknown[]) {},
+  warn(..._entry: unknown[]) {},
+  error(..._entry: unknown[]) {},
+};
 
 const STOP_GRACE_MS = 8_000;
 const KILL_GRACE_MS = 2_000;

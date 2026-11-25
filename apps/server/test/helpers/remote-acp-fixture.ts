@@ -34,7 +34,7 @@ const fake = createFakeAcpAgent({
       await report(
         JSON.stringify({
           env: process.env[namespace[1]!] ?? null,
-          mcp: session.mcpServers.map(({ name }) => name),
+          mcp: (session.mcpServers ?? []).map(({ name }) => name),
         })
       );
       return "end_turn";
@@ -85,7 +85,7 @@ const fake = createFakeAcpAgent({
       await report("Guest permission answered.");
     }
     if (prompt.includes("prove-marker") || prompt.includes("post-private-pr")) {
-      const endpoint = session.mcpServers.find(
+      const endpoint = (session.mcpServers ?? []).find(
         (entry) => "url" in entry && "headers" in entry
       );
       if (!endpoint || !("url" in endpoint) || !("headers" in endpoint))
