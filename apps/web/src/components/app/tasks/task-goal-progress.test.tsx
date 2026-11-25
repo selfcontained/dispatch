@@ -11,7 +11,7 @@ it("renders equal segments with the count as text and hides at zero", () => {
   const bar = screen.getByRole("progressbar");
   expect(bar.getAttribute("aria-valuetext")).toBe("2 of 3 goals complete");
   expect(bar.children).toHaveLength(3);
-  expect(screen.getByText("2 of 3 goals complete")).toBeTruthy();
+  expect(screen.getByText("2/3")).toBeTruthy();
   view.rerender(<TaskGoalProgress counts={{ completed: 0, total: 0 }} />);
   expect(screen.queryByRole("progressbar")).toBeNull();
   view.rerender(<TaskGoalProgress counts={undefined} />);
@@ -31,7 +31,7 @@ it("lists goals in order with a status word, excluding retired from the bar", ()
   expect(
     screen.getAllByRole("listitem").map((item) => item.textContent)
   ).toEqual(["FirstComplete", "SecondOpen", "GoneRetired"]);
-  expect(screen.getByText("1 of 2 goals complete")).toBeTruthy();
+  expect(screen.getByText("1/2")).toBeTruthy();
 });
 
 it("describes goal activity", () => {

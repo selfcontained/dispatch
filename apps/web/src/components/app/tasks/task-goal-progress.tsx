@@ -22,8 +22,8 @@ const GLOW = {
 } as CSSProperties;
 
 /**
- * Equal-segment progress over a task's current goals, with the count as
- * text so it never depends on colour. Renders nothing without goals.
+ * Equal-segment progress over a task's current goals, with a "2/3" count
+ * so it never depends on colour (the full sentence is its accessible text). Renders nothing without goals.
  * Completed segments borrow the turn-activity defrag cells' look: one
  * even tint with a glow, and a brief pulse when one completes while watched.
  */
@@ -102,7 +102,7 @@ export function TaskGoalProgress({
         aria-hidden="true"
         className="shrink-0 text-label-xs tabular-nums text-muted-foreground"
       >
-        {text}
+        {completed}/{total}
       </span>
     </div>
   );

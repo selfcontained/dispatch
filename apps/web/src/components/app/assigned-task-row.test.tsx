@@ -103,9 +103,7 @@ it("shows goal progress for the row's task and none without current goals", () =
   expect(screen.getByRole("button").getAttribute("aria-label")).toBe(
     "Task: Goals, In progress, 2 of 3 goals complete"
   );
-  expect(screen.getByTestId("task-goal-progress").textContent).toBe(
-    "2 of 3 goals complete"
-  );
+  expect(screen.getByTestId("task-goal-progress").textContent).toBe("2/3");
   state.tasks[0].goalCounts = { completed: 0, total: 0 };
   view.rerender(
     <MemoryRouter>
@@ -153,6 +151,6 @@ it("does not celebrate when a different task takes over the row", () => {
       <AssignedTaskRow agentId="b" />
     </MemoryRouter>
   );
-  expect(screen.getByText("3 of 3 goals complete")).toBeTruthy();
+  expect(screen.getByText("3/3")).toBeTruthy();
   expect(screen.queryByTestId("goal-complete-sweep")).toBeNull();
 });
