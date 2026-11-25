@@ -1,6 +1,21 @@
-import { describe, expect, it, vi } from "vitest";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { admitLaunch } from "../src/agents/launch-admission.js";
 import { AgentManager } from "../src/agents/manager.js";
+import { resolvePath } from "../src/agents/workspace.js";
+import { launchDirectory } from "../src/agents/workspace-launch.js";
 import { checkoutReadPlacement } from "../src/runners/placement.js";
 
 type Launch = Parameters<AgentManager["createAgent"]>[0];
@@ -251,4 +266,98 @@ describe("launch admission compatibility", () => {
       );
     }
   );
+});
+
+/** origin/main's `validateWorkingDirectory`, verbatim but for the error type. */
+async function mainWorkingDirectory(rawCwd: string): Promise<string> {
+  const cwd = rawCwd.startsWith("~/")
+    ? path.join(process.env.HOME ?? "/", rawCwd.slice(2))
+    : rawCwd === "~"
+      ? (process.env.HOME ?? "/")
+      : rawCwd;
+  if (!path.isAbsolute(cwd))
+    throw new Error("Working directory must be an absolute path.");
+  const directory = await stat(cwd).catch(() => null);
+  if (!directory || !directory.isDirectory())
+    throw new Error("Working directory does not exist or is not a directory.");
+  return cwd;
+}
+
+const outcome = (run: () => Promise<string>) =>
+  run().then(
+    (cwd) => ({ cwd }),
+    (error: Error) => ({ error: error.message })
+  );
+
+describe("launch_agent's folder, as main resolves it", () => {
+  let root: string;
+  let home: string;
+  const folders = () => [
+    "relative/app",
+    "~",
+    "~/app",
+    `${root}/app`,
+    `${root}/app/../app`,
+    `${root}/link`,
+    `${root}/missing`,
+    `${root}/file`,
+    `${root}/sealed`,
+    `${root}/locked/inner`,
+    "runner://another/@session",
+  ];
+  beforeAll(async () => {
+    root = await realpath(await mkdtemp(path.join(os.tmpdir(), "launch-")));
+    home = path.join(root, "home");
+    await mkdir(path.join(home, "app"), { recursive: true });
+    await mkdir(path.join(root, "app"));
+    await symlink(path.join(root, "app"), path.join(root, "link"));
+    await writeFile(path.join(root, "file"), "");
+    await mkdir(path.join(root, "sealed"), { mode: 0o000 });
+    await mkdir(path.join(root, "locked", "inner"), { recursive: true });
+    await chmod(path.join(root, "locked"), 0o000);
+    vi.stubEnv("HOME", home);
+  });
+  afterAll(async () => {
+    vi.unstubAllEnvs();
+    await chmod(path.join(root, "locked"), 0o755);
+    await chmod(path.join(root, "sealed"), 0o755);
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("answers each folder with main's directory or main's error", async () => {
+    for (const raw of folders()) {
+      const expected = await outcome(() => mainWorkingDirectory(raw));
+      expect(
+        await outcome(async () => launchDirectory(await resolvePath(raw)).cwd),
+        raw
+      ).toEqual(expected);
+    }
+  });
+
+  it("admits another folder from a local caller, as main passes it on", () => {
+    for (const cwd of folders()) {
+      const request = {
+        caller: "mcpChild",
+        sourceCwd: "/caller",
+        sourceWorkdir: "/caller",
+        cwd,
+      } as const;
+      const target = admitLaunch({ phase: "mcpTarget", ...request });
+      const template = admitLaunch({ phase: "mcpTemplate", ...request });
+      const relative = !(
+        cwd === "~" ||
+        cwd.startsWith("~/") ||
+        cwd.startsWith("/")
+      );
+      expect(target, cwd).toEqual({ ok: true, cwd });
+      expect(template, cwd).toEqual(
+        relative
+          ? expect.objectContaining({
+              ok: false,
+              message: "Working directory must be an absolute path.",
+            })
+          : { ok: true, cwd }
+      );
+    }
+  });
 });
