@@ -226,9 +226,11 @@ it("forwards checkoutOnly to a healthy local child without changing its target",
       .for(controllerPlacement)
       .call("git.roots", request)
   ).toEqual({ repositoryRoot: null, checkoutRoot: "/work" });
-  expect(call).toHaveBeenCalledExactlyOnceWith("git.roots", request, {
-    wait: false,
-  });
+  expect(call).toHaveBeenCalledExactlyOnceWith(
+    "git.roots",
+    request,
+    expect.objectContaining({ wait: false, timeoutMs: null })
+  );
 });
 
 it("forwards checkoutOnly through the enrolled root-query carrier", async () => {

@@ -1083,7 +1083,11 @@ export function createLocalCheckoutRunner(
         if (answered) return answered.value as Res<K>;
         return checkoutWorkload.run(
           "git.roots",
-          { directory, request: {} },
+          {
+            directory,
+            request:
+              request.checkoutOnly === true ? { checkoutOnly: true } : {},
+          },
           { signal: options?.signal }
         ) as Promise<Res<K>>;
       }
