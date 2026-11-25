@@ -1,10 +1,11 @@
 import {
+  skipToken,
   useIsFetching,
   useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import {
   Collapsible,
@@ -21,7 +22,10 @@ import { SettingsGroup } from "@/components/app/settings-layout";
 import { Panel } from "@/components/ui/card";
 import { Alert } from "@/components/ui/alert";
 import { LoadError } from "@/components/ui/async-boundary";
-import { failureHint } from "@/lib/errors";
+import { errorStatus, failureHint } from "@/lib/errors";
+import { MAC_APP_UPDATE_QUERY_KEY } from "@/hooks/use-mac-app-update";
+import type { MacAppUpdateSnapshot } from "@dispatch/shared";
+import { Spinner } from "@/components/ui/spinner";
 
 type EngineUpdates = { engines: EngineStatus[]; canManage?: boolean };
 function InstallationDetails({
@@ -275,6 +279,48 @@ function EngineRow({
     </section>
   );
 }
+/**
+ * How long an unreachable server reads as a reconnect rather than a failure.
+ * A dropped phone connection or a quick server restart recovers within a few
+ * polls; installing a Mac app update restarts Dispatch, which takes longer.
+ */
+export const RECONNECT_GRACE_MS = 15_000;
+export const RESTART_GRACE_MS = 180_000;
+
+/** fetch rejected (no answer) or a proxy/gateway answered for a down server. */
+function isUnreachable(error: unknown): boolean {
+  if (error instanceof TypeError) return true;
+  const status = errorStatus(error);
+  return status === 502 || status === 503 || status === 504;
+}
+
+export type EnginesLoadState = "ok" | "reconnecting" | "restarting" | "failed";
+
+/**
+ * One state for the Engines panel. A server that stopped answering is
+ * "reconnecting" (or "restarting" while an update restarts it) until the
+ * grace runs out; any other error, or an outage past the grace, has failed.
+ */
+export function enginesLoadState({
+  isError,
+  error,
+  failingSince,
+  now,
+  restartExpected,
+}: {
+  isError: boolean;
+  error: unknown;
+  failingSince: number | null;
+  now: number;
+  restartExpected: boolean;
+}): EnginesLoadState {
+  if (!isError) return "ok";
+  if (!isUnreachable(error) || failingSince === null) return "failed";
+  const grace = restartExpected ? RESTART_GRACE_MS : RECONNECT_GRACE_MS;
+  if (now - failingSince >= grace) return "failed";
+  return restartExpected ? "restarting" : "reconnecting";
+}
+
 export function EngineUpdatesCard(): JSX.Element {
   const query = useQuery<EngineUpdates>({
     queryKey: ["system-engines"],
@@ -290,13 +336,71 @@ export function EngineUpdatesCard(): JSX.Element {
         ? 1_000
         : 5_000,
   });
+  // Read what the Mac app card already fetched; servers without the Mac app
+  // have no such route, so this never fetches on its own.
+  const macApp = useQuery<MacAppUpdateSnapshot>({
+    queryKey: MAC_APP_UPDATE_QUERY_KEY,
+    queryFn: skipToken,
+  });
+  const restartExpected =
+    macApp.data?.connected === true &&
+    macApp.data.state?.phase === "installing";
+
+  // When the current run of failures began; cleared by the next success.
+  const [failingSince, setFailingSince] = useState<number | null>(null);
+  const { isError, isSuccess, errorUpdatedAt } = query;
+  useEffect(() => {
+    if (isError) setFailingSince((since) => since ?? errorUpdatedAt);
+    else if (isSuccess) setFailingSince(null);
+  }, [isError, isSuccess, errorUpdatedAt]);
+
+  const loadState = enginesLoadState({
+    isError,
+    error: query.error,
+    failingSince: isError ? (failingSince ?? errorUpdatedAt) : null,
+    now: Date.now(),
+    restartExpected,
+  });
+
+  // Re-render when the grace runs out, even if no poll lands then.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (loadState !== "reconnecting" && loadState !== "restarting") return;
+    const since = failingSince ?? errorUpdatedAt;
+    const grace = restartExpected ? RESTART_GRACE_MS : RECONNECT_GRACE_MS;
+    const timer = setTimeout(
+      () => setTick((tick) => tick + 1),
+      Math.max(0, since + grace - Date.now()) + 50
+    );
+    return () => clearTimeout(timer);
+  }, [loadState, failingSince, errorUpdatedAt, restartExpected]);
+
+  // Background polls keep fetching; only a click spins the Retry button.
+  const [retrying, setRetrying] = useState(false);
+  const retry = (): void => {
+    setRetrying(true);
+    void query.refetch().finally(() => setRetrying(false));
+  };
+
+  const waiting = loadState === "reconnecting" || loadState === "restarting";
   return (
     <SettingsGroup
       title="Engines"
       description="Updates apply to new launches and restarts. Existing agents keep their current binary."
     >
       <Panel className="space-y-2">
-        {query.isPending && (
+        {waiting && (
+          <p
+            role="status"
+            className="flex items-center gap-2 text-body-sm text-muted-foreground"
+          >
+            <Spinner className="shrink-0" />
+            {loadState === "restarting"
+              ? "Dispatch is restarting to finish the update. Engines refresh when it’s back."
+              : "Reconnecting to Dispatch…"}
+          </p>
+        )}
+        {(query.isPending || (waiting && !query.data)) && (
           <div
             aria-label="Checking engine installations"
             aria-busy="true"
@@ -317,12 +421,12 @@ export function EngineUpdatesCard(): JSX.Element {
             ))}
           </div>
         )}
-        {query.isError && (
+        {loadState === "failed" && (
           <LoadError
             thing="engines"
             error={query.error}
-            retrying={query.isFetching}
-            onRetry={() => void query.refetch()}
+            retrying={retrying}
+            onRetry={retry}
           />
         )}
         {query.data?.engines.map((engine) => (
