@@ -29,6 +29,21 @@ const dieOnce = (marker: string | undefined) => {
 if (process.env.RUNNER_FIXTURE_CWD)
   process.chdir(process.env.RUNNER_FIXTURE_CWD);
 
+// Fixture-only pause after the real child accepts a native read, for loss/recovery pins.
+if (process.env.RUNNER_FIXTURE_NATIVE_PAUSE) {
+  const run = checkoutWorkload.run.bind(checkoutWorkload);
+  checkoutWorkload.run = async (op, input, options) => {
+    if (
+      (op === "checkout.list" || op === "checkout.read") &&
+      (input.request as { mode?: string }).mode === "native"
+    ) {
+      appendFileSync(process.env.RUNNER_FIXTURE_NATIVE_PAUSE!, op + "\n");
+      await new Promise<never>(() => {});
+    }
+    return run(op, input, options);
+  };
+}
+
 const engines = localEnginePort();
 // Fixture-only provider acts: no provider or ambient credentials are ever read.
 if (process.env.RUNNER_FIXTURE_RESET_LOG) {
