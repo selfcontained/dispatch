@@ -288,6 +288,8 @@ export async function executeArchive(
     }
     durations.stop = Date.now() - t;
 
+    await runLifecycleHook("archive", agent, logger);
+
     const publishPhase = async (phase: ArchivePhase) => {
       await deps.setArchivePhase(id, phase);
       const updated = await deps.getAgent(id);
@@ -423,6 +425,18 @@ export async function deleteAgentDirect(
       );
     }
     durations.stop = Date.now() - t;
+  }
+
+  try {
+    await runLifecycleHook("archive", agent, logger);
+  } catch (error) {
+    await deps.setAgentStatus(
+      id,
+      "error",
+      error instanceof Error ? error.message : "Archive hook failed"
+    );
+    await deps.setArchivePhase(id, null);
+    throw error;
   }
 
   // The archive claim excludes this row from dependent lookup, preventing

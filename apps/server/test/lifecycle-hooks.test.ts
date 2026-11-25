@@ -85,4 +85,36 @@ describe("runLifecycleHook", () => {
       "x\n"
     );
   });
+
+  it("uses the launch checkout's archive hook for an older worktree", async () => {
+    const launch = path.join(root, "launch");
+    const worktree = path.join(root, "worktree");
+    await repoWithStopHook(worktree);
+    await mkdir(path.join(launch, ".dispatch"), { recursive: true });
+    await writeFile(
+      path.join(launch, ".dispatch", "tools.json"),
+      JSON.stringify({
+        hooks: {
+          archive: {
+            command: ["sh", "-c", 'echo "$DISPATCH_AGENT_ID" > archived'],
+          },
+        },
+      })
+    );
+
+    await runLifecycleHook(
+      "archive",
+      {
+        id: "agt_hook",
+        cwd: worktree,
+        launchCwd: launch,
+        worktreePath: worktree,
+      } as AgentRecord,
+      logger
+    );
+
+    await expect(readFile(path.join(launch, "archived"), "utf8")).resolves.toBe(
+      "agt_hook\n"
+    );
+  });
 });

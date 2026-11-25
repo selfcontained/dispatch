@@ -152,9 +152,17 @@ bin/dispatch-dev status             # check what's running
 bin/dispatch-dev logs               # API server logs
 bin/dispatch-dev logs --vite        # Vite server logs
 bin/dispatch-dev url                # print the API server URL
-bin/dispatch-dev down               # tear everything down
+bin/dispatch-dev down               # stop services and keep the database
 bin/dispatch-dev restart             # restart the environment
 ```
+
+To permanently remove one stack's database and logs, run
+`bin/dispatch-dev down --wipe --suffix <stack-suffix>` or call
+`repo_dev_down` with `wipe: true` and the stack's suffix. This also works
+after plain `down`, which retains the same database for the next `up`.
+Dispatch invokes the wipe when it archives an agent, including when it keeps
+the worktree. A volume with mismatched Compose labels or a container reference
+is preserved. Resolve the reported error and retry the archive or explicit wipe.
 
 ### Verify
 

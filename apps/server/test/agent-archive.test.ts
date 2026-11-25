@@ -590,7 +590,7 @@ describe("executeArchive", () => {
       );
     });
 
-    it("continues archive even if lifecycle hook fails", async () => {
+    it("continues archive if the stop hook fails", async () => {
       vi.mocked(runLifecycleHook).mockRejectedValueOnce(
         new Error("hook failed")
       );
@@ -607,6 +607,66 @@ describe("executeArchive", () => {
 
       expect(cb.onComplete).toHaveBeenCalled();
       expect(cb.onError).not.toHaveBeenCalled();
+    });
+    it.each(["running", "stopped"] as const)(
+      "wipes the dev stack of a %s agent even when its worktree is kept",
+      async (status) => {
+        const agent = makeAgent("a1", {
+          status,
+          worktreePath: "/worktree",
+          archiveCleanupMode: "keep",
+        });
+        const pool = makePool();
+        const deps = makeDeps({
+          pool: pool as never,
+          getRequiredAgent: vi.fn().mockResolvedValue(agent),
+          getAgent: vi.fn().mockResolvedValue(agent),
+        });
+        const callbacks = makeCallbacks();
+
+        await executeArchive(deps, "a1", callbacks);
+
+        expect(runLifecycleHook).toHaveBeenCalledWith(
+          "archive",
+          agent,
+          expect.anything()
+        );
+        expect(cleanupGitWorktree).not.toHaveBeenCalled();
+        expect(callbacks.onComplete).toHaveBeenCalledWith(["a1"]);
+      }
+    );
+
+    it("surfaces a cleanup failure and leaves the agent available for a retry", async () => {
+      const failure = new Error("database volume is in use");
+      vi.mocked(runLifecycleHook)
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(failure);
+      const agent = makeAgent("a1");
+      const pool = makePool();
+      const deps = makeDeps({
+        pool: pool as never,
+        getRequiredAgent: vi.fn().mockResolvedValue(agent),
+        getAgent: vi.fn().mockResolvedValue(agent),
+      });
+      const callbacks = makeCallbacks();
+
+      await executeArchive(deps, "a1", callbacks);
+
+      expect(deps.setAgentStatus).toHaveBeenCalledWith(
+        "a1",
+        "error",
+        failure.message
+      );
+      expect(deps.setArchivePhase).toHaveBeenCalledWith("a1", null);
+      expect(callbacks.onError).toHaveBeenCalledWith(failure);
+      expect(callbacks.onComplete).not.toHaveBeenCalled();
+      expect(pool.query).not.toHaveBeenCalledWith(
+        expect.stringContaining("SET deleted_at"),
+        expect.anything()
+      );
+
+      await executeArchive(deps, "a1", callbacks);
+      expect(callbacks.onComplete).toHaveBeenCalledWith(["a1"]);
     });
   });
 
@@ -1090,7 +1150,11 @@ describe("deleteAgentDirect", () => {
     await deleteAgentDirect(deps, "a1");
 
     expect(runtime.stop).not.toHaveBeenCalled();
-    expect(runLifecycleHook).not.toHaveBeenCalled();
+    expect(runLifecycleHook).toHaveBeenCalledExactlyOnceWith(
+      "archive",
+      agent,
+      expect.anything()
+    );
     expect(pool.query).toHaveBeenCalledWith(
       expect.stringContaining("SET deleted_at = NOW()"),
       ["a1"]

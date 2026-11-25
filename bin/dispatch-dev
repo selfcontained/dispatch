@@ -56,7 +56,7 @@ Options:
                     Keep live agent hosts running across restart. This opt-in
                     is saved for the stack and reused by later restarts.
   --wipe            down only: also delete the database and the stack's
-                    logs. Agents, streams and files are gone for good.
+                    logs, even after an earlier plain down. Data is lost.
   -f, --follow      Follow log output (used with logs command)
 
 USAGE
@@ -94,7 +94,8 @@ resolve_suffix() {
     root="$(cd "${OPT_CWD:-$(pwd)}" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)" || root=""
     [ -n "$root" ] || root="${OPT_CWD:-$(pwd)}"
     local name
-    name="$(basename "$root")"
+    name="$(basename "$root" | LC_ALL=C tr '[:upper:]' '[:lower:]' | LC_ALL=C tr -c 'a-z0-9_-' '-')"
+    name="${name%-}"
     # Keep the checkout's name for a readable container, and a short hash of
     # its path so two clones of the same repo never share a stack.
     echo "dev-${name}-$(printf '%s' "$root" | shasum | cut -c1-8)"
@@ -327,9 +328,9 @@ cmd_up_exit_handler() {
     stop_service "${DEV_VITE_PID:-}" "Vite server"
     cleanup_fresh_compose
   fi
-  release_create_lock
   trap - EXIT
   run_previous_exit_trap
+  release_create_lock
   exit "$status"
 }
 
@@ -348,21 +349,9 @@ on_up_interrupt() {
   exit "$code"
 }
 
-# Serializes fresh creation for one suffix. Two `up` invocations racing on
-# the same deterministic Compose project name could otherwise interleave
-# their creates, or one's failure cleanup could tear down a sibling's
-# still-starting container. Only guards the UP_OWNS_DB_CREATE path — a
-# plain `restart` or `down` on the same suffix is NOT currently serialized
-# against this (or against each other); that's a pre-existing gap this
-# change does not close, left for a follow-up rather than widening this
-# lock onto commands that can call each other (cmd_restart calls both
-# cmd_down and cmd_up) without risking deadlock or an abandoned directory.
-#
-# Deliberately fails fast rather than auto-reclaiming a lock whose holder
-# looks dead: a lock directory's own presence is the only state here, and a
-# holder PID recorded inside it for diagnostics is written after the
-# `mkdir` — reading it is open to a race no safer than just waiting. If a
-# run was SIGKILLed before releasing, remove the printed directory by hand.
+# Serialize mutations for a suffix, including the gap between discovering
+# a detached volume and removing it. Nested restart calls share this lock.
+# After SIGKILL, verify the holder is gone before removing a stale lock.
 CREATE_LOCK_DIR=""
 acquire_create_lock() {
   local lock_dir="/tmp/dispatch-dev-${SUFFIX}.create-lock"
@@ -370,7 +359,7 @@ acquire_create_lock() {
   while ! mkdir "$lock_dir" 2>/dev/null; do
     waited=$((waited + 1))
     if [ "$waited" -ge 300 ]; then
-      echo "Error: another 'up' appears to be creating the stack for '${SUFFIX}' (lock: ${lock_dir})." >&2
+      echo "Error: another command holds the stack lock for '${SUFFIX}' (lock: ${lock_dir})." >&2
       echo "If that run was killed and the lock is stale, remove it manually: rm -rf ${lock_dir}" >&2
       exit 1
     fi
@@ -427,19 +416,6 @@ cmd_up() {
   install_exit_trap cmd_up_exit_handler
   trap 'on_up_interrupt INT' INT
   trap 'on_up_interrupt TERM' TERM
-  if [ "$UP_OWNS_DB_CREATE" = "1" ]; then
-    acquire_create_lock
-    # A sibling `up` for this same suffix can have started — and finished —
-    # entirely while this one waited for the lock (the earlier "is a stack
-    # already running" check above ran before the wait, not after it).
-    # Recheck now that the lock makes this check race-free, so this run
-    # does not recreate (and silently orphan) what the sibling just built.
-    if [ -f "$(state_file)" ]; then
-      echo "Stack '${SUFFIX}' was created by a concurrent 'up' while this one waited for its lock; not creating a duplicate." >&2
-      exit 1
-    fi
-  fi
-
   # --- Database ---
   DEV_NO_DB=0
   local compose
@@ -652,7 +628,6 @@ cmd_up() {
 
   save_state
   trap - INT TERM
-  release_create_lock
   reinstall_previous_exit_trap
 
   echo ""
@@ -683,43 +658,81 @@ stop_agent_hosts() {
   done
 }
 
+# Locate the exact Compose volume and check both ownership labels. A Docker
+# listing failure must never be treated as proof that the volume is absent.
+find_owned_db_volume() {
+  local project="dispatch-dev-${SUFFIX}"
+  local expected="${project}_db-data"
+  local names name labels
+  names="$(docker volume ls --filter "name=${expected}" --format '{{.Name}}')" || return 1
+  while IFS= read -r name; do
+    [ "$name" = "$expected" ] || continue
+    labels="$(docker volume inspect --format '{{index .Labels "com.docker.compose.project"}} {{index .Labels "com.docker.compose.volume"}}' "$name")" || return 1
+    if [ "$labels" != "$project db-data" ]; then
+      echo "Error: Preserved database volume '$name': Compose ownership labels did not match '$project db-data'." >&2
+      return 1
+    fi
+    printf '%s\n' "$name"
+    return 0
+  done <<< "$names"
+}
+
 cmd_down() {
-  if ! load_state; then
+  local has_state=0 volume=""
+  if load_state; then
+    has_state=1
+  elif [ "$OPT_WIPE" = "0" ]; then
     echo "No state file found for suffix '${SUFFIX}'. Nothing to tear down."
     return 0
   fi
 
-  stop_agent_hosts
-  stop_service "${DEV_API_PID:-}" "API server"
-  stop_service "${DEV_VITE_PID:-}" "Vite server"
-
-  # The container goes; its data stays on the stack's named volume and is
-  # mounted again by the next `up`. Agent hosts always stop with the stack;
-  # `--wipe` additionally removes the persisted database data.
-  if [ -n "${DEV_COMPOSE_PROJECT:-}" ] && [ "${DEV_NO_DB:-0}" != "1" ]; then
-    local compose
-    compose="$(detect_compose)"
-    if [ -z "$compose" ]; then
-      echo "Error: Docker Compose is unavailable; retained state for cleanup retry." >&2
+  if [ "$has_state" = "1" ] && [ -n "${DEV_COMPOSE_PROJECT:-}" ] && [ "$DEV_COMPOSE_PROJECT" != "dispatch-dev-${SUFFIX}" ]; then
+    echo "Error: Saved Compose project does not match suffix '${SUFFIX}'; preserving the stack." >&2
+    return 1
+  fi
+  if [ "$OPT_WIPE" = "1" ]; then
+    if ! volume="$(find_owned_db_volume)"; then
+      echo "Error: Could not verify database ownership for '${SUFFIX}'; retry down --wipe after resolving the error." >&2
       return 1
-    fi
-    local compose_args=(down)
-    [ "$OPT_WIPE" = "1" ] && compose_args+=(-v)
-    if ! $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" "${compose_args[@]}"; then
-      echo "Error: Database teardown failed; retained state for cleanup retry." >&2
-      return 1
-    fi
-    if [ "$OPT_WIPE" = "1" ]; then
-      echo "Removed database container and its data"
-    else
-      echo "Stopped database container (data kept; --wipe to delete it)"
     fi
   fi
 
-  rm -f "$(state_file)"
-  # Logs and the agent state root are the stack's scratch space, not its
-  # data; they are only worth keeping while the data is.
+  if [ "$has_state" = "1" ]; then
+    stop_agent_hosts
+    stop_service "${DEV_API_PID:-}" "API server"
+    stop_service "${DEV_VITE_PID:-}" "Vite server"
+
+    if [ -n "${DEV_COMPOSE_PROJECT:-}" ] && [ "${DEV_NO_DB:-0}" != "1" ]; then
+      local compose
+      compose="$(detect_compose)"
+      if [ -z "$compose" ]; then
+        echo "Error: Docker Compose is unavailable; retained state for cleanup retry." >&2
+        return 1
+      fi
+      if ! $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" down; then
+        echo "Error: Database teardown failed; retained state for cleanup retry." >&2
+        return 1
+      fi
+      if [ "$OPT_WIPE" = "0" ]; then
+        echo "Stopped database container (data kept; --wipe to delete it)"
+      fi
+    fi
+
+    rm -f "$(state_file)"
+  fi
+
   if [ "$OPT_WIPE" = "1" ]; then
+    if [ -n "$volume" ]; then
+      # Docker refuses removal while any container references the volume.
+      # Never force it, including when the other container is stopped.
+      if ! docker volume rm "$volume" >/dev/null; then
+        echo "Error: Could not remove database volume '$volume'; retry down --wipe after resolving the error." >&2
+        return 1
+      fi
+      echo "Removed database volume '$volume'."
+    else
+      echo "No database volume found for suffix '${SUFFIX}'."
+    fi
     rm -rf "$(log_dir)"
   fi
 
@@ -825,7 +838,7 @@ cmd_restart() {
   cmd_up
 
   rm -f "$sf_backup"
-  trap - EXIT
+  trap release_create_lock EXIT
 }
 
 cmd_status() {
@@ -956,7 +969,11 @@ while [ $# -gt 0 ]; do
     --wipe)
       OPT_WIPE="1"; shift ;;
     --suffix)
-      OPT_SUFFIX="${2:-}"; shift 2 ;;
+      if [ -z "${2:-}" ] || [[ "$2" == -* ]]; then
+        echo "Error: --suffix requires a stack name." >&2
+        exit 1
+      fi
+      OPT_SUFFIX="$2"; shift 2 ;;
     --db)
       OPT_LOG_DB="1"; shift ;;
     --vite)
@@ -986,6 +1003,29 @@ if [ "$CMD" = "up" ] || [ "$CMD" = "restart" ]; then
 fi
 
 SUFFIX="$(resolve_suffix)"
+if [[ ! "$SUFFIX" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
+  echo "Error: Invalid stack suffix '$SUFFIX'; use lowercase letters, digits, underscores, or hyphens." >&2
+  exit 1
+fi
+if [ "$OPT_WIPE" = "1" ] && [ "$CMD" != "down" ]; then
+  echo "Error: --wipe is only supported by down." >&2
+  exit 1
+fi
+
+case "$CMD" in
+  up|down|restart)
+    had_state=0
+    [ ! -f "$(state_file)" ] || had_state=1
+    trap release_create_lock EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    acquire_create_lock
+    if [ "$CMD" = "up" ] && [ "$had_state" = "0" ] && [ -f "$(state_file)" ]; then
+      echo "Stack '${SUFFIX}' was created by a concurrent 'up' while this one waited for its lock; not creating a duplicate." >&2
+      exit 1
+    fi
+    ;;
+esac
 
 case "$CMD" in
   up)       cmd_up ;;

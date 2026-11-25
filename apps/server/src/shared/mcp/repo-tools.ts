@@ -32,6 +32,7 @@ export type RepoHookDefinition = {
 
 export type RepoHooks = {
   stop?: RepoHookDefinition;
+  archive?: RepoHookDefinition;
 };
 
 export type RepoToolParam = {
@@ -215,6 +216,10 @@ export async function loadRepoHooks(repoRoot: string): Promise<RepoHooks> {
 
   if (raw.stop) {
     hooks.stop = parseHookDefinition(raw.stop, "stop");
+  }
+
+  if (raw.archive) {
+    hooks.archive = parseHookDefinition(raw.archive, "archive");
   }
 
   hooksCache.set(manifestPath, { mtime, hooks });

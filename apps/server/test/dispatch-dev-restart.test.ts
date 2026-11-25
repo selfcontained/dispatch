@@ -17,7 +17,7 @@ afterEach(() => {
 
 function fixture(running: "true" | "false" | "missing" | "error") {
   const dir = mkdtempSync("/tmp/dispatch-restart-regression-");
-  const suffix = path.basename(dir);
+  const suffix = path.basename(dir).toLowerCase();
   const state = `/tmp/dispatch-dev-${suffix}.env`;
   const logs = `/tmp/dispatch-dev-${suffix}`;
   cleanups.push(() => {
