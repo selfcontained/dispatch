@@ -11,7 +11,7 @@ import type {
   PlanWindow,
   ProviderPlan,
   ProviderPlansResponse,
-} from "@dispatch/shared";
+} from "@dispatch/runner-protocol/engine-plans";
 
 /**
  * How much of their subscription plans the engines' logins have used: the
