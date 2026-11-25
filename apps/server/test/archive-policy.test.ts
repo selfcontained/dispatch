@@ -662,6 +662,44 @@ describe("negotiated archive release", () => {
   );
 });
 
+describe("a gone runner checkout", () => {
+  it("archives with auto and releases it, as main archives a missing worktree", async () => {
+    const row = {
+      placement: "runner",
+      mode: "auto",
+      state: "clean",
+      borrowed: false,
+    } as const;
+    const { deps, agent } = harness(row);
+    git(repo, "worktree", "remove", "--force", checkout);
+    const requestSession = vi.fn(async (_placement, request) => {
+      if (request.kind === "checkoutRelease")
+        return {
+          value: JSON.stringify({
+            ownership: "owned",
+            owner: agent.id,
+            borrowers: [],
+            checkout: null,
+          }),
+        };
+      expect(request).toMatchObject({
+        kind: "workspaceRelease",
+        agentId: agent.id,
+      });
+      return { value: JSON.stringify({ removed: true }) };
+    });
+    deps.remote = {
+      supportsWorkspaceRelease: () => true,
+      requestSession,
+    } as unknown as RemoteRunnerService;
+    expect(await finishCheckout(deps, agent, "auto", true, {})).toBe(false);
+    expect(requestSession.mock.calls.map(([, r]) => r.kind)).toEqual([
+      "checkoutRelease",
+      "workspaceRelease",
+    ]);
+  });
+});
+
 describe("pending release retry", () => {
   const firstAttempts = ROWS.filter(
     (row) => !row.borrowed && expected({ ...row, borrowed: true }).pending

@@ -114,15 +114,7 @@ export async function observeArchiveCheckout(
   if (placement) {
     if (!remote)
       throw new AgentError("The session runner is unavailable.", 503);
-    const observed = await observeRemoteCheckout(agent, remote, placement);
-    // Owned with no checkout stays unavailable on a runner, as before its
-    // row showed the checkout's folder.
-    if (observed.ownership === "owned" && !observed.checkout)
-      throw new AgentError(
-        "Checkout status is unavailable on the owning runner.",
-        503
-      );
-    return observed;
+    return observeRemoteCheckout(agent, remote, placement);
   }
   let binding: ArchiveCheckoutAgent = agent;
   if (!agent.worktreePath) {
