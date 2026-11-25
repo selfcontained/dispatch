@@ -7,13 +7,6 @@ import {
 } from "./session-file-blob.js";
 import { digestSessionFile, sessionFileSource } from "./session-file-io.js";
 
-export {
-  openBoundedSessionFile,
-  readSessionFile,
-  digestSessionFile,
-  sessionFileSource,
-} from "./session-file-io.js";
-
 /**
  * `files.put`: hand one file on this machine to a session and return the
  * path it opens there. The session's runner resolves the file (see

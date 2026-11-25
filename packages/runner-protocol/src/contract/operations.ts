@@ -585,7 +585,11 @@ export const operations = {
   "git.roots": op({
     scope: "runner",
     kind: "call",
-    request: object({ target }),
+    request: object({
+      target,
+      /** Probe the checkout independently of common-directory discovery. */
+      checkoutOnly: optional(literal(true)),
+    }),
     response: object({
       repositoryRoot: nullable(runnerPath),
       checkoutRoot: nullable(runnerPath),

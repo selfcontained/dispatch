@@ -16,7 +16,7 @@ import {
   sessionFileSource,
   openBoundedSessionFile,
   readSessionFile,
-} from "../src/files/session-file.js";
+} from "../src/files/session-file-io.js";
 
 let dir: string;
 beforeEach(async () => {
