@@ -12,7 +12,9 @@
     "./v1/node": "./src/v1/node.ts",
     "./launcher": "./src/launcher/index.ts",
     "./transport/local-socket": "./src/transport/local-socket.ts",
-    "./session": "./src/session/local-runner.ts"
+    "./session": "./src/session/local-runner.ts",
+    "./host-client": "./src/host-client.ts",
+    "./host-framing": "./src/host-framing.ts"
   },
   "files": [
     "src"
@@ -24,5 +26,11 @@
     "check": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
     "test": "vitest run --root .",
     "surface": "tsx scripts/write-launcher-surface.ts"
+  },
+  "peerDependencies": {
+    "@agentclientprotocol/sdk": "1.8.0"
+  },
+  "devDependencies": {
+    "@agentclientprotocol/sdk": "1.8.0"
   }
 }

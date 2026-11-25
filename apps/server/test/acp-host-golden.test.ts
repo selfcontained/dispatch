@@ -29,7 +29,7 @@ import {
   hostCommand,
   loginShellCommand,
 } from "../src/agents/acp/host-command.js";
-import { HOST_FILES } from "../src/agents/acp/host-protocol.js";
+import { HOST_FILES } from "@dispatch/runner-client/host-framing";
 import type { PromptSource } from "../src/agents/acp/prompt-source.js";
 import { createAcpRuntime } from "../src/agents/acp/runtime.js";
 import type { DriverEvent } from "../src/agents/acp/driver.js";

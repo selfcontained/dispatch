@@ -6,7 +6,10 @@ import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { rootCertificates } from "node:tls";
 import type { AcpEngineId, EngineBins } from "@dispatch/runner-protocol/host";
-import { hostFile, type HostLaunch } from "./host-protocol.js";
+import {
+  hostFile,
+  type HostLaunch,
+} from "@dispatch/runner-client/host-framing";
 import type { HostSearchPath } from "./host/types.js";
 
 /** Bind the common variables for an agent started by a configured runner. */

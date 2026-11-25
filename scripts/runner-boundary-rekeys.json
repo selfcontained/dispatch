@@ -1,1 +1,81 @@
-[]
+[
+  {
+    "key": {
+      "file": "apps/server/src/agents/acp/host-env.ts",
+      "kind": "R5 Dispatch to client transport",
+      "detail": "@dispatch/runner-client/host-framing"
+    },
+    "class": "moves-with-workload",
+    "task": "T40",
+    "reason": "Host framing moved into the client package before this workload moves.",
+    "supersedes": [
+      {
+        "file": "apps/server/src/agents/acp/host-env.ts",
+        "kind": "R5 runner to Dispatch",
+        "detail": "apps/server/src/agents/acp/host-protocol"
+      }
+    ]
+  },
+  {
+    "key": {
+      "file": "apps/server/src/agents/acp/host/main.ts",
+      "kind": "R5 Dispatch to client transport",
+      "detail": "@dispatch/runner-client/host-framing"
+    },
+    "class": "moves-with-workload",
+    "task": "T40",
+    "reason": "Host framing moved into the client package before this workload moves.",
+    "supersedes": [
+      {
+        "file": "apps/server/src/agents/acp/host/main.ts",
+        "kind": "R5 runner to Dispatch",
+        "detail": "apps/server/src/agents/acp/host-protocol"
+      }
+    ]
+  },
+  {
+    "key": {
+      "file": "apps/server/src/agents/acp/runtime.ts",
+      "kind": "R5 Dispatch to client transport",
+      "detail": "@dispatch/runner-client/host-client"
+    },
+    "class": "route-through-runner",
+    "task": "T40",
+    "reason": "Host client moved into the client package; route this controller through runner sessions.",
+    "supersedes": [
+      {
+        "file": "apps/server/src/agents/acp/runtime.ts",
+        "kind": "R2 host import",
+        "detail": "apps/server/src/agents/acp/host-client"
+      }
+    ]
+  },
+  {
+    "key": {
+      "file": "apps/server/src/agents/remote/health.ts",
+      "kind": "R5 Dispatch to client transport",
+      "detail": "@dispatch/runner-client/host-framing"
+    },
+    "class": "moves-with-workload",
+    "task": "T40",
+    "reason": "Host framing moved into the client package before this workload moves.",
+    "movedDependency": "apps/server/src/agents/acp/host-protocol.ts"
+  },
+  {
+    "key": {
+      "file": "apps/server/src/agents/remote/session-supervisor.ts",
+      "kind": "R5 Dispatch to client transport",
+      "detail": "@dispatch/runner-client/host-framing"
+    },
+    "class": "moves-with-workload",
+    "task": "T40",
+    "reason": "Host framing moved into the client package before this workload moves.",
+    "supersedes": [
+      {
+        "file": "apps/server/src/agents/remote/session-supervisor.ts",
+        "kind": "R5 runner to Dispatch",
+        "detail": "apps/server/src/agents/acp/host-protocol"
+      }
+    ]
+  }
+]

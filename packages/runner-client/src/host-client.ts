@@ -25,7 +25,7 @@ import {
   type JournalEntry,
   type PromptReceiptState,
   ndjsonDecoder,
-} from "./host-protocol.js";
+} from "./host-framing.js";
 
 /**
  * A host carries a prompt's `source` without reading it, so Dispatch checks

@@ -10,7 +10,7 @@ import {
   ndjsonDecoder,
   type ClientMessage,
   type HostMessage,
-} from "../src/agents/acp/host-protocol.js";
+} from "@dispatch/runner-client/host-framing";
 
 /** A host for one agent that accepts and settles every prompt at once. */
 export async function scriptedHost(

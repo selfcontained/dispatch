@@ -26,7 +26,11 @@ import {
   prepareHostLaunch,
   writeHostLaunch,
 } from "../acp/host-env.js";
-import { HOST_FILES, hostFile, type HostLaunch } from "../acp/host-protocol.js";
+import {
+  HOST_FILES,
+  hostFile,
+  type HostLaunch,
+} from "@dispatch/runner-client/host-framing";
 import { observeBoundCheckout } from "../checkout-observation.js";
 import {
   displayPath,

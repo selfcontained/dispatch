@@ -15,7 +15,7 @@ import { Duplex, PassThrough, Readable, Writable } from "node:stream";
 import { checkoutWorkerStderr } from "../checkout-command-executor.js";
 import { terminalEnvironment } from "../../terminal/pty.js";
 import { promisify } from "node:util";
-import type { HostLaunch } from "../acp/host-protocol.js";
+import type { HostLaunch } from "@dispatch/runner-protocol/host";
 import type { WorkloadCommand } from "./session-storage.js";
 import {
   createSessionSupervisor,

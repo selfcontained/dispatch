@@ -25,14 +25,14 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { decodeHostFrame } from "@dispatch/runner-client/v1/host";
 import { hostMessage } from "@dispatch/runner-protocol/contract";
 
-import { HostClient } from "../src/agents/acp/host-client.js";
+import { HostClient } from "@dispatch/runner-client/host-client";
 import {
   encodeMessage,
   HOST_FILES,
   ndjsonDecoder,
   type HostLaunch,
   type JournalEntry,
-} from "../src/agents/acp/host-protocol.js";
+} from "@dispatch/runner-client/host-framing";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "../../..");
@@ -240,6 +240,7 @@ describe("the host's import closure", () => {
       .sort();
     expect([...packages].sort()).toEqual([
       "@agentclientprotocol/sdk",
+      "@dispatch/runner-client",
       "@dispatch/runner-protocol",
       "jsonc-parser",
       "node:",
@@ -253,7 +254,6 @@ describe("the host's import closure", () => {
       "agents/acp/engine-spec.ts",
       "agents/acp/host-command.ts",
       "agents/acp/host-env.ts",
-      "agents/acp/host-protocol.ts",
       "agents/acp/host/first-prompt.ts",
       "agents/acp/host/launch-effort.ts",
       "agents/acp/host/main.ts",

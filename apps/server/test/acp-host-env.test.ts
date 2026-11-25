@@ -21,7 +21,7 @@ import {
   localHostEntry,
   writeLocalHostLaunch,
 } from "../src/agents/acp/local-host-entry.js";
-import type { HostLaunch } from "../src/agents/acp/host-protocol.js";
+import type { HostLaunch } from "@dispatch/runner-protocol/host";
 import { loginShellCommand } from "../src/agents/acp/runtime.js";
 
 const roots: string[] = [];

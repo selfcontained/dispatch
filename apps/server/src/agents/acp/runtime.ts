@@ -68,8 +68,8 @@ import {
   HostClient,
   type HostQuiesceLease,
   UpdateAcknowledgementLost,
-} from "./host-client.js";
-import { type JournalEntry } from "./host-protocol.js";
+} from "@dispatch/runner-client/host-client";
+import { type JournalEntry } from "@dispatch/runner-protocol/host";
 
 /** The engine's ACP handshake can take a while on a cold adapter. */
 const LAUNCH_TIMEOUT_MS = 60_000;

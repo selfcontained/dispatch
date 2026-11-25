@@ -421,6 +421,10 @@ importers:
       '@dispatch/runner-protocol':
         specifier: workspace:*
         version: link:../runner-protocol
+    devDependencies:
+      '@agentclientprotocol/sdk':
+        specifier: 1.8.0
+        version: 1.8.0(zod@4.6.7)
 
   packages/runner-conformance:
     dependencies:

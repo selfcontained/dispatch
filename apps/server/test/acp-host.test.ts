@@ -36,12 +36,12 @@ import {
   type HostLaunch,
   type ClientMessage,
   type HostMessage,
-} from "../src/agents/acp/host-protocol.js";
+} from "@dispatch/runner-client/host-framing";
 import { embeddedBuild } from "../src/agents/build-identity.js";
 import type { DriverEvent } from "../src/agents/acp/driver.js";
 import { createAcpRuntime } from "../src/agents/acp/runtime.js";
 import { preparePersonaContext } from "../src/agents/acp/host-env.js";
-import { HostClient } from "../src/agents/acp/host-client.js";
+import { HostClient } from "@dispatch/runner-client/host-client";
 import { mainLocalHosts } from "./helpers/main-local-hosts.js";
 import { RunnerUnavailable } from "../src/agents/remote/service.js";
 import { RunnerUpdateHolds } from "../src/agents/remote/update-hold.js";

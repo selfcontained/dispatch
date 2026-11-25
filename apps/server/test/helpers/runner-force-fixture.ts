@@ -20,7 +20,7 @@ import {
   type ClientMessage,
   type HostMessage,
   type JournalEntry,
-} from "../../src/agents/acp/host-protocol.js";
+} from "@dispatch/runner-client/host-framing";
 import type { PromptSource } from "../../src/agents/acp/prompt-source.js";
 import { AgentManager } from "../../src/agents/manager.js";
 import {

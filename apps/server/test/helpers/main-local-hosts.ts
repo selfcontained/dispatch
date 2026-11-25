@@ -23,7 +23,7 @@ import { preparePersonaContext } from "../../src/agents/acp/host-env.js";
 import {
   hostFile,
   type HostLaunch,
-} from "../../src/agents/acp/host-protocol.js";
+} from "@dispatch/runner-client/host-framing";
 
 export type MainLaunchSettings = Pick<
   HostLaunch,

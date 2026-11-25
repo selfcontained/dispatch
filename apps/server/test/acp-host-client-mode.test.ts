@@ -17,13 +17,13 @@ import { Duplex, PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 
-import { HostClient } from "../src/agents/acp/host-client.js";
+import { HostClient } from "@dispatch/runner-client/host-client";
 import {
   encodeMessage,
   ndjsonDecoder,
   type ClientMessage,
   type HostMessage,
-} from "../src/agents/acp/host-protocol.js";
+} from "@dispatch/runner-client/host-framing";
 import { hostReconnectDisposition } from "../src/agents/acp/runtime.js";
 
 const agentId = "agt_mode_test";

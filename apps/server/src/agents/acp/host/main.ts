@@ -43,7 +43,7 @@ import {
   type JournalEntry,
   ndjsonDecoder,
   parseClientMessage,
-} from "../host-protocol.js";
+} from "@dispatch/runner-client/host-framing";
 
 /** What the caller supplies besides the state directory. */
 export type AgentHostOptions = {
