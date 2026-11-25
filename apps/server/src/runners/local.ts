@@ -1188,18 +1188,19 @@ export function localEngineCalls(
   return {
     async call(op, input, options) {
       const runner = child();
+      // Mutation replay protection belongs to the owning host. A lost
+      // acknowledgement must not replay against a restarted or fallback host.
+      const singleAttempt =
+        op === "engine.update.spawn" ||
+        op === "engine.update.release" ||
+        op === "engine.plugin.apply";
       if (runner?.connection.state === "ready")
         try {
-          // A spawn id is deduplicated only by its owning host. Do not replay
-          // a possibly delivered spawn after that child (and its ids) is gone.
-          const attempt =
-            op === "engine.update.spawn"
-              ? { ...options, wait: false }
-              : options;
+          const attempt = singleAttempt ? { ...options, wait: false } : options;
           return await runner.call(op, input, attempt);
         } catch (error) {
           if (
-            op === "engine.update.spawn" &&
+            singleAttempt &&
             error instanceof RunnerCallError &&
             error.code === "unknown_outcome"
           )
