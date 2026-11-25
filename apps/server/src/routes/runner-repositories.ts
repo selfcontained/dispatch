@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import {
   validGitHubRepoPart,
   validRepositorySearch,
-} from "../agents/remote/protocol.js";
+} from "@dispatch/runner-protocol";
 import type { RemoteRunnerService } from "../agents/remote/service.js";
 
 export function registerRunnerRepositorySearch(

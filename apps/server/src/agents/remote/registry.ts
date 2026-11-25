@@ -1,4 +1,4 @@
-import type { RunnerHealth } from "./protocol.js";
+import type { RunnerHealth } from "@dispatch/runner-protocol";
 import { createHash, randomBytes } from "node:crypto";
 import { X509Certificate } from "node:crypto";
 import type { Pool } from "pg";

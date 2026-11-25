@@ -21,7 +21,7 @@ import {
   type RunnerUpdateCancelReason,
   type RunnerUpdateTarget,
   type SelfUpdateAdvert,
-} from "./protocol.js";
+} from "@dispatch/runner-protocol";
 import {
   RunnerRequestError,
   type RemoteRunnerService,
