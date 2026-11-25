@@ -286,12 +286,12 @@ export function createEnrolledCheckoutRunner(
     },
     // Not part of `Runner`: what the peer advertised in its ready frame.
     ...{
-      serves(op: "checkout.write") {
-        return (
-          op === "checkout.write" &&
-          placement !== null &&
-          service?.supportsCheckoutWrite?.(placement) === true
-        );
+      serves(op: "checkout.write" | "workspace.release") {
+        if (placement === null || !service) return false;
+        // Bound release: the peer carries out the caller's removal decision.
+        if (op === "workspace.release")
+          return service.supportsWorkspaceRelease?.(placement) === true;
+        return service.supportsCheckoutWrite?.(placement) === true;
       },
     },
     async call<K extends CallName>(

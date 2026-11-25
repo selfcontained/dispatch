@@ -11,7 +11,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 import type { Runner } from "@dispatch/runner-protocol/contract";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanupAgentWorktree } from "../src/agents/archive.js";
+import { archiveCheckout } from "../src/agents/archive.js";
 import { workspaceWorkload } from "../src/agents/checkout-worker.js";
 import { runnerDirectory } from "../src/runners/directory.js";
 import {
@@ -80,12 +80,12 @@ function archive(child: Runner, mode: "force" | "auto" = "force") {
   );
   return {
     logger,
-    outcome: cleanupAgentWorktree(
+    outcome: archiveCheckout(
       pool,
       logger,
-      { bindWorkspace: async () => false },
       agent(),
       mode,
+      true,
       undefined,
       runner
     ),

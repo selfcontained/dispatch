@@ -1,4 +1,3 @@
-import type { FastifyBaseLogger } from "fastify";
 import {
   isCheckoutObservation,
   UNOBSERVED_STATE,
@@ -15,14 +14,9 @@ import {
 } from "@dispatch/runner-protocol/contract";
 import {
   checkoutRunners,
+  type CheckoutCommandRunners,
   type RunnerComposition,
 } from "../runners/directory.js";
-import {
-  finishArchiveCheckout,
-  runnerArchiveExecutor,
-  type ArchiveCheckoutHooks,
-  type ArchiveOutcome,
-} from "./archive-policy.js";
 import type { createLocalRunner } from "./local-runner.js";
 import { observeBoundCheckout } from "@dispatch/runner-protocol";
 import { AgentError } from "./errors.js";
@@ -42,14 +36,15 @@ export type LocalArchiveRunner = Pick<
 
 /** A row's session on the agent's runner, through the directory. */
 export function archiveRunner(
-  child: (() => Runner | undefined) | undefined,
+  runners: Pick<CheckoutCommandRunners, "child" | "remote">,
   row: ArchiveCheckoutAgent,
   placement: Placement
-): Runner & Pick<RunnerComposition, "cleanupBudgetMs"> {
-  const { directory } = checkoutRunners(
-    { child },
-    { ...row, workspacePath: null, placement }
-  );
+): Runner & Pick<RunnerComposition, "archive" | "cleanupBudgetMs"> {
+  const { directory } = checkoutRunners(runners, {
+    ...row,
+    workspacePath: null,
+    placement,
+  });
   return directory.for(placement);
 }
 
@@ -134,7 +129,7 @@ export async function observeArchiveCheckout(
     binding = rows[0] ?? agent;
   }
   const observed = archiveObservation(
-    await archiveRunner(child, binding, agent.placement).call(
+    await archiveRunner({ child }, binding, agent.placement).call(
       "workspace.observe",
       { session: sessionFromWire(binding.id) }
     )
@@ -206,24 +201,4 @@ export function archiveReleaseState(
 ): string | null {
   if (!authorizesArchiveRelease(mode, checkout)) return null;
   return checkout?.stateId ?? UNOBSERVED_STATE;
-}
-
-/** Finish a runner-managed checkout through the shared archive sequence. */
-export function releaseRemoteCheckout(
-  pool: Pool,
-  logger: FastifyBaseLogger,
-  agent: ArchiveCheckoutAgent,
-  mode: WorktreeCleanupMode,
-  remote: RemoteRunnerService | undefined,
-  stopped: boolean,
-  hooks?: ArchiveCheckoutHooks
-): Promise<ArchiveOutcome> {
-  return finishArchiveCheckout(
-    pool,
-    logger,
-    agent,
-    mode,
-    runnerArchiveExecutor(agent, remote, stopped, pool),
-    hooks
-  );
 }
