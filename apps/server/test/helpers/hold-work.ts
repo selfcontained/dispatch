@@ -5,7 +5,10 @@ import type { RunnerUpdateHolds } from "../../src/agents/remote/update-hold.js";
  * before the manager, so a release is recorded before the manager resumes it.
  */
 export function trackHoldWork(holds: RunnerUpdateHolds) {
-  const unsettled = new Map<string, PromiseWithResolvers<void>>();
+  const unsettled = new Map<
+    string,
+    ReturnType<typeof Promise.withResolvers<void>>
+  >();
   const track = (launches: { id: string }[]) => {
     for (const { id } of launches)
       unsettled.set(id, Promise.withResolvers<void>());
