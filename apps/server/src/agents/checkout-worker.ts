@@ -93,7 +93,11 @@ import {
 import { resolveBaseRef } from "../shared/git/base-ref.js";
 import { detectDefaultBranch } from "../shared/git/default-branch.js";
 
-type WorkerOp = CheckoutReadName | "git.context" | GitQueryName;
+type WorkerOp =
+  | CheckoutReadName
+  | "git.context"
+  | GitQueryName
+  | "path.resolve";
 type Selector = "current" | "launch" | "moved";
 type Input<K extends WorkerOp | "checkout.exec" | "checkout.write"> = {
   directory: string;
@@ -682,6 +686,24 @@ export async function runCheckoutWorker(argv: string[]): Promise<void> {
       "repository" in request.target ? request.target.repository : undefined;
     try {
       const data = await readGitQuery(op, cwd ?? "/", request, repository);
+      process.stdout.write(JSON.stringify({ data }));
+    } catch (error) {
+      const { code, message, details } = workerError(op, error);
+      process.stdout.write(
+        JSON.stringify({ error: { code, message, details } })
+      );
+    }
+    return;
+  }
+  if (op === "path.resolve") {
+    // `runner-worker path.resolve`: main's launch folder resolution as the
+    // workload account (`~` is its HOME).
+    const request = await json(process.stdin);
+    if (!operations["path.resolve"].request.check(request))
+      throw new Error("Invalid path query.");
+    const { path: raw, ...options } = request;
+    try {
+      const data = await workspaceWorkload.resolvePath(raw, options);
       process.stdout.write(JSON.stringify({ data }));
     } catch (error) {
       const { code, message, details } = workerError(op, error);

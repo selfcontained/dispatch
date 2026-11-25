@@ -20,12 +20,6 @@ export const archiveReleaseRestriction = {
 
 const rules = [
   [
-    "N1",
-    "Launch target bound to caller",
-    "T36",
-    [admission, 'return reject("mcpTarget")'],
-  ],
-  [
     "N2",
     "Launch cwd overwritten",
     "T36",

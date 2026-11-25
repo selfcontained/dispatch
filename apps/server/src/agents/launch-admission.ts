@@ -1,5 +1,3 @@
-import { remotePlacement } from "@dispatch/runner-protocol";
-
 import { errorMessage } from "../shared/lib/error-message.js";
 import {
   parseRepositoryTarget,
@@ -37,7 +35,6 @@ type ApiRequest = {
 type McpRequest = {
   phase: "mcpTarget" | "mcpTemplate";
   caller: "mcpChild" | "mcpIndependent";
-  sourceCwd: string;
   /** The caller's current folder, as a launch names it. */
   sourceWorkdir: string;
   /** The caller's current folder as the agent reports it, if it moved. */
@@ -69,8 +66,6 @@ const reasons = {
   projectAndLocation: "Choose a project or a folder, not both.",
   missingLocation: "Body must include cwd as a string.",
   relativeLocation: "Working directory must be an absolute path.",
-  mcpTarget:
-    "A child launch cannot select a checkout on another runner or outside the caller's project.",
   templateDirectory: "Project template directory cannot be overridden.",
   sharedBinding: "Invalid shared checkout binding.",
   reviewerPersona: "Missing reviewer persona.",
@@ -147,18 +142,14 @@ export function admitLaunch(
     case "mcpTarget":
     case "mcpTemplate": {
       // A folder is a path on the caller's machine, for every caller. The
-      // caller's own current folder is its session's (D7).
-      const { sourceCwd, sourceWorkdir, sourcePath, template, cwd } = request;
+      // caller's own current folder is its session's (D7); another folder
+      // is one its account can use there, as a local caller's is (D7).
+      const { sourceWorkdir, sourcePath, template, cwd } = request;
       const own =
         cwd === undefined
           ? !template
           : cwd === sourceWorkdir || (!!sourcePath && cwd === sourcePath);
-      if (request.phase === "mcpTarget") {
-        // Another folder on a runner would need the child to move there
-        // after it starts (N1, T36 leaves it).
-        if (cwd !== undefined && !own && remotePlacement(sourceCwd))
-          return reject("mcpTarget");
-      } else {
+      if (request.phase === "mcpTemplate") {
         if (template?.projectId && cwd && cwd !== template.directory)
           return reject("templateDirectory");
         // Main's rule: a folder, never a runner address.

@@ -130,6 +130,15 @@ export type SessionOperation =
         request: Req<"checkout.defaultFiles">;
       };
     }
+  /**
+   * `path.resolve` as the workload account (`~` is its HOME); served with
+   * `pathResolve`.
+   */
+  | {
+      agentId: string;
+      kind: "pathResolve";
+      operation: { op: "path.resolve"; request: Req<"path.resolve"> };
+    }
   | { agentId: string; kind: "sessionFile"; operation: SessionFileOperation }
   | { agentId: string; kind: "watchCheckout" }
   | {
@@ -221,6 +230,8 @@ export type ReadyFrame = {
   checkoutWrite?: true;
   /** This v1 peer reads a repository's default-branch files from its cache (`repositoryFiles`). */
   repositoryFiles?: true;
+  /** This v1 peer resolves a folder as its workload account (`pathResolve`). */
+  pathResolve?: true;
   /** This v1 peer serves session inventory and process samples. */
   sessionObservation?: true;
   workspaceRelease?: true;
@@ -270,6 +281,7 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     ...(frame.gitQueries === true && { gitQueries: true }),
     ...(frame.checkoutWrite === true && { checkoutWrite: true }),
     ...(frame.repositoryFiles === true && { repositoryFiles: true }),
+    ...(frame.pathResolve === true && { pathResolve: true }),
     ...(frame.workspacePrepare === true && { workspacePrepare: true }),
     ...(frame.workspaceRelease === true && { workspaceRelease: true }),
     ...(frame.checkoutViews === true && { checkoutViews: true }),
@@ -525,6 +537,14 @@ function isCommand(value: unknown): value is Command {
         op.op === "checkout.defaultFiles" &&
         operations["checkout.defaultFiles"].request.check(op.request) &&
         "repository" in op.request.target
+      );
+    }
+    case "pathResolve": {
+      const op = value.operation;
+      return (
+        isRecord(op) &&
+        op.op === "path.resolve" &&
+        operations["path.resolve"].request.check(op.request)
       );
     }
     case "gitQuery": {

@@ -396,11 +396,11 @@ async function handleLaunchAgent(
   if (input.templateId && !template) {
     throw new Error(`Template ${input.templateId} not found.`);
   }
-  const parentCwd = agentWorkspaceDir(parent) ?? parent.cwd;
+  const recordedFolder = agentWorkspaceDir(parent);
+  const parentCwd = recordedFolder ?? parent.cwd;
   const child = input.child !== false;
   let admissionInput = {
     caller: child ? "mcpChild" : "mcpIndependent",
-    sourceCwd: parent.cwd,
     sourceWorkdir: parentCwd,
     sourcePath: parent.workspacePath,
     cwd: input.cwd,
@@ -408,11 +408,14 @@ async function handleLaunchAgent(
   } as const;
   let admission = admitLaunch({ phase: "mcpTarget", ...admissionInput });
   if (
-    !admission.ok &&
-    admission.reason === "mcpTarget" &&
+    admission.ok &&
+    input.cwd !== undefined &&
+    admission.cwd !== parentCwd &&
+    recordedFolder === null &&
     !parent.workspacePath
   ) {
-    // A session that has not moved is in its checkout, as its runner reports.
+    // A session whose row records no folder and has not moved is in its
+    // checkout, as its runner reports: naming that folder is its own.
     const roots = await mcpCheckoutRoots(deps.agentManager, parent);
     if (roots?.checkoutRoot) {
       admissionInput = { ...admissionInput, sourcePath: roots.checkoutRoot };
@@ -422,6 +425,10 @@ async function handleLaunchAgent(
   if (!admission.ok)
     throw new AgentError(admission.message, admission.statusCode);
   const { cwd } = admission;
+  // A folder the caller named, other than its own: a folder on the
+  // caller's runner (D7), whatever its spelling.
+  const launcherFolder =
+    input.cwd !== undefined && cwd !== parentCwd ? cwd : undefined;
   const persona = input.persona ?? template?.persona ?? undefined;
   // A template launches at its saved location; a folder is a path on the
   // caller's machine.
@@ -557,10 +564,11 @@ async function handleLaunchAgent(
   // this the MCP path silently forced "sibling".
   const worktreeLocation = await getWorktreeLocation(deps.pool);
 
+  // A named folder is on the caller's runner, so is its model catalog.
   const templateModel =
     template?.agentType === agentType ? template.model : undefined;
   const scope = await modelScopeFor(
-    cwd,
+    launcherFolder !== undefined ? parent.cwd : cwd,
     agentType as (typeof CLI_AGENT_TYPES)[number],
     {
       model: input.model !== undefined ? input.model : templateModel,
@@ -630,6 +638,7 @@ async function handleLaunchAgent(
     worktreeLocation,
     ...(child ? { parentAgentId: agentId } : {}),
     launchedByAgentId: agentId,
+    ...(launcherFolder !== undefined && { launcherFolder }),
     initialPrompt: buildLaunchedAgentInitialPrompt(agentId, prompt, child),
     // The feed shows the prompt as the launcher wrote it, not the rendered
     // template instructions or the launch header.

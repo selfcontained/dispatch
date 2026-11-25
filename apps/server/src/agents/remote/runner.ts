@@ -96,6 +96,7 @@ import {
   githubCredentialKey,
   missingExecutable,
   systemTools,
+  enterDirectory,
   workloadLoginCommand,
   workloadToolLookup,
 } from "./workload-tools.js";
@@ -724,9 +725,20 @@ export async function runRemoteRunner(
       );
       return true;
     },
-    hostCommand: (dir) => {
+    hostCommand: (dir, cwd) => {
       admission.assertMayStartProcess();
-      return [setpriv, ...workloadLogin([...hostCommand(), "--state", dir])];
+      // Privilege drops first; only then does the workload enter `cwd`.
+      return [
+        setpriv,
+        ...childArgs,
+        ...enterDirectory(cwd),
+        ...workloadLoginCommand(
+          [...hostCommand(), "--state", dir],
+          shell,
+          config.home,
+          config.path
+        ),
+      ];
     },
     mayStartProcess: () => admission.mayStartProcess(),
     async resumePreparedCheckout(agentId) {
@@ -1194,6 +1206,22 @@ export async function runRemoteRunner(
                     message: "Checkout unavailable.",
                   },
                 })
+            );
+            break;
+          }
+          case "pathResolve": {
+            // As the workload account, never the supervisor: its HOME for
+            // `~`, its permissions for every stat and realpath.
+            result(
+              await runCheckoutWorker(
+                workloadLogin([...self("runner-worker"), "path.resolve"]),
+                await checkoutGitEnv(),
+                JSON.stringify(command.operation.request),
+                AbortSignal.any([
+                  connection.signal,
+                  AbortSignal.timeout(20_000),
+                ])
+              )
             );
             break;
           }
@@ -2088,6 +2116,7 @@ export async function runRemoteRunner(
           defaultBranchFiles: true,
           workspacePreparation: true,
           gitQueries: true,
+          pathResolve: true,
           checkoutWrite: true,
           ...(workspacePreparation?.repositoryClone && {
             repositoryFiles: true,

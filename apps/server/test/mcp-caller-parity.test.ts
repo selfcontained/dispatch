@@ -17,7 +17,10 @@ import {
   runnerStorageKey,
 } from "../src/agents/remote/session-supervisor.js";
 import { inspectCheckout } from "../src/agents/checkout-inspection.js";
-import { writeCheckoutFile } from "../src/agents/checkout-worker.js";
+import {
+  workspaceWorkload,
+  writeCheckoutFile,
+} from "../src/agents/checkout-worker.js";
 import type { RunnerCallError } from "@dispatch/runner-protocol/contract";
 import { REPO_TOOL_MANIFEST_PATH } from "../src/shared/mcp/repo-tools.js";
 import baseline from "./fixtures/mcp-caller-parity-baseline.json";
@@ -101,6 +104,7 @@ const ctx = useInjectApp({
       workspacePrepare: true,
       preparedLaunch: true,
       gitQueries: true,
+      pathResolve: true,
       checkoutWrite: true,
       sessionFiles: true,
       sharedWorktree: true,
@@ -119,11 +123,26 @@ const ctx = useInjectApp({
             return JSON.stringify({ error: { code, message, details } });
           }
         }
+        case "pathResolve": {
+          // The runner worker's own resolution, as its workload account.
+          const { path: raw, ...options } = command.operation.request;
+          return JSON.stringify({
+            data: await workspaceWorkload.resolvePath(raw, options),
+          });
+        }
         case "gitQuery":
           expect(command.operation.op).toBe("git.defaultBranch");
           return JSON.stringify({ data: { branch: null } });
         case "workspacePrepare": {
           const { source, worktree } = command.operation;
+          if ("directory" in source && source.directory === outside) {
+            // A folder the runner caller named: its own, as a local
+            // caller's folder launch is (D7).
+            expect(worktree).toBeUndefined();
+            return JSON.stringify({
+              data: { path: outside, moved: false, origin: null },
+            });
+          }
           if ("directory" in source) {
             expect(source.directory).toBe(checkout);
             expect(worktree?.branch).toMatch(/^parity-(child|independent)$/);
@@ -537,7 +556,7 @@ it("keeps the MCP caller surface and call outcomes at the recorded parity bounda
     { ...launch, cwd: checkout },
     true
   );
-  // Another folder on the runner caller's machine needs a move after start.
+  // Another folder on the caller's machine: resolved and prepared there.
   await call(
     "launch_agent/other-folder",
     "launch_agent",
