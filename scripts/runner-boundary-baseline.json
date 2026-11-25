@@ -189,29 +189,8 @@
   {
     "file": "apps/server/src/agents/checkout-runner.ts",
     "kind": "R1 placement call",
-    "detail": "agentWorkspaceDir(agent)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/checkout-runner.ts",
-    "kind": "R1 placement call",
     "detail": "agentWorkspaceDir(owner)",
     "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/checkout-runner.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(agent.cwd)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/checkout-runner.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/checkout-inspection",
-    "task": "T04",
     "count": 1
   },
   {
