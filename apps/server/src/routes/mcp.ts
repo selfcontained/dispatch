@@ -20,7 +20,7 @@ import { getEnabledAgentTypes } from "../agent-type-settings.js";
 import { createProviderPlansReporter } from "../agents/provider-plans.js";
 import type { UsageCallbacks } from "../shared/mcp/usage-tools.js";
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
-import { remotePlacement } from "../agents/remote/protocol.js";
+import { remotePlacement } from "@dispatch/runner-protocol";
 import { agentWorkspaceDir } from "../agents/workspace-target.js";
 import { sameRunner } from "@dispatch/runner-protocol/contract";
 import { controllerPlacement } from "../runners/placement.js";

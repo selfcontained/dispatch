@@ -158,7 +158,7 @@ import {
   type LaunchProgress,
   type CheckoutQuery,
   type CheckoutReply,
-} from "./remote/protocol.js";
+} from "@dispatch/runner-protocol";
 import { repositoryRecord } from "../runners/repository-identity.js";
 import { WORKTREE_LOCAL_CONFIG_FILES } from "./worktree-local-config-files.js";
 import {

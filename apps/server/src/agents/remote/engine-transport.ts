@@ -1,6 +1,9 @@
-import { isEngineCapabilityOperation } from "@dispatch/runner-protocol/engine-management";
+import {
+  isEngineCapabilityOperation,
+  type EngineOperationAck,
+  type EngineOperationEvent,
+} from "@dispatch/runner-protocol/engine-management";
 import { parseEngineCapabilityResult } from "./engine-capability-result.js";
-import type { EngineOperationAck, EngineOperationEvent } from "./protocol.js";
 import {
   RunnerCapabilityUnavailable,
   RunnerUnavailable,

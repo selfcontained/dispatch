@@ -10,7 +10,7 @@ import type {
   LaunchProgress,
   Placement,
   RunnerRepository,
-} from "./remote/protocol.js";
+} from "@dispatch/runner-protocol";
 import type { BuildIdentity } from "./build-identity.js";
 import type {
   HostLaunch,
