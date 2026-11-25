@@ -244,6 +244,8 @@ type Peer = {
   checkoutWrite: boolean;
   /** Reads a repository's default-branch files from its cache (`repositoryFiles`). */
   repositoryFiles: boolean;
+  /** Resolves a folder as its workload account (`pathResolve`). */
+  pathResolve: boolean;
   workspaceRelease: boolean;
   /** Reconciles a repeated `launch.launchId` instead of running it again. */
   launchReconcile: boolean;
@@ -1016,6 +1018,7 @@ export class RemoteRunnerService {
           gitQueries: ready.gitQueries === true,
           checkoutWrite: ready.checkoutWrite === true,
           repositoryFiles: ready.repositoryFiles === true,
+          pathResolve: ready.pathResolve === true,
           workspaceRelease: ready.workspaceRelease === true,
           launchReconcile: ready.launchReconcile === true,
           scopedStop: ready.scopedStop === true,
@@ -2247,6 +2250,42 @@ export class RemoteRunnerService {
   }
 
   /**
+   * `path.resolve` on the runner, as its workload account: a launch folder
+   * an agent on that runner names (D7's agent-selected folder).
+   */
+  async resolveRunnerPath(
+    runnerId: string,
+    request: Req<"path.resolve">
+  ): Promise<Res<"path.resolve">> {
+    const peer = this.peers.get(runnerId);
+    if (peer?.pathResolve)
+      for (const workspace of peer.workspaces) {
+        const placement = { runner: runnerId, workspace };
+        if (!this.workspacePeer(placement)) continue;
+        const op = "path.resolve";
+        const { value } = await this.requestSession(placement, {
+          agentId: "@path",
+          kind: "pathResolve",
+          operation: { op, request },
+        });
+        try {
+          return decodeResult(
+            { op, request, absent: [], extras: { workspace } },
+            value
+          );
+        } catch (error) {
+          if (error instanceof ResultError)
+            throw new RunnerCallError(error.error);
+          throw error;
+        }
+      }
+    throw new RunnerCallError({
+      code: "unavailable",
+      message: "The runner is unavailable.",
+    });
+  }
+
+  /**
    * A repository's default-branch files from the runner's own repository
    * cache, before any session exists (`checkout.defaultFiles` with a
    * `{repository}` target). A peer without `repositoryFiles` cannot.
@@ -2652,6 +2691,11 @@ export class RemoteRunnerService {
       throw new RunnerCallError({
         code: "unsupported",
         message: "This runner does not write checkout files.",
+      });
+    if (command.kind === "pathResolve" && !peer.pathResolve)
+      throw new RunnerCallError({
+        code: "unsupported",
+        message: "This runner does not resolve folders.",
       });
     if (command.kind === "repositoryFiles" && !peer.repositoryFiles)
       throw new RunnerCallError({

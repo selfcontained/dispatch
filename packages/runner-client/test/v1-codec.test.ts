@@ -276,6 +276,7 @@ describe("codec coverage", () => {
         "sessionCheckout",
         "workspacePrepare",
         "gitQuery",
+        "pathResolve",
         "checkoutWrite",
         "repositoryFiles",
         "workspaceResume",
