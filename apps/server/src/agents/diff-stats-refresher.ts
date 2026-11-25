@@ -1,9 +1,5 @@
-import {
-  getDiffStatsComputation as defaultGetDiffStatsComputation,
-  type DiffStats,
-  type DiffStatsComputation,
-  type GetDiffStatsOptions,
-} from "../shared/git/diff-stats.js";
+import type { DiffStats } from "@dispatch/shared";
+import type { DiffStatsComputation } from "./checkout-result.js";
 import type { SubsystemTracker } from "../observability/subsystem-tracker.js";
 import {
   agentComparisonBase,
@@ -28,26 +24,33 @@ type WarnLogger = {
   warn: (...args: unknown[]) => void;
 };
 
+type ComputeAgentStats = (
+  id: string,
+  agent: DiffStatsAgent,
+  comparisonBase: string | null
+) => Promise<DiffStatsComputation>;
+
 export type DiffStatsRefresherOptions = {
   getAgent: (id: string) => Promise<DiffStatsAgent | null>;
   publishEvent: (event: DiffStatsChangedEvent) => void;
-  computeAgentStats?: (
-    id: string,
-    agent: DiffStatsAgent,
-    comparisonBase: string | null
-  ) => Promise<DiffStatsComputation>;
   /** The service's effective base; defaults to the agent's local rule. */
   comparisonBase?: (
     id: string,
     agent: DiffStatsAgent
   ) => Promise<string | null>;
-  computeDiffStats?: ComputeDiffStats;
-  /** Override Git command execution while retaining the default adapter. */
-  runGitCommand?: GetDiffStatsOptions["runCommand"];
   freshnessMs?: number;
   logger?: WarnLogger;
   tracker?: SubsystemTracker;
-};
+} & (
+  | {
+      computeAgentStats: ComputeAgentStats;
+      computeDiffStats?: ComputeDiffStats;
+    }
+  | {
+      computeAgentStats?: ComputeAgentStats;
+      computeDiffStats: ComputeDiffStats;
+    }
+);
 
 const DEFAULT_FRESHNESS_MS = 3_000;
 
@@ -71,7 +74,7 @@ export class DiffStatsRefresher {
 
   private readonly getAgent: (id: string) => Promise<DiffStatsAgent | null>;
   private readonly publishEvent: (event: DiffStatsChangedEvent) => void;
-  private readonly computeDiffStats: (
+  private readonly computeDiffStats?: (
     worktreePath: string,
     baseRef: string | null
   ) => Promise<DiffStatsComputation>;
@@ -96,10 +99,7 @@ export class DiffStatsRefresher {
             ? { kind: "success", stats }
             : { kind: "no-data", stats: null };
         }
-      : (worktreePath, baseRef) =>
-          defaultGetDiffStatsComputation(worktreePath, baseRef, {
-            runCommand: options.runGitCommand,
-          });
+      : undefined;
     this.freshnessMs = options.freshnessMs ?? DEFAULT_FRESHNESS_MS;
     this.logger = options.logger ?? null;
     this.tracker = options.tracker ?? null;
@@ -181,7 +181,7 @@ export class DiffStatsRefresher {
           : await agentComparisonBase(agent, "changes");
         computation = this.computeAgentStats
           ? await this.computeAgentStats(agentId, agent, base)
-          : await this.computeDiffStats(target!, base);
+          : await this.computeDiffStats!(target!, base);
         if (computation.kind === "failure") throw computation.error;
         nextStats = computation.stats;
       }

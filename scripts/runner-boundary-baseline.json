@@ -300,13 +300,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/diff-stats-refresher.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/diff-stats",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/effective-base.ts",
     "kind": "R1 placement call",
     "detail": "agentDiffPath(agent)",
