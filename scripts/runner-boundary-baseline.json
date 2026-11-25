@@ -2457,41 +2457,6 @@
     "count": 1
   },
   {
-    "file": "apps/web/src/components/app/runner-github-account.tsx",
-    "kind": "R6 placement read",
-    "detail": "{ runner }",
-    "task": "T38",
-    "count": 2
-  },
-  {
-    "file": "apps/web/src/components/app/runner-github-account.tsx",
-    "kind": "R6 protocol value import",
-    "detail": "@dispatch/runner-protocol",
-    "task": "T38",
-    "count": 1
-  },
-  {
-    "file": "apps/web/src/components/app/runner-health.tsx",
-    "kind": "R6 placement read",
-    "detail": "{ runner }",
-    "task": "T38",
-    "count": 1
-  },
-  {
-    "file": "apps/web/src/components/app/runner-settings.tsx",
-    "kind": "R6 placement read",
-    "detail": "{ runner }",
-    "task": "T38",
-    "count": 3
-  },
-  {
-    "file": "apps/web/src/components/app/runner-update.tsx",
-    "kind": "R6 placement read",
-    "detail": "{ runner }",
-    "task": "T38",
-    "count": 2
-  },
-  {
     "file": "apps/web/src/hooks/use-runner-engines.ts",
     "kind": "R6 protocol value import",
     "detail": "@dispatch/runner-protocol/engine-management",

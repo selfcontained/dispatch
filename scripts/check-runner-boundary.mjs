@@ -13,6 +13,26 @@ const tsNodeBuiltins = new Set(builtinModules);
 
 const server = "apps/server/src/";
 const web = "apps/web/src/";
+// R6 exempts only screens whose purpose is managing a runner (owner decision).
+const runnerManagementScreens = new Map([
+  [
+    "apps/web/src/components/app/runner-settings.tsx",
+    "Configure and enroll runners.",
+  ],
+  [
+    "apps/web/src/components/app/runner-health.tsx",
+    "Inspect a runner's health.",
+  ],
+  [
+    "apps/web/src/components/app/runner-update.tsx",
+    "Manage a runner's updates.",
+  ],
+  [
+    "apps/web/src/components/app/runner-github-account.tsx",
+    "Manage a runner's GitHub account.",
+  ],
+]);
+
 const baselinePath = "scripts/runner-boundary-baseline.json";
 const packages = [
   "runner-protocol",
@@ -213,7 +233,10 @@ const leaks = [
 
 export function scanSource(file, source, declared = new Set()) {
   const hits = [];
-  const hit = (kind, detail, task) => hits.push({ file, kind, detail, task });
+  const hit = (kind, detail, task) => {
+    if (kind.startsWith("R6 ") && runnerManagementScreens.has(file)) return;
+    hits.push({ file, kind, detail, task });
+  };
   if (fixture.test(file)) return hits;
   if (file.endsWith(".sql")) {
     const locators = [...source.matchAll(/runner:\/\//gi)];
