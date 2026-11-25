@@ -289,3 +289,53 @@ describe("codec coverage", () => {
     );
   });
 });
+
+describe("current engine error envelopes", () => {
+  it("round-trips typed failure detail without changing legacy engine failures", () => {
+    const input = decodeCommand(
+      {
+        workspace: "work",
+        agentId: "@engine",
+        kind: "engine",
+        operation: {
+          type: "contract",
+          call: { op: "engine.update.inspect", request: { engine: "codex" } },
+        },
+      },
+      "fixture"
+    );
+    if (input.op === null) throw new Error("Expected a contract call");
+    const failure = {
+      code: "busy" as const,
+      message: "Fixture busy",
+      details: { phase: "updating" },
+    };
+    const wire = encodeResult(input, new ResultError(failure));
+    expect(JSON.parse(wire as string)).toEqual({
+      ok: false,
+      error: failure.message,
+      failure,
+    });
+    try {
+      decodeResult(input, wire);
+      throw new Error("Expected failure");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ResultError);
+      expect((error as ResultError).error).toEqual(failure);
+    }
+    const legacyInput = decodeCommand(
+      {
+        workspace: "work",
+        agentId: "@engine",
+        kind: "engine",
+        operation: { type: "update", engine: "codex" },
+      },
+      "fixture"
+    );
+    if (legacyInput.op === null)
+      throw new Error("Expected legacy engine mapping");
+    expect(encodeResult(legacyInput, new ResultError(failure))).toBe(
+      JSON.stringify({ ok: false, error: failure.message })
+    );
+  });
+});

@@ -3,6 +3,7 @@ import {
   runnerIdFromWire,
   RunnerCallError,
   operations,
+  runnerError,
   type RunnerDescription,
   type Req,
   type Res,
@@ -2038,6 +2039,16 @@ export class RemoteRunnerService {
           message: "Invalid engine operation reply.",
         });
       const ack = JSON.parse(value);
+      if (!ack || typeof ack !== "object" || typeof ack.ok !== "boolean")
+        throw new RunnerCallError({
+          code: "unknown_outcome",
+          message: "Invalid engine operation reply.",
+        });
+      if (ack.failure !== undefined && !runnerError.check(ack.failure))
+        throw new RunnerCallError({
+          code: "unknown_outcome",
+          message: "Invalid engine operation reply.",
+        });
       if (!ack.ok)
         throw new RunnerCallError(
           ack.failure ?? { code: "failed", message: ack.error }

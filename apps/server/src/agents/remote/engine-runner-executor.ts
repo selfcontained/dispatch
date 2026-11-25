@@ -847,7 +847,11 @@ export class EngineRunnerExecutor {
             ok: false,
             error: error instanceof Error ? error.message : String(error),
             ...(error instanceof RunnerCallError && {
-              failure: { code: error.code, message: error.message },
+              failure: {
+                code: error.code,
+                message: error.message,
+                ...(error.details !== undefined && { details: error.details }),
+              },
             }),
           };
         }

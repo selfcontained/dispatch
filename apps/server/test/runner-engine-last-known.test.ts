@@ -28,7 +28,10 @@ function world() {
   const service = new RemoteRunnerService();
   let approved = true;
   const requests: any[] = [];
-  function connect({ fenced = false } = {}) {
+  function connect({
+    fenced = false,
+    reply,
+  }: { fenced?: boolean; reply?: unknown } = {}) {
     const socket = Object.assign(
       new Duplex({
         read() {},
@@ -48,9 +51,11 @@ function world() {
                 type: "result",
                 id: frame.id,
                 value: JSON.stringify(
-                  operation.type === "contract"
-                    ? { ok: true, result }
-                    : { ok: true }
+                  reply !== undefined
+                    ? reply
+                    : operation.type === "contract"
+                      ? { ok: true, result }
+                      : { ok: true }
                 ),
               });
             }
@@ -172,5 +177,39 @@ describe("a runner's engines across its update", () => {
       operation: { type: "status" },
     });
     expect(Object.keys(requests.at(-1).operation)).toEqual(["type"]);
+  });
+  it("preserves typed failures and treats malformed results as an unknown outcome", async () => {
+    const failed = world();
+    failed.connect({
+      reply: {
+        ok: false,
+        error: "Fixture busy",
+        failure: {
+          code: "busy",
+          message: "Fixture busy",
+          details: { phase: "updating" },
+        },
+      },
+    });
+    await vi.waitFor(() =>
+      expect(failed.service.connectionEpoch(scope.runnerId)).not.toBeUndefined()
+    );
+    await expect(
+      failed.service.callEngine(scope.runnerId, "engine.update.probe", {
+        pids: [],
+      })
+    ).rejects.toMatchObject({ code: "busy", details: { phase: "updating" } });
+    const corrupt = world();
+    corrupt.connect({ reply: null });
+    await vi.waitFor(() =>
+      expect(
+        corrupt.service.connectionEpoch(scope.runnerId)
+      ).not.toBeUndefined()
+    );
+    await expect(
+      corrupt.service.callEngine(scope.runnerId, "engine.update.probe", {
+        pids: [],
+      })
+    ).rejects.toMatchObject({ code: "unknown_outcome" });
   });
 });

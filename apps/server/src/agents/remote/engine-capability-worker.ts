@@ -333,7 +333,13 @@ export async function runEngineHostWorker(): Promise<void> {
             id: message.id,
             error:
               error instanceof RunnerCallError
-                ? { code: error.code, message: error.message }
+                ? {
+                    code: error.code,
+                    message: error.message,
+                    ...(error.details !== undefined && {
+                      details: error.details,
+                    }),
+                  }
                 : { code: "failed", message: String(error) },
           }) + "\n"
         );

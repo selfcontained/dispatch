@@ -349,6 +349,16 @@ function decodeInspect(
   }
 }
 
+const CURRENT_ENGINE_OPS = new Set<OpName>([
+  "engine.update.inspect",
+  "engine.update.spawn",
+  "engine.update.release",
+  "engine.update.probe",
+  "engine.operation",
+]);
+const currentEngineCall = (op: OpName, extras: AnyRecord) =>
+  Boolean(extras.engineContract) || CURRENT_ENGINE_OPS.has(op);
+
 const ENGINE_OPS = {
   status: "engine.list",
   install: "engine.install",
@@ -746,17 +756,9 @@ export function encodeCommand(input: Decoded | LegacyCommand): Command {
     return {
       ...base(extras.agentId as string),
       kind: "engine",
-      operation:
-        extras.engineContract ||
-        [
-          "engine.update.inspect",
-          "engine.update.spawn",
-          "engine.update.release",
-          "engine.update.probe",
-          "engine.operation",
-        ].includes(op)
-          ? { type: "contract", call: { op, request: r } as EngineHostCall }
-          : encodeEngine(op, r, absent),
+      operation: currentEngineCall(op, extras)
+        ? { type: "contract", call: { op, request: r } as EngineHostCall }
+        : encodeEngine(op, r, absent),
     };
   if (op.startsWith("github."))
     return {
@@ -1178,18 +1180,12 @@ export function decodeResult<K extends OpName>(
   if (op.startsWith("github.")) return out(parse(value));
   if (op.startsWith("engine.")) {
     const ack = parse(value) as EngineOperationAck;
-    if (!ack.ok) ackError(ack);
-    if (
-      input.extras.engineContract ||
-      [
-        "engine.update.inspect",
-        "engine.update.spawn",
-        "engine.update.release",
-        "engine.update.probe",
-        "engine.operation",
-      ].includes(op)
-    )
-      return out(ack.result);
+    if (!ack.ok) {
+      if (currentEngineCall(op, input.extras) && ack.failure)
+        throw new ResultError(ack.failure);
+      ackError(ack);
+    }
+    if (currentEngineCall(op, input.extras)) return out(ack.result);
     switch (op) {
       case "engine.list": {
         const inventory = events.find(
@@ -1237,6 +1233,12 @@ export function encodeResult<K extends OpName>(
   const r = input.request as AnyRecord;
   if (response instanceof ResultError) {
     const { code, message } = response.error;
+    if (op.startsWith("engine.") && currentEngineCall(op, input.extras))
+      return JSON.stringify({
+        ok: false,
+        error: message,
+        failure: response.error,
+      });
     if (
       op === "workspace.prepare" ||
       op === "workspace.resume" ||
@@ -1339,16 +1341,7 @@ export function encodeResult<K extends OpName>(
       return JSON.stringify({ data: response });
   }
   if (op.startsWith("engine.")) {
-    if (
-      input.extras.engineContract ||
-      [
-        "engine.update.inspect",
-        "engine.update.spawn",
-        "engine.update.release",
-        "engine.update.probe",
-        "engine.operation",
-      ].includes(op)
-    )
+    if (currentEngineCall(op, input.extras))
       return JSON.stringify({ ok: true, result: response });
     switch (op) {
       case "engine.list":
