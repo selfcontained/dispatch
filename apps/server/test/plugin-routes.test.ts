@@ -114,3 +114,63 @@ describe("plugin CLI resolution", () => {
     await expect(mocks.checkerDeps!.binFor("codex")).resolves.toBe("codex");
   });
 });
+
+// Parity pin: origin/main 6ab845b2 routes/plugin.ts. Keep these assertions
+// unchanged when moving the checker behind the runner interface.
+describe("main plugin route parity", () => {
+  it.each(["true", "1", "false", "0", "TRUE", ""])(
+    "preserves enabled-type order and refresh parsing for %j",
+    async (refresh) => {
+      const app = Fastify();
+      const status = (agentType: string) => ({
+        agentType,
+        installed: false,
+        enabled: false,
+        currentVersion: null,
+        latestVersion: null,
+        updateAvailable: false,
+      });
+      mocks.enabled.mockResolvedValue(["codex", "opencode", "claude"]);
+      mocks.getStatus.mockImplementation(async (type) => status(type));
+      try {
+        await registerPluginRoutes(app, {
+          pool: {} as Pool,
+          plugins: createLocalEngineRunner({ logger: app.log }).plugins,
+        });
+        const response = await app.inject({
+          method: "GET",
+          url: `/api/v1/plugin/status?refresh=${refresh}`,
+        });
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toEqual({
+          statuses: [status("claude"), status("codex")],
+        });
+        expect(mocks.getStatus.mock.calls).toEqual([
+          ["claude", { forceRefresh: refresh === "true" || refresh === "1" }],
+          ["codex", { forceRefresh: refresh === "true" || refresh === "1" }],
+        ]);
+      } finally {
+        await app.close();
+      }
+    }
+  );
+  it("returns an empty statuses envelope when no plugin engine is enabled", async () => {
+    const app = Fastify();
+    mocks.enabled.mockResolvedValue(["opencode"]);
+    try {
+      await registerPluginRoutes(app, {
+        pool: {} as Pool,
+        plugins: createLocalEngineRunner({ logger: app.log }).plugins,
+      });
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/plugin/status",
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ statuses: [] });
+      expect(mocks.getStatus).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+});

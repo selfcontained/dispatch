@@ -1,5 +1,7 @@
+import type { Pool } from "pg";
 import { describe, expect, it, vi } from "vitest";
 import {
+  engineOperationStore,
   EngineUpdateOperations,
   type EngineOperationStore,
   type Installation,
@@ -410,5 +412,82 @@ describe("durable engine update operations", () => {
     );
     expect(await manager.read()).toEqual({});
     expect(runner).not.toHaveBeenCalled();
+  });
+});
+
+// Parity pin: origin/main 6ab845b2 engine-updates.ts. The local row and
+// transaction remain readable by main across upgrade and downgrade.
+describe("main update persistence parity", () => {
+  it("recovers the existing local row without renaming its key or changing recovery copy", async () => {
+    const records = {
+      codex: {
+        id: "fixture-operation",
+        engineId: "codex",
+        status: "running",
+        phase: "updating",
+        message: "Updating the selected installation…",
+        output: "download progress",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        finishedAt: null,
+        retryBlocked: true,
+        owner: "previous-server-instance",
+        ownerPid: process.pid,
+        childPid: null,
+        spawnGated: true,
+        target: "/fixture/prefix",
+      },
+    };
+    const query = vi.fn(async (sql: string) => ({
+      rows: sql.startsWith("SELECT value")
+        ? [{ value: JSON.stringify(records) }]
+        : [],
+    }));
+    const release = vi.fn();
+    const pool = {
+      connect: async () => ({ query, release }),
+    } as unknown as Pool;
+    const manager = new EngineUpdateOperations(engineOperationStore(pool), {
+      mayExist: () => {
+        throw new Error(
+          "No host probe is needed for this gated same-PID fixture."
+        );
+      },
+    });
+    const result = await manager.read();
+    expect(result.codex).toEqual({
+      id: "fixture-operation",
+      engineId: "codex",
+      status: "interrupted",
+      phase: "updating",
+      message:
+        "Server continuity was lost. The update outcome is unknown; verify the installed version before retrying.",
+      output: "download progress",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: expect.any(String),
+      finishedAt: expect.any(String),
+      retryBlocked: false,
+    });
+    expect(
+      query.mock.calls.map(([sql]) =>
+        sql.trim().split(/\s+/).slice(0, 3).join(" ")
+      )
+    ).toEqual([
+      "BEGIN",
+      "SELECT pg_advisory_xact_lock(1852271177, 1)",
+      "SELECT value FROM",
+      "INSERT INTO settings",
+      "COMMIT",
+    ]);
+    expect(query).toHaveBeenNthCalledWith(
+      3,
+      "SELECT value FROM settings WHERE key = $1",
+      ["engine_update_operations"]
+    );
+    expect(query).toHaveBeenNthCalledWith(4, expect.any(String), [
+      "engine_update_operations",
+      expect.any(String),
+    ]);
+    expect(release).toHaveBeenCalledOnce();
   });
 });
