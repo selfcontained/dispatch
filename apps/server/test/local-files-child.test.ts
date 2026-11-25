@@ -33,7 +33,7 @@ import {
   checkoutWorkload,
   sessionFilesWorkload,
   workspaceWorkload,
-} from "../src/agents/checkout-worker.js";
+} from "./helpers/checkout-workload.js";
 import { createLocalCheckoutRunner } from "../src/runners/local.js";
 import { controllerPlacement } from "../src/runners/placement.js";
 import { getSessionFile, putSessionFile } from "../src/files/session-file.js";

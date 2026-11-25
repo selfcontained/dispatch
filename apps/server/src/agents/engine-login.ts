@@ -9,7 +9,7 @@ import type {
   EngineAuthStatus,
   EngineLogin,
   EngineLoginEngine,
-} from "@dispatch/shared";
+} from "@dispatch/runner-protocol/engine-sign-in";
 
 import { loginShellCommand } from "@dispatch/runner/host/host-command";
 
@@ -26,7 +26,10 @@ import { loginShellCommand } from "@dispatch/runner/host/host-command";
  * The link and code live here and in the response, never in a log.
  */
 
-export { LOGIN_ENGINES, isLoginEngine } from "@dispatch/shared";
+export {
+  LOGIN_ENGINES,
+  isLoginEngine,
+} from "@dispatch/runner-protocol/engine-sign-in";
 
 /** Codex's device codes last 15 minutes; Claude's flow gets the same. */
 const LOGIN_TTL_MS = 15 * 60_000;

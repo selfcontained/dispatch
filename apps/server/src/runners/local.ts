@@ -46,13 +46,14 @@ import { childProcessEnv } from "../shared/process/child-environment.js";
 import { hostCommand } from "@dispatch/runner/host/host-command";
 import { LOCAL_RUNNER_ID } from "./placement.js";
 import {
-  checkoutWorkload,
+  createCheckoutWorkload,
   githubWorkload,
   localEnginePort,
   readCommandGuard,
   sessionFilesWorkload,
   workspaceWorkload,
 } from "../agents/checkout-worker.js";
+import { toPersonaDefinition } from "../personas/loader.js";
 import {
   sessionFileBlob,
   sessionFileBytesBlob,
@@ -62,6 +63,10 @@ import {
   agentWorkspaceDir,
   selectWorkspaceDirectory,
 } from "../agents/workspace-target.js";
+
+const checkoutWorkload = createCheckoutWorkload({
+  parseDefinition: toPersonaDefinition,
+});
 
 /** Checkout reads the local runner child serves (T09). */
 const CHILD_READS = new Set<CallName>([

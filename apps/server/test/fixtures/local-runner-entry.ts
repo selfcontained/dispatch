@@ -13,7 +13,7 @@ import {
   checkoutWorkload,
   localEnginePort,
   workspaceWorkload,
-} from "../../src/agents/checkout-worker.js";
+} from "../helpers/checkout-workload.js";
 import { localTerminalHandlers } from "../../src/terminal/runner-worker.js";
 import { localHostEntry } from "../../src/agents/acp/local-host-entry.js";
 

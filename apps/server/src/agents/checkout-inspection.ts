@@ -1,5 +1,6 @@
 import {
   DefaultBranchFiles,
+  type DefinitionParser,
   PERSONA_CATALOG_LIMIT_WARNING,
 } from "./default-branch-files.js";
 import { execFile } from "node:child_process";
@@ -567,6 +568,7 @@ export async function readCheckoutCommandFile(
 }
 
 export type InspectCheckoutOptions = {
+  parseDefinition?: DefinitionParser;
   /**
    * Consult the base a runner recorded in Git config when the service sent
    * none. Runner checkouts keep it for older services and rows; the native
@@ -577,17 +579,37 @@ export type InspectCheckoutOptions = {
   unresolvedBase?: string;
 };
 
+export function inspectCheckout(
+  cwd: string,
+  query: Extract<CheckoutQuery, { kind: "defaultBranchFiles" }>,
+  options: InspectCheckoutOptions & { parseDefinition: DefinitionParser }
+): Promise<CheckoutReply>;
+export function inspectCheckout(
+  cwd: string,
+  query: Exclude<CheckoutQuery, { kind: "defaultBranchFiles" }>,
+  options?: InspectCheckoutOptions
+): Promise<CheckoutReply>;
+export function inspectCheckout(
+  cwd: string,
+  query: CheckoutQuery,
+  options: InspectCheckoutOptions & { parseDefinition: DefinitionParser }
+): Promise<CheckoutReply>;
 export async function inspectCheckout(
   cwd: string,
   query: CheckoutQuery,
-  { recordedBase = true, unresolvedBase }: InspectCheckoutOptions = {}
+  {
+    recordedBase = true,
+    unresolvedBase,
+    parseDefinition,
+  }: InspectCheckoutOptions = {}
 ): Promise<CheckoutReply> {
   const validated = parseQuery(query);
   if (validated.kind === "defaultBranchFiles") {
     const reply = await defaultBranchFiles.get(
       cwd,
       validated.directories,
-      validated.waitForRefresh
+      validated.waitForRefresh,
+      parseDefinition!
     );
     return reply;
   }
@@ -650,7 +672,10 @@ export async function inspectCheckout(
   return reply;
 }
 
-export async function runCheckoutInspectionCli(cwd: string): Promise<void> {
+export async function runCheckoutInspectionCli(
+  cwd: string,
+  parseDefinition: DefinitionParser
+): Promise<void> {
   try {
     const chunks: Buffer[] = [];
     let size = 0;
@@ -663,7 +688,7 @@ export async function runCheckoutInspectionCli(cwd: string): Promise<void> {
     }
     const input: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
     const query = parseQuery(input);
-    const reply = await inspectCheckout(cwd, query);
+    const reply = await inspectCheckout(cwd, query, { parseDefinition });
     await new Promise<void>((resolve, reject) => {
       process.stdout.write(encodeReply(reply), (error) =>
         error ? reject(error) : resolve()

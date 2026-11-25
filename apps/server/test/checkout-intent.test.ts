@@ -17,7 +17,7 @@ import { AgentManager } from "../src/agents/manager.js";
 import { localDefaultBranch } from "../src/shared/git/default-branch.js";
 import { agentComparisonBase } from "../src/agents/effective-base.js";
 import { readAgentView } from "../src/agents/checkout-runner.js";
-import { inspectCheckout } from "../src/agents/checkout-inspection.js";
+import { inspectCheckout } from "./helpers/checkout-inspection.js";
 import { listLocalRemoteBranches } from "../src/agents/local-workspace-probes.js";
 import { createGitWorktree } from "../src/shared/git/worktree.js";
 import { runnerWorktree } from "../src/agents/workspace-launch.js";

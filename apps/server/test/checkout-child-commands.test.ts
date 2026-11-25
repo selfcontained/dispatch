@@ -24,7 +24,7 @@ import { serveSocket } from "../../../packages/runner/src/local/socket-server.js
 import { BindingStore } from "../../../packages/runner/src/local/bindings.js";
 import { WriteFence } from "../../../packages/runner/src/local/fence.js";
 import { checkoutHandlers } from "../../../packages/runner/src/core/checkout.js";
-import { checkoutWorkload } from "../src/agents/checkout-worker.js";
+import { checkoutWorkload } from "./helpers/checkout-workload.js";
 import { requestCheckoutCommand } from "../src/agents/checkout-commands.js";
 import { runLifecycleHook } from "../src/agents/lifecycle-hooks.js";
 import { controllerPlacement } from "../src/runners/placement.js";

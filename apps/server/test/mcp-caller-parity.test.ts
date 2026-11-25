@@ -16,7 +16,7 @@ import {
   createSessionSupervisor,
   runnerStorageKey,
 } from "../src/agents/remote/session-supervisor.js";
-import { inspectCheckout } from "../src/agents/checkout-inspection.js";
+import { inspectCheckout } from "./helpers/checkout-inspection.js";
 import {
   workspaceWorkload,
   writeCheckoutFile,

@@ -65,9 +65,11 @@ if (process.argv[2]?.startsWith("recovery-")) {
   // older names stay for a runner started on an earlier build.
   const { runCheckoutWorker, WORKER_ALIASES } =
     await import("./agents/checkout-worker.js");
+  const { toPersonaDefinition } = await import("./personas/loader.js");
   const [mode, ...rest] = process.argv.slice(2);
   await runCheckoutWorker(
-    mode === "runner-worker" ? rest : [WORKER_ALIASES[mode!]!, ...rest]
+    mode === "runner-worker" ? rest : [WORKER_ALIASES[mode!]!, ...rest],
+    { parseDefinition: toPersonaDefinition }
   );
 } else if (process.argv[2] === "runner-prepare-dependencies") {
   const { installWorkspaceDependencies } =
@@ -140,12 +142,13 @@ if (process.argv[2]?.startsWith("recovery-")) {
   // The agent host entry point too: the session core tracks the hosts it
   // names.
   const {
-    checkoutWorkload,
+    createCheckoutWorkload,
     workspaceWorkload,
     githubWorkload,
     localEnginePort,
     localHostEntry,
   } = await import("./agents/checkout-worker.js");
+  const { toPersonaDefinition } = await import("./personas/loader.js");
   const { localTerminalHandlers } = await loadTerminalWorker();
   await runCli(process.argv.slice(2), {
     build: {
@@ -153,7 +156,9 @@ if (process.argv[2]?.startsWith("recovery-")) {
       ...(embeddedBuild.revision && { revision: embeddedBuild.revision }),
     },
     platform: {
-      workload: checkoutWorkload,
+      workload: createCheckoutWorkload({
+        parseDefinition: toPersonaDefinition,
+      }),
       workspace: workspaceWorkload,
       github: githubWorkload,
       engines: localEnginePort(),

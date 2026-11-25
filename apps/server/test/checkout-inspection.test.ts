@@ -23,7 +23,7 @@ import {
   vi,
 } from "vitest";
 
-import { inspectCheckout } from "../src/agents/checkout-inspection.js";
+import { inspectCheckout } from "./helpers/checkout-inspection.js";
 import * as baseRefHelpers from "../src/shared/git/base-ref.js";
 import {
   inspectAgentCheckout,
