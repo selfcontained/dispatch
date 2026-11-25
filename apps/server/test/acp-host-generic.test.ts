@@ -1,3 +1,4 @@
+import { isPromptSource } from "../src/agents/acp/prompt-source.js";
 /**
  * The agent host is generic: a client that knows only the session contract
  * (`@dispatch/runner-protocol/contract` and the v1 codec in
@@ -150,6 +151,7 @@ describe("generic agent host", () => {
       debug: vi.fn(),
     };
     const client = new HostClient({
+      validSource: isPromptSource,
       agentId: "session-1",
       remote: false,
       openSocket: async () => {

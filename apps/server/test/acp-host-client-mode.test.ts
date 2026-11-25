@@ -1,3 +1,4 @@
+import { isPromptSource } from "../src/agents/acp/prompt-source.js";
 /**
  * The host client's mode is negotiated from what the host advertises, never
  * from placement. Fixture hosts on real Unix sockets speak the two feature
@@ -198,6 +199,7 @@ function client(
   const onReady = vi.fn();
   const onGone = vi.fn();
   const host = new HostClient({
+    validSource: isPromptSource,
     agentId,
     remote: true,
     openSocket,
@@ -458,6 +460,7 @@ describe("byte-pinned main-era host adoption", () => {
     const entries: unknown[] = [];
     // Preserve cursor updates performed by the ordinary helper.
     const other = new HostClient({
+      validSource: isPromptSource,
       agentId,
       logger,
       remote: false,

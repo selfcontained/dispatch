@@ -83,12 +83,8 @@ import type {
 
 export type DriverListener = (event: DriverEvent) => void;
 
-export type DriverLogger = {
-  info: (obj: Record<string, unknown>, msg: string) => void;
-  warn: (obj: Record<string, unknown>, msg: string) => void;
-  error: (obj: Record<string, unknown>, msg: string) => void;
-  debug: (obj: Record<string, unknown>, msg: string) => void;
-};
+export type { DriverLogger } from "@dispatch/runner-protocol/host";
+import type { DriverLogger } from "@dispatch/runner-protocol/host";
 
 export type ChildProcessLike = Pick<
   ChildProcess,

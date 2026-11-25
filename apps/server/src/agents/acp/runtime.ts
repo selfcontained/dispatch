@@ -1,3 +1,4 @@
+import { isPromptSource } from "./prompt-source.js";
 import { AgentError } from "../errors.js";
 import { isPromptImageMimeType } from "./prompt-source.js";
 import type { RuntimeLaunch } from "../runtime.js";
@@ -1189,6 +1190,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     const replaced = recycleHolds.get(agentId);
     if (replaced?.forced && replaced.restarting) replaced.entry = entry;
     entry.client = new HostClient({
+      validSource: isPromptSource,
       agentId,
       remote: Boolean(placement),
       openSocket: async () => {
@@ -2216,6 +2218,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     async stopIdleHostForRecovery(agentId) {
       if (runtime.isBusy(agentId)) return false;
       const client = new HostClient({
+        validSource: isPromptSource,
         agentId,
         remote: false,
         openSocket: async () => {
