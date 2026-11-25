@@ -1,6 +1,8 @@
 import { relative } from "node:path";
 import {
   hostVocabularyCompatibility,
+  workloadVocabularyCompatibility,
+  isRunnerCompatibilityToken,
   isHostCompatibilityToken,
 } from "./host-vocabulary-compatibility.js";
 import { readFileSync } from "node:fs";
@@ -164,7 +166,7 @@ describe("vocabulary (E8)", () => {
           `${root}/${dir}`,
           usesDispatchVocabulary,
           (file, token) =>
-            isHostCompatibilityToken(
+            isRunnerCompatibilityToken(
               relative(
                 fileURLToPath(new URL("../../../", import.meta.url)),
                 file
@@ -173,6 +175,19 @@ describe("vocabulary (E8)", () => {
             )
         )
       ).toEqual([]);
+  });
+
+  it("counts workload compatibility tokens in every other file", () => {
+    for (const { file, token } of workloadVocabularyCompatibility) {
+      expect(usesDispatchVocabulary(token)).toBe(true);
+      expect(isRunnerCompatibilityToken(file, token)).toBe(true);
+      expect(
+        isRunnerCompatibilityToken(
+          "packages/runner/src/workload/other.ts",
+          token
+        )
+      ).toBe(false);
+    }
   });
 
   it("allows only exact compatibility bytes in their exact host files", () => {
