@@ -6,13 +6,13 @@ import { isIP } from "node:net";
 import path from "node:path";
 import { connect, type TLSSocket } from "node:tls";
 import {
-  wireFrames,
   parseConnectCreated,
   parseConnectPoll,
   type ConnectPoll,
   type EnrollmentRequest,
   type EnrollmentReply,
 } from "./protocol.js";
+import { wireFrames } from "../../runners/enrolled/v1-framing.js";
 import { generateRunnerKey, normalizeFingerprint } from "./x509.js";
 
 /*

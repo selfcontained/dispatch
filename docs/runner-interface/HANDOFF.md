@@ -176,6 +176,8 @@ T40 move records stay counted, with exact approved importers and verified packag
 The move list has a reviewed record budget and shrinking importer list; growth requires the named-commit policy fixture. Frozen historical list snapshots only replay existing commits.
 Remove each record with its baseline entry; the final seal requires zero records and zero budget.
 
+At the atomic workload move, change four imports from the enrolled framing facade. In `agents/remote/runner.ts`, import `runnerReplyTimeoutMs` and `scheduleDeadline` from `@dispatch/runner-client/v1/connection`, and `wireFrames`, `FlowStreams`, `acceptsStreams` and the `StreamFrame` type from `@dispatch/runner-client/v1/node`. In `agents/remote/enrollment.ts` and `terminal/runner-worker.ts`, import `wireFrames` from the same Node entry. The controller's `runners/enrolled/v1-framing.ts` facade stays with the enrolled adapter. Delete it with its last legacy caller and retire or redirect the corresponding test fixtures.
+
 The controller composition root temporarily supplies the existing Zod capability parser to the enrolled engine acknowledgment adapter. Once the workload moves, import the same parser at the adapter and remove the composition callback.
 
 The workload engineUpdatePort wrapper serves the legacy detected-update executor. Delete it with that executor. Fold the shared operation facade into the controller when the controller is its only caller.

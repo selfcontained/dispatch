@@ -8,11 +8,11 @@ import { exchangeCode } from "../src/agents/remote/enrollment.js";
 import { remoteEngineTransport } from "../src/agents/remote/engine-transport.js";
 import {
   MANAGED_WORKSPACE,
-  wireFrames,
   type EngineOperationEvent,
   type Frame,
   type GitHubOperation,
 } from "../src/agents/remote/protocol.js";
+import { wireFrames } from "../src/runners/enrolled/v1-framing.js";
 import { RunnerRegistry } from "../src/agents/remote/registry.js";
 import { RemoteRunnerService } from "../src/agents/remote/service.js";
 import { generateRunnerKey } from "../src/agents/remote/x509.js";
