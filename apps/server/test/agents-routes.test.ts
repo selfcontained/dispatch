@@ -1,3 +1,6 @@
+import { teachKnownSeedCatalogs } from "./helpers/model-catalog-validation.js";
+import { beforeEach as beforeKnownCatalog } from "vitest";
+beforeKnownCatalog(teachKnownSeedCatalogs);
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";

@@ -16,6 +16,7 @@ const waiting = { ...starting, status: "waiting" as const, url: "https://x" };
 
 function port(overrides: Partial<EnginePort> = {}): EnginePort {
   return {
+    models: vi.fn(async () => ({ defaultModel: null, models: [] })),
     usage: vi.fn(),
     quotaReset: vi.fn(),
     updateInspect: vi.fn(),
@@ -44,6 +45,33 @@ function port(overrides: Partial<EnginePort> = {}): EnginePort {
 }
 
 describe("the core's engine inventory and sign-in", () => {
+  it("passes typed live models and full descriptions through, but refuses them while frozen", async () => {
+    const result = {
+      current: "m",
+      defaultModel: "m",
+      models: [
+        {
+          id: "m",
+          label: "M",
+          effort: [
+            {
+              value: "high",
+              name: "High",
+              description: "Unabridged engine description",
+            },
+          ],
+        },
+      ],
+    };
+    const models = vi.fn(async () => result);
+    const handler = engineHandlers({ workload, engines: port({ models }) });
+    expect(
+      await handler["engine.models"]!({ engine: "codex" }, {} as never)
+    ).toEqual(result);
+    expect(models).toHaveBeenCalledExactlyOnceWith({ engine: "codex" });
+    expect(SERVED_WHILE_FROZEN.has("engine.models")).toBe(false);
+  });
+
   it("serves usage details and reset credit through the platform port", async () => {
     const usage = {
       checkedAt: "2026-11-24T12:00:00Z",

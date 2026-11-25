@@ -42,7 +42,15 @@ export async function resolveTemplateLaunch(
   const branchName = workspace.worktreeBranch?.trim()
     ? assertSafeRefName(workspace.worktreeBranch, "worktreeBranch")
     : null;
-  const scope = await modelScopeFor(target, agentType);
+  const scope = await modelScopeFor(target, agentType, {
+    model,
+    effort:
+      overrides.effort !== undefined
+        ? overrides.effort
+        : agentType === template.agentType && model === template.model
+          ? template.effort
+          : null,
+  });
   return {
     ...template,
     agentType,

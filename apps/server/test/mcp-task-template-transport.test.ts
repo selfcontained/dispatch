@@ -1,3 +1,6 @@
+import { teachKnownSeedCatalogs } from "./helpers/model-catalog-validation.js";
+import { beforeEach as beforeKnownCatalog } from "vitest";
+beforeKnownCatalog(teachKnownSeedCatalogs);
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";

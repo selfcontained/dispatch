@@ -628,3 +628,45 @@ it.each(fencedMutations)(
     }
   }
 );
+
+it("model discovery cannot bypass a fenced child or an absent frozen child", async () => {
+  const fallback = inProcessEngines({
+    claudeBin: "/fixture/never-run",
+    codexBin: "/fixture/never-run",
+    opencodeBin: "/fixture/never-run",
+  });
+  const models = vi
+    .spyOn(fallback, "models")
+    .mockResolvedValue({ defaultModel: null, models: [] });
+  const call = vi.fn(async () => {
+    throw new RunnerCallError({ code: "fenced", message: "fixture frozen" });
+  });
+  try {
+    await expect(
+      localEngineCalls(
+        () => ({ connection: { state: "ready" }, call }) as never,
+        fallback
+      ).call("engine.models", { engine: "codex" })
+    ).rejects.toMatchObject({ code: "fenced" });
+    expect(models).not.toHaveBeenCalled();
+  } finally {
+    fallback.close();
+  }
+  const frozen = inProcessEngines(
+    {
+      claudeBin: "/fixture/never-run",
+      codexBin: "/fixture/never-run",
+      opencodeBin: "/fixture/never-run",
+    },
+    () => true
+  );
+  try {
+    await expect(
+      localEngineCalls(() => undefined, frozen).call("engine.models", {
+        engine: "codex",
+      })
+    ).rejects.toMatchObject({ code: "fenced" });
+  } finally {
+    frozen.close();
+  }
+});

@@ -733,7 +733,8 @@ export class JobService {
       );
     const scope = await modelScopeFor(
       target.directory,
-      input.agentType ?? "claude"
+      input.agentType ?? "claude",
+      { model: input.model, effort: input.effort }
     );
     const agentConfig = {
       ...applyAgentConfigDefaults(input, undefined, scope),
@@ -912,7 +913,21 @@ export class JobService {
       : existing.effort;
     const scope = await modelScopeFor(
       directory,
-      input.agentType ?? existing.agentType
+      input.agentType ?? existing.agentType,
+      {
+        model:
+          input.model !== undefined
+            ? input.model
+            : input.agentType && input.agentType !== existing.agentType
+              ? null
+              : existing.model,
+        effort:
+          input.effort !== undefined
+            ? input.effort
+            : input.agentType && input.agentType !== existing.agentType
+              ? null
+              : previousEffort,
+      }
     );
     const nextModel = resolveAgentModelForUpdate({
       inputAgentType: input.agentType,

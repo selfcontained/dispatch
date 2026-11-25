@@ -1,3 +1,6 @@
+import { teachKnownSeedCatalogs } from "./helpers/model-catalog-validation.js";
+import { beforeEach as beforeKnownCatalog } from "vitest";
+beforeKnownCatalog(teachKnownSeedCatalogs);
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { useInjectApp } from "./helpers/inject-app.js";

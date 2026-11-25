@@ -10,14 +10,7 @@ import type { RunnerEngineTransport } from "./engine-manager.js";
 import type { FastifyBaseLogger } from "fastify";
 import type { RunnerEngine } from "@dispatch/runner-protocol";
 import type { AgentType } from "../../shared/agent-types.js";
-import {
-  agentModelDefaults,
-  getAgentModelOptions,
-  type RunnerModelCatalogSource,
-} from "../../shared/agent-models.js";
-
-// Owner decision pending: preserve today's live discovery until explicitly changed.
-const MODEL_CATALOG_SOURCE: "live" | "learned" = "live";
+import { type RunnerModelCatalogSource } from "../../shared/agent-models.js";
 
 const MODEL_CATALOG_TTL_MS = 15_000;
 const UNAVAILABLE_CATALOG_TTL_MS = 3_000;
@@ -29,8 +22,7 @@ type CachedCatalog = {
 
 export function remoteEngineTransport(
   service: RemoteRunnerService,
-  log?: Pick<FastifyBaseLogger, "warn" | "debug">,
-  modelCatalogSource: "live" | "learned" = MODEL_CATALOG_SOURCE
+  log?: Pick<FastifyBaseLogger, "warn" | "debug">
 ): RunnerEngineTransport {
   const catalogs = new Map<string, Map<RunnerEngine, CachedCatalog>>();
   const invalidate = (runnerId: string) => catalogs.delete(runnerId);
@@ -144,22 +136,6 @@ export function remoteEngineTransport(
   return {
     ...transport,
     async send(runnerId, operation, onEvent) {
-      if (
-        operation.type === "model_catalog" &&
-        modelCatalogSource === "learned"
-      ) {
-        return {
-          ok: true,
-          capability: {
-            type: "model_catalog",
-            catalog: {
-              defaultModel:
-                agentModelDefaults(runnerId)[operation.engine] ?? null,
-              models: [...getAgentModelOptions(operation.engine, runnerId)],
-            },
-          },
-        };
-      }
       if (operation.type === "model_catalog" && !operation.model && !onEvent) {
         let entries = catalogs.get(runnerId);
         if (!entries) {

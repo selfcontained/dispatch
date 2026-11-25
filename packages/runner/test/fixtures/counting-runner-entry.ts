@@ -39,6 +39,12 @@ await runLocalRunner(build, {
     };
     return {
       calls: {
+        "engine.models": () =>
+          record("engine-models", {
+            current: "m",
+            defaultModel: "m",
+            models: [{ id: "m", label: "M" }],
+          }),
         "engine.update.inspect": () => ({
           realPath: null,
           source: "unknown" as const,

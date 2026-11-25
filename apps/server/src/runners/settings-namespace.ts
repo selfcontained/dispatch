@@ -1,5 +1,6 @@
 /** Storage identity is composition data, independent of a runner's wire ID. */
 export type RunnerSettings = {
+  runnerId: string;
   namespace: string;
   modelReports: "availability" | "history";
   updateLock: { sql: string; values?: string[] };
@@ -7,6 +8,7 @@ export type RunnerSettings = {
 
 /** Main's durable local key and transaction-lock identity. */
 export const localRunnerSettings: RunnerSettings = {
+  runnerId: "local",
   namespace: "",
   modelReports: "availability",
   updateLock: { sql: "SELECT pg_advisory_xact_lock(1852271177, 1)" },
@@ -23,6 +25,7 @@ export function namespaced(
 export function enrolledRunnerSettings(runnerId: string): RunnerSettings {
   const namespace = `runner:${encodeURIComponent(runnerId)}:`;
   return {
+    runnerId,
     namespace,
     modelReports: "history",
     updateLock: {

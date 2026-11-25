@@ -282,7 +282,10 @@ export async function registerPersonaRoutes(
       const parent = await deps.agentManager.getAgent(agentId);
       if (!parent) return reply.code(404).send({ error: "Agent not found." });
       const agentType = body.agentType as (typeof CLI_AGENT_TYPES)[number];
-      const scope = await modelScopeFor(parent.cwd, agentType);
+      const scope = await modelScopeFor(parent.cwd, agentType, {
+        model: body.model,
+        effort: body.effort,
+      });
       let model: string | undefined;
       let effort: Effort | null;
       try {

@@ -37,12 +37,12 @@ import { SlackNotifier, slackDelayError } from "../notifications/slack.js";
 import {
   ModelAvailabilityError,
   updateModelAvailability,
+  settingsModelCatalog,
 } from "../agents/model-availability.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import {
   agentModelAvailability,
-  agentModelCatalog,
-  agentModelDefaults,
+  readStoredAgentModelCatalog,
 } from "../shared/agent-models.js";
 import {
   getWorktreeLocation,
@@ -253,8 +253,7 @@ export async function registerSystemRoutes(
     );
 
   app.get("/api/v1/agent-models", async () => ({
-    models: agentModelCatalog(),
-    defaults: agentModelDefaults(),
+    ...readStoredAgentModelCatalog(),
     availability: agentModelAvailability(),
   }));
 
@@ -544,6 +543,10 @@ export async function registerSystemRoutes(
     };
   });
 
+  app.get("/api/v1/app/settings/agent-models", () =>
+    settingsModelCatalog(deps.pool)
+  );
+
   app.patch("/api/v1/app/settings/agent-models", async (request, reply) => {
     const parsed = ModelAvailabilityBodySchema.safeParse(request.body);
     if (!parsed.success) {
@@ -561,7 +564,9 @@ export async function registerSystemRoutes(
         return reply.code(400).send({ error: error.message });
       throw error;
     }
-    return { availability: agentModelAvailability() };
+    return {
+      availability: (await settingsModelCatalog(deps.pool)).availability,
+    };
   });
 
   app.get("/api/v1/app/settings/ides", async () => {

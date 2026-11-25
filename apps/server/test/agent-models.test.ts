@@ -219,3 +219,20 @@ it("isolates each runner's learned catalog and default over the same seeds", () 
   expect(agentModelDefaults("fresh-runner")).toEqual({});
   forgetLearnedAgentModels();
 });
+
+it("clears an implicit cross-type model when the target catalog is unavailable, while explicit choices defer to the engine", () => {
+  const base = {
+    inputAgentType: "codex" as const,
+    existingAgentType: "claude" as const,
+    existingModel: "opus",
+    inputModel: undefined,
+    scope: { kind: "engine" as const },
+  };
+  expect(resolveAgentModelForUpdate(base)).toBeNull();
+  expect(
+    resolveAgentModelForUpdate({ ...base, inputModel: "provider/model" })
+  ).toBe("provider/model");
+  expect(
+    resolveAgentModelForUpdate({ ...base, inputAgentType: "claude" })
+  ).toBe("opus");
+});

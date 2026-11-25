@@ -1,3 +1,8 @@
+import {
+  forgetLearnedAgentModels,
+  setLearnedAgentModels,
+  onStoredModelCatalogRead,
+} from "../src/shared/agent-models.js";
 import { fixtureEngineActions } from "./helpers/engine-actions.js";
 import { describe, expect, it, vi } from "vitest";
 
@@ -497,4 +502,82 @@ it("usage and reset RPC aliases share Dispatch's runner coordinator without lega
   expect(handle).not.toHaveBeenCalled();
   expect(send).not.toHaveBeenCalled();
   expect(calls).not.toHaveBeenCalled();
+});
+
+describe("model catalogs and sign-in refresh triggers", () => {
+  it("serves local and runner catalogs and stored effort without waiting for a host", async () => {
+    const remote = fakeTransport({
+      send: vi.fn(async () => {
+        throw Error("No host read");
+      }),
+    });
+    const engines = fakeEngines(() => {
+      throw Error("No engine start");
+    });
+    const manager = new EngineManager({
+      local: { engines, updates: fakeUpdates() },
+      remote,
+    });
+    const scheduled = vi.fn();
+    const stop = onStoredModelCatalogRead(scheduled);
+    try {
+      for (const id of ["local", "runner-fixture"]) {
+        const effort = [
+          { value: "high", name: "High", description: "Lossless description" },
+        ];
+        setLearnedAgentModels("codex", [{ id, label: id, effort }], id, id);
+        const scope =
+          id === "local"
+            ? ({ kind: "local" } as const)
+            : ({ kind: "runner", runnerId: id } as const);
+        expect(
+          await manager.rpc(scope, {
+            type: "model_catalog",
+            engine: "codex",
+            model: id,
+          })
+        ).toEqual({
+          ok: true,
+          capability: {
+            type: "model_catalog",
+            catalog: { defaultModel: id, models: [{ id, label: id, effort }] },
+          },
+        });
+        expect(scheduled).toHaveBeenCalledWith(id, "codex");
+      }
+      expect(remote.send).not.toHaveBeenCalled();
+      expect(engines.call).not.toHaveBeenCalled();
+    } finally {
+      stop();
+      forgetLearnedAgentModels();
+    }
+  });
+  it("invalidates once after completed sign-in on each runner, never for waiting or failed logins", async () => {
+    const changed = vi.fn();
+    let status: EngineLogin["status"] = "waiting";
+    const login = () => ({ ...waiting, status });
+    const manager = new EngineManager({
+      onSignedIn: changed,
+      local: { engines: fakeEngines(() => login()), updates: fakeUpdates() },
+      remote: fakeTransport({
+        send: vi.fn(async () => ({ ok: true, login: login() })),
+      }),
+    });
+    for (const scope of [
+      { kind: "local" },
+      { kind: "runner", runnerId: "fixture" },
+    ] as const) {
+      status = "waiting";
+      await manager.login(scope, { type: "login_start", engine: "claude" });
+      expect(changed).not.toHaveBeenCalledWith(scope, "claude");
+      status = "failed";
+      await manager.login(scope, { type: "login_status", loginId: waiting.id });
+      expect(changed).not.toHaveBeenCalledWith(scope, "claude");
+      status = "succeeded";
+      await manager.login(scope, { type: "login_status", loginId: waiting.id });
+      await manager.login(scope, { type: "login_status", loginId: waiting.id });
+      expect(changed).toHaveBeenCalledWith(scope, "claude");
+    }
+    expect(changed).toHaveBeenCalledTimes(2);
+  });
 });

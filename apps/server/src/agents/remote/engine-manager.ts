@@ -1,3 +1,4 @@
+import type { AgentModelOption } from "../../shared/agent-models.js";
 import type { createRunnerUsage } from "../codex-reset.js";
 import { runnerPluginChecker } from "../../routes/plugin.js";
 import {
@@ -93,10 +94,15 @@ export class EngineManager {
 
   constructor(
     private readonly deps: {
+      onSignedIn?: (scope: EngineScope, engine: RunnerEngine) => void;
       local: LocalEngineDeps;
       remote: RunnerEngineTransport;
       engineActions: {
         calls(scope: EngineScope): EngineCalls;
+        models(
+          scope: EngineScope,
+          engine: RunnerEngine
+        ): { defaultModel: string | null; models: readonly AgentModelOption[] };
         usage(scope: EngineScope): ReturnType<typeof createRunnerUsage>;
         updates(scope: EngineScope): EngineUpdateOperations;
       };
@@ -141,6 +147,16 @@ export class EngineManager {
     operation: EngineOperation,
     onEvent?: (event: EngineOperationEvent) => void
   ): Promise<EngineOperationAck> {
+    if (operation.type === "model_catalog") {
+      const catalog = this.deps.engineActions.models(scope, operation.engine);
+      return {
+        ok: true,
+        capability: {
+          type: "model_catalog",
+          catalog: { ...catalog, models: [...catalog.models] },
+        },
+      };
+    }
     if (operation.type === "provider_usage") {
       return {
         ok: true,
@@ -242,6 +258,7 @@ export class EngineManager {
       scope.kind === "local"
         ? await this.localRpc(operation)
         : await this.deps.remote.send(scope.runnerId, operation, onEvent);
+    this.observeSignIn(scope, ack);
     if (scope.kind === "runner" && operation.type === "login_start")
       this.track(scope, ack.ok ? ack.login : undefined);
     // Refresh before returning, so a caller that awaits `rpc` sees the
@@ -268,8 +285,11 @@ export class EngineManager {
     scope: EngineScope,
     operation: Extract<EngineOperation, { type: `login_${string}` }>
   ): Promise<EngineOperationAck> {
-    if (scope.kind === "local") return this.localLogin(operation);
-    const ack = await this.deps.remote.send(scope.runnerId, operation);
+    const ack =
+      scope.kind === "local"
+        ? await this.localLogin(operation)
+        : await this.deps.remote.send(scope.runnerId, operation);
+    this.observeSignIn(scope, ack);
     if (operation.type === "login_start")
       this.track(scope, ack.ok ? ack.login : undefined);
     return ack;
@@ -335,6 +355,15 @@ export class EngineManager {
         this.login(scope, { type: "login_cancel", loginId }).catch(() => null)
       )
     );
+  }
+
+  private readonly completedSignIns = new Set<string>();
+  private observeSignIn(scope: EngineScope, ack: EngineOperationAck) {
+    if (!ack.ok || ack.login?.status !== "succeeded") return;
+    const key = JSON.stringify([engineScopeKey(scope), ack.login.id]);
+    if (this.completedSignIns.has(key)) return;
+    this.completedSignIns.add(key);
+    this.deps.onSignedIn?.(scope, ack.login.engine);
   }
 
   private track(

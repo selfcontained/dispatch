@@ -86,6 +86,34 @@ if (args === "plugin list --json") {
       );
       return JSON.parse((await child).stdout);
     }
+    async function typedModels(home: string) {
+      const child = execute("bun", [main, "runner-engine-host"], {
+        cwd: home,
+        env: { HOME: home, PATH: process.env.PATH },
+        timeout: 20_000,
+      });
+      child.child.stdin!.end(
+        JSON.stringify({
+          id: 1,
+          call: { op: "engine.models", request: { engine: "codex" } },
+          bins: { claude: cli, codex: cli, opencode: cli },
+          adapter: { bin: process.execPath, args: [adapter] },
+        }) + "\n"
+      );
+      return JSON.parse((await child).stdout.trim());
+    }
+    const typed = await typedModels(homes[0]!);
+    expect(typed.data).toMatchObject({
+      current: "first/default",
+      defaultModel: "first/default",
+      models: [
+        {
+          id: "first/default",
+          effort: [{ description: "Full described effort fixture" }],
+        },
+        { id: "first/alternate" },
+      ],
+    });
     const plugin = { engine: "codex", plugin: "dispatch@dispatch" } as const;
     const [first, second, installed, absent] = await Promise.all([
       worker(homes[0]!, { type: "model_catalog", engine: "codex" }),

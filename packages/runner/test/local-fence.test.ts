@@ -233,7 +233,10 @@ describe("local runner write fence (real processes)", () => {
         call(runner, "engine.update.release", { operationId: "fixture" })
       )
     ).toBe("fenced");
-    // No handler saw the refused writes.
+    expect(
+      await codeOf(call(runner, "engine.models", { engine: "codex" }))
+    ).toBe("fenced");
+    // No handler saw the refused writes or model discovery.
     expect(received(root)).toHaveLength(1);
 
     await runner.fence(false, 5_000);

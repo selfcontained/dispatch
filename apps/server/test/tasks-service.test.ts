@@ -1,3 +1,6 @@
+import { teachKnownSeedCatalogs } from "./helpers/model-catalog-validation.js";
+import { beforeEach as beforeKnownCatalog } from "vitest";
+beforeKnownCatalog(teachKnownSeedCatalogs);
 import { launchPersonaScope } from "../src/personas/persona-scope.js";
 import Fastify from "fastify";
 import fastifyMultipart from "@fastify/multipart";

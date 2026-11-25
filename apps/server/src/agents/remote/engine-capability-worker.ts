@@ -36,7 +36,7 @@ import {
 import { childProcessEnv } from "../../shared/process/child-environment.js";
 import { parseEngineCapabilityResult } from "./engine-capability-result.js";
 
-async function readCatalog(
+export async function readCatalog(
   engine: RunnerEngine,
   bins: EngineBins,
   model?: string
@@ -104,6 +104,7 @@ async function readCatalog(
       }
       const effort = engineEffortOption(reportedOptions);
       return {
+        current: selected,
         defaultModel,
         models: (report?.choices ?? []).map(({ id, label }) => ({
           id,
@@ -259,7 +260,9 @@ export async function runEngineCapabilityWorker(): Promise<void> {
 
 /** Persistent workload port: gates and plugin TTLs span request connections. */
 export async function runEngineHostWorker(): Promise<void> {
-  const bins = { claude: "claude", codex: "codex", opencode: "opencode" };
+  const bins: Partial<Record<RunnerEngine, string>> & {
+    adapter?: EngineBins["adapter"];
+  } = { claude: "claude", codex: "codex", opencode: "opencode" };
   const updates: Partial<
     Record<"claude" | "codex" | "opencode", ManagedCommand>
   > = {};
@@ -275,6 +278,7 @@ export async function runEngineHostWorker(): Promise<void> {
       if (!Number.isSafeInteger(message.id) || !isEngineHostCall(call))
         throw new Error("Invalid engine host call.");
       Object.assign(bins, message.bins);
+      bins.adapter = message.adapter;
       for (const engine of ["claude", "codex", "opencode"] as const) {
         delete updates[engine];
         delete installs[engine];
@@ -285,6 +289,9 @@ export async function runEngineHostWorker(): Promise<void> {
       try {
         let data;
         switch (op) {
+          case "engine.models":
+            data = await port.models(request);
+            break;
           case "engine.usage":
             data = await port.usage(request);
             break;

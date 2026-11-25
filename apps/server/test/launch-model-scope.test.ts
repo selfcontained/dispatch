@@ -16,8 +16,9 @@ import type { AppConfig } from "../src/config.js";
 import { JobService } from "../src/jobs/service.js";
 import {
   forgetLearnedAgentModels,
+  getAgentModelOptions,
   modelScopeFor,
-  setRunnerModelCatalogSource,
+  setLearnedAgentModels,
   validateAgentModel,
 } from "../src/shared/agent-models.js";
 import { validateAgentEffort } from "../src/shared/agent-effort.js";
@@ -66,25 +67,29 @@ afterAll(async () => {
 beforeEach(() => {
   forgetLearnedAgentModels();
   loggerWarn.mockClear();
-  setRunnerModelCatalogSource(
-    async (runnerId) =>
-      runnerId === "online"
-        ? {
-            defaultModel: RUNNER_ONLY,
-            models: [
-              {
-                id: RUNNER_ONLY,
-                label: "Runner model",
-                effort: [{ value: "turbo", name: "Turbo" }],
-              },
-            ],
-          }
-        : Promise.reject(new Error("transient runner failure")),
-    logger
+  // These cases exercise an authoritative catalog; cold validation is covered
+  // by the real coordinator in model-catalog-refresh and reviewer fixtures.
+  setLearnedAgentModels("claude", getAgentModelOptions("claude"));
+  setLearnedAgentModels(
+    "claude",
+    [
+      {
+        id: RUNNER_ONLY,
+        label: "Runner model",
+        effort: [{ value: "turbo", name: "Turbo" }],
+      },
+    ],
+    RUNNER_ONLY,
+    "online"
+  );
+  setLearnedAgentModels(
+    "claude",
+    [{ id: RUNNER_ONLY, label: "Runner model" }],
+    RUNNER_ONLY,
+    "offline"
   );
 });
-
-afterEach(() => setRunnerModelCatalogSource(null));
+afterEach(forgetLearnedAgentModels);
 
 function template(directory: string): TemplateRecord {
   const now = new Date().toISOString();
@@ -226,7 +231,7 @@ const cases = [
     target: "offline runner",
     cwd: OFFLINE,
     model: LOCAL_ONLY,
-    ok: true,
+    ok: false,
   },
   {
     target: "offline runner",
@@ -245,12 +250,7 @@ describe("placement-scoped model validation", () => {
     const result = run(cwd, model);
     if (ok) await expect(result).resolves.not.toThrow();
     else await expect(result).rejects.toThrow(/not supported/);
-    if (cwd === OFFLINE) {
-      expect(loggerWarn).toHaveBeenCalledWith(
-        expect.objectContaining({ runnerId: "offline", agentType: "claude" }),
-        "Runner model catalog unavailable"
-      );
-    }
+    expect(loggerWarn).not.toHaveBeenCalled();
   });
 
   it("rechecks a stored task model when only the launch template changes", async () => {
@@ -276,17 +276,14 @@ describe("placement-scoped model validation", () => {
       launchTemplateId: template(LOCAL).id,
       launchModel: LOCAL_ONLY,
     });
-    // A runner whose catalog is unavailable checks the model at launch.
+    // An offline runner still validates against its stored catalog.
     await expect(
       service.updateTask(
         task.id,
         { launchTemplateId: template(OFFLINE).id },
         { kind: "user" }
       )
-    ).resolves.toMatchObject({
-      launchTemplateId: template(OFFLINE).id,
-      launchModel: LOCAL_ONLY,
-    });
+    ).rejects.toThrow(/not supported/);
   });
 
   it("accepts a well-formed task model before the project has a launch target", async () => {

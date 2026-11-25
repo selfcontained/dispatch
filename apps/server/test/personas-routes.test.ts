@@ -1,3 +1,15 @@
+import { validationCatalogFixture } from "./helpers/model-catalog-validation.js";
+const validationFixtures: ReturnType<typeof validationCatalogFixture>[] = [];
+import {
+  setLearnedAgentModels,
+  getLearnedAgentModels,
+  forgetLearnedAgentModels,
+} from "../src/shared/agent-models.js";
+import { afterEach } from "vitest";
+afterEach(() => {
+  for (const fixture of validationFixtures.splice(0)) fixture.close();
+  forgetLearnedAgentModels();
+});
 import {
   afterAll,
   beforeAll,
@@ -213,27 +225,69 @@ describe("POST /api/v1/agents/:id/launch-persona", () => {
     expect(response.statusCode).toBe(404);
   });
 
-  it("passes a runner-only reviewer model and effort to the kickoff", async () => {
-    deps.agentManager.getAgent.mockResolvedValueOnce({
-      id: "agt_parent",
-      cwd: "runner://linux/@session",
-    } as never);
-    const response = await app.inject({
-      method: "POST",
-      url: "/api/v1/agents/agt_parent/launch-persona",
-      payload: {
-        personas: ["security-review"],
-        codeowners: true,
-        agentType: "opencode",
-        model: "runner-custom/review",
-        effort: "runner-effort",
-      },
-    });
-    expect(response.statusCode).toBe(200);
-    const [, input] = deps.streams.promptAgent.mock.calls[0]!;
-    expect(input.text).toContain('model: "runner-custom/review"');
-    expect(input.text).toContain('effort: "runner-effort"');
-  });
+  it.each(["taught", "first refresh", "failed refresh"] as const)(
+    "passes a runner-only reviewer model and effort to the kickoff (%s)",
+    async (source) => {
+      if (source === "taught")
+        setLearnedAgentModels(
+          "opencode",
+          [
+            {
+              id: "runner-custom/review",
+              label: "Runner Review",
+              effort: [{ value: "runner-effort", name: "Runner effort" }],
+            },
+          ],
+          "runner-custom/review",
+          "linux"
+        );
+      else
+        validationFixtures.push(
+          validationCatalogFixture(
+            "linux",
+            "opencode",
+            [
+              {
+                id: "runner-custom/review",
+                label: "Runner Review",
+                effort: [{ value: "runner-effort", name: "Runner effort" }],
+              },
+            ],
+            source === "failed refresh"
+          )
+        );
+      deps.agentManager.getAgent.mockResolvedValueOnce({
+        id: "agt_parent",
+        cwd: "runner://linux/@session",
+      } as never);
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/agents/agt_parent/launch-persona",
+        payload: {
+          personas: ["security-review"],
+          codeowners: true,
+          agentType: "opencode",
+          model: "runner-custom/review",
+          effort: "runner-effort",
+        },
+      });
+      expect(response.statusCode).toBe(200);
+      const [, input] = deps.streams.promptAgent.mock.calls[0]!;
+      expect(input.text).toContain('model: "runner-custom/review"');
+      expect(input.text).toContain('effort: "runner-effort"');
+      if (source !== "taught") {
+        expect(
+          validationFixtures[0]!.call.mock.calls.filter(
+            ([op]) => op === "engine.models"
+          )
+        ).toHaveLength(1);
+        const learned = getLearnedAgentModels("opencode", "linux");
+        if (source === "first refresh")
+          expect(learned?.[0]?.id).toBe("runner-custom/review");
+        else expect(learned).toBeUndefined();
+      }
+    }
+  );
 
   it("asks the agent to launch the personas itself, with the user's note", async () => {
     const response = await app.inject({

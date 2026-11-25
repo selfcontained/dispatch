@@ -565,12 +565,21 @@ async function handleLaunchAgent(
   const worktreeLocation = await getWorktreeLocation(deps.pool);
 
   // A named folder is on the caller's runner, so is its model catalog.
-  const scope = await modelScopeFor(
-    launcherFolder !== undefined ? parent.cwd : cwd,
-    agentType as (typeof CLI_AGENT_TYPES)[number]
-  );
   const templateModel =
     template?.agentType === agentType ? template.model : undefined;
+  const scope = await modelScopeFor(
+    launcherFolder !== undefined ? parent.cwd : cwd,
+    agentType as (typeof CLI_AGENT_TYPES)[number],
+    {
+      model: input.model !== undefined ? input.model : templateModel,
+      effort:
+        input.effort !== undefined
+          ? input.effort
+          : template?.agentType === agentType
+            ? template.effort
+            : null,
+    }
+  );
   // The template's own model is a saved choice; any other is a new one.
   const model = validateAgentModelChoice(
     agentType as (typeof CLI_AGENT_TYPES)[number],

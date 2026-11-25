@@ -1,3 +1,4 @@
+import { placementForRunner } from "../src/runners/placement.js";
 import { sessionFromWire } from "@dispatch/runner-protocol/contract";
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -1376,6 +1377,7 @@ describe("runner session supervision", () => {
         getAgent: async (id: string) => ({
           id,
           cwd: "runner://fixture/proof",
+          placement: placementForRunner("fixture"),
           parentAgentId: agentId,
           fullAccess: false,
         }),

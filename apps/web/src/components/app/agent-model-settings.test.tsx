@@ -19,6 +19,7 @@ vi.mock("@/lib/api", () => ({ api }));
 
 let saveError: Error | null;
 let disabled: string[];
+let unseen: string[];
 
 beforeEach(() => {
   globalThis.ResizeObserver ??= class {
@@ -28,11 +29,21 @@ beforeEach(() => {
   };
   saveError = null;
   disabled = ["sol"];
+  unseen = ["luna"];
   api.mockImplementation(async (path: string, init?: { body: string }) => {
     if (init) {
       if (saveError) throw saveError;
-      const change = JSON.parse(init.body) as { model?: string };
-      if (change.model) disabled = [...disabled, change.model];
+      const change = JSON.parse(init.body) as {
+        model?: string;
+        enabled?: boolean;
+        seen?: string[];
+      };
+      if (change.model)
+        disabled = change.enabled
+          ? disabled.filter((id) => id !== change.model)
+          : [...new Set([...disabled, change.model])];
+      if (change.seen)
+        unseen = unseen.filter((id) => !change.seen!.includes(id));
       return {};
     }
     return {
@@ -41,7 +52,7 @@ beforeEach(() => {
       },
       defaults: { codex: "sol" },
       availability: {
-        codex: { autoEnable: true, disabled, unseen: ["luna"] },
+        codex: { autoEnable: true, disabled, unseen },
       },
     };
   });
@@ -116,4 +127,33 @@ it("locks the last model on from what is shown, while earlier saves wait", async
   fireEvent.click(box(/astra/));
   await waitFor(() => expect(box(/luna/).hasAttribute("disabled")).toBe(true));
   release();
+});
+
+it("reads the settings-only union and saves its model toggles", async () => {
+  render(<AgentModelSettings agentType="codex" />, { wrapper: wrapper() });
+  const checkbox = await screen.findByRole("checkbox", { name: /luna/ });
+  expect(api).toHaveBeenCalledWith("/api/v1/app/settings/agent-models");
+  expect(screen.getByText("New")).toBeTruthy();
+  fireEvent.click(checkbox);
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("/api/v1/app/settings/agent-models", {
+      method: "PATCH",
+      body: JSON.stringify({
+        agentType: "codex",
+        model: "luna",
+        enabled: false,
+      }),
+    })
+  );
+  fireEvent.click(screen.getByRole("checkbox", { name: /luna/ }));
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("/api/v1/app/settings/agent-models", {
+      method: "PATCH",
+      body: JSON.stringify({
+        agentType: "codex",
+        model: "luna",
+        enabled: true,
+      }),
+    })
+  );
 });

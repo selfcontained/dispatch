@@ -1,8 +1,4 @@
-import {
-  forgetLearnedAgentModels,
-  setLearnedAgentModels,
-  getAgentModelOptions,
-} from "../src/shared/agent-models.js";
+import { forgetLearnedAgentModels } from "../src/shared/agent-models.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -22,7 +18,7 @@ const catalogReply = (id: string) => ({
   }),
 });
 
-function setup(source?: "live" | "learned") {
+function setup() {
   const requestRunner = vi.fn<RemoteRunnerService["requestRunner"]>();
   let notify: ((id: string) => void) | undefined;
   const log = { warn: vi.fn(), debug: vi.fn() };
@@ -33,8 +29,7 @@ function setup(source?: "live" | "learned") {
         notify = listener;
       },
     } as unknown as RemoteRunnerService,
-    log,
-    source
+    log
   );
   return {
     requestRunner,
@@ -51,59 +46,6 @@ afterEach(() => {
 });
 
 describe("runner model catalog cache", () => {
-  it("learned mode reads each Dispatch catalog/default without any runner request", async () => {
-    const { read, transport, requestRunner } = setup("learned");
-    requestRunner.mockImplementation(async () => {
-      throw new Error("Must not start discovery");
-    });
-    const effort = [
-      { value: "high", name: "High", description: "Full engine description" },
-    ];
-    setLearnedAgentModels("codex", [{ id: "local", label: "Local" }], "local");
-    setLearnedAgentModels(
-      "codex",
-      [{ id: "alpha", label: "Alpha", effort }],
-      "alpha",
-      "alpha"
-    );
-    setLearnedAgentModels(
-      "codex",
-      [{ id: "beta", label: "Beta" }],
-      "beta",
-      "beta"
-    );
-    await expect(read("alpha", "codex")).resolves.toEqual({
-      defaultModel: "alpha",
-      models: [{ id: "alpha", label: "Alpha", effort }],
-    });
-    await expect(read("beta", "codex")).resolves.toEqual({
-      defaultModel: "beta",
-      models: [{ id: "beta", label: "Beta" }],
-    });
-    expect(
-      await transport.send("alpha", {
-        type: "model_catalog",
-        engine: "codex",
-        model: "alpha",
-      })
-    ).toMatchObject({ capability: { catalog: { models: [{ effort }] } } });
-    setLearnedAgentModels(
-      "codex",
-      [{ id: "new", label: "New" }],
-      "new",
-      "alpha"
-    );
-    await expect(read("alpha", "codex")).resolves.toEqual({
-      defaultModel: "new",
-      models: [{ id: "new", label: "New" }],
-    });
-    await expect(read("fresh", "claude")).resolves.toEqual({
-      defaultModel: null,
-      models: getAgentModelOptions("claude", "fresh"),
-    });
-    expect(requestRunner).not.toHaveBeenCalled();
-  });
-
   it("coalesces concurrent reads and expires each runner and engine independently", async () => {
     vi.useFakeTimers();
     const { read, requestRunner } = setup();

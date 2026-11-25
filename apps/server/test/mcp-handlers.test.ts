@@ -1,5 +1,8 @@
 import path from "node:path";
-import { setRunnerModelCatalogSource } from "../src/shared/agent-models.js";
+import {
+  setLearnedAgentModels,
+  forgetLearnedAgentModels,
+} from "../src/shared/agent-models.js";
 import { BUILT_IN_PERSONA_SUMMARIES } from "../src/personas/built-in.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -1409,11 +1412,12 @@ describe("createMcpHandlers", () => {
         ...(await deps.agentManager.getAgent()),
         cwd,
       });
-      const catalog = vi.fn(async () => ({
-        defaultModel: "runner-model",
-        models: [{ id: "runner-model", label: "Runner model" }],
-      }));
-      setRunnerModelCatalogSource(catalog);
+      setLearnedAgentModels(
+        "claude",
+        [{ id: "runner-model", label: "Runner model" }],
+        "runner-model",
+        "runner-test"
+      );
       try {
         await expect(
           handlers.launchAgent("agt_test1", {
@@ -1430,23 +1434,20 @@ describe("createMcpHandlers", () => {
           type: "claude",
           model: "runner-model",
         });
-        expect(catalog).toHaveBeenCalledWith("runner-test", "claude");
+
         expect(deps.agentManager.createAgent).toHaveBeenLastCalledWith(
           expect.objectContaining({ cwd, model: "runner-model" })
         );
-        // No catalog: the engine checks a well-formed id at launch, as before.
-        catalog.mockResolvedValueOnce(null as never);
-        await handlers.launchAgent("agt_test1", {
-          name: "offline",
-          prompt: "work",
-          type: "claude",
-          model: "anything-new",
-        });
-        expect(deps.agentManager.createAgent).toHaveBeenLastCalledWith(
-          expect.objectContaining({ model: "anything-new" })
-        );
+        await expect(
+          handlers.launchAgent("agt_test1", {
+            name: "offline",
+            prompt: "work",
+            type: "claude",
+            model: "anything-new",
+          })
+        ).rejects.toThrow(/not supported/);
       } finally {
-        setRunnerModelCatalogSource(null);
+        forgetLearnedAgentModels();
       }
     });
 

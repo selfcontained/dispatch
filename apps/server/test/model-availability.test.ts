@@ -1,3 +1,4 @@
+import { enrolledRunnerSettings } from "../src/runners/settings-namespace.js";
 import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -6,6 +7,7 @@ import {
   loadModelAvailability,
   recordListedModels,
   updateModelAvailability,
+  settingsModelCatalog,
 } from "../src/agents/model-availability.js";
 import { toAgentConfigOptions } from "../src/agents/usage-report.js";
 import { registerAgentUsageRoutes } from "../src/routes/agents/usage-routes.js";
@@ -17,6 +19,8 @@ import {
   describeAgentModelCatalog,
   forgetLearnedAgentModels,
   getAgentModelAvailability,
+  getReportedModelHistory,
+  selectableAgentModels,
   resolveAgentModelForUpdate,
   setLearnedAgentModels,
   validateAgentModel,
@@ -26,17 +30,35 @@ import { TemplateService } from "../src/templates/service.js";
 import type { TemplateRecord } from "../src/templates/store.js";
 
 /** The settings table, as far as getSetting and setSetting use it. */
-function settingsPool(initial: Record<string, string> = {}) {
+function settingsPool(
+  initial: Record<string, string> = {},
+  runnerIds: string[] = []
+) {
   const rows = new Map(Object.entries(initial));
+  let transaction: Map<string, string> | null = null;
   const query = vi.fn(async (sql: string, params: string[] = []) => {
-    if (sql.includes("INSERT INTO settings")) rows.set(params[0]!, params[1]!);
+    if (sql === "BEGIN") transaction = new Map(rows);
+    if (sql === "COMMIT" && transaction) {
+      rows.clear();
+      for (const [key, value] of transaction) rows.set(key, value);
+      transaction = null;
+    }
+    if (sql === "ROLLBACK") transaction = null;
+    const store = transaction ?? rows;
+    if (sql.includes("FROM runner_registrations"))
+      return { rows: runnerIds.map((id) => ({ id })) };
+    if (sql.includes("INSERT INTO settings")) store.set(params[0]!, params[1]!);
     if (sql.includes("SELECT value FROM settings")) {
-      const value = rows.get(params[0]!);
+      const value = store.get(params[0]!);
       return { rows: value === undefined ? [] : [{ value }] };
     }
     return { rows: [] };
   });
-  return { pool: { query } as never, rows, query };
+  return {
+    pool: { query, connect: async () => ({ query, release() {} }) } as never,
+    rows,
+    query,
+  };
 }
 
 const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -112,6 +134,23 @@ describe("storing the filter", () => {
     const { pool } = settingsPool({ "agent_model_availability:codex": "{no" });
     await loadModelAvailability(pool);
     expect(getAgentModelAvailability("codex").disabled).toEqual([]);
+  });
+
+  it("preserves main's old duplicate off-list bytes when a repeated list changes nothing", async () => {
+    const raw = JSON.stringify({
+      autoEnable: false,
+      disabled: ["sol", "sol"],
+      unseen: [],
+      known: ["sol", "astra"],
+    });
+    const { pool, rows } = settingsPool({
+      "agent_model_availability:codex": raw,
+    });
+    await loadModelAvailability(pool);
+    expect(await recordListedModels(pool, "codex", ["sol", "astra"])).toBe(
+      false
+    );
+    expect(rows.get("agent_model_availability:codex")).toBe(raw);
   });
 
   it("fails boot on a failed read, rather than turning everything on", async () => {
@@ -400,6 +439,92 @@ describe("settings route", () => {
     return { app, patch, publishModelsChanged };
   };
 
+  it("pins main's exact no-runner catalog and PATCH response bytes", async () => {
+    const { pool } = settingsPool();
+    const codex = ["sol", "astra", "luna", "next"].map((id) => ({
+      id,
+      label: id,
+    }));
+    setLearnedAgentModels("codex", codex, "astra");
+    setLearnedAgentModels("claude", [{ id: "c", label: "C" }], "c");
+    setLearnedAgentModels("opencode", [{ id: "o", label: "O" }], "o");
+    await recordListedModels(pool, "codex", ["sol", "astra", "luna"]);
+    await updateModelAvailability(pool, "codex", {
+      model: "sol",
+      enabled: false,
+    });
+    await updateModelAvailability(pool, "codex", { autoEnable: false });
+    await recordListedModels(pool, "codex", ["sol", "astra", "luna", "next"]);
+    const app = Fastify();
+    await registerSystemRoutes(app, {
+      pool,
+      appLog: logger,
+      slackNotifier: {},
+      engineBins: { claude: "claude", codex: "codex" },
+    } as never);
+    try {
+      expect(
+        (
+          await app.inject({
+            method: "GET",
+            url: "/api/v1/app/settings/agent-models",
+          })
+        ).body
+      ).toBe(
+        (await app.inject({ method: "GET", url: "/api/v1/agent-models" })).body
+      );
+      const availability = {
+        claude: { autoEnable: true, disabled: [], unseen: [] },
+        codex: {
+          autoEnable: false,
+          disabled: ["sol", "next"],
+          unseen: ["next"],
+        },
+        opencode: { autoEnable: true, disabled: [], unseen: [] },
+      };
+      expect(
+        (await app.inject({ method: "GET", url: "/api/v1/agent-models" })).body
+      ).toBe(
+        JSON.stringify({
+          models: {
+            codex,
+            claude: [{ id: "c", label: "C" }],
+            opencode: [{ id: "o", label: "O" }],
+          },
+          defaults: { codex: "astra", claude: "c", opencode: "o" },
+          availability,
+        })
+      );
+      expect(
+        (
+          await app.inject({
+            method: "PATCH",
+            url: "/api/v1/app/settings/agent-models",
+            payload: { agentType: "codex", autoEnable: false },
+          })
+        ).body
+      ).toBe(JSON.stringify({ availability }));
+      expect(
+        (
+          await app.inject({
+            method: "PATCH",
+            url: "/api/v1/app/settings/agent-models",
+            payload: { agentType: "codex", seen: ["next"] },
+          })
+        ).body
+      ).toBe(
+        JSON.stringify({
+          availability: {
+            ...availability,
+            codex: { ...availability.codex, unseen: [] },
+          },
+        })
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
   it("saves a change, tells open clients and serves it with the catalog", async () => {
     const { app, patch, publishModelsChanged } = await server();
     const body = { agentType: "codex", model: "sol", enabled: false };
@@ -427,5 +552,168 @@ describe("settings route", () => {
     const { app, patch } = await server();
     expect((await patch(body)).statusCode).toBe(400);
     await app.close();
+  });
+});
+
+describe("shared choices and scoped reports", () => {
+  const context = (runnerId: string) => ({
+    runnerId,
+    settings: enrolledRunnerSettings(runnerId),
+  });
+  it.each(
+    [true, false].flatMap((autoEnable) =>
+      ["local", "alpha", "beta"].map((origin) => ({ autoEnable, origin }))
+    )
+  )("applies the union truth table: %j", async ({ autoEnable, origin }) => {
+    const { pool, rows } = settingsPool({}, ["alpha", "beta"]);
+    await loadModelAvailability(pool, context("alpha"));
+    await loadModelAvailability(pool, context("beta"));
+    await recordListedModels(pool, "codex", ["base"]);
+    await recordListedModels(pool, "codex", ["base"], context("alpha"));
+    await updateModelAvailability(pool, "codex", { autoEnable });
+    const report = (id: string, models: string[]) =>
+      id === "local"
+        ? recordListedModels(pool, "codex", models)
+        : recordListedModels(pool, "codex", models, context(id));
+    const models = ["base", "new"];
+    for (const id of ["local", "alpha", "beta"])
+      setLearnedAgentModels(
+        "codex",
+        models.map((id) => ({ id, label: id })),
+        undefined,
+        id
+      );
+    await report(origin, models);
+    expect(selectableAgentModels("codex", origin).map((m) => m.id)).toEqual(
+      autoEnable ? models : ["base"]
+    );
+    expect(getAgentModelAvailability("codex").disabled).toEqual(
+      autoEnable ? [] : ["new"]
+    );
+    await updateModelAvailability(pool, "codex", {
+      model: "new",
+      enabled: true,
+    });
+    for (const id of ["local", "alpha", "beta"]) await report(id, models);
+    for (const id of ["local", "alpha", "beta"])
+      expect(selectableAgentModels("codex", id).map((m) => m.id)).toEqual(
+        models
+      );
+    await updateModelAvailability(pool, "codex", {
+      model: "new",
+      enabled: false,
+    });
+    for (const id of ["local", "alpha", "beta"]) await report(id, models);
+    for (const id of ["local", "alpha", "beta"])
+      expect(selectableAgentModels("codex", id).map((m) => m.id)).toEqual([
+        "base",
+      ]);
+    for (const key of [
+      "runner:alpha:agent_model_availability:codex",
+      "runner:beta:agent_model_availability:codex",
+    ])
+      expect(Object.keys(JSON.parse(rows.get(key)!)).sort()).toEqual([
+        "known",
+        "unseen",
+      ]);
+  });
+
+  it("applies shared auto-enable to a registered runner's first globally unknown model", async () => {
+    const { pool } = settingsPool({}, ["alpha"]);
+    await loadModelAvailability(pool, context("alpha"));
+    await updateModelAvailability(pool, "codex", { autoEnable: false });
+    await recordListedModels(pool, "codex", ["first-remote"], context("alpha"));
+    expect(getAgentModelAvailability("codex").disabled).toEqual([
+      "first-remote",
+    ]);
+    expect(getReportedModelHistory("alpha", "codex").unseen).toEqual([
+      "first-remote",
+    ]);
+  });
+
+  it("settings unions current catalogs and new markers, while local pickers keep their catalog", async () => {
+    const { pool } = settingsPool({}, ["alpha", "beta"]);
+    await loadModelAvailability(pool, context("alpha"));
+    await loadModelAvailability(pool, context("beta"));
+    await recordListedModels(pool, "codex", ["sol", "astra", "luna"]);
+    const effort = [
+      {
+        value: "high",
+        name: "High",
+        description: "Complete engine description",
+      },
+    ];
+    setLearnedAgentModels(
+      "codex",
+      [{ id: "only-alpha", label: "Only Alpha", effort }],
+      undefined,
+      "alpha"
+    );
+    setLearnedAgentModels(
+      "codex",
+      [
+        { id: "only-beta", label: "Only Beta" },
+        { id: "only-alpha", label: "Other label" },
+      ],
+      undefined,
+      "beta"
+    );
+    await recordListedModels(pool, "codex", ["only-alpha"], context("alpha"));
+    await recordListedModels(
+      pool,
+      "codex",
+      ["only-beta", "only-alpha"],
+      context("beta")
+    );
+    const app = Fastify();
+    await registerSystemRoutes(app, {
+      pool,
+      appLog: logger,
+      slackNotifier: {},
+      engineBins: { claude: "claude", codex: "codex" },
+    } as never);
+    try {
+      const get = async (url: string) =>
+        (await app.inject({ method: "GET", url })).json();
+      const union = await get("/api/v1/app/settings/agent-models");
+      expect(union.models.codex).toEqual([
+        ...agentModelCatalog().codex!,
+        { id: "only-alpha", label: "Only Alpha", effort },
+        { id: "only-beta", label: "Only Beta" },
+      ]);
+      expect(union.availability.codex.unseen).toEqual([
+        "sol",
+        "astra",
+        "luna",
+        "only-alpha",
+        "only-beta",
+      ]);
+      expect((await get("/api/v1/agent-models")).models.codex).toEqual(
+        agentModelCatalog().codex
+      );
+      const patch = (change: object) =>
+        app.inject({
+          method: "PATCH",
+          url: "/api/v1/app/settings/agent-models",
+          payload: { agentType: "codex", ...change },
+        });
+      expect(
+        (await patch({ model: "only-alpha", enabled: false })).statusCode
+      ).toBe(200);
+      expect(selectableAgentModels("codex", "alpha")).toEqual([]);
+      expect(selectableAgentModels("codex", "beta").map((m) => m.id)).toEqual([
+        "only-beta",
+      ]);
+      await patch({ model: "only-alpha", enabled: true });
+      expect(selectableAgentModels("codex", "alpha")).toHaveLength(1);
+      const seen = await patch({
+        seen: ["sol", "astra", "luna", "only-alpha", "only-beta"],
+      });
+      expect(seen.json().availability.codex.unseen).toEqual([]);
+      expect(getReportedModelHistory("alpha", "codex").unseen).toEqual([]);
+      expect(getReportedModelHistory("beta", "codex").unseen).toEqual([]);
+    } finally {
+      await app.close();
+    }
   });
 });

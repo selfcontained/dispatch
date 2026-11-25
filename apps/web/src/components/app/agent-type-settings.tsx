@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 
-import { AgentModelSettings } from "@/components/app/agent-model-settings";
+import {
+  AgentModelSettings,
+  useSettingsAgentModelCatalog,
+} from "@/components/app/agent-model-settings";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Collapsible,
@@ -10,7 +13,6 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { RowButton } from "@/components/ui/row-button";
-import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -61,7 +63,7 @@ function AgentTypeRow({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }): JSX.Element {
-  const { options, allOptions } = useAgentModelCatalog(agentType);
+  const { options, allOptions } = useSettingsAgentModelCatalog(agentType);
   const offCount = allOptions.length - options.length;
   const wasOpen = useRef(open);
   useEffect(() => {
