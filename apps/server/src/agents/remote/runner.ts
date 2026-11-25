@@ -556,6 +556,7 @@ export async function runRemoteRunner(
       passwdShell === "/usr/sbin/nologin"
   );
   const engineExecutor = new EngineRunnerExecutor({
+    hostCommand: self("runner-engine-host"),
     bundledRuntime: process.versions.bun ? process.execPath : undefined,
     uid: config.uid,
     gid: config.gid,
@@ -569,6 +570,8 @@ export async function runRemoteRunner(
       },
     },
   });
+  const closeEngines = () => engineExecutor.close();
+  process.once("exit", closeEngines);
   // Hosts and catalog reads take an adapter override only through their bins.
   const [adapterBin, ...adapterArgs] = config.adapter ?? [];
   const bins: HostLaunch["bins"] = adapterBin
@@ -927,7 +930,19 @@ export async function runRemoteRunner(
         flushed?.();
       };
       function admitted(id: string, command: Command) {
-        if (FENCE_EXEMPT.has(command.kind)) return () => {};
+        if (
+          FENCE_EXEMPT.has(command.kind) ||
+          (command.kind === "engine" &&
+            command.operation.type === "contract" &&
+            [
+              "engine.list",
+              "engine.login.status",
+              "engine.operation",
+              "engine.update.inspect",
+              "engine.update.probe",
+            ].includes(command.operation.call.op))
+        )
+          return () => {};
         const ticket = admission.admit(runnerReplyTimeoutMs(command));
         if (!ticket) return null;
         let settled = false;
@@ -1007,7 +1022,11 @@ export async function runRemoteRunner(
             }
           );
           safeSend({ type: "result", id, value: JSON.stringify(ack) });
-          if (command.operation.type !== "status") void reportEngineInventory();
+          if (
+            command.operation.type !== "status" &&
+            command.operation.type !== "contract"
+          )
+            void reportEngineInventory();
           return;
         }
         if (command.kind === "github") {
@@ -2118,6 +2137,8 @@ export async function runRemoteRunner(
       });
     }).catch((error) => {
       supervisor.close();
+      process.removeListener("exit", closeEngines);
+      engineExecutor.close();
       throw error;
     });
     await new Promise((resolve) => setTimeout(resolve, nextDelay(connectedMs)));

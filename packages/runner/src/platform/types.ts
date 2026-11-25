@@ -93,6 +93,20 @@ export interface Platform {
  * it lands in the configuration its agents read.
  */
 export interface EnginePort {
+  updateInspect(
+    request: Req<"engine.update.inspect">
+  ): Promise<Res<"engine.update.inspect">>;
+  updateSpawn(
+    request: Req<"engine.update.spawn">
+  ): Promise<Res<"engine.update.spawn">>;
+  updateRelease(
+    request: Req<"engine.update.release">
+  ): Promise<Res<"engine.update.release">>;
+  updateProbe(
+    request: Req<"engine.update.probe">
+  ): Promise<Res<"engine.update.probe">>;
+  operation(request: Req<"engine.operation">): Promise<Res<"engine.operation">>;
+
   pluginStatus(
     request: Req<"engine.plugin.status">
   ): Promise<Res<"engine.plugin.status">>;

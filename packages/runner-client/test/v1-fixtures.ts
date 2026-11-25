@@ -50,6 +50,78 @@ const diffFile = {
 };
 
 export const results: ResultFixture[] = [
+  // Additive current-runner calls use the existing authenticated engine envelope.
+  ...[
+    {
+      op: "engine.update.inspect",
+      request: { engine: "codex" },
+      result: {
+        realPath: null,
+        source: "unknown",
+        canUpdate: false,
+        reason: "manual",
+        command: "fixture",
+        latestKey: "unknown:fixture",
+        target: "fixture",
+      },
+    },
+    {
+      op: "engine.update.spawn",
+      request: {
+        requestId: "fixture",
+        command: { executable: "fixture", args: [] },
+        timeoutMs: 1000,
+      },
+      result: { operationId: "fixture", pid: 123 },
+    },
+    {
+      op: "engine.update.release",
+      request: { operationId: "fixture" },
+      result: {},
+    },
+    {
+      op: "engine.update.probe",
+      request: { pids: [123] },
+      result: { alive: [false], version: null },
+    },
+    {
+      op: "engine.operation",
+      request: { operationId: "fixture" },
+      result: {
+        type: "operation_state",
+        operationId: "fixture",
+        running: false,
+        output: "fixture",
+        outputOffset: 7,
+        result: { exitCode: 0, stdout: "fixture", stderr: "" },
+      },
+    },
+    {
+      op: "engine.plugin.apply",
+      request: {
+        engine: "codex",
+        plugin: "dispatch@dispatch",
+        action: "update",
+        requestId: "fixture",
+      },
+      result: {
+        agentType: "codex",
+        installed: false,
+        enabled: false,
+        currentVersion: null,
+        latestVersion: null,
+        updateAvailable: false,
+        actions: ["install"],
+        detectionError: "fixture probe detail",
+        error: "fixture curated failure",
+        ranCommands: ["plugin marketplace upgrade dispatch --json"],
+        probeFailed: true,
+      },
+    },
+  ].map(({ op, request, result }) => ({
+    command: engine({ type: "contract", call: { op, request } }),
+    value: json({ ok: true, result }),
+  })),
   {
     command: s("sessionObservation", {
       operation: { op: "session.list", request: { owner: null } },

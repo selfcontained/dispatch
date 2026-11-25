@@ -16,6 +16,11 @@ const waiting = { ...starting, status: "waiting" as const, url: "https://x" };
 
 function port(overrides: Partial<EnginePort> = {}): EnginePort {
   return {
+    updateInspect: vi.fn(),
+    updateSpawn: vi.fn(),
+    updateRelease: vi.fn(),
+    updateProbe: vi.fn(),
+    operation: vi.fn(),
     pluginStatus: vi.fn(),
     pluginApply: vi.fn(),
     list: vi.fn(async () => ({ entries: [] })),
@@ -111,6 +116,14 @@ describe("the core's engine inventory and sign-in", () => {
     expect(engineHandlers({ workload })).toEqual({});
     expect(SERVED_WHILE_FROZEN.has("engine.list")).toBe(true);
     expect(SERVED_WHILE_FROZEN.has("engine.login.status")).toBe(true);
+    for (const op of [
+      "engine.operation",
+      "engine.update.inspect",
+      "engine.update.probe",
+    ])
+      expect(SERVED_WHILE_FROZEN.has(op)).toBe(true);
+    expect(SERVED_WHILE_FROZEN.has("engine.update.spawn")).toBe(false);
+    expect(SERVED_WHILE_FROZEN.has("engine.update.release")).toBe(false);
     expect(SERVED_WHILE_FROZEN.has("engine.login.start")).toBe(false);
   });
 });

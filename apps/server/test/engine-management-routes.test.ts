@@ -1,11 +1,27 @@
+import { fixtureEngineActions } from "./helpers/engine-actions.js";
 import Fastify from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { registerEngineManagementRoutes } from "../src/routes/engine-management.js";
 import {
-  EngineManager,
+  EngineManager as ActualEngineManager,
   type RunnerEngineTransport,
 } from "../src/agents/remote/engine-manager.js";
+
+// T29 actions are supplied separately from legacy inventory/sign-in fixture transport.
+class EngineManager extends ActualEngineManager {
+  constructor(
+    deps: Omit<
+      ConstructorParameters<typeof ActualEngineManager>[0],
+      "engineActions"
+    >
+  ) {
+    super({
+      ...deps,
+      engineActions: fixtureEngineActions(deps),
+    });
+  }
+}
 import type { EngineCalls } from "../src/runners/local.js";
 import type { EngineUpdateOperations } from "../src/agents/engine-updates.js";
 import type { AgentRecord } from "@dispatch/shared";

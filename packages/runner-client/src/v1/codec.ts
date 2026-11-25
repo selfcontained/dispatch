@@ -30,6 +30,7 @@ import {
 import type {
   EngineOperation,
   EngineOperationAck,
+  EngineHostCall,
 } from "@dispatch/runner-protocol/engine-management";
 import {
   operations,
@@ -362,9 +363,14 @@ const ENGINE_OPS = {
   plugin_status: "engine.plugin.status",
   plugin_install: "engine.plugin.apply",
   plugin_update: "engine.plugin.apply",
-} as const satisfies Record<EngineOperation["type"], OpName>;
+} as const satisfies Record<
+  Exclude<EngineOperation["type"], "contract">,
+  OpName
+>;
 
 function decodeEngine(o: EngineOperation, frameId: string): Decoded {
+  if (o.type === "contract")
+    return decoded(o.call.op, o.call.request, { engineContract: true });
   const op = ENGINE_OPS[o.type];
   switch (o.type) {
     case "status":
@@ -740,7 +746,17 @@ export function encodeCommand(input: Decoded | LegacyCommand): Command {
     return {
       ...base(extras.agentId as string),
       kind: "engine",
-      operation: encodeEngine(op, r, absent),
+      operation:
+        extras.engineContract ||
+        [
+          "engine.update.inspect",
+          "engine.update.spawn",
+          "engine.update.release",
+          "engine.update.probe",
+          "engine.operation",
+        ].includes(op)
+          ? { type: "contract", call: { op, request: r } as EngineHostCall }
+          : encodeEngine(op, r, absent),
     };
   if (op.startsWith("github."))
     return {
@@ -1163,6 +1179,17 @@ export function decodeResult<K extends OpName>(
   if (op.startsWith("engine.")) {
     const ack = parse(value) as EngineOperationAck;
     if (!ack.ok) ackError(ack);
+    if (
+      input.extras.engineContract ||
+      [
+        "engine.update.inspect",
+        "engine.update.spawn",
+        "engine.update.release",
+        "engine.update.probe",
+        "engine.operation",
+      ].includes(op)
+    )
+      return out(ack.result);
     switch (op) {
       case "engine.list": {
         const inventory = events.find(
@@ -1312,6 +1339,17 @@ export function encodeResult<K extends OpName>(
       return JSON.stringify({ data: response });
   }
   if (op.startsWith("engine.")) {
+    if (
+      input.extras.engineContract ||
+      [
+        "engine.update.inspect",
+        "engine.update.spawn",
+        "engine.update.release",
+        "engine.update.probe",
+        "engine.operation",
+      ].includes(op)
+    )
+      return JSON.stringify({ ok: true, result: response });
     switch (op) {
       case "engine.list":
         return JSON.stringify({ ok: true });
@@ -1440,6 +1478,5 @@ export const NOT_ON_V1 = {
   "runner.health": "v1 pushes health frames after accept_health",
   "path.resolve": "controller-machine probe today (D7)",
   "path.complete": "controller-machine probe today (D7)",
-  "engine.operation": "no lookup by operation ID on either side",
   "port.connect": "missing from both (D6)",
 } as const satisfies Partial<Record<OpName, string>>;

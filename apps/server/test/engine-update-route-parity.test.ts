@@ -41,6 +41,20 @@ describe("main engine update HTTP parity", () => {
       { id: "codex", update: { canUpdate: true } },
     ]);
     await registerSystemRoutes(app, {
+      runnerEngines: () => ({
+        engineUpdates: { read, start },
+        engineCalls: {
+          call: async (op: string) => {
+            if (op === "engine.list") return { entries: [{ id: "codex" }] };
+            return {
+              status: {
+                id: "codex",
+                update: { canUpdate: true, reason: "target fixture" },
+              },
+            };
+          },
+        },
+      }),
       appLog: app.log,
       engineBins: bins,
       engineUpdates: { read, start },
@@ -124,4 +138,32 @@ describe("main engine update HTTP parity", () => {
       }
     }
   );
+  it("uses the same GET and 202 operation envelopes on a runner-keyed alias", async () => {
+    const { app, operation, start, bins } = await fixture();
+    try {
+      const read = await app.inject({
+        method: "GET",
+        url: "/api/v1/runners/fixture-runner/engines",
+      });
+      expect(read.statusCode).toBe(200);
+      expect(read.json()).toEqual({
+        canManage: true,
+        engines: [
+          {
+            id: "codex",
+            update: { canUpdate: true, reason: "target fixture", operation },
+          },
+        ],
+      });
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/runners/fixture-runner/engines/codex/update",
+      });
+      expect(response.statusCode).toBe(202);
+      expect(response.json()).toEqual({ operation });
+      expect(start).toHaveBeenCalledExactlyOnceWith("codex", bins);
+    } finally {
+      await app.close();
+    }
+  });
 });

@@ -13,6 +13,7 @@ import {
   number,
   object,
   optional,
+  record,
   string,
   union,
   type Infer,
@@ -202,6 +203,76 @@ export const engineComplete = object({
   engine: string,
   success: boolean,
   message: string,
+});
+/** Host execution beneath Dispatch's durable update coordinator. */
+export const engineUpdateCommand = object({
+  executable: string,
+  args: array(string),
+  env: optional(record(string)),
+});
+export const engineStatusView = object({
+  id: literal("claude", "codex", "opencode"),
+  label: string,
+  installed: boolean,
+  path: nullable(string),
+  version: nullable(string),
+  install: string,
+  update: object({
+    realPath: nullable(string),
+    probePath: optional(string),
+    source: literal(
+      "native",
+      "npm",
+      "homebrew-formula",
+      "homebrew-cask",
+      "unknown"
+    ),
+    packageChannel: optional(string),
+    migrationWarning: optional(string),
+    canUpdate: boolean,
+    reason: string,
+    command: string,
+    latestVersion: nullable(string),
+    latestPending: boolean,
+    available: boolean,
+  }),
+});
+export const engineInstallation = object({
+  status: optional(engineStatusView),
+  realPath: nullable(string),
+  probePath: optional(string),
+  source: literal(
+    "native",
+    "npm",
+    "homebrew-formula",
+    "homebrew-cask",
+    "unknown"
+  ),
+  packageChannel: optional(string),
+  migrationWarning: optional(string),
+  canUpdate: boolean,
+  reason: string,
+  command: string,
+  latestKey: string,
+  target: string,
+  run: optional(
+    object({
+      executable: string,
+      args: array(string),
+      env: optional(record(string)),
+      refresh: optional(engineUpdateCommand),
+    })
+  ),
+});
+export const engineOperationState = object({
+  type: literal("operation_state"),
+  operationId: string,
+  pid: optional(integer),
+  running: boolean,
+  output: string,
+  outputOffset: integer,
+  error: optional(string),
+  result: optional(commandResult),
 });
 export const engineChoice = object({ value: string, name: string });
 export const engineModels = object({

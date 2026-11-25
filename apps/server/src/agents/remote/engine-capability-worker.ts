@@ -1,3 +1,13 @@
+import { createInterface } from "node:readline";
+import {
+  RunnerCallError,
+  operations,
+} from "@dispatch/runner-protocol/contract";
+import { isEngineHostCall } from "@dispatch/runner-protocol/engine-management";
+import {
+  localEngineWorkload,
+  type ManagedCommand,
+} from "./engine-runner-executor.js";
 import { spawn } from "node:child_process";
 import { Readable, Writable } from "node:stream";
 
@@ -245,4 +255,95 @@ export async function runEngineCapabilityWorker(): Promise<void> {
     // Adapter stderr, local paths and provider bodies stay on the workload.
   }
   process.stdout.write(JSON.stringify(ack));
+}
+
+/** Persistent workload port: gates and plugin TTLs span request connections. */
+export async function runEngineHostWorker(): Promise<void> {
+  const bins = { claude: "claude", codex: "codex", opencode: "opencode" };
+  const updates: Partial<
+    Record<"claude" | "codex" | "opencode", ManagedCommand>
+  > = {};
+  const installs: Partial<
+    Record<"claude" | "codex" | "opencode", ManagedCommand>
+  > = {};
+  const port = localEngineWorkload(bins, { updates, installs });
+  const lines = createInterface({ input: process.stdin });
+  lines.on("line", (line) => {
+    void (async () => {
+      const message = JSON.parse(line);
+      const call: unknown = message.call;
+      if (!Number.isSafeInteger(message.id) || !isEngineHostCall(call))
+        throw new Error("Invalid engine host call.");
+      Object.assign(bins, message.bins);
+      for (const engine of ["claude", "codex", "opencode"] as const) {
+        delete updates[engine];
+        delete installs[engine];
+      }
+      Object.assign(updates, message.updates);
+      Object.assign(installs, message.installs);
+      const { op, request } = call;
+      try {
+        let data;
+        switch (op) {
+          case "engine.list":
+            data = await port.list(request);
+            break;
+          case "engine.login.start":
+            data = await port.loginStart(request);
+            break;
+          case "engine.login.submit":
+            data = await port.loginSubmit(
+              request as { loginId: string; code: string }
+            );
+            break;
+          case "engine.login.status":
+            data = await port.loginStatus(request as { loginId: string });
+            break;
+          case "engine.login.cancel":
+            data = await port.loginCancel(request as { loginId: string });
+            break;
+          case "engine.update.inspect":
+            data = await port.updateInspect(request);
+            break;
+          case "engine.update.spawn":
+            data = await port.updateSpawn(request);
+            break;
+          case "engine.update.release":
+            data = await port.updateRelease(request);
+            break;
+          case "engine.update.probe":
+            data = await port.updateProbe(request);
+            break;
+          case "engine.operation":
+            data = await port.operation(request);
+            break;
+          case "engine.plugin.status":
+            data = await port.pluginStatus(request);
+            break;
+          case "engine.plugin.apply":
+            data = await port.pluginApply(request);
+            break;
+        }
+        if (!operations[op].response.check(data))
+          throw new Error("Invalid engine host result.");
+        process.stdout.write(JSON.stringify({ id: message.id, data }) + "\n");
+      } catch (error) {
+        process.stdout.write(
+          JSON.stringify({
+            id: message.id,
+            error:
+              error instanceof RunnerCallError
+                ? { code: error.code, message: error.message }
+                : { code: "failed", message: String(error) },
+          }) + "\n"
+        );
+      }
+    })().catch(() => {
+      process.exitCode = 1;
+      lines.close();
+      process.stdin.destroy();
+    });
+  });
+  await new Promise<void>((resolve) => lines.on("close", resolve));
+  port.close();
 }

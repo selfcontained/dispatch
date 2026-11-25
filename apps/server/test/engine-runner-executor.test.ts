@@ -10,7 +10,43 @@ import path from "node:path";
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import { EngineRunnerExecutor } from "../src/agents/remote/engine-runner-executor.js";
+import { EngineRunnerExecutor as ActualEngineRunnerExecutor } from "../src/agents/remote/engine-runner-executor.js";
+
+// Existing legacy tests inject a manual/detected plan; the persistent workload
+// process is exercised separately without a real privilege drop or engine.
+class EngineRunnerExecutor extends ActualEngineRunnerExecutor {
+  constructor(
+    config: ConstructorParameters<typeof ActualEngineRunnerExecutor>[0]
+  ) {
+    let executor: ActualEngineRunnerExecutor;
+    super({
+      ...config,
+      hostCall:
+        config.hostCall ??
+        (async (op, request) => {
+          if (op !== "engine.update.inspect")
+            throw new Error(`Unexpected fixture host call ${op}`);
+          const engine = (
+            request as { engine: "claude" | "codex" | "opencode" }
+          ).engine;
+          const bin = await executor.resolveBin(engine);
+          const cfg = config.engines[engine];
+          return {
+            realPath: bin,
+            probePath: bin ?? undefined,
+            source: "unknown",
+            canUpdate: Boolean(cfg?.update && bin === cfg.bin),
+            reason: "Fixture manual update",
+            command: "fixture",
+            latestKey: "unknown:fixture",
+            target: bin ?? engine,
+            ...(cfg?.update && { run: cfg.update }),
+          } as never;
+        }),
+    });
+    executor = this;
+  }
+}
 
 // No real `setpriv` in CI; the executor's `wrap` seam is exercised with a
 // pass-through that proves the production code *calls* it for every spawn,

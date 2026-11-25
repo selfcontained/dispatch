@@ -1,8 +1,10 @@
+import { scopedEngineCalls } from "../src/runners/local.js";
 import { Duplex } from "node:stream";
 import type { EngineInventoryEntry } from "@dispatch/runner-protocol/engine-management";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { EngineManager } from "../src/agents/remote/engine-manager.js";
+
 import { remoteEngineTransport } from "../src/agents/remote/engine-transport.js";
 import { RemoteRunnerService } from "../src/agents/remote/service.js";
 
@@ -25,6 +27,7 @@ afterEach(() => {
 function world() {
   const service = new RemoteRunnerService();
   let approved = true;
+  const requests: any[] = [];
   function connect({ fenced = false } = {}) {
     const socket = Object.assign(
       new Duplex({
@@ -33,6 +36,24 @@ function world() {
           done();
           for (const line of String(chunk).trim().split("\n")) {
             const frame = JSON.parse(line);
+            if (frame.type === "request") requests.push(frame.command);
+            if (frame.type === "request" && !fenced) {
+              const operation = frame.command.operation;
+              const result =
+                operation.type === "contract" &&
+                operation.call.op === "engine.update.probe"
+                  ? { alive: [false], version: "1.2.3" }
+                  : { entries: [claude] };
+              send({
+                type: "result",
+                id: frame.id,
+                value: JSON.stringify(
+                  operation.type === "contract"
+                    ? { ok: true, result }
+                    : { ok: true }
+                ),
+              });
+            }
             if (frame.type === "request" && fenced)
               send({
                 type: "result",
@@ -66,7 +87,11 @@ function world() {
     };
   }
   const manager = new EngineManager({
-    local: { logins: {} as never, updates: {} as never },
+    engineActions: {
+      calls: (target) => scopedEngineCalls({} as never, service, target),
+      updates: () => ({}) as never,
+    },
+    local: { engines: {} as never, updates: {} as never },
     remote: remoteEngineTransport(service),
   });
   const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
@@ -74,7 +99,7 @@ function world() {
     await settle();
     return manager.inventory(scope);
   };
-  return { connect, read, revoke: () => (approved = false) };
+  return { service, requests, connect, read, revoke: () => (approved = false) };
 }
 
 describe("a runner's engines across its update", () => {
@@ -117,5 +142,35 @@ describe("a runner's engines across its update", () => {
     await read();
     revoke();
     expect(await read()).toBeNull();
+  });
+  it("carries typed engine calls over the existing request envelope and retains legacy commands", async () => {
+    const { service, requests, connect } = world();
+    connect();
+    await vi.waitFor(() =>
+      expect(service.connectionEpoch(scope.runnerId)).not.toBeUndefined()
+    );
+    expect(
+      await service.callEngine(scope.runnerId, "engine.update.probe", {
+        pids: [123],
+      })
+    ).toEqual({ alive: [false], version: "1.2.3" });
+    expect(requests.at(-1)).toMatchObject({
+      kind: "engine",
+      operation: {
+        type: "contract",
+        call: { op: "engine.update.probe", request: { pids: [123] } },
+      },
+    });
+    const legacy = await service.requestRunner(scope.runnerId, {
+      kind: "engine",
+      operation: { type: "status" },
+    });
+    legacy.channel?.destroy();
+    expect(JSON.parse(legacy.value as string)).toEqual({ ok: true });
+    expect(requests.at(-1)).toMatchObject({
+      kind: "engine",
+      operation: { type: "status" },
+    });
+    expect(Object.keys(requests.at(-1).operation)).toEqual(["type"]);
   });
 });

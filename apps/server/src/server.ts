@@ -1,3 +1,7 @@
+import {
+  engineScopeKey,
+  type EngineScope,
+} from "@dispatch/runner-protocol/engine-management";
 import { launchPersonaScope } from "./personas/persona-scope.js";
 import { localLaunchSettings } from "./agents/acp/launch-env.js";
 import {
@@ -7,6 +11,8 @@ import {
 } from "./runners/placement.js";
 import { runnerDirectory } from "./runners/directory.js";
 import {
+  scopedEngineCalls,
+  engineScopeForRunner,
   inProcessEngines,
   localEngineCalls,
   localRunnerOf,
@@ -179,6 +185,7 @@ import { registerSystemRoutes } from "./routes/system.js";
 import { registerEngineLoginRoutes } from "./routes/engine-login.js";
 import { registerEngineManagementRoutes } from "./routes/engine-management.js";
 import {
+  engineUpdatePort,
   EngineUpdateOperations,
   engineOperationStore,
 } from "./agents/engine-updates.js";
@@ -1239,10 +1246,55 @@ async function registerRoutes() {
   });
   app.addHook("onClose", async () => localEnginesInProcess.close());
   const engineUpdates = new EngineUpdateOperations(engineOperationStore(pool), {
+    ...engineUpdatePort(
+      localEngineCalls(
+        () => localRunnerOf(localRunnerProcess),
+        localEnginesInProcess
+      )
+    ),
     onError: (error) =>
       app.log.error({ err: error }, "Engine update persistence failed"),
   });
+  const engineCalls = (scope: EngineScope) =>
+    scopedEngineCalls(
+      localEngineCalls(
+        () => localRunnerOf(localRunnerProcess),
+        localEnginesInProcess
+      ),
+      remoteRunner,
+      scope
+    );
+  const updateCoordinators = new Map<string, EngineUpdateOperations>([
+    ["local", engineUpdates],
+  ]);
+  const updatesFor = (scope: EngineScope) => {
+    const key = engineScopeKey(scope);
+    let coordinator = updateCoordinators.get(key);
+    if (!coordinator) {
+      coordinator = new EngineUpdateOperations(
+        engineOperationStore(pool, key),
+        {
+          ...engineUpdatePort(engineCalls(scope)),
+          onError: (error) =>
+            app.log.error({ err: error }, "Engine update persistence failed"),
+        }
+      );
+      updateCoordinators.set(key, coordinator);
+    }
+    return coordinator;
+  };
   await registerSystemRoutes(app, {
+    runnerEngines: (runnerId) => {
+      const scope = engineScopeForRunner(runnerId);
+      return {
+        engineCalls: engineCalls(scope),
+        engineUpdates: updatesFor(scope),
+      };
+    },
+    engineCalls: localEngineCalls(
+      () => localRunnerOf(localRunnerProcess),
+      localEnginesInProcess
+    ),
     localEngines,
     engineUpdates,
     runnerBranches: remoteRunner?.listRepositoryBranches.bind(remoteRunner),
@@ -1280,6 +1332,7 @@ async function registerRoutes() {
     },
   });
   const engineManager = new EngineManager({
+    engineActions: { calls: engineCalls, updates: updatesFor },
     local: {
       engines: localEngineCalls(
         () => localRunnerOf(localRunnerProcess),
@@ -1349,6 +1402,8 @@ async function registerRoutes() {
   });
 
   await registerPluginRoutes(app, {
+    runnerPlugins: (runnerId) =>
+      runnerPluginChecker(engineCalls(engineScopeForRunner(runnerId))),
     pool,
     plugins: runnerPluginChecker(
       localEngineCalls(

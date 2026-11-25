@@ -1,3 +1,4 @@
+import { fixtureEngineActions } from "./helpers/engine-actions.js";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -23,7 +24,22 @@ import {
   parseLoginOutput,
 } from "../src/agents/engine-login.js";
 import { registerEngineLoginRoutes } from "../src/routes/engine-login.js";
-import { EngineManager } from "../src/agents/remote/engine-manager.js";
+import { EngineManager as ActualEngineManager } from "../src/agents/remote/engine-manager.js";
+
+// T29 actions are supplied separately from legacy inventory/sign-in fixture transport.
+class EngineManager extends ActualEngineManager {
+  constructor(
+    deps: Omit<
+      ConstructorParameters<typeof ActualEngineManager>[0],
+      "engineActions"
+    >
+  ) {
+    super({
+      ...deps,
+      engineActions: fixtureEngineActions(deps),
+    });
+  }
+}
 import { localEngineWorkload } from "../src/agents/remote/engine-runner-executor.js";
 import { localEngineCalls } from "../src/runners/local.js";
 

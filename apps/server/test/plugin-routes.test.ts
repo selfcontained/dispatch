@@ -190,3 +190,61 @@ describe("main plugin route parity", () => {
     }
   });
 });
+
+describe("runner-keyed plugin aliases", () => {
+  it("uses the target checker with main's full failure response", async () => {
+    const app = Fastify();
+    mocks.enabled.mockResolvedValue(["codex"]);
+    const status = {
+      agentType: "codex" as const,
+      installed: false,
+      enabled: false,
+      currentVersion: null,
+      latestVersion: null,
+      updateAvailable: false,
+      detectionError: "Fixture remote probe detail",
+    };
+    const result = {
+      status,
+      error: "Fixture curated failure",
+      ranCommands: ["plugin marketplace upgrade dispatch --json"],
+      probeFailed: true,
+    };
+    const remote = {
+      getStatus: vi.fn(async () => status),
+      update: vi.fn(async () => result),
+      install: vi.fn(async () => result),
+    };
+    const runnerPlugins = vi.fn(() => remote);
+    try {
+      await registerPluginRoutes(app, {
+        pool: {} as Pool,
+        plugins: pluginsForTest({}),
+        runnerPlugins,
+      });
+      const read = await app.inject({
+        method: "GET",
+        url: "/api/v1/runners/fixture-runner/plugin/status?refresh=1",
+      });
+      expect(read.statusCode).toBe(200);
+      expect(read.json()).toEqual({ statuses: [status] });
+      expect(remote.getStatus).toHaveBeenCalledWith("codex", {
+        forceRefresh: true,
+      });
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/runners/fixture-runner/plugin/update",
+        payload: { agentType: "codex" },
+      });
+      expect(response.statusCode).toBe(502);
+      expect(response.json()).toEqual({
+        error: result.error,
+        ranCommands: result.ranCommands,
+        status,
+      });
+      expect(runnerPlugins).toHaveBeenCalledWith("fixture-runner");
+    } finally {
+      await app.close();
+    }
+  });
+});

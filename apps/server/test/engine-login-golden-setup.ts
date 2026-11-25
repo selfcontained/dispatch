@@ -1,3 +1,4 @@
+import { fixtureEngineActions } from "./helpers/engine-actions.js";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,7 +16,22 @@ import { engineHandlers } from "../../../packages/runner/src/core/engines.js";
 import type { Platform } from "../../../packages/runner/src/platform/types.js";
 
 import { localEngineWorkload } from "../src/agents/remote/engine-runner-executor.js";
-import { EngineManager } from "../src/agents/remote/engine-manager.js";
+import { EngineManager as ActualEngineManager } from "../src/agents/remote/engine-manager.js";
+
+// T29 actions are supplied separately from legacy inventory/sign-in fixture transport.
+class EngineManager extends ActualEngineManager {
+  constructor(
+    deps: Omit<
+      ConstructorParameters<typeof ActualEngineManager>[0],
+      "engineActions"
+    >
+  ) {
+    super({
+      ...deps,
+      engineActions: fixtureEngineActions(deps),
+    });
+  }
+}
 import type { EngineUpdateOperations } from "../src/agents/engine-updates.js";
 import {
   localEngineCalls,
@@ -38,6 +54,11 @@ function untouchable(): InProcessEngines {
     });
   };
   return {
+    updateInspect: fail,
+    updateSpawn: fail,
+    updateRelease: fail,
+    updateProbe: fail,
+    operation: fail,
     pluginStatus: fail,
     pluginApply: fail,
     list: fail,

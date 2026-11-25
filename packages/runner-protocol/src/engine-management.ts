@@ -1,3 +1,9 @@
+import {
+  operations,
+  type Req,
+  type Json,
+  type RunnerError,
+} from "./contract/index.js";
 import type { RunnerEngine } from "./execution.js";
 import { isRecord } from "./validation.js";
 
@@ -103,6 +109,8 @@ export type EngineProviderUsage = {
 };
 
 export type EnginePluginStatus = {
+  agentType?: "claude" | "codex";
+  detectionError?: string;
   installed: boolean;
   enabled: boolean;
   currentVersion: string | null;
@@ -130,8 +138,37 @@ export function isEngineCapabilityOperation(
   );
 }
 
+/** Current engine calls use the existing authenticated engine request envelope. */
+export const ENGINE_HOST_CALLS = [
+  "engine.list",
+  "engine.login.start",
+  "engine.login.submit",
+  "engine.login.status",
+  "engine.login.cancel",
+  "engine.update.inspect",
+  "engine.update.spawn",
+  "engine.update.release",
+  "engine.update.probe",
+  "engine.operation",
+  "engine.plugin.status",
+  "engine.plugin.apply",
+] as const;
+export type EngineHostCallName = (typeof ENGINE_HOST_CALLS)[number];
+export type EngineHostCall = {
+  [K in EngineHostCallName]: { op: K; request: Req<K> };
+}[EngineHostCallName];
+export function isEngineHostCall(value: unknown): value is EngineHostCall {
+  return (
+    isRecord(value) &&
+    typeof value.op === "string" &&
+    (ENGINE_HOST_CALLS as readonly string[]).includes(value.op) &&
+    operations[value.op as EngineHostCallName].request.check(value.request)
+  );
+}
+
 export type EngineOperation =
   | EngineCapabilityOperation
+  | { type: "contract"; call: EngineHostCall }
   | { type: "status" }
   | { type: "install"; engine: RunnerEngine }
   | { type: "update"; engine: RunnerEngine }
@@ -174,6 +211,9 @@ export type EngineOperationEvent =
 export type EngineOperationAck =
   | {
       ok: true;
+      result?: Json;
+      ranCommands?: string[];
+      probeFailed?: boolean;
       operationId?: string;
       capability?: EngineCapabilityResult;
       login?: EngineLoginView;
@@ -183,6 +223,10 @@ export type EngineOperationAck =
   | {
       ok: false;
       error: string;
+      failure?: RunnerError;
+      status?: EnginePluginStatus;
+      ranCommands?: string[];
+      probeFailed?: boolean;
       unsupported?: boolean;
       reason?: "account_changed";
     };
@@ -214,6 +258,8 @@ export function isRunnerEngine(value: unknown): value is RunnerEngine {
 export function isEngineOperation(value: unknown): value is EngineOperation {
   if (!isRecord(value)) return false;
   switch (value.type) {
+    case "contract":
+      return isEngineHostCall(value.call);
     case "status":
     case "provider_usage":
       return true;

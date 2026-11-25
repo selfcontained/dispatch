@@ -1,4 +1,9 @@
 import {
+  inProcessEngines,
+  localEngineCalls,
+  type EngineCalls,
+} from "../runners/local.js";
+import {
   completeLocalPath,
   inspectLocalPath,
   listLocalRemoteBranches,
@@ -40,10 +45,6 @@ import {
 } from "../agents/local-runner-engine.js";
 import { agentModelAvailability } from "../shared/agent-models.js";
 import {
-  engineStatuses,
-  withEngineVersions,
-} from "../agents/engine-availability.js";
-import {
   getWorktreeLocation,
   isWorktreeLocation,
   WORKTREE_LOCATION_KEY,
@@ -58,7 +59,8 @@ import {
 import {
   EngineUpdateOperations,
   engineOperationStore,
-  withEngineUpdates,
+  engineUpdatePort,
+  runnerEngineStatuses,
 } from "../agents/engine-updates.js";
 import { ACP_ENGINE_IDS, type AcpEngineId } from "../agents/acp/engine-spec.js";
 
@@ -84,6 +86,11 @@ const ModelAvailabilityBodySchema = z.union([
 ]);
 
 type SystemRouteDeps = {
+  engineCalls?: EngineCalls;
+  runnerEngines?: (runnerId: string) => {
+    engineCalls: EngineCalls;
+    engineUpdates: EngineUpdateOperations;
+  };
   localEngines?: Pick<LocalEngineRunner, "readModelCatalog">;
   runnerBranches?: (
     runner: string,
@@ -172,52 +179,79 @@ export async function registerSystemRoutes(
     };
   });
 
+  const engines =
+    deps.engineCalls ??
+    localEngineCalls(
+      () => undefined,
+      inProcessEngines(
+        deps.engineBins && {
+          claudeBin: deps.engineBins.claude,
+          codexBin: deps.engineBins.codex,
+          opencodeBin: deps.engineBins.opencode,
+        }
+      )
+    );
   const engineUpdates =
     deps.engineUpdates ??
     new EngineUpdateOperations(engineOperationStore(deps.pool), {
+      ...engineUpdatePort(engines),
       onError: (error) =>
         deps.appLog.error({ err: error }, "Engine update persistence failed"),
     });
-  app.get("/api/v1/system/engines", async (request) => {
-    const operations = await engineUpdates.read();
-    return {
-      canManage: (await deps.canManageEngineUpdates?.(request)) ?? false,
-      engines: await withEngineUpdates(
-        await withEngineVersions(await engineStatuses(deps.engineBins))
-      ).then((engines) =>
-        engines.map((engine) => ({
+  const mountEngineRoutes = (
+    prefix: string,
+    resolve: (request: FastifyRequest) => {
+      engineCalls: EngineCalls;
+      engineUpdates: EngineUpdateOperations;
+    }
+  ) => {
+    app.get(`${prefix}/engines`, async (request) => {
+      const { engineCalls: targetEngines, engineUpdates: targetUpdates } =
+        resolve(request);
+      const operations = await targetUpdates.read();
+      return {
+        canManage: (await deps.canManageEngineUpdates?.(request)) ?? false,
+        engines: (await runnerEngineStatuses(targetEngines)).map((engine) => ({
           ...engine,
           update: {
             ...engine.update,
             operation: operations[engine.id] ?? null,
           },
-        }))
-      ),
-    };
-  });
+        })),
+      };
+    });
 
-  app.post("/api/v1/system/engines/:engine/update", async (request, reply) => {
-    const { engine } = request.params as { engine: string };
-    if (
-      !(ACP_ENGINE_IDS as readonly string[]).includes(engine) ||
-      request.body != null
-    ) {
-      return reply
-        .code(400)
-        .send({ error: "Provide only a supported engine ID in the URL." });
-    }
-    try {
-      const operation = await engineUpdates.start(
-        engine as AcpEngineId,
-        deps.engineBins
-      );
-      return reply.code(202).send({ operation });
-    } catch (error) {
-      return reply.code(409).send({
-        error: error instanceof Error ? error.message : "Update unavailable.",
-      });
-    }
-  });
+    app.post(`${prefix}/engines/:engine/update`, async (request, reply) => {
+      const { engine } = request.params as { engine: string };
+      if (
+        !(ACP_ENGINE_IDS as readonly string[]).includes(engine) ||
+        request.body != null
+      ) {
+        return reply
+          .code(400)
+          .send({ error: "Provide only a supported engine ID in the URL." });
+      }
+      try {
+        const operation = await resolve(request).engineUpdates.start(
+          engine as AcpEngineId,
+          deps.engineBins
+        );
+        return reply.code(202).send({ operation });
+      } catch (error) {
+        return reply.code(409).send({
+          error: error instanceof Error ? error.message : "Update unavailable.",
+        });
+      }
+    });
+  };
+  mountEngineRoutes("/api/v1/system", () => ({
+    engineCalls: engines,
+    engineUpdates,
+  }));
+  if (deps.runnerEngines)
+    mountEngineRoutes("/api/v1/runners/:runnerId", (request) =>
+      deps.runnerEngines!((request.params as { runnerId: string }).runnerId)
+    );
 
   const localEngines = deps.localEngines ?? createLocalEngineRunner();
   app.get("/api/v1/agent-models", async () => ({

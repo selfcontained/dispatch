@@ -93,6 +93,13 @@ export async function registerEngineManagementRoutes(
     return { entries: await manager.inventory(scope) };
   });
 
+  app.get("/api/v1/engine-management/operations", async (request, reply) => {
+    const scope = parseScopeQuery(request.query);
+    if (!scope)
+      return reply.code(400).send({ error: "Invalid scope or operation." });
+    return { operations: await manager.operations(scope) };
+  });
+
   app.post("/api/v1/engine-management/operations", async (request, reply) => {
     const current = currentLoginSchema.safeParse(request.body);
     if (current.success) {
@@ -110,10 +117,8 @@ export async function registerEngineManagementRoutes(
       isEngineCapabilityOperation(operation)
     ) {
       const scope = scopeSchema.safeParse(candidate.scope);
-      if (!scope.success || scope.data.kind !== "runner") {
-        return reply
-          .code(400)
-          .send({ error: "Choose a runner for this operation." });
+      if (!scope.success) {
+        return reply.code(400).send({ error: "Invalid scope or operation." });
       }
       return { ack: await manager.rpc(scope.data, operation) };
     }

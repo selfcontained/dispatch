@@ -1,3 +1,10 @@
+import { createInterface } from "node:readline";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import {
+  type EngineHostCall,
+  type EngineHostCallName,
+} from "@dispatch/runner-protocol/engine-management";
+import { EngineUpdateHost, installationOnWire } from "../engine-updates.js";
 import {
   createPluginStatusChecker,
   isPluginAgentType,
@@ -41,7 +48,11 @@ import {
   loginScript,
   type EngineLoginDeps,
 } from "../engine-login.js";
-import { withEngineUpdates } from "../engine-updates.js";
+import {
+  engineUpdatePort,
+  inspectInstallation,
+  withEngineUpdates,
+} from "../engine-updates.js";
 
 /**
  * One engine's installation, and the install or update it offers: the half
@@ -65,6 +76,11 @@ export type EngineListParts = {
 
 export type EngineWorkloadPlatform = {
   plugins?: PluginStatusChecker;
+  inspectUpdate?: (
+    engine: string,
+    action?: "install" | "update",
+    presentation?: boolean
+  ) => Promise<Res<"engine.update.inspect">>;
   pluginBin?: (engine: "claude" | "codex") => Promise<string>;
   /** Every engine's installation, with only the parts asked for. */
   installations(parts: EngineListParts): Promise<EngineInstallation[]>;
@@ -82,6 +98,7 @@ const notFound = () =>
  * offer it, are the same everywhere.
  */
 export class EngineWorkload {
+  private readonly updateHost = new EngineUpdateHost();
   private readonly plugins: PluginStatusChecker;
   private readonly logins: EngineLogins;
 
@@ -95,6 +112,33 @@ export class EngineWorkload {
             ? await platform.pluginBin(engine)
             : ((await platform.logins.resolveBin(engine)) ?? engine),
       });
+  }
+
+  async updateInspect(
+    request: Req<"engine.update.inspect">
+  ): Promise<Res<"engine.update.inspect">> {
+    if (!this.platform.inspectUpdate)
+      throw new RunnerCallError({
+        code: "unsupported",
+        message: "Engine inspection unavailable.",
+      });
+    return this.platform.inspectUpdate(
+      request.engine,
+      request.action,
+      request.presentation
+    );
+  }
+  updateSpawn(request: Req<"engine.update.spawn">) {
+    return this.updateHost.spawn(request);
+  }
+  updateRelease(request: Req<"engine.update.release">) {
+    return this.updateHost.release(request);
+  }
+  updateProbe(request: Req<"engine.update.probe">) {
+    return this.updateHost.probe(request);
+  }
+  operation(request: Req<"engine.operation">) {
+    return this.updateHost.operation(request);
   }
 
   private pluginEngine(request: { engine: string; plugin: string }) {
@@ -217,6 +261,7 @@ export class EngineWorkload {
 
   /** Stop every sign-in under way; for shutdown. */
   close(): void {
+    this.updateHost.close();
     this.logins.close();
   }
 }
@@ -229,10 +274,56 @@ export class EngineWorkload {
  */
 export function localEngineWorkload(
   bins: Partial<Record<AcpEngineId, string>>,
-  seams: Pick<EngineLoginDeps, "command" | "env" | "linkTimeoutMs"> = {}
+  seams: Pick<EngineLoginDeps, "command" | "env" | "linkTimeoutMs"> & {
+    updates?: Partial<Record<AcpEngineId, ManagedCommand>>;
+    installs?: Partial<Record<AcpEngineId, ManagedCommand>>;
+  } = {}
 ): EngineWorkload {
   const statuses = () => engineStatuses(bins, seams.env ?? process.env);
   return new EngineWorkload({
+    inspectUpdate: async (engine, action, presentation) => {
+      const status = (await statuses()).find((row) => row.id === engine);
+      if (!status)
+        throw new RunnerCallError({
+          code: "unsupported",
+          message: "Engine unavailable.",
+        });
+      const installation = await inspectInstallation(status);
+      if (presentation) {
+        const view = (
+          await withEngineUpdates(await withEngineVersions([status]))
+        )[0]!;
+        const configured = seams.updates?.[status.id];
+        if (configured)
+          view.update = {
+            ...view.update,
+            canUpdate: true,
+            reason: "",
+            command: [configured.executable, ...configured.args].join(" "),
+          };
+        return { ...installationOnWire(installation), status: view };
+      }
+      const override =
+        action === "install"
+          ? seams.installs?.[status.id]
+          : seams.updates?.[status.id];
+      if (action === "install" && !override)
+        return installationOnWire({
+          ...installation,
+          canUpdate: false,
+          reason: `${LABELS[status.id]} is installed manually on this machine; there is no automatic install here.`,
+        });
+      if (override)
+        return installationOnWire({
+          ...installation,
+          canUpdate: true,
+          probePath: installation.probePath ?? bins[status.id] ?? status.id,
+          reason: "",
+          command: [override.executable, ...override.args].join(" "),
+          run: override,
+        });
+      return installationOnWire(installation);
+    },
     pluginBin: async (engine) =>
       (await findEngineBin(bins[engine] ?? engine)) ?? bins[engine] ?? engine,
     async installations(parts) {
@@ -297,9 +388,9 @@ export type ManagedCommand = {
 /**
  * One engine's configuration on this runner: its enforced launch path (the
  * same absolute path the ACP host launches, or null when not installed),
- * and the operator-approved commands that install or update whatever lives
- * at that path. Omitting `install`/`update` disables that action — there is
- * no ambiguous ownership detection here, only configured, scoped commands.
+ * and any operator-approved install/update command overrides. Without an
+ * update override, the selected installation is detected as on main.
+ * An omitted install command leaves installation manual.
  */
 export type RunnerEngineConfig = {
   bin: string | null;
@@ -313,6 +404,11 @@ export type EngineRunnerExecutorConfig = {
   bundledRuntime?: string;
   /** Merged into every spawned process's environment (HOME, PATH, CA, …). */
   env: NodeJS.ProcessEnv;
+  hostCommand?: string[];
+  hostCall?: <K extends EngineHostCallName>(
+    op: K,
+    request: Req<K>
+  ) => Promise<Res<K>>;
   engines: Partial<Record<RunnerEngine, RunnerEngineConfig>>;
   /**
    * Test seam: how a command is wrapped to run as the workload identity.
@@ -381,6 +477,150 @@ export class EngineRunnerExecutor {
         },
       },
     });
+  }
+
+  private hostWorker?: ChildProcessWithoutNullStreams;
+  private hostSequence = 0;
+  private readonly hostBins = new Map<RunnerEngine, string>();
+  private readonly hostPending = new Map<
+    number,
+    { resolve: (value: unknown) => void; reject: (error: unknown) => void }
+  >();
+  async callHost<K extends EngineHostCallName>(
+    op: K,
+    request: Req<K>
+  ): Promise<Res<K>> {
+    if (op === "engine.list")
+      return (await this.workload.list(
+        request as Req<"engine.list">
+      )) as Res<K>;
+    if (op === "engine.login.start")
+      return (await this.workload.loginStart(
+        request as Req<"engine.login.start">
+      )) as Res<K>;
+    if (op === "engine.login.submit")
+      return (await this.workload.loginSubmit(
+        request as { loginId: string; code: string }
+      )) as Res<K>;
+    if (op === "engine.login.status")
+      return (await this.workload.loginStatus(
+        request as { loginId: string }
+      )) as Res<K>;
+    if (op === "engine.login.cancel")
+      return (await this.workload.loginCancel(
+        request as { loginId: string }
+      )) as Res<K>;
+    if (this.config.hostCall) return this.config.hostCall(op, request);
+    if (!this.hostWorker) {
+      const [bin, ...args] = this.config.hostCommand ?? [];
+      if (!bin)
+        throw new RunnerCallError({
+          code: "unavailable",
+          message: "Engine workload worker is unavailable.",
+        });
+      const command = this.wrap(bin, args);
+      const child = spawn(command.bin, command.args, {
+        cwd: this.config.env.HOME,
+        env: this.config.env,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      this.hostWorker = child;
+      // Keep diagnostics out of the framed stdout channel.
+      child.stderr.on("data", () => {});
+      const lines = createInterface({ input: child.stdout });
+      lines.on("line", (line) => {
+        try {
+          const response = JSON.parse(line);
+          const pending = this.hostPending.get(response.id);
+          if (!pending) return;
+          this.hostPending.delete(response.id);
+          if (response.error)
+            pending.reject(new RunnerCallError(response.error));
+          else pending.resolve(response.data);
+        } catch {
+          child.kill();
+        }
+      });
+      let ended = false;
+      const lost = () => {
+        if (ended) return;
+        ended = true;
+        if (this.hostWorker === child) this.hostWorker = undefined;
+        for (const pending of this.hostPending.values())
+          pending.reject(
+            new RunnerCallError({
+              code: "unknown_outcome",
+              message: "Engine workload continuity was lost.",
+            })
+          );
+        this.hostPending.clear();
+        lines.close();
+      };
+      child.on("error", lost);
+      child.on("close", lost);
+      child.stdin.on("error", () => {});
+    }
+    const worker = this.hostWorker;
+    const bins: Record<string, string> = {};
+    const updates: Partial<Record<RunnerEngine, ManagedCommand>> = {};
+    const installs: Partial<Record<RunnerEngine, ManagedCommand>> = {};
+    for (const engine of RUNNER_ENGINES) {
+      if (
+        !this.hostBins.has(engine) ||
+        ("engine" in request && request.engine === engine)
+      )
+        this.hostBins.set(
+          engine,
+          (await this.resolveBin(engine)) ??
+            this.config.engines[engine]?.bin ??
+            engine
+        );
+      bins[engine] = this.hostBins.get(engine)!;
+      const cfg = this.config.engines[engine];
+      if (cfg?.install && bins[engine] === cfg.bin)
+        installs[engine] =
+          this.bundledCommand(engine, cfg.install) ?? cfg.install;
+      if (cfg?.update && bins[engine] === cfg.bin)
+        updates[engine] = this.bundledCommand(engine, cfg.update) ?? cfg.update;
+      if (
+        op === "engine.update.inspect" &&
+        "engine" in request &&
+        request.engine === engine
+      ) {
+        for (const commands of [installs, updates]) {
+          const step = commands[engine];
+          if (
+            step?.env?.BUN_BE_BUN === "1" &&
+            step.executable === this.config.bundledRuntime &&
+            !(Number((await this.probe("node")).version?.split(".")[0]) >= 22)
+          ) {
+            const withRuntime = {
+              ...step,
+              refresh: {
+                executable: step.executable,
+                args: ["add", "--global", `node-linux-${process.arch}@22`],
+                env: step.env,
+              },
+            };
+            commands[engine] = withRuntime;
+          }
+        }
+      }
+    }
+    if (this.hostWorker !== worker)
+      throw new RunnerCallError({
+        code: "unknown_outcome",
+        message: "Engine workload continuity was lost.",
+      });
+    const id = ++this.hostSequence;
+    const response = new Promise<unknown>((resolve, reject) =>
+      this.hostPending.set(id, { resolve, reject })
+    );
+    worker.stdin.write(
+      JSON.stringify({ id, call: { op, request }, bins, updates, installs }) +
+        "\n"
+    );
+    return (await response) as Res<K>;
   }
 
   private run(
@@ -561,7 +801,10 @@ export class EngineRunnerExecutor {
       if (detail) issue = "install-unavailable";
       else actions.push("install");
     }
-    if (installed && cfg?.update && bin === cfg.bin) actions.push("update");
+    if (installed) {
+      const plan = await this.callHost("engine.update.inspect", { engine });
+      if (plan.canUpdate) actions.push("update");
+    }
     return {
       id: engine,
       installed,
@@ -590,6 +833,24 @@ export class EngineRunnerExecutor {
       };
     }
     switch (operation.type) {
+      case "contract":
+        try {
+          return {
+            ok: true,
+            result: await this.callHost(
+              operation.call.op,
+              operation.call.request as never
+            ),
+          };
+        } catch (error) {
+          return {
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+            ...(error instanceof RunnerCallError && {
+              failure: { code: error.code, message: error.message },
+            }),
+          };
+        }
       case "status": {
         const entries = await this.inventory();
         onEvent?.({ type: "inventory", entries });
@@ -625,10 +886,15 @@ export class EngineRunnerExecutor {
   ): Promise<EngineOperationAck> {
     const cfg = this.config.engines[engine];
     const step = kind === "install" ? cfg?.install : cfg?.update;
+    if (
+      kind === "update" &&
+      (!step || (await this.resolveBin(engine)) !== cfg?.bin)
+    )
+      return this.executeDetectedUpdate(engine, onEvent);
     if (!step) {
       return {
         ok: false,
-        error: `No managed ${kind} command is configured for ${LABELS[engine]} on this runner.`,
+        error: `No managed install command is configured for ${LABELS[engine]} on this runner.`,
       };
     }
     const bundled = this.bundledCommand(engine, step);
@@ -646,6 +912,64 @@ export class EngineRunnerExecutor {
     } finally {
       this.installingBundledPackage = false;
     }
+  }
+
+  private async executeDetectedUpdate(
+    engine: RunnerEngine,
+    onEvent?: (event: EngineOperationEvent) => void
+  ): Promise<EngineOperationAck> {
+    const plan = await this.callHost("engine.update.inspect", { engine });
+    if (!plan.canUpdate || !plan.run) return { ok: false, error: plan.reason };
+    const port = engineUpdatePort({
+      call: (op, input) => this.callHost(op, input),
+    });
+    const operationId = randomUUID();
+    const bin = plan.probePath ?? plan.realPath!;
+    const before = await port.verify(bin);
+    const runner = port.runner({
+      output: (outputChunk) =>
+        onEvent?.({
+          type: "operation_progress",
+          operationId,
+          engine,
+          phase: "update",
+          message: "",
+          outputChunk,
+        }),
+    });
+    const refresh =
+      !plan.run.refresh ||
+      (
+        await runner(plan.run.refresh.executable, plan.run.refresh.args, {
+          env: plan.run.refresh.env,
+          timeoutMs: 60_000,
+        })
+      ).exitCode === 0;
+    const result = refresh
+      ? await runner(plan.run.executable, plan.run.args, {
+          env: plan.run.env,
+          timeoutMs: 120_000,
+        })
+      : null;
+    const after = await port.verify(bin);
+    const success = Boolean(
+      before && after && compareVersions(after, before) > 0
+    );
+    const message = success
+      ? `Update completed. Verified installed version ${after}.`
+      : result?.exitCode === 0
+        ? "Update command completed, but a newer installed version could not be verified. Recheck status before retrying."
+        : "Update command failed. Review the output before retrying.";
+    onEvent?.({
+      type: "operation_complete",
+      operationId,
+      engine,
+      success,
+      message,
+    });
+    return success
+      ? { ok: true, operationId, message }
+      : { ok: false, error: message };
   }
 
   private async executeManaged(
@@ -733,6 +1057,7 @@ export class EngineRunnerExecutor {
 
   /** Stop every sign-in under way; for shutdown. */
   close(): void {
+    this.hostWorker?.kill();
     this.workload.close();
   }
 }
