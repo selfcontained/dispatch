@@ -1085,9 +1085,11 @@ describe("AgentManager", () => {
           })
         );
       };
-      for (const checkout of [
-        null,
-        {
+      observed = {
+        ownership: "owned",
+        owner: agent.id,
+        borrowers: [],
+        checkout: {
           path: "/workload/displayed",
           branch: "displayed",
           stateId: "3".repeat(64),
@@ -1095,15 +1097,28 @@ describe("AgentManager", () => {
           changedFiles: [],
           uncommittedFiles: [],
         },
-      ]) {
-        observed = {
-          ownership: "owned",
-          owner: agent.id,
-          borrowers: [],
-          checkout,
-        };
-        expect(await status("/workload/displayed")).toEqual(await status(null));
-      }
+      };
+      expect(await status("/workload/displayed")).toEqual(await status(null));
+      // A gone checkout answers as main does: the recorded worktree, or no
+      // worktree when the row records none.
+      observed = { ...observed, checkout: null };
+      expect(await status("/workload/displayed")).toMatchObject({
+        value: { hasWorktree: true, worktreePath: "/workload/displayed" },
+      });
+      expect(await status(null)).toMatchObject({
+        value: { hasWorktree: false, worktreePath: null },
+      });
+      observed = {
+        ...observed,
+        checkout: {
+          path: "/workload/displayed",
+          branch: "displayed",
+          stateId: "3".repeat(64),
+          unmerged: false,
+          changedFiles: [],
+          uncommittedFiles: [],
+        },
+      };
       expect(await status("/workload/displayed")).toMatchObject({
         value: { hasWorktree: true, worktreePath: "/workload/displayed" },
       });
@@ -5104,6 +5119,100 @@ describe("AgentManager", () => {
       } finally {
         await rm(root, { recursive: true, force: true });
       }
+    });
+
+    describe("a runner agent whose owned checkout is gone", () => {
+      const runnerCwd = "runner://runner-test/@session";
+      const owned = {
+        value: JSON.stringify({
+          ownership: "owned",
+          owner: "self",
+          borrowers: [],
+          checkout: null,
+        }),
+      };
+      async function runnerAgent(worktreePath: string | null) {
+        const agent = await manager.createAgent({
+          cwd: "/tmp",
+          useWorktree: false,
+        });
+        await pool.query(
+          "UPDATE agents SET cwd = $2, worktree_path = $3 WHERE id = $1",
+          [agent.id, runnerCwd, worktreePath]
+        );
+        return agent;
+      }
+      function runnerManager(requestSession: ReturnType<typeof vi.fn>) {
+        return new AgentManager(pool, noopLogger, testConfig, {
+          runtime,
+          remote: { requestSession } as unknown as RemoteRunnerService,
+        });
+      }
+
+      it("answers like main with the recorded checkout path", async () => {
+        const agent = await runnerAgent("/srv/checkouts/gone");
+        const status = await runnerManager(
+          vi.fn(async () => owned)
+        ).checkWorktreeStatus(agent.id);
+        expect(status).toEqual({
+          ownership: "owned",
+          borrowers: [],
+          hasWorktree: true,
+          hasUnmergedCommits: false,
+          hasUncommittedChanges: false,
+          worktreePath: "/srv/checkouts/gone",
+          branchName: null,
+          changedFiles: [],
+          uncommittedFiles: [],
+        });
+      });
+
+      it("answers main's no-worktree status when no path was recorded", async () => {
+        const agent = await runnerAgent(null);
+        const status = await runnerManager(
+          vi.fn(async () => owned)
+        ).checkWorktreeStatus(agent.id);
+        expect(status).toEqual({
+          ownership: "owned",
+          borrowers: [],
+          hasWorktree: false,
+          hasUnmergedCommits: false,
+          hasUncommittedChanges: false,
+          worktreePath: null,
+          branchName: null,
+          changedFiles: [],
+          uncommittedFiles: [],
+        });
+      });
+
+      it.each([
+        ["offline", new Error("Runner runner-test is not connected.")],
+        ["an error reply", new Error("Checkout observation failed.")],
+      ])(
+        "stays unavailable, not gone, when the runner is %s",
+        async (_, error) => {
+          const agent = await runnerAgent("/srv/checkouts/kept");
+          await expect(
+            runnerManager(
+              vi.fn(async () => {
+                throw error;
+              })
+            ).checkWorktreeStatus(agent.id)
+          ).rejects.toMatchObject({
+            statusCode: 503,
+            message: "Checkout status is unavailable on the owning runner.",
+          });
+        }
+      );
+
+      it("stays unavailable when the runner's reply is not an observation", async () => {
+        const agent = await runnerAgent("/srv/checkouts/kept");
+        await expect(
+          runnerManager(
+            vi.fn(async () => ({ value: "not json" }))
+          ).checkWorktreeStatus(agent.id)
+        ).rejects.toMatchObject({ statusCode: 503 });
+      });
     });
 
     it("should throw 404 for a non-existent agent", async () => {
