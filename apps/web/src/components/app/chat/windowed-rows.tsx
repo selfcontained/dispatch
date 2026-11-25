@@ -460,6 +460,40 @@ export function useWindowedRows({
     [captureAnchor]
   );
 
+  // ---- the list's floor -----------------------------------------------------
+  /**
+   * The list never measures shorter than its rows add up to, as of the last
+   * commit or measurement. Swapping rows for a spacer is not atomic for the
+   * layout: React removes the old rows before it grows the spacer, and
+   * WebKit can lay out in between, see the content end there and clamp
+   * scrollTop to it. A feed opened at its bottom then landed thousands of
+   * px up in history, with no write from here and the final layout
+   * unchanged. The floor holds the height through the swap, and comes down
+   * once the rows really are shorter: it is lowered after the commit or
+   * measurement that makes them so. (A row that shrinks on its own is
+   * measured after that layout, so the floor does not cover it.)
+   */
+  const applyFloor = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    // Every row renders when not windowing: no swaps, and no floor left over.
+    if (!windowing) {
+      container.style.minHeight = "";
+      return;
+    }
+    // Read each time: padding can change with the breakpoint.
+    const style = getComputedStyle(container);
+    let total =
+      (parseFloat(style.paddingTop) || 0) +
+      (parseFloat(style.paddingBottom) || 0);
+    for (const key of keysRef.current) {
+      total += heights.get(key) ?? estimatedHeight;
+    }
+    container.style.minHeight = `${total}px`;
+  }, [estimatedHeight, heights, windowing]);
+  const applyFloorRef = useRef(applyFloor);
+  applyFloorRef.current = applyFloor;
+
   // ---- measuring rows ------------------------------------------------------
   const rowObserverRef = useRef<ResizeObserver | null>(null);
   const keepPlaceRef = useRef(keepPlace);
@@ -488,6 +522,7 @@ export function useWindowedRows({
         }
       }
       if (!changed) return;
+      applyFloorRef.current();
       keepPlaceRef.current();
       scheduleRangeRef.current();
     });
@@ -604,9 +639,19 @@ export function useWindowedRows({
     []
   );
   useLayoutEffect(() => {
+    applyFloor();
     keepPlace();
     if (windowing) scheduleRange();
-  }, [keepPlace, scheduleRange, windowing, keys, range, pinned, focusKey]);
+  }, [
+    applyFloor,
+    keepPlace,
+    scheduleRange,
+    windowing,
+    keys,
+    range,
+    pinned,
+    focusKey,
+  ]);
 
   // ---- what to render -------------------------------------------------------
   // The range is kept by index, but it means rows: when rows land above

@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
     columnId: string;
     assignedAgentId: string;
     archivedAt: string | null;
+    goalCounts?: { completed: number; total: number };
   }[],
   columns: [{ id: "c", name: "Custom stage" }],
   isError: false,
@@ -78,4 +79,78 @@ it("tracks current board title/status, hides reassignment/archive/access failure
     );
     expect(screen.queryByRole("button")).toBeNull();
   }
+});
+
+it("shows goal progress for the row's task and none without current goals", () => {
+  state.isError = false;
+  state.columns = [{ id: "c", name: "In progress" }];
+  state.assigned = [{ id: "g", projectId: "p" }];
+  state.tasks = [
+    {
+      id: "g",
+      title: "Goals",
+      columnId: "c",
+      assignedAgentId: "b",
+      archivedAt: null,
+      goalCounts: { completed: 2, total: 3 },
+    },
+  ];
+  const view = render(
+    <MemoryRouter>
+      <AssignedTaskRow agentId="b" />
+    </MemoryRouter>
+  );
+  expect(screen.getByRole("button").getAttribute("aria-label")).toBe(
+    "Task: Goals, In progress, 2 of 3 goals complete"
+  );
+  expect(screen.getByTestId("task-goal-progress").textContent).toBe("2/3");
+  state.tasks[0].goalCounts = { completed: 0, total: 0 };
+  view.rerender(
+    <MemoryRouter>
+      <AssignedTaskRow agentId="b" />
+    </MemoryRouter>
+  );
+  expect(screen.queryByTestId("task-goal-progress")).toBeNull();
+  expect(screen.getByRole("button").getAttribute("aria-label")).toBe(
+    "Task: Goals, In progress"
+  );
+});
+
+it("does not celebrate when a different task takes over the row", () => {
+  state.isError = false;
+  state.columns = [{ id: "c", name: "In progress" }];
+  state.assigned = [{ id: "x", projectId: "p" }];
+  state.tasks = [
+    {
+      id: "x",
+      title: "Old",
+      columnId: "c",
+      assignedAgentId: "b",
+      archivedAt: null,
+      goalCounts: { completed: 1, total: 3 },
+    },
+  ];
+  const view = render(
+    <MemoryRouter>
+      <AssignedTaskRow agentId="b" />
+    </MemoryRouter>
+  );
+  state.assigned = [{ id: "y", projectId: "p" }];
+  state.tasks = [
+    {
+      id: "y",
+      title: "New",
+      columnId: "c",
+      assignedAgentId: "b",
+      archivedAt: null,
+      goalCounts: { completed: 3, total: 3 },
+    },
+  ];
+  view.rerender(
+    <MemoryRouter>
+      <AssignedTaskRow agentId="b" />
+    </MemoryRouter>
+  );
+  expect(screen.getByText("3/3")).toBeTruthy();
+  expect(screen.queryByTestId("goal-complete-sweep")).toBeNull();
 });

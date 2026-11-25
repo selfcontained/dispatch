@@ -1425,6 +1425,37 @@ html[data-theme="matrix"] [role="button"] {
   }
 }
 
+/* Goal progress completing while watched: one pass of the review chaser's
+   palette sweeping across the bar, then it settles on its done colour. */
+@keyframes goal-complete-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+.goal-complete-sweep {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    hsl(var(--status-blocked)) 20%,
+    hsl(var(--status-waiting)) 40%,
+    hsl(var(--status-working)) 60%,
+    hsl(var(--status-done)) 80%,
+    transparent 100%
+  );
+  animation: goal-complete-sweep 1.4s cubic-bezier(0.45, 0, 0.25, 1) 2;
+}
+@media (prefers-reduced-motion: reduce) {
+  .goal-complete-sweep {
+    display: none;
+  }
+}
+
 /* Pause GPU-composited animations when the page is hidden to reduce energy */
 html[data-hidden] .dispatch-reconnect-scan {
   animation-play-state: paused;

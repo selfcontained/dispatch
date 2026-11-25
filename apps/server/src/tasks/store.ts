@@ -13,8 +13,13 @@ import type {
   TaskColumnTrigger,
   TaskEvent,
   TaskEventKind,
+  TaskGoal,
+  TaskGoalCounts,
+  TaskGoalState,
   TaskLink,
 } from "./types.js";
+
+import { GOAL_REQUEST_RETENTION_DAYS } from "./goals.js";
 
 type Queryable = Pool | PoolClient;
 
@@ -28,6 +33,10 @@ export type TaskAttachmentRow = {
 
 export function newTaskId(): string {
   return `tsk_${randomBytes(6).toString("hex")}`;
+}
+
+export function newGoalId(): string {
+  return `tgl_${randomBytes(6).toString("hex")}`;
 }
 
 export function newColumnId(): string {
@@ -85,6 +94,10 @@ function toColumn(row: ColumnRow): TaskColumn {
 /** Derive transient trigger state from the ordered event log on every read. */
 const TASK_SELECT = `
   COALESCE((SELECT json_agg(json_build_object('name', lab.name, 'color', lab.color) ORDER BY lower(lab.name)) FROM task_label_assignments a JOIN task_labels lab ON lab.id = a.label_id WHERE a.task_id = t.id), '[]'::json) AS labels,
+  (SELECT json_build_object(
+     'completed', count(*) FILTER (WHERE g.state = 'completed'),
+     'total', count(*) FILTER (WHERE g.state <> 'retired'))
+   FROM task_goals g WHERE g.task_id = t.id) AS goal_counts,
   t.id, t.project_id, t.column_id, t.title, t.body, t.position,
   t.assigned_agent_id, t.links, t.launch_template_id, t.launch_agent_type, t.launch_model, t.created_by_kind, t.created_by_agent_id,
   t.archived_at, t.completed_at, t.created_at, t.updated_at,
@@ -124,6 +137,7 @@ const TASK_SELECT = `
 
 type TaskRow = {
   labels: import("./types.js").TaskLabel[];
+  goal_counts: TaskGoalCounts | null;
   id: string;
   project_id: string;
   column_id: string;
@@ -150,6 +164,7 @@ type TaskRow = {
 function toTask(row: TaskRow): Task {
   return {
     labels: row.labels ?? [],
+    goalCounts: row.goal_counts ?? { completed: 0, total: 0 },
     id: row.id,
     projectId: row.project_id,
     columnId: row.column_id,
@@ -722,6 +737,80 @@ export class TaskStore {
       [taskId, attachmentId]
     );
     return rows[0] ?? null;
+  }
+
+  // ── Goals ────────────────────────────────────────────────────────
+
+  async listGoals(taskId: string, db: Queryable = this.pool) {
+    const { rows } = await db.query<TaskGoal>(
+      `SELECT id, title, state, position FROM task_goals
+       WHERE task_id = $1 ORDER BY position, id`,
+      [taskId]
+    );
+    return rows;
+  }
+
+  async insertGoal(
+    taskId: string,
+    title: string,
+    position: number,
+    db: Queryable
+  ): Promise<TaskGoal> {
+    const { rows } = await db.query<TaskGoal>(
+      `INSERT INTO task_goals (id, task_id, title, position) VALUES ($1, $2, $3, $4)
+       RETURNING id, title, state, position`,
+      [newGoalId(), taskId, title, position]
+    );
+    return rows[0]!;
+  }
+
+  async updateGoal(
+    id: string,
+    patch: { title?: string; state?: TaskGoalState },
+    db: Queryable
+  ): Promise<void> {
+    await db.query(
+      `UPDATE task_goals SET title = COALESCE($2, title), state = COALESCE($3, state),
+         updated_at = now() WHERE id = $1`,
+      [id, patch.title ?? null, patch.state ?? null]
+    );
+  }
+
+  async touchTask(id: string, db: Queryable): Promise<void> {
+    await db.query(`UPDATE tasks SET updated_at = now() WHERE id = $1`, [id]);
+  }
+
+  async getGoalRequest(taskId: string, requestId: string, db: Queryable) {
+    const { rows } = await db.query<{
+      fingerprint: string;
+      result: Record<string, unknown>;
+    }>(
+      `SELECT fingerprint, result FROM task_goal_requests WHERE task_id = $1 AND request_id = $2`,
+      [taskId, requestId]
+    );
+    return rows[0] ?? null;
+  }
+
+  /** Drops this task's requestIds older than the replay window. */
+  async pruneGoalRequests(taskId: string, db: Queryable): Promise<void> {
+    await db.query(
+      `DELETE FROM task_goal_requests WHERE task_id = $1
+         AND created_at < now() - make_interval(days => $2)`,
+      [taskId, GOAL_REQUEST_RETENTION_DAYS]
+    );
+  }
+
+  async insertGoalRequest(
+    taskId: string,
+    requestId: string,
+    fingerprint: string,
+    result: object,
+    db: Queryable
+  ): Promise<void> {
+    await db.query(
+      `INSERT INTO task_goal_requests (task_id, request_id, fingerprint, result) VALUES ($1, $2, $3, $4)`,
+      [taskId, requestId, fingerprint, JSON.stringify(result)]
+    );
   }
 
   // ── Assignments ──────────────────────────────────────────────────
