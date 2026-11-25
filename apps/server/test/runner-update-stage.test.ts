@@ -27,7 +27,10 @@ import {
   type RunnerUpdateLayout,
   type StageRunnerUpdateOptions,
 } from "../src/agents/remote/update-verify.js";
-import { issueAuthority, issueServer } from "../src/agents/remote/x509.js";
+import {
+  issueAuthority,
+  issueServer,
+} from "../src/agents/remote/certificate-authority.js";
 
 const active = generateKeyPairSync("ed25519");
 const standby = generateKeyPairSync("ed25519");

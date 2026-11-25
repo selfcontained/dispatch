@@ -1,3 +1,5 @@
+import { createEngineUpdatePort } from "@dispatch/runner-protocol/engine-update-port";
+import { clearEngineVersionCache } from "@dispatch/runner-protocol/engine-version-cache";
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 import {
@@ -419,4 +421,8 @@ export function observeModelUpdates(
       return result;
     },
   };
+}
+
+export function engineUpdatePort(engines: EngineCalls) {
+  return createEngineUpdatePort(engines, randomUUID, clearEngineVersionCache);
 }

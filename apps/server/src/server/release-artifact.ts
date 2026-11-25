@@ -14,7 +14,7 @@ import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { childProcessEnv } from "../shared/process/child-environment.js";
 
-import { runnerExecutableMember } from "../agents/remote/update-manifest.js";
+import { runnerExecutableMember } from "@dispatch/runner-protocol/update-format";
 import { hashRegular } from "../update-recovery/files.js";
 
 import type { RunCommand } from "./release-helpers.js";

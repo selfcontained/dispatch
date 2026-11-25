@@ -5,7 +5,7 @@ import type { Pool } from "pg";
 import type WebSocket from "ws";
 
 import type { AgentManager, AgentRecord } from "../../agents/manager.js";
-import type { CodexResetOutcome } from "../../agents/provider-plans.js";
+import type { CodexResetOutcome } from "@dispatch/runner-protocol/engine-plans";
 import type { DiffStatsRefresher } from "../../agents/diff-stats-refresher.js";
 import type { StreamService } from "../../chat/service.js";
 import type { PublishUiEvent } from "../../server/ui-events.js";
