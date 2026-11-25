@@ -2044,6 +2044,11 @@
             ]
           },
           "path": "string",
+          "mode": {
+            "optional": {
+              "literal": ["native"]
+            }
+          },
           "filesOnly": {
             "optional": {
               "literal": [true]
@@ -2058,6 +2063,11 @@
       },
       "response": {
         "object": {
+          "names": {
+            "optional": {
+              "array": "string"
+            }
+          },
           "truncated": "boolean",
           "entries": {
             "array": {
@@ -2113,6 +2123,11 @@
             ]
           },
           "path": "string",
+          "mode": {
+            "optional": {
+              "literal": ["native"]
+            }
+          },
           "encoding": {
             "literal": ["utf8", "base64"]
           },

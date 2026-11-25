@@ -639,3 +639,32 @@ describe("v1 credit streams", () => {
     }
   });
 });
+
+it.each(["checkout.list", "checkout.read"] as const)(
+  "round-trips native %s without changing existing frames",
+  (op) => {
+    const request =
+      op === "checkout.list"
+        ? { path: ".agents/personas" }
+        : { path: ".agents/personas/a.md", encoding: "utf8", maxBytes: null };
+    for (const mode of [undefined, "native"] as const) {
+      const frame = {
+        type: "request",
+        id: "native_read",
+        command: {
+          kind: "checkoutRead",
+          workspace: "test",
+          agentId: "agent",
+          operation: {
+            op,
+            request: { ...request, ...(mode && { mode }) },
+            streamId: "native_stream",
+          },
+        },
+      };
+      expect(JSON.stringify(parseServiceFrame(frame))).toBe(
+        JSON.stringify(frame)
+      );
+    }
+  }
+);
