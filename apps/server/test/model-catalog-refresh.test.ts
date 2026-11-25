@@ -828,7 +828,7 @@ describe.each(validationTargets)(
       "not installed",
       "not signed in",
     ])(
-      "defers a first %s listing to the engine without caching a catalog",
+      "falls back to the seed after a first %s listing without caching a catalog",
       async (reason) => {
         const f = validationFixture();
         if (reason === "offline") f.setOnline(false);
@@ -871,18 +871,15 @@ describe.each(validationTargets)(
         });
         if (reason === "timeout") await vi.advanceTimersByTimeAsync(20_001);
         const scope = await validation;
-        expect(scope).toEqual({ kind: "engine" });
-        expect(validateAgentModel("codex", "provider/unseeded", scope)).toBe(
-          "provider/unseeded"
+        expect(scope.kind).toBe("runner");
+        expect(() =>
+          validateAgentModel("codex", "no-such-model", scope)
+        ).toThrow(
+          'Model "no-such-model" is not supported for codex. Choose a configured model or omit model for the CLI default.'
         );
-        expect(
-          validateAgentEffort(
-            "codex",
-            "unseen-effort",
-            "provider/unseeded",
-            scope
-          )
-        ).toBe("unseen-effort");
+        expect(validateAgentModel("codex", "gpt-6-astra", scope)).toBe(
+          "gpt-6-astra"
+        );
         expect(getLearnedAgentModels("codex", id)).toBeUndefined();
         expect(f.learned).not.toHaveBeenCalled();
         expect(
@@ -890,6 +887,39 @@ describe.each(validationTargets)(
         ).toBeGreaterThan(0);
       }
     );
+    it("defers to the engine when first discovery fails and no seed exists", async () => {
+      const f = validationFixture();
+      f.listing.mockRejectedValueOnce(new Error("fixture"));
+      const scope = await modelScopeFor(target, "opencode", { model: "new" });
+      expect(scope).toEqual({ kind: "engine" });
+      expect(validateAgentModel("opencode", "new", scope)).toBe("new");
+    });
+    it("keeps stored effort authoritative when an effort fetch times out", async () => {
+      const f = validationFixture();
+      setLearnedAgentModels(
+        "opencode",
+        [
+          { id: "a", label: "A", effort: [{ value: "high", name: "High" }] },
+          { id: "b", label: "B" },
+        ],
+        "a",
+        id
+      );
+      vi.useFakeTimers();
+      f.listing.mockReturnValue(new Promise(() => {}));
+      const pending = modelScopeFor(target, "opencode", {
+        model: "b",
+        effort: "unknown",
+      });
+      await vi.advanceTimersByTimeAsync(40_001);
+      const scope = await pending;
+      expect(() =>
+        validateAgentEffort("opencode", "unknown", "a", scope)
+      ).toThrow(
+        'Effort "unknown" is not supported for this model. Choose a reported level or Default.'
+      );
+      expect(() => validateAgentModel("opencode", "absent", scope)).toThrow();
+    });
     it("rejects unknown models immediately against a taught catalog while revalidation waits", async () => {
       const f = validationFixture();
       setLearnedAgentModels(

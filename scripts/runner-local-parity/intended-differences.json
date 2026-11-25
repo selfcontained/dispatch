@@ -51,5 +51,12 @@
     "main": "400",
     "head": "200",
     "decision": "Owner 2026-11-25: stale-while-revalidate model discovery on every runner; validation awaits its first observation."
+  },
+  {
+    "scenario": "audit-4-learned-models",
+    "path": "keys written",
+    "main": "[{\"key\":\"agent_models:claude\"}]",
+    "head": "[{\"key\":\"agent_models:claude\"},{\"key\":\"agent_models:opencode\"}]",
+    "decision": "Owner 2026-11-25: stale-while-revalidate model discovery on every runner"
   }
 ]
