@@ -1988,6 +1988,7 @@ describe("runner session supervision", () => {
           });
     const runner = await start([], asWorkload);
     await runner.launch(launch(workspace), undefined);
+    const ownedCheckout = await runner.checkoutDirectory(agentId, workspace);
     const select = (path: string) =>
       runner.sessionCheckout(agentId, workspace, { kind: "select", path });
     const sessions = path.join(state, "sessions");
@@ -2030,6 +2031,21 @@ describe("runner session supervision", () => {
     await expect(runner.checkoutDirectory(agentId, workspace)).resolves.toBe(
       nested
     );
+    expect(
+      await runner.checkoutDirectory(agentId, workspace, undefined, "current")
+    ).toBe(nested);
+    expect(
+      await runner.checkoutDirectory(agentId, workspace, undefined, "launch")
+    ).toBe(ownedCheckout);
+    for (const unknown of ["moved", "unknown", null, 1])
+      await expect(
+        runner.checkoutDirectory(
+          agentId,
+          workspace,
+          undefined,
+          unknown as never
+        )
+      ).rejects.toThrow("Invalid checkout read selector.");
   });
 
   describe("a folder an agent named (D7)", () => {
