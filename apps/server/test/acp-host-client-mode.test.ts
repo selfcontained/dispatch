@@ -8,7 +8,7 @@
  * advertising it, and are told apart from main-era hosts by the welcome
  * fields only this branch's hosts send.
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -430,5 +430,62 @@ describe("reconnect while the runner is unavailable", () => {
     expect(code("host_gone")).toBe("gone");
     expect(code("failed")).toBeUndefined();
     expect(hostReconnectDisposition(new Error("ENOENT"))).toBeUndefined();
+  });
+});
+
+describe("byte-pinned main-era host adoption", () => {
+  it("adopts replay, drives a prompt receipt and consumes a live ACP update", async () => {
+    const bytes = JSON.parse(
+      readFileSync(
+        new URL("./fixtures/acp-main-wire.json", import.meta.url),
+        "utf8"
+      )
+    );
+    const incoming = new PassThrough();
+    const outgoing = new PassThrough();
+    const stream = Duplex.from({ readable: incoming, writable: outgoing });
+    const commands: ClientMessage[] = [];
+    const decode = ndjsonDecoder<ClientMessage>();
+    outgoing.on("data", (chunk) => {
+      for (const message of decode(chunk)) {
+        commands.push(message);
+        if (message.type === "hello")
+          incoming.write(bytes.welcome + bytes.replay);
+        if (message.type === "prompt")
+          incoming.write(bytes.receipt + bytes.update);
+      }
+    });
+    const entries: unknown[] = [];
+    // Preserve cursor updates performed by the ordinary helper.
+    const other = new HostClient({
+      agentId,
+      logger,
+      remote: false,
+      openSocket: async () => stream,
+      fromSeq: () => 0,
+      journalId: () => null,
+      onEvent: (entry) => entries.push(entry),
+      onWelcome: () => {},
+      onGone: () => {},
+    });
+    cleanups.push(() => other.close());
+    const welcome = await other.connect(2_000, undefined, true);
+    expect(welcome).toMatchObject({ sessionId: "main-session", journalSeq: 1 });
+    expect(other.isReady()).toBe(true);
+    const journalEntry = (raw: string) => {
+      const { type: _, journalId: __, ...entry } = JSON.parse(raw);
+      return entry;
+    };
+    expect(entries).toEqual([journalEntry(bytes.replay)]);
+    await expect(
+      other.prompt("main-prompt", "drive retained host")
+    ).resolves.toBe("accepted");
+    await until(() => entries.length === 2);
+    expect(entries[1]).toEqual(journalEntry(bytes.update));
+    expect(commands.map((command) => command.type)).toEqual([
+      "hello",
+      "prompt",
+    ]);
+    expect(await other.promptReceipt("main-prompt")).toBe("unsupported");
   });
 });
