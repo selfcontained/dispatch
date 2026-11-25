@@ -27,13 +27,7 @@ const catalog = z.object({
         id,
         label,
         effort: z
-          .array(
-            z.object({
-              value: id,
-              name: label,
-              description: z.string().optional(),
-            })
-          )
+          .array(z.object({ value: id, name: label }))
           .max(32)
           .optional(),
       })
