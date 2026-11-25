@@ -400,6 +400,82 @@ describe("settings route", () => {
     return { app, patch, publishModelsChanged };
   };
 
+  it("pins main's exact no-runner catalog and PATCH response bytes", async () => {
+    const { pool } = settingsPool();
+    const codex = ["sol", "astra", "luna", "next"].map((id) => ({
+      id,
+      label: id,
+    }));
+    setLearnedAgentModels("codex", codex, "astra");
+    setLearnedAgentModels("claude", [{ id: "c", label: "C" }], "c");
+    setLearnedAgentModels("opencode", [{ id: "o", label: "O" }], "o");
+    await recordListedModels(pool, "codex", ["sol", "astra", "luna"]);
+    await updateModelAvailability(pool, "codex", {
+      model: "sol",
+      enabled: false,
+    });
+    await updateModelAvailability(pool, "codex", { autoEnable: false });
+    await recordListedModels(pool, "codex", ["sol", "astra", "luna", "next"]);
+    const app = Fastify();
+    await registerSystemRoutes(app, {
+      pool,
+      appLog: logger,
+      slackNotifier: {},
+      engineBins: { claude: "claude", codex: "codex" },
+    } as never);
+    try {
+      const availability = {
+        claude: { autoEnable: true, disabled: [], unseen: [] },
+        codex: {
+          autoEnable: false,
+          disabled: ["sol", "next"],
+          unseen: ["next"],
+        },
+        opencode: { autoEnable: true, disabled: [], unseen: [] },
+      };
+      expect(
+        (await app.inject({ method: "GET", url: "/api/v1/agent-models" })).body
+      ).toBe(
+        JSON.stringify({
+          models: {
+            codex,
+            claude: [{ id: "c", label: "C" }],
+            opencode: [{ id: "o", label: "O" }],
+          },
+          defaults: { codex: "astra", claude: "c", opencode: "o" },
+          availability,
+        })
+      );
+      expect(
+        (
+          await app.inject({
+            method: "PATCH",
+            url: "/api/v1/app/settings/agent-models",
+            payload: { agentType: "codex", autoEnable: false },
+          })
+        ).body
+      ).toBe(JSON.stringify({ availability }));
+      expect(
+        (
+          await app.inject({
+            method: "PATCH",
+            url: "/api/v1/app/settings/agent-models",
+            payload: { agentType: "codex", seen: ["next"] },
+          })
+        ).body
+      ).toBe(
+        JSON.stringify({
+          availability: {
+            ...availability,
+            codex: { ...availability.codex, unseen: [] },
+          },
+        })
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
   it("saves a change, tells open clients and serves it with the catalog", async () => {
     const { app, patch, publishModelsChanged } = await server();
     const body = { agentType: "codex", model: "sol", enabled: false };
