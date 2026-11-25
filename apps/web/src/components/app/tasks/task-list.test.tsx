@@ -175,3 +175,43 @@ it("keeps PR links distinct from the row's task navigation", () => {
   fireEvent.click(screen.getByRole("button", { name: "Linked task" }));
   expect(openTask).toHaveBeenCalledWith(task.id);
 });
+
+it("names a row's goal progress for screen readers", () => {
+  const task = {
+    id: "goals",
+    projectId: "p",
+    title: "Goal task",
+    columnId: "ready",
+    position: 0,
+    assignedAgentId: null,
+    links: [],
+    labels: [{ name: "ui", color: "blue" }],
+    latestFailure: null,
+    launching: null,
+    goalCounts: { completed: 1, total: 2 },
+    createdAt: new Date().toISOString(),
+  } as unknown as Task;
+  const board = {
+    projectId: "p",
+    tasks: [task],
+    columns: [
+      { id: "ready", key: "ready", name: "Ready", position: 0, trigger: null },
+    ],
+  } as unknown as TaskBoard;
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <TaskList
+        board={board}
+        tasks={[task]}
+        agents={[]}
+        openTask={() => {}}
+        moveTask={() => {}}
+      />
+    </QueryClientProvider>
+  );
+  expect(
+    screen.getByRole("button", {
+      name: "Goal task, 1 of 2 goals complete, ui",
+    })
+  ).toBeTruthy();
+});

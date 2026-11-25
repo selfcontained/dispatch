@@ -4,6 +4,7 @@ import { Sheet, SheetClose, type SheetProps } from "@/components/ui/sheet";
 import { TaskLabelPicker } from "./task-labels";
 import { TaskLaunchTemplateEditor } from "./task-launch-template";
 import { TaskAttachments } from "./task-attachments";
+import { TaskGoalList, goalChangeLines } from "./task-goal-list";
 import { TaskDeleteDialog } from "./task-delete-dialog";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
@@ -465,6 +466,11 @@ export function TaskDetailPanel({
                         </span>
                       </Hint>
                     </section>
+                    {!!task.goals?.length && (
+                      <DrawerSection label="Goals">
+                        <TaskGoalList goals={task.goals} />
+                      </DrawerSection>
+                    )}
                     {columns.some((c) => c.trigger) && (
                       <DrawerSection label="Launch template">
                         <TaskLaunchTemplateEditor key={task.id} task={task} />
@@ -735,6 +741,15 @@ export function TaskDetailPanel({
                             </Hint>
                             {typeof event.data.reason === "string" && (
                               <p className="text-danger">{event.data.reason}</p>
+                            )}
+                            {event.kind === "goals_changed" && (
+                              <ul className="break-words text-muted-foreground">
+                                {goalChangeLines(event.data).map(
+                                  (line, index) => (
+                                    <li key={index}>{line}</li>
+                                  )
+                                )}
+                              </ul>
                             )}
                           </li>
                         ))}

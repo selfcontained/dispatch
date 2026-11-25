@@ -27,6 +27,7 @@
         "apps/server/src/routes/tasks.ts",
         "apps/server/test/tasks-service.test.ts",
         "apps/server/test/db/task-briefing-files.test.ts",
+        "apps/server/test/task-goals.test.ts",
         "e2e/tasks-board.spec.ts"
       ],
       "personas": ["code-review"]

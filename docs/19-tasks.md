@@ -134,15 +134,38 @@ This intentionally changes task-message routing: task assignment, mentions, and 
 
 Available to agents and job agents. They act on the caller's project only: its own, or for an agent outside any project, the project whose repo holds its workspace. Another project's board or tasks are refused.
 
-| Tool           | Does                                                                                                                                                                                              |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `task_list`    | Thin rows `{ id, title, column, assignedAgentId, updatedAt }`; column keys plus `columnCapacity` entries `{ id, key, name, capacity, activeTaskCount }`; filter by `column` key or `assignedToMe` |
-| `task_get`     | The task with its column key, its agents and its last 30 events                                                                                                                                   |
-| `task_create`  | Create in the first column or a named `column` key; returns `{ id, column }`                                                                                                                      |
-| `task_update`  | Edit title/body, move with `column` (key), `assign: "self" \| "none"`, append `links` (deduped by url)                                                                                            |
-| `task_comment` | Post at the top of the task's conversation; `to` delivers it to another agent on the task; caller must be in the task's project, and not removed from it                                          |
+| Tool               | Does                                                                                                                                                                                              |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `task_list`        | Thin rows `{ id, title, column, assignedAgentId, updatedAt }`; column keys plus `columnCapacity` entries `{ id, key, name, capacity, activeTaskCount }`; filter by `column` key or `assignedToMe` |
+| `task_get`         | The task with its column key, its agents and its last 30 events                                                                                                                                   |
+| `task_create`      | Create in the first column or a named `column` key; returns `{ id, column }`                                                                                                                      |
+| `task_update`      | Edit title/body, move with `column` (key), `assign: "self" \| "none"`, append `links` (deduped by url)                                                                                            |
+| `task_goal_add`    | Append goal `titles` (in order) to a task; a title matching a current goal is skipped                                                                                                             |
+| `task_goal_update` | Edit goals by `goalId`: rename with `title`, and/or `action: "complete" \| "reopen" \| "retire"`; all or nothing                                                                                  |
+| `task_comment`     | Post at the top of the task's conversation; `to` delivers it to another agent on the task; caller must be in the task's project, and not removed from it                                          |
 
 A tool move follows the trigger rules but cannot confirm a relaunch over another running agent; it returns the `agent_working` error instead. `assign: "self"` likewise refuses to take over a task whose agent is still running. `task_update` checks everything before it writes, so a refused call changes nothing.
+
+## Goals
+
+A task may carry ordered goals: short titles of verifiable outcomes, each with a stable `tgl_…` id and a state of `open`, `completed` or `retired`. Existing tasks have none. Agents manage them over MCP; the board has no editor. Every goal counts the same. Retired goals leave the count but stay in task detail (struck through) and in activity.
+
+- **Board rows** (`GET …/tasks/board`, `GET /api/v1/tasks`) carry `goalCounts: { completed, total }`, where `total` excludes retired goals. The card and the agent sidebar's assigned-task row show an equal-segment bar with the count as text, and hide it when `total` is 0.
+- **Task detail** (`GET /api/v1/tasks/:id`, `task_get`) adds `goals: [{ id, title, state, position }]` in order, retired ones included.
+- **Activity**: each write that changes something records one `goals_changed` event, with its actor, in the same transaction: `{ changes: [{ goalId, op, title, fromTitle?, fromState? }] }`, `op` one of `added`, `renamed`, `completed`, `reopened`, `retired`.
+- Goals never move a task, set `completedAt`, or change assignment. Completing the last goal leaves the column alone.
+
+```
+task_create      { title: "Goal progress", goals: ["Persist goals", "Show progress"] }
+                 → { id: "tsk_…", goals: [{ id: "tgl_a", title: "Persist goals", state: "open" }, …] }
+task_goal_update { id: "tsk_…", changes: [{ goalId: "tgl_a", action: "complete" }] }
+task_goal_add    { id: "tsk_…", titles: ["Document tools"], requestId: "add-docs-1" }
+task_goal_update { id: "tsk_…", changes: [{ goalId: "tgl_b", title: "Show progress on cards" },
+                                          { goalId: "tgl_c", action: "retire" }] }
+                 → { taskId, goals: [...], goalCounts: { completed: 1, total: 2 }, changes: [...] }
+```
+
+Rules: titles are trimmed, single-line, 1–200 characters, and distinct (case-insensitive) among current goals; at most 20 per call and 50 per task, retired included. `complete` needs an open goal, `retire` an open or completed one, `reopen` a completed or retired one. An unknown goal id, a goal of another task, or any invalid edit rejects the whole batch with nothing written. Writes take the task's row lock, so concurrent edits to different goals all land. An edit already in effect changes nothing and records no event. An optional `requestId` makes any goal write replayable: repeating it returns the first result (`replayed: true`) without applying again; reusing it for a different payload returns `409 request_id_reused`.
 
 ## Live Updates
 

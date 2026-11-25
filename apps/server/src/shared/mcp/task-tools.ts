@@ -11,6 +11,11 @@ import {
   type TaskService,
 } from "../../tasks/service.js";
 import type { Task, TaskColumn, TaskDetail } from "../../tasks/types.js";
+import {
+  GOAL_BATCH_MAX,
+  GOAL_REQUEST_ID_MAX_LENGTH,
+  GOAL_TITLE_MAX_LENGTH,
+} from "../../tasks/goals.js";
 import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
@@ -87,6 +92,17 @@ const launchModelSchema = () =>
       "Model for launchAgentType, required with it and validated for that runtime; no default is ever substituted and invalid pairs are rejected with nothing changed. Omit to keep. Null is accepted only with launchAgentType: null (clears the override). " +
         describeAgentModelCatalog(AGENT_TYPES)
     );
+
+const goalTitleSchema = z.string().min(1).max(GOAL_TITLE_MAX_LENGTH);
+
+const requestIdSchema = z
+  .string()
+  .min(1)
+  .max(GOAL_REQUEST_ID_MAX_LENGTH)
+  .optional()
+  .describe(
+    "Any unique string for this write. Retrying with the same requestId returns the first result instead of applying it again."
+  );
 
 const linkSchema = z.object({
   kind: z.enum(["pr", "branch", "url"]),
@@ -318,7 +334,7 @@ export function registerTaskTools(
       "task_get",
       {
         description:
-          "Get a task: its column key, body, links, agents that worked it, and its recent activity.",
+          "Get a task: its column key, body, links, ordered goals (id, title, state), agents that worked it, and its recent activity.",
         inputSchema: {
           id: z.string().min(1),
         },
@@ -417,6 +433,13 @@ export function registerTaskTools(
             .describe("Markdown: the deliverable and acceptance criteria."),
           column: z.string().min(1).optional().describe("Column key."),
           projectId: z.string().min(1).optional(),
+          goals: z
+            .array(goalTitleSchema)
+            .max(GOAL_BATCH_MAX)
+            .optional()
+            .describe(
+              "Short titles of the task's verifiable outcomes, in order. They exist before any launch and show as progress on the board."
+            ),
         },
       },
       async (args) => {
@@ -441,15 +464,22 @@ export function registerTaskTools(
               ...(args.labels !== undefined ? { labels: args.labels } : {}),
               ...(args.body !== undefined ? { body: args.body } : {}),
               ...(column ? { columnId: column.id } : {}),
+              ...(args.goals?.length ? { goals: args.goals } : {}),
             },
             caller
           );
           const key = (await service.ensureColumns(projectId)).find(
             (c) => c.id === task.columnId
           )?.key;
+          const goals = args.goals?.length
+            ? (await service.getTaskDetail(task.id, 0)).goals.map(
+                ({ id, title, state }) => ({ id, title, state })
+              )
+            : [];
           return ok({
             id: task.id,
             column: key ?? null,
+            goals,
             labels: task.labels ?? [],
             launchTemplateId: task.launchTemplateId,
             launchAgentType: task.launchAgentType,
@@ -560,6 +590,78 @@ export function registerTaskTools(
             launchAgentType: updated.launchAgentType,
             launchModel: updated.launchModel,
           });
+        } catch (error) {
+          return toTaskToolError(error);
+        }
+      }
+    );
+  }
+
+  const goalsResult = (result: Awaited<ReturnType<TaskService["addGoals"]>>) =>
+    ok({
+      taskId: result.taskId,
+      goals: result.goals.map(({ id, title, state }) => ({ id, title, state })),
+      goalCounts: result.goalCounts,
+      changes: result.changes,
+      ...(result.replayed ? { replayed: true } : {}),
+    });
+
+  if (allowed.has("task_goal_add")) {
+    server.registerTool(
+      "task_goal_add",
+      {
+        description:
+          "Append goals to a task: short titles of verifiable outcomes, in order. A title matching a current goal is skipped. Returns every goal with its id and state.",
+        inputSchema: {
+          id: z.string().min(1).describe("Task id."),
+          titles: z.array(goalTitleSchema).min(1).max(GOAL_BATCH_MAX),
+          requestId: requestIdSchema,
+        },
+      },
+      async (args) => {
+        try {
+          await taskInScope(args.id);
+          return goalsResult(
+            await service.addGoals(args.id, args.titles, caller, {
+              requestId: args.requestId,
+            })
+          );
+        } catch (error) {
+          return toTaskToolError(error);
+        }
+      }
+    );
+  }
+
+  if (allowed.has("task_goal_update")) {
+    server.registerTool(
+      "task_goal_update",
+      {
+        description:
+          "Change a task's goals by id (from task_get): rename with title, and/or action complete, reopen or retire. Retired goals leave the progress count. The batch applies all or nothing; repeating an edit already in effect changes nothing. Returns every goal with its state. Goals never move the task between columns.",
+        inputSchema: {
+          id: z.string().min(1).describe("Task id."),
+          changes: z
+            .array(
+              z.object({
+                goalId: z.string().min(1),
+                title: goalTitleSchema.optional(),
+                action: z.enum(["complete", "reopen", "retire"]).optional(),
+              })
+            )
+            .min(1)
+            .max(GOAL_BATCH_MAX),
+          requestId: requestIdSchema,
+        },
+      },
+      async (args) => {
+        try {
+          await taskInScope(args.id);
+          return goalsResult(
+            await service.editGoals(args.id, args.changes, caller, {
+              requestId: args.requestId,
+            })
+          );
         } catch (error) {
           return toTaskToolError(error);
         }
