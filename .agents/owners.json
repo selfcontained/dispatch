@@ -63,6 +63,7 @@
         "apps/server/test/diff-stats-refresher.test.ts",
         "apps/server/test/archive-policy.test.ts",
         "apps/server/test/effective-base.test.ts",
+        "apps/server/test/comparison-base-parity.test.ts",
         "apps/server/test/launch-admission.test.ts",
         "apps/server/test/launch-model-scope.test.ts",
         "apps/server/test/local-bindings.test.ts",

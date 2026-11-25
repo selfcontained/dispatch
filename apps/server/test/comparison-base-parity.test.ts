@@ -16,6 +16,7 @@ import {
   type ComparisonBaseAgent,
   type ComparisonUse,
 } from "../src/agents/effective-base.js";
+import { agentDiffPath } from "../src/agents/workspace-target.js";
 import { localCheckoutWorkload } from "../src/runners/local.js";
 import { localDefaultBranch } from "../src/shared/git/default-branch.js";
 
@@ -82,7 +83,8 @@ async function before(agent: ComparisonBaseAgent, use: ComparisonUse) {
     );
   if (agent.baseBranch) return agent.baseBranch;
   const managed = Boolean(agent.worktreePath || agent.gitContext?.isWorktree);
-  return managed ? localDefaultBranch(agent.cwd!) : null;
+  const cwd = managed ? agentDiffPath(agent) : null;
+  return cwd ? localDefaultBranch(cwd) : null;
 }
 
 const USES: ComparisonUse[] = ["changes", "review"];
