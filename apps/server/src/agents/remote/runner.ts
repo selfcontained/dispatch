@@ -419,7 +419,7 @@ export type RunnerUpdateOptions = {
   createWorkspacePreparation?: WorkspacePreparationFactory;
   /** The runner's session core; the supervisor needs it to start. */
   createSessions?: SessionCoreFactory;
-  streamHelper?: string;
+  streamHelper: string;
 };
 
 type RunnerOutput = RunnerFrame | StreamFrame;

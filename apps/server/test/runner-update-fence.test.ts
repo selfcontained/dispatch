@@ -1,3 +1,4 @@
+import { streamHelper } from "./helpers/stream-helper.js";
 import { embeddedBuild } from "../src/agents/build-identity.js";
 import { gitSha, packageVersion } from "../src/generated/runtime-assets.js";
 import { parseReadyFrame } from "@dispatch/runner-protocol";
@@ -210,7 +211,7 @@ describe("runner update fence", () => {
     emit({ type: "request", id, command });
 
   async function start(
-    options: Omit<RunnerUpdateOptions, "build" | "healthBuild">
+    options: Omit<RunnerUpdateOptions, "build" | "healthBuild" | "streamHelper">
   ) {
     socket = Object.assign(new EventEmitter(), {
       write: vi.fn((_line: string, flushed?: () => void) => {
@@ -229,6 +230,7 @@ describe("runner update fence", () => {
     running = runRemoteRunner(config, {
       build: embeddedBuild,
       healthBuild: { version: packageVersion, revision: gitSha },
+      streamHelper,
       ...options,
     }).catch((error) => error);
     await vi.waitFor(() => expect(dial).toHaveBeenCalledTimes(1));
