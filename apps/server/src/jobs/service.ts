@@ -1,4 +1,10 @@
-import { sameRunner } from "@dispatch/runner-protocol/contract";
+import {
+  displayPath,
+  pathFromWire,
+  sameRunner,
+} from "@dispatch/runner-protocol/contract";
+import path from "node:path";
+import { runnerDirectory } from "../runners/directory.js";
 import {
   PROJECT_IDENTITY_SQL,
   repositoryKey,
@@ -37,10 +43,8 @@ import {
   resolveAgentModelForUpdate,
 } from "../shared/agent-models.js";
 import { errorMessage } from "../shared/lib/error-message.js";
-import { runCommand } from "../shared/lib/run-command.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import { sleep } from "../shared/lib/sleep.js";
-import { normalizePath, resolveRepoRoot } from "../shared/git/git-context.js";
 import { BrainStore } from "../brain/store.js";
 import {
   JobStore,
@@ -576,8 +580,17 @@ export class JobService {
     const repoRoot =
       (await repositoryKey({
         placement: targetPlacement({ directory }),
-        repositoryRoot: () =>
-          resolveRepoRoot(directory).catch(() => normalizePath(directory)),
+        repositoryRoot: async () => {
+          const roots = await runnerDirectory(
+            this.agentManager.checkoutReadRunners()
+          )
+            .for(targetPlacement({ directory }))
+            .call("git.roots", { target: { path: pathFromWire(directory) } })
+            .catch(() => null);
+          return roots?.repositoryRoot
+            ? displayPath(roots.repositoryRoot)
+            : normalizePath(directory);
+        },
         project: async () => {
           const projectId = (await this.agentManager.getAgent(agentId))
             ?.projectId;
@@ -1653,4 +1666,11 @@ function normalizeJobDirectory(directory: string): string {
   return hasSavedLocator(trimmed)
     ? trimmed
     : normalizePath(resolveTilde(trimmed));
+}
+
+/** Saved folder/key normalization on the controller; it performs no machine read. */
+function normalizePath(value: string): string {
+  const resolved = path.resolve(value);
+  const trimmed = resolved.replace(/[\\/]+$/, "");
+  return trimmed.length > 0 ? trimmed : resolved;
 }

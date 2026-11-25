@@ -1,7 +1,4 @@
-import { realpath } from "node:fs/promises";
 import { relative, isAbsolute } from "node:path";
-import { resolveTilde } from "../shared/lib/resolve-tilde.js";
-import { resolveProjectRoot } from "./resolve-root.js";
 
 type Project = {
   id: string;
@@ -9,19 +6,6 @@ type Project = {
   repoRoot: string | null;
   extraRoots?: string[];
 };
-
-/** Match canonical checkouts (including linked worktrees) or contained folders. */
-export async function matchingProjects(
-  cwd: string,
-  projects: Project[]
-): Promise<Project[]> {
-  if (!projects.length) return [];
-  const directory = await realpath(resolveTilde(cwd));
-  const root = await resolveProjectRoot(directory);
-  return matchProjectIdentity(directory, root, projects, (root) =>
-    realpath(root).catch(() => null)
-  );
-}
 
 export async function matchProjectIdentity(
   directory: string,

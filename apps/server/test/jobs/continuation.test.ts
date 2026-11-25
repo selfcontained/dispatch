@@ -29,6 +29,7 @@ const logger = {
 } as unknown as import("fastify").FastifyBaseLogger;
 
 const agents = {
+  checkoutReadRunners: () => ({}),
   getLastEngineActivity: vi.fn(() => undefined),
   hasOpenTurn: vi.fn(() => true),
   stopAgent: vi.fn(),

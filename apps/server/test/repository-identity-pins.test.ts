@@ -165,7 +165,7 @@ describe("loop handoff key pins (jobs)", () => {
     };
     const service = new JobService(
       {} as never,
-      {} as never,
+      { checkoutReadRunners: () => ({}) } as never,
       { warn() {}, info() {}, error() {} } as never,
       {} as never,
       brain as never

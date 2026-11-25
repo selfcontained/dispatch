@@ -7,7 +7,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import { inferProjectRepository } from "../src/agents/remote/repository.js";
 import { runMigrations } from "../src/db/migrate.js";
-import { matchingProjects } from "../src/projects/matching.js";
+import { matchingProjects } from "./helpers/project-matching.js";
 import { backfillProjectRepositories } from "../src/projects/repository-backfill.js";
 import { ProjectStore } from "../src/projects/store.js";
 import { registerProjectRoutes } from "../src/routes/projects.js";
