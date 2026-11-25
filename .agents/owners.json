@@ -312,6 +312,7 @@
         "apps/server/test/helpers/workspace-paths.ts",
         "apps/server/test/git-origin-parity.test.ts",
         "apps/server/test/git-origin-routing.test.ts",
+        "apps/server/test/git-origin-child-recovery.test.ts",
         "apps/server/test/tasks-service.test.ts",
         "packages/shared/src/mcp-inventory-types.ts",
         "packages/runner/src/host/mcp-inventory.ts"

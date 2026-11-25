@@ -20,7 +20,7 @@ it("asks a ready local child for the verbatim origin path", async () => {
   expect(call).toHaveBeenCalledExactlyOnceWith(
     "git.origin",
     { path: "~/verbatim" },
-    undefined
+    { wait: false }
   );
 });
 it("does not substitute a local answer for a child's operation error", async () => {
@@ -65,3 +65,33 @@ it("does not fall back when the enrolled runner is unavailable", async () => {
     runner.call("git.origin", { path: "/path" })
   ).rejects.toMatchObject({ code: "unavailable" });
 });
+it.each(["starting", "unavailable"] as const)(
+  "reads in process while the child is %s",
+  async (state) => {
+    const call = vi.fn();
+    const child = { call, connection: { state } } as unknown as Runner;
+    const runner = runnerDirectory({ child: () => child }).for(
+      controllerPlacement
+    );
+    expect(
+      await runner.call("git.origin", { path: "/missing/git-origin-fixture" })
+    ).toEqual({ url: null });
+    expect(call).not.toHaveBeenCalled();
+  }
+);
+it.each(["unavailable", "unknown_outcome"] as const)(
+  "reads in process after the child answers %s",
+  async (code) => {
+    const call = vi.fn(async () => {
+      throw new RunnerCallError({ code, message: "lost child" });
+    });
+    const child = { call, connection: { state: "ready" } } as unknown as Runner;
+    const runner = runnerDirectory({ child: () => child }).for(
+      controllerPlacement
+    );
+    expect(
+      await runner.call("git.origin", { path: "/missing/git-origin-fixture" })
+    ).toEqual({ url: null });
+    expect(call).toHaveBeenCalledTimes(1);
+  }
+);

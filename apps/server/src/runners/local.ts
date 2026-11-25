@@ -842,11 +842,11 @@ export function createLocalCheckoutRunner(
         const request = input as Req<"git.origin">;
         if (child?.connection.state === "ready") {
           try {
-            return (await child.call(
-              "git.origin",
-              request,
-              options as CallOptions<"git.origin">
-            )) as Res<K>;
+            const attempt = {
+              ...(options as CallOptions<"git.origin">),
+              wait: false,
+            };
+            return (await child.call("git.origin", request, attempt)) as Res<K>;
           } catch (error) {
             if (!childUnavailable(error)) throw error;
             options?.signal?.throwIfAborted();
