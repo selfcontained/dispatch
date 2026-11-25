@@ -39,6 +39,29 @@ await runLocalRunner(build, {
     };
     return {
       calls: {
+        "engine.update.inspect": () => ({
+          realPath: null,
+          source: "unknown" as const,
+          canUpdate: false,
+          reason: "Fixture manual installation.",
+          command: "fixture",
+          latestKey: "unknown:",
+          target: "fixture",
+        }),
+        "engine.update.probe": ({ pids }) => ({
+          alive: pids.map(() => false),
+          version: "1.0.0",
+        }),
+        "engine.operation": ({ operationId }) => ({
+          type: "operation_state" as const,
+          operationId,
+          running: false,
+          output: "fixture recovery output",
+          outputOffset: 23,
+        }),
+        "engine.update.spawn": () =>
+          record("engine-spawn", { operationId: "fixture", pid: 1 }),
+        "engine.update.release": () => record("engine-release", {}),
         "session.launch": (input) => record(input.launchId, {}),
         "checkout.exec": (input) =>
           record(input.argv[0] ?? "", { exitCode: 0, stdout: "", stderr: "" }),
