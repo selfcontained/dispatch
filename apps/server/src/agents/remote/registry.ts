@@ -1,15 +1,15 @@
-import type { RunnerHealth } from "./protocol.js";
+import type { RunnerHealth } from "@dispatch/runner-protocol";
 import { createHash, randomBytes } from "node:crypto";
 import { X509Certificate } from "node:crypto";
 import type { Pool } from "pg";
-import { validRunnerName } from "./enrollment.js";
+import { validRunnerName } from "@dispatch/runner-protocol";
 import {
   issueAuthority,
   issueClient,
   issueServer,
   runnerPublicKey,
   type Issued,
-} from "./x509.js";
+} from "./certificate-authority.js";
 
 export type Authority = {
   ca: Required<Issued>;

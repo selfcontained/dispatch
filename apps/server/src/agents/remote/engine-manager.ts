@@ -1,10 +1,6 @@
 import type { AgentModelOption } from "../../shared/agent-models.js";
 import type { createRunnerUsage } from "../codex-reset.js";
 import { runnerPluginChecker } from "../../routes/plugin.js";
-import {
-  createLocalEngineRunner,
-  type LocalEngineRunner,
-} from "../local-runner-engine.js";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 
@@ -72,7 +68,6 @@ export type LocalEngineDeps = {
   /** The local runner's engine inventory and sign-in. */
   engines: EngineCalls;
   updates: EngineUpdateOperations;
-  capabilities?: Pick<LocalEngineRunner, "handle">;
   overrides?: Partial<Record<AcpEngineId, string>>;
 };
 
@@ -88,7 +83,6 @@ export type EngineManagerChangeListener = (
 
 export class EngineManager {
   private readonly events = new EventEmitter();
-  private readonly localCapabilities: Pick<LocalEngineRunner, "handle">;
   /** Each placement's latest sign-in per engine, by scope key. */
   private readonly logins = new Map<string, Map<RunnerEngine, string>>();
 
@@ -108,16 +102,7 @@ export class EngineManager {
         updates(scope: EngineScope): EngineUpdateOperations;
       };
     }
-  ) {
-    this.localCapabilities =
-      deps.local.capabilities ??
-      createLocalEngineRunner({
-        bins: {
-          claude: deps.local.overrides?.claude ?? "claude",
-          codex: deps.local.overrides?.codex ?? "codex",
-        },
-      });
-  }
+  ) {}
 
   /** Subscribe to inventory changes for one scope; call the returned function to stop. */
   onChanged(
@@ -452,9 +437,6 @@ export class EngineManager {
   private async localRpc(
     operation: EngineOperation
   ): Promise<EngineOperationAck> {
-    if (isEngineCapabilityOperation(operation)) {
-      return this.localCapabilities.handle(operation);
-    }
     switch (operation.type) {
       case "status":
         return { ok: true };

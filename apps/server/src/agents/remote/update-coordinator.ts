@@ -21,7 +21,7 @@ import {
   type RunnerUpdateCancelReason,
   type RunnerUpdateTarget,
   type SelfUpdateAdvert,
-} from "./protocol.js";
+} from "@dispatch/runner-protocol";
 import {
   RunnerRequestError,
   type RemoteRunnerService,
@@ -29,7 +29,7 @@ import {
 } from "./service.js";
 import type { RunnerHoldOutcome, RunnerUpdateHolds } from "./update-hold.js";
 import { privateStateFile } from "./update-state-file.js";
-import { compareRunnerVersions } from "./update-verify.js";
+import { compareRunnerVersions } from "@dispatch/runner-protocol/update-format";
 
 /*
  * Dispatch's side of a runner update. One attempt per

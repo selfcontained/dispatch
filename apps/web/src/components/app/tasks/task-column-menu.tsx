@@ -5,12 +5,12 @@ import { MoreHorizontal } from "lucide-react";
 import type { TaskBoard, TaskColumn } from "@/hooks/use-tasks";
 import { useTaskActions } from "@/hooks/use-tasks";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  ActionMenu,
+  ActionMenuContent,
+  ActionMenuItem,
+  ActionMenuSeparator,
+  ActionMenuTrigger,
+} from "@/components/ui/action-menu";
 import { IconButton } from "@/components/ui/icon-button";
 import { cn } from "@/lib/utils";
 import { MENU_ITEM, orderedColumns } from "./task-utils";
@@ -63,8 +63,8 @@ export function TaskColumnMenu({
       );
   return (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
+      <ActionMenu label="Column actions">
+        <ActionMenuTrigger asChild>
           <IconButton
             ref={menuButton}
             size="icon-sm"
@@ -72,27 +72,27 @@ export function TaskColumnMenu({
           >
             <MoreHorizontal aria-hidden="true" />
           </IconButton>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem
+        </ActionMenuTrigger>
+        <ActionMenuContent align="end">
+          <ActionMenuItem
             className={MENU_ITEM}
             onSelect={() => setRenameOpen(true)}
           >
             Rename…
-          </DropdownMenuItem>
-          <DropdownMenuItem
+          </ActionMenuItem>
+          <ActionMenuItem
             className={MENU_ITEM}
             onSelect={() => setTriggerOpen(true)}
           >
             {column.trigger ? "Edit trigger…" : "Add trigger…"}
-          </DropdownMenuItem>
-          <DropdownMenuItem
+          </ActionMenuItem>
+          <ActionMenuItem
             className={MENU_ITEM}
             onSelect={() => setCapacityOpen(true)}
           >
             {column.capacity != null ? "Edit capacity…" : "Set capacity…"}
-          </DropdownMenuItem>
-          <DropdownMenuItem
+          </ActionMenuItem>
+          <ActionMenuItem
             className={MENU_ITEM}
             disabled={index === 0}
             onSelect={() =>
@@ -106,8 +106,8 @@ export function TaskColumnMenu({
             }
           >
             {earlier}
-          </DropdownMenuItem>
-          <DropdownMenuItem
+          </ActionMenuItem>
+          <ActionMenuItem
             className={MENU_ITEM}
             disabled={index === columns.length - 1}
             onSelect={() =>
@@ -121,26 +121,26 @@ export function TaskColumnMenu({
             }
           >
             {later}
-          </DropdownMenuItem>
+          </ActionMenuItem>
           {column.isDone && (
-            <DropdownMenuItem
+            <ActionMenuItem
               className={MENU_ITEM}
               disabled={archiveCount === 0}
               onSelect={() => setArchiveOpen(true)}
             >
               {archiveLabel}
-            </DropdownMenuItem>
+            </ActionMenuItem>
           )}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
+          <ActionMenuSeparator />
+          <ActionMenuItem
             className={cn(MENU_ITEM, "text-danger")}
             disabled={taskCount > 0}
             onSelect={() => setDeleteOpen(true)}
           >
             {taskCount > 0 ? "Delete (empty it first)" : "Delete"}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+          </ActionMenuItem>
+        </ActionMenuContent>
+      </ActionMenu>
       <ConfirmDialog
         open={archiveOpen}
         onOpenChange={setArchiveOpen}

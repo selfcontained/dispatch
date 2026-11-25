@@ -384,10 +384,12 @@ export function createLocalCheckoutRunner(
         code: "invalid",
         message: "Invalid native checkout binding.",
       });
+    // A file listing (`filesOnly`) is an inspection read, as on main.
     const views =
       op !== "checkout.read" &&
       op !== "checkout.changes" &&
-      op !== "checkout.defaultFiles";
+      op !== "checkout.defaultFiles" &&
+      !(op === "checkout.list" && (request as { filesOnly?: true }).filesOnly);
     const row = { baseBranch: null, ...agent };
     // The folder the agent was launched in: where main looks for its icon.
     const launched = target.checkout === "launch";
@@ -1187,7 +1189,8 @@ function pulses(directory: string): CallerChannel<"checkout.watch"> {
 const PULSE = new Uint8Array([0x31]);
 
 /** The local runner child as its callers use it: a `Runner` with streams. */
-export type LocalRunner = LocalRunnerSession;
+export type LocalRunner = Omit<Runner, "call"> &
+  Pick<LocalRunnerSession, "call" | "openStream">;
 
 /** What the agent runtime uses of the child for local hosts. */
 export type LocalSessionRunner = Pick<LocalRunner, "call" | "openStream">;

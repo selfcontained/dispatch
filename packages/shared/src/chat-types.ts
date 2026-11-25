@@ -432,9 +432,19 @@ export type AgentReviewSummary = {
     {
       status: BlockReviewStatus;
       openFindings: number;
+      /** Every finding the review raised; 0 is a clean review. */
+      findingCount: number;
       streamId: string;
       /** The launch thread when embedded in a launch card, otherwise the review itself. */
       threadId: string;
+      reviewId: string;
+      /** The agent whose work was reviewed. */
+      toAgentId: string | null;
+      createdAt: string;
+      /** The reviewer, which may since have been archived. */
+      name: string;
+      persona: string | null;
+      archived: boolean;
     }
   >;
 };

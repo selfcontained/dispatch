@@ -1,4 +1,3 @@
-import type { CheckoutReadName } from "@dispatch/runner-protocol";
 import {
   runnerIdFromWire,
   RunnerCallError,
@@ -9,6 +8,8 @@ import {
   type Res,
 } from "@dispatch/runner-protocol/contract";
 import {
+  parseEngineInventory,
+  type EngineInventoryEntry,
   isEngineCapabilityOperation,
   type EngineHostCallName,
   type EngineHostCall,
@@ -23,6 +24,7 @@ import os from "node:os";
 import { Writable } from "node:stream";
 import { createServer, type Server, type TLSSocket } from "node:tls";
 import {
+  wireFrames,
   receiveFile,
   decodeResult,
   ResultError,
@@ -49,6 +51,7 @@ import {
 } from "../../runners/enrolled/v1-framing.js";
 import type { FastifyBaseLogger } from "fastify";
 import {
+  type CheckoutReadName,
   parseRunnerHealth,
   type RunnerHealth,
   parseReadyFrame,
@@ -61,8 +64,6 @@ import {
   type EnrollmentRequest,
   type EnrollmentReply,
   MANAGED_WORKSPACE,
-  wireFrames,
-  parseEngineInventory,
   type Command,
   type RunnerOperation,
   type GitHubOperation,
@@ -79,7 +80,6 @@ import {
   type SessionOperation,
   type LaunchProgress,
   parseLaunchProgress,
-  type EngineInventoryEntry,
   type Placement,
   endsUpdateAttempt,
   parseUpdateServiceFrame,
@@ -89,13 +89,13 @@ import {
   type SelfUpdateAdvert,
   type UpdateServiceFrame,
   type UpdateStatusFrame,
-} from "./protocol.js";
+} from "@dispatch/runner-protocol";
 import {
   connectCliCommand,
   formatHost,
   pairingCommand,
   validRunnerName,
-} from "./enrollment.js";
+} from "./enrollment-commands.js";
 import {
   ConnectRequestInvalid,
   PairingRejected,
@@ -103,8 +103,8 @@ import {
   RunnerRegistry,
   type Registration,
 } from "./registry.js";
-import { resolveRunnerUpdatePath } from "./update-artifact-path.js";
-import { publicKeyPin } from "./x509.js";
+import { resolveRunnerUpdatePath } from "@dispatch/runner-protocol/update-format";
+import { publicKeyPin } from "./certificate-authority.js";
 
 /** The single manually approved registration of the original prototype. */
 export type LegacyConfig = {

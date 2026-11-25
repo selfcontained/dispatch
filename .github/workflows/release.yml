@@ -866,8 +866,7 @@ jobs:
           sparse-checkout: |
             /scripts/sign-runner-update.mjs
             /scripts/runner-dev-key.mjs
-            /apps/server/src/agents/remote/update-manifest.ts
-            /apps/server/src/agents/remote/update-keys.ts
+            /packages/runner-protocol/src/update-format.ts
             /apps/server/src/server/runner-dev-key.ts
 
       - name: Set up Node for runner signing

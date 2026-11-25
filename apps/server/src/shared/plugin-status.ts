@@ -34,6 +34,10 @@ import { readFile } from "node:fs/promises";
 
 import { withEngineBinDir } from "@dispatch/runner/host/engine-bin-dir";
 import {
+  PLUGIN_ID,
+  type PluginStatus,
+  type PluginUpdateResult,
+  type PluginStatusChecker,
   isPluginEngine as isPluginAgentType,
   PLUGIN_ENGINES as PLUGIN_AGENT_TYPES,
   type PluginEngine as PluginAgentType,
@@ -42,27 +46,9 @@ import { compareSemver } from "./lib/compare-semver.js";
 import { errorMessage } from "./lib/error-message.js";
 import { runCommand, type CommandRunner } from "./lib/run-command.js";
 
-export { isPluginAgentType, PLUGIN_AGENT_TYPES };
+export { PLUGIN_ID, isPluginAgentType, PLUGIN_AGENT_TYPES };
+export type { PluginStatus, PluginUpdateResult, PluginStatusChecker };
 export type { PluginAgentType };
-
-export type PluginStatus = {
-  agentType: PluginAgentType;
-  installed: boolean;
-  enabled: boolean;
-  currentVersion: string | null;
-  latestVersion: string | null;
-  updateAvailable: boolean;
-  /** Present when the installed-plugin probe could not be trusted. */
-  detectionError?: string;
-};
-
-export type PluginUpdateResult = {
-  status: PluginStatus;
-  ranCommands: string[];
-  error: string | null;
-  /** Mirrors CheckOutcome.probeFailed for the re-check this result carries — see createPluginStatusChecker's `update`. */
-  probeFailed: boolean;
-};
 
 /** Minimal pino-shaped logger — matches `app.log.warn(obj, msg)` without importing Fastify's type into shared/. */
 export type PluginStatusLogger = {
@@ -71,7 +57,6 @@ export type PluginStatusLogger = {
 
 const noopLogger: PluginStatusLogger = { warn: () => {} };
 
-export const PLUGIN_ID = "dispatch@dispatch";
 const MARKETPLACE_NAME = "dispatch";
 // `plugin list` is the first CLI call of a check, often the first in a
 // while, and a cold `codex` start can take well over 10s before it answers
@@ -621,15 +606,6 @@ export async function applyPluginUpdate(
     probeFailed: outcome.probeFailed,
   };
 }
-
-export type PluginStatusChecker = {
-  getStatus: (
-    agentType: PluginAgentType,
-    opts?: { forceRefresh?: boolean }
-  ) => Promise<PluginStatus>;
-  update: (agentType: PluginAgentType) => Promise<PluginUpdateResult>;
-  install: (agentType: PluginAgentType) => Promise<PluginUpdateResult>;
-};
 
 // A real answer is cached for an hour (each check does a git fetch, so
 // that's the cost being amortized). A probe failure — the CLI timed out, the

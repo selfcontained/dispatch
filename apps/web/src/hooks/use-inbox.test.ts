@@ -466,10 +466,11 @@ describe("useInbox load failures", () => {
   const client = () =>
     new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
-  it("keeps a failed poll quiet once there is content", async () => {
+  it("keeps reviews visible after a failed refresh and recovers on Retry", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
     const queryClient = client();
-    const cached = { pageParams: [null], pages: [page] };
+    const row = review("kept", CHILD, ROOT, at("10:00"));
+    const cached = { pageParams: [null], pages: [{ ...page, entries: [row] }] };
     queryClient.setQueryData(["inbox-reviews", ROOT], cached);
     queryClient.setQueryData(["stream", ROOT], cached);
     const { result } = mount(queryClient);
@@ -478,8 +479,42 @@ describe("useInbox load failures", () => {
         expect(queryClient.getQueryState([key, ROOT])?.error).toBeTruthy();
     });
     await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
-    expect(result.current.reviewsError).toBeNull();
+    expect(result.current.reviewsError?.message).toBe("offline");
+    expect(result.current.reviews.map((r) => r.id)).toEqual(["kept"]);
     expect(result.current.error).toBeNull();
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ ...page, entries: [row] }))
+    );
+    act(() => result.current.retryReviews?.());
+    await vi.waitFor(() => expect(result.current.reviewsError).toBeNull());
+    expect(result.current.reviews.map((r) => r.id)).toEqual(["kept"]);
+  });
+
+  it("does not poll reviews on an idle mounted agent page", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn(
+        async (_url: unknown) => new Response(JSON.stringify(page))
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const queryClient = client();
+      mount(queryClient);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+      const reads = () =>
+        fetchMock.mock.calls.filter(([url]) =>
+          String(url).includes("reviewsOnly")
+        ).length;
+      expect(reads()).toBe(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      expect(reads()).toBe(1);
+      queryClient.clear();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("retries a failed first page of reviews", async () => {

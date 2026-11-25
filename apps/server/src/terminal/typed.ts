@@ -1,5 +1,5 @@
 import type { CallerChannel, Res } from "@dispatch/runner-protocol/contract";
-import { TERMINAL_UPDATE_MESSAGE } from "../agents/remote/update-admission.js";
+import { TERMINAL_UPDATE_MESSAGE } from "@dispatch/runner-protocol";
 import type { TerminalBackend } from "./manager.js";
 
 const TERMINAL_INPUT_FULL = "Terminal input buffer full.";

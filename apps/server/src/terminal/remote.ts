@@ -7,7 +7,7 @@ import {
 } from "@dispatch/runner-protocol";
 import { wireFrames } from "../runners/enrolled/v1-framing.js";
 import type { RemoteRunnerService } from "../agents/remote/service.js";
-import { TERMINAL_UPDATE_MESSAGE } from "../agents/remote/update-admission.js";
+import { TERMINAL_UPDATE_MESSAGE } from "@dispatch/runner-protocol";
 import { typedTerminal } from "./typed.js";
 import type { TerminalBackend } from "./manager.js";
 

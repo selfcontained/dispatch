@@ -12,7 +12,10 @@ import os from "node:os";
 import path from "node:path";
 import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { issueAuthority, publicKeyPin } from "../src/agents/remote/x509.js";
+import {
+  issueAuthority,
+  publicKeyPin,
+} from "../src/agents/remote/certificate-authority.js";
 import { RunnerRequestError } from "../src/agents/remote/service.js";
 import {
   registerRunnerInstaller,
