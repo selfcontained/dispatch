@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { checkOwnerCoverage } from "../src/personas/coverage.js";
+import { checkOwnerCoverage } from "./helpers/owner-coverage.js";
 
 const roots: string[] = [];
 const reviewer =

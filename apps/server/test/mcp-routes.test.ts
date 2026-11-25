@@ -11,7 +11,7 @@ import {
 import Fastify, { type FastifyInstance } from "fastify";
 
 import { RunnerCapabilityUnavailable } from "../src/agents/remote/service.js";
-import { personaScopeFor } from "../src/personas/persona-scope.js";
+import { personaScopeFor } from "./helpers/persona-scope.js";
 import { registerMcpRoutes } from "../src/routes/mcp.js";
 import { handleMcpRequest } from "../src/shared/mcp/server.js";
 import {
@@ -559,7 +559,15 @@ describe("job access ceiling wiring", () => {
       // Local agents: the scope resolves exactly as the services' default.
       const scope = vi.mocked(deps.jobService.addJob).mock.calls.at(-1)![2]!;
       const target = { cwd: "/tmp", projectRoot: "/tmp" };
-      expect(scope(target)).toEqual(personaScopeFor(target));
+      const selected = scope(target);
+      expect(selected).toEqual({
+        ...personaScopeFor(target),
+        runners: expect.any(Function),
+      });
+      if (selected.kind === "folder")
+        expect(selected.runners()).toEqual(
+          deps.agentManager.checkoutReadRunners()
+        );
     }
   );
 });

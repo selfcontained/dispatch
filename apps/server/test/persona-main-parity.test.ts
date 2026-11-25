@@ -13,7 +13,7 @@ import path from "node:path";
 import Fastify from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { inspectCheckout } from "./helpers/checkout-inspection.js";
-import { personaScopeFor } from "../src/personas/persona-scope.js";
+import { personaScopeFor } from "./helpers/persona-scope.js";
 import { listPersonas, resolvePersona } from "../src/personas/resolve.js";
 import { registerPersonaRoutes } from "../src/routes/personas.js";
 

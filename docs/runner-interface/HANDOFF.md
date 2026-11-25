@@ -123,6 +123,10 @@ Three lanes that share no files. A task that must touch another lane's file wait
 
 ## Known gaps accepted by the owner
 
+- **T35 session persona listing:** session checkout listings omit a directory, dangling link or FIFO named `*.md`; main’s native directory listing reports a per-file warning instead.
+- **T35 ownership availability:** session persona routes read the ownership file; main’s `access()` offers ownership reviews for a directory/unreadable map and answers 400 for other access errors.
+- **T35 persona upsert:** an explicitly rejected stale digest is re-read and retried up to three attempts, then reports that the file kept changing; uncertain mutation replies are never replayed.
+
 - **T39 / N26 deferred past this PR:** ports, previews and screencast for runner agents remain a known gap, like Open in IDE. T40 does not wait for T39.
 - The message "Queued until the runner reconnects" stays as worded.
 - **Plain git after runner GitHub sign-in fixed** (merged `57667634`): the workload account's global Git config includes gh's credential helper for https://github.com; sign-out removes the include. Runner revocation still does not sign gh out on that machine; SSH remotes and non-github.com hosts are not covered.

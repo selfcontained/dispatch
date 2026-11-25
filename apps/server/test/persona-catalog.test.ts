@@ -32,7 +32,7 @@ import { listPersonas, resolvePersona } from "../src/personas/resolve.js";
 import {
   launchPersonaScope,
   personaScopeFor,
-} from "../src/personas/persona-scope.js";
+} from "./helpers/persona-scope.js";
 
 let directory: string,
   remote: string,
