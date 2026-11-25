@@ -7,6 +7,7 @@ import { EXEC_OPS, WORKER_OPS } from "../platform/types.js";
  * so the list is explicit; anything not named is refused with `fenced`.
  */
 export const SERVED_WHILE_FROZEN: ReadonlySet<string> = new Set([
+  "engine.usage",
   "runner.describe",
   "runner.health",
   "session.list",

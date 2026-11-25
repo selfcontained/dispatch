@@ -19,7 +19,6 @@ import { findEngineBin } from "./engine-availability.js";
 import {
   CodexResetError,
   consumeCodexLimitReset,
-  loadProviderPlans,
   loadWorkloadProviderPlans,
   type ProviderPlanOptions,
 } from "./provider-plans.js";
@@ -144,11 +143,6 @@ export function createLocalEngineRunner(
     readModelOptions: async (
       engine: Parameters<typeof getAgentModelOptions>[0]
     ) => getAgentModelOptions(engine),
-    // The existing native surfaces retain the richer legacy presentation
-    // and local snapshots. The optional protocol above has a bounded reply.
-    readProviderPlans: () => loadProviderPlans(providerOptions),
-    consumeCodexReset: (requestId: string) =>
-      consumeCodexLimitReset({ ...providerOptions, requestId }),
   };
 }
 

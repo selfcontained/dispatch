@@ -878,7 +878,16 @@ export const operations = {
     scope: "runner",
     kind: "call",
     request: object({ ...engine, account: string, ...requestId }),
-    response: object({ code: string, windowsReset: integer }),
+    response: object({
+      code: string,
+      windowsReset: integer,
+      credit: optional(
+        nullable(
+          object({ id: string, title: string, expiresAt: nullable(string) })
+        )
+      ),
+      error: optional(object({ reason: string, message: string })),
+    }),
     errors: ["stale"],
     retry: key("requestId"),
     timeout: "long",

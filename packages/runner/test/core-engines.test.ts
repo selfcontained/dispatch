@@ -16,6 +16,8 @@ const waiting = { ...starting, status: "waiting" as const, url: "https://x" };
 
 function port(overrides: Partial<EnginePort> = {}): EnginePort {
   return {
+    usage: vi.fn(),
+    quotaReset: vi.fn(),
     updateInspect: vi.fn(),
     updateSpawn: vi.fn(),
     updateRelease: vi.fn(),
@@ -42,6 +44,60 @@ function port(overrides: Partial<EnginePort> = {}): EnginePort {
 }
 
 describe("the core's engine inventory and sign-in", () => {
+  it("serves usage details and reset credit through the platform port", async () => {
+    const usage = {
+      checkedAt: "2026-11-24T12:00:00Z",
+      providers: [
+        {
+          engine: "codex",
+          plan: "Pro",
+          observedAt: null,
+          windows: [
+            {
+              id: "primary",
+              label: "5-hour",
+              usedPercent: 99,
+              severity: "warning",
+              resetsAt: null,
+            },
+          ],
+          limitResets: {
+            available: 1,
+            applicable: 1,
+            oldestExpiresAt: null,
+            items: [
+              {
+                id: "credit",
+                title: "Reset",
+                grantedAt: null,
+                expiresAt: null,
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const reset = {
+      code: "ok",
+      windowsReset: 1,
+      credit: { id: "credit", title: "Reset", expiresAt: null },
+    };
+    const engines = port({
+      usage: vi.fn(async () => usage),
+      quotaReset: vi.fn(async () => reset),
+    });
+    const handlers = engineHandlers({ workload, engines });
+    expect(await handlers["engine.usage"]!({}, {} as never)).toEqual(usage);
+    expect(
+      await handlers["engine.quota.reset"]!(
+        { engine: "codex", account: "", requestId: "fixture" },
+        {} as never
+      )
+    ).toEqual(reset);
+    expect(SERVED_WHILE_FROZEN.has("engine.usage")).toBe(true);
+    expect(SERVED_WHILE_FROZEN.has("engine.quota.reset")).toBe(false);
+  });
+
   it("serves engine.list from the platform's port", async () => {
     const engines = port();
     const handlers = engineHandlers({ workload, engines });

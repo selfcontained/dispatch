@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { ProviderPlansResponse } from "@dispatch/shared";
-import { CodexResetError, type CodexResetOutcome } from "./provider-plans.js";
+import {
+  createProviderPlansReporter,
+  CodexResetError,
+  type CodexResetOutcome,
+} from "./provider-plans.js";
 
 export type CodexResetResult = {
   outcome: CodexResetOutcome | null;
@@ -116,4 +120,40 @@ export function createCodexResetCoordinator(deps: {
     entries.set(key, entry);
     return entry.result;
   };
+}
+
+/** Dispatch owns caches and replay protection; the runner performs host acts only. */
+export function createRunnerUsage(calls: {
+  call<K extends "engine.usage" | "engine.quota.reset">(
+    op: K,
+    request: import("@dispatch/runner-protocol/contract").Req<K>
+  ): Promise<import("@dispatch/runner-protocol/contract").Res<K>>;
+}) {
+  const providerPlans = createProviderPlansReporter({
+    load: async () =>
+      (await calls.call("engine.usage", {})) as ProviderPlansResponse,
+  });
+  const redeemCodexReset = createCodexResetCoordinator({
+    providerPlans,
+    consume: async (requestId) => {
+      const result = await calls.call("engine.quota.reset", {
+        engine: "codex",
+        account: "",
+        requestId,
+      });
+      if (result.error)
+        throw new CodexResetError(
+          result.error.reason as ConstructorParameters<
+            typeof CodexResetError
+          >[0],
+          result.error.message
+        );
+      return {
+        code: result.code,
+        windowsReset: result.windowsReset,
+        credit: result.credit ?? null,
+      };
+    },
+  });
+  return { providerPlans, redeemCodexReset };
 }

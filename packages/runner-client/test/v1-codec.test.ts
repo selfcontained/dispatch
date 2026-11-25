@@ -339,3 +339,45 @@ describe("current engine error envelopes", () => {
     );
   });
 });
+
+it("keeps legacy usage/reset bytes while current host calls retain full plan and credit details", () => {
+  for (const fixture of results.filter(
+    ({ command }) =>
+      command.kind === "engine" &&
+      ["provider_usage", "codex_reset"].includes(command.operation.type)
+  )) {
+    const input = decodeCommand(fixture.command, "t31-legacy");
+    if (input.op === null) throw new Error("Expected legacy mapping");
+    let response;
+    try {
+      response = decodeResult(input, fixture.value);
+    } catch (error) {
+      if (!(error instanceof ResultError)) throw error;
+      response = error;
+    }
+    expect(encodeResult(input, response as never)).toBe(fixture.value);
+  }
+  const response = {
+    code: "future_provider_code",
+    windowsReset: 2,
+    credit: { id: "credit", title: "Reset", expiresAt: null },
+  };
+  const input = decodeCommand(
+    {
+      workspace: "work",
+      agentId: "@engine",
+      kind: "engine",
+      operation: {
+        type: "contract",
+        call: {
+          op: "engine.quota.reset",
+          request: { engine: "codex", account: "", requestId: "t31" },
+        },
+      },
+    },
+    "t31-current"
+  );
+  if (input.op === null) throw new Error("Expected contract call");
+  const wire = encodeResult(input, response as never);
+  expect(decodeResult(input, wire)).toEqual(response);
+});

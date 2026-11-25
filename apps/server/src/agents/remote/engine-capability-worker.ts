@@ -285,6 +285,12 @@ export async function runEngineHostWorker(): Promise<void> {
       try {
         let data;
         switch (op) {
+          case "engine.usage":
+            data = await port.usage(request);
+            break;
+          case "engine.quota.reset":
+            data = await port.quotaReset(request);
+            break;
           case "engine.list":
             data = await port.list(request);
             break;

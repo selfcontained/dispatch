@@ -612,7 +612,7 @@ export async function runRemoteRunner(
         : JSON.stringify(
             operation.type === "codex_reset" ? operation.type : operation
           );
-    if (capabilityRequests.has(key) || capabilityRequests.size >= 8) {
+    if (capabilityRequests.has(key)) {
       return {
         ok: false,
         error:

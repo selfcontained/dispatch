@@ -5,6 +5,8 @@ import {
 import type { RunnerEngineTransport } from "../agents/remote/engine-manager.js";
 import { createRiskReader } from "../shared/mcp/pull-request-risk-tools.js";
 import type { PullRequestRefresher } from "../agents/pull-request-refresher.js";
+import { inProcessEngines, localEngineCalls } from "../runners/local.js";
+import { createRunnerUsage } from "../agents/codex-reset.js";
 import type { RedeemCodexReset } from "../agents/codex-reset.js";
 import type { ScheduledMessageService } from "../scheduled-messages/service.js";
 
@@ -151,14 +153,15 @@ async function checkoutContext(
 type McpRouteDeps = {
   pullRequests?: Pick<PullRequestRefresher, "get">;
   riskEnabled?: () => Promise<boolean>;
+  usageForAgent?: (id: string) => Promise<{
+    providerPlans: ReturnType<typeof createProviderPlansReporter>;
+    redeemCodexReset: RedeemCodexReset;
+  }>;
   redeemCodexReset?: RedeemCodexReset;
   usageWatches?: UsageCallbacks["usageWatches"];
   providerPlans?: ReturnType<typeof createProviderPlansReporter>;
   runnerEngines?: RunnerEngineTransport;
-  localEngines?: Pick<
-    LocalEngineRunner,
-    "readProviderPlans" | "readModelOptions"
-  >;
+  localEngines?: Pick<LocalEngineRunner, "readModelOptions">;
   config: {
     authToken: string;
   };
@@ -291,44 +294,27 @@ export async function registerMcpRoutes(
 ): Promise<void> {
   const localEngines =
     deps.localEngines ?? createLocalEngineRunner({ logger: app.log });
+  const fallbackEngines = deps.providerPlans
+    ? undefined
+    : inProcessEngines(undefined);
+  if (fallbackEngines)
+    app.addHook("onClose", async () => fallbackEngines.close());
   const providerPlans =
     deps.providerPlans ??
-    createProviderPlansReporter({
-      load: localEngines.readProviderPlans,
-      log: app.log,
-    });
+    createRunnerUsage(localEngineCalls(() => undefined, fallbackEngines!))
+      .providerPlans;
 
-  function usageForRunner(runnerId: string): UsageCallbacks {
-    return {
-      providerPlans: async () => {
-        const ack = await deps.runnerEngines?.send(runnerId, {
-          type: "provider_usage",
-        });
-        if (ack?.ok && ack.capability?.type === "provider_usage") {
-          const { checkedAt, providers } = ack.capability.usage;
-          return { checkedAt, providers };
-        }
-        return {
-          checkedAt: new Date().toISOString(),
-          providers: (["claude", "codex"] as const).map((engine) => ({
-            engine,
-            plan: null,
-            observedAt: null,
-            windows: [],
-            unavailableReason:
-              ack?.ok === false ? ack.error : "Runner usage is unavailable.",
-          })),
-        };
-      },
-      modelOptions: async (engine) => {
-        const ack = await deps.runnerEngines?.send(runnerId, {
-          type: "model_catalog",
-          engine,
-        });
-        return ack?.ok && ack.capability?.type === "model_catalog"
-          ? ack.capability.catalog.models
-          : [];
-      },
+  function modelOptionsForRunner(
+    runnerId: string
+  ): NonNullable<UsageCallbacks["modelOptions"]> {
+    return async (engine) => {
+      const ack = await deps.runnerEngines?.send(runnerId, {
+        type: "model_catalog",
+        engine,
+      });
+      return ack?.ok && ack.capability?.type === "model_catalog"
+        ? ack.capability.catalog.models
+        : [];
     };
   }
 
@@ -420,14 +406,18 @@ export async function registerMcpRoutes(
         inventory: deps.pullRequests,
         enabled: deps.riskEnabled,
       }),
-      ...(placement
-        ? usageForRunner(placement.runner)
-        : {
-            providerPlans,
-            modelOptions: localEngines.readModelOptions,
-            usageWatches: deps.usageWatches,
-            redeemCodexReset: bearerToken ? deps.redeemCodexReset : undefined,
-          }),
+      providerPlans: deps.usageForAgent
+        ? (await deps.usageForAgent(agent.id)).providerPlans
+        : providerPlans,
+      modelOptions: placement
+        ? modelOptionsForRunner(placement.runner)
+        : localEngines.readModelOptions,
+      usageWatches: deps.usageWatches,
+      redeemCodexReset: bearerToken
+        ? deps.usageForAgent
+          ? (await deps.usageForAgent(agent.id)).redeemCodexReset
+          : deps.redeemCodexReset
+        : undefined,
       enabledAgentTypes,
       whenResponseFinished: () => responseFinished,
       agent: {
@@ -536,14 +526,18 @@ export async function registerMcpRoutes(
         inventory: deps.pullRequests,
         enabled: deps.riskEnabled,
       }),
-      ...(placement
-        ? usageForRunner(placement.runner)
-        : {
-            providerPlans,
-            modelOptions: localEngines.readModelOptions,
-            usageWatches: deps.usageWatches,
-            redeemCodexReset: bearerToken ? deps.redeemCodexReset : undefined,
-          }),
+      providerPlans: deps.usageForAgent
+        ? (await deps.usageForAgent(agent.id)).providerPlans
+        : providerPlans,
+      modelOptions: placement
+        ? modelOptionsForRunner(placement.runner)
+        : localEngines.readModelOptions,
+      usageWatches: deps.usageWatches,
+      redeemCodexReset: bearerToken
+        ? deps.usageForAgent
+          ? (await deps.usageForAgent(agent.id)).redeemCodexReset
+          : deps.redeemCodexReset
+        : undefined,
       enabledAgentTypes,
       whenResponseFinished: () => responseFinished,
       agent: {

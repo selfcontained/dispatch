@@ -548,13 +548,6 @@
   {
     "file": "apps/server/src/agents/local-runner-engine.ts",
     "kind": "R3 local method",
-    "detail": "consumeCodexReset",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner-engine.ts",
-    "kind": "R3 local method",
     "detail": "readModelCatalog",
     "task": "T04",
     "count": 1
@@ -563,13 +556,6 @@
     "file": "apps/server/src/agents/local-runner-engine.ts",
     "kind": "R3 local method",
     "detail": "readModelOptions",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner-engine.ts",
-    "kind": "R3 local method",
-    "detail": "readProviderPlans",
     "task": "T04",
     "count": 1
   },
@@ -1661,13 +1647,6 @@
   {
     "file": "apps/server/src/routes/agents/shared.ts",
     "kind": "R2 host import",
-    "detail": "apps/server/src/agents/local-runner-engine",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/agents/shared.ts",
-    "kind": "R2 host import",
     "detail": "apps/server/src/agents/provider-plans",
     "task": "T04",
     "count": 1
@@ -1684,20 +1663,6 @@
     "kind": "R7 restriction",
     "detail": "N26 Runner screencast returns 409",
     "task": "T39",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/agents/usage-routes.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/local-runner-engine",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/agents/usage-routes.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/provider-plans",
-    "task": "T04",
     "count": 1
   },
   {
@@ -1747,13 +1712,6 @@
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/provider-plans",
     "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/mcp.ts",
-    "kind": "R7 restriction",
-    "detail": "N17 Runner usage tools and capability limits",
-    "task": "T31",
     "count": 1
   },
   {

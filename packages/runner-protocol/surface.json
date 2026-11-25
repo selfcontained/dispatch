@@ -4348,6 +4348,9 @@
                       "id": "string",
                       "label": "string",
                       "usedPercent": "number",
+                      "severity": {
+                        "optional": "string"
+                      },
                       "resetsAt": {
                         "nullable": "string"
                       }
@@ -4365,6 +4368,9 @@
                       "currency": "string",
                       "enabled": {
                         "optional": "boolean"
+                      },
+                      "disabledReason": {
+                        "optional": "string"
                       }
                     }
                   }
@@ -4383,7 +4389,28 @@
                   "optional": {
                     "object": {
                       "available": "integer",
-                      "applicable": "integer"
+                      "applicable": "integer",
+                      "oldestExpiresAt": {
+                        "optional": {
+                          "nullable": "string"
+                        }
+                      },
+                      "items": {
+                        "optional": {
+                          "array": {
+                            "object": {
+                              "id": "string",
+                              "title": "string",
+                              "grantedAt": {
+                                "nullable": "string"
+                              },
+                              "expiresAt": {
+                                "nullable": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
                     }
                   }
                 },
@@ -4418,7 +4445,28 @@
       "response": {
         "object": {
           "code": "string",
-          "windowsReset": "integer"
+          "windowsReset": "integer",
+          "credit": {
+            "optional": {
+              "nullable": {
+                "object": {
+                  "id": "string",
+                  "title": "string",
+                  "expiresAt": {
+                    "nullable": "string"
+                  }
+                }
+              }
+            }
+          },
+          "error": {
+            "optional": {
+              "object": {
+                "reason": "string",
+                "message": "string"
+              }
+            }
+          }
         }
       },
       "errors": ["stale"],
