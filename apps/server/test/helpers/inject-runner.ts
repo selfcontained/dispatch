@@ -5,11 +5,11 @@ import type { FastifyInstance } from "fastify";
 import { expect } from "vitest";
 import { exchangeCode } from "../../src/agents/remote/enrollment.js";
 import {
-  wireFrames,
   type ReadyFrame,
   type ResultFrame,
   type ServiceFrame,
 } from "../../src/agents/remote/protocol.js";
+import { wireFrames } from "../../src/runners/enrolled/v1-framing.js";
 import { generateRunnerKey } from "../../src/agents/remote/x509.js";
 
 type Request = Extract<ServiceFrame, { type: "request" }>;

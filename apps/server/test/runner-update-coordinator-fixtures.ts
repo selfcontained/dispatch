@@ -18,7 +18,7 @@ import {
 } from "@dispatch/runner-client/host-framing";
 import { createAcpRuntime } from "../src/agents/acp/runtime.js";
 import { AgentManager } from "../src/agents/manager.js";
-import { wireFrames } from "../src/agents/remote/protocol.js";
+import { wireFrames } from "../src/runners/enrolled/v1-framing.js";
 import {
   RemoteRunnerService,
   RunnerUnavailable,
