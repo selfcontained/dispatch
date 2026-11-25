@@ -104,6 +104,8 @@
         "apps/server/src/shared/github/pr.ts",
         "apps/server/src/shared/lib/test-file-rule.ts",
         "apps/server/test/diff-image.test.ts",
+        "apps/server/test/diff-dto-identity.test.ts",
+        "apps/server/test/git-context-dto.test.ts",
         "packages/shared/src/diff-types.ts",
         "apps/server/src/agents/acp/**",
         "docs/opencode-acp.md",

@@ -9,10 +9,10 @@
  */
 
 import type { AgentRecord } from "@dispatch/shared";
+export type { GitContext as AgentGitContext } from "@dispatch/runner-protocol/git-context";
 
 export type {
   AgentActivity,
-  AgentGitContext,
   AgentRecord,
   AgentRole,
   AgentStatus,

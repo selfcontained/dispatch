@@ -1,3 +1,4 @@
+import type { GitContext as AgentGitContext } from "@dispatch/runner-protocol/git-context";
 import type { Placement } from "@dispatch/runner-protocol/contract";
 import type { Effort } from "./agent-types.js";
 import type { AgentInputState } from "./conversation-delivery.js";
@@ -47,14 +48,7 @@ export type ArchivePhase =
 
 export type WorktreeCleanupMode = "auto" | "keep" | "force";
 
-export type AgentGitContext = {
-  repoRoot: string;
-  branch: string;
-  worktreePath: string;
-  worktreeName: string;
-  isWorktree: boolean;
-  repoIconPath?: string | null;
-};
+export type { GitContext as AgentGitContext } from "@dispatch/runner-protocol/git-context";
 
 export type AgentCurrentTurn = {
   streamId?: string;

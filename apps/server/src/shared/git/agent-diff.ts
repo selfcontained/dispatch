@@ -3,7 +3,7 @@ import type {
   DiffFileStatus,
   DiffResponse,
   FileDiffResponse,
-} from "@dispatch/shared";
+} from "@dispatch/runner-protocol/diff-types";
 
 import { resolveBaseRef } from "./base-ref.js";
 import { isTestFile } from "./test-files.js";
@@ -17,14 +17,14 @@ import { collectImageInfo, isImageFile } from "./diff-image.js";
 import { runCommand, type CommandRunner } from "../lib/run-command.js";
 
 // The diff wire shapes are a contract with the web client, so they live in
-// @dispatch/shared. Re-exported here because this module is where the rest of
+// @dispatch/runner-protocol/diff-types. Re-exported here because this module is where the rest of
 // the server reaches for them.
 export type {
   DiffFile,
   DiffFileStatus,
   DiffResponse,
   FileDiffResponse,
-} from "@dispatch/shared";
+} from "@dispatch/runner-protocol/diff-types";
 
 const GIT_TIMEOUT_MS = 15_000;
 const DIFF_TRUNCATION_BYTES = 100_000;
