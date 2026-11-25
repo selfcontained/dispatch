@@ -1,13 +1,7 @@
 import path from "node:path";
-import { readFile, stat } from "node:fs/promises";
-
-import { repoCommandEnvironment } from "../lib/tool-environment.js";
-import { runCommand } from "../lib/run-command.js";
 
 export const REPO_TOOL_MANIFEST_PATH = path.join(".dispatch", "tools.json");
 
-// Cache parsed hooks keyed by manifest path, invalidated by mtime.
-const hooksCache = new Map<string, { mtime: number; hooks: RepoHooks }>();
 const REPO_TOOL_PREFIX = "repo_";
 const BUILTIN_TOOL_NAMES = new Set([
   "post",
@@ -75,15 +69,6 @@ export type RepoToolDefinition = {
   }) => Promise<RepoToolResult>;
 };
 
-export async function loadRepoTools(
-  repoRoot: string
-): Promise<RepoToolDefinition[]> {
-  const config = await readRepoToolFile(
-    path.join(repoRoot, REPO_TOOL_MANIFEST_PATH)
-  );
-  return parseRepoTools(config);
-}
-
 export function parseRepoTools(
   config: RepoToolFile | null,
   execute: (
@@ -96,7 +81,7 @@ export function parseRepoTools(
     truncated?: boolean;
     stdout: string;
     stderr: string;
-  }> = runLocalRepoCommand
+  }>
 ): RepoToolDefinition[] {
   const rawTools = Array.isArray(config?.tools) ? config.tools : [];
 
@@ -153,32 +138,9 @@ export function parseRepoTools(
   });
 }
 
-function runLocalRepoCommand(
-  [command, ...args]: string[],
-  cwd: string,
-  agentId: string
-) {
-  return runCommand(command, args, {
-    cwd,
-    env: repoCommandEnvironment(agentId),
-    // Return output and exit status even on failure.
-    allowedExitCodes: Array.from({ length: 256 }, (_, i) => i),
-  });
-}
-
 export function parseRepoToolFile(content: string | null): RepoToolFile | null {
   try {
     return content === null ? null : JSON.parse(content);
-  } catch {
-    return null;
-  }
-}
-
-async function readRepoToolFile(
-  filePath: string
-): Promise<RepoToolFile | null> {
-  try {
-    return parseRepoToolFile(await readFile(filePath, "utf8"));
   } catch {
     return null;
   }
@@ -223,28 +185,6 @@ function parseRepoTool(value: unknown, index: number): RepoToolConfig {
   const scope = parseRepoToolScope(rawTool.scope);
 
   return { name, description, command, params, scope };
-}
-
-export async function loadRepoHooks(repoRoot: string): Promise<RepoHooks> {
-  const manifestPath = path.join(repoRoot, REPO_TOOL_MANIFEST_PATH);
-
-  // Check mtime for cache invalidation.
-  let mtime: number;
-  try {
-    mtime = (await stat(manifestPath)).mtimeMs;
-  } catch {
-    return {};
-  }
-
-  const cached = hooksCache.get(manifestPath);
-  if (cached && cached.mtime === mtime) {
-    return cached.hooks;
-  }
-
-  const config = await readRepoToolFile(manifestPath);
-  const hooks = parseRepoHooks(config);
-  hooksCache.set(manifestPath, { mtime, hooks });
-  return hooks;
 }
 
 export function parseRepoHooks(config: RepoToolFile | null): RepoHooks {

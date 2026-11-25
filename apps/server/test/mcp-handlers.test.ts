@@ -164,7 +164,9 @@ function createMockDeps() {
           return {
             kind: "roots",
             checkoutRoot: "/repo",
-            repositoryRoot: "/repo",
+            repositoryRoot: await resolveRepoRoot(
+              _agent.workspacePath ?? _agent.cwd
+            ),
           };
         if (query.kind === "listFiles")
           return {
