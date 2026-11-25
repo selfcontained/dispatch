@@ -240,4 +240,23 @@ export const product = [
         );
     },
   },
+  {
+    name: "model-catalog-refresh",
+    title: "Stored catalog reads revalidate OpenCode without a session turn",
+    async run(w) {
+      await w.api("GET", "/api/v1/agent-models");
+      // The existing isolated fixture delays session/new by 700ms. No agent
+      // or prompt is created; main has no picker-triggered discovery.
+      let result;
+      const deadline = Date.now() + 1600;
+      do {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        result = await w.api("GET", "/api/v1/agent-models");
+      } while (!result.body?.models?.opencode?.length && Date.now() < deadline);
+      w.record("discovered OpenCode", {
+        models: result.body?.models?.opencode ?? [],
+        defaultModel: result.body?.defaults?.opencode ?? null,
+      });
+    },
+  },
 ];
