@@ -307,6 +307,9 @@
         "apps/server/test/crud-tools-*.test.ts",
         "apps/server/test/fixtures/mcp-caller-parity-baseline.json",
         "apps/server/test/repo-tool-environment.test.ts",
+        "apps/server/test/repo-tools.test.ts",
+        "apps/server/test/shell-environment.test.ts",
+        "apps/server/test/helpers/local-repo-tools.ts",
         "apps/server/test/tasks-service.test.ts",
         "packages/shared/src/mcp-inventory-types.ts",
         "packages/runner/src/host/mcp-inventory.ts"
