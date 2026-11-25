@@ -1512,9 +1512,11 @@ export async function createSessionSupervisor(
           stored === null
             ? null
             : (JSON.parse(stored) as RunnerRepository | null);
+        // A worktree the core prepared from a session or a folder records
+        // `{}`: no repository cache to hold, only the checkout to release.
         const removed =
           stored === null ||
-          (repository
+          (repository?.url
             ? await repositories.inCache(repository.url, release)
             : await release(null));
         if (!removed) return false;

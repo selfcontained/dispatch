@@ -2108,6 +2108,23 @@ describe("runner session supervision", () => {
       expect(processes.spawn).not.toHaveBeenCalled();
     });
 
+    it("releases a worktree the core prepared from a session or a folder", async () => {
+      const runner = await start([], asWorkload);
+      const bindings = path.join(state, "bindings");
+      await writeFile(path.join(bindings, agentId), "\0managed");
+      // The privsep store's record for a worktree with no repository.
+      await writeFile(path.join(bindings, `${agentId}.repository`), "{}");
+      await mkdir(path.join(state, "sessions", agentId), { mode: 0o751 });
+      const release = vi.fn(async () => true);
+      await expect(
+        runner.releaseWorkspace(agentId, workspace, release)
+      ).resolves.toBe(true);
+      expect(release).toHaveBeenCalledWith(null);
+      await expect(
+        readFile(path.join(bindings, agentId))
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    });
+
     it("keeps the prepared-checkout rule for every other prepared session", async () => {
       const runner = await start([], asWorkload, undefined, {
         resumePreparedCheckout: async () => ({
