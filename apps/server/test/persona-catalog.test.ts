@@ -1,9 +1,11 @@
+import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
   defaultBranchFiles,
   inspectCheckout,
-} from "../src/agents/checkout-inspection.js";
+} from "./helpers/checkout-inspection.js";
 import { createPersonaHandlers } from "../src/server/mcp-persona-handlers.js";
-import { DefaultBranchFiles } from "../src/agents/default-branch-files.js";
+import { DefaultBranchFiles } from "./helpers/default-branch-files.js";
 import { RunnerCapabilityUnavailable } from "../src/agents/remote/service.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -508,4 +510,78 @@ describe("shared remote persona catalog", () => {
     ).toBe("local");
     expect(fetches).toBe(0);
   });
+});
+
+it("keeps invalid-before-unsupported warnings ordered and invalid content off the wire", async () => {
+  await publish("valid", "c-valid");
+  await writeFile(
+    path.join(author, ".agents/personas/a-invalid.md"),
+    "---\ntype: typo\n---\nbad"
+  );
+  await symlink("c-valid.md", path.join(author, ".agents/personas/b-link.md"));
+  await git(author, "add", ".");
+  await git(author, "commit", "-m", "ordered invalid fixtures");
+  await git(author, "push");
+  const reply = await new DefaultBranchFiles(runner, () => now).get(
+    checkout,
+    [".agents/personas"],
+    true
+  );
+  expect(reply.files.map((file) => file.path)).toEqual([
+    ".agents/personas/c-valid.md",
+  ]);
+  expect(reply.warnings).toEqual([
+    "Could not load persona .agents/personas/a-invalid.md: invalid persona definition.",
+    "Could not load persona .agents/personas/b-link.md: unsupported file or larger than 256 KiB.",
+  ]);
+});
+
+it("the enrolled runner's self-exec worker receives the exact definition parser", async () => {
+  await publish("valid", "c-valid");
+  await writeFile(
+    path.join(author, ".agents/personas/a-invalid.md"),
+    "---\ntype: typo\n---\nbad"
+  );
+  await symlink("c-valid.md", path.join(author, ".agents/personas/b-link.md"));
+  await git(author, "add", ".");
+  await git(author, "commit", "-m", "worker parser fixtures");
+  await git(author, "push");
+  const reply = await new Promise<{
+    data: { files: Array<{ path: string }>; warnings: string[] };
+  }>((resolve, reject) => {
+    const worker = execFile(
+      "bun",
+      [
+        "--no-env-file",
+        fileURLToPath(new URL("../src/main.ts", import.meta.url)),
+        "runner-worker",
+        "read",
+        checkout,
+      ],
+      { maxBuffer: 4 * 1024 * 1024 },
+      (error, stdout) => {
+        if (error) reject(error);
+        else {
+          try {
+            resolve(JSON.parse(stdout));
+          } catch (parseError) {
+            reject(parseError);
+          }
+        }
+      }
+    );
+    worker.stdin!.end(
+      JSON.stringify({
+        op: "checkout.defaultFiles",
+        request: { dirs: [".agents/personas"], wait: true },
+      })
+    );
+  });
+  expect(reply.data.files.map((file) => file.path)).toEqual([
+    ".agents/personas/c-valid.md",
+  ]);
+  expect(reply.data.warnings).toEqual([
+    "Could not load persona .agents/personas/a-invalid.md: invalid persona definition.",
+    "Could not load persona .agents/personas/b-link.md: unsupported file or larger than 256 KiB.",
+  ]);
 });

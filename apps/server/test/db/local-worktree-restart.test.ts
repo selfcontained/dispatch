@@ -41,7 +41,7 @@ import type { AgentRuntime } from "../../src/agents/runtime.js";
 
 const { AgentManager } = await import("../../src/agents/manager.js");
 const { checkoutWorkload, workspaceWorkload } =
-  await import("../../src/agents/checkout-worker.js");
+  await import("../helpers/checkout-workload.js");
 
 const noopLogger = {
   info: () => {},

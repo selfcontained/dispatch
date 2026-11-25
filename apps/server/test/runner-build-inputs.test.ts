@@ -15,6 +15,8 @@ it("supplies build inputs at every embedding entry that consumes them", async ()
   );
   const required = new Map([
     ["runRunnerUpdateTrial", ["build"]],
+    ["runCheckoutWorker", ["parseDefinition"]],
+    ["createCheckoutWorkload", ["parseDefinition"]],
     ["runRunnerUpdateStage", ["packageVersion"]],
     ["runRemoteRunner", ["build", "healthBuild"]],
     ["runCli", ["build"]],
@@ -27,7 +29,8 @@ it("supplies build inputs at every embedding entry that consumes them", async ()
       const fields = required.get(name);
       if (fields) {
         found.add(name);
-        const inputs = node.arguments[1];
+        const inputs =
+          node.arguments[name === "createCheckoutWorkload" ? 0 : 1];
         expect(inputs && ts.isObjectLiteralExpression(inputs), name).toBe(true);
         if (inputs && ts.isObjectLiteralExpression(inputs)) {
           const names = inputs.properties.flatMap((property) =>

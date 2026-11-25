@@ -56,7 +56,12 @@ export class PersonaCatalogCache {
   }
 
   async get(cwd: string, waitForRefresh = false): Promise<PersonaCatalog> {
-    const reply = await this.files.get(cwd, [...PERSONA_DIRS], waitForRefresh);
+    const reply = await this.files.get(
+      cwd,
+      [...PERSONA_DIRS],
+      waitForRefresh,
+      toPersonaDefinition
+    );
     if (reply.hasOrigin) return parseDefaultBranchPersonas(reply);
     const warnings: string[] = [];
     const root = await resolveRepoRoot(cwd).catch(() => cwd);

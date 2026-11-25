@@ -4,7 +4,7 @@ import path from "node:path";
 import { z } from "zod";
 import { runCommand, type CommandRunner } from "../shared/lib/run-command.js";
 import type { DefaultBranchFilesReply } from "@dispatch/runner-protocol";
-import { toPersonaDefinition } from "../personas/loader.js";
+export type DefinitionParser = (slug: string, content: string) => unknown;
 
 export const DEFAULT_BRANCH_REFRESH_MS = 5 * 60_000;
 const MAX_BACKOFF_MS = 60 * 60_000;
@@ -66,7 +66,12 @@ export class DefaultBranchFiles {
     }
   }
 
-  private async readFiles(cwd: string, commit: string, directories: string[]) {
+  private async readFiles(
+    cwd: string,
+    commit: string,
+    directories: string[],
+    parseDefinition: DefinitionParser
+  ) {
     const files: DefaultBranchFilesReply["files"] = [];
     const warnings: string[] = [];
     const seen = new Set<string>();
@@ -114,7 +119,7 @@ export class DefaultBranchFiles {
         }
         try {
           const content = await this.git(cwd, ["cat-file", "blob", blob]);
-          toPersonaDefinition(slug, content);
+          parseDefinition(slug, content);
           files.push({ path: filePath, content });
         } catch {
           warnings.push(
@@ -203,7 +208,8 @@ export class DefaultBranchFiles {
   async get(
     cwd: string,
     directories: string[],
-    waitForRefresh: boolean
+    waitForRefresh: boolean,
+    parseDefinition: DefinitionParser
   ): Promise<DefaultBranchFilesReply> {
     const common = await this.git(cwd, [
       "rev-parse",
@@ -281,7 +287,12 @@ export class DefaultBranchFiles {
       .catch(() => false);
     const refreshing = this.pending.has(file) || locked;
     const { warnings: fileWarnings, ...listing } = cached?.commit
-      ? await this.readFiles(cwd, cached.commit, directories).catch(() => ({
+      ? await this.readFiles(
+          cwd,
+          cached.commit,
+          directories,
+          parseDefinition
+        ).catch(() => ({
           files: [],
           truncated: true,
           warnings: ["The default-branch file listing was incomplete."],
