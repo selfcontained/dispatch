@@ -224,6 +224,12 @@ function neverSent(error: unknown) {
 }
 
 /**
+ * The update fence each local runner session answers to: its parent's own
+ * (`LocalRunnerProcess.frozen`), wanted across the child's restarts.
+ */
+const updateFences = new WeakMap<object, () => boolean>();
+
+/**
  * The child's answer to one attempt, or null when `missed` says the child
  * did not answer and the caller should use the port here.
  */
@@ -251,6 +257,19 @@ export function createLocalCheckoutRunner(
    * child or `missed` says it did not answer. The attempt itself dials a
    * child that is not connected yet, so a restarted child is used again.
    */
+  /**
+   * A mutation made here only while the parent's update fence is down: a
+   * frozen child refuses it with `fenced`, and so does this process while
+   * that child is away (it comes back frozen). Reads are not fenced.
+   */
+  function mayWriteHere() {
+    if (child && updateFences.get(child)?.())
+      throw new RunnerCallError({
+        code: "fenced",
+        message: "The runner is frozen for an update",
+      });
+  }
+
   function attempt<T>(
     run: (child: Runner) => Promise<T>,
     missed: (error: unknown) => boolean,
@@ -410,6 +429,7 @@ export function createLocalCheckoutRunner(
         options?.signal
       ));
     if (answered) return answered.value;
+    mayWriteHere();
     return checkoutWorkload.run(
       "checkout.write",
       { directory, request },
@@ -457,6 +477,7 @@ export function createLocalCheckoutRunner(
         options?.signal
       ));
     if (answered) return answered.value;
+    mayWriteHere();
     return checkoutWorkload.run(
       "checkout.exec",
       { directory, selector, request },
@@ -564,6 +585,7 @@ export function createLocalCheckoutRunner(
         if (!neverSent(error)) throw error;
         options?.signal?.throwIfAborted();
       }
+    mayWriteHere();
     // Main removes the checkout Git resolves for the row's path (its
     // `rev-parse --show-toplevel`), so a row naming a folder inside its
     // worktree loses the worktree, as on main.
@@ -668,6 +690,7 @@ export function createLocalCheckoutRunner(
         forgetBinding(child, key);
       }
     }
+    mayWriteHere();
     const home = session.worktreePath ?? session.cwd;
     const selected = input.path
       ? await selectWorkspaceDirectory(home, displayPath(input.path))
@@ -874,6 +897,7 @@ export function createLocalCheckoutRunner(
         // Only a put the child never received is made here.
         if (!neverSent(answer.reason)) throw answer.reason;
       }
+      mayWriteHere();
       return {
         path: pathFromWire(
           await sessionFilesWorkload.put(file.path, file.purpose)
@@ -1621,6 +1645,8 @@ export function startLocalRunnerProcess(options: {
     frozen: options.frozen === true,
     log,
   });
+  // The adapter's mutations made in process answer to this same fence.
+  updateFences.set(runner, () => fence.wanted);
   const supervisor = superviseRunner({
     command: options.command ?? selfCommand("local-runner"),
     // Main's child-environment scrub: no database URL, tokens or API keys.
