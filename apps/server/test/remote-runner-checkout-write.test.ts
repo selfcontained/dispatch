@@ -1,3 +1,5 @@
+import { embeddedBuild } from "../src/agents/build-identity.js";
+import { gitSha, packageVersion } from "../src/generated/runtime-assets.js";
 /*
  * The Linux runner's checkout.write: the write is made by a worker the
  * supervisor starts under the workload's own uid/gid (setpriv, no new
@@ -206,6 +208,8 @@ it("writes as the workload, in the directory its own binding names", async () =>
     throw end;
   });
   const running = runRemoteRunner(config, {
+    build: embeddedBuild,
+    healthBuild: { version: packageVersion, revision: gitSha },
     updateLayout: {
       config,
       installed: path.join(root, "dispatch"),

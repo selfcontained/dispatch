@@ -1,3 +1,5 @@
+import { embeddedBuild } from "../src/agents/build-identity.js";
+import { gitSha, packageVersion } from "../src/generated/runtime-assets.js";
 import { checkoutCommandTimeoutMs } from "@dispatch/runner-protocol";
 import { EventEmitter } from "node:events";
 import {
@@ -142,6 +144,8 @@ describe("remote runner startup", () => {
     state = path.join(root, "state");
     key = path.join(root, "key");
     updateOptions = {
+      build: embeddedBuild,
+      healthBuild: { version: packageVersion, revision: gitSha },
       updateLayout: {
         config,
         installed: path.join(root, "dispatch"),

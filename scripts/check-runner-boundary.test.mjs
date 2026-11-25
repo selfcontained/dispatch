@@ -401,6 +401,20 @@ test("host DTOs alone may reference ACP SDK types, never runtime values", () => 
 });
 
 test("own-machine grants are exact paths and capabilities", () => {
+  assert.deepEqual(
+    scanSource(
+      app + "agents/engine-update-operations.ts",
+      "process.kill(process.pid, 0);"
+    ),
+    []
+  );
+  assert.ok(
+    scanSource(
+      app + "agents/engine-update-operations.ts",
+      'import "node:child_process";'
+    ).some((h) => h.kind === "R2 host access")
+  );
+
   for (const file of [app + "db/migrate.ts", app + "local-tls.ts"]) {
     assert.deepEqual(scanSource(file, 'import "node:os";'), []);
     assert.ok(
@@ -470,6 +484,7 @@ test("every exact own-machine grant accepts only its named capability", () => {
     openssl: 'Bun.spawn(["openssl", "version"]);',
     du: 'Bun.spawn(["du", "-sk", path]);',
     child_process: 'import "node:child_process";',
+    "process.kill": "process.kill(process.pid, 0);",
     "loopback fetch": 'fetch("http://127.0.0.1:9123/health");',
   };
   for (const [file, capabilities] of ownMachineCapabilities) {

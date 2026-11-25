@@ -15,7 +15,7 @@ import {
   EngineUpdateOperations,
   engineUpdatePort,
   type EngineOperationStore,
-} from "../src/agents/engine-updates.js";
+} from "./helpers/native-engine-updates.js";
 import type { EngineCalls } from "../src/runners/local.js";
 import { EngineRunnerExecutor } from "../src/agents/remote/engine-runner-executor.js";
 

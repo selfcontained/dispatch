@@ -7,7 +7,7 @@ import {
   MODEL_REFRESH_AGE_MS,
   MODEL_REFRESH_BACKOFF_MS,
 } from "../src/agents/model-catalog-refresh.js";
-import { observeModelUpdates } from "../src/agents/engine-updates.js";
+import { observeModelUpdates } from "./helpers/native-engine-updates.js";
 import {
   enrolledRunnerSettings,
   localRunnerSettings,

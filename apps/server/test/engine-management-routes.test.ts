@@ -23,7 +23,7 @@ class EngineManager extends ActualEngineManager {
   }
 }
 import type { EngineCalls } from "../src/runners/local.js";
-import type { EngineUpdateOperations } from "../src/agents/engine-updates.js";
+import type { EngineUpdateOperations } from "./helpers/native-engine-updates.js";
 import type { AgentRecord } from "@dispatch/shared";
 import {
   controllerPlacement,
