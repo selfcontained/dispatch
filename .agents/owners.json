@@ -214,7 +214,10 @@
         "docs/session-naming.md",
         "apps/server/test/helpers/native-engine-updates.ts",
         "apps/server/test/workspace-prep.test.ts",
-        "apps/server/test/workspace-prep-real.test.ts"
+        "apps/server/test/workspace-prep-real.test.ts",
+        "apps/server/test/helpers/checkout-workload.ts",
+        "apps/server/test/helpers/checkout-inspection.ts",
+        "apps/server/test/helpers/default-branch-files.ts"
       ],
       "personas": ["agent-runtime-owner"]
     },

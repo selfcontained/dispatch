@@ -14,7 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { AgentManager } from "../src/agents/manager.js";
 import type { RemoteRunnerService } from "../src/agents/remote/service.js";
-import { checkoutWorkload } from "../src/agents/checkout-worker.js";
+import { checkoutWorkload } from "./helpers/checkout-workload.js";
 import {
   controllerPlacement,
   placementForRunner,

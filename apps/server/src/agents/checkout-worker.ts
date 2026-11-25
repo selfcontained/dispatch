@@ -1,6 +1,8 @@
 import { promisify } from "node:util";
 import { childProcessEnv } from "../shared/process/child-environment.js";
 import { repositoryUrl, projectRepositoryUrl } from "@dispatch/runner-protocol";
+import type { DefinitionParser } from "./default-branch-files.js";
+export type CheckoutWorkloadInputs = { parseDefinition: DefinitionParser };
 import { json } from "node:stream/consumers";
 import {
   isCheckoutReadRequest,
@@ -180,7 +182,8 @@ function marked<F extends { path: string; isTest?: boolean }>(
 
 async function work<K extends WorkerOp>(
   op: K,
-  { directory, request }: Input<K>
+  { directory, request }: Input<K>,
+  parseDefinition: DefinitionParser
 ): Promise<unknown> {
   switch (op) {
     case "checkout.list": {
@@ -319,11 +322,15 @@ async function work<K extends WorkerOp>(
     case "checkout.defaultFiles": {
       const { dirs, wait } =
         request as Input<"checkout.defaultFiles">["request"];
-      const reply = await inspectCheckout(directory, {
-        kind: "defaultBranchFiles",
-        directories: dirs,
-        waitForRefresh: wait,
-      });
+      const reply = await inspectCheckout(
+        directory,
+        {
+          kind: "defaultBranchFiles",
+          directories: dirs,
+          waitForRefresh: wait,
+        },
+        { parseDefinition }
+      );
       if (reply.kind !== "defaultBranchFiles")
         throw new Error("Invalid default-branch files reply.");
       const { kind: _kind, ...files } = reply;
@@ -537,54 +544,57 @@ async function readGitQuery<K extends GitQueryName>(
 /** One OS watch per checkout in this process, however many sessions watch it. */
 const watches = new SharedCheckoutWatches(watchCheckout);
 
-export const checkoutWorkload = {
-  watch(directory: string, changed: () => void, closed: () => void) {
-    return watches.subscribe(directory, changed, closed);
-  },
-  async run<K extends WorkerOp | "checkout.exec" | "checkout.write">(
-    op: K,
-    input: Input<K>,
-    options: { signal?: AbortSignal }
-  ): Promise<Res<K>> {
-    try {
-      if (op === "checkout.write") {
-        // Relative to the same root a checkout read resolves against.
-        const { root } = await inspectionRoot(input.directory, false);
-        return (await writeCheckoutFile(
-          root,
-          (input as Input<"checkout.write">).request
+export function createCheckoutWorkload(inputs: CheckoutWorkloadInputs) {
+  return {
+    watch(directory: string, changed: () => void, closed: () => void) {
+      return watches.subscribe(directory, changed, closed);
+    },
+    async run<K extends WorkerOp | "checkout.exec" | "checkout.write">(
+      op: K,
+      input: Input<K>,
+      options: { signal?: AbortSignal }
+    ): Promise<Res<K>> {
+      try {
+        if (op === "checkout.write") {
+          // Relative to the same root a checkout read resolves against.
+          const { root } = await inspectionRoot(input.directory, false);
+          return (await writeCheckoutFile(
+            root,
+            (input as Input<"checkout.write">).request
+          )) as Res<K>;
+        }
+        if (op === "git.context")
+          return (await readGitContext(
+            input.directory,
+            (input as Input<"git.context">).checkoutBranch
+          )) as Res<K>;
+        if (
+          op === "git.origin" ||
+          op === "git.defaultBranch" ||
+          op === "git.branches" ||
+          op === "git.base"
+        )
+          return (await readGitQuery(
+            op,
+            input.directory,
+            input.request
+          )) as Res<K>;
+        if (op === "checkout.exec")
+          return (await execCheckoutCommand(
+            input as unknown as Input<"checkout.exec">,
+            options.signal
+          )) as Res<K>;
+        return (await work(
+          op as WorkerOp,
+          input as unknown as Input<WorkerOp>,
+          inputs.parseDefinition
         )) as Res<K>;
+      } catch (error) {
+        throw workerError(op, error);
       }
-      if (op === "git.context")
-        return (await readGitContext(
-          input.directory,
-          (input as Input<"git.context">).checkoutBranch
-        )) as Res<K>;
-      if (
-        op === "git.origin" ||
-        op === "git.defaultBranch" ||
-        op === "git.branches" ||
-        op === "git.base"
-      )
-        return (await readGitQuery(
-          op,
-          input.directory,
-          input.request
-        )) as Res<K>;
-      if (op === "checkout.exec")
-        return (await execCheckoutCommand(
-          input as unknown as Input<"checkout.exec">,
-          options.signal
-        )) as Res<K>;
-      return (await work(
-        op as WorkerOp,
-        input as unknown as Input<WorkerOp>
-      )) as Res<K>;
-    } catch (error) {
-      throw workerError(op, error);
-    }
-  },
-};
+    },
+  };
+}
 
 const pullRequests = localPullRequestStatus();
 const evidence = localPullRequestEvidence();
@@ -665,7 +675,11 @@ export const WORKER_ALIASES: Record<string, string> = {
  * `runner-worker <op> <cwd> [flag]`: one checkout operation as the workload
  * account. The legacy names above map onto it with the same arguments.
  */
-export async function runCheckoutWorker(argv: string[]): Promise<void> {
+export async function runCheckoutWorker(
+  argv: string[],
+  inputs: CheckoutWorkloadInputs
+): Promise<void> {
+  const checkoutWorkload = createCheckoutWorkload(inputs);
   const [op, cwd, flag] = argv;
   if (op && Object.hasOwn(workspaceSteps, op)) {
     const args: unknown = await json(process.stdin);
@@ -798,7 +812,7 @@ export async function runCheckoutWorker(argv: string[]): Promise<void> {
     case "inspect": {
       const { runCheckoutInspectionCli } =
         await import("./checkout-inspection.js");
-      return runCheckoutInspectionCli(cwd!);
+      return runCheckoutInspectionCli(cwd!, inputs.parseDefinition);
     }
     case "observe": {
       const { observeGitCheckout, observeScratchCheckout } =

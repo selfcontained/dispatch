@@ -6,7 +6,7 @@ import {
   type Runner,
   type Runners,
 } from "@dispatch/runner-protocol/contract";
-import { checkoutWorkload } from "../src/agents/checkout-worker.js";
+import { checkoutWorkload } from "./helpers/checkout-workload.js";
 import { checkoutHandlers } from "../../../packages/runner/src/core/checkout.js";
 import Fastify from "fastify";
 import { execFileSync } from "node:child_process";
