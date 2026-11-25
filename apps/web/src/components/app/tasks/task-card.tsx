@@ -14,11 +14,11 @@ import { MENU_ITEM } from "./task-utils";
 import { TaskMoveSheet } from "./task-move-sheet";
 import { GitPullRequest, GripVertical, MoreHorizontal } from "lucide-react";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  ActionMenu,
+  ActionMenuContent,
+  ActionMenuItem,
+  ActionMenuTrigger,
+} from "@/components/ui/action-menu";
 import { Badge } from "@/components/ui/badge";
 import { Chip } from "@/components/ui/chip";
 import { IconButton } from "@/components/ui/icon-button";
@@ -115,8 +115,8 @@ export function TaskCard({
         >
           <span className="line-clamp-3 min-w-0 break-words">{task.title}</span>
         </RowButton>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
+        <ActionMenu label="Task actions">
+          <ActionMenuTrigger asChild>
             <IconButton
               ref={actionsRef}
               size="icon-sm"
@@ -125,25 +125,25 @@ export function TaskCard({
             >
               <MoreHorizontal aria-hidden="true" />
             </IconButton>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem className={MENU_ITEM} onSelect={onOpen}>
+          </ActionMenuTrigger>
+          <ActionMenuContent align="end">
+            <ActionMenuItem className={MENU_ITEM} onSelect={onOpen}>
               Open
-            </DropdownMenuItem>
-            <DropdownMenuItem
+            </ActionMenuItem>
+            <ActionMenuItem
               className={MENU_ITEM}
               onSelect={() => setMoving(true)}
             >
               Move to…
-            </DropdownMenuItem>
-            <DropdownMenuItem
+            </ActionMenuItem>
+            <ActionMenuItem
               className={MENU_ITEM}
               onSelect={() => archiveTask(actions, task)}
             >
               Archive
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+            </ActionMenuItem>
+          </ActionMenuContent>
+        </ActionMenu>
       </div>
       <TaskLabels labels={task.labels} />
       <TaskCardDetails task={task} columns={columns} agents={agents} />

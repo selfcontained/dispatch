@@ -21,17 +21,14 @@ import { PersonaLauncher } from "@/components/app/persona-launcher";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  ActionMenu,
+  ActionMenuTrigger,
+  ActionMenuContent,
+  ActionMenuItem,
+  ActionMenuSeparator,
+} from "@/components/ui/action-menu";
 import { IconButton } from "@/components/ui/icon-button";
-import { RowButton } from "@/components/ui/row-button";
-import { Sheet, SheetHeader } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/toast";
-import { useTouchPhone } from "@/hooks/use-coarse-pointer";
 import { useCopyText } from "@/hooks/use-copy";
 import { type AgentType } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
@@ -147,9 +144,7 @@ export function AgentActionsMenu({
   onChangeWorkspace?: () => void;
 }): JSX.Element {
   // A bottom sheet on a phone; a dropdown everywhere else, tablets included.
-  const asSheet = useTouchPhone();
   const navigate = useNavigate();
-  const [sheetOpen, setSheetOpen] = React.useState(false);
   const [workspaceOpen, setWorkspaceOpen] = React.useState(false);
   const [reviewSignal, setReviewSignal] = React.useState(0);
   const [reviewUnavailable, setReviewUnavailable] = React.useState<
@@ -296,7 +291,6 @@ export function AgentActionsMenu({
       className={subagent ? "text-faint hover:text-foreground" : undefined}
       data-agent-control="true"
       data-testid={testId}
-      onClick={asSheet ? () => setSheetOpen(true) : undefined}
     >
       <MoreHorizontal />
     </IconButton>
@@ -304,107 +298,47 @@ export function AgentActionsMenu({
 
   return (
     <>
-      {asSheet ? (
-        <>
-          {trigger}
-          <Sheet
-            open={sheetOpen}
-            onOpenChange={setSheetOpen}
-            side="bottom"
-            keepMounted={false}
-            label={`${agent.name} actions`}
-          >
-            <SheetHeader
-              title={agent.name}
-              onClose={() => setSheetOpen(false)}
-            />
-            <div
-              className="flex flex-col overflow-y-auto px-2 pb-[max(env(safe-area-inset-bottom),12px)] pt-1"
-              data-agent-control="true"
-            >
-              {groups.map((group, index) => (
-                <div
-                  key={group.key}
+      <ActionMenu label={`${agent.name} actions`} title={agent.name}>
+        <ActionMenuTrigger asChild>{trigger}</ActionMenuTrigger>
+        {/* Portaled out of the row, so it carries its own control marker
+              for the row's click-to-open guard. */}
+        <ActionMenuContent
+          align="end"
+          className="w-72"
+          data-agent-control="true"
+        >
+          {groups.map((group, index) => (
+            <React.Fragment key={group.key}>
+              {index > 0 ? <ActionMenuSeparator /> : null}
+              {group.label ? (
+                <div className="section-label px-2 pb-1 pt-1.5">
+                  {group.label}
+                </div>
+              ) : null}
+              {group.items.map((item) => (
+                <ActionMenuItem
+                  key={item.key}
+                  disabled={item.disabled}
+                  data-testid={itemTestId(item.key)}
+                  onSelect={item.onSelect}
                   className={cn(
-                    index > 0 && "mt-1 border-t border-border-subtle pt-1"
+                    "flex items-center gap-2 disabled-state [&>svg]:size-icon-md",
+                    item.danger ? "text-danger" : "text-foreground"
                   )}
                 >
-                  {group.label ? (
-                    <div className="section-label px-3 pb-1 pt-2">
-                      {group.label}
-                    </div>
+                  {item.icon}
+                  <span>{item.text}</span>
+                  {item.reason ? (
+                    <span className="ml-auto text-label-xs text-faint">
+                      {item.reason}
+                    </span>
                   ) : null}
-                  {group.items.map((item) => (
-                    <RowButton
-                      key={item.key}
-                      disabled={item.disabled}
-                      data-testid={itemTestId(item.key)}
-                      className={cn(
-                        "min-h-12 px-3 text-body-md [&>svg]:size-icon-md",
-                        item.danger ? "text-danger" : "text-foreground"
-                      )}
-                      onClick={() => {
-                        setSheetOpen(false);
-                        item.onSelect();
-                      }}
-                    >
-                      {item.icon}
-                      <span>{item.text}</span>
-                      {item.reason ? (
-                        <span className="ml-auto text-label-sm text-faint">
-                          {item.reason}
-                        </span>
-                      ) : null}
-                    </RowButton>
-                  ))}
-                </div>
+                </ActionMenuItem>
               ))}
-            </div>
-          </Sheet>
-        </>
-      ) : (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-          {/* Portaled out of the row, so it carries its own control marker
-              for the row's click-to-open guard. */}
-          <DropdownMenuContent
-            align="end"
-            className="w-72"
-            data-agent-control="true"
-          >
-            {groups.map((group, index) => (
-              <React.Fragment key={group.key}>
-                {index > 0 ? <DropdownMenuSeparator /> : null}
-                {group.label ? (
-                  <div className="section-label px-2 pb-1 pt-1.5">
-                    {group.label}
-                  </div>
-                ) : null}
-                {group.items.map((item) => (
-                  <DropdownMenuItem
-                    key={item.key}
-                    disabled={item.disabled}
-                    data-testid={itemTestId(item.key)}
-                    onSelect={item.onSelect}
-                    className={cn(
-                      "flex items-center gap-2 disabled-state [&>svg]:size-icon-md",
-                      item.danger ? "text-danger" : "text-foreground"
-                    )}
-                  >
-                    {item.icon}
-                    <span>{item.text}</span>
-                    {item.reason ? (
-                      <span className="ml-auto text-label-xs text-faint">
-                        {item.reason}
-                      </span>
-                    ) : null}
-                  </DropdownMenuItem>
-                ))}
-              </React.Fragment>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+            </React.Fragment>
+          ))}
+        </ActionMenuContent>
+      </ActionMenu>
       {onChangeWorkspace ? null : (
         <ChangeWorkspaceDialog
           agent={agent}
