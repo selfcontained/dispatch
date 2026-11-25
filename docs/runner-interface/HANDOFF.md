@@ -142,3 +142,24 @@ Three lanes that share no files. A task that must touch another lane's file wait
 - systemd restart, SIGKILL and protected update (L5).
 - A real app update with live agents.
 - A fresh runner enrollment on this build.
+
+### T40 residual ledger / own-machine policy (2026-11-25)
+
+Read-only census at 5291f29d: 340 baseline rows / 370 occurrences, R1 58,
+R2 251, R3 2, R5 45, R6 7, R7 7. Dispositions: host 29, workload 162,
+update 18, route through Runner 53, neutral type/parser 16, legacy deletion 72,
+own-machine 19, false-positive 1. Lead approved the 14-file own-machine proposal
+and literal-const computed import correction. R2 becomes 231; other rules stay
+unchanged. Caller batches and full ledger are attached in the seal builder stream.
+
+Own-machine grants are exact file paths plus specific capabilities/helper imports,
+each with a reason. Existing regex grants were expanded only to already tracked
+matching source files; new files receive nothing. Mixed engine/session/workspace
+controllers receive no new grants. Release routes operate on Dispatch's authoring
+repository and installer verification operates on Dispatch artifacts. Generic
+helpers must stay controller-owned when workload dependencies move. Computed
+imports resolve only preceding literal const bindings in the same lexical block;
+resolved imports still receive all ordinary boundary checks. Unknown or mutated
+bindings remain violations. Single owners retain manager, ACP runtime, local
+adapter, remote service and supervisor files; fallback removal still requires the
+lead's recovery decision.

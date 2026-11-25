@@ -49,62 +49,417 @@ const machineExports = new Set([
 ]);
 
 // Capabilities are limited to the resources Dispatch owns in each location.
-const ownMachine = [
-  [/^runners\/controller-machine\.ts$/, "fs", "controller blob paths"],
-  [/^runners\/enrolled\//, "fs", "listener keys"],
-  [/^db\//, "fs", "Dispatch database and migrations"],
+export const ownMachineCapabilities = new Map([
   [
-    /^(update-recovery\/|server\/update-recovery-runtime\.ts$)/,
-    "fs process",
-    "Dispatch recovery",
+    "apps/server/src/agents/file-seed.ts",
+    new Map([["fs", "Dispatch blob storage"]]),
   ],
   [
-    /^(server\/release-[^/]+|routes\/release|release-(store|candidate-store|tarball-cache))\.ts$/,
-    "fs process",
-    "Dispatch releases",
-  ],
-  [/^server\/runner-(artifacts|dev-key)\.ts$/, "fs", "runner installer assets"],
-  [/^(startup\/|main\.ts$)/, "fs process", "Dispatch bootstrap"],
-  [
-    /^(local-tls|routes\/local-trust)\.ts$/,
-    "fs openssl",
-    "Dispatch certificates",
+    "apps/server/src/agents/retention.ts",
+    new Map([["fs", "Dispatch blob storage"]]),
   ],
   [
-    /^(config|state-dir|multi-listener|diagnostics|server\/http-logging|server)\.ts$/,
-    "fs os",
-    "Dispatch config, sockets and logs",
+    "apps/server/src/config.ts",
+    new Map([
+      ["fs", "Dispatch config, sockets and logs"],
+      ["os", "Dispatch config, sockets and logs"],
+    ]),
   ],
   [
-    /^(files\/(store|send-file|image-variants)|routes\/(files|browser-extension)|agents\/(file-seed|retention)|tasks\/attachment-store)\.ts$/,
-    "fs",
-    "Dispatch blob storage",
+    "apps/server/src/db/client.ts",
+    new Map([["fs", "Dispatch database and migrations"]]),
   ],
   [
-    /^observability\/artifact-storage\.ts$/,
-    "fs du",
-    "Dispatch storage metering",
+    "apps/server/src/db/migrate.ts",
+    new Map([
+      ["fs", "Dispatch database and migrations"],
+      ["os", "os: locate the Dispatch database migration runtime"],
+    ]),
   ],
   [
-    /^(notifications\/slack-link-origins|shared\/lib\/clipboard-capability)\.ts$/,
-    "os",
-    "controller facts",
+    "apps/server/src/db/personalities.ts",
+    new Map([["fs", "Dispatch database and migrations"]]),
   ],
-];
-
-// Host modules one own-machine file may import, each with its reason.
-const scopedHostImports = new Map([
   [
-    "runners/local.ts",
+    "apps/server/src/db/quick-phrases.ts",
+    new Map([["fs", "Dispatch database and migrations"]]),
+  ],
+  [
+    "apps/server/src/db/seed/agents.ts",
+    new Map([["fs", "Dispatch database and migrations"]]),
+  ],
+  [
+    "apps/server/src/db/seed/constants.ts",
+    new Map([["fs", "Dispatch database and migrations"]]),
+  ],
+  [
+    "apps/server/src/db/seed/files.ts",
+    new Map([["fs", "Dispatch database and migrations"]]),
+  ],
+  [
+    "apps/server/src/db/seed/index.ts",
+    new Map([["fs", "Dispatch database and migrations"]]),
+  ],
+  [
+    "apps/server/src/db/seed/jobs.ts",
+    new Map([["fs", "Dispatch database and migrations"]]),
+  ],
+  [
+    "apps/server/src/db/seed/placeholder-files.ts",
+    new Map([["fs", "Dispatch database and migrations"]]),
+  ],
+  [
+    "apps/server/src/db/seed/run.ts",
+    new Map([["fs", "Dispatch database and migrations"]]),
+  ],
+  [
+    "apps/server/src/db/seed/token-usage.ts",
+    new Map([["fs", "Dispatch database and migrations"]]),
+  ],
+  [
+    "apps/server/src/db/settings.ts",
+    new Map([["fs", "Dispatch database and migrations"]]),
+  ],
+  [
+    "apps/server/src/diagnostics.ts",
+    new Map([
+      ["fs", "Dispatch config, sockets and logs"],
+      ["os", "Dispatch config, sockets and logs"],
+      [
+        "import:apps/server/src/shared/lib/run-command",
+        "import shared/lib/run-command: collect Dispatch service diagnostics",
+      ],
+    ]),
+  ],
+  [
+    "apps/server/src/files/image-variants.ts",
+    new Map([["fs", "Dispatch blob storage"]]),
+  ],
+  [
+    "apps/server/src/files/send-file.ts",
+    new Map([["fs", "Dispatch blob storage"]]),
+  ],
+  [
+    "apps/server/src/files/store.ts",
+    new Map([["fs", "Dispatch blob storage"]]),
+  ],
+  [
+    "apps/server/src/local-tls.ts",
+    new Map([
+      ["fs", "Dispatch certificates"],
+      ["openssl", "Dispatch certificates"],
+      [
+        "child_process",
+        "child_process, os, import shared/process/child-environment: generate the controller TLS certificate with openssl",
+      ],
+      [
+        "os",
+        "child_process, os, import shared/process/child-environment: generate the controller TLS certificate with openssl",
+      ],
+      [
+        "import:apps/server/src/shared/process/child-environment",
+        "child_process, os, import shared/process/child-environment: generate the controller TLS certificate with openssl",
+      ],
+    ]),
+  ],
+  [
+    "apps/server/src/main.ts",
+    new Map([
+      ["fs", "Dispatch bootstrap"],
+      ["process", "Dispatch bootstrap"],
+    ]),
+  ],
+  [
+    "apps/server/src/multi-listener.ts",
+    new Map([
+      ["fs", "Dispatch config, sockets and logs"],
+      ["os", "Dispatch config, sockets and logs"],
+    ]),
+  ],
+  [
+    "apps/server/src/notifications/slack-link-origins.ts",
+    new Map([["os", "controller facts"]]),
+  ],
+  [
+    "apps/server/src/observability/artifact-storage.ts",
+    new Map([
+      ["fs", "Dispatch storage metering"],
+      ["du", "Dispatch storage metering"],
+      [
+        "child_process",
+        "child_process, import shared/process/child-environment: meter retained Dispatch blob directories with du (not agent checkouts)",
+      ],
+      [
+        "import:apps/server/src/shared/process/child-environment",
+        "child_process, import shared/process/child-environment: meter retained Dispatch blob directories with du (not agent checkouts)",
+      ],
+    ]),
+  ],
+  [
+    "apps/server/src/release-candidate-store.ts",
+    new Map([
+      ["fs", "Dispatch releases"],
+      ["process", "Dispatch releases"],
+      ["os", "os: locate the Dispatch candidate store"],
+    ]),
+  ],
+  [
+    "apps/server/src/release-store.ts",
+    new Map([
+      ["fs", "Dispatch releases"],
+      ["process", "Dispatch releases"],
+      ["os", "os: locate the Dispatch release store"],
+    ]),
+  ],
+  [
+    "apps/server/src/release-tarball-cache.ts",
+    new Map([
+      ["fs", "Dispatch releases"],
+      ["process", "Dispatch releases"],
+      [
+        "import:apps/server/src/shared/lib/run-command",
+        "import shared/lib/run-command: inspect and unpack Dispatch release downloads",
+      ],
+    ]),
+  ],
+  [
+    "apps/server/src/routes/browser-extension.ts",
+    new Map([["fs", "Dispatch blob storage"]]),
+  ],
+  [
+    "apps/server/src/routes/files.ts",
+    new Map([["fs", "Dispatch blob storage"]]),
+  ],
+  [
+    "apps/server/src/routes/local-trust.ts",
+    new Map([
+      ["fs", "Dispatch certificates"],
+      ["openssl", "Dispatch certificates"],
+    ]),
+  ],
+  [
+    "apps/server/src/routes/release.ts",
+    new Map([
+      ["fs", "Dispatch releases"],
+      ["process", "Dispatch releases"],
+      [
+        "import:apps/server/src/shared/lib/run-command",
+        "import shared/lib/run-command: manage Dispatch releases and its authoring repository",
+      ],
+    ]),
+  ],
+  [
+    "apps/server/src/runners/enrolled/checkout.ts",
+    new Map([["fs", "listener keys"]]),
+  ],
+  [
+    "apps/server/src/runners/enrolled/reads.ts",
+    new Map([["fs", "listener keys"]]),
+  ],
+  [
+    "apps/server/src/runners/enrolled/v1-framing.ts",
+    new Map([["fs", "listener keys"]]),
+  ],
+  [
+    "apps/server/src/runners/local.ts",
     new Map([
       [
-        "shared/process/child-environment",
+        "import:apps/server/src/shared/process/child-environment",
         "main's environment scrub applies to the local runner child it starts",
       ],
       [
-        "agents/acp/host-command",
+        "import:apps/server/src/agents/acp/host-command",
         "the host's argv is read from the app's environment, which the child's scrub drops",
       ],
+    ]),
+  ],
+  [
+    "apps/server/src/server.ts",
+    new Map([
+      ["fs", "Dispatch config, sockets and logs"],
+      ["os", "Dispatch config, sockets and logs"],
+    ]),
+  ],
+  [
+    "apps/server/src/server/http-logging.ts",
+    new Map([
+      ["fs", "Dispatch config, sockets and logs"],
+      ["os", "Dispatch config, sockets and logs"],
+    ]),
+  ],
+  [
+    "apps/server/src/server/release-artifact.ts",
+    new Map([
+      ["fs", "Dispatch releases"],
+      ["process", "Dispatch releases"],
+      [
+        "import:apps/server/src/shared/process/child-environment",
+        "import shared/process/child-environment: verify and stage Dispatch release artifacts",
+      ],
+    ]),
+  ],
+  [
+    "apps/server/src/server/release-helpers.ts",
+    new Map([
+      ["fs", "Dispatch releases"],
+      ["process", "Dispatch releases"],
+    ]),
+  ],
+  [
+    "apps/server/src/server/release-runtime.ts",
+    new Map([
+      ["fs", "Dispatch releases"],
+      ["process", "Dispatch releases"],
+      [
+        "import:apps/server/src/shared/process/child-environment",
+        "import shared/process/child-environment: launch Dispatch update/restart commands",
+      ],
+    ]),
+  ],
+  [
+    "apps/server/src/server/release-wire.ts",
+    new Map([
+      ["fs", "Dispatch releases"],
+      ["process", "Dispatch releases"],
+    ]),
+  ],
+  [
+    "apps/server/src/server/runner-artifacts.ts",
+    new Map([
+      ["fs", "runner installer assets"],
+      [
+        "import:apps/server/src/shared/lib/run-command",
+        "import shared/lib/run-command: build/sign installer artifacts served by Dispatch",
+      ],
+    ]),
+  ],
+  [
+    "apps/server/src/server/runner-dev-key.ts",
+    new Map([
+      ["fs", "runner installer assets"],
+      ["os", "os: locate the developer artifact-signing key"],
+    ]),
+  ],
+  [
+    "apps/server/src/server/update-recovery-runtime.ts",
+    new Map([
+      ["fs", "Dispatch recovery"],
+      ["process", "Dispatch recovery"],
+    ]),
+  ],
+  [
+    "apps/server/src/shared/lib/clipboard-capability.ts",
+    new Map([["os", "controller facts"]]),
+  ],
+  [
+    "apps/server/src/startup/acp-adapter.ts",
+    new Map([
+      ["fs", "Dispatch bootstrap"],
+      ["process", "Dispatch bootstrap"],
+    ]),
+  ],
+  [
+    "apps/server/src/startup/shell-environment.ts",
+    new Map([
+      ["fs", "Dispatch bootstrap"],
+      ["process", "Dispatch bootstrap"],
+      ["os", "os: load the controller startup login-shell environment"],
+    ]),
+  ],
+  [
+    "apps/server/src/state-dir.ts",
+    new Map([
+      ["fs", "Dispatch config, sockets and logs"],
+      ["os", "Dispatch config, sockets and logs"],
+    ]),
+  ],
+  [
+    "apps/server/src/update-recovery/cli.ts",
+    new Map([
+      ["fs", "Dispatch recovery"],
+      ["process", "Dispatch recovery"],
+    ]),
+  ],
+  [
+    "apps/server/src/update-recovery/control.ts",
+    new Map([
+      ["fs", "Dispatch recovery"],
+      ["process", "Dispatch recovery"],
+    ]),
+  ],
+  [
+    "apps/server/src/update-recovery/coordinator.ts",
+    new Map([
+      ["fs", "Dispatch recovery"],
+      ["process", "Dispatch recovery"],
+    ]),
+  ],
+  [
+    "apps/server/src/update-recovery/database-probe.ts",
+    new Map([
+      ["fs", "Dispatch recovery"],
+      ["process", "Dispatch recovery"],
+    ]),
+  ],
+  [
+    "apps/server/src/update-recovery/files.ts",
+    new Map([
+      ["fs", "Dispatch recovery"],
+      ["process", "Dispatch recovery"],
+    ]),
+  ],
+  [
+    "apps/server/src/update-recovery/linux.ts",
+    new Map([
+      ["fs", "Dispatch recovery"],
+      ["process", "Dispatch recovery"],
+      [
+        "loopback fetch",
+        "loopback, import shared/lib/run-command, import shared/process/child-environment: restore Dispatch database/state and probe the recovering service",
+      ],
+      [
+        "import:apps/server/src/shared/lib/run-command",
+        "loopback, import shared/lib/run-command, import shared/process/child-environment: restore Dispatch database/state and probe the recovering service",
+      ],
+      [
+        "import:apps/server/src/shared/process/child-environment",
+        "loopback, import shared/lib/run-command, import shared/process/child-environment: restore Dispatch database/state and probe the recovering service",
+      ],
+    ]),
+  ],
+  [
+    "apps/server/src/update-recovery/maintenance.ts",
+    new Map([
+      ["fs", "Dispatch recovery"],
+      ["process", "Dispatch recovery"],
+    ]),
+  ],
+  [
+    "apps/server/src/update-recovery/postgres.ts",
+    new Map([
+      ["fs", "Dispatch recovery"],
+      ["process", "Dispatch recovery"],
+    ]),
+  ],
+  [
+    "apps/server/src/update-recovery/protocol.ts",
+    new Map([
+      ["fs", "Dispatch recovery"],
+      ["process", "Dispatch recovery"],
+    ]),
+  ],
+  [
+    "apps/server/src/update-recovery/resume-receipt.ts",
+    new Map([
+      ["fs", "Dispatch recovery"],
+      ["process", "Dispatch recovery"],
+    ]),
+  ],
+  [
+    "apps/server/src/update-recovery/store.ts",
+    new Map([
+      ["fs", "Dispatch recovery"],
+      ["process", "Dispatch recovery"],
     ]),
   ],
 ]);
@@ -258,14 +613,63 @@ export function scanSource(file, source, declared = new Set()) {
   const controller = inServer && !inLegacyRunner;
   const placementKind = inWeb ? "R6" : "R1";
   const checkPlacement = (controller && !inRunners) || inWeb;
-  const allowed = new Set(
-    ownMachine.find(([path]) => path.test(relative))?.[1].split(" ")
-  );
+  const allowed = ownMachineCapabilities.get(file) ?? new Map();
+  const mutatedBindings = new Set();
+  function findMutations(node) {
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
+      ts.isIdentifier(node.left)
+    )
+      mutatedBindings.add(node.left.text);
+    if (
+      (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+      [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(
+        node.operator
+      ) &&
+      ts.isIdentifier(node.operand)
+    )
+      mutatedBindings.add(node.operand.text);
+    ts.forEachChild(node, findMutations);
+  }
+  findMutations(tree);
+  function importLiteral(node, call) {
+    const direct = literal(node);
+    if (
+      direct !== undefined ||
+      !node ||
+      !ts.isIdentifier(node) ||
+      mutatedBindings.has(node.text)
+    )
+      return direct;
+    // Resolve only a literal const in the call's own lexical block. Never
+    // chase aliases, outer bindings, parameters, or computed expressions.
+    let scope = call.parent;
+    while (scope && !ts.isBlock(scope) && !ts.isSourceFile(scope))
+      scope = scope.parent;
+    for (const statement of scope?.statements ?? []) {
+      if (
+        !ts.isVariableStatement(statement) ||
+        !(statement.declarationList.flags & ts.NodeFlags.Const)
+      )
+        continue;
+      for (const declaration of statement.declarationList.declarations) {
+        if (
+          ts.isIdentifier(declaration.name) &&
+          declaration.name.text === node.text &&
+          declaration.end < call.pos
+        )
+          return literal(declaration.initializer);
+      }
+    }
+  }
   const aliases = new Map();
   const moduleCalls = new Set(["require"]);
 
   function hostUse(capability, detail) {
-    if (controller && !allowed.has(capability)) hit("R2 host access", detail);
+    if (controller && !allowed.has(capability) && !allowed.has(detail))
+      hit("R2 host access", detail);
   }
 
   function importEdge(specifier, typeOnly, node, form) {
@@ -340,10 +744,7 @@ export function scanSource(file, source, declared = new Set()) {
         (hostModule.test(target.slice(server.length)) ||
           legacyRunner.test(target.slice(server.length) + ".ts"))
       ) {
-        if (
-          controller &&
-          !scopedHostImports.get(relative)?.has(target.slice(server.length))
-        )
+        if (controller && !allowed.has("import:" + target))
           hit("R2 host import", target);
       }
       if (/^@dispatch\/runner(?:\/|$)/.test(specifier)) {
@@ -455,7 +856,7 @@ export function scanSource(file, source, declared = new Set()) {
         (name === "require" && ["module", "globalThis"].includes(receiver))
       ) {
         importEdge(
-          literal(args[0]),
+          importLiteral(args[0], node),
           false,
           node,
           callable.kind === ts.SyntaxKind.ImportKeyword ? "import()" : "require"
