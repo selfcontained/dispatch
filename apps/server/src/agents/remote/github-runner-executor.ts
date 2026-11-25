@@ -11,6 +11,7 @@ import {
   type CommandRunner,
 } from "../../shared/lib/run-command.js";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
+import path from "node:path";
 import { promisify } from "node:util";
 import {
   githubDeviceUrl,
@@ -30,6 +31,8 @@ import {
 } from "@dispatch/runner-protocol";
 import {
   fixedWorkloadTools,
+  githubCredentialHelper,
+  githubCredentialKey,
   missingExecutable,
   type WorkloadTool,
   type WorkloadToolResolver,
@@ -39,6 +42,18 @@ const host = "github.com";
 const hostArgs = ["--hostname", host];
 const execute = promisify(execFile);
 const codePattern = /one-time code: ([A-Z0-9]{4}-[A-Z0-9]{4})\r?\n/i;
+/**
+ * The workload account's plain git reads the login gh already holds through
+ * this file, included from its global configuration while it is signed in.
+ * Only the helper command is written; the token stays in gh's own store.
+ */
+export const githubCredentialInclude =
+  ".config/dispatch-runner/github-credential.gitconfig";
+
+/** A literal value as a POSIX extended regular expression. */
+function exactPattern(value: string) {
+  return `^${value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`;
+}
 
 function cliIssue(error: unknown, fallback: string) {
   const { stderr } = error as { stderr?: string };
@@ -301,6 +316,9 @@ export class GitHubRunnerExecutor {
   private failure?: string;
   private queue = Promise.resolve();
   private accountChangesPending = 0;
+  /** The helper this process last confirmed in place, or "absent". */
+  private credentialState?: string;
+  private credentialQueue = Promise.resolve();
   private repositoryGeneration = 0;
   private repositories?: {
     at: number;
@@ -481,6 +499,101 @@ export class GitHubRunnerExecutor {
     }
   }
 
+  private async runWorkload(bin: string, args: string[], signal: AbortSignal) {
+    const command = this.wrap(bin, args);
+    await execute(command.bin, command.args, {
+      env: this.env,
+      signal,
+      killSignal: "SIGKILL",
+      timeout: 7_000,
+      maxBuffer: 16 * 1024,
+    });
+  }
+
+  private credentialFile() {
+    const home = this.env.HOME;
+    if (!home || !path.isAbsolute(home))
+      throw new Error("The workload account has no home directory.");
+    return path.join(home, githubCredentialInclude);
+  }
+
+  private async includesCredential(file: string, signal: AbortSignal) {
+    try {
+      const paths = await this.runCommand(
+        "git",
+        ["config", "--global", "--get-all", "include.path"],
+        signal
+      );
+      return paths.split("\n").includes(file);
+    } catch (error) {
+      if ((error as { code?: number }).code === 1) return false;
+      throw error;
+    }
+  }
+
+  /** Point the account's plain git at gh's login for github.com. */
+  private async addCredentialHelper(signal: AbortSignal) {
+    const helper = githubCredentialHelper(await this.tools.resolve("gh"));
+    if (this.credentialState === helper) return;
+    const file = this.credentialFile();
+    this.credentialState = undefined;
+    await this.runWorkload("/bin/mkdir", ["-p", path.dirname(file)], signal);
+    await this.runCommand(
+      "git",
+      ["config", "--file", file, "--replace-all", githubCredentialKey, helper],
+      signal
+    );
+    // Appended, so helpers the account already had keep their priority.
+    if (!(await this.includesCredential(file, signal)))
+      await this.runCommand(
+        "git",
+        ["config", "--global", "--add", "include.path", file],
+        signal
+      );
+    this.credentialState = helper;
+  }
+
+  /** Remove exactly what addCredentialHelper wrote; safe to repeat. */
+  private async removeCredentialHelper(signal: AbortSignal) {
+    if (this.credentialState === "absent") return;
+    const file = this.credentialFile();
+    this.credentialState = undefined;
+    try {
+      await this.runCommand(
+        "git",
+        [
+          "config",
+          "--global",
+          "--unset-all",
+          "include.path",
+          exactPattern(file),
+        ],
+        signal
+      );
+    } catch (error) {
+      // 5: nothing matched, so there was nothing to remove.
+      if ((error as { code?: number }).code !== 5) throw error;
+    }
+    await this.runWorkload("/bin/rm", ["-f", file], signal);
+    await this.runWorkload("/bin/rmdir", [path.dirname(file)], signal).catch(
+      () => {}
+    );
+    this.credentialState = "absent";
+  }
+
+  /** One change at a time; a failure is retried on the next account read. */
+  private syncCredentialHelper(signedIn: boolean, signal: AbortSignal) {
+    const change = this.credentialQueue.then(() =>
+      signedIn
+        ? this.addCredentialHelper(signal)
+        : this.removeCredentialHelper(signal)
+    );
+    this.credentialQueue = change.catch(() => {});
+    return change.catch(() => {
+      signal.throwIfAborted();
+    });
+  }
+
   private async configuredUser(signal: AbortSignal) {
     try {
       const login = await this.run(
@@ -513,6 +626,13 @@ export class GitHubRunnerExecutor {
   }
 
   private async account(signal: AbortSignal): Promise<GitHubStatus> {
+    const account = await this.readAccount(signal);
+    if (account.status === "signed-in" || account.status === "signed-out")
+      await this.syncCredentialHelper(account.status === "signed-in", signal);
+    return account;
+  }
+
+  private async readAccount(signal: AbortSignal): Promise<GitHubStatus> {
     if (!(await this.configuredUser(signal))) return { status: "signed-out" };
     let profile: { login?: unknown; id?: unknown; name?: unknown } | null;
     try {
