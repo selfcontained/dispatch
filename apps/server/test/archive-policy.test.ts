@@ -418,7 +418,11 @@ describe("archive checkout outcome table", () => {
       call.mock.calls.filter(([op]) => op === "workspace.describe")
     ).toEqual([
       // One attempt: a child that cannot answer is not waited for.
-      ["workspace.describe", { session: "agent-fixture" }, { wait: false }],
+      [
+        "workspace.describe",
+        { session: "agent-fixture" },
+        expect.objectContaining({ wait: false, timeoutMs: null }),
+      ],
     ]);
   });
 

@@ -11,6 +11,7 @@ import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import {
   displayPath,
   pathFromWire,
+  operations,
   RunnerCallError,
   runnerIdToWire,
   sessionFromWire,
@@ -34,6 +35,7 @@ import {
   type LauncherBinding,
 } from "@dispatch/runner-client/launcher";
 import { LocalRunnerSession } from "@dispatch/runner-client/session";
+import { localDeadlineMs } from "@dispatch/runner-client/transport/local-socket";
 import {
   encodeHostFrame,
   mapIncomingFrames,
@@ -140,7 +142,7 @@ function forgetBinding(child: Runner, session: string) {
 async function childBinding(
   child: Runner,
   session: Req<"workspace.describe">["session"],
-  signal?: AbortSignal
+  options: CallOptions<"workspace.describe"> = once()
 ): Promise<ChildBinding | null> {
   const cache = bindingCache(child);
   const key = sessionToWire(session);
@@ -151,7 +153,7 @@ async function childBinding(
     const described = await child.call(
       "workspace.describe",
       { session },
-      once({ signal })
+      options
     );
     const binding = {
       path: displayPath(described.path),
@@ -213,6 +215,19 @@ function readMissed(error: unknown) {
       error.code === "fenced")
   );
 }
+
+/**
+ * A read's reply deadline: the local transport's own for that operation,
+ * kept here so that missing it is a missed read (tests inject a short one).
+ * A `timeout` the child answers with is its answer, not a missed read.
+ */
+export const localReadDeadline = {
+  ms: (op: CallName, input: unknown): number | null =>
+    localDeadlineMs(
+      operations[op] as Parameters<typeof localDeadlineMs>[0],
+      input
+    ),
+};
 
 /**
  * A mutation the child never received: only then may it run here. An
@@ -280,6 +295,40 @@ export function createLocalCheckoutRunner(
     return fromChild(() => run(runner), missed, signal);
   }
   /**
+   * One read at the child under the transport's deadline, kept here: when
+   * it passes, the read is missed and the port here answers, as main's read
+   * just keeps going. The attempt carries no transport deadline of its own.
+   */
+  function readAttempt<T>(
+    op: CallName,
+    input: unknown,
+    // The local session's own options (one attempt, no transport deadline),
+    // built here only: opaque to the contract's call options.
+    run: (child: Runner, options: never) => Promise<T>,
+    options?: { signal?: AbortSignal }
+  ): Promise<{ value: T } | null> {
+    const ms = localReadDeadline.ms(op, input);
+    const deadline = ms === null ? undefined : AbortSignal.timeout(ms);
+    const signal =
+      deadline && options?.signal
+        ? AbortSignal.any([options.signal, deadline])
+        : (deadline ?? options?.signal);
+    const read = {
+      ...options,
+      signal,
+      timeoutMs: null,
+      wait: false as const,
+    };
+    return attempt(
+      (child) => run(child, read as never),
+      (error) =>
+        readMissed(error) ||
+        (deadline?.aborted === true && !options?.signal?.aborted),
+      options?.signal
+    );
+  }
+
+  /**
    * Whether the child holds this session's checkout at `directory`, asked
    * once. A child that cannot answer holds nothing for this call: a read
    * then runs here, and so does a mutation, which was never sent.
@@ -290,10 +339,11 @@ export function createLocalCheckoutRunner(
     directory: string,
     options?: { signal?: AbortSignal }
   ): Promise<boolean> {
-    const asked = await attempt(
-      (child) => childBinding(child, session, options?.signal),
-      readMissed,
-      options?.signal
+    const asked = await readAttempt(
+      "workspace.describe",
+      { session },
+      (child, read) => childBinding(child, session, read),
+      options
     );
     return asked !== null && names(asked.value, selector, directory);
   }
@@ -316,10 +366,11 @@ export function createLocalCheckoutRunner(
     // A folder before any session exists: in the child when it is ready,
     // else, and when it dies mid-call, the same port in process (R3).
     if ("path" in target) {
-      const answered = await attempt(
-        (child) => child.call(op, input, once(options)),
-        readMissed,
-        options?.signal
+      const answered = await readAttempt(
+        op,
+        input,
+        (child, read) => child.call(op, input, read),
+        options
       );
       if (answered) return answered.value;
       return checkoutWorkload.run(
@@ -364,8 +415,10 @@ export function createLocalCheckoutRunner(
         directory,
         options
       )) &&
-      (await attempt(
-        (child) =>
+      (await readAttempt(
+        op,
+        input,
+        (child, read) =>
           child.call(
             op,
             {
@@ -375,10 +428,9 @@ export function createLocalCheckoutRunner(
                 checkout: launched ? "launch" : "current",
               },
             },
-            once(options)
+            read
           ),
-        readMissed,
-        options?.signal
+        options
       ));
     if (answered) return answered.value;
     // The directory the child would read: the row's, which every move
@@ -496,10 +548,12 @@ export function createLocalCheckoutRunner(
     worktree: string,
     options?: { signal?: AbortSignal }
   ): Promise<Res<"workspace.observe"> | null> {
-    const asked = await attempt(
-      async (child) => {
+    const asked = await readAttempt(
+      "workspace.observe",
+      { session },
+      async (child, read) => {
         const described = await child
-          .call("workspace.describe", { session }, once(options))
+          .call("workspace.describe", { session }, read)
           .catch((error: unknown) => {
             if (error instanceof RunnerCallError && error.code === "not_found")
               return null;
@@ -513,12 +567,11 @@ export function createLocalCheckoutRunner(
         const observed = await child.call(
           "workspace.observe",
           { session },
-          once(options)
+          read
         );
         return observed.ownership === "owned" ? observed : null;
       },
-      readMissed,
-      options?.signal
+      options
     );
     return asked?.value ?? null;
   }
@@ -626,10 +679,11 @@ export function createLocalCheckoutRunner(
       });
     const answered =
       (await childHolds(target.session, selector, directory, options)) &&
-      (await attempt(
-        (child) => child.call("git.context", input, once(options)),
-        readMissed,
-        options?.signal
+      (await readAttempt(
+        "git.context",
+        input,
+        (child, read) => child.call("git.context", input, read),
+        options
       ));
     if (answered) return answered.value;
     const checkoutBranch =
@@ -672,10 +726,11 @@ export function createLocalCheckoutRunner(
     const key = sessionToWire(input.session);
     // A move the child never received (it is down, or never answered the
     // binding question) is checked here; one it may have recorded is not.
-    const held = await attempt(
-      (child) => childBinding(child, input.session, options?.signal),
-      readMissed,
-      options?.signal
+    const held = await readAttempt(
+      "workspace.describe",
+      { session: input.session },
+      (child, read) => childBinding(child, input.session, read),
+      options
     );
     if (child && held?.value) {
       forgetBinding(child, key);
@@ -714,10 +769,11 @@ export function createLocalCheckoutRunner(
     input: Req<"path.resolve">,
     options?: CallOptions<"path.resolve">
   ): Promise<Res<"path.resolve">> {
-    const answered = await attempt(
-      (child) => child.call("path.resolve", input, once(options)),
-      readMissed,
-      options?.signal
+    const answered = await readAttempt(
+      "path.resolve",
+      input,
+      (child, read) => child.call("path.resolve", input, read),
+      options
     );
     if (answered) return answered.value;
     const { path: requested, ...rest } = input;
@@ -736,10 +792,11 @@ export function createLocalCheckoutRunner(
       });
     const directory = resolveTilde(displayPath(input.target.path));
     const request = { target: { path: pathFromWire(directory) } };
-    const answered = await attempt(
-      (child) => child.call("git.branches", request, once(options)),
-      readMissed,
-      options?.signal
+    const answered = await readAttempt(
+      "git.branches",
+      request,
+      (child, read) => child.call("git.branches", request, read),
+      options
     );
     if (answered) return answered.value;
     return checkoutWorkload.run(
@@ -760,10 +817,11 @@ export function createLocalCheckoutRunner(
         code: "unsupported",
         message: "The default branch is read for a path.",
       });
-    const answered = await attempt(
-      (child) => child.call("git.defaultBranch", input, once(options)),
-      readMissed,
-      options?.signal
+    const answered = await readAttempt(
+      "git.defaultBranch",
+      input,
+      (child, read) => child.call("git.defaultBranch", input, read),
+      options
     );
     if (answered) return answered.value;
     return checkoutWorkload.run(
@@ -784,10 +842,11 @@ export function createLocalCheckoutRunner(
   async function github<
     K extends "github.pr.status" | "github.pr.details" | "github.pr.diff",
   >(op: K, input: Req<K>, options?: CallOptions<K>): Promise<Res<K>> {
-    const answered = await attempt(
-      (child) => child.call(op, input, once(options)),
-      readMissed,
-      options?.signal
+    const answered = await readAttempt(
+      op,
+      input,
+      (child, read) => child.call(op, input, read),
+      options
     );
     if (answered) return answered.value;
     const port = { signal: options?.signal };
@@ -841,7 +900,11 @@ export function createLocalCheckoutRunner(
             { target: { session: target.session, checkout: "current" } },
             once(options)
           ),
-        readMissed,
+        // Opening takes no per-call deadline: a `timeout` here can only be
+        // the transport's, never a workload's answer, so it is missed too.
+        (error) =>
+          readMissed(error) ||
+          (error instanceof RunnerCallError && error.code === "timeout"),
         options?.signal
       ));
     if (opened) return opened.value;
@@ -872,9 +935,10 @@ export function createLocalCheckoutRunner(
         | (Runner & Partial<Pick<LocalRunnerSession, "sendBlob">>)
         | undefined;
       const held = local?.sendBlob
-        ? await attempt(
-            (child) => childBinding(child, input.session),
-            readMissed
+        ? await readAttempt(
+            "workspace.describe",
+            { session: input.session },
+            (child, read) => childBinding(child, input.session, read)
           )
         : null;
       if (local?.sendBlob && held?.value) {
@@ -1004,15 +1068,11 @@ export function createLocalCheckoutRunner(
               directory,
               options
             ))) &&
-          (await attempt(
-            (child) =>
-              child.call(
-                "git.roots",
-                request,
-                once(options as CallOptions<"git.roots">)
-              ),
-            readMissed,
-            options?.signal
+          (await readAttempt(
+            "git.roots",
+            request,
+            (child, read) => child.call("git.roots", request, read),
+            options
           ));
         if (answered) return answered.value as Res<K>;
         return checkoutWorkload.run(
@@ -1023,15 +1083,11 @@ export function createLocalCheckoutRunner(
       }
       if (op === "git.origin") {
         const request = input as Req<"git.origin">;
-        const answered = await attempt(
-          (child) =>
-            child.call(
-              "git.origin",
-              request,
-              once(options as CallOptions<"git.origin">)
-            ),
-          readMissed,
-          options?.signal
+        const answered = await readAttempt(
+          "git.origin",
+          request,
+          (child, read) => child.call("git.origin", request, read),
+          options
         );
         if (answered) return answered.value as Res<K>;
         return checkoutWorkload.run(
