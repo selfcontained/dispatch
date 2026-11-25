@@ -5,7 +5,10 @@ import {
   type DiffStatsAgent,
   type DiffStatsChangedEvent,
 } from "../src/agents/diff-stats-refresher.js";
-import type { DiffStats } from "../src/shared/git/diff-stats.js";
+import {
+  getDiffStatsComputation,
+  type DiffStats,
+} from "../src/shared/git/diff-stats.js";
 import type { RunCommandResult } from "../src/shared/lib/run-command.js";
 import { SubsystemTracker } from "../src/observability/subsystem-tracker.js";
 
@@ -475,7 +478,10 @@ describe("DiffStatsRefresher", () => {
     const refresher = new DiffStatsRefresher({
       getAgent: async (id) => agents.get(id) ?? null,
       publishEvent: (event) => events.push(event),
-      runGitCommand,
+      computeAgentStats: (_id, agent, base) =>
+        getDiffStatsComputation(agent.worktreePath!, base, {
+          runCommand: runGitCommand,
+        }),
       tracker,
     });
 
@@ -524,7 +530,10 @@ describe("DiffStatsRefresher", () => {
     const refresher = new DiffStatsRefresher({
       getAgent: async (id) => agents.get(id) ?? null,
       publishEvent: (event) => events.push(event),
-      runGitCommand,
+      computeAgentStats: (_id, agent, base) =>
+        getDiffStatsComputation(agent.worktreePath!, base, {
+          runCommand: runGitCommand,
+        }),
       logger: { warn },
       tracker,
     });

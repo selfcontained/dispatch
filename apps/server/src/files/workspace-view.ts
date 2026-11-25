@@ -1,3 +1,4 @@
+import { workspaceViewError } from "@dispatch/runner-protocol";
 import type { WorkspaceView } from "@dispatch/runner-protocol";
 import { openWorkspaceDirectory } from "./workspace-directory.js";
 import { ignoredWorkspacePaths } from "./workspace-ignore.js";
@@ -238,14 +239,4 @@ export async function readWorkspaceView(
   }
 }
 
-export function workspaceViewError(error: unknown): WorkspaceError {
-  if (error instanceof WorkspaceError) return error;
-  const code = (error as NodeJS.ErrnoException | null)?.code;
-  if (code === "ESTALE")
-    return new WorkspaceError("Directory changed. Refresh to retry.", 409);
-  if (code === "ENOENT" || code === "ENOTDIR")
-    return new WorkspaceError("File or workspace no longer exists.", 404);
-  if (code === "EACCES" || code === "EPERM" || code === "ELOOP")
-    return new WorkspaceError("This path cannot be read.", 403);
-  return new WorkspaceError("Unable to read workspace.", 500);
-}
+export { workspaceViewError } from "@dispatch/runner-protocol";

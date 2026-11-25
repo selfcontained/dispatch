@@ -7,7 +7,7 @@ import {
 import {
   assertSafeRefName,
   normalizeBaseBranch,
-} from "../shared/git/worktree.js";
+} from "@dispatch/runner-protocol";
 import type { WorktreeRequest } from "./workspace-launch.js";
 
 export type CheckoutIntent = {

@@ -76,13 +76,6 @@
   {
     "file": "apps/server/src/agents/archive-checkout.ts",
     "kind": "R2 host import",
-    "detail": "apps/server/src/agents/checkout-observation",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/archive-checkout.ts",
-    "kind": "R2 host import",
     "detail": "apps/server/src/agents/local-runner",
     "task": "T04",
     "count": 1
@@ -194,13 +187,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/checkout-intent.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/worktree",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/checkout-runner.ts",
     "kind": "R1 placement call",
     "detail": "agentWorkspaceDir(agent)",
@@ -225,13 +211,6 @@
     "file": "apps/server/src/agents/checkout-runner.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/checkout-inspection",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/checkout-runner.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/diff-stats",
     "task": "T04",
     "count": 1
   },
@@ -318,13 +297,6 @@
     "kind": "R1 placement call",
     "detail": "agentDiffPath(agent)",
     "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/diff-stats-refresher.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/diff-stats",
-    "task": "T04",
     "count": 1
   },
   {
@@ -585,27 +557,6 @@
     "file": "apps/server/src/agents/manager.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/shared/github/pr",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/merge-risk/evidence.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/test-files",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/merge-risk/explanation-diff.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/diff-file-rules",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/merge-risk/explanation-diff.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/test-files",
     "task": "T04",
     "count": 1
   },
@@ -1005,13 +956,6 @@
     "file": "apps/server/src/agents/remote/workload-tools.ts",
     "kind": "R5 runner to Dispatch",
     "detail": "apps/server/src/shared/lib/tool-environment",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/types.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/worktree-status",
     "task": "T04",
     "count": 1
   },
@@ -1417,27 +1361,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/routes/agents/checkout-response.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/files/workspace-view",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/agents/checkout-response.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/diff-image",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/agents/lifecycle-routes.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/diff-image",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/routes/agents/shared.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/provider-plans",
@@ -1597,13 +1520,6 @@
     "kind": "R1 placement call",
     "detail": "agentWorkspaceDir(parent)",
     "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/server/ui-events.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/diff-stats",
-    "task": "T04",
     "count": 1
   },
   {
@@ -1845,20 +1761,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/shared/mcp/tool-error.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/worktree",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/shared/mcp/tool-error.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/github/pr",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/shared/plugin-status.ts",
     "kind": "R2 host access",
     "detail": "fs/promises",
@@ -1947,20 +1849,6 @@
     "file": "apps/server/src/tasks/service.ts",
     "kind": "R2 host access",
     "detail": "fs/promises",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/templates/resolve-launch.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/worktree",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/terminal/manager.ts",
-    "kind": "R2 host access",
-    "detail": "process.kill",
     "task": "T04",
     "count": 1
   },

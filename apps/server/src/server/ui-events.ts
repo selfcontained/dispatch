@@ -1,7 +1,7 @@
 import type { SharedUiEvent, StreamedAgentRecord } from "@dispatch/shared";
 import type { ReleaseInfoSnapshot } from "../release-info.js";
 
-import type { DiffStats } from "../shared/git/diff-stats.js";
+import type { DiffStats } from "@dispatch/shared";
 
 /**
  * The four members whose payloads the web client models differently — see

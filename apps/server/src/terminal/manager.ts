@@ -117,12 +117,12 @@ export class HumanTerminalManager {
       agentId
     );
     const opened = open(output, inputFull)
-      .then((process) => {
+      .then((terminal) => {
         if (this.pending.get(key)?.opened !== opened) {
-          process.kill();
+          terminal.kill();
           throw new Error("Terminal was closed before it could open.");
         }
-        return this.activate(session, process);
+        return this.activate(session, terminal);
       })
       .finally(() => {
         if (this.pending.get(key)?.opened === opened) this.pending.delete(key);

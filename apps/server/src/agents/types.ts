@@ -28,7 +28,7 @@ export type { AgentType } from "../shared/agent-types.js";
 // Canonical home is `shared/git/worktree-status.ts` — this re-export is
 // here so existing importers (manager.ts's public surface, and through
 // it routes/agents.ts) keep resolving without churn.
-export type { WorktreeStatus } from "../shared/git/worktree-status.js";
+export type { WorktreeStatus } from "@dispatch/runner-protocol";
 
 export type AgentTerminalAccess =
   | { mode: "live" }

@@ -4,8 +4,8 @@
  * never change what is explained. Never stored. Any failure yields null and
  * the explanation proceeds without hunks.
  */
-import { shouldExcludePath } from "../../shared/git/diff-file-rules.js";
-import { isTestFile } from "../../shared/git/test-files.js";
+import { shouldExcludePath } from "@dispatch/runner-protocol";
+import { isTestFile } from "@dispatch/runner-protocol";
 
 /** JSON bytes of selected patches; keeps the whole input under its bound. */
 export const EXPLANATION_DIFF_BUDGET = 24 * 1024;
