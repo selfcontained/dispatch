@@ -22,6 +22,32 @@ describe("GET /ping", () => {
   });
 });
 
+describe("GET /api/v1/agent-models main envelope", () => {
+  it("returns models/defaults/availability without changing the existing route shape", async () => {
+    const res = await ctx.app.inject({
+      method: "GET",
+      url: "/api/v1/agent-models",
+      headers: { cookie: sessionCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(Object.keys(body).sort()).toEqual([
+      "availability",
+      "defaults",
+      "models",
+    ]);
+    expect(body.models).toEqual(expect.any(Object));
+    expect(body.defaults).toEqual(expect.any(Object));
+    expect(body.availability).toEqual(expect.any(Object));
+    for (const value of Object.values(body.availability))
+      expect(Object.keys(value as object).sort()).toEqual([
+        "autoEnable",
+        "disabled",
+        "unseen",
+      ]);
+  });
+});
+
 describe("GET /api/v1/health", () => {
   it("returns ok with db timestamp without authentication", async () => {
     const res = await ctx.app.inject({

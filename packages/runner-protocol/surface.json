@@ -4298,7 +4298,10 @@
                     "array": {
                       "object": {
                         "value": "string",
-                        "name": "string"
+                        "name": "string",
+                        "description": {
+                          "optional": "string"
+                        }
                       }
                     }
                   }
