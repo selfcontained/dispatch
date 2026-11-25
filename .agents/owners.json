@@ -8,6 +8,7 @@
         "apps/server/test/launch-targets.test.ts",
         "apps/server/test/launch-folder-history.test.ts",
         "apps/server/test/launch-branches.test.ts",
+        "apps/server/test/launch-form-paths.test.ts",
         "apps/server/test/workspace-default-tag.test.ts",
         "apps/server/test/default-branch-main-parity.test.ts",
         "apps/server/test/helpers/main-workspace.ts",

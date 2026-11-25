@@ -18,11 +18,11 @@ import {
 } from "vitest";
 import { exchangeCode } from "../src/agents/remote/enrollment.js";
 import {
-  wireFrames,
   type Frame,
   type EnrollmentRequest,
   type EnrollmentReply,
 } from "../src/agents/remote/protocol.js";
+import { wireFrames } from "../src/runners/enrolled/v1-framing.js";
 import { remoteEngineTransport } from "../src/agents/remote/engine-transport.js";
 import { RunnerRegistry } from "../src/agents/remote/registry.js";
 import {
@@ -1642,6 +1642,47 @@ describe("advertised pairing host", () => {
 });
 
 describe("pinned pairing bootstrap", () => {
+  it("sends the exact v1 bootstrap and enrollment request bytes", async () => {
+    const authority = issueAuthority("fixture");
+    const leaf = issueServer(authority, [HOST]);
+    const requests: Buffer[] = [];
+    const server = createServer(
+      { cert: leaf.cert + authority.cert, key: leaf.key },
+      (socket) => {
+        const chunks: Buffer[] = [];
+        socket.on("data", (chunk: Buffer) => {
+          chunks.push(chunk);
+          if (!chunk.includes(10)) return;
+          requests.push(Buffer.concat(chunks));
+          const reply =
+            requests.length === 1
+              ? { type: "ca", ca: authority.cert }
+              : { type: "enroll_error", error: "fixture refused" };
+          socket.end(JSON.stringify(reply) + "\n");
+        });
+      }
+    );
+    await new Promise<void>((resolve) => server.listen(0, HOST, resolve));
+    try {
+      await expect(
+        exchangeCode({
+          endpoint: `https://${HOST}:${(server.address() as AddressInfo).port}`,
+          pin: new X509Certificate(authority.cert).fingerprint256,
+          code: "fixture-code",
+          publicKey: "fixture\nkey",
+        })
+      ).rejects.toThrow("fixture refused");
+      expect(requests).toEqual([
+        Buffer.from('{"type":"ca_request","version":1}\n'),
+        Buffer.from(
+          '{"type":"enroll","version":1,"code":"fixture-code","publicKey":"fixture\\nkey"}\n'
+        ),
+      ]);
+    } finally {
+      server.close();
+    }
+  });
+
   it("never sends the code to a peer that echoes the pinned CA but serves another chain", async () => {
     const { createServer } = await import("node:tls");
     const real = issueAuthority("real");
