@@ -128,12 +128,6 @@ export const hostVocabularyCompatibility = {
   ],
   "host launch input": [
     {
-      file: "packages/runner/src/host/first-prompt.ts",
-      token: "personaContext",
-      reason:
-        "Persisted main-era host launch field; retain its exact JSON key.",
-    },
-    {
       file: "packages/runner/src/host/host-env.ts",
       token: "personaContext",
       reason:
