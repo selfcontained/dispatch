@@ -6,6 +6,7 @@ import { AgentSessionLink } from "./agent-session-link";
  * agent has no tool to write to it directly.
  */
 import { useState, type MouseEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import type { BlockOption } from "@dispatch/shared";
 import { reviewFindings, reviewStatus } from "@dispatch/shared";
 import { ChevronRight, Monitor, GitPullRequest, InboxIcon } from "lucide-react";
@@ -36,6 +37,7 @@ import type {
   Inbox,
 } from "@/hooks/use-inbox";
 import { formatRelativeTime } from "@/lib/format";
+import { agentRoute, THREAD_PARAM } from "@/lib/agent-routes";
 import { LoadError } from "@/components/ui/async-boundary";
 import { EmptyState } from "@/components/ui/empty-state";
 import { LoadingSkeleton } from "@/components/ui/skeleton";
@@ -374,6 +376,19 @@ export function InboxPanel({
   onOpenBlock,
 }: InboxPanelProps): JSX.Element {
   const { rootId, inputs, links, reviews, checklists, agentNames } = inbox;
+  const navigate = useNavigate();
+  // A reviewer's review lives at the reviewer's home, archived or not; its
+  // thread opens there, where its findings are.
+  const openReview = (review: InboxReview) => (blockId: string) => {
+    if (review.streamId === rootId) {
+      onOpenBlock?.(blockId);
+      return;
+    }
+    navigate({
+      pathname: agentRoute(review.streamId),
+      search: `?${new URLSearchParams({ [THREAD_PARAM]: blockId })}`,
+    });
+  };
   const checklistAuthorName = (block: InboxChecklist): string => {
     if (block.author.kind !== "agent") return "Agent";
     const liveName = agentNameById?.(block.author.agentId);
@@ -470,7 +485,7 @@ export function InboxPanel({
                     "Agent")
                   : "You"
               }
-              onOpenBlock={onOpenBlock}
+              onOpenBlock={openReview(review)}
             />
           ))}
         </div>

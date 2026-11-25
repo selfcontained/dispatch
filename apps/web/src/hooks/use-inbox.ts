@@ -58,11 +58,15 @@ export type Inbox = {
   hasOlderReviews?: boolean;
   loadingOlderReviews?: boolean;
   loadOlderReviews?: () => void;
-  /** Reviews that never loaded, or an older page that didn't. */
+  /** Reviews that failed to load or refresh, including older pages. */
   reviewsError?: Error | null;
   retryReviews?: () => void;
   retryingReviews?: boolean;
 };
+
+export const INBOX_REVIEWS_QUERY_PREFIX = ["inbox-reviews"] as const;
+export const inboxReviewsQueryKey = (rootId: string | null) =>
+  [...INBOX_REVIEWS_QUERY_PREFIX, rootId] as const;
 
 /** An agent's open question or form for people. */
 export function isOpenInput(block: Block): block is InboxInput {
@@ -195,7 +199,7 @@ const EMPTY: Pick<
 export function useInbox(agentId: string | null): Inbox {
   const rootId = agentId;
   const reviewFeed = useInfiniteQuery({
-    queryKey: ["inbox-reviews", rootId],
+    queryKey: inboxReviewsQueryKey(rootId),
     enabled: rootId !== null,
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) =>
@@ -203,7 +207,6 @@ export function useInbox(agentId: string | null): Inbox {
         `/api/v1/streams/${rootId}/blocks?reviewsOnly=1&limit=25${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ""}`
       ),
     getNextPageParam: (page) => page.nextCursor ?? undefined,
-    refetchInterval: 5000,
   });
   // Selected, not read whole: the page that holds the Inbox re-renders only
   // when the Inbox changes, not on every step of every turn in the stream.
@@ -247,11 +250,7 @@ export function useInbox(agentId: string | null): Inbox {
     loadOlderReviews: () => {
       void reviewFeed.fetchNextPage();
     },
-    // Both feeds poll: a missed poll over content says nothing.
-    reviewsError:
-      reviewFeed.data && !reviewFeed.isFetchNextPageError
-        ? null
-        : reviewFeed.error,
+    reviewsError: reviewFeed.error,
     retryReviews: () => {
       void (reviewFeed.isFetchNextPageError
         ? reviewFeed.fetchNextPage()

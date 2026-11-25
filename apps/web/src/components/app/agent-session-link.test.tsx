@@ -284,6 +284,8 @@ describe("passive session identities", () => {
     });
     const review = block({
       id: "review",
+      // In the Inbox root's own stream, so it opens in the drawer.
+      streamId: "root",
       author,
       body: { kind: "review", data: { summary: "Review" }, state: {} },
     });
@@ -347,6 +349,8 @@ describe("passive session identities", () => {
     });
     const review = block({
       id: "review",
+      // In the Inbox root's own stream, so it opens in the drawer.
+      streamId: "root",
       author: { kind: "agent", agentId: "child" },
       body: { kind: "review", data: { summary: "Review" }, state: {} },
     });

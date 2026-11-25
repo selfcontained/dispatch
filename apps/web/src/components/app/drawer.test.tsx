@@ -87,7 +87,12 @@ const thread: StreamThreadResponse = { root: review, replies: [] };
 let client: QueryClient;
 
 function LocationProbe() {
-  return <div data-testid="location-search">{useLocation().search}</div>;
+  const location = useLocation();
+  return (
+    <div data-testid="location-search" data-pathname={location.pathname}>
+      {location.search}
+    </div>
+  );
 }
 
 function renderDrawer(
@@ -195,6 +200,27 @@ describe("DrawerContent as the sidebar", () => {
       within(card).getByRole("button", { name: /^Open review summary/ })
     );
     expect(onOpenBlock).toHaveBeenCalledWith("rv");
+  });
+
+  it("opens a reviewer's review at the reviewer's home, where its findings are", () => {
+    const onOpenBlock = vi.fn();
+    // Reviews live at the reviewer's home; the reviewer may be archived.
+    const away = reviewBlock({
+      id: "rv",
+      streamId: "agt_rev",
+      author: { kind: "agent", agentId: "agt_rev" },
+      toAgentId: "agt_1",
+      findings: [finding("f1", "Null deref")],
+    });
+    renderDrawer("", { reviews: [away], onOpenBlock });
+    const card = screen.getByTestId("inbox-review");
+    fireEvent.click(
+      within(card).getByRole("button", { name: /^Open review summary/ })
+    );
+    expect(onOpenBlock).not.toHaveBeenCalled();
+    const location = screen.getByTestId("location-search");
+    expect(location.getAttribute("data-pathname")).toBe("/agents/agt_rev");
+    expect(location.textContent).toBe("?thread=rv");
   });
 
   it("opens a review posted on a launch card, and an ask made in a thread, where they are", () => {

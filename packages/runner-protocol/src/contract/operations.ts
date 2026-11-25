@@ -375,6 +375,8 @@ export const operations = {
     request: object({
       target,
       path: string,
+      /** Folder/project definition readers only: enumerate native names lazily. */
+      mode: optional(literal("native")),
       /** List regular files at the checkout root, following file and directory symlinks. */
       filesOnly: optional(literal(true)),
       /** List every entry, as the directory holds them: Git-ignored ones and `.git` included. */
@@ -392,6 +394,8 @@ export const operations = {
     request: object({
       target,
       path: string,
+      /** Folder/project definition readers only: native file/error semantics. */
+      mode: optional(literal("native")),
       /** `base64` returns the file's raw bytes, base64 encoded, inside the checkout. */
       encoding: literal("utf8", "base64"),
       maxBytes: nullable(integer),

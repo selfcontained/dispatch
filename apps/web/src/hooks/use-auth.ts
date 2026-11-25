@@ -78,10 +78,11 @@ export function useAuth(): {
   );
 
   const handleLogout = useCallback(async () => {
-    await fetch("/api/v1/auth/logout", {
+    const res = await fetch("/api/v1/auth/logout", {
       method: "POST",
       credentials: "include",
     });
+    if (!res.ok) throw new Error(`auth/logout ${res.status}`);
     setAuthState("needs-login");
     void queryClient.invalidateQueries({ queryKey: ["auth-status"] });
   }, [queryClient]);
