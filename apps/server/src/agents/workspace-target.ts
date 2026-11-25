@@ -1,17 +1,7 @@
 import { remotePlacement, workspaceLocator } from "@dispatch/runner-protocol";
-import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
-import {
-  normalizePath,
-  probeGitContext,
-  resolveRepoRoot,
-} from "../shared/git/git-context.js";
-import { runCommand, type CommandRunner } from "../shared/lib/run-command.js";
-import { detectDefaultBranch } from "../shared/git/default-branch.js";
 import { AgentError } from "./errors.js";
-
-const WORKSPACE_PROBE_TIMEOUT_MS = 5_000;
 
 /**
  * Where an agent is working, for everything that looks at its files: the
@@ -145,72 +135,6 @@ export async function settleWorkspace(
   };
 }
 
-/**
- * Main's folder check in this process: a directory, moved to its checkout
- * root inside Git, and no move when that is the launch checkout. The local
- * runner's in-process fallback (a session its child holds no binding for).
- */
-export async function selectWorkspaceDirectory(
-  home: string | null,
-  requested: string
-): Promise<{ path: string; moved: boolean; repoRoot: string | null }> {
-  let dir: string;
-  try {
-    if (!(await stat(requested)).isDirectory()) {
-      throw new AgentError(`${requested} is not a directory.`, 400);
-    }
-    dir = normalizePath(await realpath(requested));
-  } catch (error) {
-    if (error instanceof AgentError) throw error;
-    throw new AgentError(`${requested} does not exist.`, 400);
-  }
-
-  const probe = await probeGitContext(dir, {
-    timeoutMs: WORKSPACE_PROBE_TIMEOUT_MS,
-  });
-  if (probe.status === "error") {
-    throw new AgentError(`Could not read git state in ${dir}.`, 400);
-  }
-  const git = probe.value;
-  const workspace = git?.worktreePath ?? dir;
-  const homeDir = home ? await realpathOrSelf(home) : null;
-  return {
-    path: workspace,
-    moved: workspace !== homeDir,
-    repoRoot: git?.repoRoot ?? null,
-  };
-}
-
-/** `settleWorkspace` with this process's probes (main's local resolution). */
-export function resolveWorkspace(
-  agent: WorkspaceTargetAgent,
-  input: { path: string | null; baseBranch?: string | null },
-  run: CommandRunner = runCommand
-): Promise<{ path: string | null; baseBranch: string | null }> {
-  const home = agent.worktreePath ?? agent.cwd;
-  return settleWorkspace(agent, input, {
-    select: async (requested) =>
-      requested
-        ? selectWorkspaceDirectory(home, requested)
-        : { path: home ?? "", moved: false, repoRoot: null },
-    launchRepoRoot: async () =>
-      home
-        ? resolveRepoRoot(await realpathOrSelf(home), {
-            timeoutMs: WORKSPACE_PROBE_TIMEOUT_MS,
-          })
-        : null,
-    defaultBranch: (dir) => detectDefaultBranch(dir, run),
-  });
-}
-
 export function isSafeBranchName(name: string): boolean {
   return !name.startsWith("-") && !/\s/.test(name) && !name.includes("..");
-}
-
-async function realpathOrSelf(dir: string): Promise<string> {
-  try {
-    return normalizePath(await realpath(dir));
-  } catch {
-    return normalizePath(dir);
-  }
 }

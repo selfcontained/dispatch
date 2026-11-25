@@ -186,9 +186,11 @@ describe("PR reads through the agent's runner", () => {
     const viaChild = createLocalCheckoutRunner(undefined, description, child);
     expect(await viaChild.call("github.pr.status", target)).toEqual(scoped);
     // One attempt: a child that cannot answer is not waited for.
-    expect(childCall).toHaveBeenCalledWith("github.pr.status", target, {
-      wait: false,
-    });
+    expect(childCall).toHaveBeenCalledWith(
+      "github.pr.status",
+      target,
+      expect.objectContaining({ wait: false, timeoutMs: null })
+    );
     expect(childFallback.pullRequestStatus).not.toHaveBeenCalled();
 
     childFallback.pullRequestStatus.mockResolvedValue(scoped);

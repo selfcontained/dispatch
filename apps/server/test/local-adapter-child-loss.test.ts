@@ -22,13 +22,18 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   pathFromWire,
+  RunnerCallError,
   sessionFromWire,
   type CallName,
+  type Runner,
   type Req,
 } from "@dispatch/runner-protocol/contract";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { workspaceWorkload } from "../src/agents/checkout-worker.js";
-import { localCheckoutWorkload as checkoutWorkload } from "../src/runners/local.js";
+import {
+  localCheckoutWorkload as checkoutWorkload,
+  localReadDeadline,
+} from "../src/runners/local.js";
 import { runnerDirectory } from "../src/runners/directory.js";
 import { controllerPlacement } from "../src/runners/placement.js";
 import {
@@ -503,4 +508,64 @@ describe("checkout.watch when the child cannot open it", () => {
       await rm(join(repo, "watched.txt"), { force: true });
     }
   }, 30_000);
+});
+
+describe("a read past the transport's deadline", () => {
+  it("answers here once when a child holds the reply past it", async () => {
+    const request = { target, path: "a.txt", encoding: "utf8", maxBytes: null };
+    const run = () =>
+      adapter(() => child.session).call(
+        "checkout.read",
+        request as Req<"checkout.read">
+      );
+    const healthy = await outcome(run);
+    const deadline = vi.spyOn(localReadDeadline, "ms").mockReturnValue(300);
+    const here = vi.spyOn(checkoutWorkload, "run");
+    const pid = child.current()!.pid;
+    try {
+      // Stopped, not dead: the reply never comes, as from a read that hangs.
+      process.kill(pid, "SIGSTOP");
+      const started = performance.now();
+      expect(await outcome(run)).toEqual(healthy);
+      expect(performance.now() - started).toBeLessThan(NO_WAIT_MS);
+      expect(here.mock.calls.map(([name]) => name)).toEqual(["checkout.read"]);
+    } finally {
+      process.kill(pid, "SIGCONT");
+      here.mockRestore();
+      deadline.mockRestore();
+    }
+  }, 30_000);
+
+  it("keeps a timeout the child answers with: a read's own result, not missed", async () => {
+    const timedOut = {
+      connection: { state: "ready", epoch: 9, onChange: () => () => {} },
+      call: vi.fn(async (op: string) => {
+        if (op === "workspace.describe")
+          return { path: repo, checkoutRoot: repo, moved: false };
+        throw new RunnerCallError({
+          code: "timeout",
+          message: "git timed out",
+        });
+      }),
+    } as unknown as Runner;
+    const here = vi.spyOn(checkoutWorkload, "run");
+    try {
+      for (const op of ["checkout.read", "checkout.write"] as const)
+        expect(
+          await outcome(() =>
+            adapter(() => timedOut).call(op, {
+              target,
+              path: "a.txt",
+              ...(op === "checkout.read"
+                ? { encoding: "utf8", maxBytes: null }
+                : { data: "x", expectedDigest: null }),
+            } as never)
+          ),
+          op
+        ).toEqual({ error: "timeout" });
+      expect(here).not.toHaveBeenCalled();
+    } finally {
+      here.mockRestore();
+    }
+  });
 });
