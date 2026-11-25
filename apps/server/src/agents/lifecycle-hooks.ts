@@ -2,14 +2,48 @@ import type { FastifyBaseLogger } from "fastify";
 
 import { repoCommandEnvironment } from "../shared/lib/tool-environment.js";
 import { runCommand } from "../shared/lib/run-command.js";
-import { loadRepoHooks } from "../shared/mcp/repo-tools.js";
+import {
+  loadRepoHooks,
+  type RepoHookDefinition,
+} from "../shared/mcp/repo-tools.js";
 
 import type { AgentRecord } from "./types.js";
 
 export type LifecycleHookName = "stop" | "archive";
 
+type ResolvedHook = {
+  root: string;
+  hook: RepoHookDefinition;
+};
+
+/** Resolve the same checkout and fallback for a preview and for execution. */
+export async function* resolveLifecycleHooks(
+  hookName: LifecycleHookName,
+  agent: AgentRecord
+): AsyncGenerator<ResolvedHook> {
+  const roots = new Set(
+    [agent.worktreePath ?? agent.cwd, agent.workspacePath].filter(
+      (root): root is string => Boolean(root)
+    )
+  );
+  for (const root of roots) {
+    const hook = (await loadRepoHooks(root))[hookName];
+    if (hook) {
+      yield { root, hook };
+    } else if (
+      hookName === "archive" &&
+      root === agent.worktreePath &&
+      agent.launchCwd &&
+      !roots.has(agent.launchCwd)
+    ) {
+      // A retained worktree can predate the archive hook.
+      const fallback = (await loadRepoHooks(agent.launchCwd)).archive;
+      if (fallback) yield { root: agent.launchCwd, hook: fallback };
+    }
+  }
+}
+
 /**
- * Run an optional repo hook in the launch checkout and any moved workspace.
  * Callers treat stop as best-effort and require archive cleanup to succeed
  * before removing the worktree and soft-deleting the agent.
  */
@@ -18,27 +52,8 @@ export async function runLifecycleHook(
   agent: AgentRecord,
   logger: FastifyBaseLogger
 ): Promise<void> {
-  // An agent that moved runs the hook in both places: what it started in
-  // the launch checkout and what it started in its workspace (a dev stack,
-  // say) each belong to that checkout's own hook.
-  const roots = new Set(
-    [agent.worktreePath ?? agent.cwd, agent.workspacePath].filter(
-      (root): root is string => Boolean(root)
-    )
-  );
-  for (const root of roots) {
-    const ran = await runLifecycleHookIn(hookName, agent, root, logger);
-    if (
-      !ran &&
-      hookName === "archive" &&
-      root === agent.worktreePath &&
-      agent.launchCwd &&
-      !roots.has(agent.launchCwd)
-    ) {
-      // A retained worktree can predate the archive hook. Run the configured
-      // hook from the original launch checkout in that case.
-      await runLifecycleHookIn(hookName, agent, agent.launchCwd, logger);
-    }
+  for await (const { root, hook } of resolveLifecycleHooks(hookName, agent)) {
+    await runLifecycleHookIn(hookName, agent, root, hook, logger);
   }
 }
 
@@ -46,12 +61,9 @@ async function runLifecycleHookIn(
   hookName: LifecycleHookName,
   agent: AgentRecord,
   repoRoot: string,
+  hook: RepoHookDefinition,
   logger: FastifyBaseLogger
-): Promise<boolean> {
-  const hooks = await loadRepoHooks(repoRoot);
-  const hook = hooks[hookName];
-  if (!hook) return false;
-
+): Promise<void> {
   const [command, ...args] = hook.command;
   logger.info(
     { agentId: agent.id, hook: hookName, command: hook.command, repoRoot },
@@ -70,5 +82,4 @@ async function runLifecycleHookIn(
       "Archive hook completed"
     );
   }
-  return true;
 }

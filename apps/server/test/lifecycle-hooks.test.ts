@@ -2,8 +2,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { Pool } from "pg";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { previewArchive } from "../src/agents/archive.js";
 import { runLifecycleHook } from "../src/agents/lifecycle-hooks.js";
 import type { AgentRecord } from "../src/agents/types.js";
 
@@ -116,5 +118,54 @@ describe("runLifecycleHook", () => {
     await expect(readFile(path.join(launch, "archived"), "utf8")).resolves.toBe(
       "agt_hook\n"
     );
+  });
+
+  it("previews configured cascade cleanup without running hooks", async () => {
+    const plain = path.join(root, "plain");
+    const configured = path.join(root, "configured");
+    await repoWithStopHook(plain);
+    await mkdir(path.join(configured, ".dispatch"), { recursive: true });
+    const description =
+      "Permanently deletes the owned isolated dev database and logs.";
+    await writeFile(
+      path.join(configured, ".dispatch", "tools.json"),
+      JSON.stringify({
+        hooks: {
+          archive: {
+            command: ["sh", "-c", "echo wiped > archived"],
+            description,
+          },
+        },
+      })
+    );
+    const agents = new Map<string, AgentRecord>([
+      ["parent", { id: "parent", cwd: plain } as AgentRecord],
+      [
+        "child",
+        {
+          id: "child",
+          cwd: plain,
+          worktreePath: plain,
+          launchCwd: configured,
+        } as AgentRecord,
+      ],
+    ]);
+    const getRequiredAgent = vi.fn(async (id: string) => agents.get(id)!);
+    const pool = {
+      query: vi.fn(async (_sql: string, [id]: [string]) => ({
+        rows: id === "parent" ? [{ id: "child" }] : [],
+      })),
+    } as unknown as Pool;
+
+    await expect(
+      previewArchive({ pool, getRequiredAgent }, "parent")
+    ).resolves.toEqual({
+      worktreeStatus: null,
+      subAgentCount: 1,
+      cleanupDescriptions: [description],
+    });
+    await expect(
+      readFile(path.join(configured, "archived"))
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

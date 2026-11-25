@@ -1,3 +1,4 @@
+import type { AgentArchivePreview } from "@dispatch/shared";
 import { realpath } from "node:fs/promises";
 
 import type { FastifyBaseLogger } from "fastify";
@@ -9,8 +10,9 @@ import { runCommand, type CommandRunner } from "../shared/lib/run-command.js";
 import {
   getUncommittedChanges,
   getUnmergedChanges,
+  readWorktreeStatus,
 } from "../shared/git/worktree-status.js";
-import { runLifecycleHook } from "./lifecycle-hooks.js";
+import { resolveLifecycleHooks, runLifecycleHook } from "./lifecycle-hooks.js";
 import { AgentError } from "./errors.js";
 import type { AgentRuntime } from "./runtime.js";
 import type {
@@ -64,6 +66,34 @@ async function getChildAgentIds(
     [parentAgentId]
   );
   return result.rows.map((row) => row.id);
+}
+
+/** Read the effects of the target and its cascade without running a hook. */
+export async function previewArchive(
+  { pool, getRequiredAgent }: Pick<ArchiveDeps, "pool" | "getRequiredAgent">,
+  id: string
+): Promise<AgentArchivePreview> {
+  const target = await getRequiredAgent(id);
+  const cleanupDescriptions = new Set<string>();
+  const seen = new Set([id]);
+  const pending = [target];
+  for (const agent of pending) {
+    for await (const { hook } of resolveLifecycleHooks("archive", agent)) {
+      if (hook.description) cleanupDescriptions.add(hook.description);
+    }
+    for (const childId of await getChildAgentIds(pool, agent.id)) {
+      if (seen.has(childId)) continue;
+      seen.add(childId);
+      pending.push(await getRequiredAgent(childId));
+    }
+  }
+  return {
+    worktreeStatus: target.worktreePath
+      ? await readWorktreeStatus(target.worktreePath)
+      : null,
+    subAgentCount: pending.length - 1,
+    cleanupDescriptions: [...cleanupDescriptions],
+  };
 }
 
 /**

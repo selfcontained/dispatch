@@ -6,7 +6,7 @@
     },
     "archive": {
       "command": ["./bin/dispatch-dev", "down", "--wipe"],
-      "description": "Discard the archived agent's isolated dev database and logs."
+      "description": "Permanently deletes the owned isolated dev database and logs."
     }
   },
   "tools": [
