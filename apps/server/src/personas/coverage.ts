@@ -1,6 +1,3 @@
-import { execFileSync } from "node:child_process";
-import { childProcessEnv } from "../shared/process/child-environment.js";
-
 import { getBuiltInPersona } from "./built-in.js";
 import { parseCodeowners, resolveCodeowners } from "./codeowners.js";
 import { supportsPersonaType, toPersonaDefinition } from "./loader.js";
@@ -14,18 +11,9 @@ export function checkOwnerCoverage(input: {
   cwd: string;
   baseSha: string;
   headSha: string;
-  git?: Git;
+  git: Git;
 }): { changedFiles: string[]; owners: string[] } {
-  const git: Git =
-    input.git ??
-    ((args) =>
-      execFileSync("git", args, {
-        env: childProcessEnv(),
-        cwd: input.cwd,
-        encoding: "utf8",
-        maxBuffer: 64 * 1024 * 1024,
-        stdio: ["ignore", "pipe", "pipe"],
-      }));
+  const { git } = input;
   const fail = (message: string): never => {
     throw new Error(`${message}\n${HELP}`);
   };
