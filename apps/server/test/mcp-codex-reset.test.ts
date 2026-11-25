@@ -1,3 +1,4 @@
+import * as agentModels from "../src/shared/agent-models.js";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -222,8 +223,8 @@ esac
         fetchUsage,
       },
     });
-    const readModels = vi.spyOn(localEngines, "readModelCatalog");
-    const readChoices = vi.spyOn(localEngines, "readModelOptions");
+    const readModels = vi.spyOn(agentModels, "agentModelCatalog");
+    const readChoices = vi.spyOn(agentModels, "getAgentModelOptions");
     const providerPlans = createProviderPlansReporter({
       load: localEngines.readProviderPlans,
     });

@@ -40,10 +40,10 @@ import {
 } from "../agents/model-availability.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import {
-  createLocalEngineRunner,
-  type LocalEngineRunner,
-} from "../agents/local-runner-engine.js";
-import { agentModelAvailability } from "../shared/agent-models.js";
+  agentModelAvailability,
+  agentModelCatalog,
+  agentModelDefaults,
+} from "../shared/agent-models.js";
 import {
   getWorktreeLocation,
   isWorktreeLocation,
@@ -91,7 +91,6 @@ type SystemRouteDeps = {
     engineCalls: EngineCalls;
     engineUpdates: EngineUpdateOperations;
   };
-  localEngines?: Pick<LocalEngineRunner, "readModelCatalog">;
   runnerBranches?: (
     runner: string,
     target: { repository: string }
@@ -253,9 +252,9 @@ export async function registerSystemRoutes(
       deps.runnerEngines!((request.params as { runnerId: string }).runnerId)
     );
 
-  const localEngines = deps.localEngines ?? createLocalEngineRunner();
   app.get("/api/v1/agent-models", async () => ({
-    ...localEngines.readModelCatalog(),
+    models: agentModelCatalog(),
+    defaults: agentModelDefaults(),
     availability: agentModelAvailability(),
   }));
 
