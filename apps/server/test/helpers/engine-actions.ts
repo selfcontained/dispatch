@@ -1,3 +1,4 @@
+import { readStoredModelCatalog } from "../../src/shared/agent-models.js";
 import { createRunnerUsage } from "../../src/agents/codex-reset.js";
 import { engineScopeKey } from "@dispatch/runner-protocol/engine-management";
 /** Legacy wire fixtures projected into the current engine-call dependency. */
@@ -12,6 +13,11 @@ export function fixtureEngineActions(
   const actions: ConstructorParameters<
     typeof EngineManager
   >[0]["engineActions"] = {
+    models: (scope, engine) =>
+      readStoredModelCatalog(
+        scope.kind === "local" ? "local" : scope.runnerId,
+        engine
+      ),
     usage(scope) {
       const key = engineScopeKey(scope);
       let usage = coordinators.get(key);

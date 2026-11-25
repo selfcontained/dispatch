@@ -42,8 +42,7 @@ import {
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import {
   agentModelAvailability,
-  agentModelCatalog,
-  agentModelDefaults,
+  readStoredAgentModelCatalog,
 } from "../shared/agent-models.js";
 import {
   getWorktreeLocation,
@@ -254,8 +253,7 @@ export async function registerSystemRoutes(
     );
 
   app.get("/api/v1/agent-models", async () => ({
-    models: agentModelCatalog(),
-    defaults: agentModelDefaults(),
+    ...readStoredAgentModelCatalog(),
     availability: agentModelAvailability(),
   }));
 

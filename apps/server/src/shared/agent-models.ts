@@ -48,6 +48,32 @@ export function catalogUnion(runnerIds: readonly string[]) {
   return models;
 }
 
+type CatalogRead = (runnerId: string, agentType: AgentType) => void;
+let catalogRead: CatalogRead | undefined;
+export function onStoredModelCatalogRead(listener: CatalogRead): () => void {
+  catalogRead = listener;
+  return () => {
+    if (catalogRead === listener) catalogRead = undefined;
+  };
+}
+/** These user-facing reads return the snapshot before scheduling any I/O. */
+export function readStoredModelCatalog(runnerId: string, agentType: AgentType) {
+  const result = {
+    defaultModel: agentModelDefaults(runnerId)[agentType] ?? null,
+    models: getAgentModelOptions(agentType, runnerId),
+  };
+  catalogRead?.(runnerId, agentType);
+  return result;
+}
+export function readStoredAgentModelCatalog(runnerId = "local") {
+  const result = {
+    models: agentModelCatalog(runnerId),
+    defaults: agentModelDefaults(runnerId),
+  };
+  for (const agentType of CLI_AGENT_TYPES) catalogRead?.(runnerId, agentType);
+  return result;
+}
+
 export function agentModelDefaults(
   runnerId = "local"
 ): Partial<Record<AgentType, string>> {
@@ -331,41 +357,20 @@ export type RunnerModelCatalogSource = (
   models: readonly AgentModelOption[];
 } | null>;
 
-let runnerCatalogSource: RunnerModelCatalogSource | null = null;
-let runnerCatalogLog:
-  | Pick<import("fastify").FastifyBaseLogger, "warn">
-  | undefined;
-
-/** Wired once at startup to the runner engine transport; tests stub it. */
-export function setRunnerModelCatalogSource(
-  source: RunnerModelCatalogSource | null,
-  log?: typeof runnerCatalogLog
-): void {
-  runnerCatalogSource = source;
-  runnerCatalogLog = log;
-}
-
-/**
- * The model scope for a launch target. A local folder uses this Mac's
- * catalog. A runner location uses the runner's catalog when it can report
- * one. If the catalog is unavailable, the runner checks the override at launch.
- */
+/** Launch validation reads the same stored catalog as the picker. */
 export async function modelScopeFor(
   target: string | null | undefined,
   agentType: AgentType
 ): Promise<ModelScope> {
   const placement = target ? remotePlacement(target) : null;
-  if (!placement) return LOCAL_MODEL_SCOPE;
-  try {
-    const catalog = await runnerCatalogSource?.(placement.runner, agentType);
-    if (catalog?.models.length) return { kind: "runner", ...catalog };
-  } catch (err) {
-    runnerCatalogLog?.warn(
-      { err, runnerId: placement.runner, agentType },
-      "Runner model catalog unavailable"
-    );
+  if (!placement) {
+    readStoredModelCatalog("local", agentType);
+    return LOCAL_MODEL_SCOPE;
   }
-  return { kind: "engine" };
+  return {
+    kind: "runner",
+    ...readStoredModelCatalog(placement.runner, agentType),
+  };
 }
 
 /** The ids a scope offers for a type; null when the engine checks at launch. */

@@ -1,4 +1,8 @@
-import { getAgentModelOptions } from "../shared/agent-models.js";
+import { runnerIdForPlacement } from "../runners/placement.js";
+import {
+  readStoredModelCatalog,
+  selectableAgentModels,
+} from "../shared/agent-models.js";
 import type { RunnerEngineTransport } from "../agents/remote/engine-manager.js";
 import { createRiskReader } from "../shared/mcp/pull-request-risk-tools.js";
 import type { PullRequestRefresher } from "../agents/pull-request-refresher.js";
@@ -302,13 +306,8 @@ export async function registerMcpRoutes(
     runnerId: string
   ): NonNullable<UsageCallbacks["modelOptions"]> {
     return async (engine) => {
-      const ack = await deps.runnerEngines?.send(runnerId, {
-        type: "model_catalog",
-        engine,
-      });
-      return ack?.ok && ack.capability?.type === "model_catalog"
-        ? ack.capability.catalog.models
-        : [];
+      readStoredModelCatalog(runnerId, engine);
+      return selectableAgentModels(engine, runnerId);
     };
   }
 
@@ -403,9 +402,9 @@ export async function registerMcpRoutes(
       providerPlans: deps.usageForAgent
         ? (await deps.usageForAgent(agent.id)).providerPlans
         : providerPlans,
-      modelOptions: placement
-        ? modelOptionsForRunner(placement.runner)
-        : async (agentType) => getAgentModelOptions(agentType),
+      modelOptions: modelOptionsForRunner(
+        runnerIdForPlacement(agent.placement)
+      ),
       usageWatches: deps.usageWatches,
       redeemCodexReset: bearerToken
         ? deps.usageForAgent
@@ -523,9 +522,9 @@ export async function registerMcpRoutes(
       providerPlans: deps.usageForAgent
         ? (await deps.usageForAgent(agent.id)).providerPlans
         : providerPlans,
-      modelOptions: placement
-        ? modelOptionsForRunner(placement.runner)
-        : async (agentType) => getAgentModelOptions(agentType),
+      modelOptions: modelOptionsForRunner(
+        runnerIdForPlacement(agent.placement)
+      ),
       usageWatches: deps.usageWatches,
       redeemCodexReset: bearerToken
         ? deps.usageForAgent

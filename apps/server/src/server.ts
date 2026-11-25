@@ -193,13 +193,17 @@ import {
   engineUpdatePort,
   EngineUpdateOperations,
   engineOperationStore,
+  observeModelUpdates,
 } from "./agents/engine-updates.js";
 import { EngineManager } from "./agents/remote/engine-manager.js";
+import { remoteEngineTransport } from "./agents/remote/engine-transport.js";
 import {
-  remoteEngineTransport,
-  runnerModelCatalogSource,
-} from "./agents/remote/engine-transport.js";
-import { setRunnerModelCatalogSource } from "./shared/agent-models.js";
+  onStoredModelCatalogRead,
+  readStoredModelCatalog,
+} from "./shared/agent-models.js";
+import { ModelCatalogRefresh } from "./agents/model-catalog-refresh.js";
+import { placementForRunner } from "./runners/placement.js";
+import { CLI_AGENT_TYPES, type AgentType } from "./shared/agent-types.js";
 import { registerPluginRoutes, runnerPluginChecker } from "./routes/plugin.js";
 import { registerResourceRoutes } from "./routes/resources.js";
 import {
@@ -284,10 +288,6 @@ const remoteRunner = configuredRunner({
 const runnerEngines = remoteRunner
   ? remoteEngineTransport(remoteRunner, app.log)
   : undefined;
-setRunnerModelCatalogSource(
-  runnerEngines ? runnerModelCatalogSource(runnerEngines) : null,
-  app.log
-);
 // Runner update holds: nothing is held until an update coordinator begins one.
 const runnerHolds = remoteRunner
   ? new RunnerUpdateHolds({
@@ -1174,6 +1174,37 @@ async function registerRoutes() {
       remoteRunner,
       scope
     );
+  const catalogRefresh = new ModelCatalogRefresh({
+    pool,
+    resolve(runnerId, engine) {
+      const runner = runnerDirectory({
+        remote: remoteRunner,
+        child: () => localRunnerOf(localRunnerProcess),
+      }).for(placementForRunner(runnerId));
+      return {
+        settings: runner.settings,
+        online: runner.connection.state === "ready",
+        enabled: catalogSpecs.includes(engine),
+        blocked: runnerHolds?.isHeld(runnerId),
+        calls: engineCalls(engineScopeForRunner(runnerId)),
+      };
+    },
+    changed: (_runnerId, agentType) =>
+      uiEventBroker.publish({ type: "agent_models.changed", agentType }),
+    failed: (details) =>
+      app.log.debug(details, "Model catalog refresh deferred"),
+  });
+  const stopCatalogReads = onStoredModelCatalogRead((runnerId, engine) =>
+    catalogRefresh.request(runnerId, engine)
+  );
+  app.addHook("onClose", async () => {
+    stopCatalogReads();
+    catalogRefresh.close();
+  });
+  const modelUpdateStore = (calls: ReturnType<typeof engineCalls>) =>
+    observeModelUpdates(engineOperationStore(pool, calls.settings), (engine) =>
+      catalogRefresh.invalidate(calls.settings.runnerId, engine)
+    );
   const stopUsageReports: Array<() => void> = [];
   const usageCoordinators = new Map<
     string,
@@ -1283,16 +1314,19 @@ async function registerRoutes() {
   // The local placement's engines: the runner child, else this same port in
   // process while the child is away (R3). One login tracker per process, so
   // main's sign-in routes and the engine-management routes never diverge.
-  const engineUpdates = new EngineUpdateOperations(engineOperationStore(pool), {
-    ...engineUpdatePort(
-      localEngineCalls(
-        () => localRunnerOf(localRunnerProcess),
-        localEnginesInProcess
-      )
-    ),
-    onError: (error) =>
-      app.log.error({ err: error }, "Engine update persistence failed"),
-  });
+  const engineUpdates = new EngineUpdateOperations(
+    modelUpdateStore(engineCalls(engineScopeForRunner("local"))),
+    {
+      ...engineUpdatePort(
+        localEngineCalls(
+          () => localRunnerOf(localRunnerProcess),
+          localEnginesInProcess
+        )
+      ),
+      onError: (error) =>
+        app.log.error({ err: error }, "Engine update persistence failed"),
+    }
+  );
   const updateCoordinators = new Map<string, EngineUpdateOperations>([
     ["local", engineUpdates],
   ]);
@@ -1301,7 +1335,7 @@ async function registerRoutes() {
     let coordinator = updateCoordinators.get(key);
     if (!coordinator) {
       coordinator = new EngineUpdateOperations(
-        engineOperationStore(pool, engineCalls(scope).settings),
+        modelUpdateStore(engineCalls(scope)),
         {
           ...engineUpdatePort(engineCalls(scope)),
           onError: (error) =>
@@ -1360,8 +1394,12 @@ async function registerRoutes() {
     },
   });
   const engineManager = new EngineManager({
+    onSignedIn: (scope, engine) =>
+      catalogRefresh.invalidate(engineCalls(scope).settings.runnerId, engine),
     engineActions: {
       calls: engineCalls,
+      models: (scope, engine) =>
+        readStoredModelCatalog(engineCalls(scope).settings.runnerId, engine),
       updates: updatesFor,
       usage: (scope) => usageForCalls(engineCalls(scope)),
     },
@@ -1641,7 +1679,10 @@ let routesRegistered = false;
 // schema. A failed initialization leaves them parked; startup itself fails.
 const localRunnerDatabaseReady = Promise.withResolvers<void>();
 
+let catalogSpecs: readonly AgentType[] = [];
 export async function initializeApp(options?: {
+  /** Explicit engine specs; embeddings and tests default to no background processes. */
+  catalogSpecs?: readonly AgentType[];
   runMigrations?: boolean;
   reconcileState?: boolean;
   /**
@@ -1651,6 +1692,7 @@ export async function initializeApp(options?: {
    */
   localRunner?: { command: string[] };
 }): Promise<typeof app> {
+  catalogSpecs = options?.catalogSpecs ?? [];
   // Read before the database is touched: invalid probation fails closed.
   await updateRecoveryRuntime.loadProbation();
   if (options?.localRunner && !localRunnerProcess)
@@ -1789,7 +1831,9 @@ export async function start() {
   // starts and works as before whether or not the child comes up.
   startLocalRunnerChild();
   await remoteRunner?.start();
-  await initializeApp();
+  await initializeApp({
+    catalogSpecs: config.agentRuntime === "acp" ? CLI_AGENT_TYPES : [],
+  });
 
   const protocol = config.tls ? "https" : "http";
   await app.listen({

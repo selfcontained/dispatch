@@ -12,6 +12,7 @@ import {
   catalogRunnerSettings,
   catalogUnion,
   agentModelCatalog,
+  readStoredAgentModelCatalog,
   agentModelDefaults,
   agentModelAvailability,
   modelChoicesForRunner,
@@ -91,6 +92,8 @@ async function registeredRunners(pool: Pool): Promise<string[]> {
 /** Settings alone reads the union; local launch catalogs keep their existing endpoint. */
 export async function settingsModelCatalog(pool: Pool) {
   const runnerIds = await registeredRunners(pool);
+  readStoredAgentModelCatalog();
+  for (const id of runnerIds) readStoredAgentModelCatalog(id);
   const availability = agentModelAvailability();
   if (runnerIds.length === 0)
     return {

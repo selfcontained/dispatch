@@ -98,6 +98,7 @@ function world() {
   }
   const manager = new EngineManager({
     engineActions: {
+      models: () => ({ defaultModel: null, models: [] }),
       usage: () => {
         throw new Error("Unexpected fixture usage request");
       },

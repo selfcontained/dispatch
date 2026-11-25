@@ -1,3 +1,8 @@
+import {
+  modelChoicesForRunner,
+  getReportedModelHistory,
+} from "../shared/agent-models.js";
+import type { AgentType } from "../shared/agent-types.js";
 import { identityKey } from "../runners/repository-identity.js";
 import type { AgentManager } from "../agents/manager.js";
 import {
@@ -449,7 +454,13 @@ export async function registerLaunchTargetRoutes(
       catalog = {
         models: { [engine]: result.models },
         defaults: result.defaultModel ? { [engine]: result.defaultModel } : {},
-        availability: {},
+        availability: {
+          [engine]: {
+            ...modelChoicesForRunner(target.id, engine as AgentType),
+            unseen: getReportedModelHistory(target.id, engine as AgentType)
+              .unseen,
+          },
+        },
       };
     }
     const located = resolveSavedTarget(directory, {

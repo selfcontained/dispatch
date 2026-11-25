@@ -1340,3 +1340,30 @@ export async function runnerEngineStatuses(engines: EngineCalls) {
     })
   );
 }
+
+/** Observe transitions only after the operation store has durably committed. */
+export function observeModelUpdates(
+  store: EngineOperationStore,
+  succeeded: (engine: AcpEngineId) => void
+): EngineOperationStore {
+  return {
+    async exclusive(work) {
+      const completed: AcpEngineId[] = [];
+      const result = await store.exclusive(async (records) => {
+        const before = new Set(
+          Object.entries(records)
+            .filter(([, row]) => row?.status === "succeeded")
+            .map(([engine, row]) => `${engine}:${row!.id}`)
+        );
+        const value = await work(records);
+        for (const [engine, row] of Object.entries(records)) {
+          if (row?.status === "succeeded" && !before.has(`${engine}:${row.id}`))
+            completed.push(engine as AcpEngineId);
+        }
+        return value;
+      });
+      for (const engine of completed) succeeded(engine);
+      return result;
+    },
+  };
+}
