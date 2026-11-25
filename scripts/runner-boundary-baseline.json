@@ -546,20 +546,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/local-runner-engine.ts",
-    "kind": "R3 local method",
-    "detail": "readModelCatalog",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner-engine.ts",
-    "kind": "R3 local method",
-    "detail": "readModelOptions",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/local-runner.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/workspace",
@@ -1703,13 +1689,6 @@
   {
     "file": "apps/server/src/routes/mcp.ts",
     "kind": "R2 host import",
-    "detail": "apps/server/src/agents/local-runner-engine",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/mcp.ts",
-    "kind": "R2 host import",
     "detail": "apps/server/src/agents/provider-plans",
     "task": "T04",
     "count": 1
@@ -1767,13 +1746,6 @@
     "file": "apps/server/src/routes/system.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/engine-updates",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/system.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/local-runner-engine",
     "task": "T04",
     "count": 1
   },

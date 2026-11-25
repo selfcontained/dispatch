@@ -58,7 +58,6 @@ describe("main engine update HTTP parity", () => {
       appLog: app.log,
       engineBins: bins,
       engineUpdates: { read, start },
-      localEngines: { readModelCatalog: () => ({ models: [], defaults: {} }) },
       canManageEngineUpdates: async () => true,
     } as unknown as Parameters<typeof registerSystemRoutes>[1]);
     return { app, operation, read, start, bins };

@@ -1223,7 +1223,6 @@ async function registerRoutes() {
     usageWatches.dispose();
   });
   await registerMcpRoutes(app, {
-    localEngines,
     runnerEngines,
     usageForAgent,
     usageWatches,
@@ -1319,7 +1318,6 @@ async function registerRoutes() {
       () => localRunnerOf(localRunnerProcess),
       localEnginesInProcess
     ),
-    localEngines,
     engineUpdates,
     runnerBranches: remoteRunner?.listRepositoryBranches.bind(remoteRunner),
     publishModelsChanged: (agentType) =>

@@ -7,7 +7,6 @@ import type {
 } from "@dispatch/runner-protocol/engine-management";
 
 import {
-  agentModelCatalog,
   agentModelDefaults,
   getAgentModelOptions,
 } from "../shared/agent-models.js";
@@ -136,13 +135,6 @@ export function createLocalEngineRunner(
 
   return {
     handle,
-    readModelCatalog: () => ({
-      models: agentModelCatalog(),
-      defaults: agentModelDefaults(),
-    }),
-    readModelOptions: async (
-      engine: Parameters<typeof getAgentModelOptions>[0]
-    ) => getAgentModelOptions(engine),
   };
 }
 
