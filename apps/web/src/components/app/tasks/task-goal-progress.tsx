@@ -24,9 +24,8 @@ const GLOW = {
 /**
  * Equal-segment progress over a task's current goals, with the count as
  * text so it never depends on colour. Renders nothing without goals.
- * Completed segments borrow the turn-activity defrag cells' look: the
- * newest lit at full strength, earlier ones at 75%, a glow, and a brief
- * pulse when one completes while watched.
+ * Completed segments borrow the turn-activity defrag cells' look: one
+ * even tint with a glow, and a brief pulse when one completes while watched.
  */
 export function TaskGoalProgress({
   counts,
@@ -77,7 +76,7 @@ export function TaskGoalProgress({
                 newest && arrivals > 0 && "dispatch-defrag-ack"
               )}
               style={{
-                background: done ? tint(newest ? 100 : 75) : tint(12),
+                background: done ? tint(85) : tint(12),
               }}
             />
           );
