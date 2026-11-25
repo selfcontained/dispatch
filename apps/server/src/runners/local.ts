@@ -227,6 +227,8 @@ export const localReadDeadline = {
       operations[op] as Parameters<typeof localDeadlineMs>[0],
       input
     ),
+  /** How long a live child has to answer `runner.describe` at a deadline. */
+  probeMs: 1_000,
 };
 
 /**
@@ -295,11 +297,15 @@ export function createLocalCheckoutRunner(
     return fromChild(() => run(runner), missed, signal);
   }
   /**
-   * One read at the child under the transport's deadline, kept here: when
-   * it passes, the read is missed and the port here answers, as main's read
-   * just keeps going. The attempt carries no transport deadline of its own.
+   * One read at the child under the transport's deadline, kept here. At each
+   * deadline the child is asked whether it is still answering
+   * (`runner.describe`, briefly): if it is, the read is slow, not lost, and
+   * is waited for as main's read keeps going (never a second reader); if it
+   * is not, the read is missed and the port here answers once. A connection
+   * lost mid-read is missed at once. The attempt carries no transport
+   * deadline of its own.
    */
-  function readAttempt<T>(
+  async function readAttempt<T>(
     op: CallName,
     input: unknown,
     // The local session's own options (one attempt, no transport deadline),
@@ -307,25 +313,55 @@ export function createLocalCheckoutRunner(
     run: (child: Runner, options: never) => Promise<T>,
     options?: { signal?: AbortSignal }
   ): Promise<{ value: T } | null> {
+    const runner = child;
+    if (!runner) return null;
     const ms = localReadDeadline.ms(op, input);
-    const deadline = ms === null ? undefined : AbortSignal.timeout(ms);
-    const signal =
-      deadline && options?.signal
-        ? AbortSignal.any([options.signal, deadline])
-        : (deadline ?? options?.signal);
+    // Aborted only when the child stopped answering: the read is given up.
+    const lost = new AbortController();
+    const signal = options?.signal
+      ? AbortSignal.any([options.signal, lost.signal])
+      : lost.signal;
     const read = {
       ...options,
       signal,
       timeoutMs: null,
       wait: false as const,
     };
-    return attempt(
-      (child) => run(child, read as never),
-      (error) =>
-        readMissed(error) ||
-        (deadline?.aborted === true && !options?.signal?.aborted),
-      options?.signal
-    );
+    const missed = (error: unknown) =>
+      readMissed(error) || (lost.signal.aborted && !options?.signal?.aborted);
+    const answer = fromChild(() => run(runner, read as never), missed);
+    if (ms !== null) {
+      for (;;) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const passed = await Promise.race([
+          answer.then(() => false),
+          new Promise<true>((resolve) => {
+            timer = setTimeout(() => resolve(true), ms);
+          }),
+        ]).finally(() => clearTimeout(timer));
+        if (!passed || options?.signal?.aborted) break;
+        if (await answering(runner, options?.signal)) continue;
+        lost.abort();
+        break;
+      }
+    }
+    const value = await answer;
+    if (!value) options?.signal?.throwIfAborted();
+    return value;
+  }
+
+  /** Whether the child still answers: the cheapest call, briefly. */
+  async function answering(runner: Runner, signal?: AbortSignal) {
+    try {
+      await runner.call("runner.describe", {}, {
+        signal,
+        timeoutMs: localReadDeadline.probeMs,
+        wait: false,
+      } as never);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
