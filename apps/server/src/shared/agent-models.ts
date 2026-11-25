@@ -397,7 +397,10 @@ export async function modelScopeFor(
   const ready = catalogValidation
     ? await catalogValidation(runnerId, agentType, request)
     : getLearnedAgentModels(agentType, runnerId) !== undefined;
-  if (!ready) return { kind: "engine" };
+  // A failed first discovery still has the same seed authority as main.
+  // Retain stored effort metadata even when its foreground refresh times out.
+  if (!ready && getAgentModelOptions(agentType, runnerId).length === 0)
+    return { kind: "engine" };
   return { kind: "runner", ...readStoredModelCatalog(runnerId, agentType) };
 }
 
