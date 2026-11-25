@@ -52,7 +52,7 @@ import {
   type SessionIdentity,
   type SessionProcesses,
 } from "../src/agents/remote/session-processes.js";
-import { readSessionFile } from "../src/files/session-file.js";
+import { readSessionFile } from "../src/files/session-file-io.js";
 import { enterDirectory } from "../src/agents/remote/workload-tools.js";
 import { sessionFileCommand } from "../src/agents/remote/session-files.js";
 import {
