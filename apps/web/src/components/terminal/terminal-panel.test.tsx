@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { StrictMode } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import TerminalPanel from "./terminal-panel";
 
@@ -83,6 +84,25 @@ afterEach(() => {
 });
 
 describe("terminal panel", () => {
+  it("starts only one terminal request when StrictMode replays the mount", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => info });
+    vi.stubGlobal("fetch", fetch);
+    render(
+      <StrictMode>
+        <TerminalPanel agentId="agent" active />
+      </StrictMode>
+    );
+
+    await waitFor(() => expect(Socket.instances).toHaveLength(1));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/v1/human-terminals",
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
   it("sets a password inline and opens the terminal without a reload", async () => {
     const client = new QueryClient();
     const invalidate = vi.spyOn(client, "invalidateQueries");
@@ -625,6 +645,7 @@ describe("terminal panel", () => {
     const { rerender } = render(
       <TerminalPanel key="first" agentId="first" active />
     );
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
     rerender(<TerminalPanel key="second" agentId="second" active />);
     await waitFor(() => expect(Socket.instances).toHaveLength(1));
     await act(async () => {

@@ -394,7 +394,11 @@ export default function TerminalPanel({
         }
       }
     }
-    void connect();
+    // StrictMode can discard this setup before the first request should run.
+    // A discarded request could still replace the development ownership cookie.
+    queueMicrotask(() => {
+      if (!cancelled) void connect();
+    });
     return disconnect;
   }, [agentId, generation, stream]);
 
