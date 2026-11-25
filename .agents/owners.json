@@ -308,7 +308,7 @@
         "apps/server/test/repo-tool-environment.test.ts",
         "apps/server/test/tasks-service.test.ts",
         "packages/shared/src/mcp-inventory-types.ts",
-        "apps/server/src/agents/acp/host/mcp-inventory.ts"
+        "packages/runner/src/host/mcp-inventory.ts"
       ],
       "personas": ["mcp-contract-owner"]
     },

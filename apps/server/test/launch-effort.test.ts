@@ -1,6 +1,6 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import { describe, expect, it, vi } from "vitest";
-import { applyLaunchEffort } from "../src/agents/acp/host/launch-effort.js";
+import { applyLaunchEffort } from "@dispatch/runner/host/launch-effort";
 
 function driver(options: SessionConfigOption[] = []) {
   return {

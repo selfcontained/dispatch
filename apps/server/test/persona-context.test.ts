@@ -6,8 +6,8 @@ import {
   extractPersonaContext,
   PERSONA_CONTEXT_ARG,
 } from "../src/agents/acp/persona-context.js";
-import { preparePromptContext } from "../src/agents/acp/host-env.js";
-import { firstPromptContext } from "../src/agents/acp/host/first-prompt.js";
+import { preparePromptContext } from "@dispatch/runner/host/host-env";
+import { firstPromptContext } from "@dispatch/runner/host/first-prompt";
 import { MAX_PERSONA_PROMPT_BYTES } from "../src/personas/loader.js";
 
 const roots: string[] = [];

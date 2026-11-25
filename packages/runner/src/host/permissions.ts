@@ -3,7 +3,7 @@ import type {
   RequestPermissionRequest,
   RequestPermissionResponse,
 } from "@agentclientprotocol/sdk";
-import type { PermissionRequest as AgentPermissionRequest } from "./host/types.js";
+import type { PermissionRequest as AgentPermissionRequest } from "./types.js";
 
 /** Kept in the host, so reconnecting the server neither loses nor grants consent. */
 export class PermissionRequests {

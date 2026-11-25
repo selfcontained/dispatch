@@ -5,7 +5,7 @@ import { defaultSearchDirs } from "../shared/lib/tool-environment.js";
 export { defaultSearchDirs } from "../shared/lib/tool-environment.js";
 
 import { runCommand } from "../shared/lib/run-command.js";
-import { withEngineBinDir } from "./acp/engine-bin-dir.js";
+import { withEngineBinDir } from "@dispatch/runner/host/engine-bin-dir";
 import {
   ACP_ENGINE_IDS,
   type AcpEngineId,

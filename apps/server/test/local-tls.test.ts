@@ -17,7 +17,7 @@ import {
   watchLocalTls,
 } from "../src/local-tls.js";
 import { registerLocalTrustRoutes } from "../src/routes/local-trust.js";
-import { localAgentCaBundle } from "../src/agents/acp/host-env.js";
+import { localAgentCaBundle } from "@dispatch/runner/host/host-env";
 
 const roots: string[] = [];
 function directory() {

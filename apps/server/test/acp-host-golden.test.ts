@@ -28,11 +28,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   hostCommand,
   loginShellCommand,
-} from "../src/agents/acp/host-command.js";
+} from "@dispatch/runner/host/host-command";
 import { HOST_FILES } from "@dispatch/runner-client/host-framing";
 import type { PromptSource } from "../src/agents/acp/prompt-source.js";
 import { createAcpRuntime } from "../src/agents/acp/runtime.js";
-import type { DriverEvent } from "../src/agents/acp/driver.js";
+import type { DriverEvent } from "@dispatch/runner/host/driver";
 import type { RuntimeLaunch } from "../src/agents/runtime.js";
 import {
   localRunnerFor,

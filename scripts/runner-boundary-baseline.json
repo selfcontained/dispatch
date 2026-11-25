@@ -1,23 +1,32 @@
 [
   {
-    "file": "apps/server/src/agents/acp/host-command.ts",
-    "kind": "R5 protocol leak",
-    "detail": "DISPATCH_",
-    "task": "T24",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/acp/host-env.ts",
-    "kind": "R5 Dispatch to client transport",
-    "detail": "@dispatch/runner-client/host-framing",
+    "file": "apps/server/src/agents/acp/host-search-path.ts",
+    "kind": "R5 Dispatch to runner",
+    "detail": "@dispatch/runner/host/engine-bin-dir",
     "task": "T40",
     "count": 1,
     "class": "moves-with-workload"
   },
   {
-    "file": "apps/server/src/agents/acp/host/main.ts",
-    "kind": "R5 Dispatch to client transport",
-    "detail": "@dispatch/runner-client/host-framing",
+    "file": "apps/server/src/agents/acp/local-host-entry.ts",
+    "kind": "R5 Dispatch to runner",
+    "detail": "@dispatch/runner/host/engine-spec",
+    "task": "T40",
+    "count": 1,
+    "class": "moves-with-workload"
+  },
+  {
+    "file": "apps/server/src/agents/acp/local-host-entry.ts",
+    "kind": "R5 Dispatch to runner",
+    "detail": "@dispatch/runner/host/host-command",
+    "task": "T40",
+    "count": 1,
+    "class": "moves-with-workload"
+  },
+  {
+    "file": "apps/server/src/agents/acp/local-host-entry.ts",
+    "kind": "R5 Dispatch to runner",
+    "detail": "@dispatch/runner/host/host-env",
     "task": "T40",
     "count": 1,
     "class": "moves-with-workload"
@@ -109,10 +118,11 @@
   },
   {
     "file": "apps/server/src/agents/checkout-command-executor.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/acp/host-command",
-    "task": "T04",
-    "count": 1
+    "kind": "R5 Dispatch to runner",
+    "detail": "@dispatch/runner/host/host-command",
+    "task": "T40",
+    "count": 1,
+    "class": "moves-with-workload"
   },
   {
     "file": "apps/server/src/agents/checkout-inspection.ts",
@@ -283,6 +293,14 @@
     "count": 1
   },
   {
+    "file": "apps/server/src/agents/checkout-worker.ts",
+    "kind": "R5 Dispatch to runner",
+    "detail": "@dispatch/runner/host/host-command",
+    "task": "T40",
+    "count": 1,
+    "class": "moves-with-workload"
+  },
+  {
     "file": "apps/server/src/agents/codex-reset.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/provider-plans",
@@ -353,6 +371,14 @@
     "count": 1
   },
   {
+    "file": "apps/server/src/agents/engine-availability.ts",
+    "kind": "R5 Dispatch to runner",
+    "detail": "@dispatch/runner/host/engine-bin-dir",
+    "task": "T40",
+    "count": 1,
+    "class": "moves-with-workload"
+  },
+  {
     "file": "apps/server/src/agents/engine-login.ts",
     "kind": "R2 host access",
     "detail": "child_process",
@@ -383,16 +409,17 @@
   {
     "file": "apps/server/src/agents/engine-login.ts",
     "kind": "R2 host import",
-    "detail": "apps/server/src/agents/acp/host-command",
+    "detail": "apps/server/src/shared/process/child-environment",
     "task": "T04",
     "count": 1
   },
   {
     "file": "apps/server/src/agents/engine-login.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/process/child-environment",
-    "task": "T04",
-    "count": 1
+    "kind": "R5 Dispatch to runner",
+    "detail": "@dispatch/runner/host/host-command",
+    "task": "T40",
+    "count": 1,
+    "class": "moves-with-workload"
   },
   {
     "file": "apps/server/src/agents/engine-updates.ts",
@@ -634,16 +661,25 @@
   },
   {
     "file": "apps/server/src/agents/remote/engine-capability-worker.ts",
-    "kind": "R5 protocol leak",
-    "detail": "dispatch@dispatch",
-    "task": "T31",
-    "count": 1
+    "kind": "R5 Dispatch to runner",
+    "detail": "@dispatch/runner/host/engine-bin-dir",
+    "task": "T40",
+    "count": 1,
+    "class": "moves-with-workload"
   },
   {
     "file": "apps/server/src/agents/remote/engine-capability-worker.ts",
-    "kind": "R5 runner to Dispatch",
-    "detail": "apps/server/src/agents/acp/engine-bin-dir",
-    "task": "T04",
+    "kind": "R5 Dispatch to runner",
+    "detail": "@dispatch/runner/host/engine-spec",
+    "task": "T40",
+    "count": 1,
+    "class": "moves-with-workload"
+  },
+  {
+    "file": "apps/server/src/agents/remote/engine-capability-worker.ts",
+    "kind": "R5 protocol leak",
+    "detail": "dispatch@dispatch",
+    "task": "T31",
     "count": 1
   },
   {
@@ -737,6 +773,14 @@
     "detail": "apps/server/src/shared/process/child-environment",
     "task": "T04",
     "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/runner.ts",
+    "kind": "R5 Dispatch to runner",
+    "detail": "@dispatch/runner/host/host-command",
+    "task": "T40",
+    "count": 1,
+    "class": "moves-with-workload"
   },
   {
     "file": "apps/server/src/agents/remote/runner.ts",
@@ -847,6 +891,14 @@
     "file": "apps/server/src/agents/remote/session-supervisor.ts",
     "kind": "R5 Dispatch to client transport",
     "detail": "@dispatch/runner-client/host-framing",
+    "task": "T40",
+    "count": 1,
+    "class": "moves-with-workload"
+  },
+  {
+    "file": "apps/server/src/agents/remote/session-supervisor.ts",
+    "kind": "R5 Dispatch to runner",
+    "detail": "@dispatch/runner/host/host-env",
     "task": "T40",
     "count": 1,
     "class": "moves-with-workload"
@@ -1018,6 +1070,14 @@
     "detail": "apps/server/src/agents/remote/update-manifest",
     "task": "T04",
     "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/workload-tools.ts",
+    "kind": "R5 Dispatch to runner",
+    "detail": "@dispatch/runner/host/host-command",
+    "task": "T40",
+    "count": 1,
+    "class": "moves-with-workload"
   },
   {
     "file": "apps/server/src/agents/remote/workload-tools.ts",
@@ -1240,13 +1300,6 @@
     "file": "apps/server/src/jobs/service.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/shared/lib/run-command",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/main.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/acp/host/main",
     "task": "T04",
     "count": 1
   },
@@ -1566,6 +1619,14 @@
     "detail": "checkout reads in process without a current child binding",
     "task": "T18",
     "count": 1
+  },
+  {
+    "file": "apps/server/src/runners/local.ts",
+    "kind": "R5 Dispatch to runner",
+    "detail": "@dispatch/runner/host/host-command",
+    "task": "T40",
+    "count": 1,
+    "class": "moves-with-workload"
   },
   {
     "file": "apps/server/src/server.ts",
@@ -1911,6 +1972,14 @@
     "count": 1
   },
   {
+    "file": "apps/server/src/shared/plugin-status.ts",
+    "kind": "R5 Dispatch to runner",
+    "detail": "@dispatch/runner/host/engine-bin-dir",
+    "task": "T40",
+    "count": 1,
+    "class": "moves-with-workload"
+  },
+  {
     "file": "apps/server/src/shared/process/owned-processes.js",
     "kind": "R2 host access",
     "detail": "child_process",
@@ -2046,16 +2115,17 @@
   {
     "file": "apps/server/src/terminal/pty.ts",
     "kind": "R2 host import",
-    "detail": "apps/server/src/agents/acp/host-command",
+    "detail": "apps/server/src/terminal/process-session",
     "task": "T04",
     "count": 1
   },
   {
     "file": "apps/server/src/terminal/pty.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/terminal/process-session",
-    "task": "T04",
-    "count": 1
+    "kind": "R5 Dispatch to runner",
+    "detail": "@dispatch/runner/host/host-command",
+    "task": "T40",
+    "count": 1,
+    "class": "moves-with-workload"
   },
   {
     "file": "apps/web/src/components/app/chat/chat-delivery-meta.tsx",

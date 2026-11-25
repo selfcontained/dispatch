@@ -22,7 +22,7 @@ import {
   type SessionCoreFactory,
 } from "./session-supervisor.js";
 export { runnerStorageKey } from "./session-supervisor.js";
-import { hostCommand, selfCommand } from "../acp/host-command.js";
+import { hostCommand, selfCommand } from "@dispatch/runner/host/host-command";
 import {
   RunnerCallError,
   displayPath,

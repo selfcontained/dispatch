@@ -2,7 +2,7 @@ import {
   ownedEnvironment,
   killOwnedProcesses,
 } from "../src/shared/process/owned-processes.js";
-import { firstPromptContext } from "../src/agents/acp/host/first-prompt.js";
+import { firstPromptContext } from "@dispatch/runner/host/first-prompt";
 import { chmod, mkdir, mkdtemp, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -12,16 +12,16 @@ import { describe, expect, it, vi } from "vitest";
 import {
   engineSpecFor,
   type EngineBins,
-} from "../src/agents/acp/engine-spec.js";
+} from "@dispatch/runner/host/engine-spec";
 import {
   AcpDriver,
   type DriverEvent,
   type DriverLaunch,
   resolveExecutable,
   unstableSessionCapabilities,
-} from "../src/agents/acp/driver.js";
+} from "@dispatch/runner/host/driver";
 import { isPackageBinDir } from "../src/agents/acp/package-bin-dir.js";
-import { selfCommand } from "../src/agents/acp/host-command.js";
+import { selfCommand } from "@dispatch/runner/host/host-command";
 import { createFakeAcpAgent } from "./helpers/fake-acp-agent.js";
 
 const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };

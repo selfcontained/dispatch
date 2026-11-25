@@ -1,4 +1,4 @@
-import { loginShellCommand } from "../acp/host-command.js";
+import { loginShellCommand } from "@dispatch/runner/host/host-command";
 import { withToolSearchPath } from "../../shared/lib/tool-environment.js";
 
 export type WorkloadTool = "gh" | "git";

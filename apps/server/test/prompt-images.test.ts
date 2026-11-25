@@ -5,7 +5,7 @@ import { expect, it, vi } from "vitest";
 import {
   PROMPT_IMAGE_MIME_TYPES,
   readPromptImages,
-} from "../src/agents/acp/host/prompt-images.js";
+} from "@dispatch/runner/host/prompt-images";
 import { isPromptImageMimeType } from "../src/agents/acp/prompt-source.js";
 
 it("accepts the same image kinds in the host as Dispatch attaches", () => {

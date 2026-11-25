@@ -234,7 +234,7 @@ describe("the host's import closure", () => {
         visit(resolved);
       }
     };
-    visit(path.join(serverSrc, "agents/acp/host/main.ts"));
+    visit(path.join(serverSrc, "../../../packages/runner/src/host/main.ts"));
     const files = [...seen]
       .map((file) => path.relative(serverSrc, file))
       .sort();
@@ -247,20 +247,20 @@ describe("the host's import closure", () => {
       "zod",
     ]);
     expect(files).toEqual([
-      "agents/acp/background-ingress.ts",
-      "agents/acp/background-work.ts",
-      "agents/acp/driver.ts",
-      "agents/acp/engine-spec.ts",
-      "agents/acp/host-command.ts",
-      "agents/acp/host-env.ts",
-      "agents/acp/host/first-prompt.ts",
-      "agents/acp/host/launch-effort.ts",
-      "agents/acp/host/main.ts",
-      "agents/acp/host/mcp-inventory.ts",
-      "agents/acp/host/prompt-images.ts",
-      "agents/acp/host/types.ts",
-      "agents/acp/opencode-instructions.ts",
-      "agents/acp/permissions.ts",
+      "../../../packages/runner/src/host/background-ingress.ts",
+      "../../../packages/runner/src/host/background-work.ts",
+      "../../../packages/runner/src/host/driver.ts",
+      "../../../packages/runner/src/host/engine-spec.ts",
+      "../../../packages/runner/src/host/first-prompt.ts",
+      "../../../packages/runner/src/host/host-command.ts",
+      "../../../packages/runner/src/host/host-env.ts",
+      "../../../packages/runner/src/host/launch-effort.ts",
+      "../../../packages/runner/src/host/main.ts",
+      "../../../packages/runner/src/host/mcp-inventory.ts",
+      "../../../packages/runner/src/host/opencode-instructions.ts",
+      "../../../packages/runner/src/host/permissions.ts",
+      "../../../packages/runner/src/host/prompt-images.ts",
+      "../../../packages/runner/src/host/types.ts",
     ]);
   });
 });

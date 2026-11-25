@@ -30,10 +30,10 @@ import {
   type CallerSource,
   resolveExecutable,
   TEARDOWN_STEP_MS,
-} from "../driver.js";
-import { openCodeInstructionsEnv } from "../opencode-instructions.js";
-import { buildHostEnv } from "../host-env.js";
-import { engineSpecFor } from "../engine-spec.js";
+} from "./driver.js";
+import { openCodeInstructionsEnv } from "./opencode-instructions.js";
+import { buildHostEnv } from "./host-env.js";
+import { engineSpecFor } from "./engine-spec.js";
 import {
   type ClientMessage,
   encodeMessage,

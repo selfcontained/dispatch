@@ -18,8 +18,8 @@ import { childProcessEnv } from "../../src/shared/process/child-environment.js";
 import {
   hostCommand,
   loginShellCommand,
-} from "../../src/agents/acp/host-command.js";
-import { preparePromptContext } from "../../src/agents/acp/host-env.js";
+} from "@dispatch/runner/host/host-command";
+import { preparePromptContext } from "@dispatch/runner/host/host-env";
 import {
   hostFile,
   type HostLaunch,

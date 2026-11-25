@@ -13,7 +13,7 @@ import { spawn, execFileSync } from "node:child_process";
 import { Transform } from "node:stream";
 const from = (p) =>
   import(
-    pathToFileURL(join(process.cwd(), "apps/server/src/agents/acp", p)).href
+    pathToFileURL(join(process.cwd(), "packages/runner/src/host", p)).href
   );
 const { AcpDriver } = await from("driver.ts");
 const { openCodeInstructionsEnv } = await from("opencode-instructions.ts");

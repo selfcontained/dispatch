@@ -1,5 +1,5 @@
 import { withToolSearchPath } from "../../shared/lib/tool-environment.js";
-import { withEngineBinDir } from "./engine-bin-dir.js";
+import { withEngineBinDir } from "@dispatch/runner/host/engine-bin-dir";
 import { isPackageBinDir } from "./package-bin-dir.js";
 
 /**

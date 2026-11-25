@@ -6,7 +6,7 @@ import {
   backgroundIngress,
   backgroundCapability,
   type BackgroundNotification,
-} from "../src/agents/acp/background-ingress.js";
+} from "@dispatch/runner/host/background-ingress";
 
 // Inert wire peers: no process, provider request, filesystem or model call.
 function peer() {

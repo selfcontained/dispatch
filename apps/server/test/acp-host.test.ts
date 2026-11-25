@@ -38,9 +38,9 @@ import {
   type HostMessage,
 } from "@dispatch/runner-client/host-framing";
 import { embeddedBuild } from "../src/agents/build-identity.js";
-import type { DriverEvent } from "../src/agents/acp/driver.js";
+import type { DriverEvent } from "@dispatch/runner/host/driver";
 import { createAcpRuntime } from "../src/agents/acp/runtime.js";
-import { preparePromptContext } from "../src/agents/acp/host-env.js";
+import { preparePromptContext } from "@dispatch/runner/host/host-env";
 import { HostClient } from "@dispatch/runner-client/host-client";
 import { mainLocalHosts } from "./helpers/main-local-hosts.js";
 import { RunnerUnavailable } from "../src/agents/remote/service.js";

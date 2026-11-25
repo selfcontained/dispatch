@@ -1,4 +1,4 @@
-import { loginShellCommand } from "../agents/acp/host-command.js";
+import { loginShellCommand } from "@dispatch/runner/host/host-command";
 import { withToolSearchPath } from "../shared/lib/tool-environment.js";
 import { userInfo } from "node:os";
 import { captureTerminalSession } from "./process-session.js";

@@ -1,4 +1,4 @@
-import type { BackgroundItem, BackgroundSnapshot } from "./host/types.js";
+import type { BackgroundItem, BackgroundSnapshot } from "./types.js";
 import type { BackgroundUpdate } from "./background-ingress.js";
 
 /** Small connection-local registry. No database, journal, output or history. */

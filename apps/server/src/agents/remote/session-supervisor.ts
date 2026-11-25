@@ -25,7 +25,7 @@ import {
   agentLaunchBindings,
   prepareHostLaunch,
   writeHostLaunch,
-} from "../acp/host-env.js";
+} from "@dispatch/runner/host/host-env";
 import {
   HOST_FILES,
   hostFile,

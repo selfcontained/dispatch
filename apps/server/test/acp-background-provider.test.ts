@@ -1,6 +1,6 @@
 import { AsyncTaskRuntime } from "@agentclientprotocol/claude-agent-acp/dispatch-test/async-tasks";
 import { expect, it } from "vitest";
-import { backgroundNotificationSchema } from "../src/agents/acp/background-ingress.js";
+import { backgroundNotificationSchema } from "@dispatch/runner/host/background-ingress";
 
 it("accepts actual pinned Claude autonomous turn reports without a provider call", async () => {
   const reports: unknown[] = [];

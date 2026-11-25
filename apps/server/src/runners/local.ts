@@ -43,7 +43,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { Duplex } from "node:stream";
 import { childProcessEnv } from "../shared/process/child-environment.js";
-import { hostCommand } from "../agents/acp/host-command.js";
+import { hostCommand } from "@dispatch/runner/host/host-command";
 import { LOCAL_RUNNER_ID } from "./placement.js";
 import {
   checkoutWorkload,

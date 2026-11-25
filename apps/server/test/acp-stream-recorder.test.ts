@@ -9,7 +9,7 @@ import {
 } from "vitest";
 import type { Pool } from "pg";
 
-import type { DriverEvent } from "../src/agents/acp/driver.js";
+import type { DriverEvent } from "@dispatch/runner/host/driver";
 import {
   boundOutput,
   inferToolKind,

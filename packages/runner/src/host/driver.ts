@@ -7,7 +7,7 @@ import {
 } from "./background-ingress.js";
 import { BackgroundWorkRegistry } from "./background-work.js";
 import { setTimeout as delay } from "node:timers/promises";
-import { parseMcpInventory } from "./host/mcp-inventory.js";
+import { parseMcpInventory } from "./mcp-inventory.js";
 import { PermissionRequests } from "./permissions.js";
 import {
   AUTHENTICATION_REQUIRED,
@@ -17,14 +17,14 @@ import {
   type PermissionRequest as AgentPermissionRequest,
   type PromptImage,
   type CallerSource,
-} from "./host/types.js";
+} from "./types.js";
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import { access, constants as fsConstants } from "node:fs/promises";
 import path from "node:path";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import type { EngineSpec } from "./engine-spec.js";
-import { readPromptImages } from "./host/prompt-images.js";
+import { readPromptImages } from "./prompt-images.js";
 
 export type {
   BackgroundSnapshot,
@@ -33,7 +33,7 @@ export type {
   PermissionRequest,
   PromptImage,
   CallerSource,
-} from "./host/types.js";
+} from "./types.js";
 
 /**
  * Advertise the UNSTABLE session notices and compaction updates. Without

@@ -10,7 +10,7 @@ import {
   hostFile,
   type HostLaunch,
 } from "@dispatch/runner-client/host-framing";
-import type { HostSearchPath } from "./host/types.js";
+import type { HostSearchPath } from "./types.js";
 
 /** Bind the common variables for an agent started by a configured runner. */
 export function agentLaunchBindings(

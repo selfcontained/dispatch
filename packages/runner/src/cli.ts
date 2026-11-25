@@ -28,3 +28,5 @@ export async function runCli(
 export { createRemoteWorkspacePreparation } from "./platform/linux-privsep/index.js";
 export { createSessionCore } from "./core/sessions.js";
 export { localSessionHandlers } from "./local/sessions.js";
+
+export { runAgentHost, type AgentHostOptions } from "./host/main.js";

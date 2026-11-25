@@ -11,7 +11,7 @@ import type {
   EngineLoginEngine,
 } from "@dispatch/shared";
 
-import { loginShellCommand } from "./acp/host-command.js";
+import { loginShellCommand } from "@dispatch/runner/host/host-command";
 
 /**
  * Signing an engine CLI in from the browser. The CLI's own login runs here,

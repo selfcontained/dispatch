@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { engineSpecFor } from "../src/agents/acp/engine-spec.js";
+import { engineSpecFor } from "@dispatch/runner/host/engine-spec";
 
 describe("engineSpecFor", () => {
   it("runs native OpenCode ACP and routes approvals through Dispatch", () => {

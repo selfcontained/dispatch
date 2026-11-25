@@ -157,7 +157,7 @@ if (process.argv[2]?.startsWith("recovery-")) {
   });
 } else if (process.argv[2] === "agent-host") {
   // The host is generic; Dispatch names the build it runs and its search path.
-  const { runAgentHost } = await import("./agents/acp/host/main.js");
+  const { runAgentHost } = await import("@dispatch/runner/cli");
   const { embeddedBuild } = await import("./agents/build-identity.js");
   const { hostSearchPath } = await import("./agents/acp/host-search-path.js");
   const { ownedEnvironment, killOwnedProcesses } =

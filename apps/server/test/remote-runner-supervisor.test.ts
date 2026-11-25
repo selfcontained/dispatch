@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import Fastify from "fastify";
 import { createSessionCore } from "@dispatch/runner/cli";
-import { buildHostEnv } from "../src/agents/acp/host-env.js";
+import { buildHostEnv } from "@dispatch/runner/host/host-env";
 import { hostSearchPath } from "../src/agents/acp/host-search-path.js";
 import {
   HOST_FILES,
