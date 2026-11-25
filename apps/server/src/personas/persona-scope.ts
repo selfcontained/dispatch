@@ -1,5 +1,8 @@
+import path from "node:path";
 import {
   RunnerCallError,
+  pathFromWire,
+  displayPath,
   sameRunner,
   type Placement,
   type Res,
@@ -155,4 +158,18 @@ export function savedPersonaScope(
       projectRoot,
       repository,
     });
+}
+
+/** Main's independent checkout probe, used before a persona session exists. */
+export async function personaCheckoutRoot(
+  cwd: string,
+  runners: CheckoutCommandRunners
+): Promise<string | null> {
+  const reply = await runnerDirectory(runners)
+    .for(controllerPlacement)
+    .call("git.roots", {
+      target: { path: pathFromWire(path.resolve(cwd)) },
+      checkoutOnly: true,
+    });
+  return reply.checkoutRoot ? displayPath(reply.checkoutRoot) : null;
 }

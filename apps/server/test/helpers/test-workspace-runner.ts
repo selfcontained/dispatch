@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import {
   RunnerCallError,
+  displayPath,
   type CallName,
   type CallOptions,
   type Req,
@@ -11,6 +12,7 @@ import {
 import { workspaceHandlers } from "../../../../packages/runner/src/core/workspace.js";
 import { BindingStore } from "../../../../packages/runner/src/local/bindings.js";
 import type { AgentManager } from "../../src/agents/manager.js";
+import { checkoutWorkload } from "./checkout-workload.js";
 import { workspaceWorkload } from "../../src/agents/checkout-worker.js";
 import { localLaunchSettings } from "../../src/agents/acp/launch-env.js";
 import { localRunnerIn } from "./local-runner-child.js";
@@ -62,6 +64,23 @@ export function withTestWorkspaceRunner(Manager: typeof AgentManager) {
         ): Promise<Res<K>> {
           if (op.startsWith("session."))
             return sessions().call(op, request, opts);
+          // Fixture Git mocks stay in process; production calls the runner port.
+          if (op === "git.roots" || op === "checkout.defaultFiles") {
+            const read = request as
+              | Req<"git.roots">
+              | Req<"checkout.defaultFiles">;
+            if ("path" in read.target) {
+              const { target, ...input } = read;
+              return (await checkoutWorkload.run(
+                op,
+                {
+                  directory: displayPath(target.path),
+                  request: input,
+                } as never,
+                { signal: opts?.signal }
+              )) as Res<K>;
+            }
+          }
           if (op === "workspace.describe")
             throw new RunnerCallError({
               code: "not_found",

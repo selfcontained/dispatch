@@ -22,7 +22,7 @@ import path from "node:path";
 import {
   PersonaCatalogCache,
   PERSONA_REFRESH_MS,
-} from "../src/personas/catalog.js";
+} from "./helpers/persona-catalog.js";
 import {
   runCommand,
   type CommandRunner,

@@ -129,6 +129,7 @@ function createMockDeps() {
     pool: { query: vi.fn(async () => ({ rows: [] })) } as any,
     filesRoot: "/tmp/files",
     agentManager: {
+      checkoutReadRunners: () => ({}),
       deliverSessionFile: vi.fn(
         async (_agent, source, _name, _purpose) => source
       ),

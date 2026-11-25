@@ -4,6 +4,7 @@ import { validateAgentEffort } from "../shared/agent-effort.js";
 import { listPersonas } from "../personas/resolve.js";
 import {
   launchPersonaScope,
+  personaCheckoutRoot,
   personaScopeFor,
 } from "../personas/persona-scope.js";
 import { targetPlacement } from "../runners/saved-location.js";
@@ -20,7 +21,6 @@ import {
 } from "../shared/agent-models.js";
 import { readSessionOwnerRules } from "../server/mcp-persona-handlers.js";
 import { hasCodeowners } from "../personas/codeowners.js";
-import { resolveWorktreeRoot } from "../shared/git/git-context.js";
 
 type PersonaRouteDeps = {
   agentManager: AgentManager;
@@ -102,10 +102,11 @@ const PERSONAS_REQUIRED_ERROR =
   "persona (string), personas (non-empty array of strings), or codeowners: true is required.";
 
 async function resolveOptionalWorktreeRoot(
-  cwd: string
+  cwd: string,
+  manager: Pick<AgentManager, "checkoutReadRunners">
 ): Promise<string | null> {
   try {
-    return await resolveWorktreeRoot(cwd);
+    return await personaCheckoutRoot(cwd, manager.checkoutReadRunners());
   } catch {
     return null;
   }
@@ -159,7 +160,7 @@ export async function registerPersonaRoutes(
         return reply.code(404).send({ error: "Project not found." });
       const worktreeRoot =
         cwd && !remotePlacement(cwd)
-          ? await resolveOptionalWorktreeRoot(cwd)
+          ? await resolveOptionalWorktreeRoot(cwd, deps.agentManager)
           : null;
       const { personas, warnings, refreshing, updatedAt } = await listPersonas(
         launchPersonaScope(deps.agentManager, {
