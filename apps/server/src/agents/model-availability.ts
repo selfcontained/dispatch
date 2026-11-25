@@ -42,11 +42,37 @@ export class ModelAvailabilityError extends Error {}
  */
 let queue: Promise<unknown> = Promise.resolve();
 
-function enqueue(work: () => Promise<boolean>): Promise<boolean> {
+export function serializeModelChanges<T>(work: () => Promise<T>): Promise<T> {
   const result = queue.then(work);
   queue = result.catch(() => {});
   return result;
 }
+/** One transaction publishes model and availability state only after durable success. */
+export function commitModelChanges<T>(
+  pool: Pool,
+  prepare: (client: Pool) => Promise<{ result: T; publish(): void }>
+): Promise<T> {
+  return serializeModelChanges(async () => {
+    const connection = await pool.connect();
+    try {
+      await connection.query("BEGIN", []);
+      const prepared = await prepare(connection as unknown as Pool);
+      await connection.query("COMMIT", []);
+      prepared.publish();
+      return prepared.result;
+    } catch (error) {
+      try {
+        await connection.query("ROLLBACK", []);
+      } catch {
+        /* Preserve the write failure. */
+      }
+      throw error;
+    } finally {
+      connection.release();
+    }
+  });
+}
+
 async function saveShared(
   pool: Pool,
   agentType: AgentType,
@@ -155,6 +181,91 @@ export async function loadModelAvailability(
  * listed before is new, and starts off when auto-enable is off. Returns
  * whether anything changed.
  */
+export async function prepareListedModels(
+  pool: Pool,
+  agentType: AgentType,
+  ids: readonly string[],
+  catalog: { runnerId: string; settings: RunnerSettings } = {
+    runnerId: "local",
+    settings: localRunnerSettings,
+  }
+): Promise<{
+  changed: boolean;
+  writes: { key: string; value: string }[];
+  publish(): void;
+}> {
+  rememberCatalogRunner(catalog.runnerId, catalog.settings);
+
+  const shared = getAgentModelAvailability(agentType);
+  const registered = await registeredRunners(pool);
+  const idsOfRunners = new Set([...registered, catalog.runnerId]);
+  const histories = [
+    shared,
+    ...[...idsOfRunners].map((id) => getReportedModelHistory(id, agentType)),
+  ];
+  const hasBaseline =
+    registered.length > 0 ||
+    histories.some((history) => history.known !== null);
+  const knownAnywhere = new Set(
+    histories.flatMap((history) => history.known ?? [])
+  );
+  const globallyNew = hasBaseline
+    ? ids.filter((id) => !knownAnywhere.has(id))
+    : [];
+  const choices = modelChoicesForRunner(catalog.runnerId, agentType);
+  const disabled =
+    choices.autoEnable || globallyNew.length === 0
+      ? shared.disabled
+      : [...new Set([...shared.disabled, ...globallyNew])];
+  const historyOnly = catalog.settings.modelReports === "history";
+  const current = historyOnly
+    ? getReportedModelHistory(catalog.runnerId, agentType)
+    : shared;
+  const found = ids.filter((id) => !current.known?.includes(id));
+  const historyChanged = current.known === null || found.length > 0;
+  const disabledChanged = disabled.length !== shared.disabled.length;
+  if (!historyChanged && !disabledChanged)
+    return { changed: false, writes: [], publish() {} };
+  const history = {
+    known: current.known ? [...current.known, ...found] : [...ids],
+    unseen: [...current.unseen, ...(current.known ? found : globallyNew)],
+  };
+  const writes: { key: string; value: string }[] = [];
+  const publishers: (() => void)[] = [];
+  if (historyOnly) {
+    if (disabledChanged) {
+      const next = { ...shared, disabled };
+      writes.push({ key: settingKey(agentType), value: JSON.stringify(next) });
+      publishers.push(() => setAgentModelAvailability(agentType, next));
+    }
+    if (historyChanged) {
+      writes.push({
+        key: namespaced(catalog.settings, settingKey(agentType)),
+        value: JSON.stringify(history),
+      });
+      publishers.push(() =>
+        setReportedModelHistory(catalog.runnerId, agentType, history)
+      );
+    }
+  } else {
+    const next = {
+      ...shared,
+      known: history.known,
+      unseen: history.unseen,
+      disabled,
+    };
+    writes.push({ key: settingKey(agentType), value: JSON.stringify(next) });
+    publishers.push(() => setAgentModelAvailability(agentType, next));
+  }
+  return {
+    changed: true,
+    writes,
+    publish() {
+      publishers.forEach((publish) => publish());
+    },
+  };
+}
+
 export function recordListedModels(
   pool: Pool,
   agentType: AgentType,
@@ -164,63 +275,11 @@ export function recordListedModels(
     settings: localRunnerSettings,
   }
 ): Promise<boolean> {
-  rememberCatalogRunner(catalog.runnerId, catalog.settings);
-  return enqueue(async () => {
-    const shared = getAgentModelAvailability(agentType);
-    const registered = await registeredRunners(pool);
-    const idsOfRunners = new Set([...registered, catalog.runnerId]);
-    const histories = [
-      shared,
-      ...[...idsOfRunners].map((id) => getReportedModelHistory(id, agentType)),
-    ];
-    const hasBaseline =
-      registered.length > 0 ||
-      histories.some((history) => history.known !== null);
-    const knownAnywhere = new Set(
-      histories.flatMap((history) => history.known ?? [])
-    );
-    const globallyNew = hasBaseline
-      ? ids.filter((id) => !knownAnywhere.has(id))
-      : [];
-    const choices = modelChoicesForRunner(catalog.runnerId, agentType);
-    const disabled =
-      choices.autoEnable || globallyNew.length === 0
-        ? shared.disabled
-        : [...new Set([...shared.disabled, ...globallyNew])];
-    const historyOnly = catalog.settings.modelReports === "history";
-    const current = historyOnly
-      ? getReportedModelHistory(catalog.runnerId, agentType)
-      : shared;
-    const found = ids.filter((id) => !current.known?.includes(id));
-    const historyChanged = current.known === null || found.length > 0;
-    const disabledChanged = disabled.length !== shared.disabled.length;
-    if (!historyChanged && !disabledChanged) return false;
-    const history = {
-      known: current.known ? [...current.known, ...found] : [...ids],
-      unseen: [...current.unseen, ...(current.known ? found : globallyNew)],
-    };
-    if (historyOnly) {
-      // Persist the shared off-list first: a failed history write can then be
-      // retried without ever publishing a new model as enabled by accident.
-      if (disabledChanged)
-        await saveShared(pool, agentType, { ...shared, disabled });
-      if (historyChanged) {
-        await setSetting(
-          pool,
-          namespaced(catalog.settings, settingKey(agentType)),
-          JSON.stringify(history)
-        );
-        setReportedModelHistory(catalog.runnerId, agentType, history);
-      }
-    } else {
-      await saveShared(pool, agentType, {
-        ...shared,
-        known: history.known,
-        unseen: history.unseen,
-        disabled,
-      });
-    }
-    return true;
+  return commitModelChanges(pool, async (client) => {
+    const plan = await prepareListedModels(client, agentType, ids, catalog);
+    for (const write of plan.writes)
+      await setSetting(client, write.key, write.value);
+    return { result: plan.changed, publish: plan.publish };
   });
 }
 
@@ -229,7 +288,7 @@ export function updateModelAvailability(
   agentType: AgentType,
   input: ModelAvailabilityChange
 ): Promise<boolean> {
-  return enqueue(async () => {
+  return serializeModelChanges(async () => {
     const current = getAgentModelAvailability(agentType);
     if ("seen" in input) {
       let changed = false;

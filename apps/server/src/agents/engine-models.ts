@@ -15,7 +15,11 @@ import {
   type AgentModelOption,
 } from "../shared/agent-models.js";
 import { AGENT_TYPES, type AgentType } from "../shared/agent-types.js";
-import { recordListedModels } from "./model-availability.js";
+import {
+  prepareListedModels,
+  commitModelChanges,
+} from "./model-availability.js";
+import type { Res } from "@dispatch/runner-protocol/contract";
 
 /** The settings key an engine's learned list lives under. */
 const settingKey = (agentType: AgentType, settings = localRunnerSettings) =>
@@ -154,50 +158,99 @@ async function learnEngineCatalog(
   agent: { type: AgentType; model: string | null },
   options: readonly SessionConfigOption[],
   report: EngineModelReport,
-  catalog: { runnerId: string; settings: RunnerSettings }
+  catalog: { runnerId: string; settings: RunnerSettings },
+  refresh?: { key: string; value: string }
 ): Promise<boolean> {
-  if (report.choices.length === 0) return false;
-  // Before the list is published, so a model that starts off is never offered.
-  const filterChanged = await recordListedModels(
-    pool,
-    agent.type,
-    report.choices.map(({ id }) => id),
-    catalog
-  );
-  const previous = getAgentModelOptions(agent.type, catalog.runnerId);
-  const effort = engineEffortOption(options);
-  report.choices = report.choices.map((choice) => {
-    const known =
-      choice.id === report.current
-        ? effort
-        : previous.find((old) => old.id === choice.id)?.effort;
-    return known === undefined ? choice : { ...choice, effort: known };
+  if (report.choices.length === 0 && !refresh) return false;
+  return commitModelChanges(pool, async (client) => {
+    if (report.choices.length === 0) {
+      await setSetting(client, refresh!.key, refresh!.value);
+      return { result: false, publish() {} };
+    }
+    // Before the list is published, so a model that starts off is never offered.
+    const availability = await prepareListedModels(
+      client,
+      agent.type,
+      report.choices.map(({ id }) => id),
+      catalog
+    );
+    const previous = getAgentModelOptions(agent.type, catalog.runnerId);
+    const effort = engineEffortOption(options);
+    report.choices = report.choices.map((choice) => {
+      const known =
+        choice.id === report.current
+          ? effort
+          : previous.find((old) => old.id === choice.id)?.effort;
+      return known === undefined ? choice : { ...choice, effort: known };
+    });
+    const defaultModel =
+      agent.model === null
+        ? report.current
+        : agentModelDefaults(catalog.runnerId)[agent.type];
+    const modelsChanged =
+      availability.changed ||
+      !sameModels(previous, report.choices) ||
+      defaultModel !== agentModelDefaults(catalog.runnerId)[agent.type];
+    const stored: StoredEngineModels = {
+      models: report.choices,
+      defaultModel,
+      seenAt: new Date().toISOString(),
+    };
+    for (const write of availability.writes)
+      await setSetting(client, write.key, write.value);
+    await setSetting(
+      client,
+      settingKey(agent.type, catalog.settings),
+      JSON.stringify(stored)
+    );
+    if (refresh) await setSetting(client, refresh.key, refresh.value);
+    return {
+      result: modelsChanged,
+      publish() {
+        availability.publish();
+        setLearnedAgentModels(
+          agent.type,
+          report.choices,
+          defaultModel,
+          catalog.runnerId
+        );
+      },
+    };
   });
-  const defaultModel =
-    agent.model === null
-      ? report.current
-      : agentModelDefaults(catalog.runnerId)[agent.type];
-  const modelsChanged =
-    filterChanged ||
-    !sameModels(previous, report.choices) ||
-    defaultModel !== agentModelDefaults(catalog.runnerId)[agent.type];
-  setLearnedAgentModels(
-    agent.type,
-    report.choices,
-    defaultModel,
-    catalog.runnerId
-  );
-  const stored: StoredEngineModels = {
-    models: report.choices,
-    defaultModel,
-    seenAt: new Date().toISOString(),
-  };
-  await setSetting(
+}
+
+/** Live listing and agent observations share the same durable learning path. */
+export function recordDiscoveredModels(
+  pool: Pool,
+  type: AgentType,
+  result: Res<"engine.models">,
+  catalog: { runnerId: string; settings: RunnerSettings },
+  refreshedAt: string
+): Promise<boolean> {
+  const current = result.current ?? result.defaultModel ?? "default";
+  const effort =
+    result.models.find((model) => model.id === current)?.effort ?? [];
+  const options: SessionConfigOption[] = [
+    {
+      id: "effort",
+      name: "Effort",
+      type: "select",
+      category: "thought_level",
+      currentValue: effort[0]?.value ?? "default",
+      options: effort,
+    },
+  ];
+  return learnEngineCatalog(
     pool,
-    settingKey(agent.type, catalog.settings),
-    JSON.stringify(stored)
+    { type, model: null },
+    options,
+    { current, choices: result.models },
+    catalog,
+    {
+      key: namespaced(catalog.settings, `agent_models_refresh:${type}`),
+      value: JSON.stringify({ refreshedAt }),
+    }
   );
-  return modelsChanged;
 }
 
 function sameModels(

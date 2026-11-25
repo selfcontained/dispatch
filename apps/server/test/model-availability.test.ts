@@ -35,17 +35,30 @@ function settingsPool(
   runnerIds: string[] = []
 ) {
   const rows = new Map(Object.entries(initial));
+  let transaction: Map<string, string> | null = null;
   const query = vi.fn(async (sql: string, params: string[] = []) => {
+    if (sql === "BEGIN") transaction = new Map(rows);
+    if (sql === "COMMIT" && transaction) {
+      rows.clear();
+      for (const [key, value] of transaction) rows.set(key, value);
+      transaction = null;
+    }
+    if (sql === "ROLLBACK") transaction = null;
+    const store = transaction ?? rows;
     if (sql.includes("FROM runner_registrations"))
       return { rows: runnerIds.map((id) => ({ id })) };
-    if (sql.includes("INSERT INTO settings")) rows.set(params[0]!, params[1]!);
+    if (sql.includes("INSERT INTO settings")) store.set(params[0]!, params[1]!);
     if (sql.includes("SELECT value FROM settings")) {
-      const value = rows.get(params[0]!);
+      const value = store.get(params[0]!);
       return { rows: value === undefined ? [] : [{ value }] };
     }
     return { rows: [] };
   });
-  return { pool: { query } as never, rows, query };
+  return {
+    pool: { query, connect: async () => ({ query, release() {} }) } as never,
+    rows,
+    query,
+  };
 }
 
 const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };

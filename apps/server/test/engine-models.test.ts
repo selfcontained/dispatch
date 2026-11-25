@@ -22,6 +22,19 @@ import {
   getAgentModelOptions,
 } from "../src/shared/agent-models.js";
 
+function withClient<
+  T extends {
+    query: (sql: string, args: string[]) => Promise<{ rows: unknown[] }>;
+  },
+>(pool: T) {
+  return Object.assign(pool, {
+    connect: async () => ({
+      query: (sql: string, args: string[]) => pool.query(sql, args),
+      release() {},
+    }),
+  });
+}
+
 const logger = {
   info: vi.fn(),
   warn: vi.fn(),
@@ -152,7 +165,8 @@ describe("modelOptionOf", () => {
 describe("recordEngineModels", () => {
   afterEach(() => forgetLearnedAgentModels());
 
-  const pool = () => ({ query: vi.fn().mockResolvedValue({ rows: [] }) });
+  const pool = () =>
+    withClient({ query: vi.fn().mockResolvedValue({ rows: [] }) });
 
   it("round-trips main's local key, exact labels, default and effort descriptions", async () => {
     const values = new Map<string, string>();
@@ -179,7 +193,7 @@ describe("recordEngineModels", () => {
       ],
     };
     await recordEngineModels(
-      { pool: p as never, logger },
+      { pool: withClient(p) as never, logger },
       { id: "a", type: "codex", model: null },
       [
         modelOption("gpt-a", [
@@ -190,7 +204,7 @@ describe("recordEngineModels", () => {
       ]
     );
     await recordEngineModels(
-      { pool: p as never, logger },
+      { pool: withClient(p) as never, logger },
       { id: "b", type: "codex", model: "gpt-b" },
       [
         modelOption("gpt-b", [
@@ -280,7 +294,7 @@ describe("recordEngineModels", () => {
         };
       }),
     };
-    const deps = { pool: p as never, logger };
+    const deps = { pool: withClient(p) as never, logger };
     const report = (id: string) => [modelOption(id, [{ value: id, name: id }])];
     await recordEngineModels(deps, { id: "l", type: "codex", model: null }, [
       modelOption("local-a", [
@@ -421,10 +435,84 @@ describe("recordEngineModels", () => {
     );
   });
 
+  it.each(["local", "notification-runner"])(
+    "keeps successful notification values and order on %s",
+    async (runnerId) => {
+      const { AgentManager } = await import("../src/agents/manager.js");
+      const { placementForRunner } =
+        await import("../src/runners/placement.js");
+      const { setLearnedAgentModels } =
+        await import("../src/shared/agent-models.js");
+      setLearnedAgentModels(
+        "codex",
+        [{ id: "old", label: "Old" }],
+        "old",
+        runnerId
+      );
+      const events: string[] = [];
+      const p = pool();
+      p.query.mockImplementation(async (sql: string) => {
+        if (sql === "COMMIT") {
+          expect(getAgentModelOptions("codex", runnerId)[0]?.id).toBe("old");
+          events.push("commit");
+        }
+        if (sql.includes("UPDATE agents SET model")) {
+          expect(getAgentModelOptions("codex", runnerId)).toEqual([
+            { id: "new", label: "New", effort: [] },
+          ]);
+          events.push("row");
+        }
+        return { rows: [] };
+      });
+      const agent = {
+        id: "fixture",
+        type: "codex",
+        model: "old",
+        effort: null,
+        cwd: "/fixture",
+        placement: placementForRunner(runnerId),
+      };
+      const manager = {
+        pool: p,
+        logger,
+        getAgent: async () => agent,
+        getRequiredAgent: async () => ({ ...agent, model: "new" }),
+        checkoutReadRunners: () => ({}),
+        eventBus: {
+          publish: (value: { model: string }) => {
+            expect(value.model).toBe("new");
+            events.push("agent");
+          },
+        },
+        modelsLearnedListeners: [
+          (type: string) => events.push(`models:${type}`),
+        ],
+      };
+      const apply = (
+        AgentManager.prototype as unknown as {
+          applyEngineConfig(
+            this: unknown,
+            id: string,
+            options: SessionConfigOption[],
+            learn: boolean
+          ): Promise<void>;
+        }
+      ).applyEngineConfig;
+      await apply.call(
+        manager,
+        agent.id,
+        [modelOption("new", [{ value: "new", name: "New" }])],
+        true
+      );
+      expect(events).toEqual(["commit", "row", "agent", "models:codex"]);
+      expect(agentModelDefaults(runnerId).codex).toBe("old");
+    }
+  );
+
   it("stores the running model on the agent and the list for its type", async () => {
     const p = pool();
     const result = await recordEngineModels(
-      { pool: p as never, logger },
+      { pool: withClient(p) as never, logger },
       { id: "agt_1", type: "claude", model: null },
       [
         modelOption("claude-opus-5", [
@@ -456,7 +544,7 @@ describe("recordEngineModels", () => {
     const p = pool();
     const before = getAgentModelOptions("claude");
     const result = await recordEngineModels(
-      { pool: p as never, logger },
+      { pool: withClient(p) as never, logger },
       { id: "agt_remote", type: "claude", model: null },
       [
         modelOption("runner/model", [
@@ -478,7 +566,7 @@ describe("recordEngineModels", () => {
     const p = pool();
     const catalog = getAgentModelOptions("codex");
     const result = await recordEngineModels(
-      { pool: p as never, logger },
+      { pool: withClient(p) as never, logger },
       { id: "agt_1", type: "codex", model: null },
       [
         modelOption("default-model", [
@@ -516,7 +604,7 @@ describe("recordEngineModels", () => {
     expect(agentModelDefaults().codex).toBeUndefined();
 
     await recordEngineModels(
-      { pool: p as never, logger },
+      { pool: withClient(p) as never, logger },
       { id: "agt_real", type: "codex", model: null },
       [
         modelOption("gpt-6.1-sol", [
@@ -539,7 +627,7 @@ describe("recordEngineModels", () => {
   it("leaves the agent alone when the engine runs what it already says", async () => {
     const p = pool();
     const result = await recordEngineModels(
-      { pool: p as never, logger },
+      { pool: withClient(p) as never, logger },
       { id: "agt_1", type: "codex", model: "gpt-5.5" },
       [modelOption("gpt-5.5", [{ value: "gpt-5.5", name: "GPT-5.5" }])]
     );
@@ -553,7 +641,7 @@ describe("recordEngineModels", () => {
   it("does nothing for an engine with no model option", async () => {
     const p = pool();
     const result = await recordEngineModels(
-      { pool: p as never, logger },
+      { pool: withClient(p) as never, logger },
       { id: "agt_1", type: "claude", model: null },
       []
     );
@@ -584,7 +672,7 @@ describe("recordEngineModels", () => {
   });
   it("learns exact per-model effort choices, persists them, and refreshes changed capabilities", async () => {
     const p = pool();
-    const deps = { pool: p as never, logger };
+    const deps = { pool: withClient(p) as never, logger };
     const models = [
       { value: "a", name: "A" },
       { value: "b", name: "B" },
