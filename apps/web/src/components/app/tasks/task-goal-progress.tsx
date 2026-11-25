@@ -30,12 +30,9 @@ const GLOW = {
  */
 export function TaskGoalProgress({
   counts,
-  compact = false,
   className,
 }: {
   counts: TaskGoalCounts | undefined;
-  /** "2/3" instead of the sentence, for narrow rows; the bar keeps the sentence. */
-  compact?: boolean;
   className?: string;
 }) {
   const { arrivals, sweeps } = useGoalTransitions(counts);
@@ -106,7 +103,7 @@ export function TaskGoalProgress({
         aria-hidden="true"
         className="shrink-0 text-label-xs tabular-nums text-muted-foreground"
       >
-        {compact ? `${completed}/${total}` : text}
+        {text}
       </span>
     </div>
   );

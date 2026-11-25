@@ -103,7 +103,9 @@ it("shows goal progress for the row's task and none without current goals", () =
   expect(screen.getByRole("button").getAttribute("aria-label")).toBe(
     "Task: Goals, In progress, 2 of 3 goals complete"
   );
-  expect(screen.getByTestId("task-goal-progress").textContent).toBe("2/3");
+  expect(screen.getByTestId("task-goal-progress").textContent).toBe(
+    "2 of 3 goals complete"
+  );
   state.tasks[0].goalCounts = { completed: 0, total: 0 };
   view.rerender(
     <MemoryRouter>
