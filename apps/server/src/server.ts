@@ -188,7 +188,7 @@ import {
   runnerModelCatalogSource,
 } from "./agents/remote/engine-transport.js";
 import { setRunnerModelCatalogSource } from "./shared/agent-models.js";
-import { registerPluginRoutes } from "./routes/plugin.js";
+import { registerPluginRoutes, runnerPluginChecker } from "./routes/plugin.js";
 import { registerResourceRoutes } from "./routes/resources.js";
 import {
   dateTruncTz,
@@ -1348,7 +1348,15 @@ async function registerRoutes() {
     clearInterval(shadowRetention);
   });
 
-  await registerPluginRoutes(app, { pool, plugins: localEngines.plugins });
+  await registerPluginRoutes(app, {
+    pool,
+    plugins: runnerPluginChecker(
+      localEngineCalls(
+        () => localRunnerOf(localRunnerProcess),
+        localEnginesInProcess
+      )
+    ),
+  });
 
   await registerBrainRoutes(app, {
     brainStore,

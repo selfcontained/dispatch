@@ -9,6 +9,8 @@ export function engineHandlers(platform: Platform): CallHandlers {
   const { engines } = platform;
   if (!engines) return {};
   return {
+    "engine.plugin.status": (request) => engines.pluginStatus(request),
+    "engine.plugin.apply": (request) => engines.pluginApply(request),
     "engine.list": (request) => engines.list(request),
     "engine.login.start": (request, context) =>
       engines.loginStart(request, (login) =>

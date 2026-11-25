@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import type { Req, Res } from "@dispatch/runner-protocol/contract";
 import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 
@@ -69,4 +71,65 @@ export async function registerPluginRoutes(
       return { status: result.status };
     });
   }
+}
+
+/** Main's plugin presentation, supplied by the same operations on every runner. */
+export function runnerPluginChecker(engines: {
+  call<K extends "engine.plugin.status" | "engine.plugin.apply">(
+    op: K,
+    request: Req<K>
+  ): Promise<Res<K>>;
+}): PluginStatusChecker {
+  function status(
+    engine: "claude" | "codex",
+    result: Res<"engine.plugin.status">
+  ) {
+    return {
+      agentType: engine,
+      installed: result.installed,
+      enabled: result.enabled,
+      currentVersion: result.currentVersion,
+      latestVersion: result.latestVersion,
+      updateAvailable: result.updateAvailable,
+      ...(result.detectionError !== undefined && {
+        detectionError: result.detectionError,
+      }),
+    };
+  }
+  const apply = async (
+    engine: "claude" | "codex",
+    action: "install" | "update"
+  ) => {
+    const result = await engines.call("engine.plugin.apply", {
+      engine,
+      plugin: "dispatch@dispatch",
+      action,
+      requestId: randomUUID(),
+    });
+    if (
+      result.ranCommands === undefined ||
+      result.error === undefined ||
+      result.probeFailed === undefined
+    )
+      throw new Error("Incomplete plugin operation result.");
+    return {
+      status: status(engine, result),
+      ranCommands: result.ranCommands,
+      error: result.error,
+      probeFailed: result.probeFailed,
+    };
+  };
+  return {
+    getStatus: async (engine, opts) =>
+      status(
+        engine,
+        await engines.call("engine.plugin.status", {
+          engine,
+          plugin: "dispatch@dispatch",
+          refresh: opts?.forceRefresh ?? false,
+        })
+      ),
+    install: (engine) => apply(engine, "install"),
+    update: (engine) => apply(engine, "update"),
+  };
 }

@@ -38,6 +38,8 @@ function untouchable(): InProcessEngines {
     });
   };
   return {
+    pluginStatus: fail,
+    pluginApply: fail,
     list: fail,
     loginStart: fail,
     loginSubmit: none,

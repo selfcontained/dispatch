@@ -829,7 +829,7 @@ export const operations = {
   "engine.plugin.status": op({
     scope: "runner",
     kind: "call",
-    request: object({ ...engine, plugin: string }),
+    request: object({ ...engine, plugin: string, refresh: optional(boolean) }),
     response: enginePluginStatus,
     errors: ["unsupported"],
     retry: read,

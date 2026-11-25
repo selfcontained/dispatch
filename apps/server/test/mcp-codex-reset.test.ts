@@ -15,6 +15,7 @@ import {
 } from "../src/auth.js";
 import { createLocalEngineRunner } from "../src/agents/local-runner-engine.js";
 import { createProviderPlansReporter } from "../src/agents/provider-plans.js";
+import { createPluginStatusChecker } from "../src/shared/plugin-status.js";
 import { registerPluginRoutes } from "../src/routes/plugin.js";
 import { registerSystemRoutes } from "../src/routes/system.js";
 import { createCodexResetCoordinator } from "../src/agents/codex-reset.js";
@@ -263,7 +264,7 @@ esac
     await registerAgentUsageRoutes(app, { ...deps, appLog: app.log } as never);
     await registerPluginRoutes(app, {
       pool: deps.pool as never,
-      plugins: localEngines.plugins,
+      plugins: createPluginStatusChecker({ binFor: () => codexBin }),
     });
     await registerSystemRoutes(app, { pool: deps.pool, localEngines } as never);
     const address = await app.listen({ host: "127.0.0.1", port: 0 });

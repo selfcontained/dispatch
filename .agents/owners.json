@@ -118,6 +118,8 @@
         "apps/server/test/provider-plans.test.ts",
         "apps/server/src/routes/plugin.ts",
         "apps/server/test/plugin-routes.test.ts",
+        "apps/server/test/engine-plugin-port.test.ts",
+        "apps/server/test/engine-login-golden-setup.ts",
         "apps/server/test/engine-update-operations.test.ts",
         "apps/server/test/engine-update-route-parity.test.ts",
         "apps/server/test/usage-watches.test.ts",

@@ -93,6 +93,12 @@ export interface Platform {
  * it lands in the configuration its agents read.
  */
 export interface EnginePort {
+  pluginStatus(
+    request: Req<"engine.plugin.status">
+  ): Promise<Res<"engine.plugin.status">>;
+  pluginApply(
+    request: Req<"engine.plugin.apply">
+  ): Promise<Res<"engine.plugin.apply">>;
   /** Every engine with its installation, sign-in and actions (`engine.list`). */
   list(request: Req<"engine.list">): Promise<Res<"engine.list">>;
   /**

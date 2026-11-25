@@ -1,7 +1,11 @@
 import Fastify from "fastify";
 import type { Pool } from "pg";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createLocalEngineRunner } from "../src/agents/local-runner-engine.js";
+import {
+  createPluginStatusChecker,
+  type PluginStatusLogger,
+} from "../src/shared/plugin-status.js";
+import { findEngineBin } from "../src/agents/engine-availability.js";
 import { registerPluginRoutes } from "../src/routes/plugin.js";
 
 const mocks = vi.hoisted(() => ({
@@ -32,12 +36,24 @@ vi.mock("../src/shared/plugin-status.js", async (original) => ({
   },
 }));
 afterEach(() => vi.resetAllMocks());
+// The route pins depend on the checker interface, not the removed local side channel.
+function pluginsForTest(options: {
+  bins?: { claude: string; codex: string };
+  logger?: PluginStatusLogger;
+}) {
+  const bins = options.bins ?? { claude: "claude", codex: "codex" };
+  return createPluginStatusChecker({
+    binFor: async (engine) =>
+      (await findEngineBin(bins[engine])) ?? bins[engine],
+    logger: options.logger,
+  });
+}
 async function request(body: unknown) {
   const app = Fastify();
   try {
     await registerPluginRoutes(app, {
       pool: {} as Pool,
-      plugins: createLocalEngineRunner({ logger: app.log }).plugins,
+      plugins: pluginsForTest({ logger: app.log }),
     });
     return await app.inject({
       method: "POST",
@@ -97,10 +113,10 @@ describe("plugin CLI resolution", () => {
     const app = Fastify();
     await registerPluginRoutes(app, {
       pool: {} as Pool,
-      plugins: createLocalEngineRunner({
+      plugins: pluginsForTest({
         bins: { claude: "claude", codex: "codex" },
         logger: app.log,
-      }).plugins,
+      }),
     });
     await app.close();
     mocks.findEngineBin.mockImplementation(async (bin: string) =>
@@ -135,7 +151,7 @@ describe("main plugin route parity", () => {
       try {
         await registerPluginRoutes(app, {
           pool: {} as Pool,
-          plugins: createLocalEngineRunner({ logger: app.log }).plugins,
+          plugins: pluginsForTest({ logger: app.log }),
         });
         const response = await app.inject({
           method: "GET",
@@ -160,7 +176,7 @@ describe("main plugin route parity", () => {
     try {
       await registerPluginRoutes(app, {
         pool: {} as Pool,
-        plugins: createLocalEngineRunner({ logger: app.log }).plugins,
+        plugins: pluginsForTest({ logger: app.log }),
       });
       const response = await app.inject({
         method: "GET",

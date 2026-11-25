@@ -252,6 +252,11 @@ export const engineUsage = object({
   codexResetAccount: optional(string),
 });
 export const enginePluginStatus = object({
+  agentType: optional(literal("claude", "codex")),
+  detectionError: optional(string),
+  ranCommands: optional(array(string)),
+  error: optional(nullable(string)),
+  probeFailed: optional(boolean),
   installed: boolean,
   enabled: boolean,
   currentVersion: nullable(string),

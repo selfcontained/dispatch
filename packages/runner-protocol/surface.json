@@ -4175,11 +4175,35 @@
       "request": {
         "object": {
           "engine": "string",
-          "plugin": "string"
+          "plugin": "string",
+          "refresh": {
+            "optional": "boolean"
+          }
         }
       },
       "response": {
         "object": {
+          "agentType": {
+            "optional": {
+              "literal": ["claude", "codex"]
+            }
+          },
+          "detectionError": {
+            "optional": "string"
+          },
+          "ranCommands": {
+            "optional": {
+              "array": "string"
+            }
+          },
+          "error": {
+            "optional": {
+              "nullable": "string"
+            }
+          },
+          "probeFailed": {
+            "optional": "boolean"
+          },
           "installed": "boolean",
           "enabled": "boolean",
           "currentVersion": {
@@ -4218,6 +4242,27 @@
       },
       "response": {
         "object": {
+          "agentType": {
+            "optional": {
+              "literal": ["claude", "codex"]
+            }
+          },
+          "detectionError": {
+            "optional": "string"
+          },
+          "ranCommands": {
+            "optional": {
+              "array": "string"
+            }
+          },
+          "error": {
+            "optional": {
+              "nullable": "string"
+            }
+          },
+          "probeFailed": {
+            "optional": "boolean"
+          },
           "installed": "boolean",
           "enabled": "boolean",
           "currentVersion": {

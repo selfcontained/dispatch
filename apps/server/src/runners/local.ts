@@ -1038,6 +1038,8 @@ export type LocalRunnerFence = {
 };
 
 export type EngineCallName =
+  | "engine.plugin.status"
+  | "engine.plugin.apply"
   | "engine.list"
   | "engine.login.start"
   | "engine.login.submit"
@@ -1062,6 +1064,12 @@ const childMissed = (error: unknown) =>
 
 /** The posix-user engine port, as this process runs it while the child is away. */
 export type InProcessEngines = {
+  pluginStatus(
+    request: Req<"engine.plugin.status">
+  ): Promise<Res<"engine.plugin.status">>;
+  pluginApply(
+    request: Req<"engine.plugin.apply">
+  ): Promise<Res<"engine.plugin.apply">>;
   list(request: Req<"engine.list">): Promise<Res<"engine.list">>;
   loginStart(
     request: Req<"engine.login.start">,
@@ -1102,6 +1110,14 @@ export function localEngineCalls(
     options?: CallOptions<K>
   ): Promise<Res<K>> {
     switch (op) {
+      case "engine.plugin.status":
+        return (await inProcess.pluginStatus(
+          input as Req<"engine.plugin.status">
+        )) as Res<K>;
+      case "engine.plugin.apply":
+        return (await inProcess.pluginApply(
+          input as Req<"engine.plugin.apply">
+        )) as Res<K>;
       case "engine.list":
         return (await inProcess.list(input as Req<"engine.list">)) as Res<K>;
       case "engine.login.start":

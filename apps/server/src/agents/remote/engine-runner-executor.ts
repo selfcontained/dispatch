@@ -1,3 +1,9 @@
+import {
+  createPluginStatusChecker,
+  isPluginAgentType,
+  type PluginStatusChecker,
+} from "../../shared/plugin-status.js";
+import { findEngineBin } from "../engine-availability.js";
 import { executionArgs, setpriv } from "./workload-identity.js";
 import { spawn } from "node:child_process";
 import { isDeepStrictEqual } from "node:util";
@@ -7,7 +13,11 @@ import os from "node:os";
 import path from "node:path";
 
 import type { RunnerEngine } from "@dispatch/runner-protocol";
-import { RunnerCallError, type Req } from "@dispatch/runner-protocol/contract";
+import {
+  RunnerCallError,
+  type Req,
+  type Res,
+} from "@dispatch/runner-protocol/contract";
 import {
   RUNNER_ENGINES,
   isEngineCapabilityOperation,
@@ -54,6 +64,8 @@ export type EngineListParts = {
 };
 
 export type EngineWorkloadPlatform = {
+  plugins?: PluginStatusChecker;
+  pluginBin?: (engine: "claude" | "codex") => Promise<string>;
   /** Every engine's installation, with only the parts asked for. */
   installations(parts: EngineListParts): Promise<EngineInstallation[]>;
   /** How this platform finds and runs an engine's CLI for a sign-in. */
@@ -70,10 +82,53 @@ const notFound = () =>
  * offer it, are the same everywhere.
  */
 export class EngineWorkload {
+  private readonly plugins: PluginStatusChecker;
   private readonly logins: EngineLogins;
 
   constructor(private readonly platform: EngineWorkloadPlatform) {
     this.logins = new EngineLogins(platform.logins);
+    this.plugins =
+      platform.plugins ??
+      createPluginStatusChecker({
+        binFor: async (engine) =>
+          platform.pluginBin
+            ? await platform.pluginBin(engine)
+            : ((await platform.logins.resolveBin(engine)) ?? engine),
+      });
+  }
+
+  private pluginEngine(request: { engine: string; plugin: string }) {
+    if (
+      !isPluginAgentType(request.engine) ||
+      request.plugin !== "dispatch@dispatch"
+    )
+      throw new RunnerCallError({
+        code: "unsupported",
+        message: "Plugin is unavailable.",
+      });
+    return request.engine;
+  }
+  async pluginStatus(
+    request: Req<"engine.plugin.status">
+  ): Promise<Res<"engine.plugin.status">> {
+    const engine = this.pluginEngine(request);
+    const status = await this.plugins.getStatus(engine, {
+      forceRefresh: request.refresh,
+    });
+    return { ...status, actions: status.installed ? ["update"] : ["install"] };
+  }
+  async pluginApply(
+    request: Req<"engine.plugin.apply">
+  ): Promise<Res<"engine.plugin.apply">> {
+    const engine = this.pluginEngine(request);
+    const result = await this.plugins[request.action](engine);
+    return {
+      ...result.status,
+      ranCommands: result.ranCommands,
+      error: result.error,
+      probeFailed: result.probeFailed,
+      actions: result.status.installed ? ["update"] : ["install"],
+    };
   }
 
   /**
@@ -178,6 +233,8 @@ export function localEngineWorkload(
 ): EngineWorkload {
   const statuses = () => engineStatuses(bins, seams.env ?? process.env);
   return new EngineWorkload({
+    pluginBin: async (engine) =>
+      (await findEngineBin(bins[engine] ?? engine)) ?? bins[engine] ?? engine,
     async installations(parts) {
       const found = await statuses();
       const versioned =
