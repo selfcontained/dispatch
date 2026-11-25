@@ -30,6 +30,10 @@ const ABOVE =
 const TABBABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [contenteditable="true"], [tabindex]:not([tabindex="-1"])';
 
+const AncestorPanelsContext = React.createContext<
+  React.RefObject<HTMLDivElement>[]
+>([]);
+
 const ClosingContext = React.createContext(false);
 
 /**
@@ -176,6 +180,7 @@ function SheetDismiss({
   onOutsidePress?: () => void;
   keepOpen?: string;
 }) {
+  const ancestors = React.useContext(AncestorPanelsContext);
   const escape = React.useRef(onEscape);
   escape.current = onEscape;
   const popoverWasOpen = React.useRef(false);
@@ -201,7 +206,13 @@ function SheetDismiss({
         if (event.isComposing) return;
         // A viewer over the sheet that isn't a Radix layer.
         const modals = document.querySelectorAll('[aria-modal="true"]');
-        if ([...modals].some((modal) => !panel.current?.contains(modal)))
+        if (
+          [...modals].some(
+            (modal) =>
+              !panel.current?.contains(modal) &&
+              !ancestors.some((ancestor) => ancestor.current === modal)
+          )
+        )
           return;
         const target = event.target instanceof Element ? event.target : null;
         // The editor prevents every Escape, suggestions or not. With none
@@ -340,6 +351,7 @@ export function Sheet({
   className,
   "data-testid": testId,
 }: SheetProps): JSX.Element | null {
+  const ancestors = React.useContext(AncestorPanelsContext);
   const panel = React.useRef<HTMLDivElement>(null);
   const pressedInside = React.useRef(false);
   const focusedInside = React.useRef(false);
@@ -468,7 +480,9 @@ export function Sheet({
           {...(open ? {} : { inert: "" })}
         >
           <ClosingContext.Provider value={closing}>
-            {children}
+            <AncestorPanelsContext.Provider value={[...ancestors, panel]}>
+              {children}
+            </AncestorPanelsContext.Provider>
           </ClosingContext.Provider>
         </div>
       </div>

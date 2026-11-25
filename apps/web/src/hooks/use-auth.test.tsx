@@ -58,3 +58,71 @@ it("keeps loading while a failed request is still being retried", async () => {
   });
   expect(result.current.authState).toBe("loading");
 });
+
+it.each([400, 401, 500, 503])(
+  "keeps the session state on logout %s and allows a successful retry",
+  async (status) => {
+    let authenticated = true;
+    const fetch = vi.fn().mockImplementation(async (url: string) => {
+      if (url === "/api/v1/auth/logout") {
+        return new Response("Unavailable", { status });
+      }
+      return Response.json({
+        passwordSet: true,
+        authenticated,
+        exposed: false,
+      });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const { result } = renderAuth();
+    await waitFor(() => expect(result.current.authState).toBe("authenticated"));
+
+    await act(async () => {
+      await expect(result.current.handleLogout()).rejects.toThrow(
+        `auth/logout ${status}`
+      );
+    });
+    expect(result.current.authState).toBe("authenticated");
+    // A rejected logout must not invalidate/refetch the cached session status.
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenLastCalledWith("/api/v1/auth/logout", {
+      method: "POST",
+      credentials: "include",
+    });
+
+    fetch.mockImplementation(async (url: string) => {
+      if (url === "/api/v1/auth/logout") {
+        authenticated = false;
+        return new Response(null, { status: 204 });
+      }
+      return Response.json({
+        passwordSet: true,
+        authenticated,
+        exposed: false,
+      });
+    });
+    await act(async () => result.current.handleLogout());
+    await waitFor(() => expect(result.current.authState).toBe("needs-login"));
+    expect(fetch).toHaveBeenCalledTimes(4);
+  }
+);
+
+it("keeps the signed-in state when the logout request rejects", async () => {
+  const fetch = vi
+    .fn()
+    .mockResolvedValue(
+      Response.json({ passwordSet: true, authenticated: true, exposed: false })
+    );
+  vi.stubGlobal("fetch", fetch);
+  const { result } = renderAuth();
+  await waitFor(() => expect(result.current.authState).toBe("authenticated"));
+  fetch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+
+  await act(async () => {
+    await expect(result.current.handleLogout()).rejects.toThrow(
+      "Failed to fetch"
+    );
+  });
+  expect(result.current.authState).toBe("authenticated");
+  expect(fetch).toHaveBeenCalledTimes(2);
+});

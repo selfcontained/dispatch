@@ -120,9 +120,21 @@ async function listBlockEntries(
       `EXISTS (SELECT 1 FROM blocks host WHERE host.id = b.thread_id AND host.kind = 'launch'${viewer})`
     );
   }
+  // A reviewer's review lives at its own home and is addressed to the agent
+  // it reviewed, so the reviewed agent's review list reads those too. That
+  // keeps them listed after the reviewer is archived.
+  let streamScope = "b.stream_id = $1";
   let scope = reviewsOnly
     ? "AND b.kind = 'review'"
     : `AND (${scopes.join(" OR ")})`;
+  if (reviewsOnly && onlyIds === undefined) {
+    streamScope = `b.id IN (
+         SELECT r.id FROM blocks r WHERE r.stream_id = $1 AND r.kind = 'review'
+         UNION ALL
+         SELECT r.id FROM blocks r
+          WHERE r.kind = 'review' AND r.author_kind = 'agent'
+            AND r.to_agent_id = $1 AND r.stream_id <> $1)`;
+  }
   if (onlyIds !== undefined) {
     params.push([...onlyIds]);
     clause += ` AND b.id = ANY($${params.length}::uuid[])`;
@@ -140,7 +152,7 @@ async function listBlockEntries(
        SELECT ${BLOCK_COLUMNS_SQL}, b.attachments,
               to_char(b.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') AS at_key
          FROM blocks b
-        WHERE b.stream_id = $1
+        WHERE ${streamScope}
           ${onlyIds === undefined ? "AND COALESCE(b.data->>'inlineAnswer', 'false') <> 'true'" : ""}
           ${scope} ${clause}
         ORDER BY b.created_at DESC, b.id DESC
@@ -396,6 +408,26 @@ export async function attachShown(
 }
 
 /**
+ * `attachShown` per home stream: a review list can hold reviews from the
+ * reviewers' own homes, whose findings live beside them.
+ */
+async function attachShownByStream(
+  db: Queryable,
+  blocks: Block[],
+  isHeld?: (agentId: string) => boolean
+): Promise<void> {
+  const byStream = new Map<string, Block[]>();
+  for (const block of blocks) {
+    const group = byStream.get(block.streamId);
+    if (group) group.push(block);
+    else byStream.set(block.streamId, [block]);
+  }
+  await Promise.all(
+    [...byStream].map(([id, group]) => attachShown(db, id, group, isHeld))
+  );
+}
+
+/**
  * Compose one stream's feed at read time: its top-level blocks, newest
  * first, each turn block carrying its turn. The stream is blocks only; a
  * child's turn is a block of the child's in the parent's stream, folded by
@@ -435,7 +467,7 @@ export async function composeStreamFeed(
       ? Promise.resolve(null)
       : listChecklists(db, streamId, opts.includeLaunchReplies ?? false),
     attachTurns(db, blocks),
-    attachShown(db, streamId, blocks, opts.isHeld),
+    attachShownByStream(db, blocks, opts.isHeld),
   ]);
   if (openInputs) await attachShown(db, streamId, openInputs, opts.isHeld);
   if (opts.compactTurns !== false) compactFeedTurnDetails(blocks);
