@@ -75,6 +75,7 @@ import {
 // An unprivileged test cannot chown to another account. When set, record the
 // changes of ownership instead of making them.
 const ownership = vi.hoisted(() => ({
+  missingHelper: false,
   changes: undefined as [string, string, number, number][] | undefined,
 }));
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -85,7 +86,27 @@ vi.mock("node:fs/promises", async (importOriginal) => {
       if (ownership.changes) ownership.changes.push([name, file, uid, gid]);
       else await actual[name](file, uid, gid);
     };
-  return { ...actual, chown: recorded("chown"), lchown: recorded("lchown") };
+  return {
+    ...actual,
+    readFile: (
+      file: Parameters<typeof actual.readFile>[0],
+      options: Parameters<typeof actual.readFile>[1]
+    ) => {
+      if (
+        ownership.missingHelper &&
+        file instanceof URL &&
+        file.href.endsWith("/bin/dispatch-stream")
+      ) {
+        return actual.readFile(
+          new URL("missing-helper-fixture", file),
+          options
+        );
+      }
+      return actual.readFile(file, options);
+    },
+    chown: recorded("chown"),
+    lchown: recorded("lchown"),
+  };
 });
 
 type Supervisor = Awaited<ReturnType<typeof createSessionSupervisor>>;
@@ -310,6 +331,25 @@ describe("runner session supervision", () => {
     supervisor?.close();
     supervisor = undefined;
     await rm(root, { recursive: true, force: true });
+  });
+
+  it("installs the repository stream helper byte for byte with executable mode", async () => {
+    await start([]);
+    const installed = path.join(state, "bin", "dispatch-stream");
+    expect(await readFile(installed)).toEqual(
+      await readFile(new URL("../../../bin/dispatch-stream", import.meta.url))
+    );
+    expect((await stat(installed)).mode & 0o777).toBe(0o755);
+  });
+
+  it("propagates ENOENT when the omitted fixture helper is missing", async () => {
+    ownership.missingHelper = true;
+    try {
+      await expect(start([])).rejects.toMatchObject({ code: "ENOENT" });
+      expect(locked).toBe(false);
+    } finally {
+      ownership.missingHelper = false;
+    }
   });
 
   it("finishes terminal readiness before the worker exits using only standard pipes", async () => {
