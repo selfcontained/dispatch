@@ -123,7 +123,7 @@ Three lanes that share no files. A task that must touch another lane's file wait
 
 ## Known gaps accepted by the owner
 
-- **T35 persona listing:** checkout listings omit a directory, dangling link or FIFO named `*.md`; main’s native directory listing reports a per-file warning instead.
+- **T35 session persona listing:** session checkout listings omit a directory, dangling link or FIFO named `*.md`; main’s native directory listing reports a per-file warning instead.
 - **T35 ownership availability:** session persona routes read the ownership file; main’s `access()` offers ownership reviews for a directory/unreadable map and answers 400 for other access errors.
 - **T35 persona upsert:** an explicitly rejected stale digest is re-read and retried up to three attempts, then reports that the file kept changing; uncertain mutation replies are never replayed.
 
