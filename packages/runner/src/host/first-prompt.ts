@@ -6,10 +6,10 @@
 export function firstPromptContext(
   delivery: "system_prompt" | "first_prompt" | "instructions_file",
   systemPrompt: string | null,
-  personaContext: string | null | undefined
+  promptContext: string | null | undefined
 ): string | null {
   return (
-    [delivery === "first_prompt" ? systemPrompt : null, personaContext]
+    [delivery === "first_prompt" ? systemPrompt : null, promptContext]
       .filter(Boolean)
       .join("\n\n") || null
   );
