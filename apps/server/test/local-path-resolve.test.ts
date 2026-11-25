@@ -58,6 +58,7 @@ describe("path.resolve on the local runner", () => {
       connection: { state: "ready", epoch: 1, onChange: () => () => {} },
     } as never).call("path.resolve", { path: "/child/answers" });
     expect(answer).toEqual(reply({}));
+    // One attempt: a child that cannot answer is not waited for.
     expect(call).toHaveBeenCalledWith(
       "path.resolve",
       { path: "/child/answers" },

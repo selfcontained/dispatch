@@ -1221,20 +1221,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/personas/authoring.ts",
-    "kind": "R2 host access",
-    "detail": "fs",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/personas/authoring.ts",
-    "kind": "R2 host access",
-    "detail": "fs/promises",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/personas/catalog.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/default-branch-files",
@@ -1259,27 +1245,6 @@
     "file": "apps/server/src/personas/codeowners.ts",
     "kind": "R2 host access",
     "detail": "fs/promises",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/personas/codeowners.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/owner-review-files",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/personas/coverage.ts",
-    "kind": "R2 host access",
-    "detail": "child_process",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/personas/coverage.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/process/child-environment",
     "task": "T04",
     "count": 1
   },

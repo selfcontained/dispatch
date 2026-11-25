@@ -128,6 +128,8 @@ beforeAll(async () => {
     },
   });
   session.setEndpoint({ socket: socketPath, nonce });
+  // Connected, as the app's session is once its child answers describe.
+  await session.call("runner.describe", {}).catch(() => {});
 });
 
 afterEach(() => {
@@ -256,6 +258,8 @@ it("kills only a timed-out stop hook in the child, leaving what it started", asy
     },
   });
   child.setEndpoint({ socket: socketPath, nonce });
+  // Connected, as the app's session is once its child answers describe.
+  await child.call("runner.describe", {}).catch(() => {});
   // Shorten only the hook's 15 s deadline.
   const realSetTimeout = globalThis.setTimeout;
   vi.spyOn(globalThis, "setTimeout").mockImplementation(((

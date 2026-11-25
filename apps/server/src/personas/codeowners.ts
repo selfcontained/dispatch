@@ -5,8 +5,6 @@ import * as z from "zod/v4";
 import { validatePersonaSlug } from "./authoring.js";
 import { LEGACY_OWNERS_PATH, OWNERS_PATH } from "./paths.js";
 
-export { collectOwnerReviewFiles } from "../shared/git/owner-review-files.js";
-
 // Deliberately small glob language: repo-relative paths, *, **, and ?.
 // All matching rules contribute owners; there is no last-rule-wins behavior.
 const patternSchema = z

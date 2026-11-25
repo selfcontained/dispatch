@@ -17,10 +17,12 @@ import {
 } from "../src/personas/loader.js";
 import {
   PERSONA_TEMPLATES,
-  upsertPersona,
   validatePersonaSlug,
-  validatePersonas,
 } from "../src/personas/authoring.js";
+import {
+  upsertPersona,
+  validatePersonas,
+} from "./helpers/native-persona-authoring.js";
 
 describe("persona authoring", () => {
   const roots: string[] = [];

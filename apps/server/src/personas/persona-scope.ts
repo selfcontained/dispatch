@@ -5,7 +5,10 @@ import {
   type Res,
 } from "@dispatch/runner-protocol/contract";
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
-import { runnerDirectory } from "../runners/directory.js";
+import {
+  runnerDirectory,
+  type CheckoutCommandRunners,
+} from "../runners/directory.js";
 import { controllerPlacement } from "../runners/placement.js";
 
 type SessionCheckout = {
@@ -20,8 +23,13 @@ export type RepositoryFiles = (
 ) => Promise<Res<"checkout.defaultFiles">>;
 
 type FolderOrProject =
-  | { kind: "folder"; cwd: string; source: "catalog" | "workspace" }
-  | { kind: "project"; repoRoot: string }
+  | {
+      kind: "folder";
+      cwd: string;
+      source: "catalog" | "workspace";
+      runners: () => CheckoutCommandRunners;
+    }
+  | { kind: "project"; repoRoot: string; runners: () => CheckoutCommandRunners }
   | { kind: "builtins" };
 
 export type PersonaScope =
@@ -50,19 +58,23 @@ export type RepositoryOf =
   | null
   | (() => Promise<string | null | undefined>);
 
-function folderOrProject(target: {
-  cwd?: string;
-  projectRoot?: string;
-  source?: "catalog" | "workspace";
-}): FolderOrProject {
+function folderOrProject(
+  target: {
+    cwd?: string;
+    projectRoot?: string;
+    source?: "catalog" | "workspace";
+  },
+  runners: () => CheckoutCommandRunners
+): FolderOrProject {
   if (target.cwd)
     return {
       kind: "folder",
       cwd: target.cwd,
       source: target.source ?? "catalog",
+      runners,
     };
   return target.projectRoot
-    ? { kind: "project", repoRoot: target.projectRoot }
+    ? { kind: "project", repoRoot: target.projectRoot, runners }
     : { kind: "builtins" };
 }
 
@@ -73,10 +85,11 @@ export function personaScopeFor(
         cwd?: string;
         projectRoot?: string;
         source?: "catalog" | "workspace";
+        runners: () => CheckoutCommandRunners;
       }
 ): PersonaScope {
   if ("agent" in target) return { kind: "session", ...target };
-  return folderOrProject(target);
+  return folderOrProject(target, target.runners);
 }
 
 /**
@@ -96,10 +109,12 @@ export function launchPersonaScope(
   }
 ): PersonaScope {
   if (sameRunner(target.placement, controllerPlacement))
-    return folderOrProject(target);
+    return folderOrProject(target, () => manager.checkoutReadRunners());
   // Nothing on that runner names a folder; without a repository there is
   // nothing there to read before launch, as before.
-  const fallback = folderOrProject({ projectRoot: target.projectRoot });
+  const fallback = folderOrProject({ projectRoot: target.projectRoot }, () =>
+    manager.checkoutReadRunners()
+  );
   const { repository: of } = target;
   if (!of) return fallback;
   const runner = runnerDirectory(manager.checkoutReadRunners()).for(

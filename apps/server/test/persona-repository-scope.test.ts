@@ -86,7 +86,12 @@ describe("launchPersonaScope (D7)", () => {
         repository: "https://example.com/o/r",
         source: "workspace",
       })
-    ).toEqual({ kind: "folder", cwd: "/work", source: "workspace" });
+    ).toEqual({
+      kind: "folder",
+      cwd: "/work",
+      source: "workspace",
+      runners: expect.any(Function),
+    });
   });
 
   it("reads the project's repository on any other runner", () => {
@@ -111,6 +116,10 @@ describe("launchPersonaScope (D7)", () => {
         projectRoot: "/project",
         repository: null,
       })
-    ).toEqual({ kind: "project", repoRoot: "/project" });
+    ).toEqual({
+      kind: "project",
+      repoRoot: "/project",
+      runners: expect.any(Function),
+    });
   });
 });

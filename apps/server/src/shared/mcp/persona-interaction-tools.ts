@@ -11,9 +11,7 @@ import {
   getPersonaTemplate,
   PERSONA_TEMPLATES,
   upsertCheckoutPersona,
-  upsertPersona,
   validateCheckoutPersonas,
-  validatePersonas,
   type PersonaFiles,
 } from "../../personas/authoring.js";
 import { describeAgentModelCatalog } from "../agent-models.js";
@@ -88,23 +86,16 @@ export function registerPersonaInteractionTools(
   const { agentId } = callbacks;
 
   const { personaFiles } = callbacks;
-  const personaRoot = personaFiles
-    ? null
-    : (callbacks.worktreeRoot ?? callbacks.repoRoot);
-  const upsert = personaFiles
-    ? callbacks.personaWrites === true
-      ? (input: Omit<Parameters<typeof upsertPersona>[0], "root">) =>
+  // Production checkout contexts supply these callbacks for every runner.
+  // A root alone carries no authority to write an arbitrary checkout path.
+  const upsert =
+    personaFiles && callbacks.personaWrites === true
+      ? (input: Parameters<typeof upsertCheckoutPersona>[1]) =>
           upsertCheckoutPersona(personaFiles, input)
-      : null
-    : personaRoot
-      ? (input: Omit<Parameters<typeof upsertPersona>[0], "root">) =>
-          upsertPersona({ root: personaRoot, ...input })
       : null;
   const validate = personaFiles
     ? () => validateCheckoutPersonas(personaFiles)
-    : personaRoot
-      ? () => validatePersonas(personaRoot)
-      : null;
+    : null;
 
   if (allowed.has("persona_templates")) {
     server.registerTool(

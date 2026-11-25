@@ -123,7 +123,12 @@ describe("GET /api/v1/personas", () => {
     expect(response.json().personas[0].slug).toBe("security-review");
     expect(response.json().codeowners).toBe(false);
     expect(listPersonas).toHaveBeenCalledWith(
-      { kind: "folder", cwd: "/tmp", source: "workspace" },
+      {
+        kind: "folder",
+        cwd: "/tmp",
+        source: "workspace",
+        runners: expect.any(Function),
+      },
       "review"
     );
   });
@@ -150,7 +155,12 @@ describe("GET /api/v1/personas", () => {
     });
     expect(response.statusCode).toBe(200);
     expect(listPersonas).toHaveBeenCalledWith(
-      { kind: "folder", cwd: "/tmp", source: "catalog" },
+      {
+        kind: "folder",
+        cwd: "/tmp",
+        source: "catalog",
+        runners: expect.any(Function),
+      },
       "task"
     );
     expect(response.json()).toMatchObject({
@@ -167,7 +177,11 @@ describe("GET /api/v1/personas", () => {
       // cannot be read there.
       expect.objectContaining({
         kind: "repository",
-        fallback: { kind: "project", repoRoot: "/project" },
+        fallback: {
+          kind: "project",
+          repoRoot: "/project",
+          runners: expect.any(Function),
+        },
       }),
     ],
     ["", { kind: "builtins" }],

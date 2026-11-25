@@ -1119,6 +1119,20 @@ export const workspaceWorkload = {
       return "missing" as const;
     }
   },
+  /**
+   * Whether nothing is at `path` any more: true only when it does not exist.
+   * Read-only, by `lstat` (a dangling link is something there). An
+   * unreadable path is not gone: any other error is the caller's.
+   */
+  async gone(path: string): Promise<boolean> {
+    return lstat(path).then(
+      () => false,
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return true;
+        throw error;
+      }
+    );
+  },
   async identity(directory: string) {
     const evidence = await stat(directory, { bigint: true }).catch(() => null);
     return evidence

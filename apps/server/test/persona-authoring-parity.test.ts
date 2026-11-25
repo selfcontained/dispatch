@@ -22,11 +22,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import { inspectCheckout } from "./helpers/checkout-inspection.js";
 import {
   upsertCheckoutPersona,
-  upsertPersona,
   validateCheckoutPersonas,
-  validatePersonas,
   type PersonaFiles,
 } from "../src/personas/authoring.js";
+import {
+  upsertPersona,
+  validatePersonas,
+} from "./helpers/native-persona-authoring.js";
 import { sessionPersonaFiles } from "../src/personas/checkout-files.js";
 import { controllerPlacement } from "../src/runners/placement.js";
 
