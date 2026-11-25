@@ -5,6 +5,8 @@
  *   RUNNER_DIE_AFTER_CREATE   right after Git made the worktree, before the
  *                             runner recorded it
  *   RUNNER_DIE_AFTER_INSTALL  after dependencies, before the binding
+ *   RUNNER_DIE_BEFORE_RELEASE before removing a released worktree
+ *   RUNNER_DIE_AFTER_RELEASE  after removing it, before the reply
  */
 import { appendFileSync, existsSync, rmSync } from "node:fs";
 import { createSessionCore, runCli } from "@dispatch/runner/cli";
@@ -66,6 +68,16 @@ await runCli(process.argv.slice(2), {
       async installDependencies(directory, report) {
         await workspaceWorkload.installDependencies(directory, report);
         dieOnce(process.env.RUNNER_DIE_AFTER_INSTALL);
+      },
+      async release(session, checkout, request) {
+        dieOnce(process.env.RUNNER_DIE_BEFORE_RELEASE);
+        const removed = await workspaceWorkload.release(
+          session,
+          checkout,
+          request
+        );
+        dieOnce(process.env.RUNNER_DIE_AFTER_RELEASE);
+        return removed;
       },
     },
   },
