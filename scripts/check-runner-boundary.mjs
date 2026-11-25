@@ -646,8 +646,10 @@ export function scanSource(file, source, declared = new Set()) {
     // Resolve only a literal const in the call's own lexical block. Never
     // chase aliases, outer bindings, parameters, or computed expressions.
     let scope = call.parent;
-    while (scope && !ts.isBlock(scope) && !ts.isSourceFile(scope))
+    while (scope && !ts.isBlock(scope) && !ts.isSourceFile(scope)) {
+      if (ts.isFunctionLike(scope)) return undefined;
       scope = scope.parent;
+    }
     for (const statement of scope?.statements ?? []) {
       if (
         !ts.isVariableStatement(statement) ||

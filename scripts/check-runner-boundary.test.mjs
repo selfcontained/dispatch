@@ -424,6 +424,7 @@ test("computed imports resolve only preceding literal const bindings in the same
     'const target = "virtual:pwa-register"; target = other; import(target);',
     'const target = "virtual:pwa-register"; function f(target) { import(target); }',
     'import(target); const target = "virtual:pwa-register";',
+    'const target = "virtual:pwa-register"; const f = (target) => import(target);',
   ])
     assert.ok(
       scanSource(file, source).some((h) => h.kind === "R2 computed import"),
