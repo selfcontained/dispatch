@@ -4,7 +4,7 @@ import type { Pool } from "pg";
 import type { DiagnosticsRecorder } from "../diagnostics.js";
 
 import { sessionToWire, sameRunner } from "@dispatch/runner-protocol/contract";
-import type { Placement } from "./remote/protocol.js";
+import type { Placement } from "@dispatch/runner-protocol";
 import {
   legacySessionLocation,
   placementFromRow,

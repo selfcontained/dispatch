@@ -1,4 +1,4 @@
-import { remotePlacement, workspaceLocator } from "./remote/protocol.js";
+import { remotePlacement, workspaceLocator } from "@dispatch/runner-protocol";
 import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 

@@ -61,7 +61,7 @@ import {
   type RemoteRunnerService,
 } from "../remote/service.js";
 import type { RunnerUpdateHolds } from "../remote/update-hold.js";
-import type { Placement } from "../remote/protocol.js";
+import type { Placement } from "@dispatch/runner-protocol";
 import type { RemoteEventInbox } from "../remote/event-inbox.js";
 import {
   HostClient,
