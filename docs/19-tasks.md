@@ -55,7 +55,7 @@ Tasks store one nullable `launchTemplateId` (migration
 `0031_task_launch_templates.sql`). A task override uses the selected template's
 entire configuration, including persona, prompt, runtime/model, access and
 workspace settings, for every eligible template-trigger column. It ignores that
-column's runtime/model overrides. When null, each column uses its own default.
+column's runtime/model/effort overrides. When null, each column uses its own default.
 Column entry, `assign`, `fireOnCreate`, capacity and running-agent safeguards
 remain authoritative. A preference never creates automation in a column without
 a trigger.
@@ -105,8 +105,10 @@ HTTP create/update and MCP `task_create`/`task_update` accept them:
   changes; no runtime or default model is ever substituted.
 - Precedence per launch: task runtime/model → `launchTemplateId` template or the
   column trigger → template. The column's effort is kept only when the pair
-  matches the column's runtime and model; otherwise the template rule applies
-  (template effort only on the template's own runtime and model).
+  matches the runtime and model the column launches (a column without its own
+  model launches the template's model on the template's runtime); otherwise
+  the template rule applies (template effort only on the template's own
+  runtime and model, else the engine default).
 - It applies to every later trigger launch of that task (moves, re-entry,
   fire-on-create) until cleared. It never edits the template or column, and
   the manual `POST /tasks/:id/agents` launch keeps its own explicit fields.
