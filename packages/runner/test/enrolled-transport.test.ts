@@ -872,3 +872,156 @@ it("holds the command checkout while credited output is sent and aborts a timed-
   ).rejects.toMatchObject({ code: "timeout" });
   expect(execute).toHaveBeenCalledTimes(2);
 });
+
+it("runs each guard in its bound checkout and refuses stale or fenced commands before spawning", async () => {
+  const { mkdtemp, realpath, rm, stat, writeFile, symlink } =
+    await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { text } = await import("node:stream/consumers");
+  const { enrolledCheckouts, enrolledCommand } =
+    await import("../src/workload/agents/remote/checkout-operations.js");
+  const { streamCommandOutput } =
+    await import("../src/workload/agents/remote/runner.js");
+  const base = await mkdtemp(join(tmpdir(), "enrolled-guard-"));
+  const bound = join(base, "binding");
+  const actual = await realpath(base);
+  const manifest = "manifest.json";
+  const commandModule = new URL(
+    "../src/workload/agents/remote/checkout-command.ts",
+    import.meta.url
+  ).href;
+  const readModule = new URL(
+    "../src/workload/agents/checkout-worker.ts",
+    import.meta.url
+  ).href;
+  const commandEntry = `import {runCheckoutCommandCli} from ${JSON.stringify(commandModule)}; await runCheckoutCommandCli(process.argv[1], process.argv[2]);`;
+  const readEntry = `import {runCheckoutWorker} from ${JSON.stringify(readModule)}; await runCheckoutWorker(["read",process.argv[1]], {});`;
+  const supervisor: Parameters<typeof enrolledCommand>[0] = {
+    checkoutDirectory: async () => bound,
+    withCommandCheckout: async (_id, _selector, _signal, work) => work(bound),
+  };
+  const worker = (
+    entry: string,
+    args: string[],
+    input: unknown,
+    signal: AbortSignal
+  ) => {
+    const child = spawn("bun", ["-e", entry, ...args], { signal });
+    child.stdin.end(JSON.stringify(input));
+    return child.stdout;
+  };
+  try {
+    await symlink(actual, bound);
+    await writeFile(join(actual, manifest), "first");
+    const reads = enrolledCheckouts(
+      supervisor,
+      {
+        run: async () => {
+          throw new Error("Unexpected query");
+        },
+        read: (cwd, input, signal) => worker(readEntry, [cwd], input, signal),
+        manifest: (cwd, id, input, signal) =>
+          text(worker(commandEntry, [cwd, id], input, signal)),
+      },
+      new AbortController().signal
+    );
+    const execute = vi.fn<Parameters<typeof enrolledCommand>[1]>(
+      (cwd, id, input, send, signal) =>
+        streamCommandOutput(
+          ["bun", "-e", commandEntry, cwd, id],
+          process.env,
+          JSON.stringify(input),
+          input.maxOutput,
+          send,
+          signal
+        )
+    );
+    const fence = new WriteFence();
+    cleanup.push(() => fence.thaw());
+    const { client } = await pair(
+      {
+        ...reads,
+        calls: {
+          ...reads.calls,
+          "checkout.exec": enrolledCommand(supervisor, execute),
+        },
+      },
+      fence
+    );
+    const target = { session, checkout: "launch" } as const;
+    const read = {
+      target,
+      path: manifest,
+      encoding: "utf8",
+      maxBytes: null,
+    } as const;
+    const file = await client.call("checkout.read", {
+      ...read,
+      mode: "native",
+      bindRoot: true,
+    });
+    const info = await stat(actual, { bigint: true });
+    expect(file).toMatchObject({
+      data: "first",
+      root: pathFromWire(bound),
+      rootIdentity: `${info.dev}:${info.ino}`,
+    });
+    const guarded = await client.call("checkout.read", {
+      ...read,
+      mode: "command-manifest",
+    });
+    const baseCall = {
+      target,
+      argv: [
+        process.execPath,
+        "-e",
+        "require('fs').appendFileSync('executions', 'x'); process.stdout.write(process.cwd())",
+      ],
+      env: {},
+      timeoutMs: null,
+      maxOutput: null,
+      shell: "direct",
+    } as const;
+    const run = (
+      boundGuard:
+        | { guard: { root: ReturnType<typeof pathFromWire>; identity: string } }
+        | { guard: { path: string; digest: string } }
+    ) =>
+      client.call("checkout.exec", {
+        ...baseCall,
+        argv: [...baseCall.argv],
+        ...boundGuard,
+      });
+    const digest = { path: manifest, digest: guarded!.digest! };
+    const root = { root: file!.root!, identity: file!.rootIdentity! };
+    await expect(run({ guard: digest })).resolves.toMatchObject({
+      stdout: actual,
+    });
+    await writeFile(join(actual, manifest), "edited");
+    await expect(run({ guard: digest })).rejects.toMatchObject({
+      code: "stale",
+    });
+    await expect(run({ guard: root })).resolves.toMatchObject({
+      stdout: actual,
+    });
+    await expect(
+      run({ guard: { ...root, root: pathFromWire(actual) } })
+    ).rejects.toMatchObject({ code: "stale" });
+    await expect(
+      run({ guard: { ...root, identity: "wrong" } })
+    ).rejects.toMatchObject({
+      code: "stale",
+    });
+    await fence.freeze();
+    await expect(
+      run({ guard: { ...root, identity: "wrong" } })
+    ).rejects.toMatchObject({
+      code: "fenced",
+    });
+    expect(execute).toHaveBeenCalledTimes(5);
+    expect(await readFile(join(actual, "executions"), "utf8")).toBe("xx");
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+}, 20_000);

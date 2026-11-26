@@ -180,13 +180,16 @@ describe("mutations while the app's update fence is wanted", () => {
       vi.spyOn(sessionFilesWorkload, "put"),
     ];
     try {
-      const manifest = await adapter().readManifest({
-        kind: "read",
-        checkout: "effective",
+      const manifest = await adapter().call("checkout.read", {
+        target: { session, checkout: "current" },
+        mode: "command-manifest",
+        encoding: "utf8",
+        maxBytes: null,
         path: "a.txt",
       });
       const dir = await stat(repo, { bigint: true });
-      const requests = mutations(manifest!.state, `${dir.dev}:${dir.ino}`);
+      expect(manifest?.digest).toBeTruthy();
+      const requests = mutations(manifest!.digest!, `${dir.dev}:${dir.ino}`);
       await local.freeze();
       expect(local.frozen).toBe(true);
       // Reachable and frozen: the child refuses.

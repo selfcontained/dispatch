@@ -5,12 +5,14 @@ import {
 } from "@dispatch/runner-protocol/contract";
 import {
   isCheckoutCommand,
+  isCheckoutCommandArgv,
   isCheckoutExecutionOptions,
 } from "@dispatch/runner-protocol";
 import {
   checkoutCommandGuard,
   executeStreamedCheckoutCommand,
   reportCheckoutWorkerStatus,
+  resolvedCommandDirectory,
 } from "../checkout-command-executor.js";
 import { readCheckoutCommandFile } from "../checkout-inspection.js";
 
@@ -40,30 +42,35 @@ export async function runCheckoutCommandCli(
       if (
         !("session" in target) ||
         sessionToWire(target.session) !== session ||
-        !("digest" in guard) ||
+        !isCheckoutCommandArgv(argv) ||
         !isCheckoutExecutionOptions(operation)
       )
         throw new Error("Invalid checkout command binding.");
-      const bound = {
-        kind: "run",
-        checkout:
-          target.checkout === "launch" || target.checkout === "moved"
-            ? target.checkout
-            : "effective",
-        path: guard.path,
-        state: guard.digest,
-        argv,
-      } as const;
-      if (!isCheckoutCommand(bound))
-        throw new Error("Invalid checkout command.");
       streamed = true;
+      let root: string;
+      if ("path" in guard) {
+        const bound = {
+          kind: "run",
+          checkout:
+            target.checkout === "launch" || target.checkout === "moved"
+              ? target.checkout
+              : "effective",
+          path: guard.path,
+          state: guard.digest,
+          argv,
+        } as const;
+        if (!isCheckoutCommand(bound))
+          throw new Error("Invalid checkout command.");
+        ({ root } = await checkoutCommandGuard(cwd, session, bound, read));
+      } else {
+        root = await resolvedCommandDirectory(cwd, guard);
+      }
       const exitCode = await executeStreamedCheckoutCommand(
-        cwd,
+        root,
         session,
-        bound,
+        argv,
         operation,
-        loginPath,
-        read
+        loginPath
       );
       await reportCheckoutWorkerStatus({ exitCode });
       return;
