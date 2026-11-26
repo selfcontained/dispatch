@@ -497,8 +497,14 @@ export class LocalSocketConnection {
 
   private settle(pending: Pending, value: unknown) {
     const spec = (operations as Record<string, OperationSpec>)[pending.op];
-    if (!spec?.response.check(value))
+    if (!spec?.response.check(value)) {
+      if (
+        this.enrolled &&
+        (pending.op === "engine.list" || pending.op === "runner.health")
+      )
+        this.socket.destroy();
       return pending.reject(fail("failed", `Invalid ${pending.op} reply`));
+    }
     pending.resolve(value);
   }
 

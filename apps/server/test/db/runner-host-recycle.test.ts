@@ -1,3 +1,4 @@
+import { attachedHost } from "../runner-update-hold-fixtures.js";
 import { localLaunchSettings } from "../../src/agents/acp/launch-env.js";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -51,7 +52,6 @@ const update = {
   sha256: "c".repeat(64),
 };
 const oldRevision = "a".repeat(40);
-const placement = "runner://r1/proof";
 let pool: Pool;
 
 beforeAll(async () => {
@@ -148,7 +148,9 @@ async function fixture({ periodicRescan = false } = {}) {
   const remote = {
     available: () => true,
     originFor: () => "https://example.test",
-    isManagedWorkspace: () => false,
+    connectionEpoch: () => (online ? 1 : undefined),
+    lastConnectionEpoch: () => 1,
+    permitsAgentMcp: () => true,
     selfUpdate: () =>
       online
         ? {
@@ -158,19 +160,26 @@ async function fixture({ periodicRescan = false } = {}) {
             },
           }
         : undefined,
-    async requestSession(_placement, operation) {
-      const id = operation.agentId;
+    async call(_runner, op, input) {
+      const id = input.session;
       const dir = hostDir(id);
-      if (operation.kind === "launch") {
+      if (op === "session.launch") {
         const attempts = launches.get(id) ?? [];
-        attempts.push(operation.launch.resumeSessionId);
+        attempts.push(input.resume);
         launches.set(id, attempts);
         changed();
         rmSync(dir, { recursive: true, force: true });
         mkdirSync(dir, { recursive: true });
         mkdirSync(checkout(id), { recursive: true });
         const launch = {
-          ...operation.launch,
+          agentId: id,
+          engine: input.engine,
+          model: input.model,
+          effort: input.effort,
+          resumeSessionId: input.resume,
+          systemPrompt: input.systemText,
+          personaContext: input.firstText,
+          fullAccess: input.access === "full",
           ...(attempts.length > 1 &&
             wrongSession.has(id) && { resumeSessionId: "different-session" }),
           hostInstanceId: randomUUID(),
@@ -197,17 +206,24 @@ async function fixture({ periodicRescan = false } = {}) {
             throw new Error("The host ended before it was listening.");
           await delay(25);
         }
-        return { value: true };
+        return {};
       }
-      if (operation.kind === "alive") return { value: processes.has(id) };
-      if (operation.kind === "stop") {
+      if (op === "session.alive")
+        return { state: processes.has(id) ? "live" : "gone" };
+      if (op === "session.stop") {
         swapping.add(id);
         changed();
         await unlessClosing(holdStop.get(id));
         await stop(id);
-        return { value: true };
+        return {};
       }
-      if (operation.kind !== "attach") return { value: "null" };
+      if (op === "session.logs") return { text: "" };
+      if (op === "checkout.read" || op === "git.context") return null;
+      throw new Error("Unexpected runner operation " + op);
+    },
+    async openStream(_runner, op, { session: id }) {
+      expect(op).toBe("session.attach");
+      const dir = hostDir(id);
 
       const host = net.createConnection(path.join(dir, "host.sock"));
       const outbound = ndjsonDecoder<ClientMessage>();
@@ -261,7 +277,7 @@ async function fixture({ periodicRescan = false } = {}) {
           }
         }
       });
-      return { value: true, channel: link };
+      return attachedHost(link, id);
     },
   } satisfies Partial<RemoteRunnerService>;
   const config = {
@@ -341,7 +357,7 @@ async function fixture({ periodicRescan = false } = {}) {
       id: string,
       options: { parent?: string; legacy?: boolean; local?: boolean } = {}
     ) {
-      const cwd = options.local ? checkout(id) : placement;
+      const cwd = checkout(id);
       if (options.local) {
         localIds.push(id);
         mkdirSync(cwd, { recursive: true });

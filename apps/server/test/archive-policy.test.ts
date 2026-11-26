@@ -180,17 +180,16 @@ function harness(
   } as unknown as Pool;
   const remote = {
     connectionEpoch: () => (options.offline ? undefined : 1),
-    requestSession: async (_placement: unknown, request: { kind: string }) => {
+    call: async (_runner: string, op: string) => {
       if (options.offline) throw new Error("Runner is offline.");
-      if (request.kind === "checkoutRelease")
-        return { value: JSON.stringify(await observeRow()) };
+      if (op === "workspace.observe") return observeRow();
       if (options.releaseError) throw new Error("release failed");
       const removed = await workspaceWorkload.release(
         "agent-fixture",
         { path: checkout },
         { deleteBranch: true, originalBranch: "feature" }
       );
-      return { value: JSON.stringify({ removed }) };
+      return { removed };
     },
   } as unknown as RemoteRunnerService;
   const agent = {
@@ -200,12 +199,11 @@ function harness(
       worktreeBranch: null,
     }),
     ...(options.rowWorktree && { worktreePath: options.rowWorktree }),
-    cwd: row.placement === "runner" ? "runner://test/@session" : repo,
+    cwd: row.placement === "runner" ? checkout : repo,
     placement:
       row.placement === "runner"
         ? placementForRunner("test")
         : controllerPlacement,
-    runnerManaged: row.placement === "runner",
   } as unknown as AgentRecord;
   const deps = {
     pool,
@@ -615,60 +613,56 @@ describe("negotiated archive release", () => {
       expect(db.checkoutState).toBeNull();
 
       writeFileSync(path.join(checkout, "late.txt"), "written while offline");
-      const requestSession = vi.fn(async (_placement, request) => {
-        if (request.kind === "checkoutRelease") {
+      const call = vi.fn(async (_runner, op, request) => {
+        if (op === "workspace.observe") {
           // A forced archive asks ownership alone: no Git status or fetch.
-          expect(request.operation).toEqual({
-            kind: "observe",
-            policy: mode === "force" ? "ownership" : "changes",
+          expect(request).toEqual({
+            session: agent.id,
+            ...(mode === "force" && { policy: "ownership" }),
           });
           return {
-            value: JSON.stringify({
-              ownership,
-              owner: ownership === "owned" ? agent.id : null,
-              borrowers: ["borrower"],
-              checkout:
-                mode === "force"
-                  ? null
-                  : {
-                      path: checkout,
-                      branch: "feature",
-                      stateId: "0".repeat(64),
-                      unmerged: false,
-                      changedFiles: [],
-                      uncommittedFiles: ["late.txt"],
-                    },
-            }),
+            ownership,
+            owner: ownership === "owned" ? agent.id : null,
+            borrowers: ["borrower"],
+            checkout:
+              mode === "force"
+                ? null
+                : {
+                    path: checkout,
+                    branch: "feature",
+                    stateId: "0".repeat(64),
+                    unmerged: false,
+                    changedFiles: [],
+                    uncommittedFiles: ["late.txt"],
+                  },
           };
         }
         expect(request).toMatchObject({
-          kind: "workspaceRelease",
-          agentId: agent.id,
-          operation: { deleteBranch: true, originalBranch: "feature" },
+          session: agent.id,
+          deleteBranch: true,
+          originalBranch: "feature",
         });
-        expect(request.operation).not.toHaveProperty("expectedState");
+        expect(request).not.toHaveProperty("expectedState");
         const removed = await workspaceWorkload.release(
           agent.id,
           { path: checkout },
-          request.operation
+          request
         );
-        return { value: JSON.stringify({ removed }) };
+        return { removed };
       });
       deps.remote = {
         connectionEpoch: () => 1,
-        requestSession,
+        call,
       } as unknown as RemoteRunnerService;
       expect(await finishCheckout(deps, agent, mode, true, {})).toBe(false);
       expect(existsSync(checkout)).toBe(!removes);
       expect(db.checkoutState).toBeNull();
-      expect(
-        requestSession.mock.calls.map(([, request]) => request.kind)
-      ).toEqual(
+      expect(call.mock.calls.map(([, op]) => op)).toEqual(
         mode === "keep"
           ? []
           : removes
-            ? ["checkoutRelease", "workspaceRelease"]
-            : ["checkoutRelease"]
+            ? ["workspace.observe", "workspace.release"]
+            : ["workspace.observe"]
       );
     }
   );
@@ -684,30 +678,27 @@ describe("a gone runner checkout", () => {
     } as const;
     const { deps, agent } = harness(row);
     git(repo, "worktree", "remove", "--force", checkout);
-    const requestSession = vi.fn(async (_placement, request) => {
-      if (request.kind === "checkoutRelease")
+    const call = vi.fn(async (_runner, op, request) => {
+      if (op === "workspace.observe")
         return {
-          value: JSON.stringify({
-            ownership: "owned",
-            owner: agent.id,
-            borrowers: [],
-            checkout: null,
-          }),
+          ownership: "owned",
+          owner: agent.id,
+          borrowers: [],
+          checkout: null,
         };
       expect(request).toMatchObject({
-        kind: "workspaceRelease",
-        agentId: agent.id,
+        session: agent.id,
       });
-      return { value: JSON.stringify({ removed: true }) };
+      return { removed: true };
     });
     deps.remote = {
       connectionEpoch: () => 1,
-      requestSession,
+      call,
     } as unknown as RemoteRunnerService;
     expect(await finishCheckout(deps, agent, "auto", true, {})).toBe(false);
-    expect(requestSession.mock.calls.map(([, r]) => r.kind)).toEqual([
-      "checkoutRelease",
-      "workspaceRelease",
+    expect(call.mock.calls.map(([, op]) => op)).toEqual([
+      "workspace.observe",
+      "workspace.release",
     ]);
   });
 });
@@ -958,7 +949,8 @@ describe("runner archive co-owner, whatever the row's worktree path", () => {
         pool,
         {
           id: "runner-agent",
-          cwd: "runner://test/@session",
+          cwd: "/workload/checkout",
+          placement: placementForRunner("test"),
           worktreePath,
           worktreeBranch: null,
           baseBranch: null,

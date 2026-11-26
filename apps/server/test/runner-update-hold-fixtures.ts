@@ -67,6 +67,7 @@ export async function scriptedHost(
               resumed: false,
               running: true,
               turn: null,
+              commands: [],
               journalSeq: seq,
               steeringSupported: true,
               ...(message.replayComplete && { journalId: "journal" }),
@@ -80,7 +81,7 @@ export async function scriptedHost(
             encodeMessage({
               type: "steer_result",
               id: message.id,
-              outcome: "steered",
+              outcome: "injected",
             } as HostMessage)
           );
         } else if (message.type === "prompt") {
