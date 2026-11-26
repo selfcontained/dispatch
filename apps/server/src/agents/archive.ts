@@ -5,7 +5,6 @@ import { MANAGED_WORKSPACE, remotePlacement } from "@dispatch/runner-protocol";
 import {
   archiveRunner,
   type ArchiveCheckoutAgent,
-  type LocalArchiveRunner,
 } from "./archive-checkout.js";
 import {
   archiveExecutor,
@@ -33,7 +32,6 @@ export type ArchiveDeps = {
   pool: Pool;
   logger: FastifyBaseLogger;
   runtime: AgentRuntime;
-  localRunner: LocalArchiveRunner;
   remote?: RemoteRunnerService;
   /** The local runner child serves stop hooks and release for bound checkouts. */
   localRunnerChild?: () => Runner | undefined;
@@ -252,7 +250,6 @@ export async function executeArchive(
         agent,
         logger,
         {
-          local: deps.localRunner,
           remote: deps.remote,
           child: deps.localRunnerChild,
         },
@@ -409,7 +406,6 @@ export async function deleteAgentDirect(
         agent,
         logger,
         {
-          local: deps.localRunner,
           remote: deps.remote,
           child: deps.localRunnerChild,
         },

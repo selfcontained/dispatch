@@ -21,7 +21,6 @@ import {
   runLane,
   scenarios,
 } from "@dispatch/runner-conformance";
-import { createLocalRunner } from "../src/agents/local-runner.js";
 import { checkoutRunners } from "../src/runners/directory.js";
 import { controllerPlacement } from "../src/runners/placement.js";
 
@@ -42,10 +41,7 @@ it("matches the adapter lane's baseline", async () => {
     workspacePath: null,
     placement: controllerPlacement,
   };
-  const { directory, placement } = checkoutRunners(
-    { local: createLocalRunner(path.join(root, "hosts"), logger) },
-    agent
-  );
+  const { directory, placement } = checkoutRunners({}, agent);
   const adapter = directory.for(placement);
   const results = await runLane(
     async () => ({

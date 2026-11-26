@@ -11,7 +11,6 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createLocalRunner } from "../src/agents/local-runner.js";
 import { runLifecycleHook } from "../src/agents/lifecycle-hooks.js";
 import type { AgentRecord } from "../src/agents/types.js";
 import { controllerPlacement } from "../src/runners/placement.js";
@@ -115,7 +114,7 @@ describe("repo command environment", () => {
           placement: controllerPlacement,
         } as AgentRecord,
         logger,
-        { local: createLocalRunner(path.join(root, "host-state"), logger) }
+        {}
       )
     ).resolves.toBeUndefined();
   });
@@ -220,7 +219,7 @@ describe("repo command environment", () => {
           workspacePath: null,
         } as AgentRecord,
         logger,
-        { local: createLocalRunner(root, logger) }
+        {}
       )
     ).resolves.toBeUndefined();
     expect(logger.info).toHaveBeenCalled();

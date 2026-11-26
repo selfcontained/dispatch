@@ -231,3 +231,5 @@ Unused in source since the archive seam and B2, deleted with legacy (tests still
 ### T40 F_OK presence seam (intentional operation addition)
 
 `checkout.access` intentionally raises the operation count from 72 to 73. It probes native F_OK access (links followed; directories and unreadable files present), returns false only on ENOENT, and carries other native errors unchanged with code/path/syscall details. Its two planned controller consumers are the assessor's primary/legacy map selection and then the folder picker's `hasCodeowners`. Selection order stays in the controller: select with access, read the selected file once using native mode, and never try legacy after a read-time ENOENT. The assessor is an explicitly named native-read consumer alongside folder/project definition readers. Writes and commands still do not accept the owned selector.
+
+By owner decision, the controller no longer looks up or converts workspace receipts from unreleased branch revisions. The runner resumes current receipts and the controller replays the request persisted on the agent row when needed. Agents created by older revisions of this branch may need archiving or relaunching.
