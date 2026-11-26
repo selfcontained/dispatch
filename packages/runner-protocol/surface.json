@@ -1902,6 +1902,11 @@
       "request": {
         "object": {
           "path": "string",
+          "automatic": {
+            "optional": {
+              "literal": [true]
+            }
+          },
           "git": {
             "optional": {
               "literal": [false]
@@ -3150,6 +3155,28 @@
         "kind": "read"
       },
       "timeout": "default",
+      "capability": "baseline"
+    },
+    "git.remoteHeads": {
+      "scope": "runner",
+      "kind": "call",
+      "request": {
+        "object": {
+          "path": "string"
+        }
+      },
+      "response": {
+        "object": {
+          "branches": {
+            "array": "string"
+          }
+        }
+      },
+      "errors": [],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "long",
       "capability": "baseline"
     },
     "git.branches": {

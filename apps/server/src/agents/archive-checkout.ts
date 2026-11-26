@@ -17,7 +17,6 @@ import {
   type CheckoutCommandRunners,
   type RunnerComposition,
 } from "../runners/directory.js";
-import type { createLocalRunner } from "./local-runner.js";
 import { observeBoundCheckout } from "@dispatch/runner-protocol";
 import { AgentError } from "./errors.js";
 import type { RemoteRunnerService } from "./remote/service.js";
@@ -27,11 +26,6 @@ import type { AgentRecord, WorktreeCleanupMode } from "./types.js";
 export type ArchiveCheckoutAgent = Pick<
   AgentRecord,
   "id" | "cwd" | "worktreePath" | "baseBranch" | "worktreeBranch"
->;
-
-export type LocalArchiveRunner = Pick<
-  ReturnType<typeof createLocalRunner>,
-  "bindWorkspace"
 >;
 
 /** A row's session on the agent's runner, through the directory. */
@@ -64,8 +58,7 @@ export function archiveObservation(
 export async function nativeBorrowers(
   pool: Pool,
   agent: ArchiveCheckoutAgent,
-  canonicalPath: string,
-  localRunner: Pick<LocalArchiveRunner, "bindWorkspace">
+  canonicalPath: string
 ) {
   const path = agent.worktreePath;
   if (!path) return [];
@@ -89,11 +82,11 @@ export async function nativeBorrowers(
   for (const row of rows) {
     // A launch that asked for its own worktree but never got one only kept
     // its launch cwd; like a runner session that never bound, it borrows
-    // nothing. Its row records the request; an earlier build's, its receipt.
+    // nothing. Its row records the request.
     if (
       !row.worktreePath &&
       (!row.workspacePath || !checkoutPaths.has(row.workspacePath)) &&
-      (row.requested || (await localRunner.bindWorkspace(row.id)))
+      row.requested
     )
       continue;
     borrowers.push(row.id);
@@ -109,13 +102,10 @@ export async function nativeBorrowers(
 export async function observeArchiveCheckout(
   pool: Pool,
   agent: ArchiveCheckoutAgent & Pick<AgentRecord, "placement">,
-  localRunner: LocalArchiveRunner,
   remote?: RemoteRunnerService,
   child?: () => Runner | undefined
 ): Promise<CheckoutObservation> {
-  return borrowerAsMain(
-    await observeOnRunner(pool, agent, localRunner, remote, child)
-  );
+  return borrowerAsMain(await observeOnRunner(pool, agent, remote, child));
 }
 
 /**
@@ -133,7 +123,6 @@ function borrowerAsMain(observed: CheckoutObservation): CheckoutObservation {
 async function observeOnRunner(
   pool: Pool,
   agent: ArchiveCheckoutAgent & Pick<AgentRecord, "placement">,
-  localRunner: LocalArchiveRunner,
   remote?: RemoteRunnerService,
   child?: () => Runner | undefined
 ): Promise<CheckoutObservation> {
@@ -173,7 +162,7 @@ async function observeOnRunner(
   return observeBoundCheckout(
     agent.id,
     binding.id,
-    await nativeBorrowers(pool, binding, checkoutPath, localRunner),
+    await nativeBorrowers(pool, binding, checkoutPath),
     observed.checkout
   );
 }

@@ -206,7 +206,10 @@ export type WorktreeSpec = {
  * decides what happens and in which order, records it, and binds the
  * session; the platform does each step on the machine.
  */
+import type { LaunchFolderProbes } from "@dispatch/runner-protocol/in-process";
+
 export interface WorkspacePort {
+  launchProbes?: LaunchFolderProbes;
   /** Carry out an authorized release of the bound checkout. */
   release?(
     session: string,

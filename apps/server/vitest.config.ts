@@ -27,6 +27,7 @@ process.on("exit", () => {
 export default defineConfig({
   test: {
     globals: true,
+    setupFiles: ["./test/helpers/in-process-ports.ts"],
     testTimeout: 30_000,
     hookTimeout: 30_000,
     env: {

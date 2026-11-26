@@ -1,14 +1,14 @@
-import { shouldSkipAutomaticMacPathProbe } from "../shared/mac-path-privacy.js";
 import {
   inProcessEngines,
   localEngineCalls,
   type EngineCalls,
 } from "../runners/local.js";
+import { displayPath } from "@dispatch/runner-protocol/contract";
 import {
-  completeLocalPath,
-  inspectLocalPath,
-  listLocalRemoteBranches,
-} from "../agents/local-workspace-probes.js";
+  runnerDirectory,
+  type CheckoutCommandRunners,
+} from "../runners/directory.js";
+import { controllerPlacement } from "../runners/placement.js";
 import { projectRepositoryUrl } from "../agents/remote/repository.js";
 import {
   isAllowedSlackLinkOrigin,
@@ -40,7 +40,6 @@ import {
   updateModelAvailability,
   settingsModelCatalog,
 } from "../agents/model-availability.js";
-import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import {
   agentModelAvailability,
   readStoredAgentModelCatalog,
@@ -90,6 +89,7 @@ const ModelAvailabilityBodySchema = z.union([
 ]);
 
 type SystemRouteDeps = {
+  runners?: CheckoutCommandRunners;
   engineCalls?: EngineCalls;
   runnerEngines?: (runnerId: string) => {
     engineCalls: EngineCalls;
@@ -261,6 +261,9 @@ export async function registerSystemRoutes(
     availability: agentModelAvailability(),
   }));
 
+  const launchFolderRunner = () =>
+    runnerDirectory(deps.runners ?? {}).for(controllerPlacement);
+
   app.get("/api/v1/system/path-info", async (request, reply) => {
     const query = request.query as { path?: unknown };
     if (typeof query?.path !== "string" || !query.path.trim()) {
@@ -268,8 +271,18 @@ export async function registerSystemRoutes(
         .code(400)
         .send({ error: "path query parameter is required." });
     }
-    const resolved = resolveTilde(query.path.trim());
-    return inspectLocalPath(resolved, shouldSkipAutomaticMacPathProbe);
+    const { exists, isDirectory, isGitRepo, privacyRestricted, resolvedPath } =
+      await launchFolderRunner().call("path.resolve", {
+        path: query.path.trim(),
+        automatic: true,
+      });
+    return {
+      exists,
+      isDirectory,
+      isGitRepo,
+      privacyRestricted,
+      resolvedPath: displayPath(resolvedPath),
+    };
   });
 
   app.get("/api/v1/system/path-completions", async (request, reply) => {
@@ -279,10 +292,10 @@ export async function registerSystemRoutes(
         .code(400)
         .send({ error: "prefix query parameter is required." });
     }
-    return completeLocalPath(
-      query.prefix.trim(),
-      shouldSkipAutomaticMacPathProbe
-    );
+    return launchFolderRunner().call("path.complete", {
+      prefix: query.prefix.trim(),
+      limit: 20,
+    });
   });
 
   app.get("/api/v1/git/branches", async (request, reply) => {
@@ -325,7 +338,9 @@ export async function registerSystemRoutes(
         .send({ error: "cwd query parameter is required." });
     }
     try {
-      return await listLocalRemoteBranches(query.cwd.trim());
+      return await launchFolderRunner().call("git.remoteHeads", {
+        path: query.cwd.trim(),
+      });
     } catch {
       return reply.code(500).send({ error: "Failed to list remote branches." });
     }

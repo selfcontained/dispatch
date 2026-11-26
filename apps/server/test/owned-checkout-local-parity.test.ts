@@ -175,6 +175,51 @@ it("keeps a prepared worktree's root when its receipt resumes after a workspace 
   expect(binding?.currentPath).toBe(fixture.moved);
 });
 
+it.each([true, false])(
+  "preserves workspace release across a child recycle (prepared: %s)",
+  async (prepared) => {
+    const session = sessionFromWire(
+      prepared ? "agt_receiptrecycle" : "agt_noreceiptrecycle"
+    );
+    if (prepared) {
+      await child.session.call("workspace.prepare", {
+        session,
+        source: { directory: pathFromWire(fixture.repo) },
+        worktree: {
+          name: "receipt-recycle",
+          branch: "receipt-recycle",
+          base: "main",
+          create: true,
+        },
+        copyIgnored: [],
+        installDependencies: false,
+      });
+    } else {
+      await new BindingStore(state).import([
+        {
+          session,
+          path: fixture.repo,
+          currentPath: null,
+          worktree: null,
+        },
+      ]);
+    }
+    await child.stop();
+    child = startTestLocalRunner(state);
+    await child.ready();
+    const resumed = await child.session.call("workspace.resume", { session });
+    if (prepared) expect(resumed?.worktree?.branch).toBe("receipt-recycle");
+    else expect(resumed).toBeNull();
+    expect(
+      await child.session.call("workspace.release", {
+        session,
+        originalBranch: null,
+        deleteBranch: false,
+      })
+    ).toEqual({ removed: prepared });
+  }
+);
+
 it.each(names)(
   "reads owned through the real child and identical in-process port: %s",
   async (name) => {

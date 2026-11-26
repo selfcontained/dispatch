@@ -65,6 +65,7 @@ import { getActivePersonality } from "../db/personalities.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import {
   archiveCheckout,
+  retainUnflaggedCheckout,
   beginArchive as beginArchiveImpl,
   executeArchive as executeArchiveImpl,
   type ArchiveDeps,
@@ -103,7 +104,6 @@ import {
 } from "./launch-guidance.js";
 import type { TerminalBackend } from "../terminal/manager.js";
 import { terminalBackendFor } from "../runners/directory.js";
-import { createLocalRunner } from "./local-runner.js";
 import {
   prepareLocalWorkspace,
   resumeLocalWorkspace,
@@ -530,7 +530,6 @@ export class AgentManager {
   private readonly diagnostics: DiagnosticsRecorder;
   private readonly eventBus: AgentEventBus;
   private readonly runtime: AgentRuntime;
-  private readonly localRunner: ReturnType<typeof createLocalRunner>;
   private readonly jobActivity = new Map<string, number>();
 
   /** Last actual engine event, excluding host heartbeats and snapshots. */
@@ -595,7 +594,6 @@ export class AgentManager {
     });
     this.logger = logger;
     this.config = config;
-    this.localRunner = createLocalRunner(config.agentStateRoot);
     this.remote = options.remote;
     this.holds = options.holds;
     this.recoveredLaunchWaitMs = options.recoveredLaunchWaitMs ?? 10 * 60_000;
@@ -1674,7 +1672,6 @@ export class AgentManager {
   /** The runners an agent's checkout reads and commands go through. */
   checkoutReadRunners() {
     return {
-      local: this.localRunner,
       remote: this.remote ?? undefined,
       child: this.localRunnerChild,
     };
@@ -3785,18 +3782,16 @@ export class AgentManager {
       await this.retryPendingStop(id);
       if (!remotePlacement(agent.cwd) && !agent.worktreePath) {
         // A worktree launch a restart interrupted: the local runner finishes
-        // it, from its receipt, else from the request the row recorded. An
-        // earlier build recorded the request in the receipt only.
+        // it from its receipt or from the request the row recorded.
         const recorded = await this.localPreparation(id);
-        if (recorded || (await this.localRunner.bindWorkspace(id))) {
+        if (recorded) {
           const child = this.localRunnerChild();
           const progress = this.workspaceProgress(id, agent.type);
           const workspace = await resumeLocalWorkspace(child, id, progress)
             .then(
               (resumed) =>
                 resumed ??
-                (recorded &&
-                  prepareRecordedWorkspace(child, id, recorded, progress))
+                prepareRecordedWorkspace(child, id, recorded, progress)
             )
             .catch(asWorktreeError);
           if (workspace) {
@@ -4600,7 +4595,6 @@ export class AgentManager {
       observation = await observeArchiveCheckout(
         this.pool,
         agent,
-        this.localRunner,
         this.remote,
         this.localRunnerChild
       );
@@ -4682,36 +4676,39 @@ export class AgentManager {
         ArchiveCheckoutAgent & {
           mode: WorktreeCleanupMode | null;
           runner_id: string;
+          runnerManaged: boolean;
         }
       >(
         `SELECT id, cwd, worktree_path AS "worktreePath", base_branch AS "baseBranch",
-                worktree_branch AS "worktreeBranch", archive_cleanup_mode AS mode, runner_id
+                worktree_branch AS "worktreeBranch", archive_cleanup_mode AS mode, runner_id, runner_managed AS "runnerManaged"
          FROM agents WHERE runner_cleanup_pending AND deleted_at IS NOT NULL ORDER BY id`
       );
       for (const agent of rows) {
         const { id, cwd, mode } = agent;
         try {
-          if (remotePlacement(cwd)) {
-            if (!this.remote) continue;
-            await this.runtime.stop(id, true);
-            await this.streamRecorder.settleStopped(id);
-            await this.runtime.clearRemoteState?.(id);
-          }
-          const outcome = await archiveCheckout(
-            this.pool,
-            this.logger,
-            agent,
-            mode ?? "auto",
-            true,
-            undefined,
-            archiveRunner(
-              { child: this.localRunnerChild, remote: this.remote },
+          if (!retainUnflaggedCheckout(agent)) {
+            if (remotePlacement(cwd)) {
+              if (!this.remote) continue;
+              await this.runtime.stop(id, true);
+              await this.streamRecorder.settleStopped(id);
+              await this.runtime.clearRemoteState?.(id);
+            }
+            const outcome = await archiveCheckout(
+              this.pool,
+              this.logger,
               agent,
-              placementFromRow(agent)
-            ),
-            this.remote
-          );
-          if (outcome.kind === "pending") continue;
+              mode ?? "auto",
+              true,
+              undefined,
+              archiveRunner(
+                { child: this.localRunnerChild, remote: this.remote },
+                agent,
+                placementFromRow(agent)
+              ),
+              this.remote
+            );
+            if (outcome.kind === "pending") continue;
+          }
           await this.pool.query(
             "UPDATE agents SET runner_cleanup_pending = false, archive_cleanup_mode = NULL, archive_checkout_state = NULL WHERE id = $1",
             [id]
@@ -4920,7 +4917,6 @@ export class AgentManager {
       pool: this.pool,
       logger: this.logger,
       runtime: this.runtime,
-      localRunner: this.localRunner,
       remote: this.remote,
       localRunnerChild: () => this.localRunnerChild(),
       diffStatsRefresher: this.diffStatsRefresher,

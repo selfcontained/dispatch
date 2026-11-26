@@ -31,7 +31,6 @@ import {
   hostFile,
   type HostLaunch,
 } from "@dispatch/runner-client/host-framing";
-import { observeBoundCheckout } from "../checkout-observation.js";
 import {
   displayPath,
   RunnerCallError,
@@ -53,6 +52,9 @@ import {
   type SessionFileOperation,
   type SessionCheckout,
   type CheckoutObservation,
+  observeBoundCheckout,
+  parseRepository,
+  repositoryUrl,
   type CheckoutRelease,
   type CheckoutReleaseResult,
   type CheckoutState,
@@ -62,7 +64,6 @@ import {
   type RunnerRepository,
   type RunnerEngine,
 } from "@dispatch/runner-protocol";
-import { parseRepository, repositoryUrl } from "./repository.js";
 import { sizedName } from "./session-files.js";
 import {
   classifySessionIdentity,
@@ -1667,7 +1668,7 @@ export async function createSessionSupervisor(
             const agentId =
               classified.kind === "current"
                 ? classified.record.sessionId
-                : (identity.sessionId ?? (key.startsWith("agt_") ? key : null));
+                : identity.sessionId;
             if (!agentId || runnerStorageKey(agentId) !== key) return null;
             const launch = await core.readLaunch(key);
             if (owner !== null && launch?.owner !== owner) return null;

@@ -45,8 +45,8 @@ type ReadAgent = ComparisonBaseAgent &
   Partial<Pick<AgentRecord, "id" | "placement">>;
 
 function readRunners(runners: CheckoutReadRunners): CheckoutCommandRunners {
-  if (runners && "local" in runners) return runners as CheckoutCommandRunners;
-  return { remote: (runners as RemoteRunnerService | null) ?? undefined };
+  if (runners && "requestSession" in runners) return { remote: runners };
+  return runners ?? {};
 }
 
 /** The agent's checkout runner, by its placement. */

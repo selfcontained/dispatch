@@ -546,11 +546,6 @@ describe("AgentManager", () => {
         checkoutState: stateId,
       });
       await resumed.beginArchive(agent.id, "auto", stateId);
-      // Simulate a row created before runner_managed was populated.
-      await pool.query(
-        "UPDATE agents SET runner_managed = false WHERE id = $1",
-        [agent.id]
-      );
       available.mockReturnValue(false);
       await expect(resumed.checkWorktreeStatus(agent.id)).rejects.toMatchObject(
         { statusCode: 503 }
@@ -593,6 +588,60 @@ describe("AgentManager", () => {
         operation: { kind: "release", expectedState: stateId },
       });
       expect(discard).not.toHaveBeenCalled();
+    });
+
+    it("retains an unflagged managed locator on archive and pending retry", async () => {
+      const id = "old-managed-session";
+      const remote = {
+        available: vi.fn(() => true),
+        requestSession: vi.fn(),
+      } as unknown as RemoteRunnerService;
+      const runtime = {
+        ...createSpyRuntime(),
+        clearRemoteState: vi.fn(),
+        discard: vi.fn(),
+      };
+      const manager = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      await pool.query(
+        `INSERT INTO agents (id, name, cwd, status, runner_id, runner_managed)
+        VALUES ($1, 'Older session', 'runner://runner-test/@session', 'running', 'runner-test', false)`,
+        [id]
+      );
+      await manager.beginArchive(id, "force");
+      await manager.executeArchive(id, {
+        onPhaseChange: vi.fn(),
+        onComplete: vi.fn(),
+        onError: vi.fn(),
+      });
+      await pool.query(
+        "UPDATE agents SET runner_cleanup_pending = true, archive_cleanup_mode = 'force' WHERE id = $1",
+        [id]
+      );
+      await manager.reconcileAgentStatuses();
+      await vi.waitFor(async () =>
+        expect(
+          (
+            await pool.query(
+              "SELECT runner_cleanup_pending, archive_cleanup_mode FROM agents WHERE id = $1 AND deleted_at IS NOT NULL",
+              [id]
+            )
+          ).rows
+        ).toEqual([
+          { runner_cleanup_pending: false, archive_cleanup_mode: null },
+        ])
+      );
+      expect(runtime.clearRemoteState).not.toHaveBeenCalled();
+      expect(runtime.discard).not.toHaveBeenCalled();
+      expect(
+        vi
+          .mocked(remote.requestSession)
+          .mock.calls.filter(
+            ([, request]) => request.kind === "checkoutRelease"
+          )
+      ).toEqual([]);
     });
 
     it("retries an offline archive in a configured runner workspace until the host is stopped and released (audit #17)", async () => {

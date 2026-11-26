@@ -1,6 +1,4 @@
 import { inferRepositoryUrl } from "../src/agents/checkout-worker.js";
-import { runnerWorktree } from "../src/agents/workspace-launch.js";
-import { WORKTREE_LOCAL_CONFIG_FILES } from "../src/agents/worktree-local-config-files.js";
 import { launchDirectory } from "../src/agents/workspace-launch.js";
 /*
  * Local launch preparation through the real local runner child (T18): the
@@ -15,13 +13,11 @@ import {
   readFile,
   realpath,
   rm,
-  stat,
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { FastifyBaseLogger } from "fastify";
 import { afterEach, expect, it, vi } from "vitest";
 import {
   RunnerCallError,
@@ -32,7 +28,6 @@ import {
   type LaunchedRunner,
 } from "@dispatch/runner-client/launcher";
 import { LocalRunnerSession } from "@dispatch/runner-client/session";
-import { createLocalRunner } from "../src/agents/local-runner.js";
 import { resolveLaunchDirectory as resolveWorkloadDirectory } from "../src/agents/workspace.js";
 import {
   prepareLocalWorkspace,
@@ -41,7 +36,6 @@ import {
 } from "../src/agents/workspace-launch.js";
 import { runCommand } from "../src/shared/lib/run-command.js";
 
-const logger = { info: vi.fn(), warn: vi.fn() } as unknown as FastifyBaseLogger;
 const entry = fileURLToPath(
   new URL("./fixtures/local-runner-entry.ts", import.meta.url)
 );
@@ -182,7 +176,6 @@ it("prepares native folders, direct checkouts and independent worktrees in the c
   const folder = path.join(root, "folder");
   await mkdir(folder);
   const hosts = path.join(root, "hosts");
-  const app = createLocalRunner(hosts, logger);
   const { session } = await startChild(hosts);
   const native = await resolveLaunchDirectory(checkout);
 
@@ -314,7 +307,6 @@ it("finishes a launch whose runner died after Git made the worktree, without a s
   const hosts = path.join(root, "hosts");
   const marker = path.join(root, "die-after-create");
   await writeFile(marker, "");
-  const app = createLocalRunner(hosts, logger);
   const { session, pids } = await startChild(hosts, {
     RUNNER_DIE_AFTER_CREATE: marker,
   });
@@ -348,8 +340,12 @@ it("finishes a launch whose runner died after Git made the worktree, without a s
   expect(await stored(hosts, "crash")).toMatchObject({
     checkout: { path: nested, ownership: "owned" },
   });
-  // The runner's receipt is there, as an earlier build's Start looks for it.
-  expect(await app.bindWorkspace("crash")).toBe(true);
+  // The restarted child persisted the current preparation receipt.
+  expect(
+    JSON.parse(
+      await readFile(path.join(hosts, "crash", "workspace-preparation"), "utf8")
+    ).request.branch
+  ).toBe("session/crash");
 });
 
 it("binds a launch whose runner died after preparing and before binding", async () => {
@@ -358,7 +354,6 @@ it("binds a launch whose runner died after preparing and before binding", async 
   const hosts = path.join(root, "hosts");
   const marker = path.join(root, "die-after-install");
   await writeFile(marker, "");
-  const app = createLocalRunner(hosts, logger);
   const { session, pids, child } = await startChild(hosts, {
     RUNNER_DIE_AFTER_INSTALL: marker,
   });
@@ -391,42 +386,6 @@ it("binds a launch whose runner died after preparing and before binding", async 
     await prepareLocalWorkspace(session, "late", native, request, progress())
   ).toMatchObject({ worktreePath: prepared.effectiveCwd });
   expect(await worktrees(checkout)).toBe(2);
-});
-
-it("resumes a receipt an earlier build of this branch wrote", async () => {
-  const root = await tempRoot();
-  const { checkout } = await repository(root);
-  const hosts = path.join(root, "hosts");
-  const app = createLocalRunner(hosts, logger);
-  const { session } = await startChild(hosts);
-  const source = await realpath(checkout);
-  // The earlier shape: the app's request, no copy list.
-  await mkdir(path.join(hosts, "legacy"), { recursive: true });
-  const evidence = await stat(source, { bigint: true });
-  await writeFile(
-    path.join(hosts, "legacy", "workspace-preparation"),
-    JSON.stringify({
-      cwd: checkout,
-      source,
-      sourceIdentity: `${evidence.dev}:${evidence.ino}:${evidence.birthtimeNs}`,
-      request: {
-        name: "Legacy",
-        branch: "legacy/work",
-        createNewBranch: true,
-        location: "nested",
-      },
-    })
-  );
-  expect(await app.bindWorkspace("legacy")).toBe(true);
-  const resumed = await resumeLocalWorkspace(session, "legacy", progress());
-  const nested = path.join(checkout, ".dispatch", "worktrees", "legacy-work");
-  expect(resumed).toMatchObject({
-    worktreePath: nested,
-    worktreeBranch: "legacy/work",
-  });
-  expect(await readFile(path.join(nested, ".env"), "utf8")).toBe(
-    "LOCAL_CONFIG=fixture\n"
-  );
 });
 
 it("keeps a worktree main created as the import found it", async () => {
@@ -463,7 +422,6 @@ it("refuses preparation while the child is frozen, and writes nothing", async ()
   const root = await tempRoot();
   const { checkout } = await repository(root);
   const hosts = path.join(root, "hosts");
-  const app = createLocalRunner(hosts, logger);
   const { session, child } = await startChild(hosts);
   await child().fence(true, 10_000);
   const refused = await prepareLocalWorkspace(
@@ -474,7 +432,9 @@ it("refuses preparation while the child is frozen, and writes nothing", async ()
     progress()
   ).catch((error: unknown) => error);
   expect(refused).toMatchObject({ code: "fenced" });
-  expect(await app.bindWorkspace("frozen")).toBe(false);
+  await expect(
+    readFile(path.join(hosts, "frozen", "workspace-preparation"))
+  ).rejects.toMatchObject({ code: "ENOENT" });
   expect(await worktrees(checkout)).toBe(1);
   await child().fence(false, 10_000);
 });
@@ -482,43 +442,6 @@ it("refuses preparation while the child is frozen, and writes nothing", async ()
 function resolveLaunchDirectory(raw: string) {
   return resolveWorkloadDirectory(raw, launchDirectory, inferRepositoryUrl);
 }
-
-it("upgrades legacy local receipts with the controller's exact mapping and config list", async () => {
-  const state = await mkdtemp(path.join(os.tmpdir(), "workspace-inputs-"));
-  try {
-    const directory = path.join(state, "legacy");
-    await mkdir(directory);
-    const request = {
-      name: "legacy",
-      branch: "topic",
-      createNewBranch: true,
-      location: "nested" as const,
-    };
-    const receipt = {
-      source: "/source",
-      sourceIdentity: "source",
-      cwd: "/source",
-      request,
-    };
-    await writeFile(
-      path.join(directory, "workspace-preparation"),
-      JSON.stringify(receipt)
-    );
-    expect(await createLocalRunner(state).bindWorkspace("legacy")).toBe(true);
-    expect(
-      JSON.parse(
-        await readFile(path.join(directory, "workspace-preparation"), "utf8")
-      )
-    ).toEqual({
-      ...receipt,
-      request: runnerWorktree(request),
-      copy: [...WORKTREE_LOCAL_CONFIG_FILES],
-      install: true,
-    });
-  } finally {
-    await rm(state, { recursive: true, force: true });
-  }
-});
 
 it("keeps the Linux entry on its privsep workspace composition", async () => {
   const main = await readFile(

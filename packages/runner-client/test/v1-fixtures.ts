@@ -276,6 +276,29 @@ export const results: ResultFixture[] = [
       workspace,
       agentId: "@path",
       kind: "pathResolve",
+      operation: {
+        op: "path.complete",
+        request: { prefix: "~/src/", limit: 20 },
+      },
+    } as Command,
+    value: json({
+      data: { completions: ["~/src/app"], privacyRestricted: false },
+    }),
+  },
+  {
+    command: {
+      workspace,
+      agentId: "@path",
+      kind: "pathResolve",
+      operation: { op: "git.remoteHeads", request: { path: "~/src/app" } },
+    } as Command,
+    value: json({ data: { branches: ["main", "feature"] } }),
+  },
+  {
+    command: {
+      workspace,
+      agentId: "@path",
+      kind: "pathResolve",
       operation: { op: "path.resolve", request: { path: "~/src/app" } },
     } as Command,
     value: json({

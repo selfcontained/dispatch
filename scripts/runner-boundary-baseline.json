@@ -66,13 +66,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/archive-checkout.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/local-runner",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/archive-policy.ts",
     "kind": "R1 placement call",
     "detail": "remotePlacement(agent.cwd)",
@@ -406,20 +399,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/local-runner.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/workspace",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner.ts",
-    "kind": "R3 local method",
-    "detail": "bindWorkspace",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/local-workspace-probes.ts",
     "kind": "R2 host access",
     "detail": "fs/promises",
@@ -465,13 +444,6 @@
     "file": "apps/server/src/agents/manager.ts",
     "kind": "R2 host access",
     "detail": "fs/promises",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/manager.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/local-runner",
     "task": "T04",
     "count": 1
   },
@@ -690,13 +662,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/remote/session-storage.ts",
-    "kind": "R5 runner to Dispatch",
-    "detail": "apps/server/src/agents/remote/repository",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/remote/session-supervisor.ts",
     "kind": "R5 Dispatch to client transport",
     "detail": "@dispatch/runner-client/host-framing",
@@ -724,13 +689,6 @@
     "kind": "R5 protocol leak",
     "detail": "agt_",
     "task": "T25",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/session-supervisor.ts",
-    "kind": "R5 runner to Dispatch",
-    "detail": "apps/server/src/agents/remote/repository",
-    "task": "T04",
     "count": 1
   },
   {
@@ -1074,14 +1032,6 @@
   {
     "file": "apps/server/src/main.ts",
     "kind": "R2 host import",
-    "detail": "apps/server/src/shared/process/owned-processes",
-    "task": "T40",
-    "count": 1,
-    "class": "moves-with-workload"
-  },
-  {
-    "file": "apps/server/src/main.ts",
-    "kind": "R2 host import",
     "detail": "apps/server/src/terminal/runner-worker",
     "task": "T04",
     "count": 1
@@ -1178,14 +1128,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/runners/local.ts",
-    "kind": "R5 Dispatch to runner",
-    "detail": "@dispatch/runner/host/host-command",
-    "task": "T40",
-    "count": 1,
-    "class": "moves-with-workload"
-  },
-  {
     "file": "apps/server/src/server.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/shared/lib/run-command",
@@ -1231,13 +1173,6 @@
     "file": "apps/server/src/shared/git/agent-diff.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/shared/git/diff-image",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/shared/git/agent-diff.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/test-files",
     "task": "T04",
     "count": 1
   },
@@ -1322,13 +1257,6 @@
     "file": "apps/server/src/shared/git/diff-stats.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/shared/git/diff-file-rules",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/shared/git/diff-stats.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/test-files",
     "task": "T04",
     "count": 1
   },

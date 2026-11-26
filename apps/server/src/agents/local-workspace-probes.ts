@@ -1,3 +1,5 @@
+import type { LaunchFolderProbes } from "@dispatch/runner-protocol/in-process";
+import { pathFromWire } from "@dispatch/runner-protocol/contract";
 import os from "node:os";
 import path from "node:path";
 import { readdir, stat } from "node:fs/promises";
@@ -60,7 +62,8 @@ export async function inspectLocalPath(
 
 export async function completeLocalPath(
   raw: string,
-  shouldSkipAutomaticMacPathProbe: PathProbePolicy
+  shouldSkipAutomaticMacPathProbe: PathProbePolicy,
+  limit = 20
 ) {
   const resolved = resolveTilde(raw);
   if (!path.isAbsolute(resolved)) {
@@ -87,7 +90,7 @@ export async function completeLocalPath(
         return entry.name.toLowerCase().startsWith(searchPartial);
       })
       .sort((a, b) => a.name.localeCompare(b.name))
-      .slice(0, 20)
+      .slice(0, Math.max(0, Math.min(20, limit)))
       .map((entry) => path.join(searchDir, entry.name));
 
     const homeDir = os.homedir();
@@ -122,4 +125,23 @@ export async function listLocalRemoteBranches(input: string) {
       return a.localeCompare(b);
     });
   return { branches };
+}
+
+export function createLaunchFolderProbes(
+  privacy: PathProbePolicy
+): LaunchFolderProbes {
+  return {
+    async inspect(path) {
+      const facts = await inspectLocalPath(resolveTilde(path), privacy);
+      return {
+        ...facts,
+        resolvedPath: pathFromWire(facts.resolvedPath),
+        canonicalPath: null,
+        projectRoot: null,
+        git: null,
+      };
+    },
+    complete: ({ prefix, limit }) => completeLocalPath(prefix, privacy, limit),
+    remoteHeads: ({ path }) => listLocalRemoteBranches(path),
+  };
 }

@@ -33,7 +33,6 @@ import {
 import { agentComparisonBase } from "../src/agents/effective-base.js";
 import type { AgentRecord } from "../src/agents/types.js";
 import type { DiffResponse } from "@dispatch/shared";
-import { createLocalRunner } from "../src/agents/local-runner.js";
 import {
   archiveObservation,
   archiveRunner,
@@ -765,7 +764,6 @@ describe("archive checkout parity", () => {
     "$placement $mode with a $state checkout",
     async ({ mode, state, placement }) => {
       const logger = { warn: vi.fn() } as unknown as FastifyBaseLogger;
-      const local = createLocalRunner(path.join(fixture, "hosts"), logger);
       const agent = {
         id: "agent/fixture",
         cwd: repo,

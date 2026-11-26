@@ -32,7 +32,6 @@ import { archiveExecutor } from "../src/agents/archive-policy.js";
 import { enrolledArchivePolicy } from "../src/runners/directory.js";
 import { workspaceWorkload } from "../src/agents/checkout-worker.js";
 import { observeGitCheckout } from "../src/agents/checkout-inspection.js";
-import { createLocalRunner } from "../src/agents/local-runner.js";
 import {
   controllerPlacement,
   placementForRunner,
@@ -152,7 +151,6 @@ function harness(
     warn: vi.fn(),
     info: vi.fn(),
   } as unknown as FastifyBaseLogger;
-  const local = createLocalRunner(path.join(fixture, "hosts"), logger);
   const binding = {
     id: "agent-fixture",
     cwd: repo,
@@ -172,7 +170,6 @@ function harness(
       writeFileSync(path.join(checkout, "late.txt"), "late");
     return port(...args);
   });
-  const localRunner = local;
   const pool = {
     query: async (sql: string, params: unknown[]) => {
       if (sql.includes("SET archive_checkout_state"))
@@ -233,7 +230,6 @@ function harness(
   const deps = {
     pool,
     logger,
-    localRunner,
     remote,
     localRunnerChild: () => options.child,
   } as unknown as ArchiveDeps;

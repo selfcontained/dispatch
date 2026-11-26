@@ -71,7 +71,6 @@ vi.mock("../src/agents/checkout-worker.js", async (importOriginal) => {
 import { runLifecycleHook } from "../src/agents/lifecycle-hooks.js";
 import { cleanupGitWorktree } from "../src/shared/git/worktree.js";
 import { observeGitCheckout } from "../src/agents/checkout-inspection.js";
-import { createLocalRunner } from "../src/agents/local-runner.js";
 import { remotePlacement } from "@dispatch/runner-protocol";
 import {
   controllerPlacement,
@@ -179,10 +178,6 @@ const makeDeps = (overrides: Partial<ArchiveDeps> = {}): ArchiveDeps => {
     pool: pool as never,
     logger: noopLogger,
     runtime: makeRuntime(),
-    localRunner: createLocalRunner(
-      "/tmp/dispatch-unused-archive-hosts",
-      noopLogger
-    ),
     diffStatsRefresher: { clear: vi.fn() },
     getAgent: vi.fn().mockResolvedValue(null),
     getRequiredAgent: vi.fn(),
@@ -656,7 +651,7 @@ describe("executeArchive", () => {
         "stop",
         agent,
         expect.anything(),
-        { local: deps.localRunner, remote: undefined },
+        { remote: undefined },
         undefined
       );
     });

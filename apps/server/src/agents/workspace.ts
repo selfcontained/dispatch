@@ -1,13 +1,4 @@
-import { randomUUID } from "node:crypto";
-import {
-  open,
-  readFile,
-  realpath,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { probeGitContext } from "../shared/git/git-context.js";
@@ -16,21 +7,7 @@ import {
   type Req,
   type Res,
 } from "@dispatch/runner-protocol/contract";
-/** Legacy receipt shape; policy mapping is supplied by the controller. */
-export type WorktreeRequest = {
-  name: string;
-  branch: string;
-  baseBranch?: string;
-  createNewBranch: boolean;
-  location?: "nested" | "sibling";
-};
-type RunnerWorktree = NonNullable<Req<"workspace.prepare">["worktree"]>;
 type OriginReader = (path: string) => Promise<string>;
-
-export type WorkspacePreparationInputs = {
-  runnerWorktree(request: WorktreeRequest): RunnerWorktree;
-  localConfigFiles: readonly string[];
-};
 
 /**
  * What a launch folder is on this machine (`path.resolve`, the local
@@ -130,77 +107,4 @@ export async function resolveLaunchDirectory<T>(
   readOrigin: OriginReader
 ): Promise<T> {
   return launchDirectory(await resolvePath(rawCwd, readOrigin));
-}
-
-/*
- * The preparation receipt in the session's state directory. The runner owns
- * it: it reads and finishes it (`packages/runner/src/core/workspace.ts`).
- * The app writes none: a launch's worktree request is recorded on its row.
- * It upgrades a receipt an earlier build of this branch wrote (its request
- * in the app's shape), and tells whether an earlier build left one.
- */
-const RECEIPT_FILE = "workspace-preparation";
-type Receipt = {
-  source: string;
-  sourceIdentity: string;
-  cwd: string;
-  request: RunnerWorktree | WorktreeRequest;
-  copy?: string[];
-  install?: boolean;
-  [field: string]: unknown;
-};
-
-async function readReceipt(dir: string): Promise<Receipt | null> {
-  try {
-    return JSON.parse(await readFile(path.join(dir, RECEIPT_FILE), "utf8"));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw error;
-  }
-}
-
-async function writeReceipt(dir: string, receipt: Receipt) {
-  const temporary = path.join(dir, `${RECEIPT_FILE}-${randomUUID()}`);
-  try {
-    await writeFile(temporary, JSON.stringify(receipt), {
-      mode: 0o600,
-      flag: "wx",
-      flush: true,
-    });
-    await rename(temporary, path.join(dir, RECEIPT_FILE));
-    const directory = await open(dir, "r");
-    try {
-      await directory.sync();
-    } finally {
-      await directory.close();
-    }
-  } finally {
-    await rm(temporary, { force: true });
-  }
-}
-
-const legacy = (request: Receipt["request"]): request is WorktreeRequest =>
-  "createNewBranch" in request;
-
-export function createWorkspacePreparation(inputs: WorkspacePreparationInputs) {
-  return {
-    /** True once a launch asked for its own worktree in this state dir. */
-    async requested(dir: string) {
-      return (await readReceipt(dir)) !== null;
-    },
-    /**
-     * Rewrite a receipt an earlier build of this branch wrote into the shape
-     * the runner reads, before the runner resumes it. Anything else is left.
-     */
-    async upgrade(dir: string) {
-      const receipt = await readReceipt(dir);
-      if (!receipt || !legacy(receipt.request)) return;
-      await writeReceipt(dir, {
-        ...receipt,
-        request: inputs.runnerWorktree(receipt.request),
-        copy: receipt.copy ?? [...inputs.localConfigFiles],
-        install: receipt.install ?? true,
-      });
-    },
-  };
 }
