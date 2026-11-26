@@ -5188,7 +5188,7 @@ describe("AgentManager", () => {
       });
     });
 
-    it("reports a runner borrower's status, and main's no-worktree answer for a local borrower", async () => {
+    it("reports main's no-worktree answer for a borrower, local or on a runner", async () => {
       const root = await mkdtemp(path.join(os.tmpdir(), "shared-checkout-"));
       try {
         const checkoutPath = await realpath(root);
@@ -5258,9 +5258,9 @@ describe("AgentManager", () => {
             operation: { kind: "observe" },
           }
         );
-        expect(runnerStatus).toEqual({ ...ownerStatus, ownership: "borrowed" });
-        // A local borrower answers what main answers for a row without a
-        // worktree of its own (347eb0c3's owner's checkout reverted).
+        // A borrower answers what main answers for a row without a worktree
+        // of its own, on every runner (347eb0c3's owner's checkout reverted).
+        expect(runnerStatus).toEqual(localStatus);
         expect(localStatus).toEqual({
           ownership: "borrowed",
           borrowers: [child.id],
@@ -5599,6 +5599,67 @@ describe("AgentManager", () => {
               statusCode: 503,
               message: "Checkout status is unavailable on the owning runner.",
             });
+        }
+      );
+
+      it.each([
+        ["clean", { unmerged: false, changedFiles: [], uncommittedFiles: [] }],
+        [
+          "dirty",
+          { unmerged: false, changedFiles: [], uncommittedFiles: ["?? d.ts"] },
+        ],
+        [
+          "unmerged",
+          { unmerged: true, changedFiles: ["w.ts"], uncommittedFiles: [] },
+        ],
+        ["gone", null],
+      ] as const)(
+        "an enrolled borrower whose owner is %s answers main's no-worktree status",
+        async (_state, owner) => {
+          const agent = await runnerAgent();
+          const reply = {
+            ownership: "borrowed",
+            owner: "agt_owner",
+            borrowers: ["agt_other"],
+            checkout: owner && {
+              path: "/srv/checkouts/owner",
+              branch: "owner-branch",
+              stateId: "2".repeat(64),
+              ...owner,
+            },
+          };
+          for (const capable of [false, true]) {
+            const requestSession = vi.fn(async () => ({
+              value: JSON.stringify(reply),
+            }));
+            const status = await managerFor(
+              capable,
+              requestSession
+            ).checkWorktreeStatus(agent.id);
+            expect({ capable, status }).toEqual({
+              capable,
+              status: {
+                ownership: "borrowed",
+                borrowers: ["agt_other"],
+                checkoutState: undefined,
+                hasWorktree: false,
+                hasUnmergedCommits: false,
+                hasUncommittedChanges: false,
+                worktreePath: null,
+                branchName: null,
+                changedFiles: [],
+                uncommittedFiles: [],
+              },
+            });
+            // What the runner is asked is unchanged.
+            expect(requestSession.mock.calls[0]![1]).toEqual({
+              kind: "checkoutRelease",
+              agentId: agent.id,
+              operation: capable
+                ? { kind: "observe", policy: "changes" }
+                : { kind: "observe" },
+            });
+          }
         }
       );
 

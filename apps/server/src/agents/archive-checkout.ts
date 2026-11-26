@@ -113,6 +113,30 @@ export async function observeArchiveCheckout(
   remote?: RemoteRunnerService,
   child?: () => Runner | undefined
 ): Promise<CheckoutObservation> {
+  return borrowerAsMain(
+    await observeOnRunner(pool, agent, localRunner, remote, child)
+  );
+}
+
+/**
+ * Main's answer for a borrower on every runner: a row that borrows another
+ * session's checkout has no worktree of its own to report (347eb0c3 reported
+ * the owner's; reverted). It stays `borrowed`, with its borrowers; what the
+ * runner observed is unchanged.
+ */
+function borrowerAsMain(observed: CheckoutObservation): CheckoutObservation {
+  return observed.ownership === "borrowed"
+    ? { ...observed, checkout: null }
+    : observed;
+}
+
+async function observeOnRunner(
+  pool: Pool,
+  agent: ArchiveCheckoutAgent & Pick<AgentRecord, "placement">,
+  localRunner: LocalArchiveRunner,
+  remote?: RemoteRunnerService,
+  child?: () => Runner | undefined
+): Promise<CheckoutObservation> {
   const runner = archiveRunner({ child, remote }, agent, agent.placement);
   if ((runner as ArchiveServes).serves?.("workspace.release") === false)
     return observeSnapshotCheckout(agent, remote);
@@ -150,10 +174,7 @@ export async function observeArchiveCheckout(
     agent.id,
     binding.id,
     await nativeBorrowers(pool, binding, checkoutPath, localRunner),
-    // Main's answer for a row without a worktree of its own: no worktree,
-    // whatever its owner's checkout holds (347eb0c3 reported the owner's;
-    // reverted to main). It stays `borrowed`, with the owner's borrowers.
-    binding.id === agent.id ? observed.checkout : null
+    observed.checkout
   );
 }
 
