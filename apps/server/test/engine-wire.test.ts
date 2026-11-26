@@ -1,18 +1,11 @@
-import { parseEngineCapabilityResult } from "../../../packages/runner/src/workload/agents/remote/engine-capability-result.js";
 import type { AddressInfo } from "node:net";
 import { connect, type TLSSocket } from "node:tls";
 import type { Pool } from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { exchangeCode } from "../../../packages/runner/src/workload/agents/remote/enrollment.js";
-import { remoteEngineTransport } from "../src/agents/remote/engine-transport.js";
-import {
-  MANAGED_WORKSPACE,
-  type EngineOperationEvent,
-  type Frame,
-  type GitHubOperation,
-} from "../../../packages/runner/src/workload/agents/remote/protocol.js";
-import { wireFrames } from "../src/runners/enrolled/v1-framing.js";
+import type { SocketRequest } from "@dispatch/runner-client/transport/local-socket";
+import { wireFrames } from "@dispatch/runner-client/v1/node";
 import { RunnerRegistry } from "../src/agents/remote/registry.js";
 import { RemoteRunnerService } from "../src/agents/remote/service.js";
 import { generateRunnerKey } from "../../../packages/runner/src/workload/agents/remote/x509.js";
@@ -38,65 +31,52 @@ async function waitFor(check: () => boolean | Promise<boolean>) {
   throw new Error("condition not reached");
 }
 
-/** A fake runner that answers `"engine"` requests the way runner.ts does. */
 function dialEngineRunner(input: {
   endpoint: string;
   ca: string;
   cert: string;
   key: string;
-  workspaces: string[];
-  engineManagement?: boolean;
-  onGitHub?: (operation: GitHubOperation) => unknown;
-  onEngine?: (
-    id: string,
-    reply: (frame: Frame) => void,
-    operation: unknown
-  ) => void;
+  onGitHub?: (op: string, input: unknown) => unknown;
   inventoryEntries?: unknown[];
 }) {
-  const url = new URL(input.endpoint);
-  return new Promise<{
-    socket: TLSSocket;
-    pushInventory: (entries: unknown) => void;
-  }>((resolve, reject) => {
+  const endpoint = new URL(input.endpoint);
+  return new Promise<TLSSocket>((resolve, reject) => {
     const socket = connect({
-      host: url.hostname,
-      port: Number(url.port),
+      host: endpoint.hostname,
+      port: Number(endpoint.port),
       ca: input.ca,
       cert: input.cert,
       key: input.key,
       rejectUnauthorized: true,
     });
     socket.on("error", reject);
-    const send = wireFrames(socket, (frame) => {
-      if (frame.type === "request" && frame.command.kind === "engine") {
-        input.onEngine?.(frame.id, send, frame.command.operation);
-      } else if (frame.type === "request" && frame.command.kind === "github") {
-        send({
-          type: "result",
-          id: frame.id,
-          value: JSON.stringify(input.onGitHub?.(frame.command.operation)),
-        });
+    const send = wireFrames<SocketRequest, unknown>(
+      socket,
+      ({ id, op, input: request }) => {
+        let value: unknown;
+        if (op === "runner.describe")
+          value = {
+            runnerId: "fixture",
+            displayName: "fixture",
+            build: { version: "1" },
+            protocol: 1,
+            engines: [],
+            capabilities: {},
+          };
+        else if (op === "engine.list")
+          value = { entries: input.inventoryEntries ?? [] };
+        else if (op.startsWith("github."))
+          value = input.onGitHub?.(op, request);
+        if (value === undefined)
+          send({
+            id,
+            ok: false,
+            error: { code: "unavailable", message: "fixture unavailable" },
+          });
+        else send({ id, ok: true, value });
       }
-    });
-    socket.once("secureConnect", () => {
-      send({
-        type: "ready",
-        version: 1,
-        health: true,
-        ...(input.engineManagement !== false ? { engineManagement: true } : {}),
-        ...(input.onGitHub && {
-          githubManagement: true,
-          repositoryPicker: true,
-        }),
-        workspaces: input.workspaces,
-      });
-      resolve({
-        socket,
-        pushInventory: (entries) =>
-          send({ type: "engine_inventory", entries } as Frame),
-      });
-    });
+    );
+    socket.once("secureConnect", () => resolve(socket));
   });
 }
 
@@ -106,7 +86,7 @@ describe("engine wire integration", () => {
   const sockets: TLSSocket[] = [];
 
   const makeService = () => {
-    const service = new RemoteRunnerService(undefined, {
+    const service = new RemoteRunnerService({
       registry: new RunnerRegistry(pool),
       host: HOST,
       endpointHost: HOST,
@@ -144,174 +124,49 @@ describe("engine wire integration", () => {
     await teardownTestDb();
   });
 
-  it("round-trips an engine operation with streamed progress and a final ack", async () => {
-    const service = makeService();
-    const alpha = await enroll(service, "alpha");
-    const { socket } = await dialEngineRunner({
-      endpoint: alpha.endpoint,
-      ca: alpha.ca,
-      cert: alpha.cert,
-      key: alpha.key,
-      workspaces: [MANAGED_WORKSPACE],
-      onEngine: (id, reply, operation) => {
-        expect(operation).toEqual({ type: "update", engine: "claude" });
-        const event: EngineOperationEvent = {
-          type: "operation_progress",
-          operationId: "op-1",
-          engine: "claude",
-          phase: "update",
-          message: "Updating…",
-        };
-        reply({
-          type: "data",
-          id,
-          data: Buffer.from(JSON.stringify(event) + "\n", "utf8").toString(
-            "base64"
-          ),
-        });
-        reply({
-          type: "result",
-          id,
-          value: JSON.stringify({ ok: true, operationId: "op-1" }),
-        });
-      },
-    });
-    sockets.push(socket);
-    await waitFor(() =>
-      service.available({
-        runner: alpha.created.id,
-        workspace: MANAGED_WORKSPACE,
-      })
-    );
-
-    const transport = remoteEngineTransport(
-      service,
-      parseEngineCapabilityResult
-    );
-    const events: EngineOperationEvent[] = [];
-    const ack = await transport.send(
-      alpha.created.id,
-      { type: "update", engine: "claude" },
-      (event) => events.push(event)
-    );
-    expect(ack).toEqual({ ok: true, operationId: "op-1" });
-    expect(events).toEqual([
-      {
-        type: "operation_progress",
-        operationId: "op-1",
-        engine: "claude",
-        phase: "update",
-        message: "Updating…",
-      },
-    ]);
-  });
-
-  it("routes engine commands over a configured-folder workspace when @session isn't advertised", async () => {
-    const service = makeService();
-    const alpha = await enroll(service, "alpha");
-    const { socket } = await dialEngineRunner({
-      endpoint: alpha.endpoint,
-      ca: alpha.ca,
-      cert: alpha.cert,
-      key: alpha.key,
-      // No MANAGED_WORKSPACE at all — a runner with only named folders
-      // and no managed-session support, per the real runner.ts shape.
-      workspaces: ["proof"],
-      onEngine: (id, reply, operation) => {
-        expect(operation).toEqual({ type: "status" });
-        reply({ type: "result", id, value: JSON.stringify({ ok: true }) });
-      },
-    });
-    sockets.push(socket);
-    await waitFor(() =>
-      service.available({ runner: alpha.created.id, workspace: "proof" })
-    );
-
-    const transport = remoteEngineTransport(
-      service,
-      parseEngineCapabilityResult
-    );
-    const ack = await transport.send(alpha.created.id, { type: "status" });
-    expect(ack).toEqual({ ok: true });
-  });
-
-  it("distinguishes a disconnected peer from a connected peer lacking engine management", async () => {
-    const service = makeService();
-    const alpha = await enroll(service, "alpha");
-    const transport = remoteEngineTransport(
-      service,
-      parseEngineCapabilityResult
-    );
-    const ack = await transport.send(alpha.created.id, { type: "status" });
-    expect(ack).toMatchObject({
-      ok: false,
-      error: expect.stringContaining("disconnected"),
-    });
-    expect(ack).not.toHaveProperty("unsupported");
-    let received = 0;
-    const { socket } = await dialEngineRunner({
-      ...alpha,
-      workspaces: ["proof"],
-      engineManagement: false,
-      onEngine: () => {
-        received++;
-      },
-    });
-    sockets.push(socket);
-    await waitFor(() =>
-      service.available({ runner: alpha.created.id, workspace: "proof" })
-    );
-    expect(
-      await transport.send(alpha.created.id, { type: "status" })
-    ).toMatchObject({
-      ok: false,
-      unsupported: true,
-    });
-    expect(received).toBe(0);
-  });
-
   it("routes GitHub operations to the chosen capable runner and drops access on revoke", async () => {
     const service = makeService();
     const alpha = await enroll(service, "alpha");
     const beta = await enroll(service, "beta");
-    const operations: GitHubOperation[] = [];
-    const a = await dialEngineRunner({
-      ...alpha,
-      workspaces: ["proof"],
-      onGitHub(operation) {
-        operations.push(operation);
-        if (operation.type === "repositorySearch")
+    const operations: string[] = [];
+    const other: string[] = [];
+    sockets.push(
+      await dialEngineRunner({
+        ...alpha,
+        onGitHub(op) {
+          operations.push(op);
+          if (op === "github.repositories")
+            return {
+              repositories: [
+                { name: "org/project", url: "https://github.com/org/project" },
+                {
+                  name: "org/reject",
+                  url: "https://secret@github.com/org/reject",
+                },
+              ],
+            };
           return {
-            repositories: [
-              { name: "org/project", url: "https://github.com/org/project" },
-              {
-                name: "org/reject",
-                url: "https://secret@github.com/org/reject",
-              },
-            ],
+            status: "pending",
+            code: "ABCD-1234",
+            verificationUrl: "https://github.com/login/device",
+            token: "synthetic-token",
           };
-        return {
-          status: "pending",
-          code: "ABCD-1234",
-          verificationUrl: "https://github.com/login/device",
-          token: "synthetic-token",
-        };
-      },
-    });
-    const b = await dialEngineRunner({ ...beta, workspaces: ["proof"] });
-    sockets.push(a.socket, b.socket);
+        },
+      })
+    );
+    sockets.push(
+      await dialEngineRunner({
+        ...beta,
+        onGitHub(op) {
+          other.push(op);
+          return { status: "signed-out" };
+        },
+      })
+    );
     await waitFor(() =>
-      [alpha, beta].every((peer) =>
-        service.available({ runner: peer.created.id, workspace: "proof" })
-      )
+      [alpha, beta].every((peer) => service.available(peer.created.id))
     );
     const list = await service.list();
-    expect(
-      list.find((entry) => entry.id === alpha.created.id)?.githubManagement
-    ).toBe(true);
-    expect(
-      list.find((entry) => entry.id === beta.created.id)?.githubManagement
-    ).toBe(false);
     expect(JSON.stringify(list)).not.toContain("ABCD-1234");
     expect(await service.githubAccount(alpha.created.id, "login")).toEqual({
       status: "pending",
@@ -325,47 +180,20 @@ describe("engine wire integration", () => {
         { name: "org/project", url: "https://github.com/org/project" },
       ],
     });
-    await expect(
-      service.readPullRequestStatus(alpha.created.id, {
-        owner: "org",
-        repo: "project",
-        number: 42,
-      })
-    ).rejects.toThrow("Update the runner");
-    expect(await service.githubAccount(beta.created.id, "login")).toMatchObject(
-      {
-        status: "unavailable",
-        message: expect.stringContaining("Update"),
-      }
-    );
+    expect(await service.githubAccount(beta.created.id, "status")).toEqual({
+      status: "signed-out",
+    });
+    expect(other).toEqual(["github.account"]);
     await service.revoke(alpha.created.id);
     expect(
       await service.githubAccount(alpha.created.id, "status")
     ).toMatchObject({ status: "unavailable" });
-    expect(operations).toEqual([
-      { type: "login" },
-      { type: "repositorySearch", query: "org/project" },
-    ]);
+    expect(operations).toEqual(["github.login.start", "github.repositories"]);
   });
 
-  it("stores and validates a pushed engine inventory, exposed via list()", async () => {
+  it("stores the authenticated runner's engine.list sample and exposes it via list()", async () => {
     const service = makeService();
     const alpha = await enroll(service, "alpha");
-    const { socket, pushInventory } = await dialEngineRunner({
-      endpoint: alpha.endpoint,
-      ca: alpha.ca,
-      cert: alpha.cert,
-      key: alpha.key,
-      workspaces: [MANAGED_WORKSPACE],
-    });
-    sockets.push(socket);
-    await waitFor(() =>
-      service.available({
-        runner: alpha.created.id,
-        workspace: MANAGED_WORKSPACE,
-      })
-    );
-
     const entries = [
       {
         id: "claude",
@@ -376,7 +204,9 @@ describe("engine wire integration", () => {
         actions: ["update", "login", "login_cancel"],
       },
     ];
-    pushInventory(entries);
+    sockets.push(
+      await dialEngineRunner({ ...alpha, inventoryEntries: entries })
+    );
     await waitFor(
       () => service.engineInventorySnapshot(alpha.created.id) !== undefined
     );
@@ -386,54 +216,24 @@ describe("engine wire integration", () => {
     expect(summary?.engineManagement).toBe(true);
   });
 
-  it("reports engineManagement false for a runner that never advertised it", async () => {
+  it("drops a runner that answers engine.list with a malformed inventory", async () => {
     const service = makeService();
     const alpha = await enroll(service, "alpha");
-    const { socket } = await dialEngineRunner({
-      endpoint: alpha.endpoint,
-      ca: alpha.ca,
-      cert: alpha.cert,
-      key: alpha.key,
-      workspaces: [MANAGED_WORKSPACE],
-      engineManagement: false,
+    const socket = await dialEngineRunner({
+      ...alpha,
+      inventoryEntries: [
+        {
+          id: "not-a-real-engine",
+          label: "x",
+          installed: true,
+          signedIn: null,
+          version: null,
+          actions: [],
+        },
+      ],
     });
     sockets.push(socket);
-    await waitFor(() =>
-      service.available({
-        runner: alpha.created.id,
-        workspace: MANAGED_WORKSPACE,
-      })
-    );
-    expect((await service.list())[0]?.engineManagement).toBe(false);
-  });
-
-  it("drops the connection on a malformed pushed inventory", async () => {
-    const service = makeService();
-    const alpha = await enroll(service, "alpha");
-    const { socket, pushInventory } = await dialEngineRunner({
-      endpoint: alpha.endpoint,
-      ca: alpha.ca,
-      cert: alpha.cert,
-      key: alpha.key,
-      workspaces: [MANAGED_WORKSPACE],
-    });
-    sockets.push(socket);
-    await waitFor(() =>
-      service.available({
-        runner: alpha.created.id,
-        workspace: MANAGED_WORKSPACE,
-      })
-    );
-    pushInventory([
-      {
-        id: "not-a-real-engine",
-        label: "x",
-        installed: true,
-        signedIn: null,
-        version: null,
-        actions: [],
-      },
-    ]);
     await waitFor(() => socket.destroyed);
+    expect(service.engineInventorySnapshot(alpha.created.id)).toBeUndefined();
   });
 });

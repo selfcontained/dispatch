@@ -60,8 +60,7 @@ if (started) {
           env: { [namespace]: name },
           mcp: [{ name, url: "https://example.invalid/mcp", token: "fixture" }],
           prompt: `proof-conformance-env:${namespace}`,
-        },
-        started.readGuard
+        }
       );
       if (exec.exitCode !== 0 || exec.stdout !== guard.content)
         throw new Error(`Unexpected exec ${JSON.stringify(exec)}`);

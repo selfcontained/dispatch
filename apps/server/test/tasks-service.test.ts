@@ -1,3 +1,5 @@
+import { resolveSavedTarget } from "../src/runners/saved-location.js";
+import { placementForRunner } from "../src/runners/placement.js";
 import { readRepositoryRoot } from "./helpers/task-scope.js";
 import { teachKnownSeedCatalogs } from "./helpers/model-catalog-validation.js";
 import { beforeEach as beforeKnownCatalog } from "vitest";
@@ -1305,10 +1307,10 @@ describe("triggers", () => {
   );
 
   it("legacy triggers without a location preserve the template runner through manual and triggered launches", async () => {
-    const cwd = "runner://runner-test/@session";
+    const cwd = "";
     const saved = template({
       id: TEMPLATE_ID,
-      directory: cwd,
+      ...resolveSavedTarget(cwd, { runner: "runner-test", projectId }),
       useWorktree: false,
     });
     const createAgent = vi.fn(async () => {
@@ -1345,7 +1347,12 @@ describe("triggers", () => {
     expect(createAgent).toHaveBeenCalledTimes(2);
     for (const args of createAgent.mock.calls)
       expect(args).toEqual([
-        expect.objectContaining({ cwd, projectId, templateId: TEMPLATE_ID }),
+        expect.objectContaining({
+          cwd,
+          placement: placementForRunner("runner-test"),
+          projectId,
+          templateId: TEMPLATE_ID,
+        }),
       ]);
   });
 
@@ -1363,7 +1370,7 @@ describe("triggers", () => {
       );
       await service.updateTask(task.id, { columnId: ready }, USER);
       expect(launches[0]!.resolvedTemplate?.directory).toBe(
-        runner === "local" ? REPO : "runner://offline-fixture/@session"
+        runner === "local" ? REPO : ""
       );
     }
   );

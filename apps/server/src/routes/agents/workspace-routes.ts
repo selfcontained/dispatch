@@ -1,6 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { remotePlacement, type WorkspaceView } from "@dispatch/runner-protocol";
-import { agentWorkspaceDir } from "../../agents/workspace-target.js";
+import type { WorkspaceView } from "@dispatch/runner-protocol";
 import { serveCheckoutView } from "./checkout-response.js";
 import type { AgentRouteDeps } from "./shared.js";
 
@@ -27,15 +26,10 @@ export async function registerAgentWorkspaceRoutes(
     }
     const agent = await deps.agentManager.getAgent(id);
     if (!agent) return reply.code(404).send({ error: "Agent not found." });
-    const placement = remotePlacement(agent.cwd);
-    const workspace = placement ? agent.cwd : agentWorkspaceDir(agent);
+    const workspace = agent.workspacePath ?? agent.worktreePath ?? agent.cwd;
     if (!workspace)
       return reply.code(404).send({ error: "This agent has no workspace." });
-    // Accept the row's current path just as the web resolves it, while older
-    // clients can still identify a runner checkout by its binding.
-    const effectiveWorkspace =
-      agent.workspacePath ?? agent.worktreePath ?? agent.cwd;
-    if (query.workspace !== workspace && query.workspace !== effectiveWorkspace)
+    if (query.workspace !== workspace)
       return reply
         .code(409)
         .send({ error: "Workspace changed. Reopen Files to continue." });

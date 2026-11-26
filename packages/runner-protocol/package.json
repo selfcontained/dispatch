@@ -7,7 +7,6 @@
     ".": "./src/index.ts",
     "./update-format": "./src/update-format.ts",
     "./engine-version-cache": "./src/engine-version-cache.ts",
-    "./engine-update-port": "./src/engine-update-port.ts",
     "./engine-management": "./src/engine-management.ts",
     "./in-process": "./src/in-process.ts",
     "./contract": "./src/contract/index.ts",

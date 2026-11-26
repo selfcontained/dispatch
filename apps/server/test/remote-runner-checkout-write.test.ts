@@ -1,3 +1,4 @@
+import { rootCertificates } from "node:tls";
 import { streamHelper } from "./helpers/stream-helper.js";
 import { embeddedBuild } from "../src/agents/build-identity.js";
 import { gitSha, packageVersion } from "../src/generated/runtime-assets.js";
@@ -99,12 +100,11 @@ vi.mock(
         return Object.assign(supervisor, {
           async withCommandCheckout<T>(
             _agentId: string,
-            _workspace: string,
             _checkout: string,
-            _configured: string | undefined,
             _signal: AbortSignal,
             run: (cwd: string) => Promise<T>
           ) {
+            if (_agentId !== "fixture") return null;
             bound.calls += 1;
             return run(bound.cwd);
           },
@@ -138,7 +138,7 @@ beforeEach(async () => {
   root = await mkdtemp(path.join(os.tmpdir(), "dispatch-runner-write-"));
   config = path.join(root, "runner.json");
   const key = path.join(root, "key");
-  await writeFile(key, "unused test credential", { mode: 0o600 });
+  await writeFile(key, rootCertificates[0]!, { mode: 0o600 });
   await writeFile(
     config,
     JSON.stringify({
@@ -152,7 +152,6 @@ beforeEach(async () => {
       home: root,
       path: "/usr/bin:/bin",
       bins: {},
-      workspaces: {},
     })
   );
   reportIdentity.mockImplementation((_command, _args, _options, callback) =>
@@ -181,28 +180,19 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-const write = (session: string, id: string) =>
+const write = (session: string, id: number) =>
   Buffer.from(
     JSON.stringify({
-      type: "request",
       id,
-      command: {
-        kind: "checkoutWrite",
-        agentId: "fixture",
-        workspace: "@session",
-        operation: {
-          op: "checkout.write",
-          request: {
-            target: { session, checkout: "current" },
-            path: ".agents/personas/x.md",
-            data: "# x",
-            expectedDigest: null,
-          },
-        },
+      op: "checkout.write",
+      input: {
+        target: { session, checkout: "current" },
+        path: ".agents/personas/x.md",
+        data: "# x",
+        expectedDigest: null,
       },
     }) + "\n"
   );
-
 it("writes as the workload, in the directory its own binding names", async () => {
   const socket = Object.assign(new EventEmitter(), {
     write: vi.fn(),
@@ -230,33 +220,25 @@ it("writes as the workload, in the directory its own binding names", async () =>
   try {
     await vi.waitFor(() => expect(dial).toHaveBeenCalledTimes(1));
     socket.emit("secureConnect");
-    await vi.waitFor(() =>
-      expect(
-        socket.write.mock.calls.some(([line]) =>
-          String(line).includes('"checkoutWrite":true')
-        )
-      ).toBe(true)
-    );
 
     // Another session's target: nothing starts.
-    socket.emit("data", write("someone-else", "other"));
+    socket.emit("data", write("someone-else", 1));
     await vi.waitFor(() =>
       expect(
         socket.write.mock.calls.some(([line]) =>
-          String(line).includes('"id":"other"')
+          String(line).includes('"id":1')
         )
       ).toBe(true)
     );
     expect(spawnWorker).not.toHaveBeenCalled();
     expect(bound.calls).toBe(0);
 
-    socket.emit("data", write("fixture", "mine"));
+    socket.emit("data", write("fixture", 2));
     await vi.waitFor(() =>
       expect(
         socket.write.mock.calls.some(
           ([line]) =>
-            String(line).includes('"id":"mine"') &&
-            String(line).includes("dddd")
+            String(line).includes('"id":2') && String(line).includes("dddd")
         )
       ).toBe(true)
     );

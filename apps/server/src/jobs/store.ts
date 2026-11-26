@@ -257,7 +257,7 @@ export class JobStore {
         `,
         [
           id,
-          normalizeSavedDirectory(input.directory),
+          normalizeSavedDirectory(input.directory, input[storedLocation]),
           input.name,
           input.schedule,
           input.timeoutMs,
@@ -968,11 +968,12 @@ export class JobStore {
 
   async getJobByDirectoryAndName(
     directory: string,
-    name: string
+    name: string,
+    runner = "local"
   ): Promise<JobRecord | null> {
     const result = await this.pool.query(
-      `SELECT ${this.jobColumns()} FROM jobs WHERE directory = $1 AND name = $2`,
-      [normalizeSavedDirectory(directory), name]
+      `SELECT ${this.jobColumns()} FROM jobs WHERE directory = $1 AND name = $2 AND COALESCE(location->>'runner', 'local') = $3`,
+      [normalizeSavedDirectory(directory, runner), name, runner]
     );
     return result.rows[0] ? mapJob(result.rows[0]) : null;
   }
@@ -1086,7 +1087,7 @@ export class JobStore {
           input.persona ?? null,
           input.directory === undefined
             ? undefined
-            : normalizeSavedDirectory(input.directory),
+            : normalizeSavedDirectory(input.directory, input[storedLocation]),
           input.effort !== undefined,
           input.effort ?? null,
           input[storedLocation],

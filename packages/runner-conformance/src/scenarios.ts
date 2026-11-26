@@ -34,8 +34,6 @@ export type LaneFixture = {
   session: SessionHandle;
   /** Writes a file at a relative path in the session's checkout. */
   seed(path: string, content: string): Promise<void>;
-  /** Older wire command guards also bind the digest to the resolved root. */
-  readGuard?(session: SessionHandle, path: string): Promise<string>;
   workspace?: {
     runner: Runner;
     repository: string;
@@ -96,6 +94,7 @@ async function guarded(
   const file = await fixture.runner.call("checkout.read", {
     target,
     path: GUARD,
+    mode: "command-manifest",
     encoding: "utf8",
     maxBytes: null,
   });
@@ -105,8 +104,7 @@ async function guarded(
     target,
     guard: {
       path: GUARD,
-      digest:
-        (await fixture.readGuard?.(fixture.session, GUARD)) ?? file.digest,
+      digest: file.digest,
     },
     argv,
     env: {},
@@ -1045,41 +1043,6 @@ const workspacePreparation: Scenario[] = [
         phases.includes("copy") && phases.at(-1) === "ready",
         "Resume did not finish its recorded worktree."
       );
-
-      // A session launched by the original wire command still uses its old binding.
-      const legacy = sessionFromWire("legacy-scratch");
-      await runner.call("session.launch", launchRequest(legacy));
-      try {
-        const legacyBinding = await runner.call("workspace.resume", {
-          session: legacy,
-        });
-        expect(
-          legacyBinding?.worktree === undefined && !!legacyBinding?.path,
-          "Legacy binding was replaced."
-        );
-        expect(
-          (await runner.call("session.alive", { session: legacy })).state ===
-            "live",
-          "Legacy host stopped during resume."
-        );
-        await runner.call("session.stop", { session: legacy, force: true });
-        await runner.call("session.launch", launchRequest(legacy));
-        expect(
-          (await runner.call("workspace.describe", { session: legacy }))
-            .path === legacyBinding.path,
-          "Restart changed the legacy checkout."
-        );
-        const current = await runner.call("git.defaultBranch", {
-          target: { session: legacy },
-        });
-        expect(
-          current.branch === null && current.currentBranch === null,
-          "Legacy scratch checkout read failed."
-        );
-      } finally {
-        await runner.call("session.stop", { session: legacy, force: true });
-        await runner.call("session.discard", { session: legacy });
-      }
     },
   },
 ];

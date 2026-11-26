@@ -13,7 +13,7 @@ export const loadSessionFiles = () =>
   import("./workload/agents/remote/session-files.js");
 export const loadCheckoutCommand = () =>
   import("./workload/agents/remote/checkout-command.js");
-export const loadEngineCapabilityWorker = () =>
+export const loadEngineHostWorker = () =>
   import("./workload/agents/remote/engine-capability-worker.js");
 export const loadUpdateHandoff = () =>
   import("./workload/agents/remote/update-handoff.js");
@@ -25,6 +25,4 @@ export const loadRunner = () => import("./workload/agents/remote/runner.js");
 export const loadHostSearchPath = () => import("./host/host-search-path.js");
 export const loadEngineAvailability = () =>
   import("./workload/agents/engine-availability.js");
-export const loadEngineCapabilityResult = () =>
-  import("./workload/agents/remote/engine-capability-result.js");
 export { dispatchRunnerMode } from "./program.js";

@@ -51,7 +51,7 @@ it.each(["Fixture repository", "Fixture runner"])(
   "uses the saved projection label %s without exposing a locator",
   async (label) => {
     vi.mocked(api).mockResolvedValue({ locationLabel: label });
-    mount("runner://fixture/@session");
+    mount("/srv/fixture/checkout");
     expect(await screen.findByText(label)).toHaveProperty("title", label);
     expect(screen.queryByText(/runner:\/\//)).toBeNull();
   }

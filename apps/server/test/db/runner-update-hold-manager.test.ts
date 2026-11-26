@@ -1,3 +1,8 @@
+import {
+  enrolledTarget,
+  seedEnrolledProject,
+  managerEnrolledRunner,
+} from "../helpers/manager-enrolled-runner.js";
 import { withTestWorkspaceRunner } from "../helpers/test-workspace-runner.js";
 /**
  * Launches, starts and stops for agents on a runner held for an update:
@@ -98,8 +103,8 @@ const testConfig = (root: string) =>
   }) satisfies import("../../src/config.js").AppConfig;
 
 const ATTEMPT = "11111111-1111-4111-8111-111111111111";
-const HELD = "runner://r1/@session";
-const OTHER = "runner://r2/@session";
+const HELD = enrolledTarget("r1");
+const OTHER = enrolledTarget("r2");
 
 let pool: Pool;
 let dir: string;
@@ -134,37 +139,7 @@ function spyRuntime() {
 }
 type Spy = ReturnType<typeof spyRuntime>;
 
-/** Runner requests; a test may refuse the next one of a kind as fenced. */
-const refuseNext = new Map<string, () => Promise<void>>();
-const requestSession = vi.fn(
-  async (_placement: unknown, operation: { kind: string }) => {
-    const refusal = refuseNext.get(operation.kind);
-    if (refusal) {
-      refuseNext.delete(operation.kind);
-      await refusal();
-      throw new RunnerUpdateFenced("The runner is updating.");
-    }
-    return {
-      value: operation.kind === "sessionFile" ? "/runner/files/x" : true,
-    };
-  }
-);
-const remote = {
-  available: () => true,
-  isManagedWorkspace: () => true,
-  originFor: () => "https://example.test",
-  supportsSessionFiles: () => true,
-  requestSession,
-  // files.put goes through the same request seam, so refusals still apply.
-  putFile: async (placement: unknown, agentId: string, name: string) =>
-    (
-      await requestSession(placement, {
-        agentId,
-        kind: "sessionFile",
-        operation: { kind: "deliver", name },
-      } as never)
-    ).value,
-} as unknown as RemoteRunnerService;
+const { remote, call, refuseNext } = managerEnrolledRunner();
 
 async function openHolds(boundMs?: number) {
   const holds = new RunnerUpdateHolds({
@@ -203,13 +178,14 @@ const statusOf = async (id: string) =>
 beforeAll(async () => {
   pool = await setupTestDb();
   await runTestMigrations();
+  await seedEnrolledProject(pool);
 });
 afterAll(async () => {
   await teardownTestDb();
 });
 beforeEach(async () => {
   refuseNext.clear();
-  requestSession.mockClear();
+  call.mockClear();
   await pool.query("DELETE FROM blocks");
   await pool.query("DELETE FROM files");
   await pool.query("DELETE FROM agents");
@@ -233,11 +209,11 @@ describe("launches on a runner held for an update", () => {
     await holds.begin("r1", ATTEMPT);
 
     const held = await manager.createAgent({
-      cwd: HELD,
+      ...HELD,
       initialPrompt: "held work",
     });
     const other = await manager.createAgent({
-      cwd: OTHER,
+      ...OTHER,
       initialPrompt: "other work",
     });
     const local = await manager.createAgent({
@@ -259,7 +235,7 @@ describe("launches on a runner held for an update", () => {
     expect(launchesFor(runtime, held.id)).toEqual([
       [
         expect.objectContaining({
-          placement: { runner: "r1", workspace: "@session" },
+          placement: "r1",
           resumeSessionId: null,
         }),
       ],
@@ -276,7 +252,7 @@ describe("launches on a runner held for an update", () => {
     const manager = managerOn(first, before);
     await first.begin("r1", ATTEMPT);
     const held = await manager.createAgent({
-      cwd: HELD,
+      ...HELD,
       initialPrompt: "survives restart",
     });
     expect(launchesFor(before, held.id)).toHaveLength(0);
@@ -311,7 +287,7 @@ describe("launches on a runner held for an update", () => {
     const runtime = spyRuntime();
     const manager = managerOn(holds, runtime);
     await holds.begin("r1", ATTEMPT);
-    const held = await manager.createAgent({ cwd: HELD });
+    const held = await manager.createAgent({ ...HELD });
 
     const stopped = await manager.stopAgent(held.id);
     expect(stopped.status).toBe("stopped");
@@ -329,7 +305,7 @@ describe("launches on a runner held for an update", () => {
     const runtime = spyRuntime();
     const manager = managerOn(holds, runtime);
     await holds.begin("r1", ATTEMPT);
-    const held = await manager.createAgent({ cwd: HELD });
+    const held = await manager.createAgent({ ...HELD });
     // A cancellation that did not go through this manager: the row decides.
     await pool.query("UPDATE agents SET status = 'stopped' WHERE id = $1", [
       held.id,
@@ -349,7 +325,7 @@ describe("launches on a runner held for an update", () => {
     });
     const manager = managerOn(holds, runtime);
     const agent = await manager.createAgent({
-      cwd: HELD,
+      ...HELD,
       initialPrompt: "refused once",
     });
     expect(await statusOf(agent.id)).toBe("creating");
@@ -372,7 +348,7 @@ describe("launches on a runner held for an update", () => {
       throw new Error("engine missing");
     });
     const manager = managerOn(holds, runtime);
-    await expect(manager.createAgent({ cwd: HELD })).rejects.toThrow(
+    await expect(manager.createAgent({ ...HELD })).rejects.toThrow(
       "engine missing"
     );
     expect(holds.counts("r1").launches).toBe(0);
@@ -382,7 +358,7 @@ describe("launches on a runner held for an update", () => {
     const holds = await openHolds();
     const runtime = spyRuntime();
     const manager = managerOn(holds, runtime);
-    const agent = await manager.createAgent({ cwd: HELD });
+    const agent = await manager.createAgent({ ...HELD });
     await manager.stopAgent(agent.id);
     await holds.begin("r1", ATTEMPT);
     await manager.startAgent(agent.id);
@@ -399,7 +375,7 @@ describe("launches on a runner held for an update", () => {
     const holds = await openHolds();
     const runtime = spyRuntime();
     const manager = managerOn(holds, runtime);
-    const agent = await manager.createAgent({ cwd: HELD });
+    const agent = await manager.createAgent({ ...HELD });
     await manager.stopAgent(agent.id);
     await holds.begin("r1", ATTEMPT);
     await manager.startAgent(agent.id);
@@ -435,7 +411,7 @@ describe("launches on a runner held for an update", () => {
       new RunnerUpdateFenced("The runner is updating.")
     );
     const manager = managerOn(holds, runtime);
-    await expect(manager.createAgent({ cwd: HELD })).rejects.toThrow(
+    await expect(manager.createAgent({ ...HELD })).rejects.toThrow(
       "The runner is updating."
     );
   });
@@ -444,7 +420,7 @@ describe("launches on a runner held for an update", () => {
     const holds = await openHolds();
     const runtime = spyRuntime();
     const manager = managerOn(holds, runtime);
-    const agent = await manager.createAgent({ cwd: HELD });
+    const agent = await manager.createAgent({ ...HELD });
     await manager.stopAgent(agent.id);
     runtime.launch.mockImplementationOnce(async () => {
       await holds.begin("r1", ATTEMPT);
@@ -463,7 +439,7 @@ describe("launches on a runner held for an update", () => {
     const runtime = spyRuntime();
     const manager = managerOn(holds, runtime);
     await holds.begin("r1", ATTEMPT);
-    const held = await manager.createAgent({ cwd: HELD });
+    const held = await manager.createAgent({ ...HELD });
     await manager.beginArchive(held.id);
     expect(holds.counts("r1").launches).toBe(0);
     await holds.release("r1", ATTEMPT, "committed");
@@ -475,7 +451,7 @@ describe("launches on a runner held for an update", () => {
     const holds = await openHolds();
     const runtime = spyRuntime();
     const manager = managerOn(holds, runtime);
-    const held = await manager.createAgent({ cwd: HELD });
+    const held = await manager.createAgent({ ...HELD });
     await holds.begin("r1", ATTEMPT);
     await manager.beginArchive(held.id);
     let done = false;
@@ -501,7 +477,7 @@ describe("launches on a runner held for an update", () => {
     const holds = await openHolds();
     const runtime = spyRuntime();
     const manager = managerOn(holds, runtime);
-    const agent = await manager.createAgent({ cwd: HELD });
+    const agent = await manager.createAgent({ ...HELD });
     const notes = path.join(dir, "notes.txt");
     const gone = path.join(dir, "gone.png");
     await writeFile(notes, "hello");
@@ -539,8 +515,8 @@ describe("launches on a runner held for an update", () => {
 
   it("puts family references once per digest and recipient, and retries failed puts", async () => {
     const manager = managerOn(await openHolds(), spyRuntime());
-    const parent = await manager.createAgent({ cwd: HELD });
-    const child = await manager.createAgent({ cwd: HELD });
+    const parent = await manager.createAgent({ ...HELD });
+    const child = await manager.createAgent({ ...HELD });
     const source = path.join(dir, "report.txt");
     const runnerFiles = await mkdtemp(path.join(dir, "runner-"));
     await writeFile(source, "first report");
@@ -593,7 +569,7 @@ describe("launches on a runner held for an update", () => {
     const briefing = `Attachments:\n- shot.png (image/png) — ${shot}\n- notes.md (text/markdown) — ${notes}`;
 
     const agent = await manager.createAgent({
-      cwd: HELD,
+      ...HELD,
       initialPrompt: briefing,
       startupReferences: [
         { source: shot, name: "shot.png" },
@@ -630,7 +606,7 @@ describe("launches on a runner held for an update", () => {
     await mkdir(path.dirname(shot), { recursive: true });
     await writeFile(shot, image);
     const held = await managerOn(first, before).createAgent({
-      cwd: HELD,
+      ...HELD,
       initialPrompt: `Attachments:\n- shot.png (image/png) — ${shot}`,
       startupReferences: [{ source: shot, name: "shot.png" }],
     });
@@ -666,13 +642,13 @@ describe("launches on a runner held for an update", () => {
     const holds = await openHolds();
     const runtime = spyRuntime();
     const manager = managerOn(holds, runtime);
-    refuseNext.set("sessionFile", () =>
+    refuseNext.set("files.put", () =>
       holds.begin("r1", ATTEMPT).then(() => {})
     );
     let created = false;
     const creating = manager
       .createAgent({
-        cwd: HELD,
+        ...HELD,
         initialPrompt: "read it",
         initialFiles: [
           {
@@ -695,9 +671,9 @@ describe("launches on a runner held for an update", () => {
     const agent = await creating;
     expect(await statusOf(agent.id)).toBe("running");
     expect(launchesFor(runtime, agent.id)).toHaveLength(1);
-    expect(
-      requestSession.mock.calls.filter(([, op]) => op.kind === "sessionFile")
-    ).toHaveLength(2);
+    expect(call.mock.calls.filter(([, op]) => op === "files.put")).toHaveLength(
+      2
+    );
     expect(
       promptsFor(runtime, agent.id).filter((p) => p.includes("read it"))
     ).toHaveLength(1);
@@ -707,7 +683,7 @@ describe("launches on a runner held for an update", () => {
     const holds = await openHolds();
     const runtime = spyRuntime();
     const manager = managerOn(holds, runtime);
-    const agent = await manager.createAgent({ cwd: HELD });
+    const agent = await manager.createAgent({ ...HELD });
     await manager.stopAgent(agent.id);
     await holds.begin("r1", ATTEMPT);
 
@@ -727,8 +703,8 @@ describe("launches on a runner held for an update", () => {
     const holds = await openHolds();
     const runtime = spyRuntime();
     const manager = managerOn(holds, runtime);
-    const held = await manager.createAgent({ cwd: HELD });
-    const other = await manager.createAgent({ cwd: OTHER });
+    const held = await manager.createAgent({ ...HELD });
+    const other = await manager.createAgent({ ...OTHER });
     await holds.begin("r1", ATTEMPT);
 
     let done = false;
@@ -755,7 +731,7 @@ describe("launches on a runner held for an update", () => {
       const holds = await openHolds();
       const runtime = spyRuntime();
       const manager = managerOn(holds, runtime);
-      const agent = await manager.createAgent({ cwd: HELD });
+      const agent = await manager.createAgent({ ...HELD });
       await holds.begin("r1", ATTEMPT);
       const stopping = manager.stopAgent(agent.id);
       const outcome = stopping.catch((err: Error) => err);
@@ -800,7 +776,7 @@ describe("launches on a runner held for an update", () => {
     const holds = await openHolds();
     const runtime = spyRuntime();
     const manager = managerOn(holds, runtime);
-    const agent = await manager.createAgent({ cwd: HELD });
+    const agent = await manager.createAgent({ ...HELD });
     await holds.begin("r1", ATTEMPT);
     await manager.beginArchive(agent.id, "keep");
     await holds.holdLaunch("r1", {
@@ -819,7 +795,7 @@ describe("launches on a runner held for an update", () => {
     const holds = await openHolds();
     const runtime = spyRuntime();
     const manager = managerOn(holds, runtime);
-    const agent = await manager.createAgent({ cwd: HELD });
+    const agent = await manager.createAgent({ ...HELD });
     const statuses: string[] = [];
     manager.onAgentUpdated((row) => {
       if (row.id === agent.id) statuses.push(row.status);
@@ -835,7 +811,7 @@ describe("launches on a runner held for an update", () => {
     const holds = await openHolds();
     const runtime = spyRuntime();
     const manager = managerOn(holds, runtime);
-    const agent = await manager.createAgent({ cwd: HELD });
+    const agent = await manager.createAgent({ ...HELD });
     const query = pool.query.bind(pool);
     const intercepted = vi.spyOn(pool, "query").mockImplementation((async (
       sql: string,
@@ -861,7 +837,7 @@ describe("launches on a runner held for an update", () => {
       const holds = await openHolds();
       const runtime = spyRuntime();
       const manager = managerOn(holds, runtime);
-      const agent = await manager.createAgent({ cwd: HELD });
+      const agent = await manager.createAgent({ ...HELD });
       runtime.stop.mockImplementationOnce(async () => {
         await manager.beginArchive(agent.id, "keep");
         if (fails) throw new Error("stop failed");
@@ -877,7 +853,7 @@ describe("launches on a runner held for an update", () => {
     const holds = await openHolds();
     const runtime = spyRuntime();
     const manager = managerOn(holds, runtime);
-    const agent = await manager.createAgent({ cwd: HELD });
+    const agent = await manager.createAgent({ ...HELD });
     await holds.begin("r1", ATTEMPT);
     await manager.beginArchive(agent.id, "keep");
     const archiving = manager.executeArchive(agent.id, {
@@ -900,8 +876,8 @@ describe("launches on a runner held for an update", () => {
     const holds = await openHolds();
     const runtime = spyRuntime();
     const manager = managerOn(holds, runtime);
-    const agent = await manager.createAgent({ cwd: HELD });
-    refuseNext.set("checkoutCommand", async () => {
+    const agent = await manager.createAgent({ ...HELD });
+    refuseNext.set("checkout.read", async () => {
       await holds.begin("r1", ATTEMPT);
     });
     const stopping = manager.stopAgent(agent.id);
@@ -915,8 +891,8 @@ describe("launches on a runner held for an update", () => {
     const holds = await openHolds();
     const runtime = spyRuntime();
     const manager = managerOn(holds, runtime);
-    const agent = await manager.createAgent({ cwd: HELD });
-    refuseNext.set("checkoutCommand", async () => {
+    const agent = await manager.createAgent({ ...HELD });
+    refuseNext.set("checkout.read", async () => {
       await holds.begin("r1", ATTEMPT);
     });
     const stopping = manager.stopAgent(agent.id);
@@ -925,13 +901,9 @@ describe("launches on a runner held for an update", () => {
     await manager.beginArchive(agent.id, "keep");
     await holds.release("r1", ATTEMPT, "committed");
     expect(await stopping).toMatchObject({ status: "archiving" });
-    const hookReads = requestSession.mock.calls
-      .map(
-        ([, operation]) =>
-          operation as { kind: string; operation?: { checkout: string } }
-      )
-      .filter(({ kind }) => kind === "checkoutCommand")
-      .map(({ operation }) => operation?.checkout);
+    const hookReads = call.mock.calls
+      .filter(([, op]) => op === "checkout.read")
+      .map(([, , input]) => input.target?.checkout);
     expect(hookReads.filter((checkout) => checkout === "launch")).toHaveLength(
       1
     );
@@ -962,16 +934,15 @@ describe("launches on a runner held for an update", () => {
       const holds = await openHolds();
       const runtime = spyRuntime();
       const manager = managerOn(holds, runtime);
-      const agent = await manager.createAgent({ cwd: HELD });
+      const agent = await manager.createAgent({ ...HELD });
       // The hold begins at `ready`, the fence straight after it.
-      refuseNext.set("checkoutCommand", async () => {
+      refuseNext.set("checkout.read", async () => {
         await holds.begin("r1", ATTEMPT);
       });
       const hookRequests = () =>
-        requestSession.mock.calls
-          .map(([, operation]) => operation as any)
-          .filter(({ kind }) => kind === "checkoutCommand")
-          .map(({ operation }) => operation.checkout);
+        call.mock.calls
+          .filter(([, op]) => op === "checkout.read")
+          .map(([, , input]) => input.target?.checkout);
       const ending = end(manager, agent.id);
       await Promise.race([work.get(holds)!.blocked, ending]);
       expect(holds.isHeld("r1")).toBe(true);
@@ -991,7 +962,7 @@ describe("launches on a runner held for an update", () => {
     // Otherwise the bound races the launch it is meant to hold.
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     await holds.begin("r1", ATTEMPT);
-    const held = await manager.createAgent({ cwd: HELD });
+    const held = await manager.createAgent({ ...HELD });
     expect(launchesFor(runtime, held.id)).toHaveLength(0);
     await vi.advanceTimersByTimeAsync(300);
     vi.useRealTimers();
@@ -1006,8 +977,8 @@ describe("launches on a runner held for an update", () => {
     const holds = await openHolds();
     const runtime = spyRuntime();
     const manager = managerOn(holds, runtime);
-    const held = await manager.createAgent({ cwd: HELD });
-    const other = await manager.createAgent({ cwd: OTHER });
+    const held = await manager.createAgent({ ...HELD });
+    const other = await manager.createAgent({ ...OTHER });
     const local = await manager.createAgent({ cwd: "/tmp" });
     // A recorded path need not encode the runner.
     await pool.query("UPDATE agents SET cwd = '/checkout' WHERE id = $1", [
@@ -1032,7 +1003,7 @@ describe("runner drain resume receipts", () => {
     const runtime = spyRuntime();
     const manager = managerOn(holds, runtime);
     const [resume, stopped, archived, deleted] = await Promise.all(
-      Array.from({ length: 4 }, () => manager.createAgent({ cwd: HELD }))
+      Array.from({ length: 4 }, () => manager.createAgent({ ...HELD }))
     );
     const entries = await manager.updateResumeSnapshot([
       resume.id,

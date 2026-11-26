@@ -1,3 +1,16 @@
+import {
+  decodeSessionFrame,
+  mapIncomingFrames,
+} from "@dispatch/runner-client/v1/host";
+import type { Duplex } from "node:stream";
+export function attachedHost(channel: Duplex, session: string) {
+  return {
+    info: {},
+    channel: mapIncomingFrames(channel, (frame) =>
+      decodeSessionFrame(frame, session)
+    ),
+  };
+}
 /** Scripted agent hosts on real sockets, for runner update hold tests. */
 import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -54,6 +67,7 @@ export async function scriptedHost(
               resumed: false,
               running: true,
               turn: null,
+              commands: [],
               journalSeq: seq,
               steeringSupported: true,
               ...(message.replayComplete && { journalId: "journal" }),
@@ -67,7 +81,7 @@ export async function scriptedHost(
             encodeMessage({
               type: "steer_result",
               id: message.id,
-              outcome: "steered",
+              outcome: "injected",
             } as HostMessage)
           );
         } else if (message.type === "prompt") {

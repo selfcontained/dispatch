@@ -30,8 +30,10 @@
  * A failure before the request is written is `unavailable` (not sent); a
  * connection lost after it is `unknown_outcome`.
  */
-import { connect, type Socket } from "node:net";
-import { Duplex, PassThrough, type Readable } from "node:stream";
+import { isCheckoutReadName } from "@dispatch/runner-protocol";
+import { commandOutput } from "./command-output.js";
+import { connect } from "node:net";
+import { Duplex, PassThrough, Readable, Writable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import {
   operations,
@@ -49,22 +51,38 @@ import {
   type ErrorCode,
   type Infer,
   type OpenName,
+  type OpName,
   type OperationSpec,
   type Req,
   type Res,
   type RunnerError,
 } from "@dispatch/runner-protocol/contract";
-import { FlowStreams, acceptsStreams } from "../v1/streams.js";
-import { frameWriter } from "../v1/node.js";
+import {
+  parseUpdateStatus,
+  type UpdateStatusFrame,
+} from "@dispatch/runner-protocol";
+import {
+  CONNECTION_WINDOW,
+  FlowStreams,
+  acceptsStreams,
+} from "../v1/streams.js";
+import { frameWriter, wireFrames } from "../v1/node.js";
 
 export const socketHello = object({
   nonce: string,
   streamCredit: optional(literal(true)),
 });
+/** Cancel an outstanding cancellable operation on the enrolled connection. */
+export const socketCancel = object({ id: integer, cancel: literal(true) });
 export const socketRequest = object({ id: integer, op: string, input: json });
 export const socketReply = union(
   object({ id: integer, ok: literal(true), value: json }),
-  object({ id: integer, ok: literal(true), stream: string }),
+  object({
+    id: integer,
+    ok: literal(true),
+    stream: string,
+    workerReply: optional(literal(true)),
+  }),
   object({ id: integer, ok: literal(false), error: runnerError })
 );
 /** An event of call `id`, sent before its answer. */
@@ -103,6 +121,15 @@ export function replyStream(id: number) {
  * under a line's limit, so a reply never ends the connection.
  */
 export const INLINE_REPLY_BYTES = 256 * 1024;
+
+/** The credited file contents for a files.get request on an enrolled peer. */
+export function downloadStream(id: number) {
+  return `download:${id}`;
+}
+
+export function commandOutputStream(id: number, output: "stdout" | "stderr") {
+  return `exec:${id}:${output}`;
+}
 
 /** The two stream IDs that carry channel `id`. */
 export function channelStreams(id: number) {
@@ -200,8 +227,58 @@ export function channelDuplex(toPeer: PassThrough, fromPeer: PassThrough) {
   return duplex;
 }
 
+/** Repeatable mutations (for example session.stop) still have an uncertain outcome. */
+const enrolledReads: ReadonlySet<OpName> = new Set<OpName>([
+  "runner.describe",
+  "runner.health",
+  "session.attach",
+  "session.alive",
+  "session.logs",
+  "session.list",
+  "session.sample",
+  "workspace.describe",
+  "workspace.observe",
+  "path.resolve",
+  "path.complete",
+  "checkout.list",
+  "checkout.access",
+  "checkout.read",
+  "checkout.preview",
+  "checkout.index",
+  "checkout.stats",
+  "checkout.diff",
+  "checkout.image",
+  "checkout.changes",
+  "checkout.defaultFiles",
+  "checkout.watch",
+  "files.get",
+  "git.roots",
+  "git.origin",
+  "git.context",
+  "git.defaultBranch",
+  "git.remoteHeads",
+  "git.branches",
+  "git.base",
+  "github.account",
+  "github.repositories",
+  "github.branches",
+  "github.pr.head",
+  "github.pr.status",
+  "github.pr.details",
+  "github.pr.diff",
+  "engine.list",
+  "engine.update.inspect",
+  "engine.update.probe",
+  "engine.operation",
+  "engine.login.status",
+  "engine.models",
+  "engine.usage",
+  "engine.plugin.status",
+]);
+
 type Pending = {
   op: string;
+  signal?: AbortSignal;
   onEvent?: (event: unknown) => void;
   resolve(value: unknown): void;
   reject(error: RunnerCallError): void;
@@ -223,9 +300,19 @@ export class LocalSocketConnection {
   readonly streams: FlowStreams;
   private open = true;
 
-  private constructor(private readonly socket: Socket) {
+  private constructor(
+    private readonly socket: Duplex,
+    private readonly enrolled?: {
+      onUpdateStatus?: (frame: UpdateStatusFrame) => void;
+    }
+  ) {
     this.send = frameWriter<unknown>(socket);
-    this.streams = new FlowStreams(socket, this.send);
+    this.streams = new FlowStreams(
+      socket,
+      this.send,
+      undefined,
+      enrolled ? CONNECTION_WINDOW : undefined
+    );
     this.streams.enable();
     socket.once("close", () => {
       this.open = false;
@@ -233,12 +320,29 @@ export class LocalSocketConnection {
         "unknown_outcome",
         "The local runner connection closed before it answered"
       );
-      for (const pending of this.pending.values()) pending.reject(lost);
+      for (const pending of this.pending.values())
+        pending.reject(this.lostReply(pending, lost));
       this.pending.clear();
       for (const blob of this.blobs.values()) blob.reject(lost);
       this.blobs.clear();
       for (const listener of this.closeListeners) listener();
     });
+  }
+
+  private lostReply(pending: Pending, error: RunnerCallError) {
+    return this.enrolled && enrolledReads.has(pending.op as OpName)
+      ? fail("unavailable", "The runner connection closed before it answered")
+      : error;
+  }
+
+  /** The TLS service has already authenticated this connection. */
+  static fromAuthenticatedSocket(
+    socket: Duplex,
+    onUpdateStatus?: (frame: UpdateStatusFrame) => void
+  ) {
+    const connection = new LocalSocketConnection(socket, { onUpdateStatus });
+    wireFrames<unknown>(socket, (frame) => connection.receive(frame));
+    return connection;
   }
 
   /** Connect and present the nonce. Rejects with `unavailable`. */
@@ -298,6 +402,18 @@ export class LocalSocketConnection {
   }
 
   private receive(frame: unknown) {
+    if (
+      this.enrolled &&
+      typeof frame === "object" &&
+      frame !== null &&
+      "type" in frame &&
+      frame.type === "update_status"
+    ) {
+      const status = parseUpdateStatus(frame);
+      if (!status) return this.socket.destroy();
+      this.enrolled.onUpdateStatus?.(status);
+      return;
+    }
     if (this.streams.handle(frame)) return;
     if (blobPathReply.check(frame)) {
       const blob = this.blobs.get(frame.id);
@@ -335,31 +451,45 @@ export class LocalSocketConnection {
       const chunks: Buffer[] = [];
       const sink = new PassThrough();
       sink.on("data", (chunk: Buffer) => chunks.push(chunk));
-      this.streams.receive(frame.stream, sink).then(
-        () => {
-          let value: unknown;
-          try {
-            value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-          } catch {
-            return pending.reject(
-              fail("failed", `Invalid ${pending.op} reply`)
-            );
-          }
-          this.settle(pending, value);
-        },
-        (error: unknown) =>
-          pending.reject(
-            error instanceof RunnerCallError
-              ? new RunnerCallError({
-                  code: "unknown_outcome",
-                  message: `The ${pending.op} reply did not arrive: ${error.message}`,
-                })
-              : fail(
-                  "unknown_outcome",
-                  `The ${pending.op} reply did not arrive`
-                )
-          )
-      );
+      this.streams
+        .receive(frame.stream, sink, this.enrolled ? pending.signal : undefined)
+        .then(
+          () => {
+            let value: unknown;
+            try {
+              value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+            } catch {
+              return pending.reject(
+                fail("failed", `Invalid ${pending.op} reply`)
+              );
+            }
+            if (this.enrolled && frame.workerReply) {
+              if (!value || typeof value !== "object")
+                return pending.reject(
+                  fail("failed", `Invalid ${pending.op} reply`)
+                );
+              if ("error" in value && runnerError.check(value.error))
+                return pending.reject(new RunnerCallError(value.error));
+              value = "data" in value ? value.data : undefined;
+            }
+            this.settle(pending, value);
+          },
+          (error: unknown) =>
+            pending.reject(
+              this.lostReply(
+                pending,
+                error instanceof RunnerCallError
+                  ? new RunnerCallError({
+                      code: "unknown_outcome",
+                      message: `The ${pending.op} reply did not arrive: ${error.message}`,
+                    })
+                  : fail(
+                      "unknown_outcome",
+                      `The ${pending.op} reply did not arrive`
+                    )
+              )
+            )
+        );
       return;
     }
     this.settle(pending, frame.value);
@@ -367,8 +497,14 @@ export class LocalSocketConnection {
 
   private settle(pending: Pending, value: unknown) {
     const spec = (operations as Record<string, OperationSpec>)[pending.op];
-    if (!spec?.response.check(value))
+    if (!spec?.response.check(value)) {
+      if (
+        this.enrolled &&
+        (pending.op === "engine.list" || pending.op === "runner.health")
+      )
+        this.socket.destroy();
       return pending.reject(fail("failed", `Invalid ${pending.op} reply`));
+    }
     pending.resolve(value);
   }
 
@@ -390,15 +526,34 @@ export class LocalSocketConnection {
         clearTimeout(timer);
         signal?.removeEventListener("abort", abort);
       };
+      const cancelRemote = () => {
+        const spec = (operations as Record<string, OperationSpec>)[op];
+        if (
+          !this.enrolled ||
+          !(
+            spec?.cancellable ||
+            spec?.kind === "open" ||
+            isCheckoutReadName(op)
+          )
+        )
+          return;
+        try {
+          this.send({ id, cancel: true });
+        } catch {
+          // Connection close already cancels this runner's checkout commands.
+        }
+      };
       const timer =
         timeoutMs === null
           ? undefined
           : setTimeout(() => {
+              cancelRemote();
               this.pending.delete(id);
               done();
               reject(fail("timeout", `No ${op} reply in ${timeoutMs} ms`));
             }, timeoutMs);
       const abort = () => {
+        cancelRemote();
         this.pending.delete(id);
         done();
         reject(fail("cancelled", "The call was cancelled"));
@@ -406,6 +561,7 @@ export class LocalSocketConnection {
       signal?.addEventListener("abort", abort, { once: true });
       this.pending.set(id, {
         op,
+        signal,
         onEvent,
         resolve: (value) => {
           done();
@@ -439,6 +595,13 @@ export class LocalSocketConnection {
     } = {}
   ): Promise<Res<K>> {
     const spec = operations[op] as OperationSpec;
+    if (this.enrolled && op === "checkout.exec") {
+      return this.exec(
+        input as Req<"checkout.exec">,
+        opts.signal,
+        opts.timeoutMs
+      ) as Promise<Res<K>>;
+    }
     return this.request(
       op,
       input,
@@ -449,6 +612,105 @@ export class LocalSocketConnection {
       undefined,
       opts.onEvent
     ).reply as Promise<Res<K>>;
+  }
+
+  private async exec(
+    input: Req<"checkout.exec">,
+    signal: AbortSignal | undefined,
+    timeoutMs?: number | null
+  ): Promise<Res<"checkout.exec">> {
+    const cleanup = new AbortController();
+    const active = signal
+      ? AbortSignal.any([signal, cleanup.signal])
+      : cleanup.signal;
+    const bytes = { stdout: [] as Buffer[], stderr: [] as Buffer[] };
+    let transfers: Promise<void[]> | undefined;
+    const { reply } = this.request(
+      "checkout.exec",
+      input,
+      active,
+      timeoutMs === undefined
+        ? localDeadlineMs(operations["checkout.exec"], input)
+        : timeoutMs,
+      (id) => {
+        transfers = Promise.all(
+          (["stdout", "stderr"] as const).map((name) =>
+            this.streams.receive(
+              commandOutputStream(id, name),
+              new Writable({
+                write(chunk: Buffer, _, done) {
+                  bytes[name].push(chunk);
+                  done();
+                },
+              }),
+              active,
+              { stall: false }
+            )
+          )
+        );
+        // The reply distinguishes a refused command from lost acknowledgement.
+        void transfers.catch(() => {});
+      }
+    );
+    try {
+      const result = await reply;
+      if (!operations["checkout.exec"].response.check(result))
+        throw fail("invalid", "Invalid checkout command status.");
+      // A handler that returned the strings directly uses the ordinary reply.
+      // Streamed output is complete before the runner acknowledges its status.
+      if (!transfers || (!bytes.stdout.length && !bytes.stderr.length))
+        return result;
+      await transfers;
+      const out = commandOutput(bytes.stdout, input.maxOutput);
+      const err = commandOutput(bytes.stderr, input.maxOutput);
+      return {
+        ...result,
+        stdout: out.text,
+        stderr: err.text,
+        ...(input.maxOutput !== null && {
+          truncated: Boolean(
+            result.truncated || out.truncated || err.truncated
+          ),
+        }),
+      };
+    } finally {
+      cleanup.abort();
+    }
+  }
+
+  /** Register the download sink before the runner can send any file bytes. */
+  async getFile(
+    input: Req<"files.get">,
+    sink: Writable,
+    signal?: AbortSignal
+  ): Promise<Res<"files.get">> {
+    if (!this.enrolled)
+      throw fail("invalid", "File downloads require an enrolled connection");
+    const controller = new AbortController();
+    const active = signal
+      ? AbortSignal.any([signal, controller.signal])
+      : controller.signal;
+    let transfer: Promise<void> | undefined;
+    const { id, reply } = this.request(
+      "files.get",
+      input,
+      active,
+      null,
+      (id) => {
+        transfer = this.streams.receive(downloadStream(id), sink, active);
+      }
+    );
+    try {
+      const [value] = await Promise.all([reply, transfer]);
+      if (
+        !operations["files.get"].response.check(value) ||
+        value.blob !== downloadStream(id)
+      )
+        throw fail("invalid", "Invalid runner file response.");
+      return value;
+    } finally {
+      controller.abort();
+    }
   }
 
   /** Open a channel. The duplex carries the channel's bytes. */
@@ -499,8 +761,16 @@ export class LocalSocketConnection {
     source: { path: string; inPlace?: { mustExist: boolean } } | Readable,
     signal?: AbortSignal
   ): Promise<void> {
-    if (!("path" in source) || typeof source.path !== "string")
+    if (
+      (this.enrolled && source instanceof Readable) ||
+      !("path" in source) ||
+      typeof source.path !== "string"
+    )
       return this.streams.send(id, source as Readable, signal);
+    if (this.enrolled)
+      return Promise.reject(
+        fail("invalid", "A blob path requires a local socket")
+      );
     const { path, inPlace } = source as {
       path: string;
       inPlace?: { mustExist: boolean };

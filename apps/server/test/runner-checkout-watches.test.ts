@@ -1,7 +1,9 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { placementForRunner } from "../src/runners/placement.js";
 import { PassThrough } from "node:stream";
+import { operationChannel } from "@dispatch/runner-client/session";
 import { expect, it, vi } from "vitest";
 import { CheckoutObservers } from "../src/agents/checkout-observers.js";
 import { SharedCheckoutWatches } from "../../../packages/runner/src/workload/agents/checkout-watch.js";
@@ -35,17 +37,21 @@ it("reconnects interested sessions and releases leases that stop receiving reads
   const ready = (id: string) => {
     for (const listener of [...listeners]) listener(id);
   };
-  const requestSession = vi.fn(async () => ({
-    channel: new PassThrough(),
-    value: true,
-  }));
+  const open = vi.fn(async () => {
+    const stream = new PassThrough();
+    return {
+      info: {},
+      channel: operationChannel("checkout.watch", stream),
+      stream,
+    };
+  });
   const changed = vi.fn();
   const remote = {
     onConnectionChange(listener: (id: string) => void) {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    requestSession,
+    open,
   };
   const observers = new CheckoutObservers(
     () => ({ local: undefined, remote: remote as never }),
@@ -53,7 +59,8 @@ it("reconnects interested sessions and releases leases that stop receiving reads
   );
   const agent = {
     id: "author",
-    cwd: "runner://alpha/@session",
+    cwd: "/runner/checkout",
+    placement: placementForRunner("alpha"),
     worktreePath: null,
     workspacePath: null,
     baseBranch: null,
@@ -62,16 +69,16 @@ it("reconnects interested sessions and releases leases that stop receiving reads
     observers.observe(agent);
     observers.observe(agent);
     await vi.advanceTimersByTimeAsync(0);
-    expect(requestSession).toHaveBeenCalledTimes(1);
-    expect(requestSession.mock.calls[0]).toEqual([
-      { runner: "alpha", workspace: "@session" },
-      { kind: "watchCheckout", agentId: "author" },
-      undefined,
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(open.mock.calls[0]).toEqual([
+      "alpha",
+      "checkout.watch",
+      { target: { session: "author", checkout: "current" } },
       undefined,
     ]);
-    const channel = (await requestSession.mock.results[0]!.value).channel;
-    channel.write("1");
-    channel.write("1");
+    const channel = (await open.mock.results[0]!.value).stream;
+    channel.write(JSON.stringify({ changed: true }) + "\n");
+    channel.write(JSON.stringify({ changed: true }) + "\n");
     await vi.advanceTimersByTimeAsync(150);
     expect(changed.mock.calls).toEqual([["author"]]);
     ready("beta");
@@ -81,7 +88,7 @@ it("reconnects interested sessions and releases leases that stop receiving reads
     expect(changed).toHaveBeenCalledTimes(2);
     observers.observe(agent);
     await vi.advanceTimersByTimeAsync(0);
-    const replacement = (await requestSession.mock.results[1]!.value).channel;
+    const replacement = (await open.mock.results[1]!.value).stream;
     await vi.advanceTimersByTimeAsync(95_000);
     expect(replacement.destroyed).toBe(true);
     ready("alpha");

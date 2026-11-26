@@ -5,47 +5,33 @@
  * runner), then drives a session through a turn and a guarded command.
  */
 import { createServer, type TLSSocket } from "node:tls";
+import { LocalSocketConnection } from "@dispatch/runner-client/transport/local-socket";
+import { operationChannel } from "@dispatch/runner-client/session";
 import {
-  parseReadyFrame,
-  type ChannelFrame,
-  type LaunchProgressFrame,
-  type ReadyFrame,
-  type ResultFrame,
-  type ServiceFrame,
-} from "@dispatch/runner-protocol";
-import {
+  runnerIdFromWire,
   sessionFromWire,
-  type SessionHandle,
+  type Event,
   type Res,
   type Req,
   type Runner,
 } from "@dispatch/runner-protocol/contract";
-import { RunnerConnection } from "@dispatch/runner-client/v1/connection";
-import {
-  FlowStreams,
-  wireFrames,
-  type StreamFrame,
-} from "@dispatch/runner-client/v1/node";
 import { checked } from "./checked.js";
 import { launchRequest, promptSession } from "./session.js";
-import { readV1Guard, v1Runner } from "./v1-runner.js";
 
 export type Credentials = { key: string; cert: string; ca: string };
 
 export type Accepted = {
   runner: Runner;
-  ready: ReadyFrame;
-  readGuard(session: SessionHandle, path: string): Promise<string>;
   close(): void;
 };
 
 /**
  * Listens for one remote runner. Resolves `port` once listening and
- * `accepted` once the runner has connected and sent `ready`.
+ * `accepted` once the runner has authenticated and answered its first description call.
  */
 export function acceptRemoteRunner(
   credentials: Credentials,
-  { host = "0.0.0.0", runnerId = "remote", workspace = "" } = {}
+  { host = "0.0.0.0", runnerId = "remote" } = {}
 ) {
   const server = createServer({
     ...credentials,
@@ -58,58 +44,45 @@ export function acceptRemoteRunner(
     server.on("secureConnection", (socket) => {
       sockets.add(socket);
       socket.on("error", () => {});
-      let connection: RunnerConnection | undefined;
-      let streams: FlowStreams | undefined;
-      const send = wireFrames<unknown, ServiceFrame | StreamFrame>(
-        socket,
-        (frame) => {
-          if (!connection) {
-            const ready = parseReadyFrame(frame);
-            if (!ready) return socket.destroy();
-            connection = new RunnerConnection(send);
-            if (ready.streamCredit) {
-              streams = new FlowStreams(socket, send);
-              send({
-                type: "stream",
-                action: "accept",
-                ...(ready.checkoutReadStream && { checkoutReadStream: true }),
-                ...(ready.checkoutExecStream && { checkoutExecStream: true }),
-                ...(ready.terminalOpenStream && { terminalOpenStream: true }),
-              });
-              streams.enable();
-            }
-            socket.on("close", () => connection?.close());
-            const selected = workspace || ready.workspaces[0];
-            if (!selected)
-              return reject(new Error("The runner has no workspace."));
-            resolve({
-              ready,
-              runner: v1Runner({
-                connection,
-                streams,
-                ready,
-                runnerId,
-                displayName: runnerId,
-                workspace: selected,
+      socket.once("close", () => sockets.delete(socket));
+      const connection = LocalSocketConnection.fromAuthenticatedSocket(socket);
+      void connection
+        .call("runner.describe", {})
+        .then((reported) => {
+          const description = {
+            ...reported,
+            runnerId: runnerIdFromWire(runnerId),
+          };
+          const runner: Runner = {
+            describe: () => description,
+            connection: {
+              get state() {
+                return connection.connected ? "ready" : "closed";
+              },
+              epoch: 1,
+              onChange: (listen) => connection.onClose(() => listen("closed")),
+            },
+            call: (op, request, options) =>
+              connection.call(op, request, {
+                signal: options?.signal,
+                onEvent: (event) =>
+                  options?.onEvent?.(event as Event<typeof op>),
               }),
-              readGuard: (session, path) =>
-                readV1Guard(connection!, selected, session, path),
-              close: () => connection?.close(),
-            });
-            return;
-          }
-          if (streams?.handle(frame)) return;
-          const reply = frame as
-            | ChannelFrame
-            | ResultFrame
-            | LaunchProgressFrame
-            | { type: string };
-          if (
-            ["result", "data", "close", "launch_progress"].includes(reply.type)
-          )
-            connection.receive(reply as ResultFrame);
-        }
-      );
+            async open(op, request, options) {
+              const { info, channel } = await connection.openChannel(
+                op,
+                request,
+                options
+              );
+              return { info, channel: operationChannel(op, channel) };
+            },
+          };
+          resolve({ runner, close: () => connection.close() });
+        })
+        .catch((error) => {
+          socket.destroy();
+          reject(error);
+        });
     });
   });
   const port = new Promise<number>((resolve) =>
@@ -143,8 +116,7 @@ export async function walkthrough(
   connection: Runner,
   session: string,
   guard: { path: string; content: string },
-  config: Pick<Req<"session.launch">, "env" | "mcp"> & { prompt: string },
-  readGuard?: Accepted["readGuard"]
+  config: Pick<Req<"session.launch">, "env" | "mcp"> & { prompt: string }
 ): Promise<Walkthrough> {
   const runner = checked(connection);
   const description = runner.describe();
@@ -157,6 +129,7 @@ export async function walkthrough(
     const file = await runner.call("checkout.read", {
       target,
       path: guard.path,
+      mode: "command-manifest",
       encoding: "utf8",
       maxBytes: null,
     });
@@ -166,7 +139,7 @@ export async function walkthrough(
       target,
       guard: {
         path: guard.path,
-        digest: (await readGuard?.(handle, guard.path)) ?? file.digest,
+        digest: file.digest,
       },
       argv: ["cat", guard.path],
       env: {},

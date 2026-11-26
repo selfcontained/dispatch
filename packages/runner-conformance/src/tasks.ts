@@ -28,7 +28,7 @@ export const OPERATION_TASK = {
   "git.remoteHeads": "T40",
   "checkout.list": "T40", // Native folder definition enumeration; original views T09.
   "checkout.access": "T40", // F_OK presence, with native error details.
-  "checkout.read": "T40", // Owned checkout and native folder definition reads; original reads T09.
+  "checkout.read": "T40", // Owned checkout, native definitions and command-manifest guards. Original reads T09.
   "checkout.write": "T35",
   "checkout.preview": "T09",
   "checkout.index": "T09",
@@ -57,6 +57,7 @@ export const OPERATION_TASK = {
   "github.pr.status": "T32",
   "github.pr.details": "T33",
   "github.pr.diff": "T33",
+  // Background inventory yields to a protected update; explicit lists remain available.
   "engine.list": "T28",
   "engine.install": "T29",
   "engine.update": "T29",

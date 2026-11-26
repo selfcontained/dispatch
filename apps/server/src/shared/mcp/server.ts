@@ -285,6 +285,8 @@ export type McpRequestContext = UsageCallbacks & {
   toolsRoot?: string;
   brainRepoRoot?: string | null;
   worktreeRoot: string | null;
+  /** Current workspace when it can identify a project on the controller. */
+  taskWorkspaceKey?: string | null;
   /** Persona authoring through the caller's checkout on its runner. */
   personaFiles?: PersonaFiles;
   personaWrites?: boolean;
@@ -614,7 +616,13 @@ export async function createDispatchMcpServer(
       resolveProject: () =>
         taskService.projectForAgent(
           // The routes set the agent's cwd to its current workspace.
-          taskScopeInput(agent.projectId, agent.cwd, context.repoRoot)
+          taskScopeInput(
+            agent.projectId,
+            context.taskWorkspaceKey === undefined
+              ? agent.cwd
+              : context.taskWorkspaceKey,
+            context.repoRoot
+          )
         ),
       service: taskService,
     });

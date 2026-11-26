@@ -17,7 +17,6 @@ import {
   guest,
   guestDiagnostics,
   RUNNERS_API,
-  state,
 } from "./harness";
 
 function manifest(marker: string, hookCode = 0) {
@@ -106,15 +105,16 @@ test("dispatches authenticated repo tools and stop hooks to the bound checkout",
     mkdtempSync(path.join(os.tmpdir(), "dispatch-checkout-command-"))
   );
   const agents: string[] = [];
-  let projectId: string | undefined;
-  const start = async (cwd: string) => {
+  const projects: string[] = [];
+  const start = async (cwd: string, runner?: string, projectId?: string) => {
     const res = await request.post("/api/v1/agents", {
       headers: authHeaders(),
       data: {
         name: "Checkout command fixture",
         type: "claude",
         cwd,
-        ...(cwd.endsWith("/@session") ? { projectId } : {}),
+        runner,
+        projectId,
         useWorktree: false,
       },
     });
@@ -176,29 +176,24 @@ test("dispatches authenticated repo tools and stop hooks to the bound checkout",
 
   try {
     const alpha = await enrollViaUi(page, request, "alpha");
-    const configured = state.runners.alpha.workspaceDir;
-    seedGuest("alpha", configured, "configured");
-    const configuredId = await start(`runner://${alpha}/${state.workspace}`);
-    const configuredToken = token("alpha", configuredId);
-    await verify(
-      configuredId,
-      configuredToken,
-      "configured",
-      configured,
-      "1500:1500"
-    );
+    const alphaProject = await repositoryProject(request, "alpha");
+    projects.push(alphaProject);
+    const alphaId = await start("", alpha, alphaProject);
+    const alphaDirectory = `/var/lib/runner/sessions/${alphaId}/checkout`;
+    seedGuest("alpha", alphaDirectory, "alpha");
+    const alphaToken = token("alpha", alphaId);
+    await verify(alphaId, alphaToken, "alpha", alphaDirectory, "1500:1500");
 
     const scratch = await enrollViaUi(page, request, "scratch");
-    projectId = await repositoryProject(request, "scratch");
-    const managedId = await start(`runner://${scratch}/@session`);
+    const projectId = await repositoryProject(request, "scratch");
+    projects.push(projectId);
+    const managedId = await start("", scratch, projectId);
     const managed = `/var/lib/runner/sessions/${managedId}/checkout`;
     seedGuest("scratch", managed, "managed", 23);
     const managedToken = token("scratch", managedId);
     await verify(managedId, managedToken, "managed", managed, "1500:1500");
     expect(
-      (
-        await mcp(request, managedId, configuredToken, "tools/call", call)
-      ).status()
+      (await mcp(request, managedId, alphaToken, "tools/call", call)).status()
     ).toBe(403);
     // Main permits the loopback owner route without an agent bearer token;
     // runner callers use the same rule. The cross-agent token above is refused.
@@ -233,9 +228,9 @@ test("dispatches authenticated repo tools and stop hooks to the bound checkout",
         `${dir}|1500:1500|${managedId}`
       );
     }
-    await stop(configuredId);
-    expect(guest("alpha", `cat '${configured}/hook.log'`).trim()).toBe(
-      `${configured}|1500:1500|${configuredId}`
+    await stop(alphaId);
+    expect(guest("alpha", `cat '${alphaDirectory}/hook.log'`).trim()).toBe(
+      `${alphaDirectory}|1500:1500|${alphaId}`
     );
 
     execFileSync("git", ["-C", native, "init", "-b", "main"]);
@@ -314,9 +309,7 @@ test("dispatches authenticated repo tools and stop hooks to the bound checkout",
     });
     expect(revoked.ok(), await revoked.text()).toBe(true);
     expect(
-      (
-        await mcp(request, configuredId, configuredToken, "tools/call", call)
-      ).status()
+      (await mcp(request, alphaId, alphaToken, "tools/call", call)).status()
     ).toBe(403);
   } catch (error) {
     for (const name of ["alpha", "scratch"] as const) {
@@ -328,11 +321,10 @@ test("dispatches authenticated repo tools and stop hooks to the bound checkout",
     throw error;
   } finally {
     for (const id of agents.reverse()) await deleteAgentViaAPI(request, id);
-    if (projectId)
+    for (const projectId of projects)
       await request.delete(`/api/v1/projects/${projectId}`, {
         headers: authHeaders(),
       });
-    guest("alpha", `rm -rf ${state.runners.alpha.workspaceDir}/.git`);
     rmSync(native, { recursive: true, force: true });
   }
 });

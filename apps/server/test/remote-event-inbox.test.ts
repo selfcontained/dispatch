@@ -17,7 +17,7 @@ beforeAll(async () => {
   pool = await setupTestDb();
   await runTestMigrations();
   await pool.query(
-    "INSERT INTO agents (id, name, cwd, status, host_journal_id) VALUES ($1, 'Receipt', 'runner://a/proof', 'running', $2)",
+    "INSERT INTO agents (id, name, cwd, status, host_journal_id) VALUES ($1, 'Receipt', '/srv/checkout', 'running', $2)",
     [agentId, journalId]
   );
 });

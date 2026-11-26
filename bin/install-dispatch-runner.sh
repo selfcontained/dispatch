@@ -275,8 +275,7 @@ write_config() {
     "claude": $(engine_commands @anthropic-ai/claude-code),
     "codex": $(engine_commands @openai/codex),
     "opencode": $(engine_commands opencode-ai)
-  },
-  "workspaces": {}
+  }
 }
 CONFIG
   install -m 0600 "$stage/runner.json" "$config"

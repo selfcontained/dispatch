@@ -553,23 +553,9 @@ async function effectiveCommandRoot(cwd: string) {
 export async function readCheckoutCommandFile(
   cwd: string,
   file: string,
-  {
-    configuredRoot,
-    exact = false,
-  }: { configuredRoot?: string; exact?: boolean } = {}
+  { exact = false }: { exact?: boolean } = {}
 ) {
   const root = exact ? await realpath(cwd) : await effectiveCommandRoot(cwd);
-  if (configuredRoot) {
-    const relative = path.relative(configuredRoot, root);
-    if (
-      relative === ".." ||
-      relative.startsWith(".." + path.sep) ||
-      path.isAbsolute(relative)
-    )
-      throw new Error(
-        "Repository root is outside the configured runner checkout."
-      );
-  }
   const content = await readWorktreeFile(root, validateFilePath(file));
   return { root, content };
 }

@@ -1,33 +1,14 @@
 /*
- * The core's binding store on `linux-privsep`. Its records are the core's
- * (`BindingStore`), kept in `bindings/.bindings`, root-only like the rest of
- * `bindings/`. Until T40 the supervisor's own paths and an older build
- * (a rollback during probation) still read and write today's files, so the
- * store keeps them as they are and writes them first:
+ * The supervisor and the core share current session records under bindings/.
+ * The core tracks their digest in its private .bindings directory. On a
+ * mismatch it reads the supervisor files again, including the owner's files
+ * for a borrower. Writers commit the supervisor files first so the next read
+ * can recover if a process exits before committing the core record.
  *
- *   bindings/<key>                "\0managed", "\0managed:<owner>" or a
- *                                 configured workspace's name
- *   bindings/<key>.repository     the managed checkout's `{url, checkout}`,
- *                                 or `null` for a scratch session
- *   bindings/<key>.cwd            a configured workspace's directory
- *   bindings/<key>.selected-cwd   the folder the session moved into ("" none)
- *   bindings/<key>.borrowed-cwd   where a borrower started
- *   bindings/<key>.borrowed-from  which session supplied that folder
- *   bindings/<key>.checkout-plan  an older build's unfinished preparation
- *
- * Each record carries a digest of those files as the store last saw them.
- * A read whose files no longer match (only something other than this store
- * changed them: the supervisor's own paths, or an older build) takes the
- * files, correcting the record or removing it with the session. The first
- * read of a session an older build bound is its one-time import; the files
- * are never changed by it.
- *
- * Write order: today's files first, in today's order, then the record. A
- * crash between them leaves a record whose digest no longer matches, which
- * the next read corrects from the files: both builds read the same session.
- *
- * A session with a `.repository` or a plan and no core receipt was prepared
- * by an older build and finishes on that path (`legacy`).
+ * The binding contains the managed, borrower or named-folder marker. The
+ * .repository file identifies the checkout or scratch session. A named
+ * folder stores its directory in .cwd. The .selected-cwd, .borrowed-cwd and
+ * .borrowed-from files record selection and borrowing.
  */
 import { createHash } from "node:crypto";
 import { isAbsolute, join } from "node:path";
@@ -213,7 +194,8 @@ export class PrivsepBindings extends BindingStore {
       const owner = this.ownerOf(binding);
       if (!owner) return null;
       launch = this.managedLaunch(owner, files);
-    } else launch = optional(".cwd");
+    } else if (binding === FOLDER_BINDING) launch = optional(".cwd");
+    else return null;
     if (launch === null) return null;
     const borrowed = optional(".borrowed-cwd");
     const borrowedFrom = borrowed && optional(".borrowed-from");
@@ -237,15 +219,6 @@ export class PrivsepBindings extends BindingStore {
   /** The platform's place for a managed session's checkout. */
   checkoutOf(session: string): string {
     return join(this.paths.sessions, storageKey(session), "checkout");
-  }
-
-  /** Whether an older build prepared this session; it finishes on that path. */
-  async legacy(session: string): Promise<boolean> {
-    const key = storageKey(session);
-    const old =
-      (await this.fs.read(this.file(key, ".repository"))) !== null ||
-      (await this.fs.read(this.file(key, ".checkout-plan"))) !== null;
-    return old && (await this.receipt(session)) === null;
   }
 
   /**

@@ -1,3 +1,4 @@
+import { placementForRunner } from "../src/runners/placement.js";
 import { validationCatalogFixture } from "./helpers/model-catalog-validation.js";
 const validationFixtures: ReturnType<typeof validationCatalogFixture>[] = [];
 import {
@@ -46,12 +47,6 @@ vi.mock(
   })
 );
 vi.mock(
-  "../../../packages/runner/src/workload/shared/git/default-branch.js",
-  () => ({
-    localDefaultBranch: vi.fn(async () => "main"),
-  })
-);
-vi.mock(
   "../../../packages/runner/src/workload/shared/lib/run-command.js",
   () => import("../src/shared/lib/run-command.js")
 );
@@ -94,6 +89,13 @@ function setup(parentChanges: Record<string, unknown> = {}) {
     parentAgentId: null,
     projectId: "project",
     fullAccess: false,
+    placement: placementForRunner(
+      parentChanges.cwd === "/srv/linux"
+        ? "linux"
+        : parentChanges.cwd === "/srv/ubu"
+          ? "ubu"
+          : "local"
+    ),
     ...parentChanges,
   };
   const checkout = {
@@ -164,7 +166,7 @@ beforeEach(() => vi.clearAllMocks());
 describe("code owner launches through the checkout boundary", () => {
   it.each([
     { cwd: "/checkout", baseBranch: "acp-runtime" },
-    { cwd: "runner://linux/@session", baseBranch: null },
+    { cwd: "/srv/linux", baseBranch: null },
   ])(
     "plans and launches using only runner checkout facts for $cwd",
     async ({ cwd, baseBranch }) => {
@@ -260,7 +262,7 @@ describe("code owner launches through the checkout boundary", () => {
     }
   );
 
-  it.each(["/checkout", "runner://linux/@session"])(
+  it.each(["/checkout", "/srv/linux"])(
     "keeps both Claude review paths restricted for a restricted author in %s",
     async (cwd) => {
       const { handlers, agentManager } = setup({ cwd, type: "claude" });
@@ -320,7 +322,7 @@ describe("code owner launches through the checkout boundary", () => {
           )
         );
       const { handlers, agentManager } = setup({
-        cwd: "runner://linux/@session",
+        cwd: "/srv/linux",
       });
       const options = {
         context: "Review",
@@ -350,7 +352,7 @@ describe("code owner launches through the checkout boundary", () => {
       expect(agentManager.createAgent).toHaveBeenCalledTimes(2);
       for (const [launch] of agentManager.createAgent.mock.calls) {
         expect(launch).toMatchObject({
-          cwd: "runner://linux/@session",
+          cwd: "/srv/linux",
           model: options.model,
           effort: options.effort,
         });
@@ -369,7 +371,7 @@ describe("code owner launches through the checkout boundary", () => {
     }
   );
 
-  it.each(["/checkout", "runner://linux/@session"])(
+  it.each(["/checkout", "/srv/linux"])(
     "inherits full engine access for direct and owner reviews in %s",
     async (cwd) => {
       const { handlers, agentManager } = setup({ cwd, fullAccess: true });
@@ -398,8 +400,8 @@ describe("code owner launches through the checkout boundary", () => {
   it.each([
     { cwd: "/checkout", fullAccess: false },
     { cwd: "/checkout", fullAccess: true },
-    { cwd: "runner://ubu/@session", fullAccess: false },
-    { cwd: "runner://ubu/@session", fullAccess: true },
+    { cwd: "/srv/ubu", fullAccess: false },
+    { cwd: "/srv/ubu", fullAccess: true },
   ])(
     "produces the same launch config for UI kickoff and tool requests (%j)",
     async (author) => {
@@ -455,7 +457,7 @@ describe("code owner launches through the checkout boundary", () => {
     }
   );
 
-  it.each(["/checkout", "runner://linux/@session"])(
+  it.each(["/checkout", "/srv/linux"])(
     "rejects a saved OpenCode reviewer that would elevate a restricted author in %s",
     async (cwd) => {
       const { handlers, agentManager } = setup({
@@ -692,7 +694,7 @@ describe("code owner launches through the checkout boundary", () => {
 
   it("surfaces unavailable shared-checkout launch on a runner that can inspect", async () => {
     const { handlers, agentManager } = setup({
-      cwd: "runner://older/@session",
+      cwd: "/srv/older",
       reviewAgentType: "claude",
     });
     agentManager.createAgent.mockRejectedValueOnce(
@@ -712,7 +714,7 @@ describe("code owner launches through the checkout boundary", () => {
     ]);
     expect(agentManager.createAgent).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
-        cwd: "runner://older/@session",
+        cwd: "/srv/older",
         type: "claude",
         fullAccess: false,
       }),
@@ -748,7 +750,7 @@ describe("code owner launches through the checkout boundary", () => {
   it.each([
     { cwd: "/checkout", reason: "Cannot read diff" },
     {
-      cwd: "runner://old/@session",
+      cwd: "/srv/old",
       reason: "Runner does not support checkout inspection",
     },
   ])("surfaces checkout failure for $cwd", async ({ cwd, reason }) => {

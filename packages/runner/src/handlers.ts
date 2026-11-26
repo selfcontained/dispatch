@@ -1,4 +1,5 @@
-import type { Writable, Duplex } from "node:stream";
+import type { CheckoutReadName } from "@dispatch/runner-protocol";
+import type { Writable, Readable, Duplex } from "node:stream";
 import type {
   CallName,
   OpenName,
@@ -8,6 +9,18 @@ import type {
 
 /** What a handler may use of the connection its request arrived on. */
 export type ConnectionContext = {
+  /** An enrolled caller cancelled its command, or its authenticated connection closed. */
+  signal?: AbortSignal;
+  /** Close this enrolled terminal at its protected update deadline. */
+  endTerminal?(notice: Buffer): void;
+  /** Forward a checkout process stream on the enrolled command's connection. */
+  sendOutput?(
+    name: "stdout" | "stderr",
+    source: Readable,
+    signal: AbortSignal
+  ): Promise<void>;
+  /** Stream the contents of this enrolled files.get response under its call-scoped blob ID. */
+  sendFile?(source: Readable): Promise<string>;
   /**
    * Expect a blob under `id` and write it into `sink`. The caller sends it as
    * bytes or, on this socket, as a file path. Register before the handler's
@@ -44,7 +57,16 @@ export type OpenHandlers = Partial<{
   ) => Promise<{ info: Res<K>; channel: Duplex }>;
 }>;
 
-export type Handlers = { calls: CallHandlers; opens?: OpenHandlers };
+export type Handlers = {
+  calls: CallHandlers;
+  opens?: OpenHandlers;
+  /** The unprivileged worker serializes {data} or {error} directly to the connection. */
+  checkoutRead?(
+    op: CheckoutReadName,
+    input: Req<CheckoutReadName>,
+    signal: AbortSignal
+  ): Promise<Readable>;
+};
 
 /** A file handed over where it is (`receiveBlobPath`). */
 export type InPlaceBlob = { path: string; mustExist: boolean };

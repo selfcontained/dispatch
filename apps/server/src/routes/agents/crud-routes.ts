@@ -1,17 +1,11 @@
-import {
-  requestedRunnerPlacement,
-  resolveSavedTarget,
-} from "../../runners/saved-location.js";
+import { requestedRunnerPlacement } from "../../runners/saved-location.js";
 import { admitLaunch } from "../../agents/launch-admission.js";
 import { sameRunner } from "@dispatch/runner-protocol/contract";
 import {
   controllerPlacement,
-  checkoutReadPlacement,
-  launchSessionLocation,
   runnerIdForPlacement,
 } from "../../runners/placement.js";
 import { isCheckoutStateId } from "@dispatch/runner-protocol";
-import { MANAGED_WORKSPACE } from "@dispatch/runner-protocol";
 import { validateAgentEffort } from "../../shared/agent-effort.js";
 import type { Effort } from "@dispatch/shared";
 import path from "node:path";
@@ -246,15 +240,8 @@ export async function registerAgentCrudRoutes(
         return reply
           .code(400)
           .send({ error: "Choose a project or a folder, not both." });
-      body.cwd = resolveSavedTarget("", {
-        runner: runnerIdForPlacement(requestedPlacement!),
-      }).directory;
+      body.cwd = "";
     }
-    const cwd = typeof body.cwd === "string" ? body.cwd : "";
-    const placement = launchSessionLocation(cwd, checkoutReadPlacement(cwd));
-    if (requestedPlacement && !projectTarget && placement)
-      return reply.code(400).send({ error: "Invalid folder." });
-    const managed = placement?.workspace === MANAGED_WORKSPACE;
     // Created for a task: briefed on it in its prompt, placed in its
     // project unless a location was chosen, and assigned once it exists.
     let taskBriefing: Awaited<
@@ -274,7 +261,7 @@ export async function registerAgentCrudRoutes(
     const admission = admitLaunch({
       phase: "api",
       caller: taskBriefing ? "task" : "createAgent",
-      projectTarget: managed,
+      projectTarget: Boolean(projectTarget),
       cwd: body.cwd,
       projectId:
         typeof body.projectId === "string" ? body.projectId : undefined,
@@ -416,14 +403,10 @@ export async function registerAgentCrudRoutes(
     let model: string | undefined;
     let effort: Effort | null;
     try {
-      const scope = await modelScopeFor(
-        typeof body.cwd === "string" ? body.cwd : null,
-        agentType,
-        {
-          model: typeof body.model === "string" ? body.model : undefined,
-          effort: body.effort,
-        }
-      );
+      const scope = await modelScopeFor(requestedPlacement, agentType, {
+        model: typeof body.model === "string" ? body.model : undefined,
+        effort: body.effort,
+      });
       model = validateAgentModelChoice(
         agentType,
         typeof body.model === "string" ? body.model : undefined,
@@ -472,6 +455,7 @@ export async function registerAgentCrudRoutes(
             taskBriefing?.name ||
             undefined,
           type: agentType,
+          placement: requestedPlacement,
           cwd: typeof body.cwd === "string" ? body.cwd : "",
           projectId:
             typeof body.projectId === "string" ? body.projectId : undefined,

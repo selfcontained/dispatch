@@ -11,7 +11,6 @@ type State = {
   controlPort: number;
   runnerPort: number;
   endpointHost: string;
-  workspace: string;
   runners: Record<
     GuestName,
     { container: string; proxyPort: number; workspaceDir: string }
@@ -42,11 +41,14 @@ export function guestOk(name: GuestName, script: string) {
 }
 export const marker = (name: RunnerName) =>
   guest(name, `cat ${state.runners[name].workspaceDir}/marker.txt`).trim();
-export const invocations = (name: RunnerName) =>
+export const invocations = (
+  name: RunnerName,
+  directory = state.runners[name].workspaceDir
+) =>
   Number(
     guest(
       name,
-      `cat ${state.runners[name].workspaceDir}/provider-invocations 2>/dev/null | wc -l`
+      `cat ${directory}/provider-invocations 2>/dev/null | wc -l`
     ).trim()
   );
 
@@ -96,7 +98,8 @@ export async function repositoryProject(
   request: APIRequestContext,
   name: GuestName,
   source?: string,
-  defaultBranch = "main"
+  defaultBranch = "main",
+  guestFixture = false
 ) {
   // Real runner installs provide gh for the Git credential helper. Keep this
   // standalone spec independent of github-account.spec.ts installing its fake.
@@ -137,11 +140,17 @@ export async function repositoryProject(
   }
   const seed = `${root}/${id}`;
   if (source) docker("cp", source, state.runners[name].container + ":" + seed);
-  else
+  else {
+    guest(name, `mkdir -p ${seed}`);
+    if (guestFixture) {
+      const fixture = state.runners[name].workspaceDir;
+      guest(name, `cp -R ${fixture}/.dispatch ${fixture}/marker.txt ${seed}/`);
+    }
     guest(
       name,
-      `mkdir -p ${seed}; git -C ${seed} init -b main; git -C ${seed} -c user.name=Fixture -c user.email=fixture@localhost commit --allow-empty -m base`
+      `git -C ${seed} init -b main && git -C ${seed} add . && git -C ${seed} -c user.name=Fixture -c user.email=fixture@localhost commit --allow-empty -m base`
     );
+  }
   guest(
     name,
     `chown -R 0:0 ${seed}
@@ -180,7 +189,6 @@ export type RunnerRow = {
   id: string;
   name: string;
   status: string;
-  workspaces?: string[];
 };
 export async function runnerRows(request: APIRequestContext) {
   const res = await request.get(RUNNERS_API, { headers: authHeaders() });
@@ -489,13 +497,17 @@ export async function runnerOptionEnabled(page: Page, runnerId: string) {
 }
 
 /** Direct API launch, for placements the dialog deliberately cannot express. */
-export async function launchViaApi(request: APIRequestContext, cwd: string) {
+export async function launchViaApi(
+  request: APIRequestContext,
+  target: { runner: string; projectId: string }
+) {
   const res = await request.post("/api/v1/agents", {
     headers: authHeaders(),
     data: {
       name: `e2e-rr-api-${Date.now()}`,
       type: "codex",
-      cwd,
+      cwd: "",
+      ...target,
       useWorktree: false,
       initialPrompt: "x",
     },

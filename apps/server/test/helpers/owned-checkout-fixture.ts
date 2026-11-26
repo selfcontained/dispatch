@@ -1,3 +1,8 @@
+import { Readable } from "node:stream";
+import { json } from "node:stream/consumers";
+import { isCheckoutReadRequest } from "@dispatch/runner-protocol";
+import { sessionFromWire } from "@dispatch/runner-protocol/contract";
+import { enrolledCheckouts } from "../../../../packages/runner/src/workload/agents/remote/checkout-operations.js";
 import { createSessionCore } from "@dispatch/runner/cli";
 import { execFileSync } from "node:child_process";
 import {
@@ -168,7 +173,6 @@ export async function ownedCheckoutFixture(
         ca: path.join(root, "unused-ca"),
         bins: { claudeBin: "", codexBin: "" },
         env: {},
-        workspaces: new Set(["configured"]),
         hostCommand: () => ["/unused-host"],
         asWorkload: async (bin, args) =>
           bin === "realpath"
@@ -184,10 +188,10 @@ export async function ownedCheckoutFixture(
   for (const row of rows) {
     const key = runnerStorageKey(row.id),
       bindings = path.join(state, "bindings");
-    await writeFile(path.join(bindings, key), "configured");
+    await writeFile(path.join(bindings, key), "\0folder");
     await writeFile(path.join(bindings, `${key}.cwd`), row.home);
     if (row.workspacePath)
-      await supervisor.sessionCheckout(row.id, "configured", {
+      await supervisor.sessionCheckout(row.id, {
         kind: "select",
         path: row.workspacePath,
       });
@@ -200,6 +204,54 @@ export async function ownedCheckoutFixture(
     plain,
     gone,
     rows,
+    async operation<K extends "checkout.access" | "checkout.read">(
+      op: K,
+      row: (typeof rows)[number],
+      input: Req<K>
+    ) {
+      const signal = new AbortController().signal;
+      const handlers = enrolledCheckouts(
+        supervisor,
+        {
+          async run() {
+            throw new Error("Unexpected checkout query");
+          },
+          async manifest() {
+            throw new Error("Unexpected command manifest");
+          },
+          read(directory, selection) {
+            if (
+              !isCheckoutReadRequest(selection, row.id) ||
+              !(
+                selection.op === "checkout.access" ||
+                selection.op === "checkout.read"
+              )
+            )
+              throw new Error("Unexpected checkout worker input");
+            return Readable.from(
+              (async function* () {
+                const data = await workload.run(
+                  selection.op,
+                  { directory, request: selection.request },
+                  {}
+                );
+                yield Buffer.from(JSON.stringify({ data }));
+              })()
+            );
+          },
+        },
+        signal
+      );
+      if (
+        !("session" in input.target) ||
+        input.target.session !== sessionFromWire(row.id)
+      )
+        throw new Error("Wrong checkout session");
+      const reply = (await json(
+        await handlers.checkoutRead(op, input, signal)
+      )) as { data: Res<K> };
+      return reply.data;
+    },
     async finalizeGone() {
       await rm(gone, { recursive: true, force: true });
     },
@@ -215,12 +267,7 @@ export async function ownedCheckoutFixture(
         maxBytes: null,
       }
     ) {
-      const directory = await supervisor.checkoutDirectory(
-        row.id,
-        "configured",
-        undefined,
-        checkout
-      );
+      const directory = await supervisor.checkoutDirectory(row.id, checkout);
       return workload.run("checkout.read", { directory, request }, {});
     },
     async access(
@@ -228,12 +275,7 @@ export async function ownedCheckoutFixture(
       checkout: "current" | "launch",
       request: Omit<Req<"checkout.access">, "target">
     ) {
-      const directory = await supervisor.checkoutDirectory(
-        row.id,
-        "configured",
-        undefined,
-        checkout
-      );
+      const directory = await supervisor.checkoutDirectory(row.id, checkout);
       return workload.run("checkout.access", { directory, request }, {});
     },
     async direct(row: (typeof rows)[number]) {

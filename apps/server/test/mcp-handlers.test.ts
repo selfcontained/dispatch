@@ -1,3 +1,5 @@
+import { resolveSavedTarget } from "../src/runners/saved-location.js";
+import { placementForRunner } from "../src/runners/placement.js";
 import path from "node:path";
 import {
   setLearnedAgentModels,
@@ -309,7 +311,7 @@ describe("createMcpHandlers", () => {
         const localAgent = await deps.agentManager.getAgent();
         const runnerAgent = {
           ...localAgent,
-          cwd: "runner://runner-test/@session",
+          cwd: "/srv/checkout",
         };
         const notifier = new SlackNotifier(deps.pool, deps.appLog);
         const uploadImage = vi.fn(async () => "F1");
@@ -1204,11 +1206,14 @@ describe("createMcpHandlers", () => {
   describe("launchAgent: one access ceiling for every caller", () => {
     const callers = [
       ["local", "/repo"],
-      ["runner", "runner://runner-test/@session"],
+      ["runner", "/srv/checkout"],
     ] as const;
     const parentAt = async (cwd: string, fullAccess: boolean) =>
       deps.agentManager.getAgent.mockResolvedValue({
         ...(await deps.agentManager.getAgent()),
+        placement: placementForRunner(
+          cwd === "/srv/checkout" ? "runner-test" : "local"
+        ),
         cwd,
         fullAccess,
         parentAgentId: null,
@@ -1259,7 +1264,10 @@ describe("createMcpHandlers", () => {
       vi.mocked(launchPersonaScope).mockClear();
       await parentAt("/repo", true);
       const target = templateRecord({
-        directory: "runner://runner-test/@session",
+        ...resolveSavedTarget("", {
+          runner: "runner-test",
+          projectId: "proj_r",
+        }),
         projectId: "proj_r",
       });
       deps.templateService.getTemplate.mockResolvedValue(target);
@@ -1272,8 +1280,8 @@ describe("createMcpHandlers", () => {
         .catch(() => {});
       const [, scope] = vi.mocked(launchPersonaScope).mock.calls.at(-1)!;
       expect(scope).toMatchObject({
-        placement: { runner: "runner-test" },
-        cwd: "runner://runner-test/@session",
+        placement: placementForRunner("runner-test"),
+        cwd: "",
       });
       expect(scope.repository).toEqual(expect.any(Function));
     });
@@ -1332,9 +1340,12 @@ describe("createMcpHandlers", () => {
 
   describe("launchAgent", () => {
     it("launches from a runner caller's session with a local caller's inputs", async () => {
-      const cwd = "runner://runner-test/@session";
+      const cwd = "/srv/checkout";
       deps.agentManager.getAgent.mockResolvedValue({
         ...(await deps.agentManager.getAgent()),
+        placement: placementForRunner(
+          cwd === "/srv/checkout" ? "runner-test" : "local"
+        ),
         cwd,
         workspacePath: "/home/runner/checkout",
       });
@@ -1399,7 +1410,7 @@ describe("createMcpHandlers", () => {
         handlers.launchAgent("agt_test1", {
           name: "foreign",
           prompt: "work",
-          cwd: "runner://another/@session",
+          cwd: "relative/folder",
         })
       ).rejects.toThrow("Working directory must be an absolute path.");
       expect(deps.agentManager.createAgent).toHaveBeenCalledTimes(8);
@@ -1410,16 +1421,19 @@ describe("createMcpHandlers", () => {
         handlers.launchAgent("agt_test1", {
           name: "foreign",
           prompt: "work",
-          cwd: "runner://another/@session",
+          cwd: "relative/folder",
         })
       ).rejects.toThrow("Working directory must be an absolute path.");
       expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
     });
 
     it("checks the model against the caller runner's catalog when it reports one", async () => {
-      const cwd = "runner://runner-test/@session";
+      const cwd = "/srv/checkout";
       deps.agentManager.getAgent.mockResolvedValue({
         ...(await deps.agentManager.getAgent()),
+        placement: placementForRunner(
+          cwd === "/srv/checkout" ? "runner-test" : "local"
+        ),
         cwd,
       });
       setLearnedAgentModels(
@@ -2624,11 +2638,29 @@ describe("createMcpHandlers", () => {
     });
 
     it("lists project-less runner agents of one recorded repository (T34 key)", async () => {
-      const runner = "runner://runner-test/@session";
+      const runner = "/srv/checkout";
       deps.agentManager.listAgents.mockResolvedValue([
-        { id: "agt_self", name: "self", cwd: runner, status: "running" },
-        { id: "agt_peer", name: "peer", cwd: runner, status: "running" },
-        { id: "agt_other", name: "other", cwd: runner, status: "running" },
+        {
+          id: "agt_self",
+          name: "self",
+          cwd: runner,
+          placement: placementForRunner("runner-test"),
+          status: "running",
+        },
+        {
+          id: "agt_peer",
+          name: "peer",
+          cwd: runner,
+          placement: placementForRunner("runner-test"),
+          status: "running",
+        },
+        {
+          id: "agt_other",
+          name: "other",
+          cwd: runner,
+          placement: placementForRunner("runner-test"),
+          status: "running",
+        },
         { id: "agt_local", name: "local", cwd: "/repo", status: "running" },
       ]);
       vi.mocked(resolveRepoRoot).mockImplementation(

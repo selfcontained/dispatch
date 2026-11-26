@@ -28,7 +28,7 @@ import {
 } from "@dispatch/runner-protocol/contract";
 import { RUNNER_WIRE_VERSION } from "@dispatch/runner-protocol";
 import { typedTerminal } from "../terminal/typed.js";
-import type { CheckoutRunner, CheckoutSession } from "./directory.js";
+import type { CheckoutSession } from "./directory.js";
 import {
   selfCommand,
   superviseRunner,
@@ -291,11 +291,10 @@ export function createLocalCheckoutRunner(
   agent: CheckoutSession | undefined,
   description: RunnerDescription,
   child?: Runner
-): CheckoutRunner {
+): Runner {
   const {
     checkoutWorkload,
     githubWorkload,
-    readCommandGuard,
     sessionFilesWorkload,
     workspaceWorkload,
   } = inProcessPorts();
@@ -406,6 +405,34 @@ export function createLocalCheckoutRunner(
         code: "invalid",
         message: "Invalid native checkout binding.",
       });
+    if (
+      op === "checkout.read" &&
+      "mode" in request &&
+      request.mode === "command-manifest"
+    ) {
+      const selector = target.checkout ?? "current";
+      if (selector === "owned")
+        throw new RunnerCallError({
+          code: "invalid",
+          message: "Invalid checkout command binding.",
+        });
+      const dir = commandDirectory(agent, selector);
+      if (!dir) return null as Res<K>;
+      if (await childHolds(target.session, selector, dir, options)) {
+        const answered = await readAttempt(
+          op,
+          input,
+          (child, read) => child.call(op, input, read),
+          options
+        );
+        if (answered) return answered.value;
+      }
+      return checkoutWorkload.run(
+        op,
+        { directory: dir, selector, request } as never,
+        { signal: options?.signal }
+      );
+    }
     // A file listing (`filesOnly`) is an inspection read, as on main.
     const views =
       op !== "checkout.read" &&
@@ -1122,25 +1149,6 @@ export function createLocalCheckoutRunner(
   return {
     describe: () => description,
     connection: { state: "ready", epoch: 0, onChange: () => () => {} },
-    // In process with the workload's guard read: the contract's
-    // `checkout.read` resolves a checkout's root, not a command's (T14 gap).
-    async readManifest(operation) {
-      if (!agent)
-        throw new RunnerCallError({
-          code: "invalid",
-          message: "Invalid native checkout command binding.",
-        });
-      const selector =
-        operation.checkout === "effective" ? "current" : operation.checkout;
-      const directory = commandDirectory(agent, selector);
-      if (!directory) return null;
-      const { content, digest } = await readCommandGuard(
-        directory,
-        selector,
-        operation.path
-      );
-      return content === null ? null : { content, state: digest };
-    },
     async call<K extends CallName>(
       op: K,
       input: Req<K>,
@@ -1957,7 +1965,8 @@ export function scopedEngineCalls(
         ): Res<"engine.list">["entries"] | undefined;
       }
     | undefined,
-  scope: EngineScope
+  scope: EngineScope,
+  liveInventory = false
 ): RunnerEngineCalls {
   if (scope.kind === "local") return local;
   const runnerId = scope.runnerId;
@@ -1977,6 +1986,7 @@ export function scopedEngineCalls(
         return await remote.callEngine(runnerId, op, request);
       } catch (error) {
         if (
+          liveInventory ||
           op !== "engine.list" ||
           !(error instanceof RunnerCallError) ||
           !["unavailable", "unknown_outcome", "fenced"].includes(error.code)

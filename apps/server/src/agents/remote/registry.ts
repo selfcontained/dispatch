@@ -23,8 +23,6 @@ export type Registration = {
   name: string;
   endpointHost: string;
   fingerprint: string | null;
-  workspaces: string[];
-  managedWorkspace: boolean;
   enrolled: boolean;
   automaticUpdates: boolean;
   revoked: boolean;
@@ -38,8 +36,6 @@ type Row = {
   name: string;
   endpoint_host: string;
   cert_fingerprint: string | null;
-  workspaces: string[];
-  managed_workspace: boolean;
   enrolled_at: Date | null;
   settings?: { automaticUpdates?: boolean };
   revoked_at: Date | null;
@@ -116,8 +112,6 @@ function registration(row: Row): Registration {
     name: row.name,
     endpointHost: row.endpoint_host,
     fingerprint: row.cert_fingerprint,
-    workspaces: row.workspaces,
-    managedWorkspace: row.managed_workspace,
     enrolled: Boolean(row.enrolled_at),
     automaticUpdates: row.settings?.automaticUpdates !== false,
     revoked: Boolean(row.revoked_at),
@@ -130,6 +124,15 @@ function registration(row: Row): Registration {
 /** PostgreSQL persistence for the runner CA, registrations and pairing codes. */
 export class RunnerRegistry {
   constructor(private readonly pool: Pool) {}
+
+  /** Archived rows retain their placement while a bound release is pending. */
+  async ownsSessions(runnerId: string, sessions: string[]) {
+    const result = await this.pool.query(
+      "SELECT id FROM agents WHERE runner_id = $1 AND id = ANY($2::text[])",
+      [runnerId, sessions]
+    );
+    return result.rowCount === sessions.length;
+  }
 
   /** Load the authority, creating the CA on first use and widening SANs. */
   async authority(hosts: string[] = []): Promise<Authority> {
@@ -374,15 +377,6 @@ export class RunnerRegistry {
     return rowCount ? { id, code, expiresAt } : undefined;
   }
 
-  async connected(id: string, workspaces: string[], managedWorkspace = false) {
-    await this.pool.query(
-      `UPDATE runner_registrations
-          SET workspaces = $2::jsonb, managed_workspace = $3, last_seen_at = now()
-        WHERE id = $1 AND revoked_at IS NULL`,
-      [id, JSON.stringify(workspaces), managedWorkspace]
-    );
-  }
-
   async recordHealth(id: string, sample: RunnerHealth, receivedAt: Date) {
     await this.pool.query(
       `UPDATE runner_registrations SET health = $2::jsonb, health_received_at = $3, last_seen_at = now()
@@ -563,8 +557,6 @@ export class RunnerRegistry {
         name,
         endpointHost,
         fingerprint: parsed.fingerprint256,
-        workspaces: [],
-        managedWorkspace: false,
         enrolled: true,
         automaticUpdates: true,
         revoked: false,

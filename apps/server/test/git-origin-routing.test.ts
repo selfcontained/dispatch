@@ -38,26 +38,32 @@ it("does not substitute a local answer for a child's operation error", async () 
 });
 it("uses the enrolled runner carrier without a session", async () => {
   const readRepositoryOrigin = vi.fn(async () => ({ url: null }));
-  const service = { readRepositoryOrigin } as unknown as RemoteRunnerService;
+  const service = {
+    call: readRepositoryOrigin,
+  } as unknown as RemoteRunnerService;
   const runner = createEnrolledCheckoutRunner(
     service,
     "test-runner",
-    null,
     undefined,
     () => ({}) as never
   );
   expect(await runner.call("git.origin", { path: "/runner/path" })).toEqual({
     url: null,
   });
-  expect(readRepositoryOrigin).toHaveBeenCalledExactlyOnceWith("test-runner", {
-    path: "/runner/path",
-  });
+  expect(readRepositoryOrigin).toHaveBeenCalledExactlyOnceWith(
+    "test-runner",
+    "git.origin",
+    {
+      path: "/runner/path",
+    },
+    undefined,
+    undefined
+  );
 });
 it("does not fall back when the enrolled runner is unavailable", async () => {
   const runner = createEnrolledCheckoutRunner(
     undefined,
     "test-runner",
-    null,
     undefined,
     () => ({}) as never
   );

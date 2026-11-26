@@ -99,6 +99,12 @@ async function dropTasks(): Promise<void> {
   for (const table of ["templates", "jobs", "job_runs"])
     await pool.query(`ALTER TABLE ${table} DROP COLUMN IF EXISTS location`);
   await pool.query(
+    "ALTER TABLE templates ADD CONSTRAINT templates_directory_name_key UNIQUE (directory, name)"
+  );
+  await pool.query(
+    "CREATE UNIQUE INDEX jobs_directory_name_key ON jobs (directory, name)"
+  );
+  await pool.query(
     "DELETE FROM pgmigrations WHERE name = '0066_saved_launch_locations'"
   );
   await pool.query(
@@ -120,7 +126,7 @@ async function dropTasks(): Promise<void> {
     "DELETE FROM pgmigrations WHERE name = '0059_runner_worktree_owner'"
   );
   await pool.query(
-    "ALTER TABLE agents DROP COLUMN IF EXISTS runner_managed, DROP COLUMN IF EXISTS runner_repository, DROP COLUMN IF EXISTS runner_cleanup_pending"
+    "ALTER TABLE agents DROP COLUMN IF EXISTS runner_repository, DROP COLUMN IF EXISTS runner_cleanup_pending"
   );
   await pool.query(
     "DELETE FROM pgmigrations WHERE name = '0058_managed_runner_sessions'"

@@ -1,10 +1,8 @@
 import { isCheckoutQuery } from "./checkout.js";
-import { isOpaqueId } from "./placement.js";
 import { isRecord } from "./validation.js";
 
 const REPO_TOOL_TIMEOUT_MS = 5 * 60_000;
 const LIFECYCLE_HOOK_TIMEOUT_MS = 15_000;
-export const MAX_CHECKOUT_COMMAND_OUTPUT_BYTES = 64 * 1024;
 export const MAX_CHECKOUT_COMMAND_FILE_BYTES = 256 * 1024;
 export const MAX_CHECKOUT_COMMAND_REPLY_BYTES = 4 * 1024 * 1024;
 
@@ -17,7 +15,6 @@ export type CheckoutCommand = {
       kind: "run";
       state: string;
       argv: string[];
-      execution?: CheckoutExecution;
     }
 );
 
@@ -26,16 +23,15 @@ export type CheckoutExecution = {
   maxOutput: number | null;
   shell: "direct" | "login";
   env: Record<string, string>;
-  stdout: string;
-  stderr: string;
 };
 
-function isCheckoutExecution(value: unknown): value is CheckoutExecution {
+export function isCheckoutExecutionOptions(
+  value: unknown
+): value is CheckoutExecution {
   const limit = (n: unknown) =>
     n === null || (typeof n === "number" && Number.isSafeInteger(n) && n >= 0);
   return (
     isRecord(value) &&
-    Object.keys(value).length === 6 &&
     limit(value.timeoutMs) &&
     limit(value.maxOutput) &&
     (value.shell === "direct" || value.shell === "login") &&
@@ -46,10 +42,7 @@ function isCheckoutExecution(value: unknown): value is CheckoutExecution {
         !/[=\0]/.test(key) &&
         typeof entry === "string" &&
         !entry.includes("\0")
-    ) &&
-    isOpaqueId(value.stdout) &&
-    isOpaqueId(value.stderr) &&
-    value.stdout !== value.stderr
+    )
   );
 }
 
@@ -93,9 +86,7 @@ export function isCheckoutCommand(value: unknown): value is CheckoutCommand {
   if (value.kind === "read") return Object.keys(value).length === 3;
   return (
     value.kind === "run" &&
-    (Object.hasOwn(value, "execution")
-      ? Object.keys(value).length === 6 && isCheckoutExecution(value.execution)
-      : Object.keys(value).length === 5) &&
+    Object.keys(value).length === 5 &&
     digest(value.state) &&
     Array.isArray(value.argv) &&
     value.argv.length > 0 &&
@@ -121,19 +112,6 @@ export function isCheckoutCommandFile(
   );
 }
 
-export function isCheckoutCommandResult(
-  value: unknown
-): value is CheckoutCommandResult {
-  return (
-    isCheckoutCommandStatus(value) &&
-    [value.stdout, value.stderr].every(
-      (output) =>
-        typeof output === "string" &&
-        fits(output, MAX_CHECKOUT_COMMAND_OUTPUT_BYTES)
-    )
-  );
-}
-
 export function isCheckoutCommandStatus(
   value: unknown
 ): value is Pick<CheckoutCommandResult, "exitCode" | "truncated"> &
@@ -146,4 +124,18 @@ export function isCheckoutCommandStatus(
     value.exitCode <= 255 &&
     (value.truncated === undefined || typeof value.truncated === "boolean")
   );
+}
+
+/** Node timers clamp values outside the signed 32-bit range to one ms. */
+export function scheduleDeadline(ms: number, expired: () => void) {
+  const deadline = performance.now() + ms;
+  let timer: ReturnType<typeof setTimeout>;
+  const tick = () => {
+    const remaining = deadline - performance.now();
+    if (remaining <= 0) expired();
+    else
+      timer = setTimeout(tick, Math.min(Math.ceil(remaining), 2_147_483_647));
+  };
+  timer = setTimeout(tick, Math.min(ms, 2_147_483_647));
+  return () => clearTimeout(timer);
 }

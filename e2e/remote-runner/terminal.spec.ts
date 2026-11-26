@@ -11,7 +11,6 @@ import {
   marker,
   runnerRow,
   repositoryProject,
-  state,
 } from "./harness";
 
 test.use({
@@ -60,10 +59,15 @@ for (const lane of ["native", "runner", "managed"] as const) {
       data: { enabledIdes: ["vscode"] },
     });
     expect(enabled.ok()).toBe(true);
-    const projectId =
-      lane === "managed"
-        ? await repositoryProject(request, guestName)
-        : undefined;
+    const projectId = remote
+      ? await repositoryProject(
+          request,
+          guestName,
+          undefined,
+          "main",
+          lane === "runner"
+        )
+      : undefined;
     const created = await request.post("/api/v1/agents", {
       headers,
       data: {
@@ -71,9 +75,8 @@ for (const lane of ["native", "runner", "managed"] as const) {
         type: "codex",
         useWorktree: false,
         projectId,
-        cwd: runner
-          ? `runner://${runner}/${lane === "managed" ? "@session" : state.workspace}`
-          : "/tmp",
+        cwd: runner ? "" : "/tmp",
+        ...(runner && { runner }),
       },
     });
     expect(created.ok(), await created.text()).toBe(true);
@@ -92,7 +95,7 @@ for (const lane of ["native", "runner", "managed"] as const) {
           timeout: 15_000,
         })
         .toBe("running");
-      let target = state.runners.alpha.workspaceDir;
+      let target = (await agentInfo(request, agent.id)).cwd;
       let expectedMarker = lane === "runner" ? marker("alpha") : "";
       if (lane === "managed") {
         target = `/tmp/terminal-checkout-${agent.id}`;

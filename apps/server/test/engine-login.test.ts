@@ -1,4 +1,8 @@
-import { fixtureEngineActions } from "./helpers/engine-actions.js";
+import {
+  fixtureEngineActions,
+  type FixtureEngineDeps,
+  type RunnerEngineTransport,
+} from "./helpers/engine-actions.js";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -28,12 +32,7 @@ import { EngineManager as ActualEngineManager } from "../src/agents/remote/engin
 
 // T29 actions are supplied separately from legacy inventory/sign-in fixture transport.
 class EngineManager extends ActualEngineManager {
-  constructor(
-    deps: Omit<
-      ConstructorParameters<typeof ActualEngineManager>[0],
-      "engineActions"
-    >
-  ) {
+  constructor(deps: FixtureEngineDeps) {
     super({
       ...deps,
       engineActions: fixtureEngineActions(deps),

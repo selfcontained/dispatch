@@ -8,7 +8,7 @@ import {
   runnerDirectory,
   type CheckoutCommandRunners,
 } from "../runners/directory.js";
-import { checkoutReadPlacement } from "../runners/placement.js";
+import { controllerPlacement } from "../runners/placement.js";
 import { identityKey } from "../runners/repository-identity.js";
 
 type ScopedAgent = WorkspaceTargetAgent & {
@@ -27,7 +27,7 @@ export function runnerTaskRootReader(
       agent.workspacePath ?? agent.worktreePath ?? agent.cwd;
     const cwd = agent.cwd || effectiveWorkspace;
     if (!cwd) return null;
-    const placement = agent.placement ?? checkoutReadPlacement(agent.cwd);
+    const placement = agent.placement ?? controllerPlacement;
     const selected = {
       ...agent,
       cwd,
@@ -70,7 +70,7 @@ export async function agentTaskProject(
 ): Promise<string | null> {
   if (agent.projectId) return agent.projectId;
   // Probed live, as the MCP routes do, never from cached git context.
-  const placement = agent.placement ?? checkoutReadPlacement(agent.cwd);
+  const placement = agent.placement ?? controllerPlacement;
   const effectiveWorkspace =
     agent.workspacePath ?? agent.worktreePath ?? agent.cwd;
   const workspaceDir = identityKey(placement, effectiveWorkspace);

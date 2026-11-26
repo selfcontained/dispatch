@@ -80,7 +80,6 @@ vi.mock(
 import { runLifecycleHook } from "../src/agents/lifecycle-hooks.js";
 import { cleanupGitWorktree } from "../../../packages/runner/src/workload/shared/git/worktree.js";
 import { observeGitCheckout } from "../../../packages/runner/src/workload/agents/checkout-inspection.js";
-import { remotePlacement } from "@dispatch/runner-protocol";
 import {
   controllerPlacement,
   placementForRunner,
@@ -148,15 +147,7 @@ const makeAgent = (
   createdAt: "2026-05-01T00:00:00Z",
   updatedAt: "2026-05-01T00:00:00Z",
   ...overrides,
-  // A runner row's placement names the runner its locator does, as the
-  // launch records it and migration 0065 backfilled it.
-  ...(!overrides.placement && rowPlacement(overrides.cwd)),
 });
-
-function rowPlacement(cwd: string | null | undefined) {
-  const locator = cwd ? remotePlacement(cwd) : null;
-  return locator ? { placement: placementForRunner(locator.runner) } : {};
-}
 
 const makeRuntime = (overrides: Partial<AgentRuntime> = {}): AgentRuntime => ({
   ...createInertRuntime(),
@@ -1010,60 +1001,59 @@ describe("executeArchive", () => {
     });
 
     it.each([
-      { state: "owned", expected: cleanCheckout.stateId, pending: false },
-      { state: "inUse", expected: cleanCheckout.stateId, pending: true },
-      { state: "offline", expected: undefined, pending: true },
-      { state: "borrowed", expected: null, pending: false },
-    ])(
-      "archives a dirty runner child with checkout state $state",
-      async ({ state, expected, pending }) => {
+      { ownership: "owned", online: true, release: true, pending: false },
+      { ownership: "owned", online: false, release: false, pending: true },
+      { ownership: "borrowed", online: true, release: false, pending: false },
+    ] as const)(
+      "archives a runner child according to its binding ($ownership, online $online)",
+      async ({ ownership, online, release, pending }) => {
         const parent = makeAgent("parent");
         const child = makeAgent("child", {
           parentAgentId: parent.id,
-          cwd: "runner://runner/@session",
-          runnerManaged: true,
+          cwd: "/runner/checkout",
+          placement: placementForRunner("runner"),
         });
         const pool = makeChildQueryPool([
           { id: child.id, parentAgentId: parent.id },
         ]);
         const lookup = makeAgentLookup([parent, child]);
-        const requestSession = vi.fn(async (_placement, { operation }) => {
-          if (state === "offline") throw new Error("Runner is offline");
-          if (operation.kind === "release")
-            return {
-              value:
-                operation.expectedState === null
-                  ? "retained"
-                  : state === "inUse"
-                    ? "inUse"
-                    : "released",
-            };
-          return {
-            value: JSON.stringify({
-              ownership: state === "borrowed" ? "borrowed" : "owned",
-              owner: state === "borrowed" ? parent.id : child.id,
-              borrowers: state === "inUse" ? ["independent"] : [],
-              checkout: { ...cleanCheckout, uncommittedFiles: ["src/wip.ts"] },
-            }),
-          };
-        });
-        const deps = makeDeps({
-          pool: pool as never,
-          getRequiredAgent: lookup,
-          getAgent: lookup,
-          remote: { requestSession } as never,
-        });
+        const call = vi.fn(
+          async (_runner: string, op: string, input: { session: string }) => {
+            expect(input.session).toBe(child.id);
+            if (op === "workspace.observe")
+              return {
+                ownership,
+                owner: ownership === "owned" ? child.id : parent.id,
+                borrowers: [],
+                checkout: {
+                  ...cleanCheckout,
+                  uncommittedFiles: ["src/wip.ts"],
+                },
+              };
+            if (op === "workspace.release") return { removed: true };
+            throw new Error("Unexpected operation " + op);
+          }
+        );
         const callbacks = makeCallbacks();
-
-        await executeArchive(deps, parent.id, callbacks);
-
-        const releases = requestSession.mock.calls
-          .map(([, request]) => request.operation)
-          .filter((operation) => operation.kind === "release");
-        expect(releases).toEqual(
-          expected === undefined
-            ? []
-            : [{ kind: "release", expectedState: expected }]
+        await executeArchive(
+          makeDeps({
+            pool: pool as never,
+            getRequiredAgent: lookup,
+            getAgent: lookup,
+            remote: {
+              call,
+              connectionEpoch: () => (online ? 1 : undefined),
+            } as never,
+          }),
+          parent.id,
+          callbacks
+        );
+        expect(call.mock.calls.map(([, op]) => op)).toEqual(
+          online
+            ? release
+              ? ["workspace.observe", "workspace.release"]
+              : ["workspace.observe"]
+            : []
         );
         expect(pool.query).toHaveBeenCalledWith(
           expect.stringContaining("runner_cleanup_pending = $2"),
@@ -1075,107 +1065,6 @@ describe("executeArchive", () => {
         ]);
       }
     );
-
-    it("keeps a runner launcher's checkout pending for its live child:false borrower, which never releases it", async () => {
-      const cwd = "runner://runner/@session";
-      const launcher = makeAgent("launcher", {
-        cwd,
-        runnerManaged: true,
-        archiveCleanupMode: "force",
-      });
-      // child:false without a worktree: borrows the launcher's checkout but
-      // only launched_by_agent_id points back.
-      const independent = makeAgent("independent", {
-        cwd,
-        runnerManaged: true,
-        parentAgentId: null,
-        launchedByAgentId: launcher.id,
-        archiveCleanupMode: "force",
-        status: "running",
-      });
-      const lookup = makeAgentLookup([launcher, independent]);
-      const requestSession = vi.fn(
-        async (_placement, { agentId, operation }) => {
-          if (operation.kind === "release")
-            return {
-              value:
-                operation.expectedState === null
-                  ? "retained"
-                  : agentId === launcher.id
-                    ? "inUse"
-                    : "released",
-            };
-          return {
-            value: JSON.stringify(
-              agentId === launcher.id
-                ? {
-                    ownership: "owned",
-                    owner: launcher.id,
-                    borrowers: [independent.id],
-                    checkout: cleanCheckout,
-                  }
-                : {
-                    ownership: "borrowed",
-                    owner: launcher.id,
-                    borrowers: [independent.id],
-                    checkout: cleanCheckout,
-                  }
-            ),
-          };
-        }
-      );
-      const archive = async (id: string) => {
-        const pool = makeChildQueryPool([
-          {
-            id: independent.id,
-            parentAgentId: null,
-            launchedByAgentId: launcher.id,
-          },
-        ]);
-        const callbacks = makeCallbacks();
-        await executeArchive(
-          makeDeps({
-            pool: pool as never,
-            getRequiredAgent: lookup,
-            getAgent: lookup,
-            remote: { requestSession } as never,
-          }),
-          id,
-          callbacks
-        );
-        return { pool, callbacks };
-      };
-      const releases = () =>
-        requestSession.mock.calls
-          .filter(([, request]) => request.operation.kind === "release")
-          .map(([, request]) => [request.agentId, request.operation]);
-
-      const owner = await archive(launcher.id);
-      // Not a child: the cascade leaves it running in the checkout.
-      expect(owner.callbacks.onComplete).toHaveBeenCalledWith([launcher.id]);
-      expect(deletedAgentIds(owner.pool)).not.toContain(independent.id);
-      expect(releases()).toEqual([
-        [
-          launcher.id,
-          { kind: "release", expectedState: cleanCheckout.stateId },
-        ],
-      ]);
-      expect(owner.pool.query).toHaveBeenCalledWith(
-        expect.stringContaining("runner_cleanup_pending = $2"),
-        [launcher.id, true]
-      );
-
-      requestSession.mockClear();
-      const borrower = await archive(independent.id);
-      // A borrower never authorizes removal of a checkout it doesn't own.
-      expect(releases()).toEqual([
-        [independent.id, { kind: "release", expectedState: null }],
-      ]);
-      expect(borrower.pool.query).toHaveBeenCalledWith(
-        expect.stringContaining("runner_cleanup_pending = $2"),
-        [independent.id, false]
-      );
-    });
 
     it("clears child worktrees even when the parent's own is kept", async () => {
       // "keep" is an answer about the parent's own worktree.
@@ -1673,8 +1562,8 @@ it("archives an offline managed session with pending cleanup recorded in the sam
     runtime,
     getRequiredAgent: vi.fn().mockResolvedValue(
       makeAgent("remote", {
-        cwd: "runner://runner/@session",
-        runnerManaged: true,
+        cwd: "/runner/sessions/checkout",
+        placement: placementForRunner("runner"),
         status: "archiving",
       })
     ),
@@ -1691,74 +1580,4 @@ it("archives an offline managed session with pending cleanup recorded in the sam
     ["remote", true]
   );
   expect(onComplete).toHaveBeenCalledWith(["remote"]);
-});
-
-describe("runner agent in a configured workspace (audit #17)", () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  const configured = (overrides: Partial<AgentRecord> = {}) =>
-    makeAgent("configured", {
-      cwd: "runner://runner/configured",
-      status: "archiving",
-      ...overrides,
-    });
-
-  it("records the host release as pending when the runner is offline", async () => {
-    const runtime = makeRuntime({
-      stop: vi.fn().mockRejectedValue(new Error("runner offline")),
-    });
-    const requestSession = vi
-      .fn()
-      .mockRejectedValue(new Error("runner offline"));
-    const deps = makeDeps({
-      runtime,
-      remote: { requestSession } as never,
-      getRequiredAgent: vi.fn().mockResolvedValue(configured()),
-    });
-    const onComplete = vi.fn();
-    await executeArchive(deps, "configured", {
-      onComplete,
-      onPhaseChange: vi.fn(),
-      onError: vi.fn(),
-    });
-    // The host never stopped, so nothing is released yet; the retry does it.
-    expect(requestSession).not.toHaveBeenCalled();
-    expect(deps.pool.query).toHaveBeenCalledWith(
-      expect.stringContaining("runner_cleanup_pending = $2"),
-      ["configured", true]
-    );
-    expect(onComplete).toHaveBeenCalledWith(["configured"]);
-  });
-
-  it("releases the stopped host on its runner without authorizing checkout removal", async () => {
-    const requestSession = vi.fn(async (_placement, { operation }) => ({
-      value:
-        operation.kind === "release"
-          ? "released"
-          : JSON.stringify({
-              ownership: "external",
-              owner: null,
-              borrowers: [],
-              checkout: null,
-            }),
-    }));
-    const deps = makeDeps({
-      remote: { requestSession } as never,
-      getRequiredAgent: vi.fn().mockResolvedValue(configured()),
-    });
-    await executeArchive(deps, "configured", makeCallbacks());
-    expect(requestSession).toHaveBeenLastCalledWith(
-      { runner: "runner", workspace: "configured" },
-      {
-        kind: "checkoutRelease",
-        agentId: "configured",
-        operation: { kind: "release", expectedState: null },
-      }
-    );
-    expect(cleanupGitWorktree).not.toHaveBeenCalled();
-    expect(deps.pool.query).toHaveBeenCalledWith(
-      expect.stringContaining("runner_cleanup_pending = $2"),
-      ["configured", false]
-    );
-  });
 });

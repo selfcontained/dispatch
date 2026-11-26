@@ -54,7 +54,11 @@ try {
       "{}",
       /Invalid checkout command/,
     ],
-    [["runner-engine-capability"], "{}", /Engine capability is unavailable/],
+    [
+      ["runner-engine-capability"],
+      "",
+      /Unknown runner mode: runner-engine-capability/,
+    ],
     [["runner-engine-host"], "", /^$/],
     [["runner-update-compatibility"], "", /"handoff"/],
     [["runner-update-trial"], "", /requires the managed Linux installation/],

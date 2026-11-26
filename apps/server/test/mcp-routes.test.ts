@@ -362,7 +362,7 @@ describe("runner-scoped manifests", () => {
       deps.getBearerToken.mockReturnValue(credential ? "bearer-token" : "");
       deps.agentManager.getAgent.mockResolvedValue({
         ...(await deps.agentManager.getAgent()),
-        cwd: "runner://rnr_alpha/proof",
+        cwd: "/srv/alpha",
         placement: placementForRunner("rnr_alpha"),
       });
       deps.agentManager.inspectCheckout.mockImplementation(
@@ -405,8 +405,8 @@ describe("runner-scoped manifests", () => {
     deps.agentManager.permitsRemoteAgentMcp.mockReturnValue(true);
     const agent = await deps.agentManager.getAgent();
     const manifests = new Map([
-      ["runner://rnr_alpha/proof", "alpha"],
-      ["runner://rnr_beta/proof", "beta"],
+      ["/srv/alpha", "alpha"],
+      ["/srv/beta", "beta"],
     ]);
     deps.agentManager.inspectCheckout.mockImplementation(
       async (record, query) => {
@@ -431,7 +431,9 @@ describe("runner-scoped manifests", () => {
       deps.agentManager.getAgent.mockResolvedValue({
         ...agent,
         cwd,
-        placement: placementForRunner(new URL(cwd).hostname),
+        placement: placementForRunner(
+          cwd === "/srv/alpha" ? "rnr_alpha" : "rnr_beta"
+        ),
       });
       const res = await app.inject({
         method: "POST",
@@ -443,18 +445,18 @@ describe("runner-scoped manifests", () => {
       expect(context).toMatchObject({ repoRoot: null, worktreeRoot: null });
       return context?.discoverRepoTools?.();
     };
-    await expect(list("runner://rnr_alpha/proof")).resolves.toMatchObject([
+    await expect(list("/srv/alpha")).resolves.toMatchObject([
       { name: "repo_proof", description: "alpha" },
     ]);
-    await expect(list("runner://rnr_beta/proof")).resolves.toMatchObject([
+    await expect(list("/srv/beta")).resolves.toMatchObject([
       { name: "repo_proof", description: "beta" },
     ]);
-    manifests.set("runner://rnr_beta/proof", "updated");
-    await expect(list("runner://rnr_beta/proof")).resolves.toMatchObject([
+    manifests.set("/srv/beta", "updated");
+    await expect(list("/srv/beta")).resolves.toMatchObject([
       { name: "repo_proof", description: "updated" },
     ]);
-    manifests.delete("runner://rnr_beta/proof");
-    await expect(list("runner://rnr_beta/proof")).resolves.toEqual([]);
+    manifests.delete("/srv/beta");
+    await expect(list("/srv/beta")).resolves.toEqual([]);
     expect(resolveRepoRoot).not.toHaveBeenCalled();
     expect(resolveWorktreeRoot).not.toHaveBeenCalled();
   });
@@ -628,7 +630,7 @@ it("denies agent MCP after the agent's runner registration is revoked", async ()
   const agent = await deps.agentManager.getAgent();
   deps.agentManager.getAgent.mockResolvedValueOnce({
     ...agent,
-    cwd: "runner://rnr_old/proof",
+    cwd: "/srv/old",
     placement: placementForRunner("rnr_old"),
   });
   const response = await app.inject({
@@ -637,9 +639,8 @@ it("denies agent MCP after the agent's runner registration is revoked", async ()
     payload: {},
   });
   expect(response.statusCode).toBe(403);
-  expect(deps.agentManager.permitsRemoteAgentMcp).toHaveBeenCalledWith({
-    runner: "rnr_old",
-    workspace: "proof",
-  });
+  expect(deps.agentManager.permitsRemoteAgentMcp).toHaveBeenCalledWith(
+    "rnr_old"
+  );
   expect(deps.jobService.getActiveRunForAgent).not.toHaveBeenCalled();
 });

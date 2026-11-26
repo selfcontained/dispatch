@@ -36,7 +36,7 @@ const online: Runner = {
   id: "build",
   name: "Build machine",
   status: "online",
-  workspaces: [],
+
   engineManagement: true,
 };
 const offline: Runner = {

@@ -4,8 +4,6 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   type CheckoutCommand,
-  type CheckoutCommandFile,
-  type CheckoutCommandResult,
   type CheckoutExecution,
 } from "@dispatch/runner-protocol";
 import { Writable, type Readable } from "node:stream";
@@ -46,69 +44,6 @@ export function commandBaseEnvironment(): NodeJS.ProcessEnv {
   return base;
 }
 
-/** The v1 runner's command executor (`runner-checkout-command`). */
-export async function executeCheckoutCommand(
-  cwd: string,
-  session: string,
-  operation: CheckoutCommand,
-  read: (path: string) => Promise<{ root: string; content: string | null }>,
-  {
-    timeoutMs,
-    outputLimit,
-    loginShell,
-  }: { timeoutMs?: number; outputLimit?: number; loginShell?: string } = {}
-): Promise<CheckoutCommandFile | CheckoutCommandResult | null> {
-  const { root, content, state } = await checkoutCommandGuard(
-    cwd,
-    session,
-    operation,
-    read
-  );
-  if (operation.kind === "read")
-    return content === null ? null : { content, state };
-
-  const [command, ...args] = operation.argv;
-  const env = repoCommandEnvironment(session);
-  const launch = loginShell
-    ? loginShellCommand(operation.argv, loginShell, env.PATH)
-    : { bin: command!, args };
-  const child = spawn(launch.bin, launch.args, {
-    cwd: root,
-    env,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  const stdout = capture(child.stdout, outputLimit ?? null);
-  const stderr = capture(child.stderr, outputLimit ?? null);
-  return new Promise((resolve, reject) => {
-    const timer =
-      timeoutMs === undefined
-        ? undefined
-        : setTimeout(() => {
-            // Only the direct child, like runCommand: what it started keeps running.
-            child.kill("SIGTERM");
-            setTimeout(() => child.kill("SIGKILL"), 5_000).unref();
-            reject(new Error("Checkout command timed out."));
-          }, timeoutMs);
-    child.once("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.once("close", (code) => {
-      clearTimeout(timer);
-      const output = stdout();
-      const errors = stderr();
-      resolve({
-        exitCode: code ?? 1,
-        stdout: output.text,
-        stderr: errors.text,
-        ...(outputLimit !== undefined && {
-          truncated: output.truncated || errors.truncated,
-        }),
-      });
-    });
-  });
-}
-
 export async function checkoutCommandGuard(
   cwd: string,
   session: string,
@@ -144,7 +79,7 @@ export async function executeStreamedCheckoutCommand(
   cwd: string,
   session: string,
   operation: Extract<CheckoutCommand, { kind: "run" }>,
-  execution: CheckoutExecution,
+  execution: Pick<CheckoutExecution, "env" | "shell">,
   loginPath: string | undefined,
   read: Parameters<typeof checkoutCommandGuard>[3]
 ) {

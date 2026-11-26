@@ -1,7 +1,5 @@
 import {
-  isCheckoutObservation,
   UNOBSERVED_STATE,
-  remotePlacement,
   type CheckoutObservation,
 } from "@dispatch/runner-protocol";
 import type { Pool } from "pg";
@@ -18,9 +16,7 @@ import {
   type RunnerComposition,
 } from "../runners/directory.js";
 import { observeBoundCheckout } from "@dispatch/runner-protocol";
-import { AgentError } from "./errors.js";
 import type { RemoteRunnerService } from "./remote/service.js";
-import { enrolledArchiveCheckout } from "../runners/enrolled/checkout.js";
 import type { AgentRecord, WorktreeCleanupMode } from "./types.js";
 
 export type ArchiveCheckoutAgent = Pick<
@@ -96,8 +92,7 @@ export async function nativeBorrowers(
 
 /**
  * The status read before archive, on the agent's runner, by the borrower
- * rule the composition gives that runner. A peer without bound release (or
- * no enrolled service) keeps its snapshot transport.
+ * rule the composition gives that runner.
  */
 export async function observeArchiveCheckout(
   pool: Pool,
@@ -127,8 +122,6 @@ async function observeOnRunner(
   child?: () => Runner | undefined
 ): Promise<CheckoutObservation> {
   const runner = archiveRunner({ child, remote }, agent, agent.placement);
-  if ((runner as ArchiveServes).serves?.("workspace.release") === false)
-    return observeSnapshotCheckout(agent, remote);
   if (runner.archive.borrowers === "observed")
     return archiveObservation(
       await runner.call("workspace.observe", {
@@ -165,43 +158,6 @@ async function observeOnRunner(
     await nativeBorrowers(pool, binding, checkoutPath),
     observed.checkout
   );
-}
-
-/** A runner the archive reads a capability of. */
-type ArchiveServes = { serves?: (op: "workspace.release") => boolean };
-
-/** The snapshot transport's status read, as before the seam. */
-function observeSnapshotCheckout(
-  agent: ArchiveCheckoutAgent,
-  remote: RemoteRunnerService | undefined
-): Promise<CheckoutObservation> {
-  const placement = remotePlacement(agent.cwd);
-  if (!remote || !placement)
-    throw new AgentError("The session runner is unavailable.", 503);
-  return observeRemoteCheckout(agent, remote, placement);
-}
-
-export async function observeRemoteCheckout(
-  agent: ArchiveCheckoutAgent,
-  remote: RemoteRunnerService,
-  placement: NonNullable<ReturnType<typeof remotePlacement>>
-): Promise<CheckoutObservation> {
-  const { value } = await enrolledArchiveCheckout(
-    remote,
-    placement,
-    agent.id
-  ).observe();
-  return parseRemoteArchiveObservation(value);
-}
-
-export function parseRemoteArchiveObservation(
-  value: unknown
-): CheckoutObservation {
-  const observation: unknown =
-    typeof value === "string" ? JSON.parse(value) : null;
-  if (!isCheckoutObservation(observation))
-    throw new AgentError("Invalid checkout observation from the runner.", 502);
-  return observation;
 }
 
 export async function rememberArchiveCheckoutState(

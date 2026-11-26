@@ -27,12 +27,11 @@ import {
   runnerPublicKey,
 } from "../src/agents/remote/certificate-authority.js";
 import {
-  type Frame,
   type EnrollmentRequest,
   type EnrollmentReply,
 } from "../../../packages/runner/src/workload/agents/remote/protocol.js";
-import { wireFrames } from "../src/runners/enrolled/v1-framing.js";
-import type { StreamFrame } from "../src/runners/enrolled/v1-framing.js";
+import { wireFrames } from "@dispatch/runner-client/v1/node";
+import type { StreamFrame } from "@dispatch/runner-client/v1/node";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 const HOST = "127.0.0.1";
@@ -40,7 +39,7 @@ const HOST = "127.0.0.1";
 type FakeRunner = {
   socket: TLSSocket;
   closed: Promise<void>;
-  send: (frame: Frame | StreamFrame) => void;
+  send: (frame: StreamFrame) => void;
 };
 
 function dialRunner(input: {
@@ -48,9 +47,7 @@ function dialRunner(input: {
   ca: string;
   cert: string;
   key: string;
-  workspaces: string[];
-  streamCredit?: true;
-  onFrame?: (frame: Frame | StreamFrame) => void;
+  onFrame?: (frame: StreamFrame) => void;
 }): Promise<FakeRunner> {
   const url = new URL(input.endpoint);
   return new Promise((resolve, reject) => {
@@ -64,19 +61,33 @@ function dialRunner(input: {
     });
     const closed = new Promise<void>((done) => socket.on("close", done));
     socket.on("error", reject);
-    const send = wireFrames<Frame | StreamFrame, Frame | StreamFrame>(
+    const send = wireFrames<{ id: number; op?: string } | StreamFrame, unknown>(
       socket,
-      (frame) => input.onFrame?.(frame)
+      (frame) => {
+        if ("op" in frame && frame.op) {
+          if (frame.op === "runner.describe")
+            send({
+              id: frame.id,
+              ok: true,
+              value: {
+                runnerId: "fixture",
+                displayName: "fixture",
+                build: { version: "" },
+                protocol: 1,
+                engines: [],
+                capabilities: {},
+              },
+            });
+          else
+            send({
+              id: frame.id,
+              ok: false,
+              error: { code: "unavailable", message: "No sample" },
+            });
+        } else input.onFrame?.(frame as StreamFrame);
+      }
     );
-    socket.once("secureConnect", () => {
-      send({
-        type: "ready",
-        version: 1,
-        workspaces: input.workspaces,
-        ...(input.streamCredit && { streamCredit: true }),
-      } as Frame);
-      resolve({ socket, closed, send });
-    });
+    socket.once("secureConnect", () => resolve({ socket, closed, send }));
   });
 }
 
@@ -98,7 +109,6 @@ describe("runner-initiated connect enrollment", () => {
 
   const makeService = (approvalOrigin?: string) => {
     const service = new RemoteRunnerService(
-      undefined,
       {
         registry: new RunnerRegistry(pool),
         host: HOST,
@@ -255,7 +265,7 @@ describe("runner-initiated connect enrollment", () => {
   it("rejects a malformed DISPATCH_RUNNER_APPROVAL_ORIGIN", () => {
     expect(
       () =>
-        new RemoteRunnerService(undefined, {
+        new RemoteRunnerService({
           registry: new RunnerRegistry(pool),
           host: HOST,
           approvalOrigin: "https://example.com/settings",
@@ -263,7 +273,7 @@ describe("runner-initiated connect enrollment", () => {
     ).toThrow(/bare origin/);
     expect(
       () =>
-        new RemoteRunnerService(undefined, {
+        new RemoteRunnerService({
           registry: new RunnerRegistry(pool),
           host: HOST,
           approvalOrigin: "ftp://example.com",
@@ -318,12 +328,8 @@ describe("runner-initiated connect enrollment", () => {
     // Repeated polls after approval are idempotent.
     expect(await service.pollConnectRequest(created.id)).toEqual(polled);
 
-    runners.push(
-      await dialRunner({ endpoint, ca, cert, key, workspaces: ["proof"] })
-    );
-    await waitFor(() =>
-      service.available({ runner: approved.id, workspace: "proof" })
-    );
+    runners.push(await dialRunner({ endpoint, ca, cert, key }));
+    await waitFor(() => service.available(approved.id));
   });
 
   it("acknowledges stream credit on the enrolled TLS connection", async () => {
@@ -335,22 +341,20 @@ describe("runner-initiated connect enrollment", () => {
     if (polled.status !== "approved")
       throw new Error("Runner approval missing");
     const { ca, cert, endpoint } = polled;
-    const frames: (Frame | StreamFrame)[] = [];
+    const frames: StreamFrame[] = [];
     const runner = await dialRunner({
       endpoint,
       ca,
       cert,
       key,
-      workspaces: ["proof"],
-      streamCredit: true,
+
       onFrame: (frame) => frames.push(frame),
     });
     runners.push(runner);
-    await waitFor(() => frames.length > 0);
-    expect(frames).toEqual([{ type: "stream", action: "accept" }]);
+    await waitFor(() => service.connectedRunnerIds().length === 1);
     runner.send({ type: "stream", action: "open", id: "unregistered" });
-    await waitFor(() => frames.length > 1);
-    expect(frames[1]).toEqual({
+    await waitFor(() => frames.length > 0);
+    expect(frames[0]).toEqual({
       type: "stream",
       action: "cancel",
       id: "unregistered",
@@ -754,12 +758,9 @@ describe("runner-initiated connect enrollment", () => {
         ca,
         cert,
         key,
-        workspaces: ["proof"],
       })
     );
-    await waitFor(() =>
-      service.available({ runner: registrationId, workspace: "proof" })
-    );
+    await waitFor(() => service.available(registrationId));
   }, 20_000);
 });
 

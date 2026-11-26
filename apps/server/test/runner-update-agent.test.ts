@@ -1,3 +1,4 @@
+import { enrolledUpdates } from "../../../packages/runner/src/workload/agents/remote/update-operations.js";
 import type {
   UpdateServiceFrame,
   UpdateStatusFrame,
@@ -539,6 +540,38 @@ describe("runner update agent", () => {
     });
   });
 
+  it("reports an expired typed fence once on reconnect without sending an operation", async () => {
+    const s = await setup();
+    const sent = vi.fn();
+    const carrier = enrolledUpdates(s.agent, sent);
+    await expect(
+      carrier.calls["update.offer"]({
+        attempt: attemptId,
+        target,
+        retry: false,
+      })
+    ).resolves.toMatchObject({ reason: "staging" });
+    await vi.waitFor(() =>
+      expect(sent.mock.lastCall?.[0]).toMatchObject({ reason: "ready" })
+    );
+    vi.useFakeTimers();
+    await expect(
+      carrier.calls["update.fence"]({ attempt: attemptId, retained: true })
+    ).resolves.toMatchObject({ reason: "fence_ready" });
+    carrier.close();
+    await vi.advanceTimersByTimeAsync(PRE_ACTIVATION_FENCE_TTL_MS);
+    const replay = vi.fn();
+    const next = enrolledUpdates(s.agent, replay);
+    expect(replay).toHaveBeenCalledTimes(1);
+    expect(replay.mock.lastCall?.[0]).toMatchObject({
+      attemptId,
+      reason: "cancelled",
+    });
+    expect(s.updater.stage).toHaveBeenCalledTimes(1);
+    expect(s.updater.activate).not.toHaveBeenCalled();
+    next.close();
+  });
+
   it("uses the persisted TTL after restart", async () => {
     vi.useFakeTimers();
     const store = memoryStore({
@@ -771,6 +804,45 @@ describe("durable trial protocol", () => {
       },
     };
   }
+
+  it.each(["confirmed", "rolled_back"] as const)(
+    "delivers a durable %s across connections with one confirmation request",
+    async (phase) => {
+      const s = await trial();
+      const carrier = enrolledUpdates(s.agent, () => {});
+      await vi.advanceTimersByTimeAsync(1);
+      const lost = expect(
+        carrier.calls["update.confirm"]({
+          attempt: attemptId,
+          revision: target.revision,
+          sha256: target.sha256,
+        })
+      ).rejects.toMatchObject({ code: "unavailable" });
+      await vi.advanceTimersByTimeAsync(1);
+      expect(s.updater.confirm).toHaveBeenCalledTimes(1);
+      carrier.close();
+      await lost;
+      s.setRecord({
+        fence: s.store.record!,
+        phase,
+        ...(phase === "rolled_back" && {
+          reason: "trial_interrupted" as const,
+        }),
+      });
+      s.store.record = null;
+      await vi.advanceTimersByTimeAsync(500);
+      for (let epoch = 0; epoch < 2; epoch++) {
+        const observed = vi.fn();
+        const next = enrolledUpdates(s.agent, observed);
+        await vi.advanceTimersByTimeAsync(501);
+        expect(observed).toHaveBeenCalledTimes(1);
+        expect(observed.mock.lastCall?.[0]).toMatchObject({ phase, attemptId });
+        next.close();
+      }
+      expect(s.updater.confirm).toHaveBeenCalledTimes(1);
+      expect(s.updater.stage).not.toHaveBeenCalled();
+    }
+  );
 
   it("reports the trial and keeps admission closed until the durable terminal is published and cleared", async () => {
     const s = await trial();

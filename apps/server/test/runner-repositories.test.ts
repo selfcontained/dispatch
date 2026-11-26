@@ -56,12 +56,11 @@ it("sends the selected checkout only on the directory-aware PR head frame", asyn
   const head = { url: "https://github.com/org/fork.git", branch: "topic" };
   const requestGitHub = vi.fn(async () => head);
   const service = Object.assign(Object.create(RemoteRunnerService.prototype), {
-    requestGitHub,
+    call: requestGitHub,
   });
   const runner = createEnrolledCheckoutRunner(
     service,
     "runner",
-    null,
     undefined,
     () => ({}) as never
   );
@@ -74,7 +73,13 @@ it("sends the selected checkout only on the directory-aware PR head frame", asyn
     })
   ).toEqual(head);
   expect(requestGitHub.mock.calls).toEqual([
-    ["runner", { type: "pullRequestHead", ...pr }],
-    ["runner", { type: "pullRequestHeadAtPath", ...pr, cwd: "/work tree" }],
+    ["runner", "github.pr.head", pr, undefined, undefined],
+    [
+      "runner",
+      "github.pr.head",
+      { ...pr, cwd: "/work tree" },
+      undefined,
+      undefined,
+    ],
   ]);
 });

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { parseServiceFrame } from "@dispatch/runner-protocol";
+import { socketRequest } from "../src/transport/local-socket.js";
 import { operations } from "@dispatch/runner-protocol/contract";
 import {
   launchRunner,
@@ -58,14 +58,14 @@ describe("binding import is launcher-only", () => {
     ).toEqual([]);
   });
 
-  it("the TLS/v1 service frame refuses an import command", () => {
+  it("the operation socket refuses a launcher import frame", () => {
     for (const kind of ["import", "launcher.import", "adopt"])
       expect(
-        parseServiceFrame({
+        socketRequest.check({
           type: "request",
           id: "r",
           command: { workspace: "w", agentId: "s", kind, bindings },
         })
-      ).toBeNull();
+      ).toBe(false);
   });
 });

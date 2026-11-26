@@ -7,7 +7,6 @@ import {
   runnerIdFromWire,
   type Runner,
 } from "@dispatch/runner-protocol/contract";
-import { NOT_ON_V1 } from "@dispatch/runner-client/v1";
 import { checked, ContractViolation } from "../src/checked.js";
 import { compareBaseline, readBaseline, type Result } from "../src/run.js";
 import { scenarios } from "../src/scenarios.js";
@@ -33,15 +32,6 @@ describe("coverage", () => {
       expect(seen.has(key), key).toBe(false);
       seen.add(key);
     }
-  });
-
-  it("keeps every operation v1 cannot carry red on the remote lane", () => {
-    const remote = new Set(
-      baseline.filter((e) => e.lane === "remote").map((e) => e.scenario)
-    );
-    for (const scenario of scenarios)
-      if (scenario.op in NOT_ON_V1)
-        expect(remote.has(scenario.id), scenario.id).toBe(true);
   });
 });
 
@@ -161,7 +151,7 @@ describe("reference client", () => {
   });
 
   it("imports only the protocol, the client, Node and its own modules", () => {
-    for (const name of ["reference-client.ts", "v1-runner.ts"]) {
+    for (const name of ["reference-client.ts"]) {
       const text = readFileSync(
         new URL(`../src/${name}`, import.meta.url),
         "utf8"

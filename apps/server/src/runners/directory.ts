@@ -5,9 +5,7 @@ import {
 } from "./settings-namespace.js";
 import {
   RUNNER_WIRE_VERSION,
-  type CheckoutCommand,
-  type CheckoutCommandFile,
-  type CheckoutView,
+  MAX_CHECKOUT_COMMAND_FILE_BYTES,
 } from "@dispatch/runner-protocol";
 import {
   placementOf,
@@ -24,7 +22,7 @@ import type { AgentRecord } from "../agents/types.js";
 import {
   controllerPlacement,
   LOCAL_RUNNER_ID,
-  legacySessionLocation,
+  enrolledRunnerId,
 } from "./placement.js";
 import { remoteTerminal } from "../terminal/remote.js";
 import { createLocalCheckoutRunner, localTerminal } from "./local.js";
@@ -56,17 +54,10 @@ export type CheckoutCommandRunners = {
   child?: () => Runner | undefined;
 };
 
-export interface CheckoutRunner extends Runner {
-  /** A command guard read: v1's checkout-command family, or the local workload. */
-  readManifest(
-    operation: Extract<CheckoutCommand, { kind: "read" }>,
-    signal?: AbortSignal
-  ): Promise<CheckoutCommandFile | null>;
-}
-
 /** What the composition supplies with each runner, by its own rules. */
 export type RunnerComposition = {
   settings: RunnerSettings;
+  manifestMaxBytes: number | null;
   /**
    * Main's budget for an archive's checkout cleanup, where the runner is
    * this machine (main's 60 s); none where the runner's own transport
@@ -131,7 +122,7 @@ export const enrolledArchivePolicy: ArchivePolicy = {
 };
 
 interface CheckoutDirectory extends Runners {
-  for(placement: Placement): CheckoutRunner & RunnerComposition;
+  for(placement: Placement): Runner & RunnerComposition;
 }
 
 const localDescription: RunnerDescription = {
@@ -145,14 +136,13 @@ const localDescription: RunnerDescription = {
 
 export function checkoutRunners(
   runners: CheckoutCommandRunners,
-  agent: CheckoutSession,
-  legacyView?: CheckoutView
+  agent: CheckoutSession
 ): {
   directory: CheckoutDirectory;
   placement: Placement;
 } {
   return {
-    directory: runnerDirectory(runners, agent, legacyView),
+    directory: runnerDirectory(runners, agent),
     placement: agent.placement,
   };
 }
@@ -163,12 +153,10 @@ export function checkoutRunners(
  */
 export function runnerDirectory(
   { remote, child }: CheckoutCommandRunners,
-  agent?: CheckoutSession,
-  legacyView?: CheckoutView
+  agent?: CheckoutSession
 ): CheckoutDirectory {
-  const location = agent ? legacySessionLocation(agent) : null;
   return {
-    for(selected: Placement): CheckoutRunner & RunnerComposition {
+    for(selected: Placement): Runner & RunnerComposition {
       const boundAgent =
         agent && samePlacement(selected, agent.placement) ? agent : undefined;
       if (samePlacement(selected, controllerPlacement))
@@ -176,6 +164,7 @@ export function runnerDirectory(
           createLocalCheckoutRunner(boundAgent, localDescription, child?.()),
           {
             settings: localRunnerSettings,
+            manifestMaxBytes: null,
             cleanupBudgetMs: 60_000,
             archive: localArchivePolicy,
           }
@@ -186,7 +175,6 @@ export function runnerDirectory(
         createEnrolledCheckoutRunner(
           remote,
           runnerIdToWire(id),
-          boundAgent ? location : null,
           boundAgent,
           () => {
             return (
@@ -201,11 +189,11 @@ export function runnerDirectory(
                 capabilities: {},
               }
             );
-          },
-          legacyView
+          }
         ),
         {
           settings: enrolledRunnerSettings(runnerIdToWire(id)),
+          manifestMaxBytes: MAX_CHECKOUT_COMMAND_FILE_BYTES,
           archive: enrolledArchivePolicy,
         }
       );
@@ -226,7 +214,7 @@ export function terminalBackendFor(
   { remote, child }: CheckoutCommandRunners,
   agent: CheckoutSession
 ) {
-  const location = legacySessionLocation(agent);
+  const location = enrolledRunnerId(agent.placement);
   if (!location) return localTerminal(child, agent);
   if (!remote) throw new Error("The session runner is unavailable.");
   return remoteTerminal(remote, location, agent.id);

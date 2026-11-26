@@ -81,7 +81,8 @@ test("launches a child in a folder its runner account names, and archive leaves 
       data: {
         name: "Named folder caller",
         type: "claude",
-        cwd: `runner://${scratch}/@session`,
+        cwd: "",
+        runner: scratch,
         projectId,
         useWorktree: false,
       },
@@ -142,7 +143,7 @@ test("launches a child in a folder its runner account names, and archive leaves 
         })
       ).json()
     ).agent;
-    expect(plainRow.cwd).toBe(`runner://${scratch}/@session`);
+    expect(plainRow.cwd).toBe(folder);
 
     // An independent worktree from the repository: made as the runner's own
     // checkout, from that folder.

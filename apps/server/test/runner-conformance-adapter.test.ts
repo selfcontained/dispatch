@@ -9,12 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import type { FastifyBaseLogger } from "fastify";
 import { afterAll, expect, it, vi } from "vitest";
-import {
-  sessionFromWire,
-  type CallName,
-  type Req,
-  type Res,
-} from "@dispatch/runner-protocol/contract";
+import { sessionFromWire } from "@dispatch/runner-protocol/contract";
 import {
   compareBaseline,
   readBaseline,
@@ -45,20 +40,7 @@ it("matches the adapter lane's baseline", async () => {
   const adapter = directory.for(placement);
   const results = await runLane(
     async () => ({
-      runner: {
-        ...adapter,
-        // Dispatch reads the guard through the adapter's manifest read today.
-        async call<K extends CallName>(op: K, req: Req<K>, opts?: object) {
-          if (op !== "checkout.read") return adapter.call(op, req, opts);
-          const { path: file } = req as Req<"checkout.read">;
-          const read = await adapter.readManifest({
-            checkout: "effective",
-            path: file,
-            kind: "read",
-          });
-          return (read && { data: read.content, digest: read.state }) as Res<K>;
-        },
-      },
+      runner: adapter,
       session: sessionFromWire(agent.id),
       async seed(file, content) {
         mkdirSync(path.dirname(path.join(checkout, file)), { recursive: true });

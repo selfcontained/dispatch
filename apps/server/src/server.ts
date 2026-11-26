@@ -1,4 +1,3 @@
-import { inProcessPorts } from "./runners/in-process.js";
 import {
   sameRunner,
   sessionFromWire,
@@ -61,16 +60,7 @@ import {
 } from "./multi-listener.js";
 import { watchLocalTls } from "./local-tls.js";
 import { registerLocalTrustRoutes } from "./routes/local-trust.js";
-import os from "node:os";
-import {
-  mkdir,
-  readFile,
-  readdir,
-  stat,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
-import { existsSync, readFileSync } from "node:fs";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
 
 import fastifyCookie from "@fastify/cookie";
 import fastifyMultipart from "@fastify/multipart";
@@ -81,7 +71,6 @@ import {
   httpLoggingOptions,
   registerHttpLogging,
 } from "./server/http-logging.js";
-import * as z from "zod/v4";
 
 import { AgentManager } from "./agents/manager.js";
 import type { AgentRecord } from "./agents/manager.js";
@@ -103,18 +92,16 @@ import { createPool, createServiceResourcesProbePool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { loadLearnedAgentModels } from "./agents/engine-models.js";
 import { loadModelAvailability } from "./agents/model-availability.js";
-import { deleteSetting, getSetting, setSetting } from "./db/settings.js";
+import { getSetting } from "./db/settings.js";
 import { detectFileType } from "./files/file-type.js";
 import { fileMetadataFromBuffer } from "./files/metadata.js";
 import { runCommand } from "./shared/lib/run-command.js";
-import { shouldSkipAutomaticMacPathProbe } from "./shared/mac-path-privacy.js";
 import {
   MAX_ENCODED_FILE_NAME_LENGTH,
   resolveFilesDir,
   sanitizeUploadedFileName,
   timestampedFileName,
 } from "./shared/files.js";
-import { handleMcpRequest } from "./shared/mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
 import { promoteHealthyReleaseCandidate } from "./release-candidate-store.js";
 import {
@@ -129,11 +116,7 @@ import { JobNotifier } from "./notifications/job-notifier.js";
 import { FocusTracker } from "./focus-tracker.js";
 import { PresenceTracker, toastRecipients } from "./presence-tracker.js";
 import { registerPresenceActivity } from "./server/presence-activity.js";
-import {
-  AGENT_TYPES,
-  getEnabledAgentTypes,
-  setEnabledAgentTypes,
-} from "./agent-type-settings.js";
+import { getEnabledAgentTypes } from "./agent-type-settings.js";
 import { JobService } from "./jobs/service.js";
 import { TemplateService } from "./templates/service.js";
 import { ReleaseLogStreamProcessor } from "./release-log-stream.js";
@@ -198,7 +181,6 @@ import {
   observeModelUpdates,
 } from "./agents/engine-update-operations.js";
 import { EngineManager } from "./agents/remote/engine-manager.js";
-import { remoteEngineTransport } from "./agents/remote/engine-transport.js";
 import {
   onStoredModelCatalogRead,
   onModelCatalogValidation,
@@ -220,10 +202,7 @@ import { startRetentionSweep } from "./agents/retention.js";
 import { createPromptInjector } from "./server/agent-prompts.js";
 import { createAuthRuntime } from "./server/auth-runtime.js";
 import { getBearerToken, handleAgentError } from "./server/http-helpers.js";
-import {
-  createReleaseRuntime,
-  RELEASE_VERSION_TYPES,
-} from "./server/release-runtime.js";
+import { createReleaseRuntime } from "./server/release-runtime.js";
 import {
   createMcpHandlers,
   mcpMethodNotAllowed,
@@ -234,7 +213,7 @@ import {
   type IconColor,
   VALID_ICON_COLORS,
 } from "./server/static-theme.js";
-import { UiEventBroker, type UiEvent } from "./server/ui-events.js";
+import { UiEventBroker } from "./server/ui-events.js";
 import { DiffStatsRefresher } from "./agents/diff-stats-refresher.js";
 import { SubsystemTracker } from "./observability/subsystem-tracker.js";
 import {
@@ -243,7 +222,7 @@ import {
 } from "./observability/service-resources.js";
 import { readServiceResourcesCollectionEnabled } from "./observability/service-resources-settings.js";
 import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
-import { stateDir, statePath } from "./state-dir.js";
+import { statePath } from "./state-dir.js";
 import {
   createUpdateRecoveryRuntime,
   protectedLinuxUpdate,
@@ -288,13 +267,6 @@ const remoteRunner = configuredRunner({
   validJobToken: (token, runId, agentId) =>
     validateJobMcpToken(config.authToken, token, runId, agentId),
 });
-const runnerEngines = remoteRunner
-  ? remoteEngineTransport(
-      remoteRunner,
-      inProcessPorts().parseEngineCapabilityResult,
-      app.log
-    )
-  : undefined;
 // Runner update holds: nothing is held until an update coordinator begins one.
 const runnerHolds = remoteRunner
   ? new RunnerUpdateHolds({
@@ -1186,14 +1158,15 @@ async function registerRoutes() {
       updateRecoveryRuntime.localRunnerStartsFrozen()
   );
   app.addHook("onClose", async () => localEnginesInProcess.close());
-  const engineCalls = (scope: EngineScope) =>
+  const engineCalls = (scope: EngineScope, liveInventory = false) =>
     scopedEngineCalls(
       localEngineCalls(
         () => localRunnerOf(localRunnerProcess),
         localEnginesInProcess
       ),
       remoteRunner,
-      scope
+      scope,
+      liveInventory
     );
   const catalogRefresh = new ModelCatalogRefresh({
     pool,
@@ -1286,7 +1259,6 @@ async function registerRoutes() {
     usageWatches.dispose();
   });
   await registerMcpRoutes(app, {
-    runnerEngines,
     usageForAgent,
     usageWatches,
     providerPlans,
@@ -1448,13 +1420,6 @@ async function registerRoutes() {
         codex: config.codexBin,
         opencode: config.opencodeBin,
       },
-    },
-    remote: runnerEngines ?? {
-      send: async () => ({
-        ok: false,
-        error: "Runner enrollment is disabled.",
-        unsupported: true,
-      }),
     },
   });
   await registerEngineLoginRoutes(app, engineManager);
@@ -1866,7 +1831,6 @@ export async function start() {
   // Before agents are restored, probation included. Never awaited: the app
   // starts and works as before whether or not the child comes up.
   startLocalRunnerChild();
-  await remoteRunner?.start();
   await initializeApp({
     catalogSpecs: config.agentRuntime === "acp" ? CLI_AGENT_TYPES : [],
   });

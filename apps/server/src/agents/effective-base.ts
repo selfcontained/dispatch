@@ -1,7 +1,4 @@
-import {
-  remotePlacement,
-  type RunnerRepository,
-} from "@dispatch/runner-protocol";
+import type { RunnerRepository } from "@dispatch/runner-protocol";
 import {
   pathFromWire,
   type Placement,
@@ -10,7 +7,7 @@ import {
   runnerDirectory,
   type CheckoutCommandRunners,
 } from "../runners/directory.js";
-import { controllerPlacement } from "../runners/placement.js";
+import { controllerPlacement, enrolledRunnerId } from "../runners/placement.js";
 import {
   agentDiffPath,
   type WorkspaceTargetAgent,
@@ -48,7 +45,8 @@ export async function agentComparisonBase(
   runners: CheckoutCommandRunners = {}
 ): Promise<string | null> {
   if (agent.workspacePath) return agent.workspaceBaseBranch ?? null;
-  const isRunner = Boolean(agent.cwd && remotePlacement(agent.cwd));
+  const isRunner =
+    enrolledRunnerId(agent.placement ?? controllerPlacement) !== undefined;
   // Existing-branch launches compare against the opened branch, including PR
   // heads. Older runner rows may only have that branch in the checkout plan.
   const existingBranch =
@@ -70,7 +68,7 @@ export async function agentComparisonBase(
       : Boolean(agent.worktreePath || agent.gitContext?.isWorktree);
   // New runner launches have a known default in launch.base when available.
   // For older or unresolved launches the runner has the checkout's recorded base.
-  const cwd = managed ? agentDiffPath(agent) : null;
+  const cwd = managed && !isRunner ? agentDiffPath(agent) : null;
   if (!cwd) return null;
   // Main's chain: the repository's default, the checkout's current branch,
   // then "main". Main's probes never fail the read, and neither does this.

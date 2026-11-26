@@ -1,3 +1,4 @@
+import { targetPlacement } from "../runners/saved-location.js";
 import type { Effort } from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import { AGENT_TYPES, type AgentType } from "../agent-type-settings.js";
@@ -22,7 +23,7 @@ export async function resolveTemplateLaunch(
     model?: string | null;
     effort?: Effort | null;
   } = {},
-  target: string = template.directory
+  target = targetPlacement(template)
 ): Promise<TemplateRecord> {
   const agentType = overrides.agentType ?? template.agentType;
   if (!AGENT_TYPES.includes(agentType))

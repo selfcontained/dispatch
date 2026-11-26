@@ -205,7 +205,6 @@ export async function createRemoteWorkspacePreparation(
   return {
     /** A repository's cached clone, as a launch from it uses: the same cache entry and step. */
     repositoryClone: repositoryClone(port.repository!, paths.repositories),
-    legacy: (session: string) => bindings.legacy(session),
     /** The supervisor changed the session's binding files: record them now. */
     async bindingWritten(session: string) {
       await bindings.get(session);
@@ -217,7 +216,6 @@ export async function createRemoteWorkspacePreparation(
         )) !== null
       );
     },
-    releaseLegacy: release,
     async remove(session: string) {
       const dir = join(paths.receipts, storageKey(session));
       const raw = await fs.read(join(dir, RECEIPT_FILE));

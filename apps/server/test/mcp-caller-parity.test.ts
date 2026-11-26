@@ -22,7 +22,14 @@ import {
   workspaceWorkload,
   writeCheckoutFile,
 } from "../../../packages/runner/src/workload/agents/checkout-worker.js";
-import type { RunnerCallError } from "@dispatch/runner-protocol/contract";
+import {
+  pathFromWire,
+  sessionToWire,
+} from "@dispatch/runner-protocol/contract";
+import { Readable } from "node:stream";
+import { createHash } from "node:crypto";
+import { enrolledSessions } from "../../../packages/runner/src/workload/agents/remote/session-operations.js";
+import { checkoutWorkload } from "./helpers/checkout-workload.js";
 import { REPO_TOOL_MANIFEST_PATH } from "../src/shared/mcp/repo-tools.js";
 import baseline from "./fixtures/mcp-caller-parity-baseline.json";
 import { useInjectApp } from "./helpers/inject-app.js";
@@ -44,7 +51,6 @@ const runnerKey = runnerStorageKey(callers[1]);
 const checkout = path.join(runnerState, "sessions", runnerKey, "checkout");
 const outside = path.join(runnerState, "outside");
 const state = "a".repeat(64);
-const unexpected: string[] = [];
 
 // Use the same persisted managed checkout shape as the runner supervisor tests.
 const supervisor = await createSessionSupervisor(
@@ -57,7 +63,6 @@ const supervisor = await createSessionSupervisor(
     ca: path.join(runnerState, "ca.pem"),
     bins: { claudeBin: "", codexBin: "" },
     sessions: createSessionCore,
-    workspaces: new Set(),
     env: {},
     hostCommand: () => {
       throw new Error("The parity fixture does not start hosts");
@@ -95,119 +100,74 @@ const ctx = useInjectApp({
     DISPATCH_AGENT_RUNTIME: "acp",
   },
   enrolledRunner: {
-    ready: {
-      workspaces: ["@session"],
-      managedWorkspace: true,
-      checkoutInspection: true,
-      checkoutMetadata: true,
-      checkoutCommands: true,
-      defaultBranchFiles: true,
-      sessionCheckout: true,
-      workspacePrepare: true,
-      preparedLaunch: true,
-      gitQueries: true,
-      pathResolve: true,
-      checkoutWrite: true,
-      sessionFiles: true,
-      sharedWorktree: true,
+    calls: {
+      ...enrolledSessions(supervisor, () => {}).calls,
+      "checkout.write": ({ target: _target, ...write }) =>
+        writeCheckoutFile(checkout, write),
+      "path.resolve": ({ path: raw, ...options }) =>
+        workspaceWorkload.resolvePath(raw, options),
+      "git.roots": async () => {
+        const roots = await inspectCheckout(checkout, { kind: "roots" });
+        if (roots.kind !== "roots") throw new Error("Expected checkout roots");
+        return {
+          repositoryRoot: pathFromWire(roots.repoRoot ?? checkout),
+          checkoutRoot: pathFromWire(checkout),
+        };
+      },
+      "git.defaultBranch": () => ({ branch: null }),
+      "workspace.prepare": async ({ source, worktree }) => {
+        if ("directory" in source && source.directory === outside) {
+          expect(worktree).toBeUndefined();
+          return { path: pathFromWire(outside), moved: false, origin: null };
+        }
+        if ("directory" in source) {
+          expect(source.directory).toBe(checkout);
+          expect(worktree?.branch).toMatch(/^parity-(child|independent)$/);
+        }
+        return { path: pathFromWire(checkout), moved: false, origin: null };
+      },
+      "checkout.exec": async () => ({
+        exitCode: 0,
+        stdout: "fixture",
+        stderr: "",
+      }),
+      "files.get": async ({ session, path: file }, { sendFile }) =>
+        supervisor.withSessionFile(
+          sessionToWire(session),
+          { path: file },
+          async (dir, name) => {
+            const bytes = await readFile(dir ? path.join(dir, name) : name);
+            return {
+              name: path.basename(name),
+              size: bytes.length,
+              digest: createHash("sha256").update(bytes).digest("hex"),
+              blob: await sendFile!(Readable.from([bytes])),
+            };
+          }
+        ),
     },
-    async answer(command) {
-      switch (command.kind) {
-        case "checkoutWrite": {
-          // The runner's own workload write, in the session's checkout.
-          const { target: _target, ...write } = command.operation.request;
-          try {
-            return JSON.stringify({
-              data: await writeCheckoutFile(checkout, write),
-            });
-          } catch (error) {
-            const { code, message, details } = error as RunnerCallError;
-            return JSON.stringify({ error: { code, message, details } });
-          }
-        }
-        case "pathResolve": {
-          // The runner worker's own resolution, as its workload account.
-          const { path: raw, ...options } = command.operation.request;
-          return JSON.stringify({
-            data: await workspaceWorkload.resolvePath(raw, options),
-          });
-        }
-        case "gitQuery":
-          if (command.operation.op === "git.roots") {
-            const { kind: _kind, ...roots } = await inspectCheckout(checkout, {
-              kind: "roots",
-            });
-            return JSON.stringify({ data: roots });
-          }
-          expect(command.operation.op).toBe("git.defaultBranch");
-          return JSON.stringify({ data: { branch: null } });
-        case "workspacePrepare": {
-          const { source, worktree } = command.operation;
-          if ("directory" in source && source.directory === outside) {
-            // A folder the runner caller named: its own, as a local
-            // caller's folder launch is (D7).
-            expect(worktree).toBeUndefined();
-            return JSON.stringify({
-              data: { path: outside, moved: false, origin: null },
-            });
-          }
-          if ("directory" in source) {
-            expect(source.directory).toBe(checkout);
-            expect(worktree?.branch).toMatch(/^parity-(child|independent)$/);
-          }
-          return JSON.stringify({
-            data: { path: checkout, moved: false, origin: null },
-          });
-        }
-        case "inspectCheckout":
-          return JSON.stringify(
-            await inspectCheckout(checkout, command.query, {
-              recordedBase: false,
-              unresolvedBase: "origin/main",
-            })
-          );
-        case "checkoutCommand":
-          return JSON.stringify(
-            command.operation.kind === "read"
-              ? {
-                  content: await readFile(
-                    path.join(checkout, REPO_TOOL_MANIFEST_PATH),
-                    "utf8"
-                  ),
-                  state,
-                }
-              : { exitCode: 0, stdout: "fixture", stderr: "" }
-          );
-        case "sessionCheckout":
-          return JSON.stringify(
-            command.operation.kind === "context"
-              ? await supervisor.gitContext(
-                  command.agentId,
-                  command.workspace,
-                  command.operation
-                )
-              : await supervisor.sessionCheckout(
-                  command.agentId,
-                  command.workspace,
-                  command.operation
-                )
-          );
-        case "sessionFile":
-          return supervisor.sessionFile(
-            command.agentId,
-            command.workspace,
-            command.operation,
-            async (kind, dir, name) => {
-              if (kind !== "collect")
-                throw new Error("Unexpected file delivery");
-              return (
-                await readFile(dir ? path.join(dir, name) : name)
-              ).toString("base64");
-            }
-          );
-      }
-      unexpected.push(command.kind);
-      throw new Error(`Unexpected runner command: ${command.kind}`);
+    checkoutRead: async (op, input, signal) => {
+      const { target: _target, ...request } = input;
+      let data;
+      if (
+        op === "checkout.read" &&
+        "mode" in request &&
+        request.mode === "command-manifest"
+      )
+        data = {
+          data: await readFile(
+            path.join(checkout, REPO_TOOL_MANIFEST_PATH),
+            "utf8"
+          ),
+          digest: state,
+        };
+      else
+        data = await checkoutWorkload.run(
+          op,
+          { directory: checkout, request } as never,
+          { signal }
+        );
+      return Readable.from([Buffer.from(JSON.stringify({ data }))]);
     },
   },
 });
@@ -246,7 +206,7 @@ function git(...args: string[]) {
 
 it("keeps the MCP caller surface and call outcomes at the recorded parity boundary", async () => {
   const runnerId = ctx.runner!.id;
-  const runnerCwd = `runner://${runnerId}/@session`;
+  const runnerCwd = checkout;
   const token = await ctx.auth.getOrCreateAuthToken(ctx.pool);
   const cookie = await ctx.sessionCookie();
   const differences: Record<string, Difference> = {};
@@ -310,15 +270,14 @@ it("keeps the MCP caller surface and call outcomes at the recorded parity bounda
   );
   for (const [index, id] of callers.entries()) {
     await ctx.pool.query(
-      `INSERT INTO agents (id, name, type, status, cwd, files_dir, runner_id, project_id, runner_managed, base_branch)
-       VALUES ($1, $1, 'codex', 'running', $2, $3, $4, $5, $6, 'main')`,
+      `INSERT INTO agents (id, name, type, status, cwd, files_dir, runner_id, project_id, base_branch)
+       VALUES ($1, $1, 'codex', 'running', $2, $3, $4, $5, 'main')`,
       [
         id,
         index ? runnerCwd : checkout,
         path.join(root, id),
         index ? runnerId : "local",
         projectId,
-        Boolean(index),
       ]
     );
   }
@@ -771,7 +730,6 @@ it("keeps the MCP caller surface and call outcomes at the recorded parity bounda
       { timeout: 3_000 }
     )
     .toEqual([]);
-  expect(unexpected).toEqual([]);
 
   const expected = Object.fromEntries(
     Object.entries(baseline).map(([key, entry]) => [

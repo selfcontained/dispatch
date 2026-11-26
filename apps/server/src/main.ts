@@ -72,14 +72,7 @@ async function serve(): Promise<void> {
   const shellEnvironment = await restoreLegacyMacLaunchAgentEnvironment();
 
   const { loadInProcessPorts } = await import("./runners/in-process.js");
-  const { parseEngineCapabilityResult } = await loadRunnerComposition().then(
-    (entry) => entry.loadEngineCapabilityResult()
-  );
-  await loadInProcessPorts(
-    loadCheckoutWorker,
-    parseEngineCapabilityResult,
-    await loadLaunchProbes()
-  );
+  await loadInProcessPorts(loadCheckoutWorker, await loadLaunchProbes());
   const { app, shutdown, start } = await import("./server.js");
 
   if (shellEnvironment.state === "resolved") {

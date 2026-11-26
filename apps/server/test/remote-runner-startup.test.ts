@@ -1,17 +1,8 @@
+import { rootCertificates } from "node:tls";
 import { streamHelper } from "./helpers/stream-helper.js";
 import { embeddedBuild } from "../src/agents/build-identity.js";
 import { gitSha, packageVersion } from "../src/generated/runtime-assets.js";
-import { checkoutCommandTimeoutMs } from "@dispatch/runner-protocol";
-import { EventEmitter } from "node:events";
-import {
-  chown,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import { chown, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -163,7 +154,7 @@ describe("remote runner startup", () => {
       updateIdentity: null,
       createSessions: createSessionCore,
     };
-    await writeFile(key, "unused test credential", { mode: 0o600 });
+    await writeFile(key, rootCertificates[0]!, { mode: 0o600 });
     await writeFile(
       config,
       JSON.stringify({
@@ -177,7 +168,6 @@ describe("remote runner startup", () => {
         home: root,
         path: "/usr/bin:/bin",
         bins: {},
-        workspaces: {},
       })
     );
   });
@@ -218,166 +208,6 @@ describe("remote runner startup", () => {
     );
     expect(dial).not.toHaveBeenCalled();
     await expect(stat(state)).rejects.toMatchObject({ code: "ENOENT" });
-  });
-
-  it.each([
-    { workspaces: undefined, handles: ["@session"], managed: true },
-    { workspaces: {}, handles: ["@session"], managed: true },
-    {
-      workspaces: { proof: { cwd: "/fixture" } },
-      handles: ["proof"],
-      managed: false,
-    },
-    {
-      workspaces: { "@session": { cwd: "/fixture" } },
-      handles: ["@session"],
-      managed: false,
-    },
-  ])(
-    "advertises only the configured workspace mode: $workspaces",
-    async ({ workspaces, handles, managed }) => {
-      const input = JSON.parse(await readFile(config, "utf8"));
-      await writeFile(config, JSON.stringify({ ...input, workspaces }));
-      reportIdentity.mockImplementation((_command, _args, _options, callback) =>
-        callback(null, unprivilegedStatus, "")
-      );
-      const socket = Object.assign(new EventEmitter(), {
-        write: vi.fn(),
-        destroy: vi.fn(),
-        writableLength: 0,
-        destroyed: false,
-      });
-      const end = new Error("end simulated runner after reconnect");
-      dial.mockReturnValueOnce(socket).mockImplementation(() => {
-        throw end;
-      });
-      vi.useFakeTimers();
-      const running = runRemoteRunner(config, updateOptions).catch(
-        (error) => error
-      );
-      try {
-        await vi.waitFor(() => expect(dial).toHaveBeenCalledTimes(1));
-        socket.emit("secureConnect");
-        const ready = JSON.parse(socket.write.mock.calls[0]![0]);
-        expect(ready.managedWorkspace).toBe(managed ? true : undefined);
-        expect(ready).toMatchObject({
-          type: "ready",
-          version: 1,
-          workspaces: handles,
-          health: true,
-          // A repeated launch ID is reconciled, not run again.
-          launchReconcile: true,
-        });
-        socket.emit(
-          "data",
-          Buffer.from(
-            JSON.stringify({
-              type: "request",
-              id: "invalid-discard",
-              command: {
-                kind: "discard",
-                agentId: ["fixture"],
-                workspace: "@session",
-              },
-            }) + "\n"
-          )
-        );
-        expect(JSON.parse(socket.write.mock.calls[1]![0])).toEqual({
-          type: "result",
-          id: "invalid-discard",
-          error: "Invalid runner command.",
-        });
-        socket.emit(
-          "data",
-          Buffer.from(
-            JSON.stringify({
-              type: "request",
-              id: "discard-test",
-              command: {
-                kind: "discard",
-                agentId: "fixture",
-                workspace: "@session",
-              },
-            }) + "\n"
-          )
-        );
-        await vi.waitFor(() => expect(socket.write).toHaveBeenCalledTimes(3));
-        expect(JSON.parse(socket.write.mock.calls[2]![0])).toMatchObject({
-          type: "result",
-          id: "discard-test",
-          ...(managed ? { value: true } : { error: expect.any(String) }),
-        });
-      } finally {
-        socket.emit("close");
-        await vi.advanceTimersByTimeAsync(1000);
-        await expect(running).resolves.toBe(end);
-        vi.useRealTimers();
-      }
-    }
-  );
-
-  it("uses the shared deadlines for runner checkout commands", async () => {
-    reportIdentity.mockImplementation((_command, _args, _options, callback) =>
-      callback(null, unprivilegedStatus, "")
-    );
-    const socket = Object.assign(new EventEmitter(), {
-      write: vi.fn(),
-      destroy: vi.fn(),
-      writableLength: 0,
-      destroyed: false,
-    });
-    const end = new Error("end simulated runner after reconnect");
-    dial.mockReturnValueOnce(socket).mockImplementation(() => {
-      throw end;
-    });
-    vi.useFakeTimers();
-    const running = runRemoteRunner(config, updateOptions).catch(
-      (error) => error
-    );
-    const timer = vi.spyOn(globalThis, "setTimeout");
-    try {
-      await vi.waitFor(() => expect(dial).toHaveBeenCalledTimes(1));
-      socket.emit("secureConnect");
-      for (const checkout of ["effective", "launch", "moved"] as const) {
-        timer.mockClear();
-        socket.emit(
-          "data",
-          Buffer.from(
-            JSON.stringify({
-              type: "request",
-              id: checkout,
-              command: {
-                kind: "checkoutCommand",
-                agentId: "fixture",
-                workspace: "@session",
-                operation: {
-                  kind: "read",
-                  checkout,
-                  path: ".dispatch/tools.json",
-                },
-              },
-            }) + "\n"
-          )
-        );
-        expect(timer).toHaveBeenCalledWith(
-          expect.any(Function),
-          checkoutCommandTimeoutMs(checkout)
-        );
-        await vi.waitFor(() =>
-          expect(
-            socket.write.mock.calls.some(([line]) =>
-              String(line).includes(`"id":"${checkout}"`)
-            )
-          ).toBe(true)
-        );
-      }
-    } finally {
-      socket.emit("close");
-      await vi.advanceTimersByTimeAsync(1000);
-      timer.mockRestore();
-      vi.useRealTimers();
-      await expect(running).resolves.toBe(end);
-    }
   });
 
   it.each([

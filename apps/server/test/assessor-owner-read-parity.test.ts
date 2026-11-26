@@ -86,34 +86,17 @@ it.each(
         ? placementForRunner("rnr_assessor")
         : controllerPlacement;
     const remote = {
-      streamCheckoutRead(
-        _placement: unknown,
+      call(
+        _runner: string,
         op: "checkout.access" | "checkout.read",
         input: Req<"checkout.access"> | Req<"checkout.read">
       ) {
-        const { target, ...request } = input;
-        if (!("session" in target)) throw new Error("Expected session");
-        const selector =
-          target.checkout === "owned" || target.checkout === "launch"
-            ? "launch"
-            : "current";
-        return op === "checkout.access"
-          ? fixture.access(
-              row,
-              selector,
-              request as Omit<Req<"checkout.access">, "target">
-            )
-          : fixture.read(
-              row,
-              selector,
-              request as Omit<Req<"checkout.read">, "target">
-            );
+        return fixture.operation(op, row, input);
       },
     } as unknown as RemoteRunnerService;
     const agent = {
       ...row,
       placement,
-      cwd: mode === "enrolled" ? "runner://rnr_assessor/configured" : row.cwd,
     };
     const runner = runnerDirectory(
       mode === "enrolled"

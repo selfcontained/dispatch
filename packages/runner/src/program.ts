@@ -63,17 +63,12 @@ export async function dispatchRunnerMode(
     await runCheckoutCommandCli(
       argv[1]!,
       argv[2]!,
-      argv[3] || undefined,
+      undefined, // Reserved former configured-root slot.
       argv[4] || undefined
     );
-  } else if (
-    argv[0] === "runner-engine-capability" ||
-    argv[0] === "runner-engine-host"
-  ) {
-    const { runEngineCapabilityWorker, runEngineHostWorker } =
-      await workers.loadEngineCapabilityWorker();
-    if (argv[0] === "runner-engine-host") await runEngineHostWorker();
-    else await runEngineCapabilityWorker();
+  } else if (argv[0] === "runner-engine-host") {
+    const { runEngineHostWorker } = await workers.loadEngineHostWorker();
+    await runEngineHostWorker();
   } else if (argv[0] === "runner-update-compatibility") {
     const embeddedBuild = assets.build;
     const { runnerHandoff } = await workers.loadUpdateHandoff();

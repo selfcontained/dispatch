@@ -1,3 +1,4 @@
+import { placementForRunner } from "../src/runners/placement.js";
 import { validationCatalogFixture } from "./helpers/model-catalog-validation.js";
 const validationFixtures: ReturnType<typeof validationCatalogFixture>[] = [];
 import {
@@ -192,7 +193,7 @@ describe("GET /api/v1/personas", () => {
     const { listPersonas } = await import("../src/personas/resolve.js");
     const response = await app.inject({
       method: "GET",
-      url: `/api/v1/personas?cwd=runner://rnr_test/session&type=task${suffix}`,
+      url: `/api/v1/personas?runner=rnr_test&cwd=&type=task${suffix}`,
     });
     expect(response.statusCode).toBe(200);
     expect(listPersonas).toHaveBeenCalledWith(scope, "task");
@@ -277,7 +278,8 @@ describe("POST /api/v1/agents/:id/launch-persona", () => {
         );
       deps.agentManager.getAgent.mockResolvedValueOnce({
         id: "agt_parent",
-        cwd: "runner://linux/@session",
+        placement: placementForRunner("linux"),
+        cwd: "/srv/review",
       } as never);
       const response = await app.inject({
         method: "POST",

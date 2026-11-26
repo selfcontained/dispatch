@@ -152,55 +152,6 @@ if (args === "--version") {
     ).toBe(false);
   });
 
-  it("uses the bundled runtime for a legacy managed install with no system npm", async () => {
-    const prefix = path.join(dir, ".local");
-    const managed = path.join(prefix, "bin", "claude");
-    const args = [
-      "install",
-      "--global",
-      "--prefix",
-      prefix,
-      "@anthropic-ai/claude-code@latest",
-    ];
-    const packages: string[] = [];
-    executor = new EngineRunnerExecutor({
-      bundledRuntime: "/opt/dispatch-runner/dispatch",
-      uid: 1000,
-      gid: 1000,
-      env: { ...process.env, HOME: dir },
-      engines: {
-        claude: { bin: managed, install: { executable: "npm", args } },
-      },
-      wrap(bin, args) {
-        if (bin === "node")
-          return {
-            bin: "/bin/echo",
-            args: [packages.length ? "v22.0.0" : "v18.0.0"],
-          };
-        if (bin === "/opt/dispatch-runner/dispatch") {
-          if (args[0] === "--version")
-            return { bin: "/bin/echo", args: ["1.3.13"] };
-          expect(args.slice(0, 2)).toEqual(["add", "--global"]);
-          packages.push(args.at(-1)!);
-          return { bin: "/bin/sh", args: ["-c", "exit 0"] };
-        }
-        const installed = packages.includes("@anthropic-ai/claude-code@latest");
-        return {
-          bin: installed && bin === managed ? fake : "/nonexistent",
-          args,
-        };
-      },
-    });
-    expect((await executor.inventory())[0]?.actions).toContain("install");
-    await expect(
-      executor.handle({ type: "install", engine: "claude" })
-    ).resolves.toMatchObject({ ok: true });
-    expect(packages).toEqual([
-      `node-linux-${process.arch}@22`,
-      "@anthropic-ai/claude-code@latest",
-    ]);
-  });
-
   it("reports an installed engine's version and sign-in status", async () => {
     executor = new EngineRunnerExecutor({
       uid: 1000,
@@ -290,28 +241,6 @@ if (args === "--version") {
     expect(codex.issue).toBe("install-unavailable");
   });
 
-  it("pushes a fresh inventory snapshot for a status operation", async () => {
-    executor = new EngineRunnerExecutor({
-      uid: 1000,
-      gid: 1000,
-      env: process.env,
-      wrap: passthroughWrap,
-      engines: { claude: { bin: fake } },
-    });
-    const events: unknown[] = [];
-    const ack = await executor.handle({ type: "status" }, (event) =>
-      events.push(event)
-    );
-    expect(ack).toEqual({ ok: true });
-    expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({
-      type: "inventory",
-      entries: expect.arrayContaining([
-        expect.objectContaining({ id: "claude", installed: true }),
-      ]),
-    });
-  });
-
   it("offers install only when a managed install command is configured", async () => {
     executor = new EngineRunnerExecutor({
       uid: 1000,
@@ -326,70 +255,6 @@ if (args === "--version") {
     expect(inventory.find((entry) => entry.id === "codex")?.actions).toEqual([
       "install",
     ]);
-  });
-
-  it("runs a configured update and verifies the version advanced", async () => {
-    executor = new EngineRunnerExecutor({
-      uid: 1000,
-      gid: 1000,
-      env: { ...process.env, FAKE_ENGINE_MODE: "updated" },
-      wrap: passthroughWrap,
-      engines: {
-        claude: { bin: fake, update: { executable: fake, args: ["update"] } },
-      },
-    });
-    const events: string[] = [];
-    const ack = await executor.handle(
-      { type: "update", engine: "claude" },
-      (event) => events.push(event.type)
-    );
-    expect(ack.ok).toBe(true);
-    expect(events).toContain("operation_progress");
-    expect(events[events.length - 1]).toBe("operation_complete");
-  });
-
-  it("reports a failed update as ok:false with the exit code, not a false success", async () => {
-    executor = new EngineRunnerExecutor({
-      uid: 1000,
-      gid: 1000,
-      env: { ...process.env, FAKE_ENGINE_MODE: "fail-update" },
-      wrap: passthroughWrap,
-      engines: {
-        claude: { bin: fake, update: { executable: fake, args: ["update"] } },
-      },
-    });
-    const events: unknown[] = [];
-    const ack = await executor.handle(
-      { type: "update", engine: "claude" },
-      (event) => events.push(event)
-    );
-    expect(ack).toMatchObject({
-      ok: false,
-      error: expect.stringContaining("exit code 1"),
-    });
-    expect(events.at(-1)).toMatchObject({
-      type: "operation_complete",
-      success: false,
-    });
-  });
-
-  it("reports an already-current update as success, not a failure", async () => {
-    // The fake CLI's update command exits 0 and leaves the version
-    // unchanged (no FAKE_ENGINE_MODE override) — a legitimate no-op.
-    executor = new EngineRunnerExecutor({
-      uid: 1000,
-      gid: 1000,
-      env: process.env,
-      wrap: passthroughWrap,
-      engines: {
-        claude: { bin: fake, update: { executable: fake, args: ["update"] } },
-      },
-    });
-    const ack = await executor.handle({ type: "update", engine: "claude" });
-    expect(ack).toMatchObject({
-      ok: true,
-      message: expect.stringContaining("up to date"),
-    });
   });
 
   it("treats a setpriv-started but command-not-found installer as unusable (exit 127)", async () => {
@@ -450,33 +315,28 @@ if (args === "login --device-auth") {
       wrap: passthroughWrap,
       engines: { codex: { bin: codexFake } },
     });
-    const started = await executor.handle({
-      type: "login_start",
+    const started = await executor.callHost("engine.login.start", {
+      requestId: "test",
+      restart: false,
       engine: "codex",
     });
-    expect(started.ok).toBe(true);
-    expect(started.login?.status).toBe("waiting");
-    expect(started.login?.userCode).toBe("ABCD-1234");
+    expect(started.status).toBe("waiting");
+    expect(started.userCode).toBe("ABCD-1234");
 
     const untilTerminal = async (loginId: string, timeoutMs = 5_000) => {
       const start = Date.now();
       while (Date.now() - start < timeoutMs) {
-        const status = await executor!.handle({
-          type: "login_status",
+        const status = await executor!.callHost("engine.login.status", {
           loginId,
         });
-        if (
-          status.login?.status === "succeeded" ||
-          status.login?.status === "failed"
-        )
+        if (status.status === "succeeded" || status.status === "failed")
           return status;
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
       throw new Error("timed out waiting for the sign-in to settle");
     };
-    const status = await untilTerminal(started.login!.id);
-    expect(status.ok).toBe(true);
-    expect(status.login?.status).toBe("succeeded");
+    const status = await untilTerminal(started.id);
+    expect(status.status).toBe("succeeded");
     // The final credential landed under the workload home we configured
     // — proof the staged script's $HOME-derived path actually resolved
     // to it, not to this (real) process's own home. This machine's real
@@ -487,18 +347,6 @@ if (args === "login --device-auth") {
       true
     );
     rmSync(workloadHome, { recursive: true, force: true });
-  });
-
-  it("rejects an operation with no configured managed command", async () => {
-    executor = new EngineRunnerExecutor({
-      uid: 1000,
-      gid: 1000,
-      env: process.env,
-      wrap: passthroughWrap,
-      engines: { claude: { bin: fake } },
-    });
-    const ack = await executor.handle({ type: "update", engine: "claude" });
-    expect(ack).toMatchObject({ ok: false });
   });
 
   it("runs sign-in through the same EngineLogins flow, wrapped", async () => {
@@ -527,19 +375,18 @@ if (args === "auth login") {
       wrap: passthroughWrap,
       engines: { claude: { bin: loginFake } },
     });
-    const started = await executor.handle({
-      type: "login_start",
+    const started = await executor.callHost("engine.login.start", {
+      requestId: "test",
+      restart: false,
       engine: "claude",
     });
-    expect(started.ok).toBe(true);
-    expect(started.login?.status).toBe("waiting");
-    expect(started.login?.url).toContain("https://claude.com");
-    const submitted = await executor.handle({
-      type: "login_submit",
-      loginId: started.login!.id,
+    expect(started.status).toBe("waiting");
+    expect(started.url).toContain("https://claude.com");
+    const submitted = await executor.callHost("engine.login.submit", {
+      loginId: started.id,
       code: "good",
     });
-    expect(submitted.ok).toBe(true);
+    expect(submitted.id).toBe(started.id);
   });
 
   it("runs every sign-in process as the workload account", async () => {
@@ -573,34 +420,32 @@ else if (args === "auth login") {
       },
       engines: { claude: { bin: loginFake } },
     });
-    const started = await executor.handle({
-      type: "login_start",
+    const started = await executor.callHost("engine.login.start", {
+      requestId: "test",
+      restart: false,
       engine: "claude",
     });
-    expect(started.login?.status).toBe("waiting");
-    await executor.handle({
-      type: "login_submit",
-      loginId: started.login!.id,
+    expect(started.status).toBe("waiting");
+    await executor.callHost("engine.login.submit", {
+      loginId: started.id,
       code: "good",
     });
     await expect
       .poll(
         async () =>
           (
-            await executor!.handle({
-              type: "login_status",
-              loginId: started.login!.id,
+            await executor!.callHost("engine.login.status", {
+              loginId: started.id,
             })
-          ).login?.status,
+          ).status,
         { timeout: 5000 }
       )
       .toBe("succeeded");
-    const done = await executor.handle({
-      type: "login_status",
-      loginId: started.login!.id,
+    const done = await executor.callHost("engine.login.status", {
+      loginId: started.id,
     });
     // Signed in as the workload: the status check ran with its HOME.
-    expect(done.login?.detail).toBe("workload@example.com");
+    expect(done.detail).toBe("workload@example.com");
     // The login itself and its status check both went through the wrap.
     expect(
       wrapped.some((argv) => argv[0] === "/bin/sh" && argv.includes("login"))
@@ -623,10 +468,12 @@ else if (args === "auth login") {
       wrap: passthroughWrap,
       engines: { opencode: { bin: fake } },
     });
-    const ack = await executor.handle({
-      type: "login_start",
-      engine: "opencode",
-    });
-    expect(ack).toMatchObject({ ok: false });
+    await expect(
+      executor.callHost("engine.login.start", {
+        engine: "opencode",
+        requestId: "test",
+        restart: false,
+      })
+    ).rejects.toMatchObject({ code: "unsupported" });
   });
 });

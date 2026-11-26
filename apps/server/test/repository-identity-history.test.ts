@@ -132,36 +132,36 @@ it("agrees with TypeScript identities for stored rows, including borrowed reposi
     {
       id: "project-folder",
       runner: "fixture",
-      launch: "runner://fixture/@session",
+      launch: "/srv/shared-launch",
       root: null,
-      cwd: "runner://fixture/@session",
+      cwd: "/srv/shared-launch",
       project: { repoRoot: "/work/a", repository: "https://example.com/a" },
       repository: null,
     },
     {
       id: "project-repo",
       runner: "fixture",
-      launch: "runner://fixture/@session",
+      launch: "/srv/shared-launch",
       root: null,
-      cwd: "runner://fixture/@session",
+      cwd: "/srv/shared-launch",
       project: { repoRoot: null, repository: "https://example.com/b" },
       repository: null,
     },
     {
       id: "repository",
       runner: "fixture",
-      launch: "runner://fixture/@session",
+      launch: "/srv/shared-launch",
       root: null,
-      cwd: "runner://fixture/@session",
+      cwd: "/srv/shared-launch",
       project: null,
       repository: "https://EXAMPLE.com:443/org/../repo.git",
     },
     {
       id: "neither",
       runner: "fixture",
-      launch: "runner://fixture/@session",
+      launch: "/srv/shared-launch",
       root: null,
-      cwd: "runner://fixture/@session",
+      cwd: "/srv/shared-launch",
       project: null,
       repository: null,
     },
@@ -201,7 +201,7 @@ it("agrees with TypeScript identities for stored rows, including borrowed reposi
     expect(actual.rows[0].key).toBe(expected);
   }
   await pool.query(
-    `INSERT INTO agents (id,runner_id,cwd,runner_worktree_owner,created_at) VALUES ('borrowed','fixture','runner://fixture/@borrowed','repository','2026-01-02T00:00:00Z')`
+    `INSERT INTO agents (id,runner_id,cwd,runner_worktree_owner,created_at) VALUES ('borrowed','fixture','/srv/borrowed','repository','2026-01-02T00:00:00Z')`
   );
   const borrowed = await pool.query(
     `SELECT a.history_identity AS key FROM ${HISTORY_IDENTITY_SQL} a WHERE id='borrowed'`
@@ -214,7 +214,7 @@ it("agrees with TypeScript identities for stored rows, including borrowed reposi
     "/repo",
     "https://example.com/b",
   ]);
-  expect(JSON.stringify(response)).not.toContain("runner://");
+  expect(JSON.stringify(response)).not.toContain("/srv/shared-launch");
   expect(
     (
       await app.inject("/api/v1/history/projects?search=EXAMPLE.COM&limit=1")
@@ -225,8 +225,8 @@ it("agrees with TypeScript identities for stored rows, including borrowed reposi
 it("filters runner projects and keeps local folders separate in agent pagination", async () => {
   await pool.query(`INSERT INTO projects VALUES ('p1',null,'https://example.com/alpha'),('p2',null,'https://example.com/beta');
     INSERT INTO agents (id,cwd,launch_cwd,runner_id,project_id,created_at) VALUES
-    ('a','runner://fixture/@session','runner://fixture/@session','fixture','p1','2026-01-01T00:00:00Z'),
-    ('b','runner://fixture/@session','runner://fixture/@session','fixture','p2','2026-01-02T00:00:00Z'),
+    ('a','/srv/shared-launch','/srv/shared-launch','fixture','p1','2026-01-01T00:00:00Z'),
+    ('b','/srv/shared-launch','/srv/shared-launch','fixture','p2','2026-01-02T00:00:00Z'),
     ('c','/work/local','/work/local','local','p1','2026-01-03T00:00:00Z')`);
   await pool.query("UPDATE agents SET updated_at=created_at");
   const remote = (
@@ -264,7 +264,7 @@ it("retains mixed local groups and computes target counts, recency and icon only
     INSERT INTO agents (id,runner_id,launch_cwd,cwd,project_id,created_at) VALUES
     ('local-old','local','/work/alpha','/work/alpha',null,'2026-01-01T00:00:00Z'),
     ('local-new','local','/work/alpha','/work/alpha',null,'2026-01-02T00:00:00Z'),
-    ('runner','fixture','runner://fixture/@session','runner://fixture/@session','p','2026-01-03T00:00:00Z')`);
+    ('runner','fixture','/srv/shared-launch','/srv/shared-launch','p','2026-01-03T00:00:00Z')`);
   const targets = (await app.inject("/api/v1/launch-targets")).json().targets;
   expect((await app.inject(targets[0].historyUrl)).json()).toEqual({
     projects: ["/work/alpha"],

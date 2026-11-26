@@ -289,14 +289,6 @@ export const ownMachineCapabilities = new Map([
     new Map([["fs", "listener keys"]]),
   ],
   [
-    "apps/server/src/runners/enrolled/reads.ts",
-    new Map([["fs", "listener keys"]]),
-  ],
-  [
-    "apps/server/src/runners/enrolled/v1-framing.ts",
-    new Map([["fs", "listener keys"]]),
-  ],
-  [
     "apps/server/src/runners/local.ts",
     new Map([
       [
@@ -787,8 +779,7 @@ export function scanSource(file, source, declared = new Set()) {
       if (
         !target.startsWith(server) ||
         (!legacyRunner.test(target.slice(server.length) + ".ts") &&
-          !hostModule.test(target.slice(server.length)) &&
-          target !== server + "runners/enrolled/v1-framing")
+          !hostModule.test(target.slice(server.length)))
       )
         hit("R5 runner to Dispatch", target);
     }

@@ -1,3 +1,4 @@
+import { attachedHost } from "./runner-update-hold-fixtures.js";
 /**
  * The agent host end to end: a real `dispatch agent-host` process (bun
  * running src/main.ts) driving the fake ACP agent from e2e/fixtures, with
@@ -180,12 +181,12 @@ describe("host client construction", () => {
     "keeps the %s attachment options and acknowledgement error",
     async (mode) => {
       const id = "agt_client_options";
-      const placement = { runner: "fixture", workspace: "test" };
+      const placement = "fixture";
       const { runtime } = runtimeWith("", () => 17, "stored-journal", null, {
         placement: async () => (mode === "enrolled" ? placement : null),
         remote: {
           available: () => true,
-          requestSession: async () => ({ value: true }),
+          call: async () => ({ state: "live" }),
         },
       });
       const alive = vi.spyOn(runtime, "isAlive").mockResolvedValue(true);
@@ -1676,11 +1677,13 @@ mock.module("node:fs/promises", () => ({
         if (reset) seq = 0;
       },
       holds,
-      placement: async () => ({ runner: "update-runner", workspace: "test" }),
+      placement: async () => "update-runner",
       remote: {
         available: () => true,
-        async requestSession(_placement, operation) {
-          if (operation.kind !== "attach") return { value: true };
+        call: async (_runner, op) =>
+          op === "session.alive" ? { state: "live" } : {},
+        async openStream(_runner, op) {
+          expect(op).toBe("session.attach");
           if (tap.offline) throw new RunnerUnavailable("swapping");
           const host = net.createConnection(socketPath);
           const outgoing = ndjsonDecoder<ClientMessage>();
@@ -1716,7 +1719,7 @@ mock.module("node:fs/promises", () => ({
                 link.push(encodeMessage(result ?? message));
             }
           });
-          return { channel: link, value: true };
+          return attachedHost(link, id);
         },
       },
     });

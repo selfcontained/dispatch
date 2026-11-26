@@ -133,8 +133,6 @@ function mount(
                 id: "runner-a",
                 name: "Runner A",
                 status: "online",
-                workspaces: ["@session"],
-                managedWorkspace: true,
               },
             ]
           : [],

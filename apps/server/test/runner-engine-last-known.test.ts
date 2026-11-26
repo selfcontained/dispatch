@@ -1,4 +1,3 @@
-import { parseEngineCapabilityResult } from "../../../packages/runner/src/workload/agents/remote/engine-capability-result.js";
 import { scopedEngineCalls } from "../src/runners/local.js";
 import { Duplex } from "node:stream";
 import type { EngineInventoryEntry } from "@dispatch/runner-protocol/engine-management";
@@ -6,7 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { EngineManager } from "../src/agents/remote/engine-manager.js";
 
-import { remoteEngineTransport } from "../src/agents/remote/engine-transport.js";
 import { RemoteRunnerService } from "../src/agents/remote/service.js";
 
 const scope = { kind: "runner", runnerId: "rnr_one" } as const;
@@ -34,6 +32,7 @@ function world() {
     reply,
     dropRequest = false,
   }: { fenced?: boolean; reply?: unknown; dropRequest?: boolean } = {}) {
+    let entries: EngineInventoryEntry[] = [claude];
     const socket = Object.assign(
       new Duplex({
         read() {},
@@ -41,59 +40,64 @@ function world() {
           done();
           for (const line of String(chunk).trim().split("\n")) {
             const frame = JSON.parse(line);
-            if (frame.type === "request") requests.push(frame.command);
-            if (frame.type === "request" && dropRequest) {
-              queueMicrotask(() => socket.destroy());
-              continue;
-            }
-            if (frame.type === "request" && !fenced) {
-              const operation = frame.command.operation;
-              const result =
-                operation.type === "contract" &&
-                operation.call.op === "engine.update.probe"
-                  ? { alive: [false], version: "1.2.3" }
-                  : { entries: [claude] };
-              send({
-                type: "result",
-                id: frame.id,
-                value: JSON.stringify(
-                  reply !== undefined
-                    ? reply
-                    : operation.type === "contract"
-                      ? { ok: true, result }
-                      : { ok: true }
-                ),
+            const { id, op } = frame;
+            const answer = (result: object) =>
+              queueMicrotask(() =>
+                socket.push(JSON.stringify({ id, ...result }) + "\n")
+              );
+            if (op === "runner.describe")
+              answer({
+                ok: true,
+                value: {
+                  runnerId: scope.runnerId,
+                  displayName: "Fixture",
+                  build: { version: "1" },
+                  protocol: 1,
+                  engines: [],
+                  capabilities: {},
+                },
               });
-            }
-            if (frame.type === "request" && fenced)
-              send({
-                type: "result",
-                id: frame.id,
-                code: "update-fenced",
-                error: "The runner is updating; the operation was not started.",
+            else if (op === "runner.health")
+              answer({
+                ok: false,
+                error: { code: "unavailable", message: "No sample" },
               });
+            else if (fenced)
+              answer({
+                ok: false,
+                error: { code: "fenced", message: "Updating" },
+              });
+            else if (op === "engine.list")
+              queueMicrotask(() => answer({ ok: true, value: { entries } }));
+            else {
+              requests.push(frame);
+              if (dropRequest) queueMicrotask(() => socket.destroy());
+              else if (reply && typeof reply === "object" && "failure" in reply)
+                answer({ ok: false, error: reply.failure });
+              else
+                answer({
+                  ok: true,
+                  value:
+                    reply === undefined
+                      ? { alive: [false], version: "1.2.3" }
+                      : reply,
+                });
+            }
           }
         },
       }),
       { setKeepAlive() {} }
     );
     sockets.push(socket);
-    const send = (frame: object) => socket.push(JSON.stringify(frame) + "\n");
     (service as any).attachPeer(socket, {
       key: scope.runnerId,
       approved: () => approved,
       allows: () => true,
     });
-    send({
-      type: "ready",
-      version: 1,
-      workspaces: ["work"],
-      health: true,
-      engineManagement: true,
-    });
     return {
-      push: (entries: EngineInventoryEntry[]) =>
-        send({ type: "engine_inventory", entries }),
+      push: (next: EngineInventoryEntry[]) => {
+        entries = next;
+      },
       drop: () => socket.destroy(),
     };
   }
@@ -107,7 +111,6 @@ function world() {
       updates: () => ({}) as never,
     },
     local: { engines: {} as never, updates: {} as never },
-    remote: remoteEngineTransport(service, parseEngineCapabilityResult),
   });
   const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
   const read = async () => {
@@ -142,7 +145,7 @@ describe("a runner's engines across its update", () => {
     expect(await read()).toBeNull();
   });
 
-  it("follows what the new connection pushes", async () => {
+  it("reads the inventory from the new connection", async () => {
     const { connect, read } = world();
     connect().push([claude]);
     await read();
@@ -158,7 +161,7 @@ describe("a runner's engines across its update", () => {
     revoke();
     expect(await read()).toBeNull();
   });
-  it("carries typed engine calls over the existing request envelope and retains legacy commands", async () => {
+  it("sends the typed probe directly on the authenticated connection", async () => {
     const { service, requests, connect } = world();
     connect();
     await vi.waitFor(() =>
@@ -170,25 +173,11 @@ describe("a runner's engines across its update", () => {
       })
     ).toEqual({ alive: [false], version: "1.2.3" });
     expect(requests.at(-1)).toMatchObject({
-      kind: "engine",
-      operation: {
-        type: "contract",
-        call: { op: "engine.update.probe", request: { pids: [123] } },
-      },
+      op: "engine.update.probe",
+      input: { pids: [123] },
     });
-    const legacy = await service.requestRunner(scope.runnerId, {
-      kind: "engine",
-      operation: { type: "status" },
-    });
-    legacy.channel?.destroy();
-    expect(JSON.parse(legacy.value as string)).toEqual({ ok: true });
-    expect(requests.at(-1)).toMatchObject({
-      kind: "engine",
-      operation: { type: "status" },
-    });
-    expect(Object.keys(requests.at(-1).operation)).toEqual(["type"]);
   });
-  it("preserves typed failures and treats malformed results as an unknown outcome", async () => {
+  it("preserves typed failures and rejects malformed probe results", async () => {
     const failed = world();
     failed.connect({
       reply: {
@@ -220,7 +209,7 @@ describe("a runner's engines across its update", () => {
       corrupt.service.callEngine(scope.runnerId, "engine.update.probe", {
         pids: [],
       })
-    ).rejects.toMatchObject({ code: "unknown_outcome" });
+    ).rejects.toMatchObject({ code: "failed" });
   });
   it("distinguishes a lost acknowledgement from a request never sent", async () => {
     const lost = world();
@@ -229,14 +218,14 @@ describe("a runner's engines across its update", () => {
       expect(lost.service.connectionEpoch(scope.runnerId)).not.toBeUndefined()
     );
     await expect(
-      lost.service.callEngine(scope.runnerId, "engine.update.probe", {
-        pids: [],
+      lost.service.call(scope.runnerId, "engine.update.release", {
+        operationId: "fixture",
       })
     ).rejects.toMatchObject({ code: "unknown_outcome" });
     const absent = world();
     await expect(
-      absent.service.callEngine(scope.runnerId, "engine.update.probe", {
-        pids: [],
+      absent.service.call(scope.runnerId, "engine.update.release", {
+        operationId: "fixture",
       })
     ).rejects.toMatchObject({ code: "unavailable" });
   });
