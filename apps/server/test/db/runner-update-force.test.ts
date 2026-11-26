@@ -1151,7 +1151,7 @@ describe("a runner that stays offline while resuming", () => {
   );
 
   it.each(["drain", "force"] as const)(
-    "completes Stop and Archive during offline %s recovery without resuming either agent",
+    "stops offline and completes archive after reconnect during %s recovery without resuming either agent",
     async (path) => {
       const stopped = await world.agent();
       const archived = await world.agent();
@@ -1175,35 +1175,34 @@ describe("a runner that stays offline while resuming", () => {
 
       const stop = world.manager.stopAgent(stopped.id);
       await world.manager.beginArchive(archived.id, "keep");
-      let deleted: string[] | undefined;
-      const archive = world.manager.executeArchive(archived.id, {
+      const onComplete = vi.fn();
+      const callbacks = {
         onPhaseChange() {},
-        onComplete(ids) {
-          deleted = ids;
-        },
-        onError(error) {
+        onComplete,
+        onError(error: unknown) {
           throw error;
         },
-      });
+      };
       try {
-        await world.until(
-          async () =>
-            deleted !== undefined && (await statusOf(stopped.id)) === "stopped",
-          2_000
-        );
-        expect(deleted).toEqual([archived.id]);
-        expect(await world.manager.getAgent(archived.id)).toBeNull();
+        const [result] = await Promise.all([
+          stop,
+          world.manager.executeArchive(archived.id, callbacks),
+        ]);
+        expect(result.status).toBe("stopped");
+        // The disconnected runner cannot tell us whether the checkout has a hook.
+        expect(await statusOf(archived.id)).toBe("archiving");
+        expect(onComplete).not.toHaveBeenCalled();
         await world.until(() => world.view()?.attempt?.agents === 1);
         expect(world.holds.isHeld(RUNNER)).toBe(true);
         expect(world.entry(stopped.id)).toBeUndefined();
         expect(world.entry(archived.id)).toBeUndefined();
       } finally {
         world.reconnect();
-        await finished();
-        await Promise.allSettled([stop, archive]);
       }
-      expect((await stop).status).toBe("stopped");
-      await archive;
+      await finished();
+      await world.manager.executeArchive(archived.id, callbacks);
+      expect(onComplete).toHaveBeenCalledExactlyOnceWith([archived.id]);
+      expect(await world.manager.getAgent(archived.id)).toBeNull();
       resumedOnce(kept);
       expect(continuations(kept)).toHaveLength(path === "force" ? 1 : 0);
       for (const host of [stopped, archived]) {
