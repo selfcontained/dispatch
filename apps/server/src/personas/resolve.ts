@@ -131,10 +131,10 @@ async function personaSources(scope: PersonaScope): Promise<Sources> {
   const workspace = scope.kind === "folder" && scope.source === "workspace";
   return {
     load: (warnings: string[]) =>
-      workspace ? loadPersonas(root, warnings) : [],
+      workspace ? loadPersonas(root, warnings, scope.runners()) : [],
     loadSlug: (slug: string) =>
-      workspace ? loadPersonaBySlug(root, slug) : null,
-    catalog: (wait: boolean) => personaCatalog.get(root, wait),
+      workspace ? loadPersonaBySlug(root, slug, scope.runners()) : null,
+    catalog: (wait: boolean) => personaCatalog.get(root, wait, scope.runners()),
   };
 }
 
