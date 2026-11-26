@@ -163,3 +163,56 @@ export function agentRelation(
   }
   return "agent";
 }
+
+type ScopedAgent = {
+  id: string;
+  parentAgentId?: string | null;
+  projectId?: string | null;
+};
+
+const projectScopeByAgents = new WeakMap<
+  readonly object[],
+  Map<string, string | null>
+>();
+
+/**
+ * The project each agent is listed under: its sidebar card's. A child renders
+ * inside its parent's card, so it is scoped by the card root's project rather
+ * than its own row — an older child whose row was left in another project
+ * when its parent moved still shows (and stays selectable) with its parent.
+ */
+export function projectScopeByAgentId(
+  agents: readonly ScopedAgent[]
+): Map<string, string | null> {
+  const cached = projectScopeByAgents.get(agents);
+  if (cached) return cached;
+  const agentsById = new Map(agents.map((agent) => [agent.id, agent]));
+  const scope = new Map<string, string | null>();
+  for (const agent of agents) {
+    const card = agentsById.get(cardIdForAgent(agent, agentsById)) ?? agent;
+    scope.set(agent.id, card.projectId ?? null);
+  }
+  projectScopeByAgents.set(agents, scope);
+  return scope;
+}
+
+/** The project `agent` is listed under, given the live list it belongs to. */
+export function agentScopeProjectId(
+  agent: ScopedAgent,
+  agents: readonly ScopedAgent[]
+): string | null {
+  const scope = projectScopeByAgentId(agents);
+  return scope.has(agent.id)
+    ? (scope.get(agent.id) ?? null)
+    : (agent.projectId ?? null);
+}
+
+/** Agents listed under `projectId` (all of them for no project filter). */
+export function agentsInProjectScope<T extends ScopedAgent>(
+  agents: readonly T[],
+  projectId: string | null
+): T[] {
+  if (!projectId) return [...agents];
+  const scope = projectScopeByAgentId(agents);
+  return agents.filter((agent) => scope.get(agent.id) === projectId);
+}

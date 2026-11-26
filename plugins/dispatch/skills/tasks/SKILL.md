@@ -173,7 +173,7 @@ nothing.
 
 Read `task_get.launchTemplateId` and `get_template` to inspect effective staffing
 and check provider/model usage and authorization. A task override uses the full selected template and ignores column
-runtime/model overrides; inheritance preserves them. Column launch condition,
+runtime/model/effort overrides; inheritance preserves them. Column launch condition,
 assignment, fire-on-create, capacities and relaunch safeguards still apply.
 Unavailable templates fail visibly; choose another or clear the preference rather
 than silently inheriting. Inspect the actual `trigger_launched.configuration`

@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/select";
 import { useProjects } from "@/hooks/use-projects";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { AgentCardDetails } from "@/components/app/agent-card-details";
 import { AgentCardPhaseStatus } from "@/components/app/agent-card-status";
@@ -28,6 +28,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { useAgentDiffStats } from "@/hooks/use-agent-diff-stats";
 import { api } from "@/lib/api";
+import { descendantAgents } from "@/lib/agent-lineage";
+import { fetchAgents } from "@/hooks/use-agent-tree";
 import { Alert } from "@/components/ui/alert";
 import { Field } from "@/components/ui/field";
 
@@ -80,10 +82,31 @@ export function SessionSettingsDialog({
     }
   }, [open, agent]);
 
+  const { data: agents = [] } = useQuery<Agent[]>({
+    queryKey: ["agents"],
+    queryFn: fetchAgents,
+    enabled: open,
+  });
+  // A child follows its live parent; an orphan can be moved on its own.
+  const followsParent =
+    agent?.parentAgentId != null &&
+    agents.some((a) => a.id === agent.parentAgentId);
+  // Saving the parent's project also moves children left in another one.
+  const strandsChildren =
+    agent != null &&
+    !followsParent &&
+    descendantAgents(agent.id, agents).some(
+      (child) => (child.projectId ?? null) !== (agent.projectId ?? null)
+    );
+  const projectChanged =
+    agent != null &&
+    !followsParent &&
+    (projectId !== (agent.projectId ?? null) || strandsChildren);
+
   const isDirty =
     agent != null &&
     name.trim() !== "" &&
-    (name !== agent.name || projectId !== (agent.projectId ?? null));
+    (name !== agent.name || projectChanged);
 
   const handleSave = useCallback(async () => {
     if (!agent || !isDirty) return;
@@ -97,23 +120,46 @@ export function SessionSettingsDialog({
           body: JSON.stringify({ name: name.trim() }),
         }
       );
-      if (projectId !== (agent.projectId ?? null))
+      if (projectChanged)
         await api(`/api/v1/agents/${agent.id}/project`, {
           method: "PATCH",
           body: JSON.stringify({ projectId }),
         });
-      queryClient.setQueryData<Agent[]>(["agents"], (old) =>
-        old?.map((a) =>
-          a.id === agent.id ? { ...a, name: result.agent.name, projectId } : a
-        )
-      );
+      queryClient.setQueryData<Agent[]>(["agents"], (old) => {
+        if (!old) return old;
+        // The server moves the agent's children with it.
+        const moved = new Set(
+          projectChanged
+            ? descendantAgents(agent.id, old).map((child) => child.id)
+            : []
+        );
+        return old.map((a) =>
+          a.id === agent.id
+            ? {
+                ...a,
+                name: result.agent.name,
+                ...(projectChanged && { projectId }),
+              }
+            : moved.has(a.id)
+              ? { ...a, projectId }
+              : a
+        );
+      });
       onOpenChange(false);
     } catch (err) {
       setFailure(err);
     } finally {
       setSaving(false);
     }
-  }, [agent, isDirty, name, projectId, queryClient, onOpenChange]);
+  }, [
+    agent,
+    isDirty,
+    name,
+    projectChanged,
+    projectId,
+    queryClient,
+    onOpenChange,
+  ]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -151,24 +197,26 @@ export function SessionSettingsDialog({
                 />
               </div>
             ) : null}
-            <Field label="Project">
-              <Select
-                value={projectId ?? "none"}
-                onValueChange={(v) => setProjectId(v === "none" ? null : v)}
-              >
-                <SelectTrigger aria-label="Project membership">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No project</SelectItem>
-                  {projects.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
+            {followsParent ? null : (
+              <Field label="Project">
+                <Select
+                  value={projectId ?? "none"}
+                  onValueChange={(v) => setProjectId(v === "none" ? null : v)}
+                >
+                  <SelectTrigger aria-label="Project membership">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No project</SelectItem>
+                    {projects.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
             <Field
               id="session-name"
               label="Name"

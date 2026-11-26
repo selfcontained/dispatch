@@ -82,6 +82,7 @@ vi.mock("@/lib/api", () => ({
 const emptyHistoricalSeats = {};
 vi.mock("@/hooks/use-agent-tree", () => ({
   useAgentSeats: () => emptyHistoricalSeats,
+  useAgentScopeProjectId: () => undefined,
   useDeliveryAgents: () => H.agents,
   useRootAgentId: (agentId: string | null) => H.rootId ?? agentId,
   useDescendantAgentIds: () => H.descendants,

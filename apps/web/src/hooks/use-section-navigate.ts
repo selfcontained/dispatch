@@ -63,7 +63,8 @@ export function useSectionNavigate({
             return;
           const valid = agents.some(
             (agent) =>
-              agent.id === rememberedId && isAgentInScope(agent, projectId)
+              agent.id === rememberedId &&
+              isAgentInScope(agent, projectId, agents)
           );
           if (!valid) remember(null);
           navigate(

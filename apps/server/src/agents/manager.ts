@@ -1862,8 +1862,21 @@ export class AgentManager {
     }
   }
 
+  /**
+   * Move an agent and its live children (by `parentAgentId`) between projects.
+   * A child renders inside its parent's card, so it always shares the parent's
+   * project: moving only the parent left its children behind in the old
+   * project, invisible under the parent's filter. `child: false` launches carry
+   * no parent and keep their own membership.
+   */
   async setProject(id: string, projectId: string | null): Promise<AgentRecord> {
-    await this.getRequiredAgent(id);
+    const current = await this.getRequiredAgent(id);
+    // An orphan (archived parent) renders as its own card and moves alone.
+    if (current.parentAgentId && (await this.getAgent(current.parentAgentId)))
+      throw new AgentError(
+        "A child agent stays in its parent's project. Move the parent instead.",
+        409
+      );
     if (
       projectId &&
       !(
@@ -1873,10 +1886,24 @@ export class AgentManager {
       ).rowCount
     )
       throw new AgentError("Project not found.", 404);
-    await this.pool.query(
-      "UPDATE agents SET project_id=$2, updated_at=now() WHERE id=$1",
+    const moved = await this.pool.query<{ id: string }>(
+      `WITH RECURSIVE tree AS (
+         SELECT id FROM agents WHERE id = $1
+         UNION
+         SELECT a.id FROM agents a JOIN tree t ON a.parent_agent_id = t.id
+         WHERE a.deleted_at IS NULL
+       )
+       UPDATE agents SET project_id = $2, updated_at = now()
+       WHERE id IN (SELECT id FROM tree)
+         AND project_id IS DISTINCT FROM $2
+       RETURNING id`,
       [id, projectId]
     );
+    for (const { id: movedId } of moved.rows) {
+      if (movedId === id) continue;
+      const child = await this.getAgent(movedId);
+      if (child) this.eventBus.publish(child);
+    }
     const agent = await this.getRequiredAgent(id);
     this.eventBus.publish(agent);
     return agent;

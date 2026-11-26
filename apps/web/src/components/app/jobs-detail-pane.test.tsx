@@ -16,7 +16,10 @@ import { MemoryRouter } from "react-router-dom";
 import type { ReactElement } from "react";
 
 // This suite tests pane wiring. Identity metadata itself is covered by the session-link tests.
-vi.mock("@/hooks/use-agent-tree", () => ({ useAgentRecord: () => null }));
+vi.mock("@/hooks/use-agent-tree", () => ({
+  useAgentRecord: () => null,
+  useAgentScopeProjectId: () => undefined,
+}));
 vi.mock("@/hooks/use-projects", () => ({
   useProjectScope: () => ({ projectId: null }),
 }));
