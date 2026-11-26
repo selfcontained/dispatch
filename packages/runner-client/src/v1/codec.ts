@@ -507,6 +507,8 @@ function decodeGitHub(
       return decoded("github.repositories", { query: o.query });
     case "repositoryBranches":
       return decoded("github.branches", { owner: o.owner, repo: o.repo });
+    case "pullRequestHeadAtPath":
+      return decoded("github.pr.head", { ...pr(o), cwd: o.cwd });
     case "pullRequestHead":
       return decoded("github.pr.head", pr(o));
     case "pullRequestDetails":
@@ -553,7 +555,9 @@ function encodeGitHub(
     case "github.branches":
       return { type: "repositoryBranches", owner: pr.owner, repo: pr.repo };
     case "github.pr.head":
-      return { type: "pullRequestHead", ...pr };
+      return r.cwd === undefined
+        ? { type: "pullRequestHead", ...pr }
+        : { type: "pullRequestHeadAtPath", ...pr, cwd: r.cwd as string };
     case "github.pr.details":
       return { type: "pullRequestDetails", ...pr };
     case "github.pr.status":

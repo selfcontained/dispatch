@@ -1,3 +1,6 @@
+import { pathFromWire } from "@dispatch/runner-protocol/contract";
+import { RemoteRunnerService } from "../src/agents/remote/service.js";
+import { createEnrolledCheckoutRunner } from "../src/runners/enrolled/checkout.js";
 import Fastify from "fastify";
 import { describe, expect, it, vi } from "vitest";
 import { registerRunnerRepositorySearch } from "../src/routes/runner-repositories.js";
@@ -47,4 +50,31 @@ describe("runner repository selection", () => {
       await app.close();
     }
   });
+});
+
+it("sends the selected checkout only on the directory-aware PR head frame", async () => {
+  const head = { url: "https://github.com/org/fork.git", branch: "topic" };
+  const requestGitHub = vi.fn(async () => head);
+  const service = Object.assign(Object.create(RemoteRunnerService.prototype), {
+    requestGitHub,
+  });
+  const runner = createEnrolledCheckoutRunner(
+    service,
+    "runner",
+    null,
+    undefined,
+    () => ({}) as never
+  );
+  const pr = { owner: "org", repo: "base", number: 12 };
+  expect(await runner.call("github.pr.head", pr)).toEqual(head);
+  expect(
+    await runner.call("github.pr.head", {
+      ...pr,
+      cwd: pathFromWire("/work tree"),
+    })
+  ).toEqual(head);
+  expect(requestGitHub.mock.calls).toEqual([
+    ["runner", { type: "pullRequestHead", ...pr }],
+    ["runner", { type: "pullRequestHeadAtPath", ...pr, cwd: "/work tree" }],
+  ]);
 });

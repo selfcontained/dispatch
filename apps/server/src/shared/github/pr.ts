@@ -44,7 +44,7 @@ export class GitHubPrError extends Error {
  * the same query a runner's GitHub executor runs.
  */
 export async function getPullRequestHead(
-  input: { cwd: string; owner: string; repo: string; number: number },
+  input: { cwd?: string; owner: string; repo: string; number: number },
   commandRunner: CommandRunner = runCommand
 ): Promise<{ url: string; branch: string }> {
   const result = await commandRunner(

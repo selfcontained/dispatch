@@ -1,3 +1,4 @@
+import { pathFromWire } from "@dispatch/runner-protocol/contract";
 import { describe, expect, it, vi } from "vitest";
 import { githubHandlers } from "../src/core/github.js";
 import { SERVED_WHILE_FROZEN } from "../src/local/fence.js";
@@ -18,6 +19,7 @@ describe("the core's GitHub reads", () => {
     const handlers = githubHandlers({
       workload,
       github: {
+        pullRequestHead: vi.fn(),
         pullRequestStatus,
         pullRequestDetails: vi.fn(),
         pullRequestDiff: vi.fn(),
@@ -44,12 +46,21 @@ describe("the core's GitHub reads", () => {
     };
     const diff = { base: "b".repeat(40), files: [] };
     const github = {
+      pullRequestHead: vi.fn(async () => ({
+        url: "https://github.com/a/b.git",
+        branch: "fix",
+      })),
       pullRequestStatus: vi.fn(),
       pullRequestDetails: vi.fn(async () => details),
       pullRequestDiff: vi.fn(async () => diff),
     };
     const handlers = githubHandlers({ workload, github });
     const pr = { owner: "a", repo: "b", number: 1 };
+    const headRequest = { ...pr, cwd: pathFromWire("/checkout") };
+    expect(await handlers["github.pr.head"]!(headRequest, {} as never)).toEqual(
+      { url: "https://github.com/a/b.git", branch: "fix" }
+    );
+    expect(github.pullRequestHead).toHaveBeenCalledWith(headRequest);
     expect(await handlers["github.pr.details"]!(pr, {} as never)).toEqual(
       details
     );
@@ -64,6 +75,7 @@ describe("the core's GitHub reads", () => {
   it("leaves GitHub unsupported without a port, and serves it while frozen", () => {
     expect(githubHandlers({ workload })).toEqual({});
     for (const op of [
+      "github.pr.head",
       "github.pr.status",
       "github.pr.details",
       "github.pr.diff",

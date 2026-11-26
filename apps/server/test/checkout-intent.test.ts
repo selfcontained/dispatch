@@ -362,6 +362,41 @@ describe("pull request intent", () => {
     }
   );
 
+  it("preserves the PR head lookup's command and response failures", async () => {
+    const target = { owner: "owner", repo: "repo", number: 12, cwd: "/repo" };
+    const failure = new Error("gh: fixture failure");
+    await expect(
+      getPullRequestHead(target, async () => {
+        throw failure;
+      })
+    ).rejects.toBe(failure);
+    for (const stdout of [
+      "{}",
+      '{"url":"https://github.com/o/r.git","branch":""}',
+    ]) {
+      await expect(
+        getPullRequestHead(target, async () => ({
+          stdout,
+          stderr: "",
+          exitCode: 0,
+        }))
+      ).rejects.toThrow("GitHub pull request source branch is unavailable.");
+    }
+    let parseFailure: unknown;
+    try {
+      JSON.parse("!");
+    } catch (error) {
+      parseFailure = error;
+    }
+    await expect(
+      getPullRequestHead(target, async () => ({
+        stdout: "!",
+        stderr: "",
+        exitCode: 0,
+      }))
+    ).rejects.toEqual(parseFailure);
+  });
+
   it("opens a same-repository PR locally as its existing branch", async () => {
     const run = vi.fn(async () => ({
       stdout: JSON.stringify(heads.sameRepo),
@@ -387,7 +422,7 @@ describe("pull request intent", () => {
         "--jq",
         "{url:.head.repo.clone_url,branch:.head.ref}",
       ],
-      expect.objectContaining({ cwd: "/repo" })
+      { cwd: "/repo", timeoutMs: 15_000 }
     );
     const request = toLocalWorktreeRequest(checkout!, context.name);
     expect(request).toMatchObject({

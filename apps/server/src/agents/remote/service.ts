@@ -2515,15 +2515,16 @@ export class RemoteRunnerService {
     runnerId: string,
     owner: string,
     repo: string,
-    number: number
+    number: number,
+    cwd?: string
   ) {
     return githubPullRequestHead(
-      await this.requestGitHub(runnerId, {
-        type: "pullRequestHead",
-        owner,
-        repo,
-        number,
-      })
+      await this.requestGitHub(
+        runnerId,
+        cwd === undefined
+          ? { type: "pullRequestHead", owner, repo, number }
+          : { type: "pullRequestHeadAtPath", owner, repo, number, cwd }
+      )
     );
   }
 

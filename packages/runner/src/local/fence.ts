@@ -27,6 +27,7 @@ export const SERVED_WHILE_FROZEN: ReadonlySet<string> = new Set([
   // GitHub reads write nothing of the runner's or the checkout's.
   "github.pr.status",
   "github.pr.details",
+  "github.pr.head",
   "github.pr.diff",
   // Engine reads: which CLIs are here and how a sign-in stands.
   "engine.list",

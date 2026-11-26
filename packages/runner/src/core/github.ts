@@ -10,6 +10,7 @@ export function githubHandlers(platform: Platform): CallHandlers {
   const { github } = platform;
   if (!github) return {};
   return {
+    "github.pr.head": (request) => github.pullRequestHead(request),
     "github.pr.status": (request) => github.pullRequestStatus(request, {}),
     "github.pr.details": (request) => github.pullRequestDetails(request, {}),
     "github.pr.diff": (request) => github.pullRequestDiff(request, {}),

@@ -459,15 +459,28 @@ export class GitHubRunnerExecutor {
     tool: WorkloadTool,
     args: string[],
     signal: AbortSignal,
-    token?: string
+    token?: string,
+    cwd?: string
   ) {
-    const command = this.wrap(await this.tools.resolve(tool), args);
+    const bin = await this.tools.resolve(tool);
+    // Enter the checkout as the workload account, after the privilege wrapper.
+    const command =
+      cwd === undefined
+        ? this.wrap(bin, args)
+        : this.wrap("/bin/sh", [
+            "-c",
+            'CDPATH= cd -- "$1" && shift && exec "$@"',
+            "sh",
+            cwd,
+            bin,
+            ...args,
+          ]);
     try {
       const { stdout } = await execute(command.bin, command.args, {
         env: token ? { ...this.env, GH_TOKEN: token } : this.env,
         signal,
         killSignal: "SIGKILL",
-        timeout: 7_000,
+        timeout: cwd === undefined ? 7_000 : 15_000,
         maxBuffer: 128 * 1024,
       });
       return stdout.trim();
@@ -896,9 +909,11 @@ export class GitHubRunnerExecutor {
           operation.withCredentialContext === true
         );
       }
+      case "pullRequestHeadAtPath":
       case "pullRequestHead": {
         const { owner, repo, number } = operation;
-        const head = await this.run(
+        const head = await this.runCommand(
+          "gh",
           [
             "api",
             ...hostArgs,
@@ -906,7 +921,9 @@ export class GitHubRunnerExecutor {
             "--jq",
             "{url:.head.repo.clone_url,branch:.head.ref}",
           ],
-          signal
+          signal,
+          undefined,
+          operation.type === "pullRequestHeadAtPath" ? operation.cwd : undefined
         );
         return githubPullRequestHead(JSON.parse(head));
       }
