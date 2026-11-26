@@ -47,6 +47,7 @@ import {
   MANAGED_WORKSPACE,
   UNOBSERVED_STATE,
   isOpaqueId,
+  isUpdateAttemptId,
   isCheckoutPath,
   isSessionFileOperation,
   type SessionFileOperation,
@@ -64,6 +65,7 @@ import {
   type RunnerRepository,
   type RunnerEngine,
 } from "@dispatch/runner-protocol";
+import { isRunnerEngine } from "@dispatch/runner-protocol/engine-management";
 import { sizedName } from "./session-files.js";
 import {
   classifySessionIdentity,
@@ -1369,6 +1371,60 @@ export async function createSessionSupervisor(
       return parent === undefined || owner === undefined
         ? serialize(key, perform)
         : withLaunchLocks([...new Set([key, parent, owner])], perform);
+    },
+    async launchSession(request: Req<"session.launch">) {
+      const agentId = sessionToWire(request.session);
+      const { engine, launchId, owner } = request;
+      if (
+        !managedWorkspace ||
+        !isOpaqueId(agentId) ||
+        !isRunnerEngine(engine) ||
+        !isUpdateAttemptId(launchId) ||
+        (owner !== null && !isOpaqueId(owner))
+      )
+        throw new RunnerCallError({
+          code: "invalid",
+          message: "Invalid runner command.",
+        });
+      if (request.mcp.length > 1)
+        throw new RunnerCallError({
+          code: "invalid",
+          message: "v1 carries one MCP server.",
+        });
+      const [mcp] = request.mcp;
+      const key = runnerStorageKey(agentId);
+      // Preparation records the immutable checkout owner. Only lock and use
+      // the owner in this runner's binding, including after reconnect.
+      const checkout = checkoutOwner(await readBinding(key));
+      const command: LaunchCommand = {
+        kind: "launch",
+        agentId,
+        workspace: MANAGED_WORKSPACE,
+        launch: {
+          engine,
+          agentId,
+          launchId,
+          ...(owner !== null && { owner }),
+          model: request.model,
+          effort: request.effort,
+          fullAccess: request.access === "full",
+          resumeSessionId: request.resume,
+          systemPrompt: request.systemText,
+          personaContext: request.firstText,
+          ...(mcp && {
+            mcp: { name: mcp.name, url: mcp.url, token: mcp.token },
+          }),
+        },
+      };
+      await withLaunchLocks(checkout ? [key, checkout] : [key], async () => {
+        if (checkout !== checkoutOwner(await readBinding(key)))
+          throw new RunnerCallError({
+            code: "conflict",
+            message: "The checkout binding changed; retry the request.",
+          });
+        await launch(command, undefined, key, checkout);
+      });
+      return {};
     },
     async launch(
       command: LaunchCommand,

@@ -1,6 +1,6 @@
 import { streamHelper } from "./helpers/stream-helper.js";
 import { placementForRunner } from "../src/runners/placement.js";
-import { sessionFromWire } from "@dispatch/runner-protocol/contract";
+import { sessionFromWire, type Req } from "@dispatch/runner-protocol/contract";
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:net";
@@ -719,6 +719,66 @@ describe("runner session supervision", () => {
     for (const dir of [checkout, scratch, path.join(state, "bindings")]) {
       expect((await stat(dir)).mode & 0o777).toBe(0o700);
     }
+  });
+
+  it("takes MCP credentials from a single enrolled launch and the CA from enrollment", async () => {
+    const runner = await start([]);
+    const server = {
+      name: "dispatch",
+      url: "https://controller.invalid/mcp",
+      token: "fixture",
+      caPem: "frame CA",
+    };
+    const request: Req<"session.launch"> = {
+      session: sessionFromWire(agentId),
+      launchId: instanceId,
+      engine: "codex",
+      access: "default",
+      model: null,
+      effort: null,
+      resume: null,
+      systemText: null,
+      firstText: null,
+      overflowNotice: null,
+      mcp: [server],
+      env: {},
+      owner: null,
+    };
+    await expect(
+      runner.launchSession({ ...request, mcp: [server, server] })
+    ).rejects.toMatchObject({
+      code: "invalid",
+      message: "v1 carries one MCP server.",
+    });
+    for (const invalid of [
+      { ...server, url: "http://controller.invalid/mcp" },
+      { ...server, token: "" },
+    ]) {
+      await expect(
+        runner.launchSession({ ...request, mcp: [invalid] })
+      ).rejects.toThrow(
+        "Remote service MCP requires HTTPS and a scoped token."
+      );
+    }
+    expect(processes.spawn).not.toHaveBeenCalled();
+    await expect(
+      stat(path.join(state, "bindings", agentId))
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    await writeFile(path.join(state, "runner-ca.pem"), "enrolled CA");
+    await runner.launchSession(request);
+    const dir = path.join(state, "hosts", agentId);
+    const payload: HostLaunch = JSON.parse(
+      await readFile(path.join(dir, "launch.json"), "utf8")
+    );
+    expect(payload.mcp).toEqual({
+      name: server.name,
+      url: server.url,
+      token: server.token,
+    });
+    expect(
+      await readFile(payload.env.DISPATCH_LOCAL_CA_CERTIFICATE!, "utf8")
+    ).toBe("enrolled CA");
+    expect(processes.spawn).toHaveBeenCalledOnce();
   });
 
   it.each(["release", "discard"] as const)(
