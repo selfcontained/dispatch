@@ -150,7 +150,10 @@ export async function observeArchiveCheckout(
     agent.id,
     binding.id,
     await nativeBorrowers(pool, binding, checkoutPath, localRunner),
-    observed.checkout
+    // Main's answer for a row without a worktree of its own: no worktree,
+    // whatever its owner's checkout holds (347eb0c3 reported the owner's;
+    // reverted to main). It stays `borrowed`, with the owner's borrowers.
+    binding.id === agent.id ? observed.checkout : null
   );
 }
 

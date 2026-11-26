@@ -5085,7 +5085,110 @@ describe("AgentManager", () => {
   });
 
   describe("checkWorktreeStatus", () => {
-    it("reports the same worktree status for local and runner borrowers", async () => {
+    describe("a local borrower (no worktree of its own) answers what main answers", () => {
+      const mainNoWorktree = {
+        hasWorktree: false,
+        hasUnmergedCommits: false,
+        hasUncommittedChanges: false,
+        worktreePath: null,
+        branchName: null,
+        changedFiles: [],
+        uncommittedFiles: [],
+      };
+      async function ownerAndBorrower() {
+        const root = await realpath(
+          await mkdtemp(path.join(os.tmpdir(), "borrowed-checkout-"))
+        );
+        const git = (...args: string[]) =>
+          execFileSync("git", args, { cwd: root, stdio: "pipe" });
+        git("init", "-b", "main");
+        git(
+          "-c",
+          "user.name=Dispatch Test",
+          "-c",
+          "user.email=test@example.test",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "Initial"
+        );
+        vi.mocked(createGitWorktree).mockResolvedValueOnce({
+          worktreePath: root,
+          branchName: "main",
+        } as never);
+        const owner = await manager.createAgent({
+          cwd: root,
+          useWorktree: true,
+          baseBranch: "main",
+        });
+        const borrower = await manager.createAgent({
+          cwd: root,
+          parentAgentId: owner.id,
+          useWorktree: false,
+        });
+        return { root, git, owner, borrower };
+      }
+
+      it.each(["clean", "dirty", "unmerged", "gone"] as const)(
+        "owner %s",
+        async (state) => {
+          const { root, git, owner, borrower } = await ownerAndBorrower();
+          try {
+            if (state === "dirty")
+              await writeFile(path.join(root, "dirty.txt"), "x\n");
+            if (state === "unmerged") {
+              await writeFile(path.join(root, "work.txt"), "x\n");
+              git("add", "work.txt");
+              git(
+                "-c",
+                "user.name=Dispatch Test",
+                "-c",
+                "user.email=test@example.test",
+                "commit",
+                "-m",
+                "Work"
+              );
+            }
+            if (state === "gone")
+              await rm(root, { recursive: true, force: true });
+            const ownerStatus = await manager.checkWorktreeStatus(owner.id);
+            // The owner's own answer is its checkout's (unchanged).
+            expect(ownerStatus.hasWorktree).toBe(true);
+            if (state === "dirty")
+              expect(ownerStatus.uncommittedFiles).toEqual(["?? dirty.txt"]);
+            const status = await manager.checkWorktreeStatus(borrower.id);
+            expect(status).toMatchObject(mainNoWorktree);
+            // No owner state to carry into an archive (absent on the wire).
+            expect(status.checkoutState).toBeUndefined();
+          } finally {
+            await rm(root, { recursive: true, force: true });
+          }
+        }
+      );
+
+      it("a forced archive carrying the owner's remembered state leaves the owner's checkout alone", async () => {
+        const { root, owner, borrower } = await ownerAndBorrower();
+        try {
+          await writeFile(path.join(root, "dirty.txt"), "x\n");
+          const { checkoutState } = await manager.checkWorktreeStatus(owner.id);
+          expect(checkoutState).toMatch(/^[0-9a-f]{64}$/);
+          await manager.beginArchive(borrower.id, "force", checkoutState!);
+          await manager.executeArchive(borrower.id, {
+            onPhaseChange: vi.fn(),
+            onComplete: vi.fn(),
+            onError: vi.fn(),
+          });
+          expect(await readFile(path.join(root, "dirty.txt"), "utf8")).toBe(
+            "x\n"
+          );
+          expect(await manager.getAgent(owner.id)).not.toBeNull();
+        } finally {
+          await rm(root, { recursive: true, force: true });
+        }
+      });
+    });
+
+    it("reports a runner borrower's status, and main's no-worktree answer for a local borrower", async () => {
       const root = await mkdtemp(path.join(os.tmpdir(), "shared-checkout-"));
       try {
         const checkoutPath = await realpath(root);
@@ -5156,7 +5259,19 @@ describe("AgentManager", () => {
           }
         );
         expect(runnerStatus).toEqual({ ...ownerStatus, ownership: "borrowed" });
-        expect(localStatus).toEqual(runnerStatus);
+        // A local borrower answers what main answers for a row without a
+        // worktree of its own (347eb0c3's owner's checkout reverted).
+        expect(localStatus).toEqual({
+          ownership: "borrowed",
+          borrowers: [child.id],
+          hasWorktree: false,
+          hasUnmergedCommits: false,
+          hasUncommittedChanges: false,
+          worktreePath: null,
+          branchName: null,
+          changedFiles: [],
+          uncommittedFiles: [],
+        });
       } finally {
         await rm(root, { recursive: true, force: true });
       }
