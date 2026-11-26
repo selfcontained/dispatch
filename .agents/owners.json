@@ -344,6 +344,7 @@
         "apps/server/test/git-origin-routing.test.ts",
         "apps/server/test/git-origin-child-recovery.test.ts",
         "apps/server/test/local-adapter-child-loss.test.ts",
+        "apps/server/test/local-adapter-read-wait.test.ts",
         "apps/server/test/local-adapter-update-fence.test.ts",
         "apps/server/test/checkout-list-files-parity.test.ts",
         "apps/server/test/workspace-workload-gone.test.ts",

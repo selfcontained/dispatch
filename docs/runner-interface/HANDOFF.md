@@ -141,6 +141,7 @@ Enrolled runners retain the existing 300-second read transport deadline for nati
 
 ## Open differences — must close before the seal
 
+- **A local child that is alive but hung stalls reads until it resumes or dies.** A read sent to the child is waited for until it answers, its connection is lost, or the caller cancels; it is never run here while the child may still be running it (no second reader, no second engine session). Nothing restarts a hung child today: the supervisor only logs when describe and health go unanswered. A supervisor liveness owner with a terminal-aware policy (the child hosts users' terminals) is a possible later feature for the owner, not part of the seal.
 - **Archive under `auto` when a checkout's state cannot be read (owner decision, one answer for both):**
   1. Main treats a failed status read as clean, so `auto` removes the worktree (design 0.5, `auto` rule). The owner has been asked whether an unreadable status should keep the checkout instead (unreadable ≠ clean), for every runner.
   2. Local `auto` archive through the adapter: when the child's `workspace.describe` or `workspace.observe` fails with an ordinary error (not a missed read), the archive keeps the checkout (`kept: failed`), where main observes in process and, per 1, removes it. Option A (#1614) covers the release only; this observe path is left as it is until 1 is decided, then both move together.

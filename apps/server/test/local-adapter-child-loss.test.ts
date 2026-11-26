@@ -30,10 +30,7 @@ import {
 } from "@dispatch/runner-protocol/contract";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { workspaceWorkload } from "../src/agents/checkout-worker.js";
-import {
-  localCheckoutWorkload as checkoutWorkload,
-  localReadDeadline,
-} from "../src/runners/local.js";
+import { localCheckoutWorkload as checkoutWorkload } from "../src/runners/local.js";
 import { runnerDirectory } from "../src/runners/directory.js";
 import { controllerPlacement } from "../src/runners/placement.js";
 import {
@@ -510,66 +507,7 @@ describe("checkout.watch when the child cannot open it", () => {
   }, 30_000);
 });
 
-describe("a read past the transport's deadline", () => {
-  it("answers here once when a child holds the reply past it", async () => {
-    const request = { target, path: "a.txt", encoding: "utf8", maxBytes: null };
-    const run = () =>
-      adapter(() => child.session).call(
-        "checkout.read",
-        request as Req<"checkout.read">
-      );
-    const healthy = await outcome(run);
-    const deadline = vi.spyOn(localReadDeadline, "ms").mockReturnValue(300);
-    const here = vi.spyOn(checkoutWorkload, "run");
-    const pid = child.current()!.pid;
-    try {
-      // Stopped, not dead: the reply never comes, as from a read that hangs.
-      process.kill(pid, "SIGSTOP");
-      const started = performance.now();
-      expect(await outcome(run)).toEqual(healthy);
-      expect(performance.now() - started).toBeLessThan(NO_WAIT_MS);
-      expect(here.mock.calls.map(([name]) => name)).toEqual(["checkout.read"]);
-    } finally {
-      process.kill(pid, "SIGCONT");
-      here.mockRestore();
-      deadline.mockRestore();
-    }
-  }, 30_000);
-
-  it("waits on a live child's slow read past each deadline: one reader, main's bytes", async () => {
-    // A FIFO: the child's read blocks until a writer opens it. A second
-    // reader here would take part of what is written.
-    const fifo = join(repo, "slow.fifo");
-    execFileSync("mkfifo", [fifo]);
-    const payload = "x".repeat(1024 * 1024);
-    const deadline = vi.spyOn(localReadDeadline, "ms").mockReturnValue(200);
-    const here = vi.spyOn(checkoutWorkload, "run");
-    try {
-      // A folder's native read (persona folders): it opens what it finds.
-      const read = outcome(() =>
-        adapter(() => child.session).call("checkout.read", {
-          target: { path: pathFromWire(repo) },
-          path: "slow.fifo",
-          mode: "native",
-          encoding: "utf8",
-          maxBytes: null,
-        } as Req<"checkout.read">)
-      );
-      // Several deadlines pass while the child keeps answering.
-      await delay(1_000);
-      await writeFile(fifo, payload);
-      const answer = (await read) as { value?: { data?: string } };
-      expect(answer.value?.data?.length).toBe(payload.length);
-      expect(here.mock.calls.map(([name]) => name)).not.toContain(
-        "checkout.read"
-      );
-    } finally {
-      here.mockRestore();
-      deadline.mockRestore();
-      await rm(fifo, { force: true });
-    }
-  }, 30_000);
-
+describe("a read the child answers", () => {
   it("keeps a timeout the child answers with: a read's own result, not missed", async () => {
     const timedOut = {
       connection: { state: "ready", epoch: 9, onChange: () => () => {} },
