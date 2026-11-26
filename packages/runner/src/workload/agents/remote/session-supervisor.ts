@@ -48,6 +48,7 @@ import {
   isOpaqueId,
   isUpdateAttemptId,
   isCheckoutPath,
+  isSessionFileName,
   isSessionFileOperation,
   type SessionFileOperation,
   type SessionCheckout,
@@ -1194,8 +1195,46 @@ export async function createSessionSupervisor(
     };
   }
 
+  function withSessionFile<T>(
+    agentId: string,
+    workspace: string,
+    file: { name: string } | { path: string },
+    run: (root: string, name: string) => Promise<T>,
+    configuredCwd?: string
+  ): Promise<T> {
+    const key = runnerStorageKey(agentId);
+    return serialize(key, async () => {
+      if (!(await bound(key, workspace)))
+        throw new RunnerCallError({
+          code: "not_found",
+          message: "Invalid or unbound session file operation.",
+        });
+      if ("name" in file) {
+        if (!isSessionFileName(file.name))
+          throw new RunnerCallError({
+            code: "invalid",
+            message: "Invalid session input file.",
+          });
+        return run(path.join(hostRoot, key, "files"), file.name);
+      }
+      if (!file.path || file.path.includes("\0"))
+        throw new RunnerCallError({
+          code: "invalid",
+          message: "Invalid session file path.",
+        });
+      if (path.isAbsolute(file.path)) return run("", file.path);
+      const cwd = await selectedDirectory(
+        key,
+        workspace,
+        await initialDirectory(key, workspace, configuredCwd)
+      );
+      return run(cwd, file.path);
+    });
+  }
+
   return {
     stateDirectory: storage,
+    withSessionFile,
     async withWorkspacePreparation<T>(
       agentId: string,
       preparing: boolean,
@@ -1440,35 +1479,28 @@ export async function createSessionSupervisor(
       ) => Promise<string>,
       configuredCwd?: string
     ) {
-      const key = runnerStorageKey(agentId);
-      return serialize(key, async () => {
-        if (
-          !isSessionFileOperation(operation) ||
-          !(await bound(key, workspace))
-        )
-          throw new Error("Invalid or unbound session file operation.");
-        const files = path.join(hostRoot, key, "files");
-        if (operation.kind === "deliver") {
-          if (operation.streamId === undefined)
-            await transfer("deliver", files, operation.name, operation.data);
-          else
-            await transfer(
-              "receive",
-              files,
-              sizedName(operation.name, operation.size)
-            );
-          return path.join(files, operation.name);
-        }
-        const kind = operation.streamId === undefined ? "collect" : "stream";
-        if (path.isAbsolute(operation.path))
-          return transfer(kind, "", operation.path);
-        const checkout = await selectedDirectory(
-          key,
-          workspace,
-          await initialDirectory(key, workspace, configuredCwd)
+      if (!isSessionFileOperation(operation))
+        return Promise.reject(
+          new Error("Invalid or unbound session file operation.")
         );
-        return transfer(kind, checkout, operation.path);
-      });
+      return withSessionFile(
+        agentId,
+        workspace,
+        operation,
+        async (root, name) => {
+          if (operation.kind === "collect")
+            return transfer(
+              operation.streamId === undefined ? "collect" : "stream",
+              root,
+              name
+            );
+          if (operation.streamId === undefined)
+            await transfer("deliver", root, name, operation.data);
+          else await transfer("receive", root, sizedName(name, operation.size));
+          return path.join(root, name);
+        },
+        configuredCwd
+      );
     },
     async releaseWorkspace(
       agentId: string,

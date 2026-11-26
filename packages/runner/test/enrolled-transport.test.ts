@@ -1,3 +1,6 @@
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { enrolledFiles } from "../src/workload/agents/remote/file-operations.js";
 import { createReadStream } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { readFile } from "node:fs/promises";
@@ -12,6 +15,7 @@ import {
   RunnerCallError,
   pathFromWire,
   sessionFromWire,
+  sessionToWire,
 } from "@dispatch/runner-protocol/contract";
 import {
   serveOperationSocket,
@@ -159,6 +163,72 @@ it("transfers an fs.ReadStream as bytes and closes the sink on a rejected downlo
     client.sendBlob("upload", createReadStream(fixture)),
   ]);
   expect(Buffer.concat(received)).toEqual(expected);
+});
+
+it("runs bound file operations through the workload and reports byte count and digest", async () => {
+  const content = Buffer.alloc(2 * CONNECTION_WINDOW, 0x61);
+  const launch = vi.fn(
+    (kind: "stream" | "receive", root: string, name: string) => {
+      expect(root).toBe("/fixture");
+      if (kind === "stream") {
+        expect(name).toBe("file.bin");
+        return spawn(process.execPath, [
+          "-e",
+          "process.stdout.write(Buffer.alloc(" + content.length + ", 97))",
+        ]);
+      }
+      expect(name).toBe(content.length + ":file.bin");
+      return spawn(process.execPath, [
+        "-e",
+        "let n=0;process.stdin.on('data',x=>n+=x.length).on('end',()=>{process.exitCode=n===" +
+          content.length +
+          "?0:1})",
+      ]);
+    }
+  );
+  const calls = enrolledFiles(
+    {
+      async withSessionFile(id, _workspace, file, run) {
+        if (id !== sessionToWire(session))
+          throw new RunnerCallError({
+            code: "not_found",
+            message: "Missing session",
+          });
+        return run("/fixture", "path" in file ? file.path : file.name);
+      },
+    },
+    launch
+  );
+  const { client } = await pair({ calls });
+  const chunks: Buffer[] = [];
+  const sink = () =>
+    new Writable({
+      write(chunk, _, done) {
+        chunks.push(chunk);
+        done();
+      },
+    });
+  const digest = createHash("sha256").update(content).digest("hex");
+  const got = await client.getFile({ session, path: "file.bin" }, sink());
+  expect(got).toMatchObject({ name: "file.bin", size: content.length, digest });
+  expect(Buffer.concat(chunks).equals(content)).toBe(true);
+  await Promise.all([
+    client.call("files.put", {
+      session,
+      name: "file.bin",
+      size: content.length,
+      digest,
+      blob: "data",
+    }),
+    client.sendBlob("data", Readable.from([content])),
+  ]);
+  await expect(
+    client.getFile(
+      { session: sessionFromWire("other"), path: "file.bin" },
+      sink()
+    )
+  ).rejects.toMatchObject({ code: "not_found" });
+  expect(launch).toHaveBeenCalledTimes(2);
 });
 
 it("keeps the enrolled frame budget for large launch prompts", async () => {
