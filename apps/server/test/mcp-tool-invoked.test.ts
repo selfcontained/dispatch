@@ -18,7 +18,6 @@ import {
 
 import type { FastifyBaseLogger } from "fastify";
 import { requestCheckoutCommand } from "../src/agents/checkout-commands.js";
-import { createLocalRunner } from "../src/agents/local-runner.js";
 import type { AgentRecord } from "../src/agents/types.js";
 import { discoverRepoTools } from "../src/server/mcp-checkout.js";
 import { controllerPlacement } from "../src/runners/placement.js";
@@ -30,7 +29,7 @@ function nativeCatalog(root: string) {
     worktreePath: null,
     workspacePath: null,
   } as AgentRecord;
-  const runners = { local: createLocalRunner(root, {} as FastifyBaseLogger) };
+  const runners = {};
   const selector = {
     checkout: "effective",
     path: ".dispatch/tools.json",
