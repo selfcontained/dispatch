@@ -133,6 +133,7 @@ async function checkoutContext(
     repositoryScope,
     context: {
       worktreeRoot,
+      taskWorkspaceKey: identityKey(callerPlacement, workspaceDir),
       brainRepoRoot: repositoryScope,
       ...(persona && {
         personaFiles: persona.files,

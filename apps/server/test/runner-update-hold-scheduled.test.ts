@@ -30,7 +30,7 @@ import {
 import type { StreamService } from "../src/chat/service.js";
 import { ScheduledMessageService } from "../src/scheduled-messages/service.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
-import { scriptedHost } from "./runner-update-hold-fixtures.js";
+import { attachedHost, scriptedHost } from "./runner-update-hold-fixtures.js";
 import { localRunnerIn } from "./helpers/local-runner-child.js";
 
 const logger = {
@@ -55,7 +55,7 @@ beforeAll(async () => {
   pool = await setupTestDb();
   await runTestMigrations();
   await pool.query(
-    "INSERT INTO agents(id,name,cwd,status) VALUES ($1,'Held','runner://r1/proof','running')",
+    "INSERT INTO agents(id,name,cwd,status,runner_id) VALUES ($1,'Held','/r1/checkout','running','r1')",
     [id]
   );
 });
@@ -92,13 +92,11 @@ async function controller(socket: string, stateRoot: string) {
     logger,
     hostSeq: async () => ({ seq: 0, journalId: null }),
     syncJournal: async () => {},
-    placement: async () => ({ runner: "r1", workspace: "proof" }),
+    placement: async () => "r1",
     remote: {
       available: () => true,
-      requestSession: async () => ({
-        value: true,
-        channel: net.createConnection(socket),
-      }),
+      call: async () => ({ state: "live" }),
+      openStream: async () => attachedHost(net.createConnection(socket), id),
     } as never,
     holds,
   });

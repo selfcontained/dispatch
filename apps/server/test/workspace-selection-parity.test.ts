@@ -92,7 +92,7 @@ it("describes the bound enrolled checkout before a launch borrows it", async () 
   const agent = {
     id: "agt_owner",
     placement,
-    cwd: "runner://fixture/@session",
+    cwd: "/work/checkout",
     worktreePath: null,
     workspacePath: null,
   };
@@ -101,23 +101,17 @@ it("describes the bound enrolled checkout before a launch borrows it", async () 
     moved: true,
     origin: "https://github.com/example/repo",
   };
-  const requestSession = vi
-    .fn()
-    .mockResolvedValue({ value: JSON.stringify(binding) });
+  const call = vi.fn().mockResolvedValue(binding);
   const runner = runnerDirectory(
-    { remote: { requestSession } as unknown as RemoteRunnerService },
+    { remote: { call } as unknown as RemoteRunnerService },
     agent
   ).for(placement);
   await expect(
     runner.call("workspace.describe", { session: sessionFromWire(agent.id) })
   ).resolves.toEqual(binding);
-  expect(requestSession).toHaveBeenCalledTimes(1);
+  expect(call).toHaveBeenCalledTimes(1);
   await expect(
     runner.call("workspace.describe", { session: sessionFromWire("agt_other") })
   ).rejects.toMatchObject({ code: "invalid" });
-  expect(requestSession).toHaveBeenCalledTimes(1);
-  requestSession.mockResolvedValue({ value: "malformed" });
-  await expect(
-    runner.call("workspace.describe", { session: sessionFromWire(agent.id) })
-  ).rejects.toMatchObject({ details: { status: 502 } });
+  expect(call).toHaveBeenCalledTimes(1);
 });

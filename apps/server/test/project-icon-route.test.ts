@@ -35,7 +35,7 @@ const served: string[] = [];
 // launch checkout with the runner's own checkout workload.
 const remote = {
   runnerDescriptions: () => [],
-  streamCheckoutRead(
+  call(
     _placement: unknown,
     op: string,
     request: { target: { session: string }; [key: string]: unknown }
@@ -97,7 +97,7 @@ const icon = (id: string) =>
 
 describe("GET /api/v1/projects/:id/icon", () => {
   it("answers 404 with no body for a project without an icon", async () => {
-    for (const repoRoot of [root, "runner://rnr_icon/@session"]) {
+    for (const repoRoot of [root, "/fixture/rnr_icon/checkout"]) {
       const res = await icon(await project(repoRoot));
       expect(res.statusCode).toBe(404);
       expect(res.body).toBe("");
@@ -235,7 +235,7 @@ describe("GET /api/v1/projects/:id/icon: a project with no folder", () => {
     createdAt: string
   ): Promise<string> {
     const id = `agt_${Math.random().toString(16).slice(2, 14)}`;
-    const cwd = "runner://rnr_icon/@session";
+    const cwd = "/fixture/rnr_icon/checkout";
     await pool.query(
       `INSERT INTO agents (id, name, type, status, cwd, launch_cwd, project_id, runner_id, created_at)
        VALUES ($1, $1, 'claude', 'running', $2, $2, $3, 'rnr_icon', $4)`,
@@ -327,7 +327,7 @@ describe("GET /api/v1/agents/:id/repo-icon: the icon cache key", () => {
     files: Record<string, string>
   ): string {
     const id = `agt_key${++n}${Math.random().toString(16).slice(2, 8)}`;
-    const cwd = "runner://rnr_keys/@session";
+    const cwd = "/fixture/rnr_keys/checkout";
     const checkout = mkdtempSync(path.join(root, "key-checkout-"));
     for (const [name, data] of Object.entries(files))
       writeFileSync(path.join(checkout, name), data);
@@ -383,8 +383,8 @@ describe("GET /api/v1/agents/:id/repo-icon: the icon cache key", () => {
         }
       }
     }
-    // Runner agents never key by their shared workspace locator.
-    expect(await keys("runner://%")).toEqual([]);
+    // Runner agents never key by a shared machine-local directory.
+    expect(await keys("/fixture/rnr_keys/%")).toEqual([]);
   });
 
   it("keys a runner agent by its project's repository URL, never a path", async () => {

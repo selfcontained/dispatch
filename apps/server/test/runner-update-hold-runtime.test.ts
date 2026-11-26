@@ -1,3 +1,4 @@
+import { attachedHost } from "./runner-update-hold-fixtures.js";
 /**
  * A runner update hold against the real ACP runtime and scripted hosts on
  * real sockets: new work for a held runner waits in the runtime's own queue
@@ -78,31 +79,33 @@ async function fixture(
     agt_held: held.socket,
     agt_other: other.socket,
   };
-  const placements: Record<string, { runner: string; workspace: string }> = {
-    agt_held: { runner: "r1", workspace: "proof" },
-    agt_other: { runner: "r2", workspace: "proof" },
+  const placements: Record<string, string> = {
+    agt_held: "r1",
+    agt_other: "r2",
   };
   const operations: string[] = [];
   /** Refuse the next request of a kind as fenced, after running a hook. */
   const refuse = new Map<string, () => Promise<void>>();
-  const requestSession = vi.fn(
-    async (
-      _placement: unknown,
-      operation: { kind: string; agentId: string }
-    ) => {
-      operations.push(`${operation.kind}:${operation.agentId}`);
-      const refusal = refuse.get(operation.kind);
-      if (refusal) {
-        refuse.delete(operation.kind);
-        await refusal();
-        throw new RunnerUpdateFenced("The runner is updating.");
-      }
-      if (operation.kind === "attach")
-        return {
-          value: true,
-          channel: net.createConnection(sockets[operation.agentId]!),
-        };
-      return { value: true, channel: undefined };
+  async function observe(op: string, session: string) {
+    const kind = op.slice("session.".length);
+    operations.push(`${kind}:${session}`);
+    const refusal = refuse.get(kind);
+    if (refusal) {
+      refuse.delete(kind);
+      await refusal();
+      throw new RunnerUpdateFenced("The runner is updating.");
+    }
+  }
+  const call = vi.fn(
+    async (_id: string, op: string, { session }: { session: string }) => {
+      await observe(op, session);
+      return op === "session.alive" ? { state: "live" } : {};
+    }
+  );
+  const openStream = vi.fn(
+    async (_id: string, op: string, { session }: { session: string }) => {
+      await observe(op, session);
+      return attachedHost(net.createConnection(sockets[session]!), session);
     }
   );
   const holds = memoryHolds();
@@ -117,7 +120,7 @@ async function fixture(
     hostSeq: async () => ({ seq: 0, journalId: null }),
     syncJournal: async () => {},
     placement: async (id) => placements[id] ?? null,
-    remote: { requestSession, available: () => true } as never,
+    remote: { call, openStream, available: () => true } as never,
     holds,
     ...(options.preparePromptFiles
       ? { preparePromptFiles: options.preparePromptFiles }

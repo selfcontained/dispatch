@@ -328,10 +328,10 @@ describe("pull request intent", () => {
       const origin = "https://github.com/owner/repo";
       const target = { owner: "owner", repo: "repo", number: 12 };
       const head = { url: origin, branch: "topic" };
-      const lookupGitHubPullRequestHead = vi.fn(async () => head);
+      const call = vi.fn(async () => head);
       const prepared = new Error("lookup complete");
       const manager = Object.assign(Object.create(AgentManager.prototype), {
-        remote: { lookupGitHubPullRequestHead },
+        remote: { call },
         async prepareCreateInputs(
           _input: unknown,
           _cwd: string,
@@ -349,7 +349,7 @@ describe("pull request intent", () => {
           {},
           {
             placement: placementForRunner("test"),
-            location: { runner: "test", workspace: "workspace" },
+            location: "test",
             directory: null,
             ...(hasFolder && {
               launcherDirectory: {
@@ -363,12 +363,15 @@ describe("pull request intent", () => {
           { repository: { url: origin } }
         )
       ).rejects.toBe(prepared);
-      expect(lookupGitHubPullRequestHead).toHaveBeenCalledExactlyOnceWith(
+      expect(call).toHaveBeenCalledExactlyOnceWith(
         "test",
-        "owner",
-        "repo",
-        12,
-        hasFolder ? "/work/checkout" : undefined
+        "github.pr.head",
+        {
+          ...target,
+          ...(hasFolder && { cwd: "/work/checkout" }),
+        },
+        undefined,
+        undefined
       );
     }
   );
