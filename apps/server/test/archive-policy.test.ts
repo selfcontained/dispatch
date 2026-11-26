@@ -330,9 +330,9 @@ describe("archive checkout outcome table", () => {
         ...(row.mode === "auto"
           ? ["workspace.describe", "workspace.observe"]
           : []),
-        ...(release
-          ? ["workspace.describe", "workspace.observe", "workspace.release"]
-          : []),
+        // The release's ownership check is the child's binding alone
+        // (describe), then one release: two calls, not three.
+        ...(release ? ["workspace.describe", "workspace.release"] : []),
       ]);
       if (release)
         expect(git(repo, "branch", "--list", "feature") === "").toBe(
@@ -1068,5 +1068,173 @@ describe("runner archive co-owner, whatever the row's worktree path", () => {
       });
     };
     expect(await decide("/workload/checkout")).toBe(await decide(null));
+  });
+});
+
+/*
+ * Option A: the local release's ownership check is the child's binding
+ * alone (`workspace.describe`). Main's rule is the reference: where main
+ * removes the row's worktree, so does the adapter; a mutation the child may
+ * have made (`unknown_outcome`) or refused while frozen (`fenced`) is never
+ * re-run here.
+ */
+describe("local release: ownership by the child's binding alone", () => {
+  type Child = {
+    describe?: "names" | "not_found" | "failed";
+    observe?: "owned" | "unreadable" | "external" | "failed";
+    release?:
+      | "removes"
+      | "not-its-own"
+      | "unavailable"
+      | "unknown_outcome"
+      | "fenced"
+      | "failed";
+  };
+  function childOf(spec: Child) {
+    const call = vi.fn(async (op: string, input: { path: string }) => {
+      if (op === "path.resolve")
+        return workspaceWorkload.resolvePath(input.path, input);
+      if (op === "workspace.describe") {
+        if (spec.describe === "not_found" || spec.describe === "failed")
+          throw new RunnerCallError({ code: spec.describe, message: op });
+        return { path: checkout, checkoutRoot: checkout, moved: false };
+      }
+      if (op === "workspace.observe") {
+        if (spec.observe === "failed")
+          throw new RunnerCallError({ code: "failed", message: op });
+        if (spec.observe === "external")
+          return {
+            ownership: "external",
+            owner: null,
+            borrowers: [],
+            checkout: null,
+          };
+        const observed = await observeRow();
+        return spec.observe === "unreadable"
+          ? { ...observed, checkout: null }
+          : observed;
+      }
+      expect(op).toBe("workspace.release");
+      const release = spec.release ?? "removes";
+      if (release === "not-its-own") return { removed: false };
+      if (release !== "removes")
+        throw new RunnerCallError({ code: release, message: op });
+      return {
+        removed: await port(
+          "agent-fixture",
+          { path: checkout },
+          { deleteBranch: true, originalBranch: "feature" }
+        ),
+      };
+    });
+    return {
+      call,
+      runner: {
+        call,
+        connection: { state: "ready", epoch: 1, onChange: () => () => {} },
+      } as unknown as Runner,
+    };
+  }
+  const releases = (call: ReturnType<typeof childOf>["call"]) =>
+    call.mock.calls.filter(([op]) => op === "workspace.release").length;
+
+  // [case, child, state, removed when forced (main: always), removed under auto]
+  it.each([
+    ["dirty", {}, "dirty", true, false],
+    ["unreadable status", { observe: "unreadable" }, "clean", true, true],
+    ["the child's observe failing", { observe: "failed" }, "clean", true, null],
+    ["describe failing", { describe: "failed" }, "clean", true, null],
+    ["no binding at the child", { describe: "not_found" }, "clean", true, true],
+    [
+      "a binding whose root matches but is not its own",
+      { observe: "external", release: "not-its-own" },
+      "clean",
+      true,
+      true,
+    ],
+    [
+      "release never sent (unavailable)",
+      { release: "unavailable" },
+      "clean",
+      true,
+      true,
+    ],
+  ] as const)(
+    "%s: removed as main removes it",
+    async (_name, spec, state, forced, auto) => {
+      for (const mode of ["force", "auto"] as const) {
+        const expectRemoved = mode === "force" ? forced : auto;
+        if (expectRemoved === null) continue; // see the auto observe note below
+        shape(state);
+        const child = childOf(spec as Child);
+        const result = await archive(
+          { placement: "local", mode, state, borrowed: false },
+          { child: child.runner }
+        );
+        expect({ mode, removed: result.removed }).toEqual({
+          mode,
+          removed: expectRemoved,
+        });
+        expect(releases(child.call)).toBeLessThanOrEqual(1);
+        // Fresh fixture for the next mode.
+        if (!existsSync(checkout))
+          git(repo, "worktree", "add", "-q", checkout, "-b", `again-${mode}`);
+      }
+    }
+  );
+
+  it("a forced release no longer observes first: two child calls, not three", async () => {
+    shape("clean");
+    const child = childOf({ observe: "failed" });
+    const result = await archive(
+      { placement: "local", mode: "force", state: "clean", borrowed: false },
+      { child: child.runner }
+    );
+    expect(result.removed).toBe(true);
+    expect(child.call.mock.calls.map(([op]) => op)).toEqual([
+      "path.resolve",
+      "workspace.describe",
+      "workspace.release",
+    ]);
+  });
+
+  it("the child's own checkout it would not remove stays, as before", async () => {
+    shape("clean");
+    const child = childOf({ release: "not-its-own", observe: "owned" });
+    const result = await archive(
+      { placement: "local", mode: "force", state: "clean", borrowed: false },
+      { child: child.runner }
+    );
+    expect(result).toMatchObject({ removed: false, pending: false });
+    expect(releases(child.call)).toBe(1);
+  });
+
+  it.each(["fenced", "failed"] as const)(
+    "a release the child answers %s is the answer: never re-run here",
+    async (code) => {
+      shape("clean");
+      const child = childOf({ release: code });
+      const result = await archive(
+        { placement: "local", mode: "force", state: "clean", borrowed: false },
+        { child: child.runner }
+      );
+      expect(result).toMatchObject({ removed: false, pending: false });
+      // Not removed here either: the worktree is still on disk.
+      expect(releases(child.call)).toBe(1);
+      expect(existsSync(checkout)).toBe(true);
+    }
+  );
+
+  it("a lost release reply is never sent again nor re-run here", async () => {
+    shape("clean");
+    const child = childOf({ release: "unknown_outcome" });
+    const result = await archive(
+      { placement: "local", mode: "force", state: "clean", borrowed: false },
+      { child: child.runner }
+    );
+    // Still on disk: archive keeps it, as main keeps a failed cleanup.
+    expect(result).toMatchObject({ removed: false, pending: false });
+    expect(releases(child.call)).toBe(1);
+    expect(existsSync(checkout)).toBe(true);
   });
 });

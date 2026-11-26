@@ -599,6 +599,40 @@ export function createLocalCheckoutRunner(
   }
 
   /**
+   * Whether the child's binding for the session names the worktree the row
+   * records (`workspace.describe` alone); false when it holds none, holds
+   * another, cannot answer, or fails to say: main's rule then removes the
+   * row's worktree here. One attempt: it is a read.
+   */
+  async function childNames(
+    session: Req<"workspace.describe">["session"],
+    worktree: string,
+    options?: { signal?: AbortSignal }
+  ): Promise<boolean> {
+    const asked = await readAttempt(
+      "workspace.describe",
+      { session },
+      async (child, read) => {
+        const described = await child.call(
+          "workspace.describe",
+          { session },
+          read
+        );
+        return Boolean(
+          described?.checkoutRoot &&
+          displayPath(described.checkoutRoot) === worktree
+        );
+      },
+      options
+    ).catch(() => {
+      // Only the caller's own cancellation stops the release.
+      options?.signal?.throwIfAborted();
+      return null;
+    });
+    return asked?.value ?? false;
+  }
+
+  /**
    * The child's observation when its binding for the session is the
    * worktree the row records and its own to remove; null when it holds
    * none, holds another, or cannot answer (not running, restarting, died
@@ -668,7 +702,8 @@ export function createLocalCheckoutRunner(
 
   /**
    * Archive's removal of the worktree the row records, by the same rule:
-   * in the child when its binding agrees, once; else the same port here
+   * in the child when its binding names that worktree (describe alone), once;
+   * else the same port here
    * with the row's facts, which only a release the child never received may
    * reach. A release whose reply was lost is never sent again: a read-only
    * look at the worktree says whether it went (`removed`), else the caller
@@ -682,9 +717,21 @@ export function createLocalCheckoutRunner(
     const session = boundSession(input);
     const worktree = session.worktreePath;
     if (!worktree) return { removed: false };
-    if (child && (await childOwned(input.session, worktree, options)))
+    if (child && (await childNames(input.session, worktree, options)))
       try {
-        return await child.call("workspace.release", input, once(options));
+        const released = await child.call(
+          "workspace.release",
+          input,
+          once(options)
+        );
+        // Not removed: the child's own checkout it would not remove keeps
+        // that answer; a binding that is not its own (external, borrowed,
+        // gone, or unanswered) is removed here by main's rule, as before.
+        if (
+          released.removed ||
+          (await childOwned(input.session, worktree, options))
+        )
+          return released;
       } catch (error) {
         if (
           error instanceof RunnerCallError &&
