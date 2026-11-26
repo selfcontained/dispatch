@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Runner } from "@dispatch/runner-protocol/contract";
 import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 import { EngineWorkload } from "../src/agents/remote/engine-runner-executor.js";
-import { localEngineCalls, localReadDeadline } from "../src/runners/local.js";
+import { localEngineCalls } from "../src/runners/local.js";
 import { runnerPluginChecker } from "../src/routes/plugin.js";
 
 const status = {
@@ -77,50 +77,62 @@ describe("plugin operations through the engine port", () => {
     expect(plugins.install).toHaveBeenCalledOnce();
     port.close();
   });
-  it("waits on a live child's slow engine read past its deadline, and reads here once from one that stopped answering", async () => {
-    const { port, plugins } = fixture();
-    const deadline = vi.spyOn(localReadDeadline, "ms").mockReturnValue(50);
-    try {
-      let answers = true;
-      let release: (value: unknown) => void = () => {};
-      const call = vi.fn(async (op: string) => {
-        // The transport times out the probe of a child that is not answering.
-        if (op === "runner.describe") {
-          if (answers) return {};
-          throw new RunnerCallError({ code: "timeout", message: "probe" });
-        }
-        return new Promise((resolve) => {
-          release = resolve;
-        });
-      });
-      const child = {
-        connection: { state: "ready" },
-        call,
-      } as unknown as Runner;
-      const calls = localEngineCalls(() => child, port);
-      const request = {
-        engine: "codex",
-        plugin: "dispatch@dispatch",
-        refresh: false,
-      } as const;
-      // Live: several deadlines pass, the child keeps answering, one reader.
-      const slow = calls.call("engine.plugin.status", request);
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      release({ ...status, actions: [] });
-      expect(await slow).toEqual({ ...status, actions: [] });
-      expect(plugins.getStatus).not.toHaveBeenCalled();
-      expect(
-        call.mock.calls.filter(([op]) => op === "engine.plugin.status")
-      ).toHaveLength(1);
-      // Stopped answering: given up at the deadline, read here once.
-      answers = false;
-      await calls.call("engine.plugin.status", request);
-      expect(plugins.getStatus).toHaveBeenCalledOnce();
-    } finally {
-      deadline.mockRestore();
-      port.close();
-    }
+  it("never starts a second engine session: a deferred model lookup at the child is waited for, and made here once only when its connection is lost", async () => {
+    const models = vi.fn(async () => ({
+      choices: [],
+      defaultModel: null,
+    }));
+    const here = { models } as unknown as EngineWorkload;
+    let lose: (error: unknown) => void = () => {};
+    const call = vi.fn(
+      (op: string) =>
+        new Promise((_, reject) => {
+          if (op === "engine.models") lose = reject;
+        })
+    );
+    const child = { connection: { state: "ready" }, call } as unknown as Runner;
+    const calls = localEngineCalls(() => child, here);
+    const lookup = calls.call("engine.models", { engine: "codex" } as never);
+    // The child's engine session may be running: nothing starts here.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(models).not.toHaveBeenCalled();
+    expect(call.mock.calls.filter(([op]) => op === "engine.models")).toEqual([
+      [
+        "engine.models",
+        { engine: "codex" },
+        expect.objectContaining({ wait: false, timeoutMs: null }),
+      ],
+    ]);
+    // The child went (its connection lost): it is not running it any more.
+    lose(new RunnerCallError({ code: "unknown_outcome", message: "lost" }));
+    await lookup;
+    expect(models).toHaveBeenCalledOnce();
   });
+
+  it("a caller's abort after the fallback here has started rejects at once", async () => {
+    let started: () => void = () => {};
+    const running = new Promise<void>((resolve) => (started = resolve));
+    const here = {
+      pluginStatus: vi.fn(() => {
+        started();
+        return new Promise(() => {});
+      }),
+    } as unknown as EngineWorkload;
+    const controller = new AbortController();
+    const calls = localEngineCalls(() => undefined, here);
+    const status = calls.call(
+      "engine.plugin.status",
+      { engine: "codex", plugin: "dispatch@dispatch", refresh: false },
+      { signal: controller.signal }
+    );
+    const rejected = expect(status).rejects.toMatchObject({
+      code: "cancelled",
+    });
+    await running;
+    controller.abort();
+    await rejected;
+  });
+
   it.each(["engine.update.release", "engine.plugin.apply"] as const)(
     "%s never retries or falls back after an uncertain reply",
     async (op) => {

@@ -16,7 +16,6 @@ import { loadPersonas } from "../src/personas/loader.js";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { pathFromWire } from "@dispatch/runner-protocol/contract";
-import { localReadDeadline } from "../src/runners/local.js";
 import { runnerDirectory } from "../src/runners/directory.js";
 import { controllerPlacement } from "../src/runners/placement.js";
 import { startTestLocalRunner } from "./helpers/local-runner-child.js";
@@ -155,7 +154,7 @@ it("restores controller-relative error spelling when the child has a different c
 });
 
 it.each(["checkout.list", "checkout.read"] as const)(
-  "native %s adapter deadline falls back once and preserves main's eventual result",
+  "native %s held by a child that then dies falls back once and preserves main's eventual result",
   async (op) => {
     const root = await realpath(
       await mkdtemp(join(tmpdir(), "native-deadline-"))
@@ -169,7 +168,6 @@ it.each(["checkout.list", "checkout.read"] as const)(
       env: { RUNNER_FIXTURE_NATIVE_PAUSE: marker },
     });
     const native = vi.spyOn(fallback.workload!, "run");
-    let deadline: ReturnType<typeof vi.spyOn> | undefined;
     let stopped: number | undefined;
     try {
       await child.session.call(
@@ -177,7 +175,6 @@ it.each(["checkout.list", "checkout.read"] as const)(
         {},
         { signal: AbortSignal.timeout(5000) }
       );
-      deadline = vi.spyOn(localReadDeadline, "ms").mockReturnValue(500);
       const sent = vi.spyOn(child.session, "call");
       const request =
         op === "checkout.list"
@@ -204,11 +201,15 @@ it.each(["checkout.list", "checkout.read"] as const)(
         async () => expect(await readFile(marker, "utf8")).toBe(op + "\n"),
         { timeout: 5000 }
       );
-      // The child stops answering (it would answer `runner.describe` while
-      // merely slow, and a slow read is waited for): at the deadline the read
-      // is missed and falls back here once.
+      // While the child holds the read (stopped, or merely slow) it is
+      // waited for: nothing is read here, whatever the time.
       stopped = child.current()!.pid;
       process.kill(stopped, "SIGSTOP");
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(native).not.toHaveBeenCalled();
+      // The child dies: its connection is lost and the read is made here once.
+      process.kill(stopped, "SIGKILL");
+      stopped = undefined;
       await vi.waitFor(() => expect(native).toHaveBeenCalledTimes(1), {
         timeout: 5000,
       });
@@ -231,7 +232,6 @@ it.each(["checkout.list", "checkout.read"] as const)(
       });
     } finally {
       if (stopped) process.kill(stopped, "SIGCONT");
-      deadline?.mockRestore();
       await child.stop();
       native.mockRestore();
       await rm(root, { recursive: true, force: true });
@@ -294,8 +294,8 @@ it.each(["checkout.list", "checkout.read"] as const)(
   }
 );
 
-// A responsive child keeps its original read past the deadline: one reader.
-it("preserves a FIFO's bytes when the responsive child passes the read deadline", async () => {
+// A live child keeps its original read, however long it takes: one reader.
+it("preserves a FIFO's bytes while the child's read waits for its writer", async () => {
   const root = await realpath(
     await mkdtemp(join(tmpdir(), "native-fifo-inflight-"))
   );
@@ -304,7 +304,6 @@ it("preserves a FIFO's bytes when the responsive child passes the read deadline"
   execFileSync("mkfifo", [file]);
   const child = startTestLocalRunner(join(root, "state"));
   const native = vi.spyOn(fallback.workload!, "run");
-  let deadline: ReturnType<typeof vi.spyOn> | undefined;
   let writer: Awaited<ReturnType<typeof open>> | undefined;
   try {
     await child.session.call(
@@ -312,7 +311,6 @@ it("preserves a FIFO's bytes when the responsive child passes the read deadline"
       {},
       { signal: AbortSignal.timeout(5000) }
     );
-    deadline = vi.spyOn(localReadDeadline, "ms").mockReturnValue(500);
     const pending = runnerDirectory({ child: () => child.session })
       .for(controllerPlacement)
       .call("checkout.read", {
@@ -342,7 +340,6 @@ it("preserves a FIFO's bytes when the responsive child passes the read deadline"
     expect(native).not.toHaveBeenCalled();
   } finally {
     await writer?.close();
-    deadline?.mockRestore();
     await child.stop();
     native.mockRestore();
     await rm(root, { recursive: true, force: true });

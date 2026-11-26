@@ -1188,6 +1188,30 @@ describe("local release: ownership by the child's binding alone", () => {
     expect(releases(child.call)).toBe(1);
   });
 
+  it.each(["unavailable", "failed"] as const)(
+    "a refusal stands when the ownership lookup after it is %s: nothing removed here",
+    async (code) => {
+      shape("clean");
+      const child = childOf({ release: "not-its-own" });
+      let described = 0;
+      const call = child.call.getMockImplementation()!;
+      child.call.mockImplementation(async (op, input) => {
+        // The release's own check names the worktree; the lookup after the
+        // refusal is lost or fails.
+        if (op === "workspace.describe" && ++described > 1)
+          throw new RunnerCallError({ code, message: op });
+        return call(op, input);
+      });
+      const result = await archive(
+        { placement: "local", mode: "force", state: "clean", borrowed: false },
+        { child: child.runner }
+      );
+      expect(result).toMatchObject({ removed: false, pending: false });
+      expect(releases(child.call)).toBe(1);
+      expect(existsSync(checkout)).toBe(true);
+    }
+  );
+
   it.each(["fenced", "failed"] as const)(
     "a release the child answers %s is the answer: never re-run here",
     async (code) => {
