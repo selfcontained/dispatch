@@ -5,7 +5,6 @@ import { runnerHealthSampler } from "./health.js";
 import { SharedCheckoutWatches, childWatch } from "../checkout-watch.js";
 import { sessionFileCommand } from "./session-files.js";
 import { execFile, spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { createConnection, isIP } from "node:net";
 import path from "node:path";
@@ -77,11 +76,6 @@ import {
   type RunnerFrame,
   type RunnerEngine,
 } from "@dispatch/runner-protocol";
-import {
-  isEngineCapabilityOperation,
-  type EngineCapabilityOperation,
-  type EngineOperationAck,
-} from "@dispatch/runner-protocol/engine-management";
 import {
   wireFrames,
   FlowStreams,
@@ -606,42 +600,6 @@ export async function runRemoteRunner(
         return bins;
     }
   }
-  const engineAccountSecret = randomBytes(32).toString("base64url");
-  async function engineCapability(
-    operation: EngineCapabilityOperation,
-    signal: AbortSignal
-  ): Promise<EngineOperationAck> {
-    try {
-      const bins = await resolveBins(
-        "engine" in operation ? operation.engine : undefined
-      );
-      const child = execute(
-        setpriv,
-        [...childArgs, ...self("runner-engine-capability")],
-        {
-          env,
-          cwd: config.home,
-          timeout: operation.type.startsWith("plugin_") ? 160_000 : 20_000,
-          maxBuffer: 192 * 1024,
-          signal,
-        }
-      );
-      child.child.stdin?.on("error", () => {});
-      child.child.stdin?.end(
-        JSON.stringify({
-          operation,
-          bins,
-          secret: engineAccountSecret,
-        })
-      );
-      return JSON.parse((await child).stdout);
-    } catch {
-      return {
-        ok: false,
-        error: "Engine capability is unavailable on this runner.",
-      };
-    }
-  }
   const asWorkload: WorkloadCommand = async (bin, args, opts) => {
     const resolved = bin === "git" ? await tools.resolve("git") : bin;
     const gitArgs = opts?.git
@@ -992,41 +950,35 @@ export async function runRemoteRunner(
         if (!isOpaqueId(id)) throw new Error("Invalid runner request ID");
         if (socket.destroyed) return;
         if (command.kind === "engine") {
-          if (isEngineCapabilityOperation(command.operation)) {
-            if (
-              !(managedWorkspace
-                ? command.workspace === MANAGED_WORKSPACE
-                : configuredHandles.includes(command.workspace))
-            ) {
-              throw new Error("Unknown runner workspace.");
-            }
-            const ack = await engineCapability(
-              command.operation,
-              connection.signal
-            );
-            safeSend({ type: "result", id, value: JSON.stringify(ack) });
-            return;
+          if (command.operation.type !== "contract")
+            throw new Error("Invalid runner command.");
+          const { op, request } = command.operation.call;
+          try {
+            const result = await engineExecutor.callHost(op, request);
+            safeSend({
+              type: "result",
+              id,
+              value: JSON.stringify({ ok: true, result }),
+            });
+          } catch (error) {
+            safeSend({
+              type: "result",
+              id,
+              value: JSON.stringify({
+                ok: false,
+                error: error instanceof Error ? error.message : String(error),
+                ...(error instanceof RunnerCallError && {
+                  failure: {
+                    code: error.code,
+                    message: error.message,
+                    ...(error.details !== undefined && {
+                      details: error.details,
+                    }),
+                  },
+                }),
+              }),
+            });
           }
-          const ack = await engineExecutor.handle(
-            command.operation,
-            (event) => {
-              if (!socket.destroyed)
-                safeSend({
-                  type: "data",
-                  id,
-                  data: Buffer.from(
-                    JSON.stringify(event) + "\n",
-                    "utf8"
-                  ).toString("base64"),
-                });
-            }
-          );
-          safeSend({ type: "result", id, value: JSON.stringify(ack) });
-          if (
-            command.operation.type !== "status" &&
-            command.operation.type !== "contract"
-          )
-            void reportEngineInventory();
           return;
         }
         if (command.kind === "github") {
