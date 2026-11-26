@@ -2,7 +2,6 @@ import { Duplex, PassThrough, Writable } from "node:stream";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import {
   isTerminalInfo,
-  MANAGED_WORKSPACE,
   TERMINAL_UPDATE_MESSAGE,
 } from "@dispatch/runner-protocol";
 import {
@@ -39,10 +38,7 @@ export function enrolledChannels(
         code: "invalid",
         message: "Invalid checkout binding.",
       });
-    return supervisor.checkoutDirectory(
-      sessionToWire(target.session),
-      MANAGED_WORKSPACE
-    );
+    return supervisor.checkoutDirectory(sessionToWire(target.session));
   }
   return {
     closeSession(id: string) {

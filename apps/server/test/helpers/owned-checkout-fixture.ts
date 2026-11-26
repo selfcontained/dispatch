@@ -1,9 +1,6 @@
 import { Readable } from "node:stream";
 import { json } from "node:stream/consumers";
-import {
-  MANAGED_WORKSPACE,
-  isCheckoutReadRequest,
-} from "@dispatch/runner-protocol";
+import { isCheckoutReadRequest } from "@dispatch/runner-protocol";
 import { sessionFromWire } from "@dispatch/runner-protocol/contract";
 import { enrolledCheckouts } from "../../../../packages/runner/src/workload/agents/remote/checkout-operations.js";
 import { createSessionCore } from "@dispatch/runner/cli";
@@ -194,7 +191,7 @@ export async function ownedCheckoutFixture(
     await writeFile(path.join(bindings, key), "\0folder");
     await writeFile(path.join(bindings, `${key}.cwd`), row.home);
     if (row.workspacePath)
-      await supervisor.sessionCheckout(row.id, MANAGED_WORKSPACE, {
+      await supervisor.sessionCheckout(row.id, {
         kind: "select",
         path: row.workspacePath,
       });
@@ -270,11 +267,7 @@ export async function ownedCheckoutFixture(
         maxBytes: null,
       }
     ) {
-      const directory = await supervisor.checkoutDirectory(
-        row.id,
-        MANAGED_WORKSPACE,
-        checkout
-      );
+      const directory = await supervisor.checkoutDirectory(row.id, checkout);
       return workload.run("checkout.read", { directory, request }, {});
     },
     async access(
@@ -282,11 +275,7 @@ export async function ownedCheckoutFixture(
       checkout: "current" | "launch",
       request: Omit<Req<"checkout.access">, "target">
     ) {
-      const directory = await supervisor.checkoutDirectory(
-        row.id,
-        MANAGED_WORKSPACE,
-        checkout
-      );
+      const directory = await supervisor.checkoutDirectory(row.id, checkout);
       return workload.run("checkout.access", { directory, request }, {});
     },
     async direct(row: (typeof rows)[number]) {

@@ -1,5 +1,3 @@
-export const MANAGED_WORKSPACE = "@session";
-
 /** Wire identities are case-sensitive and are not paths. */
 export function isOpaqueId(value: unknown): value is string {
   if (

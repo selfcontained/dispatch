@@ -1,8 +1,8 @@
 import { Readable } from "node:stream";
 import {
-  MANAGED_WORKSPACE,
   isCheckoutExecutionOptions,
   scheduleDeadline,
+  checkoutCommandTimeoutMs,
   isCheckoutCommand,
   isCheckoutCommandFile,
   isCheckoutReadRequest,
@@ -89,7 +89,6 @@ export function enrolledCheckouts(
         target && "session" in target
           ? await supervisor.withCommandCheckout(
               sessionToWire(target.session),
-              MANAGED_WORKSPACE,
               commandSelector(target.checkout),
               signal,
               run
@@ -119,7 +118,6 @@ export function enrolledCheckouts(
       const signal = AbortSignal.any([connection, AbortSignal.timeout(20_000)]);
       const raw = await supervisor.withCommandCheckout(
         sessionToWire(target.session),
-        MANAGED_WORKSPACE,
         "effective",
         signal,
         (cwd) => worker.run("write", cwd, request, signal)
@@ -162,13 +160,21 @@ export function enrolledCheckouts(
         path: manifest.path,
       } as const;
       if (!isCheckoutCommand(operation)) throw invalid();
-      const text = await supervisor.withCommandCheckout(
-        session,
-        MANAGED_WORKSPACE,
-        operation.checkout,
-        signal,
-        (cwd) => worker.manifest(cwd, session, operation, signal)
-      );
+      const timeoutMs = checkoutCommandTimeoutMs(operation.checkout);
+      const timeout = AbortSignal.timeout(timeoutMs);
+      const active = AbortSignal.any([signal, timeout]);
+      const text = await supervisor
+        .withCommandCheckout(session, operation.checkout, active, (cwd) =>
+          worker.manifest(cwd, session, operation, active)
+        )
+        .catch((error: unknown) => {
+          if (timeout.aborted && active.reason === timeout.reason)
+            throw new RunnerCallError({
+              code: "timeout",
+              message: `Runner checkout command timed out after ${timeoutMs / 1000} seconds.`,
+            });
+          throw error;
+        });
       const file: unknown = text === null ? null : JSON.parse(text);
       if (!isCheckoutCommandFile(file))
         throw new RunnerCallError({
@@ -194,11 +200,7 @@ export function enrolledCheckouts(
       target.checkout === "owned" ? "launch" : (target.checkout ?? "current");
     const selection = { op, request, checkout };
     if (!isCheckoutReadRequest(selection, session)) throw invalid();
-    const cwd = await supervisor.checkoutDirectory(
-      session,
-      MANAGED_WORKSPACE,
-      selection.checkout
-    );
+    const cwd = await supervisor.checkoutDirectory(session, selection.checkout);
     signal.throwIfAborted();
     return worker.read(cwd, selection, signal);
   };
@@ -256,7 +258,6 @@ export function enrolledCommand(
     try {
       const result = await supervisor.withCommandCheckout(
         session,
-        MANAGED_WORKSPACE,
         checkout,
         active,
         (cwd) => execute(cwd, session, input, sendOutput, active)

@@ -3,7 +3,6 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import path from "node:path";
 import { PassThrough, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { MANAGED_WORKSPACE } from "@dispatch/runner-protocol";
 import {
   pathFromWire,
   sessionToWire,
@@ -78,7 +77,6 @@ export function enrolledFiles(
       try {
         return await supervisor.withSessionFile(
           sessionToWire(session),
-          MANAGED_WORKSPACE,
           { name },
           async (root, name) => {
             const child = spawnFile("receive", root, sizedName(name, size));
@@ -100,7 +98,6 @@ export function enrolledFiles(
         });
       return supervisor.withSessionFile(
         sessionToWire(session),
-        MANAGED_WORKSPACE,
         { path: file },
         async (root, name) => {
           const child = spawnFile("stream", root, name);

@@ -1,4 +1,3 @@
-import { MANAGED_WORKSPACE } from "@dispatch/runner-protocol";
 import {
   RunnerCallError,
   sessionToWire,
@@ -74,7 +73,6 @@ export function enrolledWorkspace(
       const id = sessionToWire(input.session);
       const removed = await supervisor.releaseWorkspace(
         id,
-        MANAGED_WORKSPACE,
         async () =>
           (await port().call("workspace.release", input, () => {})).removed
       );

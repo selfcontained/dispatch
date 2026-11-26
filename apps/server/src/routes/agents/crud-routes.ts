@@ -6,7 +6,6 @@ import {
   runnerIdForPlacement,
 } from "../../runners/placement.js";
 import { isCheckoutStateId } from "@dispatch/runner-protocol";
-import { MANAGED_WORKSPACE } from "@dispatch/runner-protocol";
 import { validateAgentEffort } from "../../shared/agent-effort.js";
 import type { Effort } from "@dispatch/shared";
 import path from "node:path";

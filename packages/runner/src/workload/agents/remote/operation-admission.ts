@@ -27,6 +27,19 @@ const exempt = new Set<OpName>([
 
 /** Same drain budget as the workload operation this replaces. */
 function deadline(op: OpName, input: unknown) {
+  if (
+    op === "checkout.read" &&
+    operations[op].request.check(input) &&
+    input.mode === "command-manifest"
+  ) {
+    const select = input.target.checkout;
+    return (
+      5000 +
+      checkoutCommandTimeoutMs(
+        select === "launch" || select === "moved" ? select : "effective"
+      )
+    );
+  }
   if (op === "checkout.exec" && operations[op].request.check(input)) {
     const select =
       "session" in input.target ? input.target.checkout : undefined;

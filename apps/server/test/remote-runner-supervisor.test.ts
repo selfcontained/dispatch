@@ -42,10 +42,7 @@ import { createAgentMcpToken, validateAgentMcpToken } from "../src/auth.js";
 import { registerMcpRoutes } from "../src/routes/mcp.js";
 import { assertAccessCeiling } from "../src/shared/access-ceiling.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  MANAGED_WORKSPACE,
-  MAX_SESSION_FILE_BYTES,
-} from "../../../packages/runner/src/workload/agents/remote/protocol.js";
+import { MAX_SESSION_FILE_BYTES } from "../../../packages/runner/src/workload/agents/remote/protocol.js";
 import {
   classifySessionIdentity,
   parseProcessStat,
@@ -109,19 +106,15 @@ const currentIdentity = {
   hostInstanceId: instanceId,
 };
 const reviewerId = "agt_reviewer";
-const launch = (workspace: string) =>
+const launch = () =>
   ({
     agentId,
-    workspace,
     launch: { engine: "codex" },
   }) as const;
-const sharedLaunch = (
-  useWorktreeOf: string = agentId,
-  workspace = MANAGED_WORKSPACE
-) => ({
-  ...launch(workspace),
+const sharedLaunch = (useWorktreeOf: string = agentId) => ({
+  ...launch(),
   agentId: reviewerId,
-  launch: { ...launch(workspace).launch, useWorktreeOf },
+  launch: { ...launch().launch, useWorktreeOf },
 });
 
 it("names session state as linux-privsep does, so paths never move", () => {
@@ -304,8 +297,8 @@ describe("runner session supervision", () => {
     const { agentId: id, launch: host } = fixture;
     if (host.useWorktreeOf) {
       const parent = host.useWorktreeOf;
-      if (id !== parent && (await runner.isBound(parent, MANAGED_WORKSPACE)))
-        await runner.checkoutDirectory(parent, MANAGED_WORKSPACE);
+      if (id !== parent && (await runner.isBound(parent)))
+        await runner.checkoutDirectory(parent);
       const preparation = await createRemoteWorkspacePreparation({
         state,
         ids: {
@@ -525,9 +518,8 @@ describe("runner session supervision", () => {
   });
 
   it("acknowledges the same session after cancelling exec with both transfers complete", async () => {
-    const workspace = MANAGED_WORKSPACE;
     const runner = await start();
-    await startHost(runner, launch(workspace));
+    await startHost(runner, launch());
     const abort = new AbortController();
     const { streams, peer, close } = checkoutStreamPair();
     let pid: number | undefined;
@@ -552,7 +544,6 @@ describe("runner session supervision", () => {
     ]);
     const work = runner.withCommandCheckout(
       agentId,
-      workspace,
       "effective",
       abort.signal,
       () =>
@@ -593,7 +584,7 @@ describe("runner session supervision", () => {
       expect(streams.has("stderr")).toBe(false);
       abort.abort(new Error("Cancelled by test"));
       await expect(
-        Promise.race([runner.alive(agentId, workspace), timeout])
+        Promise.race([runner.alive(agentId), timeout])
       ).resolves.toBe(true);
       await expect(work).rejects.toBe(abort.signal.reason);
     } finally {
@@ -620,7 +611,7 @@ describe("runner session supervision", () => {
         hostCommand: (dir) => ["/test-host", "--state", dir],
         mayStartProcess: () => admitting,
       });
-      await startHost(runner, launch(MANAGED_WORKSPACE));
+      await startHost(runner, launch());
       kernelHost = undefined;
       admitting = false;
       await vi.advanceTimersByTimeAsync(15_000);
@@ -636,7 +627,7 @@ describe("runner session supervision", () => {
 
   it("recovers the golden legacy binding but defers live handoff", async () => {
     const runner = await start();
-    await startHost(runner, launch(MANAGED_WORKSPACE));
+    await startHost(runner, launch());
     const written = JSON.parse(await readFile(record, "utf8"));
     const hostDir = path.join(state, "hosts", agentId);
     const options = JSON.parse(
@@ -656,7 +647,7 @@ describe("runner session supervision", () => {
     await writeFile(record, JSON.stringify(identity));
     runner.close();
     const recovered = await start();
-    expect(await recovered.alive(agentId, MANAGED_WORKSPACE)).toBe(true);
+    expect(await recovered.alive(agentId)).toBe(true);
     expect(
       await recovered.inspectHandoff({ reads: [1, 2], writes: 2 })
     ).toEqual({
@@ -669,7 +660,7 @@ describe("runner session supervision", () => {
 
   it("recovers the golden current tree and fails closed on stale or spoofed identity", async () => {
     const runner = await start();
-    await startHost(runner, launch(MANAGED_WORKSPACE));
+    await startHost(runner, launch());
     await writeFile(record, JSON.stringify(currentIdentity));
     runner.close();
     const recovered = await start();
@@ -885,7 +876,7 @@ describe("runner session supervision", () => {
           ]({ session, deleteBranch: false, originalBranch: null })
         ).resolves.toEqual({ removed: true });
       } else {
-        await runner.discard(agentId, MANAGED_WORKSPACE);
+        await runner.discard(agentId);
       }
       runner.close();
       const restarted = await start();
@@ -906,9 +897,9 @@ describe("runner session supervision", () => {
         )
       ).rejects.toMatchObject({ code: "conflict" });
 
-      await expect(
-        startHost(restarted, launch(MANAGED_WORKSPACE))
-      ).rejects.toThrow("This runner session has been archived.");
+      await expect(startHost(restarted, launch())).rejects.toThrow(
+        "This runner session has been archived."
+      );
       expect((await readdir(bindings)).sort()).toEqual(
         [...before, agentId + ".retired"].sort()
       );
@@ -922,59 +913,50 @@ describe("runner session supervision", () => {
 
   it("creates private scratch when launching an unprepared session", async () => {
     const runner = await start();
-    await startHost(runner, launch(MANAGED_WORKSPACE));
+    await startHost(runner, launch());
     const cwd = path.join(state, "sessions", agentId);
-    expect(await runner.checkoutDirectory(agentId, MANAGED_WORKSPACE)).toBe(
-      cwd
-    );
+    expect(await runner.checkoutDirectory(agentId)).toBe(cwd);
     expect((await stat(cwd)).isDirectory()).toBe(true);
   });
 
-  it.each([{ config: [], workspace: "@session" }])(
-    "rediscovers a $workspace host and stops it under the original binding",
-    async ({ config, workspace }) => {
-      const first = await start();
-      await startHost(first, launch(workspace));
-      expect((await stat(record)).mode & 0o777).toBe(0o600);
+  it("rediscovers a session host and stops it under the original binding", async () => {
+    const first = await start();
+    await startHost(first, launch());
+    expect((await stat(record)).mode & 0o777).toBe(0o600);
 
-      first.close();
-      const recovered = await start();
-      expect(await recovered.alive(agentId, workspace)).toBe(true);
-      expect(await recovered.liveDirectories()).toEqual([
-        path.join(state, "hosts", agentId),
-      ]);
-      await expect(startHost(recovered, launch(workspace))).rejects.toThrow(
-        "already has a host"
-      );
-      await expect(recovered.discard(agentId, workspace)).rejects.toThrow(
-        "Stop the guest host"
-      );
-      expect(processes.spawn).toHaveBeenCalledTimes(1);
+    first.close();
+    const recovered = await start();
+    expect(await recovered.alive(agentId)).toBe(true);
+    expect(await recovered.liveDirectories()).toEqual([
+      path.join(state, "hosts", agentId),
+    ]);
+    await expect(startHost(recovered, launch())).rejects.toThrow(
+      "already has a host"
+    );
+    await expect(recovered.discard(agentId)).rejects.toThrow(
+      "Stop the guest host"
+    );
+    expect(processes.spawn).toHaveBeenCalledTimes(1);
 
-      await writeFile(path.join(state, "hosts", agentId, "host.pid"), "666\n");
-      await recovered.stop(agentId, workspace, true);
-      expect(processes.stop).toHaveBeenCalledExactlyOnceWith(
-        expect.objectContaining(identity),
-        true
-      );
-      expect(processes.cleanup).toHaveBeenCalledExactlyOnceWith(
-        expect.objectContaining(identity)
-      );
-      expect(await recovered.liveDirectories()).toEqual([]);
-      await recovered.discard(agentId, workspace);
-      await expect(
-        stat(path.join(state, "hosts", agentId))
-      ).rejects.toMatchObject({ code: "ENOENT" });
-      if (!config.length)
-        await expect(startHost(recovered, launch(workspace))).rejects.toThrow(
-          "archived"
-        );
-    }
-  );
+    await writeFile(path.join(state, "hosts", agentId, "host.pid"), "666\n");
+    await recovered.stop(agentId, true);
+    expect(processes.stop).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining(identity),
+      true
+    );
+    expect(processes.cleanup).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining(identity)
+    );
+    expect(await recovered.liveDirectories()).toEqual([]);
+    await recovered.discard(agentId);
+    await expect(
+      stat(path.join(state, "hosts", agentId))
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(startHost(recovered, launch())).rejects.toThrow("archived");
+  });
 
   it("delivers 1 MiB of first text and exposes Dispatch helpers on PATH", async () => {
-    const workspace = MANAGED_WORKSPACE;
-    const command = launch(workspace);
+    const command = launch();
     const context = "🙂".repeat((1024 * 1024) / 4);
     const runner = await start();
     await startHost(runner, {
@@ -1005,8 +987,7 @@ describe("runner session supervision", () => {
   });
 
   it("keeps shared files through stop/start, restart, update resume and reconciliation until discard", async () => {
-    const workspace = MANAGED_WORKSPACE;
-    const command = launch(workspace);
+    const command = launch();
     let runner = await start();
     await startHost(runner, command);
     const hostDir = path.join(state, "hosts", agentId);
@@ -1024,7 +1005,7 @@ describe("runner session supervision", () => {
       [receipts, "prompt receipt"],
     ] as const;
     for (const [file, contents] of retained) await writeFile(file, contents);
-    await runner.stop(agentId, workspace, false);
+    await runner.stop(agentId, false);
     expect(await readFile(report, "utf8")).toBe("agent report");
     await startHost(runner, command);
     expect(await readFile(report, "utf8")).toBe("agent report");
@@ -1040,7 +1021,7 @@ describe("runner session supervision", () => {
     );
     for (const name of staleFiles)
       await writeFile(path.join(hostDir, name), "stale host state");
-    await runner.stop(agentId, workspace, true);
+    await runner.stop(agentId, true);
     await startHost(runner, command);
     expect(await readFile(report, "utf8")).toBe("agent report");
     for (const name of [...staleFiles, "journal.jsonl"])
@@ -1054,9 +1035,9 @@ describe("runner session supervision", () => {
     runner = await start(undefined, {
       build: { version: "1.7.29", revision: "b".repeat(40) },
     });
-    expect(await runner.alive(agentId, workspace)).toBe(true);
+    expect(await runner.alive(agentId)).toBe(true);
     expect(await readFile(report, "utf8")).toBe("agent report");
-    await runner.stop(agentId, workspace, true);
+    await runner.stop(agentId, true);
     const resume = {
       ...command,
       launch: {
@@ -1072,20 +1053,20 @@ describe("runner session supervision", () => {
     expect(await readFile(report, "utf8")).toBe("agent report");
     await startHost(runner, resume);
     expect(processes.spawn).toHaveBeenCalledTimes(4);
-    await runner.stop(agentId, workspace, true);
+    await runner.stop(agentId, true);
     await startHost(runner, resume);
     expect(processes.spawn).toHaveBeenCalledTimes(5);
     expect(await readFile(report, "utf8")).toBe("agent report");
 
-    await runner.stop(agentId, workspace, true);
-    await runner.discard(agentId, workspace);
+    await runner.stop(agentId, true);
+    await runner.discard(agentId);
     await expect(stat(files)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it.each(["uid", "gid"] as const)(
     "hands only the files directory to a changed workload %s",
     async (changed) => {
-      const command = launch(MANAGED_WORKSPACE);
+      const command = launch();
       let runner = await start();
       await startHost(runner, command);
       const files = path.join(state, "hosts", agentId, "files");
@@ -1097,7 +1078,7 @@ describe("runner session supervision", () => {
       await symlink(root, path.join(files, "planted-dir"));
       await link(sentinel, path.join(files, "hard-linked"));
       await chmod(files, 0o777);
-      await runner.stop(agentId, MANAGED_WORKSPACE, true);
+      await runner.stop(agentId, true);
       runner.close();
 
       const owner = { uid: process.getuid!(), gid: process.getgid!() };
@@ -1138,24 +1119,22 @@ describe("runner session supervision", () => {
         throw new Error("receipt lost");
       }
     );
-    await expect(startHost(first, launch(MANAGED_WORKSPACE))).rejects.toThrow(
-      "receipt lost"
-    );
+    await expect(startHost(first, launch())).rejects.toThrow("receipt lost");
     first.close();
 
     const recovered = await start();
-    await expect(
-      startHost(recovered, launch(MANAGED_WORKSPACE))
-    ).rejects.toThrow("already has a host");
-    expect(await recovered.alive(agentId, MANAGED_WORKSPACE)).toBe(true);
+    await expect(startHost(recovered, launch())).rejects.toThrow(
+      "already has a host"
+    );
+    expect(await recovered.alive(agentId)).toBe(true);
     expect(processes.spawn).toHaveBeenCalledTimes(1);
   });
 
   it("serializes overlapping launches and stops", async () => {
     const running = await start();
-    const first = startHost(running, launch(MANAGED_WORKSPACE));
-    const second = startHost(running, launch(MANAGED_WORKSPACE));
-    const stopped = running.stop(agentId, MANAGED_WORKSPACE, false);
+    const first = startHost(running, launch());
+    const second = startHost(running, launch());
+    const stopped = running.stop(agentId, false);
     await expect(second).rejects.toThrow("already has a host");
     await first;
     await stopped;
@@ -1192,12 +1171,12 @@ describe("runner session supervision", () => {
     const runner = await start();
     const cwd = await realpath(root);
     const transfer = vi.fn(async () => "YWJj");
-    const first = launch(MANAGED_WORKSPACE);
+    const first = launch();
     await startHost(runner, first);
     const privateFile = path.join(state, "private.txt");
     await writeFile(privateFile, "supervisor only", { mode: 0o600 });
     const collect = (id: string, file: string) =>
-      runner.withSessionFile(id, MANAGED_WORKSPACE, { path: file }, transfer);
+      runner.withSessionFile(id, { path: file }, transfer);
 
     expect(await collect(agentId, "/tmp/shot.png")).toBe("YWJj");
     expect(transfer).toHaveBeenLastCalledWith("", "/tmp/shot.png");
@@ -1225,18 +1204,13 @@ describe("runner session supervision", () => {
     const runner = await start();
     const cwd = await realpath(root);
     const transfer = vi.fn(async () => "");
-    const first = launch(MANAGED_WORKSPACE);
+    const first = launch();
     await startHost(runner, first);
     const deliver = (name: string) =>
-      runner.withSessionFile(
-        agentId,
-        MANAGED_WORKSPACE,
-        { name },
-        async (root, name) => {
-          await transfer(root, name);
-          return path.join(root, name);
-        }
-      );
+      runner.withSessionFile(agentId, { name }, async (root, name) => {
+        await transfer(root, name);
+        return path.join(root, name);
+      });
     const destination = await deliver("résumé (1).pdf");
     expect(transfer).toHaveBeenLastCalledWith(
       path.dirname(destination),
@@ -1362,12 +1336,12 @@ describe("runner session supervision", () => {
 
   it("treats a recycled PID as stale and leaves an unrelated host running", async () => {
     const running = await start();
-    await startHost(running, launch(MANAGED_WORKSPACE));
+    await startHost(running, launch());
     const unrelated = { ...identity, start: "501" };
     kernelHost = unrelated;
-    expect(await running.alive(agentId, MANAGED_WORKSPACE)).toBe(false);
-    expect(await running.attach(agentId, MANAGED_WORKSPACE)).toBeNull();
-    await running.stop(agentId, MANAGED_WORKSPACE, true);
+    expect(await running.alive(agentId)).toBe(false);
+    expect(await running.attach(agentId)).toBeNull();
+    await running.stop(agentId, true);
     expect(kernelHost).toBe(unrelated);
   });
 
@@ -1375,7 +1349,7 @@ describe("runner session supervision", () => {
     "checks the exact socket path when the socket %s after Stop",
     async (stateAfterStop) => {
       const running = await start();
-      await startHost(running, launch(MANAGED_WORKSPACE));
+      await startHost(running, launch());
       const recorded = parseSessionIdentity(await readFile(record, "utf8"));
       if (stateAfterStop === "untracked") await rm(record);
 
@@ -1392,7 +1366,7 @@ describe("runner session supervision", () => {
         socketInUse(pathname, readUnix)
       );
 
-      const stopped = running.stop(agentId, MANAGED_WORKSPACE, false);
+      const stopped = running.stop(agentId, false);
       if (stateAfterStop === "drains") {
         await expect(stopped).resolves.toBeUndefined();
         expect(readUnix).toHaveBeenCalledTimes(2);
@@ -1422,42 +1396,38 @@ describe("runner session supervision", () => {
     await mkdir(hostDir);
     await writeFile(path.join(hostDir, "host.pid"), "100\n");
     processes.socketInUse.mockReturnValue(true);
-    await expect(startHost(running, launch(MANAGED_WORKSPACE))).rejects.toThrow(
+    await expect(startHost(running, launch())).rejects.toThrow(
       "cannot verify ownership"
     );
-    await expect(
-      running.stop(agentId, MANAGED_WORKSPACE, true)
-    ).rejects.toThrow("cannot verify ownership");
+    await expect(running.stop(agentId, true)).rejects.toThrow(
+      "cannot verify ownership"
+    );
     expect(processes.spawn).not.toHaveBeenCalled();
     expect(processes.stop).not.toHaveBeenCalled();
   });
 
-  it.each([{ config: [], workspace: "@session", binding: "\0managed" }])(
-    "reuses an idle legacy $workspace binding",
-    async ({ config, workspace, binding }) => {
-      const running = await start();
-      const bindings = path.join(state, "bindings");
-      await writeFile(path.join(bindings, agentId), binding, { mode: 0o600 });
-      if (config.length === 0) {
-        await writeFile(path.join(bindings, agentId + ".owner"), marker, {
-          mode: 0o600,
-        });
-        await writeFile(path.join(bindings, agentId + ".repository"), "null", {
-          mode: 0o600,
-        });
-      }
-      expect(await running.alive(agentId, workspace)).toBe(false);
-      await startHost(running, launch(workspace));
-      expect(await running.alive(agentId, workspace)).toBe(true);
-      expect(processes.cleanupLegacy.mock.calls).toEqual(
-        config.length ? [] : [[marker]]
-      );
+  it("reuses an idle managed binding", async () => {
+    const binding = "\0managed";
+    const running = await start();
+    const bindings = path.join(state, "bindings");
+    await writeFile(path.join(bindings, agentId), binding, { mode: 0o600 });
+    {
+      await writeFile(path.join(bindings, agentId + ".owner"), marker, {
+        mode: 0o600,
+      });
+      await writeFile(path.join(bindings, agentId + ".repository"), "null", {
+        mode: 0o600,
+      });
     }
-  );
+    expect(await running.alive(agentId)).toBe(false);
+    await startHost(running, launch());
+    expect(await running.alive(agentId)).toBe(true);
+    expect(processes.cleanupLegacy.mock.calls).toEqual([[marker]]);
+  });
 
   it("reads a bounded UTF-8 tail from a large guest log", async () => {
     const running = await start();
-    await startHost(running, launch(MANAGED_WORKSPACE));
+    await startHost(running, launch());
     const log = await open(path.join(state, "bindings", "logs", agentId), "r+");
     const expected = "x".repeat(2044) + "✓";
     try {
@@ -1467,20 +1437,18 @@ describe("runner session supervision", () => {
     } finally {
       await log.close();
     }
-    expect(await running.log(agentId, MANAGED_WORKSPACE)).toBe(
+    expect(await running.log(agentId)).toBe(
       "Guest agent host log.\n" + expected
     );
   });
 
   it("leaves the durable record in place when cleanup fails", async () => {
     const running = await start();
-    await startHost(running, launch(MANAGED_WORKSPACE));
+    await startHost(running, launch());
     processes.cleanup.mockRejectedValueOnce(new Error("cleanup failed"));
-    await expect(
-      running.stop(agentId, MANAGED_WORKSPACE, true)
-    ).rejects.toThrow("cleanup failed");
+    await expect(running.stop(agentId, true)).rejects.toThrow("cleanup failed");
     await expect(stat(record)).resolves.toBeDefined();
-    await running.stop(agentId, MANAGED_WORKSPACE, true);
+    await running.stop(agentId, true);
     await expect(stat(record)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
@@ -1562,7 +1530,7 @@ describe("runner session supervision", () => {
     try {
       // The author starts with MCP omitted. The restricted child gets its own
       // endpoint and credential even though it borrows the author's checkout.
-      await startHost(running, launch(MANAGED_WORKSPACE));
+      await startHost(running, launch());
       processes.spawn.mockImplementationOnce(
         async ([bin, ...args], cwd, env, log, save) => {
           if (codex) {
@@ -1612,7 +1580,7 @@ describe("runner session supervision", () => {
             { timeout: 15_000, interval: 50 }
           )
           .catch(async (error) => {
-            const log = await running.log(reviewerId, MANAGED_WORKSPACE);
+            const log = await running.log(reviewerId);
             throw new Error(log.replaceAll(token, "[fixture bearer]"), {
               cause: error,
             });
@@ -1698,7 +1666,7 @@ describe("runner session supervision", () => {
     const running = await start();
     const author = path.join(state, "sessions", agentId);
     const reviewerHost = path.join(state, "hosts", reviewerId);
-    await startHost(running, launch(MANAGED_WORKSPACE));
+    await startHost(running, launch());
     await writeFile(path.join(author, "uncommitted.txt"), "author's work");
     const reviewerIdentity = { ...identity, pid: 101 };
     processes.spawn.mockImplementationOnce(
@@ -1715,10 +1683,8 @@ describe("runner session supervision", () => {
       }
     );
     await startHost(running, sharedLaunch());
-    expect(await running.alive(reviewerId, MANAGED_WORKSPACE)).toBe(true);
-    expect(await running.checkoutDirectory(reviewerId, MANAGED_WORKSPACE)).toBe(
-      author
-    );
+    expect(await running.alive(reviewerId)).toBe(true);
+    expect(await running.checkoutDirectory(reviewerId)).toBe(author);
     const payload = JSON.parse(
       await readFile(path.join(reviewerHost, "launch.json"), "utf8")
     );
@@ -1735,67 +1701,59 @@ describe("runner session supervision", () => {
     await expect(
       stat(path.join(state, "sessions", reviewerId))
     ).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(
-      running.discard(reviewerId, MANAGED_WORKSPACE)
-    ).rejects.toThrow("Stop the guest host");
-    await running.stop(reviewerId, MANAGED_WORKSPACE, true);
-    await running.discard(reviewerId, MANAGED_WORKSPACE);
-    expect(await running.alive(agentId, MANAGED_WORKSPACE)).toBe(true);
+    await expect(running.discard(reviewerId)).rejects.toThrow(
+      "Stop the guest host"
+    );
+    await running.stop(reviewerId, true);
+    await running.discard(reviewerId);
+    expect(await running.alive(agentId)).toBe(true);
     expect(await readFile(path.join(author, "uncommitted.txt"), "utf8")).toBe(
       "author's work"
     );
   });
 
   it("retains the author checkout until all borrower state is discarded across restarts", async () => {
-    const workspace = MANAGED_WORKSPACE;
     const running = await start();
-    await startHost(running, launch(workspace));
-    await running.stop(agentId, workspace, true);
+    await startHost(running, launch());
+    await running.stop(agentId, true);
     // Even a failed spawn has reserved the binding. Only a successful
     // discard confirms that any partially started host is gone.
     processes.spawn.mockRejectedValueOnce(new Error("spawn failed"));
     await expect(startHost(running, sharedLaunch())).rejects.toThrow(
       "spawn failed"
     );
-    await expect(running.discard(agentId, workspace)).rejects.toThrow(
-      "still in use"
-    );
+    await expect(running.discard(agentId)).rejects.toThrow("still in use");
     running.close();
 
     const recovered = await start();
     const author = path.join(state, "sessions", agentId);
-    expect(await recovered.checkoutDirectory(reviewerId, workspace)).toBe(
-      author
+    expect(await recovered.checkoutDirectory(reviewerId)).toBe(author);
+    await expect(recovered.checkoutDirectory(agentId)).rejects.toThrow(
+      "archived"
     );
-    await expect(
-      recovered.checkoutDirectory(agentId, workspace)
-    ).rejects.toThrow("archived");
     await expect(
       startHost(recovered, { ...sharedLaunch(), agentId: "agt_new" })
     ).rejects.toThrow("archived");
     // A relaunch has no checkout selection; it uses the persisted borrower binding.
     processes.spawn.mockResolvedValueOnce();
-    await startHost(recovered, { ...launch(workspace), agentId: reviewerId });
+    await startHost(recovered, { ...launch(), agentId: reviewerId });
     expect(hostCwd(processes.spawn.mock.calls.at(-1)!)).toBe(author);
-    await expect(recovered.discard(agentId, workspace)).rejects.toThrow(
-      "still in use"
-    );
-    await recovered.discard(reviewerId, workspace);
+    await expect(recovered.discard(agentId)).rejects.toThrow("still in use");
+    await recovered.discard(reviewerId);
     await expect(stat(author)).resolves.toBeDefined();
-    await recovered.discard(agentId, workspace);
-    await recovered.discard(agentId, workspace);
+    await recovered.discard(agentId);
+    await recovered.discard(agentId);
     await expect(stat(author)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("observes ownership alone for an authorized removal: no checkout state is read (no Git status or fetch)", async () => {
-    const workspace = MANAGED_WORKSPACE;
     // The state read (Git status, and the fetch archive changes run).
     const observeCheckout = vi.fn(async () => {
       throw new Error("no checkout state is read");
     });
     const running = await start(vi.fn(), { observeCheckout });
-    await startHost(running, launch(workspace));
-    await running.stop(agentId, workspace, true);
+    await startHost(running, launch());
+    await running.stop(agentId, true);
     const { calls } = enrolledSessions(running, vi.fn());
     const session = sessionFromWire(agentId);
     expect(
@@ -1813,10 +1771,9 @@ describe("runner session supervision", () => {
   });
 
   it("holds the owner checkout through a concurrent borrower launch", async () => {
-    const workspace = MANAGED_WORKSPACE;
     const running = await start();
-    await startHost(running, launch(workspace));
-    await running.stop(agentId, workspace, true);
+    await startHost(running, launch());
+    await running.stop(agentId, true);
     const entered = Promise.withResolvers<void>();
     const finish = Promise.withResolvers<void>();
     processes.spawn.mockImplementationOnce(async () => {
@@ -1825,7 +1782,7 @@ describe("runner session supervision", () => {
     });
     const started = startHost(running, sharedLaunch());
     await entered.promise;
-    const discarding = running.discard(agentId, workspace);
+    const discarding = running.discard(agentId);
     finish.resolve();
     await started;
     await expect(discarding).rejects.toThrow("still in use");
@@ -1840,7 +1797,7 @@ describe("runner session supervision", () => {
     await expect(startHost(running, sharedLaunch())).rejects.toThrow(
       "No checkout is bound"
     );
-    await startHost(running, launch(MANAGED_WORKSPACE));
+    await startHost(running, launch());
     processes.spawn.mockResolvedValueOnce();
     await startHost(running, sharedLaunch());
     await expect(
@@ -1850,11 +1807,10 @@ describe("runner session supervision", () => {
   });
 
   it("binds a nested managed reviewer directly to the durable checkout owner", async () => {
-    const workspace = MANAGED_WORKSPACE;
     const nested = "agt_nested";
     const running = await start();
-    await startHost(running, launch(workspace));
-    await running.stop(agentId, workspace, true);
+    await startHost(running, launch());
+    await running.stop(agentId, true);
     processes.spawn.mockResolvedValueOnce();
     await startHost(running, sharedLaunch());
     running.close();
@@ -1865,19 +1821,16 @@ describe("runner session supervision", () => {
       ...sharedLaunch(reviewerId),
       agentId: nested,
     });
-    await recovered.discard(reviewerId, workspace);
+    await recovered.discard(reviewerId);
     const author = path.join(state, "sessions", agentId);
-    expect(await recovered.checkoutDirectory(nested, workspace)).toBe(author);
-    await expect(recovered.discard(agentId, workspace)).rejects.toThrow(
-      "still in use"
-    );
-    await recovered.discard(nested, workspace);
-    await recovered.discard(agentId, workspace);
+    expect(await recovered.checkoutDirectory(nested)).toBe(author);
+    await expect(recovered.discard(agentId)).rejects.toThrow("still in use");
+    await recovered.discard(nested);
+    await recovered.discard(agentId);
     await expect(stat(author)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("persists moved and borrowed checkouts independently across restarts", async () => {
-    const workspace = MANAGED_WORKSPACE;
     const nested = "agt_nested";
     const independent = "agt_independent";
     const asWorkload = async (bin: string, args: string[]) =>
@@ -1899,9 +1852,9 @@ describe("runner session supervision", () => {
       "remote.origin.url",
       "https://secret@example.test/org/project.git",
     ]);
-    await startHost(runner, launch(workspace));
+    await startHost(runner, launch());
     const select = (path: string) =>
-      runner.sessionCheckout(agentId, workspace, { kind: "select", path });
+      runner.sessionCheckout(agentId, { kind: "select", path });
     const owningDir = path.join(state, "sessions", agentId);
     const owningSubdir = path.join(owningDir, "subdirectory");
     await mkdir(owningSubdir);
@@ -1925,12 +1878,10 @@ describe("runner session supervision", () => {
     );
     await rm(path.join(ancestor, ".git"), { recursive: true, force: true });
     await select(owningSubdir);
-    await expect(runner.checkoutDirectory(agentId, workspace)).resolves.toBe(
-      owningSubdir
-    );
+    await expect(runner.checkoutDirectory(agentId)).resolves.toBe(owningSubdir);
 
     await expect(
-      runner.sessionCheckout(agentId, workspace, {
+      runner.sessionCheckout(agentId, {
         kind: "select",
         path: subdir,
       })
@@ -1947,38 +1898,33 @@ describe("runner session supervision", () => {
     processes.spawn.mockResolvedValueOnce();
     await startHost(runner, { ...sharedLaunch(reviewerId), agentId: nested });
     processes.spawn.mockResolvedValueOnce();
-    await startHost(runner, { ...launch(workspace), agentId: independent });
-    const independentDir = await runner.checkoutDirectory(
-      independent,
-      workspace
-    );
+    await startHost(runner, { ...launch(), agentId: independent });
+    const independentDir = await runner.checkoutDirectory(independent);
     await expect(
-      runner.sessionCheckout(agentId, workspace, {
+      runner.sessionCheckout(agentId, {
         kind: "select",
         path: independentDir,
       })
     ).resolves.toMatchObject({ path: independentDir, moved: true });
     await select(subdir);
 
-    await runner.stop(agentId, workspace, false);
+    await runner.stop(agentId, false);
     runner.close();
     const recovered = await start(asWorkload);
-    await startHost(recovered, launch(workspace));
+    await startHost(recovered, launch());
     expect(hostCwd(processes.spawn.mock.calls.at(-1)!)).toBe(checkout);
-    await expect(
-      recovered.checkoutDirectory(independent, workspace)
-    ).resolves.toBe(independentDir);
-    await recovered.sessionCheckout(agentId, workspace, {
+    await expect(recovered.checkoutDirectory(independent)).resolves.toBe(
+      independentDir
+    );
+    await recovered.sessionCheckout(agentId, {
       kind: "select",
       path: null,
     });
-    expect(await recovered.checkoutDirectory(agentId, workspace)).not.toBe(
-      checkout
-    );
+    expect(await recovered.checkoutDirectory(agentId)).not.toBe(checkout);
     for (const borrower of [reviewerId, nested])
-      await expect(
-        recovered.checkoutDirectory(borrower, workspace)
-      ).resolves.toBe(checkout);
+      await expect(recovered.checkoutDirectory(borrower)).resolves.toBe(
+        checkout
+      );
     processes.spawn.mockResolvedValueOnce();
     await startHost(recovered, {
       ...sharedLaunch(reviewerId),
@@ -2001,13 +1947,12 @@ describe("runner session supervision", () => {
       const bound = await bindings.get(id);
       expect(bound).not.toBeNull();
       expect(bound!.currentPath ?? bound!.path).toBe(
-        await recovered.checkoutDirectory(id, workspace)
+        await recovered.checkoutDirectory(id)
       );
     }
   });
 
   it("tells the core's binding store after each binding write, and never fails for it", async () => {
-    const workspace = MANAGED_WORKSPACE;
     const asWorkload = async (bin: string, args: string[]) =>
       bin === "realpath"
         ? (await realpath(args.at(-1)!)) + "\n"
@@ -2047,7 +1992,7 @@ describe("runner session supervision", () => {
       ).catch(() => null);
       return text === null ? null : JSON.parse(text);
     };
-    await startHost(runner, launch(workspace));
+    await startHost(runner, launch());
     expect(told).toEqual([agentId, agentId]);
     const owning = path.join(await realpath(state), "sessions", agentId);
     expect(await record()).toMatchObject({
@@ -2058,7 +2003,7 @@ describe("runner session supervision", () => {
     });
     const subdir = path.join(owning, "subdirectory");
     await mkdir(subdir);
-    await runner.sessionCheckout(agentId, workspace, {
+    await runner.sessionCheckout(agentId, {
       kind: "select",
       path: subdir,
     });
@@ -2067,7 +2012,7 @@ describe("runner session supervision", () => {
     // A store that fails changes nothing the supervisor does.
     fail = true;
     await expect(
-      runner.sessionCheckout(agentId, workspace, { kind: "select", path: null })
+      runner.sessionCheckout(agentId, { kind: "select", path: null })
     ).resolves.toMatchObject({ moved: false });
     expect(
       await readFile(
@@ -2082,13 +2027,12 @@ describe("runner session supervision", () => {
       currentPath: null,
     });
 
-    await runner.stop(agentId, workspace, false);
-    await runner.discard(agentId, workspace);
+    await runner.stop(agentId, false);
+    await runner.discard(agentId);
     expect(await record()).toBeNull();
   });
 
   it("lets a managed session select any folder its account can use, like local", async () => {
-    const workspace = MANAGED_WORKSPACE;
     const asWorkload = async (bin: string, args: string[]) =>
       bin === "realpath"
         ? (await realpath(args.at(-1)!)) + "\n"
@@ -2097,10 +2041,10 @@ describe("runner session supervision", () => {
             stdio: ["ignore", "pipe", "ignore"],
           });
     const runner = await start(asWorkload);
-    await startHost(runner, launch(workspace));
-    const ownedCheckout = await runner.checkoutDirectory(agentId, workspace);
+    await startHost(runner, launch());
+    const ownedCheckout = await runner.checkoutDirectory(agentId);
     const select = (path: string) =>
-      runner.sessionCheckout(agentId, workspace, { kind: "select", path });
+      runner.sessionCheckout(agentId, { kind: "select", path });
     const sessions = path.join(state, "sessions");
     const parent = path.join(sessions, "agt_sibling");
     const checkout = path.join(parent, "checkout");
@@ -2138,23 +2082,18 @@ describe("runner session supervision", () => {
       "unavailable to the runner workload"
     );
     await select(nested);
-    await expect(runner.checkoutDirectory(agentId, workspace)).resolves.toBe(
-      nested
-    );
-    expect(await runner.checkoutDirectory(agentId, workspace, "current")).toBe(
-      nested
-    );
-    expect(await runner.checkoutDirectory(agentId, workspace, "launch")).toBe(
+    await expect(runner.checkoutDirectory(agentId)).resolves.toBe(nested);
+    expect(await runner.checkoutDirectory(agentId, "current")).toBe(nested);
+    expect(await runner.checkoutDirectory(agentId, "launch")).toBe(
       ownedCheckout
     );
     for (const unknown of ["moved", "unknown", null, 1])
       await expect(
-        runner.checkoutDirectory(agentId, workspace, unknown as never)
+        runner.checkoutDirectory(agentId, unknown as never)
       ).rejects.toThrow("Invalid checkout read selector.");
   });
 
   describe("a folder an agent named (D7)", () => {
-    const workspace = MANAGED_WORKSPACE;
     const asWorkload = async (bin: string, args: string[]) =>
       bin === "realpath"
         ? (await realpath(args.at(-1)!)) + "\n"
@@ -2189,23 +2128,21 @@ describe("runner session supervision", () => {
       });
       const folder = await namedFolder();
       await bindFolder(folder);
-      await startHost(runner, launch(workspace));
+      await startHost(runner, launch());
       expect(processes.spawn).toHaveBeenCalledTimes(1);
       // The privileged launcher starts in `/`; the folder goes to the host
       // command, which enters it after dropping privilege.
       const [command, cwd] = processes.spawn.mock.calls[0]!;
       expect(cwd).toBe("/");
       expect(command.slice(-2)).toEqual(["--cwd", folder]);
-      await expect(runner.checkoutDirectory(agentId, workspace)).resolves.toBe(
-        folder
-      );
+      await expect(runner.checkoutDirectory(agentId)).resolves.toBe(folder);
     });
 
     it("starts a folder session's child in the same folder, owned by neither", async () => {
       const runner = await start(asWorkload);
       const folder = await namedFolder();
       await bindFolder(folder);
-      await startHost(runner, launch(workspace));
+      await startHost(runner, launch());
       // The core's store bound the child to the parent's folder.
       const bindings = path.join(state, "bindings");
       await writeFile(path.join(bindings, reviewerId), "\0folder");
@@ -2216,21 +2153,21 @@ describe("runner session supervision", () => {
           await save({ ...identity, pid: 101 });
         }
       );
-      await startHost(runner, { ...launch(workspace), agentId: reviewerId });
+      await startHost(runner, { ...launch(), agentId: reviewerId });
       const before = await bytes(folder);
       for (const id of [reviewerId, agentId])
-        expect(await runner.observeWorkspace(id, workspace)).toEqual({
+        expect(await runner.observeWorkspace(id)).toEqual({
           ownership: "external",
           owner: null,
           borrowers: [],
           checkout: null,
         });
       // Either archives first; neither removes the folder or waits on the other.
-      await runner.stop(agentId, workspace, true);
-      await runner.discard(agentId, workspace);
-      await runner.stop(reviewerId, workspace, true);
+      await runner.stop(agentId, true);
+      await runner.discard(agentId);
+      await runner.stop(reviewerId, true);
       await expect(
-        runner.releaseWorkspace(reviewerId, workspace, async () => true)
+        runner.releaseWorkspace(reviewerId, async () => true)
       ).resolves.toBe(false);
       expect(await bytes(folder)).toEqual(before);
     });
@@ -2264,7 +2201,7 @@ describe("runner session supervision", () => {
         }
       );
       try {
-        await startHost(runner, launch(workspace));
+        await startHost(runner, launch());
       } finally {
         await chmod(sealed, 0o755);
       }
@@ -2279,20 +2216,20 @@ describe("runner session supervision", () => {
       const runner = await start(asWorkload);
       const folder = await namedFolder();
       await bindFolder(folder);
-      await startHost(runner, launch(workspace));
+      await startHost(runner, launch());
       const before = await bytes(folder);
-      expect(await runner.observeWorkspace(agentId, workspace)).toEqual({
+      expect(await runner.observeWorkspace(agentId)).toEqual({
         ownership: "external",
         owner: null,
         borrowers: [],
         checkout: null,
       });
-      await runner.stop(agentId, workspace, true);
+      await runner.stop(agentId, true);
       await expect(
-        runner.releaseWorkspace(agentId, workspace, async () => true)
+        runner.releaseWorkspace(agentId, async () => true)
       ).resolves.toBe(false);
       expect(await bytes(folder)).toEqual(before);
-      await runner.discard(agentId, workspace);
+      await runner.discard(agentId);
       expect(await bytes(folder)).toEqual(before);
     });
 
@@ -2304,12 +2241,12 @@ describe("runner session supervision", () => {
       // Swapped for a link after it was resolved.
       await rm(folder, { recursive: true });
       await symlink(elsewhere, folder);
-      await expect(startHost(runner, launch(workspace))).rejects.toThrow(
+      await expect(startHost(runner, launch())).rejects.toThrow(
         "The named folder changed since it was resolved."
       );
       // Gone altogether.
       await rm(folder);
-      await expect(startHost(runner, launch(workspace))).rejects.toThrow(
+      await expect(startHost(runner, launch())).rejects.toThrow(
         "unavailable to the runner workload"
       );
       expect(processes.spawn).not.toHaveBeenCalled();
@@ -2323,9 +2260,9 @@ describe("runner session supervision", () => {
       await writeFile(path.join(bindings, `${agentId}.repository`), "{}");
       await mkdir(path.join(state, "sessions", agentId), { mode: 0o751 });
       const release = vi.fn(async () => true);
-      await expect(
-        runner.releaseWorkspace(agentId, workspace, release)
-      ).resolves.toBe(true);
+      await expect(runner.releaseWorkspace(agentId, release)).resolves.toBe(
+        true
+      );
       expect(release).toHaveBeenCalledWith();
       await expect(
         readFile(path.join(bindings, agentId))
@@ -2344,7 +2281,7 @@ describe("runner session supervision", () => {
       await writeFile(path.join(bindings, `${agentId}.repository`), "null");
       await mkdir(path.join(state, "sessions", agentId), { mode: 0o751 });
       await chmod(path.join(state, "sessions", agentId), 0o751);
-      await expect(startHost(runner, launch(workspace))).rejects.toThrow(
+      await expect(startHost(runner, launch())).rejects.toThrow(
         "The prepared checkout binding changed."
       );
       expect(processes.spawn).not.toHaveBeenCalled();
@@ -2353,7 +2290,7 @@ describe("runner session supervision", () => {
 
   it("rejects symlink redirection of a legacy repository checkout", async () => {
     const running = await start();
-    const workspace = MANAGED_WORKSPACE;
+
     const author = path.join(state, "sessions", agentId);
     await mkdir(author);
     await symlink(root, path.join(author, "checkout"));
@@ -2365,17 +2302,17 @@ describe("runner session supervision", () => {
     await expect(startHost(running, sharedLaunch())).rejects.toThrow(
       "checkout is unavailable"
     );
-    await expect(running.checkoutDirectory(agentId, workspace)).rejects.toThrow(
+    await expect(running.checkoutDirectory(agentId)).rejects.toThrow(
       "checkout is unavailable"
     );
-    expect(await running.isBound(reviewerId, workspace)).toBe(false);
+    expect(await running.isBound(reviewerId)).toBe(false);
     expect(processes.spawn).not.toHaveBeenCalled();
   });
 
   it("borrows a pre-migration Git worktree and retries owner cleanup", async () => {
     const git = (...args: string[]) =>
       execFileSync("git", args, { encoding: "utf8" });
-    const workspace = MANAGED_WORKSPACE;
+
     const url = "https://github.com/fixture/project.git";
     const repository = {
       url,
@@ -2428,33 +2365,29 @@ describe("runner session supervision", () => {
     processes.spawn.mockResolvedValueOnce();
     await startHost(running, sharedLaunch());
     expect(hostCwd(processes.spawn.mock.calls[0]!)).toBe(checkout);
-    expect(await running.checkoutDirectory(reviewerId, workspace)).toBe(
-      checkout
-    );
+    expect(await running.checkoutDirectory(reviewerId)).toBe(checkout);
     expect((await stat(author)).mode & 0o777).toBe(0o751);
     expect(workload).not.toHaveBeenCalled();
     const legacyHead = git("-C", checkout, "rev-parse", "HEAD").trim();
     git(`--git-dir=${cache}`, "update-ref", "refs/heads/main", legacyHead);
-    expect(await running.observeWorkspace(agentId, workspace)).toMatchObject({
+    expect(await running.observeWorkspace(agentId)).toMatchObject({
       ownership: "owned",
       borrowers: [reviewerId],
       checkout: { unmerged: false, uncommittedFiles: ["?? uncommitted.txt"] },
     });
-    await expect(running.discard(agentId, workspace)).rejects.toThrow(
-      "still in use"
-    );
-    await running.discard(reviewerId, workspace);
+    await expect(running.discard(agentId)).rejects.toThrow("still in use");
+    await running.discard(reviewerId);
     expect(await readFile(path.join(checkout, "uncommitted.txt"), "utf8")).toBe(
       "pending change"
     );
 
     workload.mockRejectedValueOnce(new Error("Git cleanup interrupted"));
-    await expect(running.discard(agentId, workspace)).rejects.toThrow(
+    await expect(running.discard(agentId)).rejects.toThrow(
       "Git cleanup interrupted"
     );
     running.close();
     const recovered = await start(workload);
-    await recovered.discard(agentId, workspace);
+    await recovered.discard(agentId);
     expect(
       git(`--git-dir=${cache}`, "worktree", "list", "--porcelain")
     ).not.toContain(checkout);
@@ -2464,8 +2397,8 @@ describe("runner session supervision", () => {
   describe("launch acknowledgements", () => {
     const LAUNCH = "6f1c2d3e-4a5b-4c6d-8e7f-8091a2b3c4d5";
     const OTHER_LAUNCH = "7a1c2d3e-4a5b-4c6d-8e7f-8091a2b3c4d5";
-    const withId = (workspace: string, launchId?: string) => {
-      const command = launch(workspace);
+    const withId = (launchId?: string) => {
+      const command = launch();
       return {
         ...command,
         launch: {
@@ -2508,7 +2441,7 @@ describe("runner session supervision", () => {
           kernelHost = identity;
         }
       );
-      await startHost(runner, withId(MANAGED_WORKSPACE, LAUNCH));
+      await startHost(runner, withId(LAUNCH));
       expect(processes.spawn).toHaveBeenCalledTimes(1);
       // The ID never reaches the host's own launch file.
       expect(await hostOptions()).not.toHaveProperty("launchId");
@@ -2530,9 +2463,7 @@ describe("runner session supervision", () => {
           JSON.stringify({ ...currentIdentity, sessionId: id })
         );
         expect(
-          (await runner.listSessions(MANAGED_WORKSPACE)).sessions.map(
-            (row) => row.session
-          )
+          (await runner.listSessions()).sessions.map((row) => row.session)
         ).toEqual([id]);
       }
     );
@@ -2542,7 +2473,7 @@ describe("runner session supervision", () => {
       const binding = path.join(state, "bindings", agentId);
       await writeFile(binding, "\0managed");
       await writeFile(binding + ".host", JSON.stringify(identity));
-      expect(await runner.listSessions(MANAGED_WORKSPACE)).toEqual({
+      expect(await runner.listSessions()).toEqual({
         sessions: [],
       });
     });
@@ -2564,15 +2495,13 @@ describe("runner session supervision", () => {
             kernelHost = busyHost;
           }
         );
-        const command = withId(MANAGED_WORKSPACE, LAUNCH);
+        const command = withId(LAUNCH);
         await startHost(runner, {
           ...command,
           launch: { ...command.launch, owner: "controller-a" },
         });
         const session = sessionFromWire(agentId);
-        expect(
-          await runner.listSessions(MANAGED_WORKSPACE, "controller-a")
-        ).toMatchObject({
+        expect(await runner.listSessions("controller-a")).toMatchObject({
           sessions: [
             {
               session,
@@ -2592,43 +2521,24 @@ describe("runner session supervision", () => {
         await expect
           .poll(
             async () =>
-              (await runner.sampleSessions(MANAGED_WORKSPACE, [session]))
-                .samples[0]?.cpuPercent
+              (await runner.sampleSessions([session])).samples[0]?.cpuPercent
           )
           .toBeGreaterThan(0);
-        const { samples } = await runner.sampleSessions(MANAGED_WORKSPACE, [
-          session,
-        ]);
+        const { samples } = await runner.sampleSessions([session]);
         expect(samples[0]?.rssBytes).toBeGreaterThan(0);
-        expect(
-          await runner.listSessions(MANAGED_WORKSPACE, "controller-b")
-        ).toEqual({
+        expect(await runner.listSessions("controller-b")).toEqual({
           sessions: [],
         });
-        expect(
-          await runner.stop(
-            agentId,
-            MANAGED_WORKSPACE,
-            true,
-            LAUNCH,
-            "controller-b"
-          )
-        ).toBe(false);
-        expect(processes.stop).not.toHaveBeenCalled();
-        await runner.stop(
-          agentId,
-          MANAGED_WORKSPACE,
-          true,
-          LAUNCH,
-          "controller-a"
+        expect(await runner.stop(agentId, true, LAUNCH, "controller-b")).toBe(
+          false
         );
+        expect(processes.stop).not.toHaveBeenCalled();
+        await runner.stop(agentId, true, LAUNCH, "controller-a");
         expect(processes.stop).toHaveBeenCalledWith(
           expect.objectContaining({ pid: child.pid }),
           true
         );
-        expect((await runner.listSessions(MANAGED_WORKSPACE)).sessions).toEqual(
-          []
-        );
+        expect((await runner.listSessions()).sessions).toEqual([]);
       } finally {
         child.kill();
         await exited;
@@ -2637,30 +2547,26 @@ describe("runner session supervision", () => {
 
     it("ignores a stop for an older launch and stops the requested launch once", async () => {
       const runner = await start();
-      await startHost(runner, withId(MANAGED_WORKSPACE, OTHER_LAUNCH));
-      expect(await runner.stop(agentId, MANAGED_WORKSPACE, true, LAUNCH)).toBe(
-        false
-      );
+      await startHost(runner, withId(OTHER_LAUNCH));
+      expect(await runner.stop(agentId, true, LAUNCH)).toBe(false);
       expect(processes.stop).not.toHaveBeenCalled();
-      expect(
-        await runner.stop(agentId, MANAGED_WORKSPACE, true, OTHER_LAUNCH)
-      ).toBeUndefined();
-      await runner.stop(agentId, MANAGED_WORKSPACE, true, OTHER_LAUNCH);
+      expect(await runner.stop(agentId, true, OTHER_LAUNCH)).toBeUndefined();
+      await runner.stop(agentId, true, OTHER_LAUNCH);
       expect(processes.stop).toHaveBeenCalledTimes(1);
     });
 
     it("adopts its own host when the same launch waited at the lock queue", async () => {
       const runner = await start();
-      const first = startHost(runner, withId(MANAGED_WORKSPACE, LAUNCH));
-      const repeat = startHost(runner, withId(MANAGED_WORKSPACE, LAUNCH));
+      const first = startHost(runner, withId(LAUNCH));
+      const repeat = startHost(runner, withId(LAUNCH));
       const progress = vi.fn();
-      const other = startHost(runner, withId(MANAGED_WORKSPACE, OTHER_LAUNCH));
+      const other = startHost(runner, withId(OTHER_LAUNCH));
       await first;
       await repeat;
       await expect(other).rejects.toThrow("already has a host");
       expect(processes.spawn).toHaveBeenCalledTimes(1);
       expect(await sessionDirs()).toEqual([agentId]);
-      expect(await runner.alive(agentId, MANAGED_WORKSPACE)).toBe(true);
+      expect(await runner.alive(agentId)).toBe(true);
     });
 
     it("spawns once more when the supervisor stopped before the process gate opened", async () => {
@@ -2672,16 +2578,16 @@ describe("runner session supervision", () => {
           throw new Error("supervisor stopped");
         }
       );
-      await expect(
-        startHost(first, withId(MANAGED_WORKSPACE, LAUNCH))
-      ).rejects.toThrow("supervisor stopped");
+      await expect(startHost(first, withId(LAUNCH))).rejects.toThrow(
+        "supervisor stopped"
+      );
       first.close();
 
       const recovered = await start();
-      await startHost(recovered, withId(MANAGED_WORKSPACE, LAUNCH));
+      await startHost(recovered, withId(LAUNCH));
       expect(processes.spawn).toHaveBeenCalledTimes(2);
       expect(processes.cleanup).toHaveBeenCalledTimes(1);
-      expect(await recovered.alive(agentId, MANAGED_WORKSPACE)).toBe(true);
+      expect(await recovered.alive(agentId)).toBe(true);
       expect(await sessionDirs()).toEqual([agentId]);
       expect(await launchRecord()).toMatchObject({
         launchId: LAUNCH,
@@ -2702,7 +2608,7 @@ describe("runner session supervision", () => {
               throw new Error("receipt lost");
             }
           );
-        const sent = startHost(first, withId(MANAGED_WORKSPACE, LAUNCH));
+        const sent = startHost(first, withId(LAUNCH));
         if (boundary === "after spawn")
           await expect(sent).rejects.toThrow("receipt lost");
         else await sent;
@@ -2710,7 +2616,7 @@ describe("runner session supervision", () => {
         first.close();
 
         const recovered = await start();
-        await startHost(recovered, withId(MANAGED_WORKSPACE, LAUNCH));
+        await startHost(recovered, withId(LAUNCH));
         expect(processes.spawn).toHaveBeenCalledTimes(1);
         expect(processes.cleanup).not.toHaveBeenCalled();
         expect((await hostOptions()).hostInstanceId).toBe(instance);
@@ -2718,7 +2624,7 @@ describe("runner session supervision", () => {
 
         // Another attempt for the same session keeps the existing conflict.
         await expect(
-          startHost(recovered, withId(MANAGED_WORKSPACE, OTHER_LAUNCH))
+          startHost(recovered, withId(OTHER_LAUNCH))
         ).rejects.toThrow("already has a host");
         // So does a host that is not the one this attempt started.
         await writeFile(
@@ -2728,20 +2634,20 @@ describe("runner session supervision", () => {
             hostInstanceId: "11111111-2222-4333-8444-555555555555",
           })
         );
-        await expect(
-          startHost(recovered, withId(MANAGED_WORKSPACE, LAUNCH))
-        ).rejects.toThrow("already has a host");
+        await expect(startHost(recovered, withId(LAUNCH))).rejects.toThrow(
+          "already has a host"
+        );
         expect(processes.spawn).toHaveBeenCalledTimes(1);
       }
     );
 
     it("does not adopt a legacy host record for the same launch", async () => {
       const runner = await start();
-      await startHost(runner, withId(MANAGED_WORKSPACE, LAUNCH));
+      await startHost(runner, withId(LAUNCH));
       await writeFile(record, JSON.stringify(identity));
-      await expect(
-        startHost(runner, withId(MANAGED_WORKSPACE, LAUNCH))
-      ).rejects.toThrow("already has a host");
+      await expect(startHost(runner, withId(LAUNCH))).rejects.toThrow(
+        "already has a host"
+      );
     });
 
     it.each([
@@ -2750,7 +2656,7 @@ describe("runner session supervision", () => {
       ["a malformed host instance", { hostInstanceId: 5 }],
     ])("treats a launch record with %s as a new launch", async (_, change) => {
       const runner = await start();
-      await startHost(runner, withId(MANAGED_WORKSPACE, LAUNCH));
+      await startHost(runner, withId(LAUNCH));
       kernelHost = undefined;
       // Otherwise an install of unknown result: this attempt would refuse.
       const recorded = {
@@ -2764,13 +2670,13 @@ describe("runner session supervision", () => {
           ? change
           : JSON.stringify({ ...recorded, ...change })
       );
-      await startHost(runner, withId(MANAGED_WORKSPACE, LAUNCH));
+      await startHost(runner, withId(LAUNCH));
       expect(processes.spawn).toHaveBeenCalledTimes(2);
     });
 
     it("refuses only an install whose result is not on disk", async () => {
       const runner = await start();
-      await startHost(runner, withId(MANAGED_WORKSPACE, LAUNCH));
+      await startHost(runner, withId(LAUNCH));
       kernelHost = undefined;
       await writeFile(
         path.join(state, "bindings", agentId + ".launch"),
@@ -2780,23 +2686,23 @@ describe("runner session supervision", () => {
           dependencies: "started",
         })
       );
-      await expect(
-        startHost(runner, withId(MANAGED_WORKSPACE, LAUNCH))
-      ).rejects.toThrow("their result is unknown");
+      await expect(startHost(runner, withId(LAUNCH))).rejects.toThrow(
+        "their result is unknown"
+      );
       // The install finished just before the record could say so.
       await writeFile(
         path.join(state, "bindings", agentId + ".dependencies"),
         "done"
       );
-      await startHost(runner, withId(MANAGED_WORKSPACE, LAUNCH));
+      await startHost(runner, withId(LAUNCH));
       expect(processes.spawn).toHaveBeenCalledTimes(2);
     });
 
     it("discards the launch record with the session", async () => {
       const runner = await start();
-      await startHost(runner, withId(MANAGED_WORKSPACE, LAUNCH));
-      await runner.stop(agentId, MANAGED_WORKSPACE, true);
-      await runner.discard(agentId, MANAGED_WORKSPACE);
+      await startHost(runner, withId(LAUNCH));
+      await runner.stop(agentId, true);
+      await runner.discard(agentId);
       expect(await launchRecord()).toBeNull();
     });
   });

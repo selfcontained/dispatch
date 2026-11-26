@@ -249,7 +249,7 @@ it("runs bound file operations through the workload and reports byte count and d
   );
   const calls = enrolledFiles(
     {
-      async withSessionFile(id, _workspace, file, run) {
+      async withSessionFile(id, file, run) {
         if (id !== sessionToWire(session))
           throw new RunnerCallError({
             code: "not_found",
@@ -740,7 +740,6 @@ it("resolves enrolled checkout operations from the session binding and workload 
         checkoutDirectory: checked,
         withCommandCheckout: async (
           id,
-          _workspace,
           _checkout,
 
           _signal,
@@ -794,6 +793,23 @@ it("resolves enrolled checkout operations from the session binding and workload 
     client.call("checkout.read", { ...input, target: { session: absent } })
   ).rejects.toMatchObject({ code: "not_found" });
   expect(manifest).toHaveBeenCalledTimes(2);
+  const deadlines = vi.spyOn(AbortSignal, "timeout");
+  try {
+    for (const [checkout, timeout] of [
+      ["current", 300000],
+      ["launch", 15000],
+      ["moved", 15000],
+    ] as const) {
+      deadlines.mockClear();
+      await client.call("checkout.read", {
+        ...input,
+        target: { session, checkout },
+      });
+      expect(deadlines).toHaveBeenCalledWith(timeout);
+    }
+  } finally {
+    deadlines.mockRestore();
+  }
 });
 
 it("holds the command checkout while credited output is sent and aborts a timed-out child", async () => {
@@ -821,7 +837,6 @@ it("holds the command checkout while credited output is sent and aborts a timed-
       checkoutDirectory: async () => "/held",
       withCommandCheckout: async (
         _id,
-        _workspace,
         selector,
 
         _signal,

@@ -43,7 +43,6 @@ import {
 import { probeGitContext } from "../../shared/git/git-context.js";
 import type { CommandRunner } from "../../shared/lib/run-command.js";
 import {
-  MANAGED_WORKSPACE,
   isOpaqueId,
   isUpdateAttemptId,
   isCheckoutPath,
@@ -612,9 +611,9 @@ export async function createSessionSupervisor(
     return checkout;
   }
 
-  async function initialDirectory(key: string, workspace: string) {
+  async function initialDirectory(key: string) {
     const binding = await readBinding(key);
-    if (!matchesWorkspace(binding, workspace))
+    if (!managedKind(binding))
       throw new Error("Agent is not bound to this workspace");
     const owner = checkoutOwner(binding);
     if ((await readOptional(retireFile(key))) !== null)
@@ -669,11 +668,7 @@ export async function createSessionSupervisor(
     return bound;
   }
 
-  async function selectedDirectory(
-    key: string,
-    workspace: string,
-    initial: string
-  ) {
+  async function selectedDirectory(key: string, initial: string) {
     const selected = await readOptional(selectedFile(key));
     if (!selected) return initial;
     return authorizedDirectory(selected);
@@ -754,20 +749,18 @@ export async function createSessionSupervisor(
 
   async function observeRelease(
     key: string,
-    workspace: string,
     policy?: "ownership" | "changes"
   ): Promise<CheckoutObservation> {
     const binding = await readBinding(key);
     if (binding === null) {
       if (
-        workspace === MANAGED_WORKSPACE &&
-        ((await lstat(path.join(sessions, key)).catch(missingPath)) ||
-          (await readOptional(repositoryFile(key))) !== null)
+        (await lstat(path.join(sessions, key)).catch(missingPath)) ||
+        (await readOptional(repositoryFile(key))) !== null
       )
         throw new Error("The runner session binding is unavailable.");
       return { ownership: "none", owner: null, borrowers: [], checkout: null };
     }
-    if (!matchesWorkspace(binding, workspace))
+    if (!managedKind(binding))
       throw new Error("Agent is not bound to this workspace");
     if (binding === folderBinding)
       return {
@@ -820,7 +813,6 @@ export async function createSessionSupervisor(
     key: string,
     owner: string | null
   ) {
-    const workspace = MANAGED_WORKSPACE;
     const { mcp } = host;
     const mcpUrl = mcp === undefined ? undefined : new URL(mcp.url);
     if (mcpUrl && (mcpUrl.protocol !== "https:" || !mcp?.token)) {
@@ -921,11 +913,7 @@ export async function createSessionSupervisor(
         await checkedDirectory(scratch);
       await prepareScratchSession(sessions, key, config.uid, config.gid);
     }
-    const cwd = await selectedDirectory(
-      key,
-      workspace,
-      await initialDirectory(key, workspace)
-    );
+    const cwd = await selectedDirectory(key, await initialDirectory(key));
     const dir = path.join(hostRoot, key);
     const files = path.join(dir, "files");
     const mcpCaPath = hostFile(dir, "serviceMcpCa");
@@ -1011,12 +999,8 @@ export async function createSessionSupervisor(
     );
   }
 
-  async function bound(key: string, workspace: string) {
-    return matchesWorkspace(await readBinding(key), workspace);
-  }
-
-  function matchesWorkspace(binding: string | null, workspace: string) {
-    return workspace === MANAGED_WORKSPACE && managedKind(binding);
+  async function bound(key: string) {
+    return managedKind(await readBinding(key));
   }
 
   async function trackedKeys() {
@@ -1058,13 +1042,12 @@ export async function createSessionSupervisor(
 
   function withSessionFile<T>(
     agentId: string,
-    workspace: string,
     file: { name: string } | { path: string },
     run: (root: string, name: string) => Promise<T>
   ): Promise<T> {
     const key = runnerStorageKey(agentId);
     return serialize(key, async () => {
-      if (!(await bound(key, workspace)))
+      if (!(await bound(key)))
         throw new RunnerCallError({
           code: "not_found",
           message: "Invalid or unbound session file operation.",
@@ -1083,11 +1066,7 @@ export async function createSessionSupervisor(
           message: "Invalid session file path.",
         });
       if (path.isAbsolute(file.path)) return run("", file.path);
-      const cwd = await selectedDirectory(
-        key,
-        workspace,
-        await initialDirectory(key, workspace)
-      );
+      const cwd = await selectedDirectory(key, await initialDirectory(key));
       return run(cwd, file.path);
     });
   }
@@ -1198,18 +1177,16 @@ export async function createSessionSupervisor(
     },
     async releaseWorkspace(
       agentId: string,
-      workspace: string,
       release: () => Promise<boolean>
     ): Promise<boolean> {
       const key = runnerStorageKey(agentId);
       return serialize(key, async () => {
         const binding = await readBinding(key);
         if (binding === null) {
-          if (workspace === MANAGED_WORKSPACE)
-            await writePrivateState(retireFile(key), "");
+          await writePrivateState(retireFile(key), "");
           return true;
         }
-        if (!matchesWorkspace(binding, workspace))
+        if (!managedKind(binding))
           throw new Error("Agent is not bound to this workspace");
         if (binding !== managedBinding) return false;
         const identity = await readIdentity(key);
@@ -1258,22 +1235,17 @@ export async function createSessionSupervisor(
         return true;
       });
     },
-    async observeWorkspace(
-      agentId: string,
-      workspace: string,
-      policy?: "changes" | "ownership"
-    ) {
+    async observeWorkspace(agentId: string, policy?: "changes" | "ownership") {
       const key = runnerStorageKey(agentId);
       const owner = checkoutOwner(await readBinding(key)) ?? key;
       return withLaunchLocks([key, owner], async () => {
         if ((checkoutOwner(await readBinding(key)) ?? key) !== owner)
           throw new Error("The checkout binding changed; retry the request.");
-        return observeRelease(key, workspace, policy);
+        return observeRelease(key, policy);
       });
     },
     async withCommandCheckout<T>(
       agentId: string,
-      workspace: string,
       checkout: CheckoutCommand["checkout"],
       signal: AbortSignal,
       run: (cwd: string) => Promise<T>
@@ -1284,11 +1256,11 @@ export async function createSessionSupervisor(
         signal.throwIfAborted();
         if ((checkoutOwner(await readBinding(key)) ?? key) !== owner)
           throw new Error("The checkout binding changed; retry the request.");
-        const initial = await initialDirectory(key, workspace);
+        const initial = await initialDirectory(key);
         const cwd =
           checkout === "launch"
             ? initial
-            : await selectedDirectory(key, workspace, initial);
+            : await selectedDirectory(key, initial);
         signal.throwIfAborted();
         if (checkout === "moved" && cwd === initial) return null;
         return run(cwd);
@@ -1296,29 +1268,27 @@ export async function createSessionSupervisor(
     },
     checkoutDirectory(
       agentId: string,
-      workspace: string,
       checkout: "current" | "launch" = "current"
     ): Promise<string> {
       if (checkout !== "current" && checkout !== "launch")
         return Promise.reject(new Error("Invalid checkout read selector."));
       const key = runnerStorageKey(agentId);
       return serialize(key, async () => {
-        const initial = await initialDirectory(key, workspace);
+        const initial = await initialDirectory(key);
         return checkout === "launch"
           ? initial
-          : selectedDirectory(key, workspace, initial);
+          : selectedDirectory(key, initial);
       });
     },
     gitContext(
       agentId: string,
-      workspace: string,
       operation: ContextOperation
     ): Promise<Res<"git.context">> {
       const key = runnerStorageKey(agentId);
       return serialize(key, async () => {
-        const initial = await initialDirectory(key, workspace);
+        const initial = await initialDirectory(key);
         if (operation.checkout === "launch") return checkoutGitContext(initial);
-        const selected = await selectedDirectory(key, workspace, initial);
+        const selected = await selectedDirectory(key, initial);
         if (operation.checkout === "moved" && selected === initial)
           throw new Error("The moved checkout is no longer selected.");
         return checkoutGitContext(selected);
@@ -1326,15 +1296,14 @@ export async function createSessionSupervisor(
     },
     sessionCheckout(
       agentId: string,
-      workspace: string,
       operation: CheckoutOperation
     ): Promise<SessionCheckout> {
       const key = runnerStorageKey(agentId);
       return serialize(key, async () => {
-        const initial = await initialDirectory(key, workspace);
+        const initial = await initialDirectory(key);
         if (operation.kind === "describe")
           return describeCheckout(
-            await selectedDirectory(key, workspace, initial),
+            await selectedDirectory(key, initial),
             initial
           );
         let dir = initial;
@@ -1354,13 +1323,12 @@ export async function createSessionSupervisor(
       });
     },
     async listSessions(
-      workspace: string,
       owner: string | null = null
     ): Promise<Res<"session.list">> {
       const sessions = await Promise.all(
         (await core.trackedKeys()).map((key) =>
           serialize(key, async () => {
-            if (!(await bound(key, workspace))) return null;
+            if (!(await bound(key))) return null;
             const identity = await readIdentity(key);
             if (!identity) return null;
             const classified = classifySessionIdentity(identity);
@@ -1397,7 +1365,6 @@ export async function createSessionSupervisor(
       return { sessions: sessions.filter((session) => session !== null) };
     },
     async sampleSessions(
-      workspace: string,
       sessions: SessionHandle[]
     ): Promise<Res<"session.sample">> {
       const roots = new Map<SessionHandle, number>();
@@ -1405,7 +1372,7 @@ export async function createSessionSupervisor(
         [...new Set(sessions)].map(async (session) => {
           const key = runnerStorageKey(sessionToWire(session));
           await serialize(key, async () => {
-            if (!(await bound(key, workspace))) return;
+            if (!(await bound(key))) return;
             const identity = await readIdentity(key);
             if (identity && core.isAlive(identity))
               roots.set(session, identity.pid);
@@ -1414,24 +1381,23 @@ export async function createSessionSupervisor(
       );
       return { samples: await core.sample(roots) };
     },
-    async alive(agentId: string, workspace: string) {
+    async alive(agentId: string) {
       const key = runnerStorageKey(agentId);
       return serialize(key, async () => {
-        if (!(await bound(key, workspace))) return false;
+        if (!(await bound(key))) return false;
         return core.alive(key);
       });
     },
-    attach(agentId: string, workspace: string) {
+    attach(agentId: string) {
       const key = runnerStorageKey(agentId);
       return serialize(key, async () => {
-        if (!(await bound(key, workspace)))
+        if (!(await bound(key)))
           throw new Error("Agent is not bound to this workspace");
         return core.attach(key);
       });
     },
     stop(
       agentId: string,
-      workspace: string,
       force: boolean,
       expectedLaunchId?: string,
       expectedOwner?: string,
@@ -1456,13 +1422,9 @@ export async function createSessionSupervisor(
           if (identity && launch.hostInstanceId !== identity.hostInstanceId)
             return false;
         }
-        if (!(await bound(key, workspace))) {
+        if (!(await bound(key))) {
           if (expectedLaunchId !== undefined) return false;
-          if (
-            workspace === MANAGED_WORKSPACE &&
-            (await readBinding(key)) === null
-          )
-            return;
+          if ((await readBinding(key)) === null) return;
           throw new Error("Agent is not bound to this workspace");
         }
         if (idleOnly) {
@@ -1481,14 +1443,11 @@ export async function createSessionSupervisor(
         await core.stop(key, force);
       });
     },
-    discard(agentId: string, workspace: string) {
+    discard(agentId: string) {
       const key = runnerStorageKey(agentId);
       return serialize(key, async () => {
-        if (!(await bound(key, workspace))) {
-          if (
-            workspace === MANAGED_WORKSPACE &&
-            (await readBinding(key)) === null
-          ) {
+        if (!(await bound(key))) {
+          if ((await readBinding(key)) === null) {
             await writePrivateState(retireFile(key), "");
             await config.removePreparedCheckout?.(agentId);
             return;
@@ -1518,15 +1477,15 @@ export async function createSessionSupervisor(
         await recordBinding(agentId);
       });
     },
-    async log(agentId: string, workspace: string) {
+    async log(agentId: string) {
       const key = runnerStorageKey(agentId);
-      if (!(await bound(key, workspace)))
+      if (!(await bound(key)))
         throw new Error("Agent is not bound to this workspace");
       const { live, text: log } = await core.logs(key);
       return `Guest agent host ${live ? "log" : "exited"}.${log ? "\n" + log : ""}`;
     },
-    async isBound(agentId: string, workspace: string) {
-      return bound(runnerStorageKey(agentId), workspace);
+    async isBound(agentId: string) {
+      return bound(runnerStorageKey(agentId));
     },
     // A snapshot. The update fence calls it again once admission is closed
     // and admitted work has drained, for the authoritative retained set.

@@ -134,7 +134,6 @@ const ctx = useInjectApp({
       "files.get": async ({ session, path: file }, { sendFile }) =>
         supervisor.withSessionFile(
           sessionToWire(session),
-          "@session",
           { path: file },
           async (dir, name) => {
             const bytes = await readFile(dir ? path.join(dir, name) : name);

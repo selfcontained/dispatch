@@ -1,5 +1,4 @@
 import { once } from "node:events";
-import { MANAGED_WORKSPACE } from "@dispatch/runner-protocol";
 import {
   RunnerCallError,
   pathFromWire,
@@ -19,26 +18,24 @@ export function enrolledSessions(
   supervisor: Supervisor,
   closeTerminals: (id: string) => void
 ) {
-  const workspace = MANAGED_WORKSPACE;
   return {
     calls: {
       "session.launch": (request) => supervisor.launchSession(request),
       "session.alive": async ({ session }) => ({
-        state: (await supervisor.alive(sessionToWire(session), workspace))
+        state: (await supervisor.alive(sessionToWire(session)))
           ? "live"
           : "gone",
       }),
-      "session.list": ({ owner }) => supervisor.listSessions(workspace, owner),
-      "session.sample": ({ sessions }) =>
-        supervisor.sampleSessions(workspace, sessions),
+      "session.list": ({ owner }) => supervisor.listSessions(owner),
+      "session.sample": ({ sessions }) => supervisor.sampleSessions(sessions),
       "session.logs": async ({ session }) => {
         const id = sessionToWire(session);
-        if (!(await supervisor.isBound(id, workspace)))
+        if (!(await supervisor.isBound(id)))
           throw new RunnerCallError({
             code: "not_found",
             message: "Agent is not bound to this workspace",
           });
-        return { text: await supervisor.log(id, workspace) };
+        return { text: await supervisor.log(id) };
       },
       "session.stop": async ({
         session,
@@ -50,7 +47,6 @@ export function enrolledSessions(
         const id = sessionToWire(session);
         const stopped = await supervisor.stop(
           id,
-          workspace,
           force,
           expectedLaunchId,
           expectedOwner,
@@ -61,14 +57,13 @@ export function enrolledSessions(
       },
       "session.discard": async ({ session }) => {
         const id = sessionToWire(session);
-        await supervisor.discard(id, workspace);
+        await supervisor.discard(id);
         closeTerminals(id);
         return {};
       },
       "workspace.observe": async ({ session, policy }) => {
         const observation = await supervisor.observeWorkspace(
           sessionToWire(session),
-          workspace,
           policy ?? "changes"
         );
         const checkout = observation.checkout;
@@ -86,31 +81,31 @@ export function enrolledSessions(
             code: "invalid",
             message: "Invalid checkout read binding.",
           });
-        return supervisor.gitContext(sessionToWire(target.session), workspace, {
+        return supervisor.gitContext(sessionToWire(target.session), {
           kind: "context",
           checkout: target.checkout,
         });
       },
       "workspace.describe": async ({ session }) => {
         const id = sessionToWire(session);
-        if (!(await supervisor.isBound(id, workspace)))
+        if (!(await supervisor.isBound(id)))
           throw new RunnerCallError({
             code: "not_found",
             message: "Agent is not bound to this workspace",
           });
         return binding(
-          await supervisor.sessionCheckout(id, workspace, { kind: "describe" })
+          await supervisor.sessionCheckout(id, { kind: "describe" })
         );
       },
       "workspace.select": async ({ session, path }) => {
         const id = sessionToWire(session);
-        if (!(await supervisor.isBound(id, workspace)))
+        if (!(await supervisor.isBound(id)))
           throw new RunnerCallError({
             code: "not_found",
             message: "Agent is not bound to this workspace",
           });
         return binding(
-          await supervisor.sessionCheckout(id, workspace, {
+          await supervisor.sessionCheckout(id, {
             kind: "select",
             path: path === null ? null : displayPath(path),
           })
@@ -121,8 +116,7 @@ export function enrolledSessions(
       "session.attach": async ({ session }) => {
         const id = sessionToWire(session);
         const socket =
-          (await supervisor.isBound(id, workspace)) &&
-          (await supervisor.attach(id, workspace));
+          (await supervisor.isBound(id)) && (await supervisor.attach(id));
         if (!socket)
           throw new RunnerCallError({
             code: "host_gone",
