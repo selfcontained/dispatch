@@ -362,6 +362,7 @@
         "apps/server/test/owned-checkout-local-parity.test.ts",
         "apps/server/test/owned-checkout-enrolled-parity.test.ts",
         "apps/server/test/helpers/owned-checkout-fixture.ts",
+        "apps/server/test/local-binding-path-bytes.test.ts",
         "apps/server/test/helpers/owner-coverage.ts",
         "apps/server/test/helpers/persona-scope.ts",
         "apps/server/test/helpers/persona-loader.ts",

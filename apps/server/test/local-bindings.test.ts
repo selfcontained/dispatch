@@ -96,11 +96,11 @@ describe("bindingFromRow (truth table, app side)", () => {
     ).toBe("/wt/x");
   });
 
-  it("blank worktree path: no claim", () => {
+  it("keeps non-empty worktree path bytes; the runner checks ownership", () => {
     expect(
       bindingFromRow(row({ worktreePath: "  ", worktreeBranch: "feat" }))
-        ?.worktree
-    ).toBeNull();
+        ?.worktree?.path
+    ).toBe("  ");
   });
 
   it("no cwd, or a runner locator an older build left: absent", () => {
