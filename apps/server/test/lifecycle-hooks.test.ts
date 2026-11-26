@@ -1,10 +1,13 @@
 import type { Pool } from "pg";
 import { previewArchive } from "../src/agents/archive.js";
 import { execFileSync, spawn } from "node:child_process";
+import { realpathSync, renameSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
+  symlink,
   rename,
   rm,
   writeFile,
@@ -24,6 +27,15 @@ import {
   controllerPlacement,
   placementForRunner,
 } from "../src/runners/placement.js";
+
+vi.mock("node:child_process", async (load) => {
+  const child = await load<typeof import("node:child_process")>();
+  return { ...child, spawn: vi.fn(child.spawn) };
+});
+vi.mock("node:fs/promises", async (load) => {
+  const fs = await load<typeof import("node:fs/promises")>();
+  return { ...fs, readFile: vi.fn(fs.readFile) };
+});
 
 const logger = {
   info: () => {},
@@ -361,6 +373,52 @@ describe("runLifecycleHook", () => {
       await expect(readFile(path.join(dir, "invoked"))).rejects.toMatchObject({
         code: "ENOENT",
       });
+  });
+
+  it("passes the validated directory to spawn even if the selected alias resolves elsewhere at launch", async () => {
+    const selected = path.join(root, "selected");
+    const original = path.join(root, "original");
+    await mkdir(path.join(original, ".dispatch"), { recursive: true });
+    await writeFile(
+      path.join(original, ".dispatch/tools.json"),
+      archiveManifest
+    );
+    await symlink(original, selected);
+    const expected = await realpath(original);
+    const replacement = path.join(root, "replacement");
+    const next = path.join(root, "next");
+    await mkdir(replacement);
+    await symlink(replacement, next);
+    // Inspect the actual cwd argument at the spawn boundary without starting a child.
+    let launchDirectory: string | undefined;
+    const observed = new Error("Observed spawn");
+    vi.mocked(spawn).mockImplementationOnce((_command, _args, options) => {
+      renameSync(next, selected);
+      if (typeof options.cwd === "string")
+        launchDirectory = realpathSync(options.cwd);
+      throw observed;
+    });
+    await expect(
+      runLifecycleHook(
+        "archive",
+        { ...localArchiveAgent(), cwd: selected },
+        logger,
+        {}
+      )
+    ).rejects.toThrow(observed.message);
+    expect(launchDirectory).toBe(expected);
+  });
+
+  it("treats a manifest read failure without syscall metadata as absent", async () => {
+    const failure = Object.assign(new RangeError("File is too large"), {
+      code: "ERR_FS_FILE_TOO_LARGE",
+    });
+    vi.mocked(readFile).mockRejectedValueOnce(failure);
+    expect((await previewLocalArchive()).cleanupDescriptions).toEqual([]);
+    vi.mocked(readFile).mockRejectedValueOnce(failure);
+    await expect(
+      runLifecycleHook("archive", localArchiveAgent(), logger, {})
+    ).resolves.toBeUndefined();
   });
 
   it("retains invalid archive definitions while treating native file errors as absent", async () => {

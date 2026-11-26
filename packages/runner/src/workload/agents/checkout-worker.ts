@@ -204,12 +204,13 @@ async function directoryIdentity(directory: string) {
   return `${dev}:${ino}`;
 }
 
-function nativeFailure(error: unknown): never {
+function nativeFailure(error: unknown, boundRead = false): never {
   const failure = error as NodeJS.ErrnoException;
   throw new RunnerCallError({
     code: "failed",
     message: failure.message ?? String(error),
     details: {
+      ...(boundRead && { source: "bound-file-read" }),
       ...(typeof failure.code === "string" && { code: failure.code }),
       ...(typeof failure.path === "string" && { path: failure.path }),
       ...(typeof failure.syscall === "string" && { syscall: failure.syscall }),
@@ -294,27 +295,29 @@ async function work<K extends WorkerOp>(
     case "checkout.read": {
       const native = request as Input<"checkout.read">["request"];
       if (native.mode === "native") {
-        const file = nativeEntry(directory, native.path);
         let bytes: Buffer;
+        let data: string;
         let rootIdentity: string | undefined;
         try {
-          if (native.bindRoot)
-            rootIdentity = await directoryIdentity(directory);
-          bytes = await readFile(file);
+          const root = native.bindRoot ? await realpath(directory) : directory;
+          if (native.bindRoot) rootIdentity = await directoryIdentity(root);
+          bytes = await readFile(nativeEntry(root, native.path));
+          // UTF-8 reads expose decoded text, as the existing read's digest does.
+          if (native.encoding === "utf8")
+            bytes = Buffer.from(bytes.toString("utf8"));
+          if (native.maxBytes !== null && bytes.length > native.maxBytes)
+            throw new RunnerCallError({
+              code: "too_large",
+              message: `The file is larger than ${native.maxBytes} bytes`,
+            });
+          data = bytes.toString(native.encoding);
         } catch (error) {
-          nativeFailure(error);
+          if (error instanceof RunnerCallError) throw error;
+          nativeFailure(error, native.bindRoot);
         }
-        // UTF-8 reads expose decoded text, as the existing read's digest does.
-        if (native.encoding === "utf8")
-          bytes = Buffer.from(bytes.toString("utf8"));
-        if (native.maxBytes !== null && bytes.length > native.maxBytes)
-          throw new RunnerCallError({
-            code: "too_large",
-            message: `The file is larger than ${native.maxBytes} bytes`,
-          });
         return {
           ...(rootIdentity !== undefined && { rootIdentity }),
-          data: bytes.toString(native.encoding),
+          data,
           digest: createHash("sha256").update(bytes).digest("hex"),
         };
       }
@@ -489,14 +492,17 @@ async function execCheckoutCommand(
   if (signal?.aborted) throw cancelled();
   let root = directory;
   if (!("path" in guard)) {
+    const resolved = await realpath(directory).catch(() => null);
     if (
       displayPath(guard.root) !== directory ||
-      (await directoryIdentity(directory).catch(() => null)) !== guard.identity
+      resolved === null ||
+      (await directoryIdentity(resolved).catch(() => null)) !== guard.identity
     )
       throw new RunnerCallError({
         code: "stale",
         message: "The resolved checkout directory changed.",
       });
+    root = resolved;
   } else {
     const file = await readCommandGuard(directory, selector, guard.path);
     if (file.content === null || file.digest !== guard.digest)

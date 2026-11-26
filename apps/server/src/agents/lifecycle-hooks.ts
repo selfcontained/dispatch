@@ -61,7 +61,8 @@ export async function* resolveArchiveHooks(
             error.code === "failed" &&
             error.details &&
             typeof error.details === "object" &&
-            "syscall" in error.details
+            "source" in error.details &&
+            error.details.source === "bound-file-read"
           )
             return null;
           throw error;
