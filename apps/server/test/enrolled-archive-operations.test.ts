@@ -97,6 +97,40 @@ describe("archive operations on an enrolled runner", () => {
     expect(frames(viaAdapter).map(([, , epoch]) => epoch)).toEqual([7, 7]);
   });
 
+  it.each([
+    ["a forced archive (ownership alone)", "ownership"],
+    ["a decision on the checkout's state", "changes"],
+  ] as const)(
+    "observe for %s sends the archive transport's own frame",
+    async (_case, policy) => {
+      const viaTransport = service();
+      await enrolledArchiveCheckout(
+        viaTransport as unknown as RemoteRunnerService,
+        placement,
+        agentId
+      ).observe(policy);
+      const viaAdapter = service();
+      await adapter(viaAdapter).call("workspace.observe", {
+        session,
+        ...(policy === "ownership" && { policy }),
+      });
+      // Byte for byte, as `requestSession` writes it (workspace appended).
+      const sent = (remote: ReturnType<typeof service>) =>
+        JSON.stringify({
+          ...(remote.requestSession.mock.calls[0]![1] as object),
+          workspace: placement.workspace,
+        });
+      expect(viaAdapter.requestSession.mock.calls[0]![1]).toEqual(
+        viaTransport.requestSession.mock.calls[0]![1]
+      );
+      expect(sent(viaAdapter)).toBe(sent(viaTransport));
+      expect(JSON.parse(sent(viaAdapter))).toMatchObject({
+        kind: "checkoutRelease",
+        operation: { kind: "observe", policy },
+      });
+    }
+  );
+
   it("releases only on the connection that was observed", async () => {
     // The runner reconnects (epoch 8) between observe and release.
     const remote = service({ epochs: [7, 8] });

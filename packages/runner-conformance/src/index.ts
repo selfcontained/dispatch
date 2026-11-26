@@ -2,6 +2,7 @@ export { checked, contractError, ContractViolation } from "./checked.js";
 export {
   scenarios,
   ScenarioFailure,
+  workspaceObserveOwnership,
   type LaneFixture,
   type Scenario,
 } from "./scenarios.js";
