@@ -100,3 +100,86 @@ describe("authenticated runner placement", () => {
     expect(write).not.toHaveBeenCalled();
   });
 });
+
+it("takes identity from the authenticated registration and samples after the description", async () => {
+  const { Duplex, PassThrough } = await import("node:stream");
+  const { wireFrames } = await import("@dispatch/runner-client/v1/node");
+  const { RUNNER_WIRE_VERSION } = await import("@dispatch/runner-protocol");
+  const { attachAuthenticatedRunner } =
+    await import("../src/runners/enrolled/operation-peer.js");
+  const incoming = new PassThrough(),
+    outgoing = new PassThrough();
+  const controller = Duplex.from({ readable: incoming, writable: outgoing });
+  const runner = Duplex.from({ readable: outgoing, writable: incoming });
+  const ops: string[] = [];
+  const sample = {
+    version: "1",
+    sessions: 0,
+    working: 0,
+    cpuPercent: null,
+    memoryUsed: 0,
+    memoryTotal: 1,
+  };
+  const send = wireFrames<{ id: number; op: string; input: unknown }>(
+    runner,
+    (frame) => {
+      ops.push(frame.op);
+      const value =
+        frame.op === "runner.describe"
+          ? {
+              runnerId: "spoof",
+              displayName: "frame",
+              build: { version: "1" },
+              protocol: RUNNER_WIRE_VERSION,
+              engines: [],
+              capabilities: {},
+            }
+          : frame.op === "runner.health"
+            ? sample
+            : { entries: [] };
+      if (frame.op === "engine.list")
+        expect(frame.input).toEqual({ refresh: false, background: true });
+      send({ id: frame.id, ok: true, value });
+    }
+  );
+  const connected = vi.fn();
+  const health = Promise.withResolvers<unknown>(),
+    inventory = Promise.withResolvers<unknown>();
+  const connection = attachAuthenticatedRunner(
+    controller,
+    { id: "authenticated", name: "Registration", approved: () => true },
+    17,
+    {
+      connected,
+      current: () => true,
+      disconnected: vi.fn(),
+      status: vi.fn(),
+      health: (_peer, value) => health.resolve(value),
+      inventory: (_peer, value) => inventory.resolve(value),
+    }
+  );
+  try {
+    await expect(health.promise).resolves.toEqual(sample);
+    await expect(inventory.promise).resolves.toEqual([]);
+    expect(connected).toHaveBeenCalledWith(
+      expect.objectContaining({
+        epoch: 17,
+        description: expect.objectContaining({
+          runnerId: "authenticated",
+          displayName: "Registration",
+        }),
+      })
+    );
+    expect(ops).toEqual(["runner.describe", "runner.health", "engine.list"]);
+  } finally {
+    const closed = Promise.all(
+      [controller, runner].map(
+        (socket) =>
+          new Promise<void>((resolve) => socket.once("close", resolve))
+      )
+    );
+    controller.end();
+    runner.end();
+    await closed;
+  }
+});
