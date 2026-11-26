@@ -59,10 +59,6 @@ const machineExports = new Set([
 
 // Capabilities are limited to the resources Dispatch owns in each location.
 export const ownMachineCapabilities = new Map([
-  ["apps/server/src/jobs/setup-log.ts", new Map([["fs/promises", "Read retained setup stderr written by earlier Dispatch versions on this controller."]])],
-  ["apps/server/src/observability/service-resources.ts", new Map([["os", "Sample load, CPU count and memory of the host running this controller."]])],
-  ["apps/server/src/server/mcp-file-storage.ts", new Map([["fs/promises", "Store and remove the controller’s published per-agent files."]])],
-  ["apps/server/src/tasks/attachment-storage.ts", new Map([["fs/promises", "Store and remove task attachments under the controller’s configured files root."]])],
   [
     "apps/server/src/agents/engine-update-operations.ts",
     new Map([
@@ -199,8 +195,26 @@ export const ownMachineCapabilities = new Map([
     ]),
   ],
   [
+    "apps/server/src/jobs/setup-log.ts",
+    new Map([
+      [
+        "fs/promises",
+        "Read retained setup stderr written by earlier Dispatch versions on this controller.",
+      ],
+    ]),
+  ],
+  [
     "apps/server/src/notifications/slack-link-origins.ts",
     new Map([["os", "controller facts"]]),
+  ],
+  [
+    "apps/server/src/observability/service-resources.ts",
+    new Map([
+      [
+        "os",
+        "Sample load, CPU count and memory of the host running this controller.",
+      ],
+    ]),
   ],
   [
     "apps/server/src/observability/artifact-storage.ts",
@@ -310,6 +324,15 @@ export const ownMachineCapabilities = new Map([
     ]),
   ],
   [
+    "apps/server/src/server/mcp-file-storage.ts",
+    new Map([
+      [
+        "fs/promises",
+        "Store and remove the controller’s published per-agent files.",
+      ],
+    ]),
+  ],
+  [
     "apps/server/src/server/release-artifact.ts",
     new Map([
       ["fs", "Dispatch releases"],
@@ -393,6 +416,15 @@ export const ownMachineCapabilities = new Map([
     new Map([
       ["fs", "Dispatch config, sockets and logs"],
       ["os", "Dispatch config, sockets and logs"],
+    ]),
+  ],
+  [
+    "apps/server/src/tasks/attachment-storage.ts",
+    new Map([
+      [
+        "fs/promises",
+        "Store and remove task attachments under the controller’s configured files root.",
+      ],
     ]),
   ],
   [

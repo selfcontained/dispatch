@@ -485,8 +485,16 @@ test("controller logs, attachments and metrics grants apply only at their owners
   ]) {
     const source = `import "node:${capability}";`;
     assert.deepEqual(scanSource(app + owner, source), []);
-    assert.ok(scanSource(app + owner.replace(".ts", "-other.ts"), source).some(hit => hit.kind === "R2 host access" && hit.detail === capability));
-    assert.ok(scanSource(app + owner, 'import "node:fs";').some(hit => hit.kind === "R2 host access" && hit.detail === "fs"));
+    assert.ok(
+      scanSource(app + owner.replace(".ts", "-other.ts"), source).some(
+        (hit) => hit.kind === "R2 host access" && hit.detail === capability
+      )
+    );
+    assert.ok(
+      scanSource(app + owner, 'import "node:fs";').some(
+        (hit) => hit.kind === "R2 host access" && hit.detail === "fs"
+      )
+    );
   }
 });
 
