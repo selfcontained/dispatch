@@ -379,8 +379,12 @@ export function createLocalCheckoutRunner(
   ): Promise<{ value: T } | null> {
     return attempt(
       (runner) =>
-        readWithinDeadline(runner, op, input, (read) =>
-          run(runner, { ...options, ...read } as never)
+        readWithinDeadline(
+          runner,
+          op,
+          input,
+          (read) => run(runner, { ...options, ...read } as never),
+          options?.signal
         ),
       readMissed,
       options?.signal
