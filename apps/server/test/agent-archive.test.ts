@@ -72,7 +72,11 @@ import { runLifecycleHook } from "../src/agents/lifecycle-hooks.js";
 import { cleanupGitWorktree } from "../src/shared/git/worktree.js";
 import { observeGitCheckout } from "../src/agents/checkout-inspection.js";
 import { createLocalRunner } from "../src/agents/local-runner.js";
-import { controllerPlacement } from "../src/runners/placement.js";
+import { remotePlacement } from "@dispatch/runner-protocol";
+import {
+  controllerPlacement,
+  placementForRunner,
+} from "../src/runners/placement.js";
 
 const cleanCheckout = {
   path: "/tmp/wt",
@@ -136,7 +140,15 @@ const makeAgent = (
   createdAt: "2026-05-01T00:00:00Z",
   updatedAt: "2026-05-01T00:00:00Z",
   ...overrides,
+  // A runner row's placement names the runner its locator does, as the
+  // launch records it and migration 0065 backfilled it.
+  ...(!overrides.placement && rowPlacement(overrides.cwd)),
 });
+
+function rowPlacement(cwd: string | null | undefined) {
+  const locator = cwd ? remotePlacement(cwd) : null;
+  return locator ? { placement: placementForRunner(locator.runner) } : {};
+}
 
 const makeRuntime = (overrides: Partial<AgentRuntime> = {}): AgentRuntime => ({
   ...createInertRuntime(),

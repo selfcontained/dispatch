@@ -147,3 +147,28 @@ export function isHostCompatibilityToken(file: string, token: string): boolean {
     entries.some((entry) => entry.file === file && entry.token === token)
   );
 }
+
+export const workloadVocabularyCompatibility = [
+  {
+    file: "packages/runner/src/workload/shared/icon-scan.ts",
+    token: ".dispatch",
+    reason: "The repository's config folder name on disk.",
+  },
+  {
+    file: "packages/runner/src/workload/shared/lib/tool-environment.ts",
+    token: "DISPATCH_AGENT_ID",
+    reason: "The environment key agents' tools read.",
+  },
+] as const;
+
+export function isRunnerCompatibilityToken(
+  file: string,
+  token: string
+): boolean {
+  return (
+    isHostCompatibilityToken(file, token) ||
+    workloadVocabularyCompatibility.some(
+      (entry) => entry.file === file && entry.token === token
+    )
+  );
+}

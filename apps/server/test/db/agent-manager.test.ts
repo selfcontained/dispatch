@@ -623,9 +623,10 @@ describe("AgentManager", () => {
       } as unknown as RemoteRunnerService;
       const cwd = "runner://runner-test/configured";
       const placement = { runner: "runner-test", workspace: "configured" };
+      // The runner the locator names, as every launch records it (0065).
       await pool.query(
-        `INSERT INTO agents (id, name, cwd, status)
-         VALUES ('configured-runner', 'Configured', $1, 'running')`,
+        `INSERT INTO agents (id, name, cwd, status, runner_id)
+         VALUES ('configured-runner', 'Configured', $1, 'running', 'runner-test')`,
         [cwd]
       );
       const offlineRuntime = createSpyRuntime();

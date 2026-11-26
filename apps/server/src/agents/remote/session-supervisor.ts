@@ -212,7 +212,7 @@ type SupervisorOptions = {
   /** The session core, injected by the runner entry. */
   sessions: SessionCoreFactory;
   state: string;
-  streamHelper?: string;
+  streamHelper: string;
   uid: number;
   gid: number;
   ca: string;
@@ -345,13 +345,7 @@ export async function createSessionSupervisor(
       );
     }
     const streamHelper = path.join(helperBin, "dispatch-stream");
-    const helper =
-      config.streamHelper ??
-      (await readFile(
-        new URL("../../../../../bin/dispatch-stream", import.meta.url),
-        "utf8"
-      ));
-    await writePrivateState(streamHelper, helper, 0o755);
+    await writePrivateState(streamHelper, config.streamHelper, 0o755);
     // Idle hosts can survive an upgrade. Repair existing protected parents
     // before those hosts resume work, leaving workload-owned scratch alone.
     for (const key of await readdir(sessions)) {

@@ -51,7 +51,7 @@ export function ownerReviewPaths(
   return [...new Set(Object.values(changes).flat())].sort();
 }
 
-export async function collectOwnerReviewFiles(
+export async function collectCheckoutFiles(
   cwd: string,
   baseRef: string,
   run: CommandRunner

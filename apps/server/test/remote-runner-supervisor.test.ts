@@ -1,3 +1,4 @@
+import { streamHelper } from "./helpers/stream-helper.js";
 import { placementForRunner } from "../src/runners/placement.js";
 import { sessionFromWire } from "@dispatch/runner-protocol/contract";
 import { execFile, execFileSync, spawn } from "node:child_process";
@@ -263,6 +264,7 @@ describe("runner session supervision", () => {
     supervisor = await createSessionSupervisor(
       {
         state,
+        streamHelper,
         build,
         uid: process.getuid!(),
         gid: process.getgid!(),
@@ -310,6 +312,15 @@ describe("runner session supervision", () => {
     supervisor?.close();
     supervisor = undefined;
     await rm(root, { recursive: true, force: true });
+  });
+
+  it("installs the repository stream helper byte for byte with executable mode", async () => {
+    await start([]);
+    const installed = path.join(state, "bin", "dispatch-stream");
+    expect(await readFile(installed)).toEqual(
+      await readFile(new URL("../../../bin/dispatch-stream", import.meta.url))
+    );
+    expect((await stat(installed)).mode & 0o777).toBe(0o755);
   });
 
   it("finishes terminal readiness before the worker exits using only standard pipes", async () => {

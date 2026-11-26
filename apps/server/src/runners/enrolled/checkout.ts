@@ -1,5 +1,6 @@
 import {
   isCheckoutCommandFile,
+  isCheckoutObservation,
   remotePlacement,
   isCheckoutReadName,
   type CheckoutView,
@@ -190,6 +191,63 @@ export function createEnrolledCheckoutRunner(
   describe: () => RunnerDescription,
   legacyView?: CheckoutView
 ): CheckoutRunner {
+  /**
+   * The connection this adapter's first observe or release went to. A
+   * release is only sent on it: a runner that reconnected after the
+   * observation is not released against (as `enrolledArchiveCheckout`).
+   */
+  let archiveEpoch: number | undefined;
+  async function archiveCall<
+    K extends "workspace.observe" | "workspace.release",
+  >(
+    service: RemoteRunnerService,
+    placement: V1Placement,
+    op: K,
+    request: Req<K>,
+    signal?: AbortSignal
+  ): Promise<Res<K>> {
+    archiveEpoch ??= service.connectionEpoch?.(placement.runner);
+    const frame = {
+      op,
+      request,
+      absent: [],
+      // Bound release observes with changes; the caller decides removal.
+      extras: {
+        workspace: placement.workspace,
+        ...(op === "workspace.observe" && { observationPolicy: "changes" }),
+      },
+    } as Decoded<K>;
+    const command = encodeCommand(frame);
+    if (
+      command.kind !==
+      (op === "workspace.observe" ? "checkoutRelease" : "workspaceRelease")
+    )
+      throw new Error("Invalid workspace release command.");
+    const { value } =
+      archiveEpoch === undefined
+        ? await service.requestSession(placement, command, undefined, signal)
+        : await service.requestSession(
+            placement,
+            command,
+            undefined,
+            signal,
+            archiveEpoch
+          );
+    let result: Res<K>;
+    try {
+      result = decodeResult(frame, value);
+    } catch (error) {
+      if (error instanceof ResultError) throw new RunnerCallError(error.error);
+      throw error;
+    }
+    if (op === "workspace.observe" && !isCheckoutObservation(result))
+      throw new RunnerCallError({
+        code: "failed",
+        message: "Invalid checkout observation from the runner.",
+        details: { status: 502 },
+      });
+    return result;
+  }
   return {
     describe,
     connection: {
@@ -228,12 +286,12 @@ export function createEnrolledCheckoutRunner(
     },
     // Not part of `Runner`: what the peer advertised in its ready frame.
     ...{
-      serves(op: "checkout.write") {
-        return (
-          op === "checkout.write" &&
-          placement !== null &&
-          service?.supportsCheckoutWrite?.(placement) === true
-        );
+      serves(op: "checkout.write" | "workspace.release") {
+        if (placement === null || !service) return false;
+        // Bound release: the peer carries out the caller's removal decision.
+        if (op === "workspace.release")
+          return service.supportsWorkspaceRelease?.(placement) === true;
+        return service.supportsCheckoutWrite?.(placement) === true;
       },
     },
     async call<K extends CallName>(
@@ -400,6 +458,26 @@ export function createEnrolledCheckoutRunner(
           agent.id,
           op as "files.put",
           input as Req<"files.put">
+        ) as Promise<Res<K>>;
+      }
+      if (op === "workspace.observe" || op === "workspace.release") {
+        const { session } = input as Req<"workspace.observe">;
+        if (!placement || !agent || sessionToWire(session) !== agent.id)
+          throw new RunnerCallError({
+            code: "invalid",
+            message: "Invalid workspace release binding.",
+          });
+        if (!service || service.supportsWorkspaceRelease?.(placement) !== true)
+          throw new RunnerCallError({
+            code: "unsupported",
+            message: `Unsupported operation: ${op}`,
+          });
+        return archiveCall(
+          service,
+          placement,
+          op,
+          input as Req<"workspace.observe" | "workspace.release">,
+          options?.signal
         ) as Promise<Res<K>>;
       }
       if (
