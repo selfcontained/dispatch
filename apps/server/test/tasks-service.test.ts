@@ -3900,6 +3900,38 @@ describe("task runtime overrides", () => {
     });
   });
 
+  it.each([
+    ["move", false],
+    ["fire-on-create", true],
+  ])(
+    "keeps the column effort when the task pair equals the template's inherited model (%s)",
+    async (_path, fireOnCreate) => {
+      // The column inherits the template's runtime and model (both null).
+      const ready = await withTrigger(fireOnCreate ? "backlog" : "ready", {
+        templateId: LEAD,
+        effort: "low",
+        assign: false,
+        fireOnCreate,
+      });
+      const task = await service.createTask(
+        {
+          projectId,
+          title: "Explicit inherited pair",
+          launchAgentType: "codex",
+          launchModel: "gpt-5.5",
+        },
+        USER
+      );
+      if (!fireOnCreate)
+        await service.updateTask(task.id, { columnId: ready }, USER);
+      expect(launches[0]!.resolvedTemplate).toMatchObject({
+        agentType: "codex",
+        model: "gpt-5.5",
+        effort: "low",
+      });
+    }
+  );
+
   it("overrides the runtime of a full task template while keeping its workspace settings", async () => {
     const ready = await withTrigger("ready", { assign: false });
     const task = await service.createTask(

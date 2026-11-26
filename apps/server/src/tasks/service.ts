@@ -688,7 +688,8 @@ export class TaskService {
    * What a trigger launches for this task. The full template override (or
    * the column trigger) is the base; the task's runtime/model pair, always
    * explicit, replaces the base runtime and model for this task only. The
-   * base effort is kept only when both runtime and model are unchanged.
+   * base effort is kept only when both runtime and model match what the base
+   * launches (a base without a model launches the template's).
    * Template and column rows are never edited.
    */
   private async effectiveLaunch(
@@ -705,12 +706,15 @@ export class TaskService {
       ? { templateId, agentType: null, model: null, effort: null }
       : column.trigger;
     if (!task.launchAgentType || !task.launchModel) return base;
-    const inherited =
-      base.agentType ??
-      (await this.deps.getTemplate(base.templateId))?.agentType ??
-      null;
+    const template = await this.deps.getTemplate(base.templateId);
+    const inherited = base.agentType ?? template?.agentType ?? null;
+    // A base without a model inherits the template's model on its runtime
+    // (and the CLI default on another), so compare against what it launches.
+    const inheritedModel =
+      base.model ??
+      (inherited === template?.agentType ? (template?.model ?? null) : null);
     const unchanged =
-      task.launchAgentType === inherited && task.launchModel === base.model;
+      task.launchAgentType === inherited && task.launchModel === inheritedModel;
     return {
       templateId: base.templateId,
       agentType: task.launchAgentType,
