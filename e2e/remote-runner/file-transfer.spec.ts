@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { authHeaders, cleanupE2EAgents, trackAgent } from "../helpers";
-import { agentInfo, chat, enrollViaUi, state } from "./harness";
+import { agentInfo, chat, enrollViaUi, repositoryProject } from "./harness";
 
 const png = readFileSync(
   new URL("../../apps/web/public/icons/teal/pwa-192.png", import.meta.url)
@@ -13,7 +13,14 @@ const image = {
   buffer: png,
 };
 
-test.afterAll(async ({ request }) => cleanupE2EAgents(request));
+let projectId: string | undefined;
+test.afterAll(async ({ request }) => {
+  await cleanupE2EAgents(request);
+  if (projectId)
+    await request.delete("/api/v1/projects/" + projectId, {
+      headers: authHeaders(),
+    });
+});
 
 test("file transfer keeps local and remote posted bytes after archive", async ({
   browser,
@@ -21,13 +28,10 @@ test("file transfer keeps local and remote posted bytes after archive", async ({
   request,
 }, testInfo) => {
   const runnerId = await enrollViaUi(page, request, "alpha");
+  projectId = await repositoryProject(request, "alpha");
   for (const [lane, cwd, viewport] of [
     ["local", "/tmp", { width: 1440, height: 900 }],
-    [
-      "remote",
-      `runner://${runnerId}/${state.workspace}`,
-      { width: 390, height: 844 },
-    ],
+    ["remote", "", { width: 390, height: 844 }],
   ] as const) {
     const context = await browser.newContext({
       viewport,
@@ -40,6 +44,7 @@ test("file transfer keeps local and remote posted bytes after archive", async ({
         multipart: {
           name: `e2e-transfer-${lane}`,
           cwd,
+          ...(lane === "remote" && { runner: runnerId, projectId }),
           type: "codex",
           useWorktree: "false",
           initialPrompt: "proof-file-transfer startup",

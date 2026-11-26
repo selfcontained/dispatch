@@ -21,7 +21,6 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../..");
 const RUNNERS = ["alpha", "beta", "scratch"];
-const WORKSPACE = "proof"; // identical handle on every runner, on purpose
 const WORKSPACE_DIR = "/opt/dispatch-guest-proof";
 // The supervisor uses procps to reap engine descendants during archive.
 const IMAGE = process.env.REMOTE_E2E_IMAGE ?? "node:22-bookworm";
@@ -88,7 +87,6 @@ async function up(run) {
     controlPort,
     runnerPort,
     endpointHost: "host.docker.internal",
-    workspace: WORKSPACE,
     runners: {},
   };
   for (const name of RUNNERS) {
@@ -109,14 +107,6 @@ async function up(run) {
         path: "/usr/local/bin:/usr/bin:/bin",
         bins: { claudeBin: "/usr/local/bin/fixture-claude", codexBin: null },
         adapter: ["/opt/bin/remote-acp-fixture"],
-        workspaces:
-          name === "scratch"
-            ? {}
-            : {
-                [WORKSPACE]: {
-                  cwd: WORKSPACE_DIR,
-                },
-              },
       })
     );
     copyFileSync(

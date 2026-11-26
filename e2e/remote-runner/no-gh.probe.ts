@@ -66,7 +66,8 @@ test("managed public and private HTTPS checkouts without gh", async ({
         data: {
           name: `No gh ${kind}`,
           type: "claude",
-          cwd: `runner://${runner}/@session`,
+          cwd: "",
+          runner,
           projectId,
           useWorktree: false,
         },
