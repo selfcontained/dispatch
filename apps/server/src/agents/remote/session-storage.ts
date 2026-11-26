@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { chown, lstat, mkdir } from "node:fs/promises";
 import path from "node:path";
 import type { RunnerRepository } from "@dispatch/runner-protocol";
-import { validBranch } from "./repository.js";
+import { validBranch } from "@dispatch/runner-protocol";
 import { githubCredentialKey } from "./workload-tools.js";
 
 /** The supervisor-owned parent prevents workloads from replacing session roots. */

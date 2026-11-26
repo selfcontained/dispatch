@@ -1,13 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
-// Server-defined shape, imported type-only so nothing from the server
-// reaches the web bundle (see use-cached-release-info.ts for the same
-// pattern).
 import type {
-  PluginAgentType,
+  PluginEngine as PluginAgentType,
   PluginStatus,
-} from "../../../server/src/shared/plugin-status";
+} from "@dispatch/runner-protocol/plugin-engines";
 import { toast } from "@/components/ui/toast";
 
 export type { PluginAgentType, PluginStatus };

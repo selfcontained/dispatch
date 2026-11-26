@@ -6,7 +6,7 @@ import type {
 } from "@dispatch/runner-protocol/diff-types";
 
 import { resolveBaseRef } from "./base-ref.js";
-import { isTestFile } from "./test-files.js";
+import { isTestFile } from "@dispatch/runner-protocol";
 import {
   countLines,
   readUntrackedFile,
