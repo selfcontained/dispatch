@@ -4,6 +4,7 @@ import {
   scheduleDeadline,
   checkoutCommandTimeoutMs,
   isCheckoutCommand,
+  isCheckoutCommandArgv,
   isCheckoutCommandFile,
   isCheckoutReadRequest,
   type CheckoutCommand,
@@ -196,11 +197,29 @@ export function enrolledCheckouts(
         })
       );
     }
+    // Resolve a moved native read from the binding. The read worker receives
+    // that directory directly and has no need to resolve a selector itself.
+    const movedRead =
+      op === "checkout.read" &&
+      manifest.mode === "native" &&
+      target.checkout === "moved";
     const checkout =
-      target.checkout === "owned" ? "launch" : (target.checkout ?? "current");
+      target.checkout === "owned"
+        ? "launch"
+        : movedRead
+          ? "current"
+          : (target.checkout ?? "current");
     const selection = { op, request, checkout };
     if (!isCheckoutReadRequest(selection, session)) throw invalid();
-    const cwd = await supervisor.checkoutDirectory(session, selection.checkout);
+    const cwd = movedRead
+      ? await supervisor.withCommandCheckout(
+          session,
+          "moved",
+          signal,
+          async (directory) => directory
+        )
+      : await supervisor.checkoutDirectory(session, selection.checkout);
+    if (cwd === null) throw missing();
     signal.throwIfAborted();
     return worker.read(cwd, selection, signal);
   };
@@ -221,24 +240,20 @@ export function enrolledCommand(
   execute: ExecWorker
 ): NonNullable<CallHandlers["checkout.exec"]> {
   return async (input, { sendOutput, signal }) => {
-    if (
-      !sendOutput ||
-      !signal ||
-      !("session" in input.target) ||
-      !("path" in input.guard)
-    )
-      throw invalid();
+    if (!sendOutput || !signal || !("session" in input.target)) throw invalid();
     const session = sessionToWire(input.target.session);
     const checkout = commandSelector(input.target.checkout);
     if (
       !isCheckoutExecutionOptions(input) ||
-      !isCheckoutCommand({
-        kind: "run",
-        checkout,
-        path: input.guard.path,
-        state: input.guard.digest,
-        argv: input.argv,
-      })
+      !isCheckoutCommandArgv(input.argv) ||
+      ("path" in input.guard &&
+        !isCheckoutCommand({
+          kind: "run",
+          checkout,
+          path: input.guard.path,
+          state: input.guard.digest,
+          argv: input.argv,
+        }))
     )
       throw invalid();
     const deadline = new AbortController();

@@ -71,6 +71,20 @@ const fits = (value: string, limit: number) =>
 const digest = (value: unknown) =>
   typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 
+export function isCheckoutCommandArgv(argv: unknown): argv is string[] {
+  return (
+    Array.isArray(argv) &&
+    argv.length > 0 &&
+    argv.length <= 256 &&
+    Boolean(argv[0]) &&
+    argv.every(
+      (arg) =>
+        typeof arg === "string" && !arg.includes("\0") && fits(arg, 16 * 1024)
+    ) &&
+    fits(JSON.stringify(argv), 64 * 1024)
+  );
+}
+
 export function isCheckoutCommand(value: unknown): value is CheckoutCommand {
   if (
     !isRecord(value) ||
@@ -88,15 +102,7 @@ export function isCheckoutCommand(value: unknown): value is CheckoutCommand {
     value.kind === "run" &&
     Object.keys(value).length === 5 &&
     digest(value.state) &&
-    Array.isArray(value.argv) &&
-    value.argv.length > 0 &&
-    value.argv.length <= 256 &&
-    Boolean(value.argv[0]) &&
-    value.argv.every(
-      (arg) =>
-        typeof arg === "string" && !arg.includes("\0") && fits(arg, 16 * 1024)
-    ) &&
-    fits(JSON.stringify(value.argv), 64 * 1024)
+    isCheckoutCommandArgv(value.argv)
   );
 }
 
