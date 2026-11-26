@@ -19,7 +19,7 @@ const LOCAL = {
 };
 const REMOTE = {
   placement: placementForRunner("runner-a"),
-  cwd: "runner://runner-a/@session",
+  cwd: "/runner/session",
   worktreePath: null,
 };
 const USES: ComparisonUse[] = ["changes", "review"];
@@ -171,19 +171,17 @@ describe("agentComparisonBase", () => {
 
 describe("explicit base to the runner executor", () => {
   function remote() {
-    const requestSession = vi.fn(async () => ({
-      value: JSON.stringify({
-        data: { files: 1, additions: 2, deletions: 0, uncommittedFiles: 0 },
-      }),
-    }));
-    return {
-      requestSession,
-      service: { requestSession } as unknown as RemoteRunnerService,
-    };
+    const call = vi.fn(
+      async (_runner: string, op: string, _input: { base: string }) =>
+        op === "checkout.stats"
+          ? { files: 1, additions: 2, deletions: 0, uncommittedFiles: 0 }
+          : null
+    );
+    return { call, service: { call } as unknown as RemoteRunnerService };
   }
 
   it("sends the service's base for Changes and stats, view base first", async () => {
-    const { requestSession, service } = remote();
+    const { call, service } = remote();
     const agent = { ...agentFor(REMOTE, { name: "", agent: {} }), id: "agt_r" };
     await readAgentView(
       agent,
@@ -208,11 +206,7 @@ describe("explicit base to the runner executor", () => {
       "develop"
     ).catch(() => null);
     await readAgentStats("agt_r", agent, service, "develop").catch(() => null);
-    const bases = requestSession.mock.calls.map(
-      (call) =>
-        (call as unknown as [unknown, { query: { baseBranch: string } }])[1]
-          .query.baseBranch
-    );
+    const bases = call.mock.calls.map(([, , input]) => input.base);
     expect(bases).toEqual(["develop", "picked", "develop"]);
   });
 });

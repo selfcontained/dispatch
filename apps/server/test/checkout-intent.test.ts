@@ -1,5 +1,3 @@
-import { placementForRunner } from "../src/runners/placement.js";
-import { placementForRunner } from "../src/runners/placement.js";
 import type { RepositoryCheckout } from "@dispatch/runner-protocol";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -18,7 +16,10 @@ import {
 import { AgentManager } from "../src/agents/manager.js";
 import { pathFromWire } from "@dispatch/runner-protocol/contract";
 import { runnerDirectory } from "../src/runners/directory.js";
-import { controllerPlacement } from "../src/runners/placement.js";
+import {
+  controllerPlacement,
+  placementForRunner,
+} from "../src/runners/placement.js";
 import { agentComparisonBase } from "../src/agents/effective-base.js";
 import { readAgentView } from "../src/agents/checkout-runner.js";
 import { inspectCheckout } from "./helpers/checkout-inspection.js";

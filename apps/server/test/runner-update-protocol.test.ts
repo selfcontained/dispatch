@@ -2,21 +2,11 @@ import {
   MAX_UPDATE_RETAINED,
   encodeUpdateStatus,
   isTerminalEvent,
-  parseReadyFrame,
-  parseServiceFrame,
   parseSelfUpdateAdvert,
   parseUpdateServiceFrame,
   parseUpdateStatus,
-  type Command,
 } from "@dispatch/runner-protocol";
-import {
-  RunnerAcknowledgementLost,
-  RunnerConnection,
-  RunnerUnavailable,
-  RunnerUpdateFenced,
-  runnerReplyTimeoutMs,
-} from "@dispatch/runner-client/v1/connection";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 const attemptId = "6f1c1d1e-2a3b-4c5d-8e9f-0a1b2c3d4e5f";
 const sha256 = "a".repeat(64);
@@ -41,29 +31,19 @@ const installed = { version: "1.7.28", revision, sha256: "c".repeat(64) };
 const instance = (n: number) =>
   `00000000-0000-4000-8000-${n.toString(16).padStart(12, "0")}`;
 
-describe("ready.selfUpdate", () => {
-  const ready = { type: "ready", version: 1, workspaces: ["@session"] };
-
-  it("is absent unless advertised and rebuilt from known fields", () => {
-    expect(parseReadyFrame(ready)).not.toHaveProperty("selfUpdate");
-    const parsed = parseReadyFrame({
-      ...ready,
-      selfUpdate: { ...advert, extra: "x", pendingAttemptId: attemptId },
-    });
-    expect(parsed?.selfUpdate).toEqual({
-      ...advert,
-      pendingAttemptId: attemptId,
-    });
-    expect(parsed?.selfUpdate).not.toHaveProperty("extra");
-  });
-
-  it("preserves the explicit unreadable fence flag", () => {
+describe("runner description selfUpdate", () => {
+  it("preserves the durable attempt and explicit unreadable fence flag", () => {
     expect(
-      parseReadyFrame({
-        ...ready,
-        selfUpdate: { ...advert, fenceUnreadable: true },
-      })?.selfUpdate
-    ).toEqual({ ...advert, fenceUnreadable: true });
+      parseSelfUpdateAdvert({
+        ...advert,
+        extra: "x",
+        pendingAttemptId: attemptId,
+      })
+    ).toEqual({ ...advert, pendingAttemptId: attemptId });
+    expect(parseSelfUpdateAdvert({ ...advert, fenceUnreadable: true })).toEqual(
+      { ...advert, fenceUnreadable: true }
+    );
+    expect(parseSelfUpdateAdvert(undefined)).toBeNull();
   });
 
   it.each([
@@ -84,12 +64,6 @@ describe("ready.selfUpdate", () => {
     "drops a malformed advert (%s) without failing the handshake",
     (_, change) => {
       expect(parseSelfUpdateAdvert({ ...advert, ...change })).toBeNull();
-      const parsed = parseReadyFrame({
-        ...ready,
-        selfUpdate: { ...advert, ...change },
-      });
-      expect(parsed).not.toBeNull();
-      expect(parsed).not.toHaveProperty("selfUpdate");
     }
   );
 });
@@ -102,7 +76,10 @@ describe("service update frames", () => {
     { type: "update_confirm", attemptId, revision, sha256 },
     { type: "update_cancel", attemptId, reason: "quiesce_timeout" },
   ])("accepts $type and rebuilds it", (frame) => {
-    const parsed = parseServiceFrame({ ...frame, extra: { large: true } });
+    const parsed = parseUpdateServiceFrame({
+      ...frame,
+      extra: { large: true },
+    });
     expect(parsed).toEqual(frame);
     expect(parsed).not.toHaveProperty("extra");
     expect(parseUpdateServiceFrame(frame)).toEqual(frame);
@@ -168,12 +145,7 @@ describe("service update frames", () => {
     ["cancel reason", { type: "update_cancel", attemptId, reason: "because" }],
     ["unknown update frame", { type: "update_rename", attemptId }],
   ])("rejects %s", (_, frame) => {
-    expect(parseServiceFrame(frame)).toBeNull();
-  });
-
-  it("leaves existing frames to their v1 validation", () => {
-    const frame = { type: "accept_health", engineInventory: true, extra: 1 };
-    expect(parseServiceFrame(frame)).toBe(frame);
+    expect(parseUpdateServiceFrame(frame)).toBeNull();
   });
 });
 
@@ -315,126 +287,7 @@ describe("update_status", () => {
   });
 });
 
-describe("existing envelopes", () => {
-  it("surfaces update-fenced as a definite not-started error", async () => {
-    const sent: { id: string }[] = [];
-    const connection = new RunnerConnection((frame) =>
-      sent.push(frame as { id: string })
-    );
-    const command = {
-      kind: "alive",
-      agentId: "agt_one",
-      workspace: "@session",
-    } as Command;
-    const fenced = connection.request(command);
-    connection.receive({
-      type: "result",
-      id: sent[0]!.id,
-      code: "update-fenced",
-      error: "The runner is updating; the operation was not started.",
-    });
-    await expect(fenced).rejects.toBeInstanceOf(RunnerUpdateFenced);
-    await expect(fenced).rejects.not.toBeInstanceOf(RunnerUnavailable);
-  });
-
-  it("tells a reply lost to a closed connection from one never sent or timed out", async () => {
-    const sent: { id: string }[] = [];
-    const command = {
-      kind: "alive",
-      agentId: "agt_one",
-      workspace: "@session",
-    } as Command;
-    const connection = new RunnerConnection((frame) =>
-      sent.push(frame as { id: string })
-    );
-    const lost = connection.request(command);
-    connection.close();
-    await expect(lost).rejects.toBeInstanceOf(RunnerAcknowledgementLost);
-    await expect(lost).rejects.toBeInstanceOf(RunnerUnavailable);
-    await expect(lost).rejects.toThrow("execution is unknown");
-    // Closed before sending: never started.
-    const closed = connection.request(command);
-    await expect(closed).rejects.toBeInstanceOf(RunnerUnavailable);
-    await expect(closed).rejects.not.toBeInstanceOf(RunnerAcknowledgementLost);
-    // A failed write.
-    const broken = new RunnerConnection(() => {
-      throw new Error("EPIPE");
-    });
-    await expect(broken.request(command)).rejects.not.toBeInstanceOf(
-      RunnerAcknowledgementLost
-    );
-    // A timeout leaves the operation possibly still running there.
-    vi.useFakeTimers();
-    try {
-      const slow = new RunnerConnection(() => {});
-      const pending = slow.request(command);
-      const settled = pending.catch((error: unknown) => error);
-      await vi.advanceTimersByTimeAsync(runnerReplyTimeoutMs(command));
-      const error = await settled;
-      expect(error).toBeInstanceOf(RunnerUnavailable);
-      expect(error).not.toBeInstanceOf(RunnerAcknowledgementLost);
-      expect((error as Error).message).toBe(
-        "Runner acknowledgement was lost; execution is unknown."
-      );
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("accepts an optional UUID launch ID and the reconcile capability", () => {
-    const launch = (launchId: unknown) => ({
-      type: "request",
-      id: "req-1",
-      command: {
-        kind: "launch",
-        agentId: "agt_one",
-        workspace: "@session",
-        launch: {
-          agentId: "agt_one",
-          engine: "codex",
-          model: null,
-          systemPrompt: null,
-          resumeSessionId: null,
-          ...(launchId !== undefined && { launchId }),
-        },
-      },
-    });
-    expect(parseServiceFrame(launch(undefined))).not.toBeNull();
-    expect(parseServiceFrame(launch(attemptId))).not.toBeNull();
-    for (const bad of ["", "not-a-uuid", 7, null, attemptId.toUpperCase()])
-      expect(parseServiceFrame(launch(bad))).toBeNull();
-
-    const ready = { type: "ready", version: 1, workspaces: ["@session"] };
-    expect(parseReadyFrame(ready)).not.toHaveProperty("launchReconcile");
-    expect(
-      parseReadyFrame({ ...ready, launchReconcile: "yes" })
-    ).not.toHaveProperty("launchReconcile");
-    expect(parseReadyFrame({ ...ready, launchReconcile: true })).toMatchObject({
-      launchReconcile: true,
-    });
-  });
-
-  it("keeps the reply deadlines", () => {
-    const base = { agentId: "agt_one", workspace: "@session" };
-    expect(runnerReplyTimeoutMs({ ...base, kind: "alive" } as Command)).toBe(
-      20_000
-    );
-    expect(
-      runnerReplyTimeoutMs({
-        ...base,
-        kind: "viewCheckout",
-        query: { kind: "changes" },
-      } as unknown as Command)
-    ).toBe(300_000);
-    expect(
-      runnerReplyTimeoutMs({
-        ...base,
-        kind: "launch",
-        launch: { prepareWorkspace: true },
-      } as unknown as Command)
-    ).toBe(300_000);
-  });
-
+describe("terminal update reasons", () => {
   it("accepts only the update reason on a terminal error", () => {
     expect(
       isTerminalEvent({ type: "error", message: "closed", reason: "update" })

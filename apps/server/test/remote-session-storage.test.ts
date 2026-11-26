@@ -18,12 +18,7 @@ import {
   RunnerRepositories,
   prepareScratchSession,
 } from "../../../packages/runner/src/workload/agents/remote/session-storage.js";
-import {
-  MANAGED_WORKSPACE,
-  remotePlacement,
-  workspaceLocator,
-  type RepositoryCheckout,
-} from "../../../packages/runner/src/workload/agents/remote/protocol.js";
+import { type RepositoryCheckout } from "../../../packages/runner/src/workload/agents/remote/protocol.js";
 
 import {
   parseRepository,
@@ -43,13 +38,6 @@ async function git(...args: string[]) {
     })
   ).stdout;
 }
-
-it("round trips the reserved workspace and recognizes its encoded form", () => {
-  const placement = { runner: "test", workspace: MANAGED_WORKSPACE };
-  expect(workspaceLocator(placement)).toBe("runner://test/@session");
-  expect(remotePlacement("runner://test/@session")).toEqual(placement);
-  expect(remotePlacement("runner://test/%40session")).toEqual(placement);
-});
 
 it("gives each session private scratch storage and reuses it when restarted", async () => {
   const root = await mkdtemp(

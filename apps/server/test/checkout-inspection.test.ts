@@ -798,21 +798,14 @@ describe("archive checkout parity", () => {
       } else {
         const remote = {
           connectionEpoch: () => 1,
-          requestSession: async (
-            _placement: unknown,
-            request: { kind: string }
-          ) => ({
-            value: JSON.stringify(
-              request.kind === "checkoutRelease"
-                ? observation
-                : {
-                    removed:
-                      (await releaseThrough(runner, agent)) === "released",
-                  }
-            ),
-          }),
+          call: async (_id: string, op: string) =>
+            op === "workspace.observe"
+              ? observation
+              : {
+                  removed: (await releaseThrough(runner, agent)) === "released",
+                },
         } as unknown as RemoteRunnerService;
-        const placed = { ...agent, cwd: "runner://test/@session" };
+        const placed = { ...agent, placement: placementForRunner("test") };
         const enrolled = archiveRunner(
           { remote },
           placed,

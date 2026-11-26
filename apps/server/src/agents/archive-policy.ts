@@ -193,6 +193,7 @@ export async function localCoOwner(
        FROM agents
        WHERE deleted_at IS NULL
          AND id <> $1
+         AND runner_id = (SELECT runner_id FROM agents WHERE id = $1)
          AND (worktree_path = $2
               OR workspace_path = ANY($4::text[])
               OR cwd = ANY($4::text[])
@@ -212,6 +213,7 @@ export async function observedCoOwner(
 ) {
   const { rows } = await pool.query<{ id: string }>(
     `SELECT id FROM agents WHERE deleted_at IS NULL AND id <> $1
+      AND runner_id = (SELECT runner_id FROM agents WHERE id = $1)
       AND ((role = 'review' AND id = ANY($2::text[])) OR (cwd = $3 AND
         (worktree_path = $4 OR workspace_path = $4 OR worktree_branch = $5)))
       LIMIT 1`,
