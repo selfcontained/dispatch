@@ -2332,11 +2332,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         let list = lists.get(key);
         if (!list) {
           list = runtime.listSessions!(placement).catch((error) => {
-            if (
-              placement &&
-              (isSessionUnavailable(error) || error instanceof RunnerRevoked)
-            )
-              return undefined;
+            if (placement && isSessionUnavailable(error)) return undefined;
             throw error;
           });
           lists.set(key, list);
