@@ -5070,6 +5070,9 @@ describe("AgentManager", () => {
             path.join(root, ".git", "index"),
             Buffer.from("invalid index")
           );
+          // A failed status read must not launch a fetch that writes into the checkout.
+          const fetchHead = path.join(root, ".git", "FETCH_HEAD");
+          await writeFile(fetchHead, "previous fetch\n");
           const preview = await manager.checkArchivePreview(owner.id);
           expect(preview).toMatchObject({
             worktreeStatus: null,
@@ -5085,6 +5088,7 @@ describe("AgentManager", () => {
             onComplete: vi.fn(),
             onError: vi.fn(),
           });
+          expect(await readFile(fetchHead, "utf8")).toBe("previous fetch\n");
           await expect(
             readFile(path.join(root, "invoked"))
           ).rejects.toMatchObject({ code: "ENOENT" });
