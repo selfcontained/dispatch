@@ -40,19 +40,9 @@ export function agentWorkspaceDir(agent: WorkspaceTargetAgent): string | null {
 
 /** Path used to make tool locations relative to the session's checkout. */
 export function agentStreamDirectory(
-  agent: Pick<
-    WorkspaceTargetAgent,
-    "worktreePath" | "workspacePath" | "gitContext"
-  > & { cwd: string }
+  agent: Pick<WorkspaceTargetAgent, "workspacePath"> & { cwd: string }
 ): string {
-  // A host path is where the engine runs; a runner address is not a path,
-  // so the checkout the runner reported stands in for it.
-  return (
-    agent.workspacePath ??
-    (path.isAbsolute(agent.cwd)
-      ? agent.cwd
-      : (agent.worktreePath ?? agent.gitContext?.worktreePath ?? agent.cwd))
-  );
+  return agent.workspacePath ?? agent.cwd;
 }
 
 /** Local path used by Changes, including a worktree discovered on older rows. */
