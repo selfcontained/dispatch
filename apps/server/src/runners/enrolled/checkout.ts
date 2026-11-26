@@ -5,11 +5,8 @@ import {
   type CheckoutView,
   type GitQuery,
   type GitQueryName,
-  type CheckoutRelease,
-  type CheckoutReleaseResult,
   isCheckoutCommandResult,
   type Placement as V1Placement,
-  type SessionOperation,
   type ResultFrame,
   type LaunchProgress,
 } from "@dispatch/runner-protocol";
@@ -17,7 +14,6 @@ import {
   RunnerCallError,
   operations,
   sessionToWire,
-  sessionFromWire,
   pathFromWire,
   displayPath,
   type CallName,
@@ -58,54 +54,6 @@ function unreachable(error: unknown): never {
     code: "unavailable",
     message: error instanceof Error ? error.message : "Runner unavailable.",
   });
-}
-
-export function enrolledArchiveCheckout(
-  service: RemoteRunnerService,
-  placement: V1Placement,
-  agentId: string
-) {
-  const epoch = service.connectionEpoch?.(placement.runner);
-  const capable = service.supportsWorkspaceRelease?.(placement) === true;
-  const send = (operation: SessionOperation) =>
-    epoch === undefined
-      ? service.requestSession(placement, operation)
-      : service.requestSession(
-          placement,
-          operation,
-          undefined,
-          undefined,
-          epoch
-        );
-  const request = (operation: CheckoutRelease) =>
-    send({ kind: "checkoutRelease", agentId, operation });
-  return {
-    capable,
-    observe(policy: "ownership" | "changes" = "changes") {
-      return request({ kind: "observe", ...(capable && { policy }) });
-    },
-    async release(
-      expectedState: string | null
-    ): Promise<CheckoutReleaseResult> {
-      const { value } = await request({ kind: "release", expectedState });
-      if (value !== "released" && value !== "retained" && value !== "inUse")
-        throw new Error("Invalid checkout release result from the runner.");
-      return value;
-    },
-    async releaseBound(operation: Omit<Req<"workspace.release">, "session">) {
-      const frame: Decoded<"workspace.release"> = {
-        op: "workspace.release",
-        request: { session: sessionFromWire(agentId), ...operation },
-        absent: [],
-        extras: { workspace: placement.workspace },
-      };
-      const command = encodeCommand(frame);
-      if (command.kind !== "workspaceRelease")
-        throw new Error("Invalid workspace release command.");
-      const { value } = await send(command);
-      return decodeResult(frame, value).removed;
-    },
-  };
 }
 
 /** References already on a runner session, and those in flight, per service. */
@@ -184,7 +132,7 @@ export function createEnrolledCheckoutRunner(
   /**
    * The connection this adapter's first observe or release went to. A
    * release is only sent on it: a runner that reconnected after the
-   * observation is not released against (as `enrolledArchiveCheckout`).
+   * observation is not released against.
    */
   let archiveEpoch: number | undefined;
   async function archiveCall<
@@ -217,7 +165,7 @@ export function createEnrolledCheckoutRunner(
       (op === "workspace.observe" ? "checkoutRelease" : "workspaceRelease")
     )
       throw new Error("Invalid workspace release command.");
-    // The bytes the archive transport sends (`enrolledArchiveCheckout`):
+    // The session request supplies the workspace:
     // `requestSession` appends the workspace, so the frame stays identical.
     const command =
       encoded.kind === "checkoutRelease"
@@ -493,10 +441,10 @@ export function createEnrolledCheckoutRunner(
             code: "invalid",
             message: "Invalid workspace release binding.",
           });
-        if (!service || service.supportsWorkspaceRelease?.(placement) !== true)
+        if (!service)
           throw new RunnerCallError({
-            code: "unsupported",
-            message: `Unsupported operation: ${op}`,
+            code: "unavailable",
+            message: "The session runner is unavailable.",
           });
         return archiveCall(
           service,

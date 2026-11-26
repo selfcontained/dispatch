@@ -35,27 +35,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/archive-checkout.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(agent.cwd)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/archive-policy.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(agent.cwd)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/archive.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(agent.cwd)",
-    "task": "T07",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/checkout-runner.ts",
     "kind": "R1 placement call",
     "detail": "agentWorkspaceDir(owner)",
@@ -89,13 +68,6 @@
     "detail": "remotePlacement(agent.cwd)",
     "task": "T07",
     "count": 4
-  },
-  {
-    "file": "apps/server/src/agents/manager.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(cwd)",
-    "task": "T07",
-    "count": 1
   },
   {
     "file": "apps/server/src/agents/manager.ts",

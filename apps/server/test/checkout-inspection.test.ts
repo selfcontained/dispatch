@@ -47,7 +47,6 @@ import {
 } from "@dispatch/runner-protocol/contract";
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
-import { archiveRunner } from "../src/agents/archive-checkout.js";
 import { archiveCheckout } from "../src/agents/archive.js";
 import type { RemoteRunnerService } from "../src/agents/remote/service.js";
 
@@ -798,37 +797,37 @@ describe("archive checkout parity", () => {
         await archiveCheckout(pool, logger, agent, mode, true, {}, runner);
       } else {
         const remote = {
+          connectionEpoch: () => 1,
           requestSession: async (
             _placement: unknown,
-            request: {
-              operation:
-                | { kind: "observe" }
-                | { kind: "release"; expectedState: string | null };
-            }
+            request: { kind: string }
           ) => ({
-            value:
-              request.operation.kind === "observe"
-                ? JSON.stringify(observation)
-                : request.operation.expectedState === null
-                  ? "retained"
-                  : await releaseThrough(runner, agent),
+            value: JSON.stringify(
+              request.kind === "checkoutRelease"
+                ? observation
+                : {
+                    removed:
+                      (await releaseThrough(runner, agent)) === "released",
+                  }
+            ),
           }),
         } as unknown as RemoteRunnerService;
+        const placed = { ...agent, cwd: "runner://test/@session" };
+        const enrolled = archiveRunner(
+          { remote },
+          placed,
+          placementForRunner("test")
+        );
         expect(
           (
             await archiveCheckout(
               pool,
               logger,
-              { ...agent, cwd: "runner://test/@session" },
+              placed,
               mode,
               true,
               {},
-              archiveRunner(
-                { remote },
-                { ...agent, cwd: "runner://test/@session" },
-                placementForRunner("test")
-              ),
-              remote
+              enrolled
             )
           ).kind
         ).toBe(shouldRelease ? "released" : "kept");

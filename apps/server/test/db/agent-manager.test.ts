@@ -553,6 +553,8 @@ describe("AgentManager", () => {
       const requestSession = vi.fn(
         async (_placement: unknown, operation: SessionOperation) => {
           if (!available()) throw new Error("offline");
+          if (operation.kind === "workspaceRelease")
+            return { value: JSON.stringify({ removed: true }) };
           if (operation.kind !== "checkoutRelease")
             throw new Error("Unexpected request");
           return {
@@ -577,6 +579,7 @@ describe("AgentManager", () => {
       );
       const remote = {
         available,
+        connectionEpoch: () => (available() ? 1 : undefined),
         requestSession,
         isManagedWorkspace: available,
         originFor: () => "https://example.test",
@@ -642,13 +645,7 @@ describe("AgentManager", () => {
       const placement = { runner: "runner-test", workspace: "@session" };
       requestSession.mockClear();
       await resumed.reconcileAgentStatuses();
-      await vi.waitFor(() =>
-        expect(requestSession).toHaveBeenCalledWith(placement, {
-          kind: "checkoutRelease",
-          agentId: agent.id,
-          operation: { kind: "observe" },
-        })
-      );
+      expect(requestSession).not.toHaveBeenCalled();
       expect(await pending()).toBe(true);
       const reconnected = new AgentManager(pool, noopLogger, testConfig, {
         runtime: { ...createSpyRuntime(), discard },
@@ -657,157 +654,21 @@ describe("AgentManager", () => {
       available.mockReturnValue(true);
       await reconnected.reconcileAgentStatuses();
       await vi.waitFor(async () => expect(await pending()).toBe(false));
-      expect(requestSession).toHaveBeenLastCalledWith(placement, {
-        kind: "checkoutRelease",
-        agentId: agent.id,
-        operation: { kind: "release", expectedState: stateId },
-      });
-      expect(discard).not.toHaveBeenCalled();
-    });
-
-    it("retains an unflagged managed locator on archive and pending retry", async () => {
-      const id = "old-managed-session";
-      const remote = {
-        available: vi.fn(() => true),
-        requestSession: vi.fn(),
-      } as unknown as RemoteRunnerService;
-      const runtime = {
-        ...createSpyRuntime(),
-        clearRemoteState: vi.fn(),
-        discard: vi.fn(),
-      };
-      const manager = new AgentManager(pool, noopLogger, testConfig, {
-        runtime,
-        remote,
-      });
-      await pool.query(
-        `INSERT INTO agents (id, name, cwd, status, runner_id, runner_managed)
-        VALUES ($1, 'Older session', 'runner://runner-test/@session', 'running', 'runner-test', false)`,
-        [id]
-      );
-      await manager.beginArchive(id, "force");
-      await manager.executeArchive(id, {
-        onPhaseChange: vi.fn(),
-        onComplete: vi.fn(),
-        onError: vi.fn(),
-      });
-      await pool.query(
-        "UPDATE agents SET runner_cleanup_pending = true, archive_cleanup_mode = 'force' WHERE id = $1",
-        [id]
-      );
-      await manager.reconcileAgentStatuses();
-      await vi.waitFor(async () =>
-        expect(
-          (
-            await pool.query(
-              "SELECT runner_cleanup_pending, archive_cleanup_mode FROM agents WHERE id = $1 AND deleted_at IS NOT NULL",
-              [id]
-            )
-          ).rows
-        ).toEqual([
-          { runner_cleanup_pending: false, archive_cleanup_mode: null },
-        ])
-      );
-      expect(runtime.clearRemoteState).not.toHaveBeenCalled();
-      expect(runtime.discard).not.toHaveBeenCalled();
-      expect(
-        vi
-          .mocked(remote.requestSession)
-          .mock.calls.filter(
-            ([, request]) => request.kind === "checkoutRelease"
-          )
-      ).toEqual([]);
-    });
-
-    it("retries an offline archive in a configured runner workspace until the host is stopped and released (audit #17)", async () => {
-      const available = vi.fn(() => false);
-      const requestSession = vi.fn(
-        async (_placement: unknown, operation: SessionOperation) => {
-          if (!available()) throw new Error("offline");
-          if (operation.kind !== "checkoutRelease")
-            throw new Error("Unexpected request");
-          return {
-            value:
-              operation.operation.kind === "release"
-                ? "released"
-                : JSON.stringify({
-                    ownership: "external",
-                    owner: null,
-                    borrowers: [],
-                    checkout: null,
-                  }),
-          };
-        }
-      );
-      const remote = {
-        available,
-        requestSession,
-        isManagedWorkspace: () => false,
-        originFor: () => "https://example.test",
-      } as unknown as RemoteRunnerService;
-      const cwd = "runner://runner-test/configured";
-      const placement = { runner: "runner-test", workspace: "configured" };
-      // The runner the locator names, as every launch records it (0065).
-      await pool.query(
-        `INSERT INTO agents (id, name, cwd, status, runner_id)
-         VALUES ('configured-runner', 'Configured', $1, 'running', 'runner-test')`,
-        [cwd]
-      );
-      const offlineRuntime = createSpyRuntime();
-      offlineRuntime.stop.mockRejectedValue(new Error("offline"));
-      const offline = new AgentManager(pool, noopLogger, testConfig, {
-        runtime: offlineRuntime,
-        remote,
-      });
-      await offline.beginArchive("configured-runner", "auto");
-      const onComplete = vi.fn();
-      await offline.executeArchive("configured-runner", {
-        onPhaseChange: vi.fn(),
-        onComplete,
-        onError: vi.fn(),
-      });
-      expect(onComplete).toHaveBeenCalledWith(["configured-runner"]);
-      const pending = async () =>
-        (
-          await pool.query(
-            "SELECT runner_cleanup_pending FROM agents WHERE id = 'configured-runner' AND deleted_at IS NOT NULL"
-          )
-        ).rows[0]?.runner_cleanup_pending;
-      expect(await pending()).toBe(true);
-
-      // Still offline: the retry stays pending.
-      await offline.reconcileAgentStatuses();
-      await vi.waitFor(() =>
-        expect(offlineRuntime.stop).toHaveBeenCalledTimes(2)
-      );
-      expect(await pending()).toBe(true);
-      const releases = () =>
-        requestSession.mock.calls.filter(
-          ([, request]) => request.kind === "checkoutRelease"
-        );
-      expect(releases()).toEqual([]);
-
-      // The runner reconnects: the retry stops the host, then releases it.
-      available.mockReturnValue(true);
-      const onlineRuntime = createSpyRuntime();
-      const reconnected = new AgentManager(pool, noopLogger, testConfig, {
-        runtime: onlineRuntime,
-        remote,
-      });
-      await reconnected.reconcileAgentStatuses();
-      await vi.waitFor(async () => expect(await pending()).toBe(false));
-      expect(onlineRuntime.stop).toHaveBeenCalledWith(
-        "configured-runner",
-        true
-      );
-      expect(releases().at(-1)).toEqual([
+      expect(requestSession.mock.calls.at(-1)?.slice(0, 2)).toEqual([
         placement,
         {
-          kind: "checkoutRelease",
-          agentId: "configured-runner",
-          operation: { kind: "release", expectedState: null },
+          kind: "workspaceRelease",
+          workspace: placement.workspace,
+          agentId: agent.id,
+          operation: {
+            deleteBranch: Boolean(
+              agent.worktreeBranch && agent.worktreeBranch !== agent.baseBranch
+            ),
+            originalBranch: agent.worktreeBranch,
+          },
         },
       ]);
+      expect(discard).not.toHaveBeenCalled();
     });
 
     it("refreshes a runner branch after a turn and keeps the last context if the probe fails", async () => {
@@ -5375,8 +5236,10 @@ describe("AgentManager", () => {
           {
             kind: "checkoutRelease",
             agentId: child.id,
-            operation: { kind: "observe" },
-          }
+            operation: { kind: "observe", policy: "changes" },
+          },
+          undefined,
+          undefined
         );
         // A borrower answers what main answers for a row without a worktree
         // of its own, on every runner (347eb0c3's owner's checkout reverted).
@@ -5649,16 +5512,12 @@ describe("AgentManager", () => {
         );
         return agent;
       }
-      function managerFor(
-        capable: boolean,
-        requestSession: ReturnType<typeof vi.fn>
-      ) {
+      function managerFor(requestSession: ReturnType<typeof vi.fn>) {
         return new AgentManager(pool, noopLogger, testConfig, {
           runtime,
           remote: {
             requestSession,
-            supportsWorkspaceRelease: () => capable,
-            connectionEpoch: () => (capable ? 3 : undefined),
+            connectionEpoch: () => 3,
           } as unknown as RemoteRunnerService,
         });
       }
@@ -5752,29 +5611,20 @@ describe("AgentManager", () => {
           unavailable,
         ],
       ] as const)(
-        "%s: the expected status (or 503 body), the same through the snapshot transport",
+        "%s: the expected status (or 503 body)",
         async (_name, reply, expected) => {
           const agent = await runnerAgent();
-          const results = [];
-          for (const capable of [false, true]) {
-            const requestSession = vi.fn(reply);
-            const result = await outcome(
-              managerFor(capable, requestSession).checkWorktreeStatus(agent.id)
-            );
-            expect({ capable, result }).toEqual({ capable, result: expected });
-            results.push(result);
-            expect(requestSession).toHaveBeenCalledOnce();
-            // The capable peer is asked for the checkout's state (changes);
-            // the snapshot peer gets its own frame, as before.
-            expect(requestSession.mock.calls[0]![1]).toEqual({
-              kind: "checkoutRelease",
-              agentId: agent.id,
-              operation: capable
-                ? { kind: "observe", policy: "changes" }
-                : { kind: "observe" },
-            });
-          }
-          expect(results[1]).toEqual(results[0]);
+          const requestSession = vi.fn(reply);
+          const result = await outcome(
+            managerFor(requestSession).checkWorktreeStatus(agent.id)
+          );
+          expect(result).toEqual(expected);
+          expect(requestSession).toHaveBeenCalledOnce();
+          expect(requestSession.mock.calls[0]![1]).toEqual({
+            kind: "checkoutRelease",
+            agentId: agent.id,
+            operation: { kind: "observe", policy: "changes" },
+          });
         }
       );
 
@@ -5804,44 +5654,35 @@ describe("AgentManager", () => {
               ...owner,
             },
           };
-          for (const capable of [false, true]) {
-            const requestSession = vi.fn(async () => ({
-              value: JSON.stringify(reply),
-            }));
-            const status = await managerFor(
-              capable,
-              requestSession
-            ).checkWorktreeStatus(agent.id);
-            expect({ capable, status }).toEqual({
-              capable,
-              status: {
-                ownership: "borrowed",
-                borrowers: ["agt_other"],
-                checkoutState: undefined,
-                hasWorktree: false,
-                hasUnmergedCommits: false,
-                hasUncommittedChanges: false,
-                worktreePath: null,
-                branchName: null,
-                changedFiles: [],
-                uncommittedFiles: [],
-              },
-            });
-            const preview = await managerFor(
-              capable,
-              requestSession
-            ).checkArchivePreview(agent.id);
-            expect(preview.worktreeStatus?.hasWorktree ?? false).toBe(false);
-            expect(preview.cleanupDescriptions).toEqual([]);
-            // What the runner is asked is unchanged.
-            expect(requestSession.mock.calls[0]![1]).toEqual({
-              kind: "checkoutRelease",
-              agentId: agent.id,
-              operation: capable
-                ? { kind: "observe", policy: "changes" }
-                : { kind: "observe" },
-            });
-          }
+          const requestSession = vi.fn(async () => ({
+            value: JSON.stringify(reply),
+          }));
+          const status = await managerFor(requestSession).checkWorktreeStatus(
+            agent.id
+          );
+          expect(status).toEqual({
+            ownership: "borrowed",
+            borrowers: ["agt_other"],
+            checkoutState: undefined,
+            hasWorktree: false,
+            hasUnmergedCommits: false,
+            hasUncommittedChanges: false,
+            worktreePath: null,
+            branchName: null,
+            changedFiles: [],
+            uncommittedFiles: [],
+          });
+          const preview = await managerFor(requestSession).checkArchivePreview(
+            agent.id
+          );
+          expect(preview.worktreeStatus?.hasWorktree ?? false).toBe(false);
+          expect(preview.cleanupDescriptions).toEqual([]);
+          // What the runner is asked is unchanged.
+          expect(requestSession.mock.calls[0]![1]).toEqual({
+            kind: "checkoutRelease",
+            agentId: agent.id,
+            operation: { kind: "observe", policy: "changes" },
+          });
         }
       );
 
@@ -5857,31 +5698,26 @@ describe("AgentManager", () => {
         });
       });
 
-      it.each([
-        [true, null],
-        [false, "1".repeat(64)],
-      ] as const)(
-        "beginArchive keeps the observed state only for a snapshot peer (bound release %s)",
-        async (capable, kept) => {
-          const agent = await runnerAgent();
-          await managerFor(
-            capable,
-            vi.fn(async () => ({ value: "released" }))
-          ).beginArchive(agent.id, "auto", "1".repeat(64));
-          const { rows } = await pool.query(
-            "SELECT archive_checkout_state FROM agents WHERE id = $1",
-            [agent.id]
-          );
-          expect(rows[0]?.archive_checkout_state).toBe(kept);
-        }
-      );
+      it("beginArchive drops the preview state for a bound release", async () => {
+        const agent = await runnerAgent();
+        await managerFor(vi.fn()).beginArchive(
+          agent.id,
+          "auto",
+          "1".repeat(64)
+        );
+        const { rows } = await pool.query(
+          "SELECT archive_checkout_state FROM agents WHERE id = $1",
+          [agent.id]
+        );
+        expect(rows[0]?.archive_checkout_state).toBeNull();
+      });
 
       it("beginArchive keeps the observed state for a local row", async () => {
         const agent = await manager.createAgent({
           cwd: "/tmp",
           useWorktree: false,
         });
-        await managerFor(true, vi.fn()).beginArchive(
+        await managerFor(vi.fn()).beginArchive(
           agent.id,
           "auto",
           "1".repeat(64)

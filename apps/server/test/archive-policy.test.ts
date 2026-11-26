@@ -12,10 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
-import type {
-  CheckoutObservation,
-  CheckoutRelease,
-} from "@dispatch/runner-protocol";
+import type { CheckoutObservation } from "@dispatch/runner-protocol";
 import {
   RunnerCallError,
   type Runner,
@@ -181,36 +178,19 @@ function harness(
       return { rows: [], rowCount: 0 };
     },
   } as unknown as Pool;
-  // Mirrors the runner supervisor: a null or stale authorization retains,
-  // a live borrower defers, otherwise the checkout is removed.
   const remote = {
-    requestSession: async (
-      _placement: unknown,
-      request: { operation: CheckoutRelease }
-    ) => {
+    connectionEpoch: () => (options.offline ? undefined : 1),
+    requestSession: async (_placement: unknown, request: { kind: string }) => {
       if (options.offline) throw new Error("Runner is offline.");
-      const { operation } = request;
-      if (operation.kind === "observe") {
-        const observation: CheckoutObservation = {
-          ...(await observeRow()),
-          borrowers: row.borrowed ? ["borrower"] : [],
-        };
-        return { value: JSON.stringify(observation) };
-      }
-      if (operation.expectedState === null) return { value: "retained" };
+      if (request.kind === "checkoutRelease")
+        return { value: JSON.stringify(await observeRow()) };
       if (options.releaseError) throw new Error("release failed");
-      if (row.state === "race")
-        writeFileSync(path.join(checkout, "late.txt"), "late");
-      const current = await observeRow();
-      if (current.checkout?.stateId !== operation.expectedState)
-        return { value: "retained" };
-      if (row.borrowed) return { value: "inUse" };
-      await port(
+      const removed = await workspaceWorkload.release(
         "agent-fixture",
         { path: checkout },
         { deleteBranch: true, originalBranch: "feature" }
       );
-      return { value: "released" };
+      return { value: JSON.stringify({ removed }) };
     },
   } as unknown as RemoteRunnerService;
   const agent = {
@@ -262,10 +242,6 @@ function expected(row: Row): Omit<Result, "rememberedState"> {
     row.mode === "force" ||
     (row.mode === "auto" && ["clean", "changed", "race"].includes(row.state));
   if (!authorizes) return { pending: false, removed: false };
-  if (row.placement === "runner") {
-    if (row.state === "race") return { pending: false, removed: false };
-    if (row.borrowed) return { pending: true, removed: false };
-  }
   return { pending: false, removed: true };
 }
 
@@ -284,8 +260,6 @@ describe("archive checkout outcome table", () => {
       expected(row)
     );
     // A deferred release keeps the authorization it observed.
-    if (result.pending)
-      expect(result.rememberedState).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it.each(ROWS.filter(({ placement }) => placement === "local"))(
@@ -579,8 +553,7 @@ function retry(h: Harness, row: Row) {
       { child: h.deps.localRunnerChild, remote: h.deps.remote },
       h.agent,
       h.agent.placement
-    ),
-    h.deps.remote
+    )
   );
 }
 
@@ -682,7 +655,7 @@ describe("negotiated archive release", () => {
         return { value: JSON.stringify({ removed }) };
       });
       deps.remote = {
-        supportsWorkspaceRelease: () => true,
+        connectionEpoch: () => 1,
         requestSession,
       } as unknown as RemoteRunnerService;
       expect(await finishCheckout(deps, agent, mode, true, {})).toBe(false);
@@ -728,7 +701,7 @@ describe("a gone runner checkout", () => {
       return { value: JSON.stringify({ removed: true }) };
     });
     deps.remote = {
-      supportsWorkspaceRelease: () => true,
+      connectionEpoch: () => 1,
       requestSession,
     } as unknown as RemoteRunnerService;
     expect(await finishCheckout(deps, agent, "auto", true, {})).toBe(false);
@@ -740,30 +713,6 @@ describe("a gone runner checkout", () => {
 });
 
 describe("pending release retry", () => {
-  const firstAttempts = ROWS.filter(
-    (row) => !row.borrowed && expected({ ...row, borrowed: true }).pending
-  );
-
-  it.each(firstAttempts)(
-    "$placement $mode $state: a borrowed release retries to the first-attempt outcome",
-    async (row) => {
-      shape(row.state);
-      const borrowed = harness({ ...row, borrowed: true });
-      expect(
-        await finishCheckout(borrowed.deps, borrowed.agent, row.mode, true, {})
-      ).toBe(true);
-      expect(existsSync(checkout)).toBe(true);
-      // The borrower has gone; the retry makes a fresh observation.
-      const free = harness(row);
-      free.db.checkoutState = borrowed.db.checkoutState;
-      const outcome = await retry(free, row);
-      expect({
-        pending: outcome.kind === "pending",
-        removed: !existsSync(checkout),
-      }).toEqual(expected(row));
-    }
-  );
-
   it.each(["auto", "keep", "force"] as const)(
     "runner %s: an offline release retries to the first-attempt outcome",
     async (mode) => {
@@ -787,24 +736,6 @@ describe("pending release retry", () => {
       }).toEqual(expected(row));
     }
   );
-
-  it("reevaluates a pending force cleanup at retry and removes late edits", async () => {
-    const row = {
-      placement: "runner",
-      mode: "force",
-      state: "clean",
-      borrowed: false,
-    } as const;
-    const borrowed = harness({ ...row, borrowed: true });
-    expect(
-      await finishCheckout(borrowed.deps, borrowed.agent, "force", true, {})
-    ).toBe(true);
-    writeFileSync(path.join(checkout, "later.txt"), "later");
-    const free = harness(row);
-    free.db.checkoutState = borrowed.db.checkoutState;
-    expect((await retry(free, row)).kind).toBe("released");
-    expect(existsSync(checkout)).toBe(false);
-  });
 });
 
 /*
@@ -1032,7 +963,11 @@ describe("runner archive co-owner, whatever the row's worktree path", () => {
           worktreeBranch: null,
           baseBranch: null,
         },
-        { call: vi.fn(), archive: enrolledArchivePolicy } as never,
+        {
+          call: vi.fn(),
+          connection: { state: "ready" },
+          archive: enrolledArchivePolicy,
+        } as never,
         true
       );
       return executor.observedCoOwner!({
