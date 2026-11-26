@@ -56,6 +56,9 @@ mkdirSync(dir, { recursive: true });
 writeFileSync(
   path.join(dir, "runtime-assets.js"),
   Object.entries(runnerAssets)
-    .map(([key, value]) => `export const ${key} = ${JSON.stringify(value)};\n`)
+    .map(
+      ([key, value]) =>
+        `// prettier-ignore\nexport const ${key} = ${JSON.stringify(value)};\n`
+    )
     .join("")
 );

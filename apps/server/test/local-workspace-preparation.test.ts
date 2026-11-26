@@ -445,14 +445,14 @@ function resolveLaunchDirectory(raw: string) {
 
 it("keeps the Linux entry on its privsep workspace composition", async () => {
   const main = await readFile(
-    new URL("../src/main.ts", import.meta.url),
+    new URL("../../../packages/runner/src/program.ts", import.meta.url),
     "utf8"
   );
   const linux = main.slice(
-    main.indexOf('process.argv[2] === "remote-runner"'),
-    main.indexOf('process.argv[2] === "local-runner"')
+    main.indexOf('argv[0] === "remote-runner"'),
+    main.indexOf('argv[0] === "local-runner"')
   );
-  expect(linux).toContain('await import("@dispatch/runner/cli")');
+  expect(linux).toContain('await import("./cli.js")');
   expect(linux).toContain(
     "createWorkspacePreparation: createRemoteWorkspacePreparation"
   );
