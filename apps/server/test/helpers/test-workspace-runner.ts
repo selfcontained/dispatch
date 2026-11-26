@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import {
   RunnerCallError,
+  displayPath,
   type CallName,
   type CallOptions,
   type Req,
@@ -63,15 +64,34 @@ export function withTestWorkspaceRunner(Manager: typeof AgentManager) {
         ): Promise<Res<K>> {
           if (op.startsWith("session."))
             return sessions().call(op, request, opts);
-          // Persona fixtures read their real temporary files through the same
-          // native workload as the application, while retaining Git mocks.
+          // Persona fixture files use the same native workload as production.
           if (op === "checkout.list" || op === "checkout.read") {
             const read = request as Req<"checkout.list"> | Req<"checkout.read">;
             if (read.mode === "native" && "path" in read.target) {
               const { target, ...input } = read;
               return (await checkoutWorkload.run(
                 op,
-                { directory: target.path, request: input } as never,
+                {
+                  directory: displayPath(target.path),
+                  request: input,
+                } as never,
+                { signal: opts?.signal }
+              )) as Res<K>;
+            }
+          }
+          // Fixture Git mocks stay in process; production calls the runner port.
+          if (op === "git.roots" || op === "checkout.defaultFiles") {
+            const read = request as
+              | Req<"git.roots">
+              | Req<"checkout.defaultFiles">;
+            if ("path" in read.target) {
+              const { target, ...input } = read;
+              return (await checkoutWorkload.run(
+                op,
+                {
+                  directory: displayPath(target.path),
+                  request: input,
+                } as never,
                 { signal: opts?.signal }
               )) as Res<K>;
             }
