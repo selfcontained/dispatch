@@ -269,3 +269,9 @@ The controller uses the authenticated registration to choose a connection and ch
 The update fence preserves the terminal grace deadline. A reader with credit receives the existing update notice and EOF. A stalled reader closes with `fenced` at the deadline so it cannot delay the update. The FIFO preview/archive caching decision remains open.
 
 Enrolled launches use project placement or the requesting session’s own folder. A saved enrolled project has an empty directory until its runner prepares the checkout. The controller stores the native path the runner returns. Current bindings, archive ownership receipts and the retirement marker remain valid. Session rows and templates written on main retain local placement across upgrade and rollback.
+
+### Controller receive limits
+
+Enrolled RPC replies have a separate retained-byte budget per call. Empty, boolean and session-liveness replies and enrolled file metadata allow 16 KiB. Checkout view replies use the 16 MiB view limit plus 16 KiB for metadata. Images allow their encoded base64 size plus the same metadata allowance. A bounded checkout read allows base64 expansion or up to six JSON bytes per UTF-8 source byte. The enrolled manifest also respects its 256 KiB file limit. Other replies default to 32 MiB of encoded JSON. Timeout, abort and overflow release the reply stream and its credit. Local child replies preserve their existing limits, including unlimited local command-manifest discovery.
+
+Each command output drains independently. A finite output limit retains only its trimmed UTF-8 prefix. An output without a requested limit has a 32 MiB controller ceiling per output. Session-file collection stops at 20 MiB and hands the caller its buffer through a one-use blob handle. Raw terminal channels apply stream backpressure, typed channels bound incomplete JSON lines, and enrolled session attachments cap each incoming host frame at 32 MiB.

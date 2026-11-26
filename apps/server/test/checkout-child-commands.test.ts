@@ -150,6 +150,26 @@ afterAll(() => {
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
 });
 
+it("reads a valid command manifest larger than 32 MiB through the connected local child", async () => {
+  const pathName = path.join(repo, tools.path);
+  const content = " ".repeat(32 * 1024 * 1024) + JSON.stringify({ tools: [] });
+  await writeFile(pathName, content);
+  try {
+    const result = await session.call("checkout.read", {
+      target: { session: sessionOf(bound), checkout: "current" },
+      mode: "command-manifest",
+      encoding: "utf8",
+      maxBytes: null,
+      path: tools.path,
+    });
+    expect(result?.data.length).toBe(content.length);
+    expect(result?.data === content).toBe(true);
+    expect(result?.digest).toBeTruthy();
+  } finally {
+    await manifest(repo, {});
+  }
+});
+
 it("runs a bound session's repo tool in the child, uncapped, with its agent id", async () => {
   const result = await tool(agent(bound), [
     "sh",

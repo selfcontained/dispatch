@@ -182,19 +182,23 @@ it("maps branch read and timeout failures as main does and rejects a missing fol
   expect(response.body).toBe('{"error":"Failed to list remote branches."}');
 });
 it("routes repository branches on an unbound enrolled adapter through the same operation", async () => {
-  const listRepositoryBranches = vi.fn(async () => ({
+  const call = vi.fn(async () => ({
     branches: ["one", "two"],
     defaultBranch: "two",
   }));
   const directory = runnerDirectory({
-    remote: { listRepositoryBranches } as never,
+    remote: { call } as never,
   });
   expect(
     await directory.for(placementForRunner("fixture")).call("git.branches", {
       target: { repository: "https://github.com/org/repo" },
     })
   ).toEqual({ branches: ["one", "two"], defaultBranch: "two" });
-  expect(listRepositoryBranches).toHaveBeenCalledWith("fixture", {
-    repository: "https://github.com/org/repo",
-  });
+  expect(call).toHaveBeenCalledExactlyOnceWith(
+    "fixture",
+    "git.branches",
+    { target: { repository: "https://github.com/org/repo" } },
+    undefined,
+    undefined
+  );
 });

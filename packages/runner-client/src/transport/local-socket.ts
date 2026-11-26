@@ -30,13 +30,21 @@
  * A failure before the request is written is `unavailable` (not sent); a
  * connection lost after it is `unknown_outcome`.
  */
-import { isCheckoutReadName } from "@dispatch/runner-protocol";
-import { commandOutput } from "./command-output.js";
+import {
+  MAX_SESSION_FILE_BYTES,
+  MAX_CHECKOUT_VIEW_BYTES,
+  MAX_CHECKOUT_COMMAND_FILE_BYTES,
+  isCheckoutReadName,
+} from "@dispatch/runner-protocol";
+import { DEFAULT_REPLY_BYTES, ReceiveBuffer } from "./receive-buffer.js";
+import { DIFF_IMAGE_MAX_BYTES } from "@dispatch/runner-protocol/diff-types";
+import { CommandOutput } from "./command-output.js";
 import { connect } from "node:net";
 import { Duplex, PassThrough, Readable, Writable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import {
   operations,
+  empty,
   runnerError,
   RunnerCallError,
   json,
@@ -168,6 +176,7 @@ export function jsonLines(
     pending += decoder.write(chunk);
     let newline: number;
     while ((newline = pending.indexOf("\n")) >= 0) {
+      if (newline > maxLineLength) return stream.destroy();
       const line = pending.slice(0, newline);
       pending = pending.slice(newline + 1);
       try {
@@ -276,9 +285,51 @@ const enrolledReads: ReadonlySet<OpName> = new Set<OpName>([
   "engine.plugin.status",
 ]);
 
+/** Budgets count the encoded JSON, including escaped text and worker metadata. */
+function enrolledReplyBudget(op: string, input: unknown) {
+  const metadata = 16 * 1024;
+  const spec = (operations as Record<string, OperationSpec>)[op];
+  if (
+    spec?.response === empty ||
+    spec?.response === boolean ||
+    op === "session.alive"
+  )
+    return metadata;
+  if (op === "checkout.read") {
+    const read = input as Req<"checkout.read">;
+    const max =
+      read.mode === "command-manifest"
+        ? Math.min(read.maxBytes ?? Infinity, MAX_CHECKOUT_COMMAND_FILE_BYTES)
+        : read.maxBytes;
+    if (max !== null && max >= 0)
+      return (
+        metadata +
+        (read.encoding === "base64" ? 4 * Math.ceil(max / 3) : 6 * max)
+      );
+  }
+  if (op === "checkout.exec") {
+    const { maxOutput } = input as Req<"checkout.exec">;
+    if (maxOutput !== null && maxOutput >= 0) return metadata + 12 * maxOutput;
+  }
+  if (op === "checkout.image")
+    return metadata + 4 * Math.ceil(DIFF_IMAGE_MAX_BYTES / 3);
+  if (
+    [
+      "checkout.list",
+      "checkout.preview",
+      "checkout.index",
+      "checkout.stats",
+      "checkout.diff",
+    ].includes(op)
+  )
+    return MAX_CHECKOUT_VIEW_BYTES + metadata;
+  if (op === "files.get") return metadata;
+  return DEFAULT_REPLY_BYTES;
+}
+
 type Pending = {
   op: string;
-  signal?: AbortSignal;
+  budget: number;
   onEvent?: (event: unknown) => void;
   resolve(value: unknown): void;
   reject(error: RunnerCallError): void;
@@ -434,62 +485,61 @@ export class LocalSocketConnection {
     }
     if (!socketReply.check(frame)) return this.socket.destroy();
     const pending = this.pending.get(frame.id);
-    if (!pending) {
-      // A streamed answer nobody waits for: refuse its stream.
-      if (frame.ok && "stream" in frame)
-        void this.streams
-          .receive(frame.stream, new PassThrough().resume())
-          .catch(() => {});
-      return;
-    }
+    // Without a registered receiver FlowStreams refuses the peer's open.
+    if (!pending) return;
     this.pending.delete(frame.id);
     if (!frame.ok) return pending.reject(new RunnerCallError(frame.error));
     if ("stream" in frame) {
       if (frame.stream !== replyStream(frame.id))
         return pending.reject(fail("failed", `Invalid ${pending.op} reply`));
       // Registered now, before the runner's first stream frame is read.
-      const chunks: Buffer[] = [];
-      const sink = new PassThrough();
-      sink.on("data", (chunk: Buffer) => chunks.push(chunk));
-      this.streams
-        .receive(frame.stream, sink, this.enrolled ? pending.signal : undefined)
-        .then(
-          () => {
-            let value: unknown;
-            try {
-              value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-            } catch {
+      const bytes = new ReceiveBuffer(pending.budget);
+      const sink = new Writable({
+        write(chunk: Buffer, _, done) {
+          if (bytes.append(chunk)) return done();
+          pending.reject(
+            fail("too_large", `The ${pending.op} reply exceeds its byte limit`)
+          );
+          done(new Error("Reply exceeds its byte limit"));
+        },
+      });
+      this.streams.receive(frame.stream, sink).then(
+        () => {
+          let value: unknown;
+          try {
+            value = JSON.parse(bytes.bytes().toString("utf8"));
+          } catch {
+            return pending.reject(
+              fail("failed", `Invalid ${pending.op} reply`)
+            );
+          }
+          if (this.enrolled && frame.workerReply) {
+            if (!value || typeof value !== "object")
               return pending.reject(
                 fail("failed", `Invalid ${pending.op} reply`)
               );
-            }
-            if (this.enrolled && frame.workerReply) {
-              if (!value || typeof value !== "object")
-                return pending.reject(
-                  fail("failed", `Invalid ${pending.op} reply`)
-                );
-              if ("error" in value && runnerError.check(value.error))
-                return pending.reject(new RunnerCallError(value.error));
-              value = "data" in value ? value.data : undefined;
-            }
-            this.settle(pending, value);
-          },
-          (error: unknown) =>
-            pending.reject(
-              this.lostReply(
-                pending,
-                error instanceof RunnerCallError
-                  ? new RunnerCallError({
-                      code: "unknown_outcome",
-                      message: `The ${pending.op} reply did not arrive: ${error.message}`,
-                    })
-                  : fail(
-                      "unknown_outcome",
-                      `The ${pending.op} reply did not arrive`
-                    )
-              )
+            if ("error" in value && runnerError.check(value.error))
+              return pending.reject(new RunnerCallError(value.error));
+            value = "data" in value ? value.data : undefined;
+          }
+          this.settle(pending, value);
+        },
+        (error: unknown) =>
+          pending.reject(
+            this.lostReply(
+              pending,
+              error instanceof RunnerCallError
+                ? new RunnerCallError({
+                    code: "unknown_outcome",
+                    message: `The ${pending.op} reply did not arrive: ${error.message}`,
+                  })
+                : fail(
+                    "unknown_outcome",
+                    `The ${pending.op} reply did not arrive`
+                  )
             )
-        );
+          )
+      );
       return;
     }
     this.settle(pending, frame.value);
@@ -527,6 +577,7 @@ export class LocalSocketConnection {
         signal?.removeEventListener("abort", abort);
       };
       const cancelRemote = () => {
+        this.streams.interrupt(replyStream(id), "cancelled");
         const spec = (operations as Record<string, OperationSpec>)[op];
         if (
           !this.enrolled ||
@@ -561,7 +612,7 @@ export class LocalSocketConnection {
       signal?.addEventListener("abort", abort, { once: true });
       this.pending.set(id, {
         op,
-        signal,
+        budget: this.enrolled ? enrolledReplyBudget(op, input) : Infinity,
         onEvent,
         resolve: (value) => {
           done();
@@ -623,9 +674,13 @@ export class LocalSocketConnection {
     const active = signal
       ? AbortSignal.any([signal, cleanup.signal])
       : cleanup.signal;
-    const bytes = { stdout: [] as Buffer[], stderr: [] as Buffer[] };
+    const bytes = {
+      stdout: new CommandOutput(input.maxOutput),
+      stderr: new CommandOutput(input.maxOutput),
+    };
+    let overflow = false;
     let transfers: Promise<void[]> | undefined;
-    const { reply } = this.request(
+    const { id, reply } = this.request(
       "checkout.exec",
       input,
       active,
@@ -639,8 +694,10 @@ export class LocalSocketConnection {
               commandOutputStream(id, name),
               new Writable({
                 write(chunk: Buffer, _, done) {
-                  bytes[name].push(chunk);
-                  done();
+                  if (bytes[name].write(chunk)) return done();
+                  overflow = true;
+                  cleanup.abort();
+                  done(new Error("Command output exceeds its byte limit"));
                 },
               }),
               active,
@@ -658,11 +715,16 @@ export class LocalSocketConnection {
         throw fail("invalid", "Invalid checkout command status.");
       // A handler that returned the strings directly uses the ordinary reply.
       // Streamed output is complete before the runner acknowledges its status.
-      if (!transfers || (!bytes.stdout.length && !bytes.stderr.length))
+      if (!transfers || (!bytes.stdout.received && !bytes.stderr.received))
         return result;
+      if (
+        this.streams.has(commandOutputStream(id, "stdout")) ||
+        this.streams.has(commandOutputStream(id, "stderr"))
+      )
+        throw fail("invalid", "Runner acknowledged unfinished command output.");
       await transfers;
-      const out = commandOutput(bytes.stdout, input.maxOutput);
-      const err = commandOutput(bytes.stderr, input.maxOutput);
+      const out = bytes.stdout.finish();
+      const err = bytes.stderr.finish();
       return {
         ...result,
         stdout: out.text,
@@ -673,8 +735,71 @@ export class LocalSocketConnection {
           ),
         }),
       };
+    } catch (error) {
+      if (overflow)
+        throw fail("too_large", "Command output exceeds its byte limit");
+      throw error;
     } finally {
       cleanup.abort();
+    }
+  }
+
+  async collectFile(input: Req<"files.get">): Promise<Buffer> {
+    const bytes = new ReceiveBuffer(MAX_SESSION_FILE_BYTES);
+    let overflow = false;
+    try {
+      await this.getFile(
+        input,
+        new Writable({
+          write(chunk: Buffer, _, done) {
+            if (bytes.append(chunk)) return done();
+            overflow = true;
+            done(new Error("Session files are limited to 20 MiB."));
+          },
+        })
+      );
+    } catch (error) {
+      if (overflow)
+        throw fail("too_large", "Session files are limited to 20 MiB.");
+      throw error;
+    }
+    return bytes.bytes();
+  }
+
+  async putFile(input: Req<"files.put">, source: () => Readable) {
+    if (!this.connected)
+      throw fail("unavailable", "The runner connection is closed");
+    const stream = source();
+    const controller = new AbortController();
+    const reply = this.call("files.put", input, {
+      timeoutMs: null,
+      signal: controller.signal,
+    });
+    try {
+      const transfer = this.sendBlob(
+        input.blob,
+        stream,
+        controller.signal
+      ).catch(async (error: unknown) => {
+        if (
+          !this.connected &&
+          error instanceof RunnerCallError &&
+          error.code === "unavailable"
+        ) {
+          // The request tracks whether it was written and owns the mutation outcome.
+          await reply;
+          throw fail(
+            "unknown_outcome",
+            "The runner closed before acknowledging the upload"
+          );
+        }
+        throw error;
+      });
+      const [result] = await Promise.all([reply, transfer]);
+      return result;
+    } finally {
+      void reply.catch(() => {});
+      controller.abort();
     }
   }
 

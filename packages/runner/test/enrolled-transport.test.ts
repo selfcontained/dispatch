@@ -1068,3 +1068,207 @@ it("runs each guard in its bound checkout and refuses stale or fenced commands b
     await rm(base, { recursive: true, force: true });
   }
 }, 20_000);
+
+it("cancels an oversized worker reply and keeps other calls available", async () => {
+  const source = new PassThrough();
+  const { client } = await pair({
+    calls: { "session.alive": () => ({ state: "live" }) },
+    checkoutRead: async () => source,
+  });
+  const closed = once(source, "close");
+  const reply = client.call("checkout.access", {
+    target: { session },
+    path: "fixture",
+  });
+  source.write(Buffer.alloc(17 * 1024));
+  await expect(reply).rejects.toMatchObject({ code: "too_large" });
+  await closed;
+  await expect(client.call("session.alive", { session })).resolves.toEqual({
+    state: "live",
+  });
+});
+
+it.each(["timeout", "cancelled"] as const)(
+  "revokes reply stream credit on %s after the first write",
+  async (code) => {
+    const source = new PassThrough();
+    const { client } = await pair({
+      calls: {},
+      checkoutRead: async () => source,
+    });
+    const closed = once(source, "close");
+    const abort = new AbortController();
+    const reply = client.call(
+      "checkout.access",
+      { target: { session }, path: "fixture" },
+      { signal: abort.signal, timeoutMs: code === "timeout" ? 300 : null }
+    );
+    const outcome = expect(reply).rejects.toMatchObject({ code });
+    source.write(" ");
+    await vi.waitFor(() => expect(client.streams.has("reply:1")).toBe(true));
+    if (code === "cancelled") abort.abort();
+    await outcome;
+    await closed;
+    expect(client.streams.has("reply:1")).toBe(false);
+  }
+);
+
+it("drains both command outputs and trims before applying their independent UTF-8 byte limits", async () => {
+  const { client } = await pair({
+    calls: {
+      "checkout.exec": async (_, ctx) => {
+        await Promise.all([
+          ctx.sendOutput!(
+            "stdout",
+            Readable.from([
+              Buffer.alloc(CONNECTION_WINDOW, 32),
+              Buffer.from("abc"),
+              ...[...Buffer.from("🤖")].map((byte) => Buffer.from([byte])),
+              Buffer.alloc(CONNECTION_WINDOW, 120),
+            ]),
+            ctx.signal!
+          ),
+          ctx.sendOutput!(
+            "stderr",
+            Readable.from([
+              Buffer.from("  éé"),
+              Buffer.alloc(CONNECTION_WINDOW, 32),
+            ]),
+            ctx.signal!
+          ),
+        ]);
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    },
+  });
+  await expect(
+    client.call("checkout.exec", {
+      target: { session },
+      guard: { path: "dispatch.json", digest: "fixture" },
+      argv: ["fixture"],
+      env: {},
+      timeoutMs: null,
+      maxOutput: 4,
+      shell: "direct",
+    })
+  ).resolves.toEqual({
+    exitCode: 0,
+    stdout: "abc",
+    stderr: "éé",
+    truncated: true,
+  });
+});
+
+it("enforces the session file collection limit as bytes arrive, before metadata", async () => {
+  const { MAX_SESSION_FILE_BYTES } = await import("@dispatch/runner-protocol");
+  const chunk = Buffer.alloc(64 * 1024, 65);
+  const { client } = await pair({
+    calls: {
+      "files.get": async ({ path }, ctx) => {
+        const count = MAX_SESSION_FILE_BYTES / chunk.length;
+        const source = Readable.from(
+          (function* () {
+            for (let i = 0; i < count; i++) yield chunk;
+            if (path === "over") yield Buffer.from("!");
+          })()
+        );
+        const blob = await ctx.sendFile!(source);
+        return {
+          blob,
+          name: path,
+          size: MAX_SESSION_FILE_BYTES,
+          digest: "fixture",
+        };
+      },
+    },
+  });
+  expect((await client.collectFile({ session, path: "exact" })).length).toBe(
+    MAX_SESSION_FILE_BYTES
+  );
+  await expect(
+    client.collectFile({ session, path: "over" })
+  ).rejects.toMatchObject({
+    code: "too_large",
+    message: "Session files are limited to 20 MiB.",
+  });
+});
+
+it("reports unknown outcome when the upload connection closes before its blob acknowledgement", async () => {
+  const attempted = vi.fn();
+  const { client, peer, socket } = await pair({
+    calls: {
+      "files.put": async (input, ctx) => {
+        attempted();
+        await ctx.receiveBlob(
+          input.blob,
+          new Writable({
+            write(_chunk, _encoding, done) {
+              peer.destroy();
+              done();
+            },
+          })
+        );
+        return { path: pathFromWire("/fixture") };
+      },
+    },
+  });
+  // The TLS listener handles socket errors before handing off to the carrier.
+  socket.on("error", () => socket.destroy());
+  const input = {
+    session,
+    blob: "upload",
+    name: "fixture",
+    size: 1,
+    digest: "",
+  };
+  await expect(
+    client.putFile(input, () => Readable.from([Buffer.from("x")]))
+  ).rejects.toMatchObject({ code: "unknown_outcome" });
+  expect(attempted).toHaveBeenCalledTimes(1);
+  await expect(
+    client.putFile(input, () => Readable.from([Buffer.from("x")]))
+  ).rejects.toMatchObject({ code: "unavailable" });
+});
+
+it("preserves a definitive upload source failure on a live connection", async () => {
+  const { client } = await pair({
+    calls: {
+      "files.put": async (input, ctx) => {
+        await ctx.receiveBlob(
+          input.blob,
+          new Writable({
+            write(_chunk, _enc, done) {
+              done();
+            },
+          })
+        );
+        return { path: pathFromWire("/fixture") };
+      },
+    },
+  });
+  const source = () =>
+    Readable.from(
+      (async function* () {
+        yield Buffer.from("x");
+        throw new Error("Source failed");
+      })()
+    );
+  await expect(
+    client.putFile(
+      { session, blob: "source", name: "fixture", size: 2, digest: "" },
+      source
+    )
+  ).rejects.toMatchObject({ code: "failed" });
+  expect(client.connected).toBe(true);
+});
+
+it("closes a credited host channel whose incomplete frame exceeds its byte budget", async () => {
+  const { mapIncomingFrames } = await import("@dispatch/runner-client/v1/host");
+  const source = new PassThrough();
+  const mapped = mapIncomingFrames(source, (value) => value, 12);
+  const closed = once(mapped, "close");
+  source.write(Buffer.from('{"text":"'));
+  source.write(Buffer.from("éé"));
+  await closed;
+  expect(source.destroyed).toBe(true);
+});
