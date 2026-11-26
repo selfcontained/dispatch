@@ -1,15 +1,9 @@
+import type { AgentWorktreeStatus } from "@dispatch/shared";
+
 import { resolveBaseRef } from "./base-ref.js";
 import { runCommand } from "../lib/run-command.js";
 
-export type WorktreeStatus = {
-  hasWorktree: boolean;
-  hasUnmergedCommits: boolean;
-  hasUncommittedChanges: boolean;
-  worktreePath: string | null;
-  branchName: string | null;
-  changedFiles: string[];
-  uncommittedFiles: string[];
-};
+export type WorktreeStatus = AgentWorktreeStatus;
 
 export type UnmergedChanges = {
   hasUnmergedCommits: boolean;

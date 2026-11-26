@@ -780,7 +780,6 @@ export function AgentsView({
         onAgentCreated={handleAgentCreated}
         deleteConfirmOpen={deleteConfirmOpen}
         deleteTarget={deleteTarget}
-        agents={agents}
         setDeleteConfirmOpen={setDeleteConfirmOpen}
         setDeleteTarget={setDeleteTarget}
         onDelete={deleteAgent}

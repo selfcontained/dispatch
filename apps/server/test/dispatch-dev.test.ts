@@ -20,7 +20,7 @@ afterEach(() => {
 // No Docker container, API, Vite, provider CLI or agent host is started.
 function fixture() {
   const dir = mkdtempSync("/tmp/dispatch-dev-contract-");
-  const suffix = path.basename(dir);
+  const suffix = path.basename(dir).toLowerCase();
   const state = `/tmp/dispatch-dev-${suffix}.env`;
   const logs = `/tmp/dispatch-dev-${suffix}`;
   const tools = path.join(dir, "bin");
@@ -175,7 +175,7 @@ describe("dispatch-dev isolated CLI contracts", () => {
         DISPATCH_UPDATE_OWNER: null,
         DISPATCH_MAC_INSTANCE_ID: null,
         DISPATCH_LISTEN_HOSTS: null,
-        DATABASE_URL: `postgres://dispatch:dispatch@127.0.0.1:${readFileSync(path.join(f.dir, "compose-port"), "utf8").trim()}/dispatch_${path.basename(f.dir)}`,
+        DATABASE_URL: `postgres://dispatch:dispatch@127.0.0.1:${readFileSync(path.join(f.dir, "compose-port"), "utf8").trim()}/dispatch_${path.basename(f.dir).toLowerCase()}`,
         TEST_DATABASE_URL: null,
         PGSERVICE: null,
       });

@@ -74,7 +74,6 @@ type Props = ComponentProps<typeof AgentsViewDialogs>;
 
 function baseProps(): Props {
   return {
-    agents: [],
     paletteOpen: false,
     setPaletteOpen: vi.fn(),
     paletteActions: [],
@@ -241,6 +240,11 @@ describe("AgentsViewDialogs", () => {
   });
 
   it("routes the delete state to the archive dialog, not the stop dialog", async () => {
+    apiMock.mockResolvedValueOnce({
+      worktreeStatus: null,
+      subAgentCount: 0,
+      cleanupDescriptions: [],
+    });
     // Both targets set on purpose: a cross-wired dialog would surface worker-b.
     const props = renderDialogs({
       deleteConfirmOpen: true,
@@ -251,7 +255,9 @@ describe("AgentsViewDialogs", () => {
     expect(screen.getByText(/Archive “worker-a”\?/)).toBeTruthy();
     expect(screen.queryByText(/worker-b/)).toBeNull();
 
-    fireEvent.click(screen.getByTestId("delete-agent-confirm"));
+    const confirm = screen.getByTestId("delete-agent-confirm");
+    await waitFor(() => expect(confirm.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(confirm);
 
     await waitFor(() =>
       expect(props.setDeleteConfirmOpen).toHaveBeenCalledWith(false)

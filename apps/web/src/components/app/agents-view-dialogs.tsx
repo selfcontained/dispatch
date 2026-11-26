@@ -27,7 +27,6 @@ type AgentsViewDialogsProps = {
   onAgentCreated: (agent: Agent, agentType: AgentType) => Promise<void>;
   deleteConfirmOpen: boolean;
   deleteTarget: Agent | null;
-  agents: Agent[];
   setDeleteConfirmOpen: (open: boolean) => void;
   setDeleteTarget: (agent: Agent | null) => void;
   onDelete: (agent: Agent, cleanupWorktree?: string) => Promise<void>;
@@ -63,7 +62,6 @@ export function AgentsViewDialogs({
   onAgentCreated,
   deleteConfirmOpen,
   deleteTarget,
-  agents,
   setDeleteConfirmOpen,
   setDeleteTarget,
   onDelete,
@@ -110,7 +108,6 @@ export function AgentsViewDialogs({
       <DeleteAgentDialog
         open={deleteConfirmOpen}
         deleteTarget={deleteTarget}
-        agents={agents}
         setOpen={setDeleteConfirmOpen}
         setDeleteTarget={setDeleteTarget}
         onDelete={onDelete}

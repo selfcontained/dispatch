@@ -1,3 +1,4 @@
+import type { AgentArchivePreview } from "@dispatch/shared";
 import { realpath } from "node:fs/promises";
 
 import type { FastifyBaseLogger } from "fastify";
@@ -9,8 +10,9 @@ import { runCommand, type CommandRunner } from "../shared/lib/run-command.js";
 import {
   getUncommittedChanges,
   getUnmergedChanges,
+  readWorktreeStatus,
 } from "../shared/git/worktree-status.js";
-import { runLifecycleHook } from "./lifecycle-hooks.js";
+import { resolveLifecycleHooks, runLifecycleHook } from "./lifecycle-hooks.js";
 import { AgentError } from "./errors.js";
 import type { AgentRuntime } from "./runtime.js";
 import type {
@@ -66,6 +68,34 @@ async function getChildAgentIds(
   return result.rows.map((row) => row.id);
 }
 
+/** Read the effects of the target and its cascade without running a hook. */
+export async function previewArchive(
+  { pool, getRequiredAgent }: Pick<ArchiveDeps, "pool" | "getRequiredAgent">,
+  id: string
+): Promise<AgentArchivePreview> {
+  const target = await getRequiredAgent(id);
+  const cleanupDescriptions = new Set<string>();
+  const seen = new Set([id]);
+  const pending = [target];
+  for (const agent of pending) {
+    for await (const { hook } of resolveLifecycleHooks("archive", agent)) {
+      if (hook.description) cleanupDescriptions.add(hook.description);
+    }
+    for (const childId of await getChildAgentIds(pool, agent.id)) {
+      if (seen.has(childId)) continue;
+      seen.add(childId);
+      pending.push(await getRequiredAgent(childId));
+    }
+  }
+  return {
+    worktreeStatus: target.worktreePath
+      ? await readWorktreeStatus(target.worktreePath)
+      : null,
+    subAgentCount: pending.length - 1,
+    cleanupDescriptions: [...cleanupDescriptions],
+  };
+}
+
 /**
  * git blocks indefinitely on a held index lock, and the cascade is sequential —
  * one hang would strand every sibling behind it.
@@ -109,10 +139,9 @@ async function cleanupAgentWorktree(
 
   const run = async () => {
     // No uniqueness constraint on either column, so two live rows can name one
-    // worktree; removing it would take the other agent's work. Another agent
-    // that moved its workspace into this worktree counts too. Workspaces are
-    // stored as real paths while worktree_path keeps the path it was created
-    // under, so match both spellings (/tmp vs /private/tmp, symlinked roots).
+    // worktree. A surviving child can also need this checkout to retry its
+    // archive hook, either through cwd or the launch-checkout fallback.
+    // Match literal and real paths (/tmp vs /private/tmp, symlinked roots).
     const worktreeSpellings = [
       ...new Set([worktreePath, await realpathOrSelf(worktreePath)]),
     ];
@@ -123,7 +152,8 @@ async function cleanupAgentWorktree(
          AND id <> $1
          AND (worktree_path = $2
               OR workspace_path = ANY($4::text[])
-              OR (role = 'review' AND cwd = ANY($4::text[]))
+              OR cwd = ANY($4::text[])
+              OR launch_cwd = ANY($4::text[])
               OR ($3::text IS NOT NULL AND worktree_branch = $3))
        LIMIT 1`,
       [id, worktreePath, agent.worktreeBranch, worktreeSpellings]
@@ -288,14 +318,16 @@ export async function executeArchive(
     }
     durations.stop = Date.now() - t;
 
+    await runLifecycleHook("archive", agent, logger);
+
     const publishPhase = async (phase: ArchivePhase) => {
       await deps.setArchivePhase(id, phase);
       const updated = await deps.getAgent(id);
       if (updated) callbacks.onPhaseChange(updated);
     };
 
-    // Stop dependents before removing this checkout. Reviewers can share it
-    // through cwd while their display parent is elsewhere.
+    // Stop dependents before removing this checkout. Children and reviewers
+    // can both share it through their working directories.
     const tCascade = Date.now();
     const cascadedIds: string[] = [];
     try {
@@ -423,6 +455,18 @@ export async function deleteAgentDirect(
       );
     }
     durations.stop = Date.now() - t;
+  }
+
+  try {
+    await runLifecycleHook("archive", agent, logger);
+  } catch (error) {
+    await deps.setAgentStatus(
+      id,
+      "error",
+      error instanceof Error ? error.message : "Archive hook failed"
+    );
+    await deps.setArchivePhase(id, null);
+    throw error;
   }
 
   // The archive claim excludes this row from dependent lookup, preventing

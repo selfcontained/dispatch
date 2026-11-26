@@ -5,7 +5,12 @@ import {
 } from "./session-naming.js";
 import { AttentionHistory } from "../notifications/attention-history.js";
 import { matchingProjects } from "../projects/matching.js";
-import { attentionPreview, type Effort } from "@dispatch/shared";
+import {
+  attentionPreview,
+  type AgentArchivePreview,
+  type AgentWorktreeStatus,
+  type Effort,
+} from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, stat, unlink } from "node:fs/promises";
@@ -38,6 +43,7 @@ import { errorMessage } from "../shared/lib/error-message.js";
 import {
   beginArchive as beginArchiveImpl,
   executeArchive as executeArchiveImpl,
+  previewArchive,
   type ArchiveDeps,
 } from "./archive.js";
 import { AgentError } from "./errors.js";
@@ -110,7 +116,6 @@ import type {
   AgentTerminalAccess,
   SetupPhase,
   WorktreeCleanupMode,
-  WorktreeStatus,
 } from "./types.js";
 import { StreamWriteThrottle } from "./stream-write-throttle.js";
 import * as telemetry from "./telemetry.js";
@@ -122,7 +127,6 @@ export type {
   AgentRecord,
   AgentRole,
   AgentTerminalAccess,
-  WorktreeStatus,
 } from "./types.js";
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
@@ -2331,7 +2335,11 @@ export class AgentManager {
     return executeArchiveImpl(this.archiveDeps(), id, callbacks);
   }
 
-  async checkWorktreeStatus(id: string): Promise<WorktreeStatus> {
+  async checkArchivePreview(id: string): Promise<AgentArchivePreview> {
+    return previewArchive(this.archiveDeps(), id);
+  }
+
+  async checkWorktreeStatus(id: string): Promise<AgentWorktreeStatus> {
     const agent = await this.getRequiredAgent(id);
 
     if (!agent.worktreePath) {
