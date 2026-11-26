@@ -46,12 +46,6 @@ vi.mock(
   })
 );
 vi.mock(
-  "../../../packages/runner/src/workload/shared/git/default-branch.js",
-  () => ({
-    localDefaultBranch: vi.fn(async () => "main"),
-  })
-);
-vi.mock(
   "../../../packages/runner/src/workload/shared/lib/run-command.js",
   () => import("../src/shared/lib/run-command.js")
 );

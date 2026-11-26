@@ -15,7 +15,9 @@ import {
   type CheckoutIntent,
 } from "../src/agents/checkout-intent.js";
 import { AgentManager } from "../src/agents/manager.js";
-import { localDefaultBranch } from "../../../packages/runner/src/workload/shared/git/default-branch.js";
+import { pathFromWire } from "@dispatch/runner-protocol/contract";
+import { runnerDirectory } from "../src/runners/directory.js";
+import { controllerPlacement } from "../src/runners/placement.js";
 import { agentComparisonBase } from "../src/agents/effective-base.js";
 import { readAgentView } from "../src/agents/checkout-runner.js";
 import { inspectCheckout } from "./helpers/checkout-inspection.js";
@@ -174,7 +176,17 @@ it.each([
       });
       const local = await resolveCheckoutIntent(
         {},
-        { ...context, defaultBranch: () => localDefaultBranch(cwd) }
+        {
+          ...context,
+          defaultBranch: async () => {
+            const { branch, currentBranch } = await runnerDirectory({})
+              .for(controllerPlacement)
+              .call("git.defaultBranch", {
+                target: { path: pathFromWire(cwd) },
+              });
+            return branch ?? currentBranch ?? "main";
+          },
+        }
       );
       const remote = await resolveCheckoutIntent(
         {},

@@ -17,8 +17,6 @@ import {
   type ComparisonBaseAgent,
   type ComparisonUse,
 } from "../src/agents/effective-base.js";
-import { agentDiffPath } from "../src/agents/workspace-target.js";
-import { localDefaultBranch } from "../../../packages/runner/src/workload/shared/git/default-branch.js";
 
 let root: string;
 const git = (cwd: string, ...args: string[]) =>
@@ -72,21 +70,6 @@ const worktreeAgent = (path: string): ComparisonBaseAgent => ({
   workspaceBaseBranch: null,
 });
 
-/** The rule before the reroute, verbatim. */
-async function before(agent: ComparisonBaseAgent, use: ComparisonUse) {
-  if (agent.workspacePath) return agent.workspaceBaseBranch ?? null;
-  if (agent.cwd?.startsWith("runner://")) return null;
-  if (use === "review")
-    return (
-      agent.baseBranch ??
-      (agent.worktreePath && agent.worktreeBranch ? "main" : null)
-    );
-  if (agent.baseBranch) return agent.baseBranch;
-  const managed = Boolean(agent.worktreePath || agent.gitContext?.isWorktree);
-  const cwd = managed ? agentDiffPath(agent) : null;
-  return cwd ? localDefaultBranch(cwd) : null;
-}
-
 const USES: ComparisonUse[] = ["changes", "review"];
 
 describe("a local agent's comparison base", () => {
@@ -99,10 +82,7 @@ describe("a local agent's comparison base", () => {
     ["a folder that is gone", "gone", "main"],
   ])("%s", async (_name, key, changes) => {
     const agent = worktreeAgent(fixtures[key]!);
-    for (const use of USES) {
-      const expected = await before(agent, use);
-      expect(await agentComparisonBase(agent, use), use).toBe(expected);
-    }
+    expect(await agentComparisonBase(agent, "review")).toBe("main");
     expect(await agentComparisonBase(agent, "changes")).toBe(changes);
   });
 
@@ -113,18 +93,13 @@ describe("a local agent's comparison base", () => {
       worktreeBranch: null,
     };
     for (const use of USES) {
-      expect(await agentComparisonBase(plainCheckout, use)).toBe(
-        await before(plainCheckout, use)
-      );
       expect(await agentComparisonBase(plainCheckout, use)).toBeNull();
     }
     const probed = {
       ...plainCheckout,
       gitContext: { worktreePath: fixtures.worktree!, isWorktree: true },
     };
-    expect(await agentComparisonBase(probed, "changes")).toBe(
-      await before(probed, "changes")
-    );
+    expect(await agentComparisonBase(probed, "changes")).toBe("develop");
   });
 
   it("for a runner agent is left to its runner", async () => {
