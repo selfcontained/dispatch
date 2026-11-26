@@ -73,6 +73,8 @@ checks for the bootstrap and archive instead of release attestations. When
 invoking the installer directly, the dev flag requires both `--source URL`
 and `--sha256 HEX` for the archive digest.
 
+The installed Linux executable contains the runner and its workers. From a source checkout, run a mode with `pnpm --filter @dispatch/runner start <mode> [arguments]`. This generates the build identity and embedded stream helper before starting the program.
+
 To prepare a development controller, build the Linux targets from the same
 checkout and revision as the controller. Put the bootstrap and the desired
 native payloads in the directory specified by

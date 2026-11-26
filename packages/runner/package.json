@@ -35,6 +35,7 @@
     "@agentclientprotocol/codex-acp": "2.7.0"
   },
   "scripts": {
+    "start": "bun ../../scripts/generate-runner-runtime-assets.mjs && bun --no-env-file src/standalone.ts",
     "check": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
     "test": "vitest run --root ."
   },

@@ -32,5 +32,3 @@ apps/server/src/generated/runtime-assets/
 apps/server/src/generated/runtime-assets.js
 __pycache__/
 *.bun-build
-
-packages/runner/src/generated/runtime-assets.js

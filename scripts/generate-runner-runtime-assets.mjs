@@ -45,7 +45,17 @@ function embeddedRevision(args, pattern) {
 
 const gitSha = embeddedRevision(["--short=12"], /^[0-9a-f]{7,40}$/i);
 const buildRevision = embeddedRevision([], /^[0-9a-f]{40}$/);
-export const runnerAssets = { packageVersion, gitSha, buildRevision, streamHelper };
+export const runnerAssets = {
+  packageVersion,
+  gitSha,
+  buildRevision,
+  streamHelper,
+};
 const dir = path.join(repoRoot, "packages/runner/src/generated");
 mkdirSync(dir, { recursive: true });
-writeFileSync(path.join(dir, "runtime-assets.js"), Object.entries(runnerAssets).map(([key,value]) => `export const ${key} = ${JSON.stringify(value)};\n`).join(""));
+writeFileSync(
+  path.join(dir, "runtime-assets.js"),
+  Object.entries(runnerAssets)
+    .map(([key, value]) => `export const ${key} = ${JSON.stringify(value)};\n`)
+    .join("")
+);
