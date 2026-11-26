@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { registerSystemRoutes } from "../src/routes/system.js";
-import * as command from "../src/shared/lib/run-command.js";
+import * as command from "../../../packages/runner/src/workload/shared/lib/run-command.js";
 import * as privacy from "../src/shared/mac-path-privacy.js";
 
 let app: ReturnType<typeof Fastify>;

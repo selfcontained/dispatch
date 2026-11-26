@@ -4,13 +4,17 @@ import path from "node:path";
 
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../src/shared/lib/run-command.js", () => ({
-  runCommand: vi.fn(),
-}));
+vi.mock(
+  "../../../packages/runner/src/workload/shared/lib/run-command.js",
+  () => ({
+    runCommand: vi.fn(),
+  })
+);
 
 const { createGitWorktree, cleanupGitWorktree, GitWorktreeError } =
   await import("../../../packages/runner/src/workload/shared/git/worktree.js");
-const { runCommand } = await import("../src/shared/lib/run-command.js");
+const { runCommand } =
+  await import("../../../packages/runner/src/workload/shared/lib/run-command.js");
 
 describe("git worktree services", () => {
   let tempRoot: string;

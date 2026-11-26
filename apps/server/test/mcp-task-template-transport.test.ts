@@ -7,6 +7,10 @@ import path from "node:path";
 import { beforeAll, expect, it, vi } from "vitest";
 import { useInjectApp } from "./helpers/inject-app.js";
 
+vi.mock(
+  "../../../packages/runner/src/workload/shared/lib/run-command.js",
+  () => import("../src/shared/lib/run-command.js")
+);
 vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
 }));

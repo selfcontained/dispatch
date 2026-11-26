@@ -28,6 +28,10 @@ import type { AgentRuntime, RuntimeLaunch } from "../../src/agents/runtime.js";
 import { trackHoldWork } from "../helpers/hold-work.js";
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./setup.js";
 
+vi.mock(
+  "../../../../packages/runner/src/workload/shared/lib/run-command.js",
+  () => import("../../src/shared/lib/run-command.js")
+);
 vi.mock("../../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
 }));

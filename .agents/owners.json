@@ -9,6 +9,7 @@
       "paths": [
         "apps/server/src/routes/system.ts",
         "apps/server/src/routes/launch-targets.ts",
+        "apps/server/test/api-validation.test.ts",
         "apps/server/test/launch-targets.test.ts",
         "apps/server/test/launch-folder-history.test.ts",
         "apps/server/test/launch-branches.test.ts",
@@ -361,6 +362,7 @@
         "apps/server/test/local-adapter-child-loss.test.ts",
         "apps/server/test/local-adapter-read-wait.test.ts",
         "apps/server/test/local-adapter-update-fence.test.ts",
+        "apps/server/test/db/summary-tools.test.ts",
         "apps/server/test/checkout-list-files-parity.test.ts",
         "apps/server/test/workspace-workload-gone.test.ts",
         "apps/server/test/git-roots-parity.test.ts",

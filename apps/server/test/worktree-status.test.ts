@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../src/shared/lib/run-command.js", () => ({
-  runCommand: vi.fn(),
-}));
+vi.mock(
+  "../../../packages/runner/src/workload/shared/lib/run-command.js",
+  () => ({
+    runCommand: vi.fn(),
+  })
+);
 
 const {
   readWorktreeStatus,
@@ -11,7 +14,8 @@ const {
   hasOutstandingChanges,
 } =
   await import("../../../packages/runner/src/workload/shared/git/worktree-status.js");
-const { runCommand } = await import("../src/shared/lib/run-command.js");
+const { runCommand } =
+  await import("../../../packages/runner/src/workload/shared/lib/run-command.js");
 
 const ok = (stdout = "") => ({ exitCode: 0, stdout, stderr: "" });
 const fail = (stdout = "") => ({ exitCode: 1, stdout, stderr: "" });

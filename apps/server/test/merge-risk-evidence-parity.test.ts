@@ -32,21 +32,26 @@ const gh = vi.hoisted(() => ({
   calls: [] as { args: string[]; options: unknown }[],
   run: null as null | ((args: string[], options: unknown) => unknown),
 }));
-vi.mock("../src/shared/lib/run-command.js", async (original) => {
-  const actual =
-    await original<typeof import("../src/shared/lib/run-command.js")>();
-  return {
-    ...actual,
-    runCommand: (
-      bin: string,
-      args: string[],
-      options: Parameters<typeof actual.runCommand>[2]
-    ) =>
-      bin === "gh"
-        ? (gh.run as NonNullable<typeof gh.run>)(args, options)
-        : actual.runCommand(bin, args, options),
-  };
-});
+vi.mock(
+  "../../../packages/runner/src/workload/shared/lib/run-command.js",
+  async (original) => {
+    const actual =
+      await original<
+        typeof import("../../../packages/runner/src/workload/shared/lib/run-command.js")
+      >();
+    return {
+      ...actual,
+      runCommand: (
+        bin: string,
+        args: string[],
+        options: Parameters<typeof actual.runCommand>[2]
+      ) =>
+        bin === "gh"
+          ? (gh.run as NonNullable<typeof gh.run>)(args, options)
+          : actual.runCommand(bin, args, options),
+    };
+  }
+);
 
 import { setupTestDb, runTestMigrations, teardownTestDb } from "./db/setup.js";
 import {

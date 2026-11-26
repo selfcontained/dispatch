@@ -5,15 +5,19 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../src/shared/lib/run-command.js", () => ({
-  runCommand: vi.fn(),
-}));
+vi.mock(
+  "../../../packages/runner/src/workload/shared/lib/run-command.js",
+  () => ({
+    runCommand: vi.fn(),
+  })
+);
 
 const { setupAgentWorkspace: setupWorkloadWorkspace } =
   await import("../../../packages/runner/src/workload/agents/workspace-prep.js");
 const { withToolSearchPath } =
   await import("../src/shared/lib/tool-environment.js");
-const { runCommand } = await import("../src/shared/lib/run-command.js");
+const { runCommand } =
+  await import("../../../packages/runner/src/workload/shared/lib/run-command.js");
 
 const noopLogger = (() => {
   const logger = {

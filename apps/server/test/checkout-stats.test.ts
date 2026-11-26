@@ -3,9 +3,9 @@ import { afterEach, expect, it, vi } from "vitest";
 import { readAgentStats } from "../src/agents/checkout-runner.js";
 import { readCheckoutView } from "../../../packages/runner/src/workload/agents/checkout-view.js";
 import type { RemoteRunnerService } from "../src/agents/remote/service.js";
-import { runCommand } from "../src/shared/lib/run-command.js";
+import { runCommand } from "../../../packages/runner/src/workload/shared/lib/run-command.js";
 
-vi.mock("../src/shared/lib/run-command.js");
+vi.mock("../../../packages/runner/src/workload/shared/lib/run-command.js");
 afterEach(() => vi.restoreAllMocks());
 
 const view = {

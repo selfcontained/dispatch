@@ -24,6 +24,10 @@ import { setupTestDb, teardownTestDb, runTestMigrations } from "./setup.js";
 
 // Silence shell side effects (git, hooks) from AgentManager.
 // A worktree is its own top level, as the local runner's removal checks.
+vi.mock(
+  "../../../../packages/runner/src/workload/shared/lib/run-command.js",
+  () => import("../../src/shared/lib/run-command.js")
+);
 vi.mock("../../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async (_command: string, args: string[] = []) => ({
     exitCode: 0,

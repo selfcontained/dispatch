@@ -16,7 +16,7 @@ import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { registerSystemRoutes } from "../src/routes/system.js";
 import { listLocalRemoteBranches } from "../../../packages/runner/src/workload/agents/local-workspace-probes.js";
-import * as commands from "../src/shared/lib/run-command.js";
+import * as commands from "../../../packages/runner/src/workload/shared/lib/run-command.js";
 
 const roots: string[] = [];
 const apps: ReturnType<typeof Fastify>[] = [];

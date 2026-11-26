@@ -42,6 +42,10 @@ import type {
 } from "../../src/agents/runtime.js";
 
 // Git context and lifecycle hooks shell out; keep them off the host.
+vi.mock(
+  "../../../../packages/runner/src/workload/shared/lib/run-command.js",
+  () => import("../../src/shared/lib/run-command.js")
+);
 vi.mock("../../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
 }));
