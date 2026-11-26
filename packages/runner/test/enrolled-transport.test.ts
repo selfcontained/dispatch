@@ -742,7 +742,7 @@ it("resolves enrolled checkout operations from the session binding and workload 
           id,
           _workspace,
           _checkout,
-          _configured,
+
           _signal,
           work
         ) => work(await checked(id)),
@@ -823,7 +823,7 @@ it("holds the command checkout while credited output is sent and aborts a timed-
         _id,
         _workspace,
         selector,
-        _configured,
+
         _signal,
         work
       ) => (selector === "moved" ? null : work("/held")),

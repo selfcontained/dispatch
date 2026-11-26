@@ -388,7 +388,7 @@ describe("linux-privsep bindings over the supervisor's files", () => {
 
   it("reads sessions an older build bound, without moving their paths", async () => {
     // A managed repository session, a scratch one, a borrower, and a
-    // configured workspace, exactly as the supervisor writes them today.
+    // retired configured workspace that cannot supply a binding.
     write("agt_owner", MANAGED_BINDING);
     write(
       "agt_owner.repository",
@@ -432,17 +432,8 @@ describe("linux-privsep bindings over the supervisor's files", () => {
         ownership: "external",
       },
     });
-    expect(await store.get("agt_configured")).toMatchObject({
-      path: "/srv/project",
-      checkout: { path: "/srv/project", ownership: "external" },
-    });
+    expect(await store.get("agt_configured")).toBeNull();
     expect(await store.get("agt_none")).toBeNull();
-
-    // An older build's sessions finish on its own path.
-    write("agt_planned.checkout-plan", "{}");
-    expect(await store.legacy("agt_owner")).toBe(true);
-    expect(await store.legacy("agt_planned")).toBe(true);
-    expect(await store.legacy("agt_new")).toBe(false);
   });
 
   it("binds a prepared checkout in the files an older build reads, binding last", async () => {
@@ -467,7 +458,6 @@ describe("linux-privsep bindings over the supervisor's files", () => {
       `${paths.receipts}/agt_new/workspace-preparation`,
       JSON.stringify(receipt)
     );
-    expect(await store.legacy("agt_new")).toBe(false);
     fs.log = [];
     const bound = await store.bindPrepared({
       session: "agt_new",
@@ -498,7 +488,6 @@ describe("linux-privsep bindings over the supervisor's files", () => {
       },
     });
     // With a receipt it is not an older build's session.
-    expect(await store.legacy("agt_new")).toBe(false);
 
     // A bound session keeps its binding; a selection is today's file.
     fs.log = [];

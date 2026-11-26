@@ -1,6 +1,6 @@
 import type { CheckoutCommand } from "@dispatch/runner-protocol";
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, constants, type Stats } from "node:fs";
+import { closeSync, readFileSync, constants, type Stats } from "node:fs";
 import {
   chmod,
   chown,
@@ -19,7 +19,6 @@ import {
 } from "node:fs/promises";
 import type { Socket } from "node:net";
 import path from "node:path";
-import { isDeepStrictEqual } from "node:util";
 import type { BuildIdentity } from "@dispatch/runner-protocol/build-identity";
 import {
   agentLaunchBindings,
@@ -49,22 +48,16 @@ import {
   isUpdateAttemptId,
   isCheckoutPath,
   isSessionFileName,
-  isSessionFileOperation,
-  type SessionFileOperation,
   type SessionCheckout,
   type CheckoutObservation,
   observeBoundCheckout,
-  parseRepository,
   repositoryUrl,
   type CheckoutState,
-  type SessionOperation,
-  type Command,
-  type LaunchProgress,
+  type RemoteLaunch,
   type RunnerRepository,
   type RunnerEngine,
 } from "@dispatch/runner-protocol";
 import { isRunnerEngine } from "@dispatch/runner-protocol/engine-management";
-import { sizedName } from "./session-files.js";
 import {
   classifySessionIdentity,
   createSessionProcesses,
@@ -103,15 +96,13 @@ const retainedHostFiles = new Set<string>([
   HOST_FILES.receipts,
 ]);
 
-type LaunchCommand = Extract<Command, { kind: "launch" }> & {
-  launch: { useWorktreeOf?: unknown };
+type CheckoutOperation =
+  | { kind: "describe" }
+  | { kind: "select"; path: string | null };
+type ContextOperation = {
+  kind: "context";
+  checkout?: "current" | "launch" | "moved";
 };
-
-type CheckoutOperation = Extract<
-  SessionOperation,
-  { kind: "sessionCheckout" }
->["operation"];
-type ContextOperation = Extract<CheckoutOperation, { kind: "context" }>;
 
 /** One launch attempt's durable identity, kept by the session core. */
 type LaunchRecord = {
@@ -220,7 +211,6 @@ type SupervisorOptions = {
   bins: HostLaunch["bins"];
   resolveBins?: (engine: RunnerEngine) => Promise<HostLaunch["bins"]>;
   env: NodeJS.ProcessEnv;
-  workspaces: ReadonlySet<string>;
   /**
    * The host command for state `dir`. It must enter `cwd` itself, after
    * privilege is dropped: the launcher starts in `/` and never changes into
@@ -235,15 +225,13 @@ type SupervisorOptions = {
     scratch: boolean,
     policyOnly?: boolean
   ) => Promise<CheckoutState>;
-  prepareDependencies?: (cwd: string) => Promise<boolean>;
   resumePreparedCheckout?: (
     agentId: string
   ) => Promise<Res<"workspace.resume">>;
   removePreparedCheckout?: (session: string) => Promise<boolean>;
   /**
    * The runner core's binding store, told after this supervisor changed a
-   * session's binding files, so it records them. Absent where the runner
-   * keeps no core store (configured workspaces).
+   * session's binding files, so it records them.
    */
   bindingWritten?: (agentId: string) => Promise<void>;
   /** False while the update fence holds process admission closed. */
@@ -282,10 +270,6 @@ function managedKind(binding: string | null) {
   );
 }
 
-function containsDirectory(root: string, dir: string) {
-  return dir === root || dir.startsWith(root === "/" ? root : root + "/");
-}
-
 async function ownedDirectory(dir: string, mode: number, gid?: number) {
   const entry = await lstat(dir);
   if (
@@ -308,7 +292,6 @@ export async function createSessionSupervisor(
   )
 ) {
   const { asWorkload, env } = config;
-  const managedWorkspace = config.workspaces.size === 0;
   await mkdir(config.state, { recursive: true, mode: 0o700 });
   // Tools such as Bun open checkout ancestors for reading. Keep them
   // supervisor-owned and give the workload group read access.
@@ -520,13 +503,6 @@ export async function createSessionSupervisor(
   });
   const serialize = core.lock;
   const withLaunchLocks = core.locks;
-  function managedTarget(workspace: string) {
-    if (managedWorkspace && workspace === MANAGED_WORKSPACE) return true;
-    if (!config.workspaces.has(workspace))
-      throw new Error("Unknown runner workspace");
-    return false;
-  }
-
   const readIdentity = (key: string) => core.readIdentity(key);
   const cleanHost = core.clean;
   const cleanLegacyHost = core.cleanLegacy;
@@ -608,20 +584,6 @@ export async function createSessionSupervisor(
     return entry;
   }
 
-  async function configuredDirectory(key: string, configuredCwd?: string) {
-    const stored = await readOptional(cwdFile(key));
-    const current =
-      configuredCwd === undefined ? undefined : await realpath(configuredCwd);
-    if (stored !== null && current !== undefined && current !== stored)
-      throw new Error("Agent is bound to a different configured directory.");
-    const cwd = stored ?? current;
-    if (cwd === undefined)
-      throw new Error("The runner session checkout is unavailable.");
-    await checkedDirectory(cwd);
-    if (stored === null) await writePrivateState(cwdFile(key), cwd);
-    return cwd;
-  }
-
   function checkoutParentIsProtected(entry: Stats | null) {
     return (
       entry !== null &&
@@ -650,26 +612,19 @@ export async function createSessionSupervisor(
     return checkout;
   }
 
-  async function initialDirectory(
-    key: string,
-    workspace: string,
-    configuredCwd?: string
-  ) {
+  async function initialDirectory(key: string, workspace: string) {
     const binding = await readBinding(key);
     if (!matchesWorkspace(binding, workspace))
       throw new Error("Agent is not bound to this workspace");
-    const managed = managedTarget(workspace);
     const owner = checkoutOwner(binding);
-    if (managed && (await readOptional(retireFile(key))) !== null)
+    if ((await readOptional(retireFile(key))) !== null)
       throw new Error("This runner session has been archived.");
     if (owner && (await readBinding(owner)) !== managedBinding)
       throw new Error("The author does not own a checkout on this runner.");
     const launch =
-      managed && binding === folderBinding
+      binding === folderBinding
         ? await namedFolder(key)
-        : managed
-          ? await managedDirectory(owner ?? key)
-          : await configuredDirectory(key, configuredCwd);
+        : await managedDirectory(owner ?? key);
     const borrowed = await readOptional(borrowedFile(key));
     return borrowed && borrowed !== launch
       ? authorizedDirectory(borrowed)
@@ -805,7 +760,7 @@ export async function createSessionSupervisor(
     const binding = await readBinding(key);
     if (binding === null) {
       if (
-        managedTarget(workspace) &&
+        workspace === MANAGED_WORKSPACE &&
         ((await lstat(path.join(sessions, key)).catch(missingPath)) ||
           (await readOptional(repositoryFile(key))) !== null)
       )
@@ -814,7 +769,7 @@ export async function createSessionSupervisor(
     }
     if (!matchesWorkspace(binding, workspace))
       throw new Error("Agent is not bound to this workspace");
-    if (!managedTarget(workspace) || binding === folderBinding)
+    if (binding === folderBinding)
       return {
         ownership: "external",
         owner: null,
@@ -860,41 +815,33 @@ export async function createSessionSupervisor(
   }
 
   async function launch(
-    command: LaunchCommand,
-    cwd: string | undefined,
+    agentId: string,
+    host: RemoteLaunch,
     key: string,
-    owner: string | null,
-    progress?: (step: LaunchProgress) => void
+    owner: string | null
   ) {
-    const { agentId, workspace } = command;
-    const { mcp } = command.launch;
+    const workspace = MANAGED_WORKSPACE;
+    const { mcp } = host;
     const mcpUrl = mcp === undefined ? undefined : new URL(mcp.url);
     if (mcpUrl && (mcpUrl.protocol !== "https:" || !mcp?.token)) {
       throw new Error("Remote service MCP requires HTTPS and a scoped token.");
     }
-    const managed = managedTarget(workspace);
-    if (!managed && command.launch.repository !== undefined)
-      throw new Error("Repository checkout requires a managed runner session.");
-    if (managed && (await readOptional(retireFile(key))) !== null)
+    if ((await readOptional(retireFile(key))) !== null)
       throw new Error("This runner session has been archived.");
 
     const binding = await readBinding(key);
     // A named folder is bound only by the core's preparation, never here.
-    const folder = managed && !owner && binding === folderBinding;
+    const folder = !owner && binding === folderBinding;
     const bindingValue = owner
       ? sharedBindingPrefix + owner
       : folder
         ? folderBinding
-        : managed
-          ? managedBinding
-          : workspace;
+        : managedBinding;
     if (binding !== null && binding !== bindingValue)
       throw new Error("Agent is not bound to this workspace or checkout");
     // Core-prepared sessions launch from their receipt under the same session lock.
     const prepared =
-      managed && !owner && !folder
-        ? await config.resumePreparedCheckout?.(agentId)
-        : null;
+      !owner && !folder ? await config.resumePreparedCheckout?.(agentId) : null;
     if (
       prepared &&
       ((await readBinding(key)) !== managedBinding ||
@@ -902,7 +849,7 @@ export async function createSessionSupervisor(
         displayPath(prepared.checkoutRoot) !== (await managedDirectory(key)))
     )
       throw new Error("The prepared checkout binding changed.");
-    const { launchId, owner: sessionOwner } = command.launch;
+    const { launchId, owner: sessionOwner } = host;
     const recorded = launchId === undefined ? null : await core.readLaunch(key);
     // Only the same attempt resumes; another ID is a new launch, as before.
     const repeat =
@@ -916,13 +863,12 @@ export async function createSessionSupervisor(
         sessionOwner === undefined ? next : { ...next, owner: sessionOwner };
       await core.saveLaunch(key, record);
     };
-    progress?.({ phase: "workspace" });
     if (owner) {
       if ((await readBinding(owner)) !== managedBinding)
         throw new Error("The author does not own a checkout on this runner.");
       if (binding === null && (await readOptional(retireFile(owner))) !== null)
         throw new Error("The author checkout has been archived.");
-      cwd = await managedDirectory(owner);
+      await managedDirectory(owner);
     }
     if (binding === null) {
       await writePrivateState(path.join(bindings, key), bindingValue);
@@ -937,7 +883,6 @@ export async function createSessionSupervisor(
         live.kind === "current" &&
         live.record.hostInstanceId === repeat.hostInstanceId
       ) {
-        progress?.({ phase: "ready" });
         return;
       }
       throw new Error("Runner already has a host for this agent");
@@ -959,101 +904,28 @@ export async function createSessionSupervisor(
     await cleanHost(key, identity);
     checkUntrackedSocket(key);
     await cleanLegacyHost(key);
-    if (folder) {
-      // Resolved again as the workload; a folder that moved fails the launch.
-      cwd = await namedFolder(key);
-    } else if (prepared) {
-      cwd = displayPath(prepared.path);
-    } else if (managed && !owner) {
-      const parsed =
-        command.launch.repository === undefined
-          ? null
-          : parseRepository(command.launch.repository);
-      if (parsed && !parsed.url)
-        throw new Error("Missing runner repository URL.");
-      const repository = parsed?.url
-        ? { url: parsed.url, checkout: parsed.checkout }
-        : null;
-      const encoded = JSON.stringify(repository);
+    if (!folder && !prepared && !owner) {
+      // A direct session.launch without workspace.prepare creates private scratch.
+      // Prepared repository and folder sessions always use their stored binding.
       const stored = await readOptional(repositoryFile(key));
-      if (stored !== null && stored !== encoded)
+      if (stored !== null && stored !== "null")
         throw new Error(
           "This runner session is bound to a different checkout."
         );
       if (stored === null) {
-        await writePrivateState(repositoryFile(key), encoded);
+        await writePrivateState(repositoryFile(key), "null");
         await recordBinding(agentId);
       }
-      const session = path.join(sessions, key);
-      const entry = await lstat(session).catch(missingPath);
-      if (entry) await checkedDirectory(session);
-      const protectedParent = repository && checkoutParentIsProtected(entry);
-      cwd = protectedParent
-        ? session
-        : await prepareScratchSession(sessions, key, config.uid, config.gid);
-      if (repository) {
-        const checkout = path.join(cwd, "checkout");
-        if (await lstat(checkout).catch(missingPath))
-          await checkedDirectory(checkout);
-        await repositories.prepare(cwd, repository, {
-          read: async () => {
-            const storedPlan = await readOptional(planFile(key));
-            return storedPlan === null ? null : JSON.parse(storedPlan);
-          },
-          write: (plan) =>
-            writePrivateState(planFile(key), JSON.stringify(plan)),
-          clear: () => rm(planFile(key), { force: true }),
-        });
-        cwd = await managedDirectory(key);
-        const current = record as LaunchRecord | null;
-        if (
-          command.launch.prepareWorkspace &&
-          config.prepareDependencies &&
-          (await readOptional(dependenciesFile(key))) === null
-        ) {
-          if (current?.dependencies === "failed") {
-            // This attempt already reported a failed install and went on.
-            progress?.({ phase: "dependencies", status: "failed" });
-          } else {
-            if (current)
-              await saveLaunch({ ...current, dependencies: "started" });
-            progress?.({ phase: "dependencies" });
-            const installed = await config
-              .prepareDependencies(cwd)
-              .catch(() => false);
-            if (installed)
-              await writePrivateState(dependenciesFile(key), "done");
-            if (current)
-              await saveLaunch({
-                ...current,
-                dependencies: installed ? "done" : "failed",
-              });
-            progress?.({
-              phase: "dependencies",
-              status: installed ? "done" : "failed",
-            });
-          }
-        }
-      }
+      const scratch = path.join(sessions, key);
+      if (await lstat(scratch).catch(missingPath))
+        await checkedDirectory(scratch);
+      await prepareScratchSession(sessions, key, config.uid, config.gid);
     }
-    if (!cwd) throw new Error("Guest workspace is unavailable");
-    if (!managed) {
-      if (command.launch.useWorktreeOf === undefined)
-        cwd = command.launch.prepareWorkspace
-          ? (await asWorkload("realpath", ["-e", "--", cwd])).trimEnd()
-          : await realpath(cwd);
-      if (command.launch.prepareWorkspace)
-        await asWorkload("test", ["-d", cwd]);
-      await checkedDirectory(cwd);
-      await writePrivateState(cwdFile(key), cwd);
-      await recordBinding(agentId);
-    }
-    cwd = await selectedDirectory(
+    const cwd = await selectedDirectory(
       key,
       workspace,
-      await initialDirectory(key, workspace, managed ? undefined : cwd)
+      await initialDirectory(key, workspace)
     );
-    progress?.({ phase: "ready" });
     const dir = path.join(hostRoot, key);
     const files = path.join(dir, "files");
     const mcpCaPath = hostFile(dir, "serviceMcpCa");
@@ -1067,7 +939,7 @@ export async function createSessionSupervisor(
       prepareWorkspace: _preparation,
       launchId: _launchId,
       ...launchOptions
-    } = command.launch;
+    } = host;
     const hostIdentity: CurrentSessionIdentity = {
       handoffFormat: runnerHandoff.writes,
       sessionId: agentId,
@@ -1147,9 +1019,7 @@ export async function createSessionSupervisor(
   }
 
   function matchesWorkspace(binding: string | null, workspace: string) {
-    return managedTarget(workspace)
-      ? managedKind(binding)
-      : binding === workspace;
+    return workspace === MANAGED_WORKSPACE && managedKind(binding);
   }
 
   async function trackedKeys() {
@@ -1168,13 +1038,7 @@ export async function createSessionSupervisor(
     let current: CurrentSessionIdentity | undefined;
     const identity = await core.inspect(key, async (identity) => {
       const binding = await readBinding(key);
-      if (
-        binding === null ||
-        !(managedWorkspace
-          ? managedKind(binding)
-          : config.workspaces.has(binding))
-      )
-        return false;
+      if (binding === null || !managedKind(binding)) return false;
       const classified = classifySessionIdentity(identity);
       // Legacy format 1 is the shape already used by attach(). It has no
       // known build or stable instance to confirm after a supervisor trial.
@@ -1199,8 +1063,7 @@ export async function createSessionSupervisor(
     agentId: string,
     workspace: string,
     file: { name: string } | { path: string },
-    run: (root: string, name: string) => Promise<T>,
-    configuredCwd?: string
+    run: (root: string, name: string) => Promise<T>
   ): Promise<T> {
     const key = runnerStorageKey(agentId);
     return serialize(key, async () => {
@@ -1226,7 +1089,7 @@ export async function createSessionSupervisor(
       const cwd = await selectedDirectory(
         key,
         workspace,
-        await initialDirectory(key, workspace, configuredCwd)
+        await initialDirectory(key, workspace)
       );
       return run(cwd, file.path);
     });
@@ -1238,11 +1101,7 @@ export async function createSessionSupervisor(
     async withWorkspacePreparation<T>(
       agentId: string,
       preparing: boolean,
-      run: (
-        readLegacy: (
-          request?: Req<"workspace.prepare">
-        ) => Promise<Res<"workspace.resume">>
-      ) => Promise<T>,
+      run: () => Promise<T>,
       parentId?: string
     ): Promise<T | null> {
       const key = runnerStorageKey(agentId);
@@ -1277,63 +1136,7 @@ export async function createSessionSupervisor(
             code: "conflict",
             message: "The author checkout has been archived or changed.",
           });
-        return run(async (request) => {
-          const encoded = await readOptional(repositoryFile(key));
-          const stored =
-            encoded === null
-              ? null
-              : (JSON.parse(encoded) as RunnerRepository | null);
-          if (request) {
-            const source = request.source;
-            let matches = false;
-            if ("repository" in source && stored) {
-              try {
-                const requested = parseRepository({
-                  url: source.repository,
-                  checkout: source.checkout,
-                });
-                matches =
-                  requested.url === stored.url &&
-                  isDeepStrictEqual(
-                    requested.checkout,
-                    parseRepository(stored).checkout
-                  );
-              } catch {
-                // The legacy record only accepts its existing HTTPS repository.
-              }
-            }
-            if (!matches)
-              throw new RunnerCallError({
-                code: "conflict",
-                message:
-                  "This runner session is bound to a different checkout.",
-              });
-          }
-          if (
-            !(await bound(key, MANAGED_WORKSPACE)) ||
-            (await readOptional(planFile(key))) !== null
-          )
-            throw new RunnerCallError({
-              code: "conflict",
-              message:
-                "Continue this legacy preparation by retrying its original launch.",
-            });
-          const initial = await initialDirectory(key, MANAGED_WORKSPACE);
-          const current = await selectedDirectory(
-            key,
-            MANAGED_WORKSPACE,
-            initial
-          );
-          const description = await describeCheckout(current, initial);
-          return {
-            ...description,
-            path: pathFromWire(description.path),
-            repositoryRoot: description.repositoryRoot
-              ? pathFromWire(description.repositoryRoot)
-              : null,
-            checkoutRoot: pathFromWire(initial),
-          };
-        });
+        return run();
       };
       return parent === undefined || owner === undefined
         ? serialize(key, perform)
@@ -1343,7 +1146,6 @@ export async function createSessionSupervisor(
       const agentId = sessionToWire(request.session);
       const { engine, launchId, owner } = request;
       if (
-        !managedWorkspace ||
         !isOpaqueId(agentId) ||
         !isRunnerEngine(engine) ||
         !isUpdateAttemptId(launchId) ||
@@ -1362,26 +1164,30 @@ export async function createSessionSupervisor(
       const key = runnerStorageKey(agentId);
       // Preparation records the immutable checkout owner. Only lock and use
       // the owner in this runner's binding, including after reconnect.
-      const checkout = checkoutOwner(await readBinding(key));
-      const command: LaunchCommand = {
-        kind: "launch",
+      // Choose the lock set before yielding, so a following stop queues behind
+      // this launch. The binding is checked again under the locks.
+      let checkout: string | null;
+      try {
+        checkout = checkoutOwner(
+          readFileSync(path.join(bindings, key), "utf8")
+        );
+      } catch (error) {
+        checkout = missingPath(error as NodeJS.ErrnoException);
+      }
+      const host: RemoteLaunch = {
+        engine,
         agentId,
-        workspace: MANAGED_WORKSPACE,
-        launch: {
-          engine,
-          agentId,
-          launchId,
-          ...(owner !== null && { owner }),
-          model: request.model,
-          effort: request.effort,
-          fullAccess: request.access === "full",
-          resumeSessionId: request.resume,
-          systemPrompt: request.systemText,
-          personaContext: request.firstText,
-          ...(mcp && {
-            mcp: { name: mcp.name, url: mcp.url, token: mcp.token },
-          }),
-        },
+        launchId,
+        ...(owner !== null && { owner }),
+        model: request.model,
+        effort: request.effort,
+        fullAccess: request.access === "full",
+        resumeSessionId: request.resume,
+        systemPrompt: request.systemText,
+        personaContext: request.firstText,
+        ...(mcp && {
+          mcp: { name: mcp.name, url: mcp.url, token: mcp.token },
+        }),
       };
       await withLaunchLocks(checkout ? [key, checkout] : [key], async () => {
         if (checkout !== checkoutOwner(await readBinding(key)))
@@ -1389,136 +1195,26 @@ export async function createSessionSupervisor(
             code: "conflict",
             message: "The checkout binding changed; retry the request.",
           });
-        await launch(command, undefined, key, checkout);
+        await launch(agentId, host, key, checkout);
       });
       return {};
-    },
-    async launch(
-      command: LaunchCommand,
-      cwd: string | undefined,
-      progress?: (step: LaunchProgress) => void
-    ) {
-      const key = runnerStorageKey(command.agentId);
-      const { useWorktreeOf } = command.launch;
-      if (useWorktreeOf === undefined)
-        return serialize(key, () => launch(command, cwd, key, null, progress));
-      if (!isOpaqueId(useWorktreeOf) || useWorktreeOf === command.agentId)
-        throw new Error("Invalid author for a shared runner checkout.");
-      if (command.launch.repository !== undefined)
-        throw new Error("A shared runner checkout cannot select a repository.");
-      const { workspace } = command;
-      const author = runnerStorageKey(useWorktreeOf);
-      if (!managedTarget(workspace)) {
-        return withLaunchLocks([key, author], async () => {
-          if ((await readBinding(author)) !== workspace)
-            throw new Error(
-              "The author is not bound to this runner workspace."
-            );
-          if (cwd === undefined)
-            throw new Error("Guest workspace is unavailable");
-          if (!(await readOptional(borrowedFile(key)))) {
-            const initial = await initialDirectory(author, workspace, cwd);
-            await writePrivateState(
-              borrowedFile(key),
-              await selectedDirectory(author, workspace, initial)
-            );
-            await recordBinding(command.agentId);
-          }
-          return launch(
-            command,
-            await configuredDirectory(author, cwd),
-            key,
-            null,
-            progress
-          );
-        });
-      }
-      // Prepared from a folder session: the child holds that folder as its
-      // own external binding, so it starts there with no owner to borrow.
-      if ((await readBinding(key)) === folderBinding)
-        return serialize(key, () => launch(command, cwd, key, null, progress));
-      const owner = checkoutOwner(await readBinding(author)) ?? author;
-      if (owner === key)
-        throw new Error("Invalid author for a shared runner checkout.");
-      return withLaunchLocks([key, author, owner], async () => {
-        if (
-          author !== owner &&
-          (checkoutOwner(await readBinding(author)) !== owner ||
-            (await readOptional(retireFile(author))) !== null)
-        )
-          throw new Error("The author does not own a checkout on this runner.");
-        if (
-          (await readBinding(key)) === null &&
-          !(await readOptional(borrowedFile(key)))
-        ) {
-          if ((await readBinding(owner)) !== managedBinding)
-            throw new Error(
-              "The author does not own a checkout on this runner."
-            );
-          if ((await readOptional(retireFile(owner))) !== null)
-            throw new Error("The author checkout has been archived.");
-          const initial = await initialDirectory(author, workspace);
-          await writePrivateState(
-            borrowedFile(key),
-            await selectedDirectory(author, workspace, initial)
-          );
-          await recordBinding(command.agentId);
-        }
-        return launch(command, cwd, key, owner, progress);
-      });
-    },
-    sessionFile(
-      agentId: string,
-      workspace: string,
-      operation: SessionFileOperation,
-      transfer: (
-        kind: "deliver" | "receive" | "collect" | "stream",
-        root: string,
-        name: string,
-        data?: string
-      ) => Promise<string>,
-      configuredCwd?: string
-    ) {
-      if (!isSessionFileOperation(operation))
-        return Promise.reject(
-          new Error("Invalid or unbound session file operation.")
-        );
-      return withSessionFile(
-        agentId,
-        workspace,
-        operation,
-        async (root, name) => {
-          if (operation.kind === "collect")
-            return transfer(
-              operation.streamId === undefined ? "collect" : "stream",
-              root,
-              name
-            );
-          if (operation.streamId === undefined)
-            await transfer("deliver", root, name, operation.data);
-          else await transfer("receive", root, sizedName(name, operation.size));
-          return path.join(root, name);
-        },
-        configuredCwd
-      );
     },
     async releaseWorkspace(
       agentId: string,
       workspace: string,
-      release: (legacySource: string | null) => Promise<boolean>
+      release: () => Promise<boolean>
     ): Promise<boolean> {
       const key = runnerStorageKey(agentId);
       return serialize(key, async () => {
         const binding = await readBinding(key);
         if (binding === null) {
-          if (managedTarget(workspace))
+          if (workspace === MANAGED_WORKSPACE)
             await writePrivateState(retireFile(key), "");
           return true;
         }
         if (!matchesWorkspace(binding, workspace))
           throw new Error("Agent is not bound to this workspace");
-        if (!managedTarget(workspace) || binding !== managedBinding)
-          return false;
+        if (binding !== managedBinding) return false;
         const identity = await readIdentity(key);
         if (identity && core.isAlive(identity))
           throw new Error("Stop the guest host before releasing it");
@@ -1542,7 +1238,7 @@ export async function createSessionSupervisor(
           stored === null ||
           (repository?.url
             ? await repositories.inCache(repository.url, release)
-            : await release(null));
+            : await release());
         if (!removed) return false;
         await cleanHost(key, identity);
         await cleanLegacyHost(key);
@@ -1582,9 +1278,8 @@ export async function createSessionSupervisor(
       agentId: string,
       workspace: string,
       checkout: CheckoutCommand["checkout"],
-      configuredCwd: string | undefined,
       signal: AbortSignal,
-      run: (cwd: string, configuredRoot?: string) => Promise<T>
+      run: (cwd: string) => Promise<T>
     ): Promise<T | null> {
       const key = runnerStorageKey(agentId);
       const owner = checkoutOwner(await readBinding(key)) ?? key;
@@ -1592,31 +1287,26 @@ export async function createSessionSupervisor(
         signal.throwIfAborted();
         if ((checkoutOwner(await readBinding(key)) ?? key) !== owner)
           throw new Error("The checkout binding changed; retry the request.");
-        const initial = await initialDirectory(key, workspace, configuredCwd);
+        const initial = await initialDirectory(key, workspace);
         const cwd =
           checkout === "launch"
             ? initial
             : await selectedDirectory(key, workspace, initial);
         signal.throwIfAborted();
         if (checkout === "moved" && cwd === initial) return null;
-        const configuredRoot = managedTarget(workspace)
-          ? undefined
-          : await configuredDirectory(key, configuredCwd);
-        return run(cwd, configuredRoot);
+        return run(cwd);
       });
     },
     checkoutDirectory(
       agentId: string,
       workspace: string,
-      // Only the runner's configured path may supply a missing legacy cwd.
-      configuredCwd?: string,
       checkout: "current" | "launch" = "current"
     ): Promise<string> {
       if (checkout !== "current" && checkout !== "launch")
         return Promise.reject(new Error("Invalid checkout read selector."));
       const key = runnerStorageKey(agentId);
       return serialize(key, async () => {
-        const initial = await initialDirectory(key, workspace, configuredCwd);
+        const initial = await initialDirectory(key, workspace);
         return checkout === "launch"
           ? initial
           : selectedDirectory(key, workspace, initial);
@@ -1625,12 +1315,11 @@ export async function createSessionSupervisor(
     gitContext(
       agentId: string,
       workspace: string,
-      operation: ContextOperation,
-      configuredCwd?: string
+      operation: ContextOperation
     ): Promise<Res<"git.context">> {
       const key = runnerStorageKey(agentId);
       return serialize(key, async () => {
-        const initial = await initialDirectory(key, workspace, configuredCwd);
+        const initial = await initialDirectory(key, workspace);
         if (operation.checkout === "launch") return checkoutGitContext(initial);
         const selected = await selectedDirectory(key, workspace, initial);
         if (operation.checkout === "moved" && selected === initial)
@@ -1641,12 +1330,11 @@ export async function createSessionSupervisor(
     sessionCheckout(
       agentId: string,
       workspace: string,
-      operation: Exclude<CheckoutOperation, ContextOperation>,
-      configuredCwd?: string
+      operation: CheckoutOperation
     ): Promise<SessionCheckout> {
       const key = runnerStorageKey(agentId);
       return serialize(key, async () => {
-        const initial = await initialDirectory(key, workspace, configuredCwd);
+        const initial = await initialDirectory(key, workspace);
         if (operation.kind === "describe")
           return describeCheckout(
             await selectedDirectory(key, workspace, initial),
@@ -1773,7 +1461,10 @@ export async function createSessionSupervisor(
         }
         if (!(await bound(key, workspace))) {
           if (expectedLaunchId !== undefined) return false;
-          if (managedTarget(workspace) && (await readBinding(key)) === null)
+          if (
+            workspace === MANAGED_WORKSPACE &&
+            (await readBinding(key)) === null
+          )
             return;
           throw new Error("Agent is not bound to this workspace");
         }
@@ -1796,9 +1487,11 @@ export async function createSessionSupervisor(
     discard(agentId: string, workspace: string) {
       const key = runnerStorageKey(agentId);
       return serialize(key, async () => {
-        const managed = managedTarget(workspace);
         if (!(await bound(key, workspace))) {
-          if (managed && (await readBinding(key)) === null) {
+          if (
+            workspace === MANAGED_WORKSPACE &&
+            (await readBinding(key)) === null
+          ) {
             await writePrivateState(retireFile(key), "");
             await config.removePreparedCheckout?.(agentId);
             return;
@@ -1808,17 +1501,15 @@ export async function createSessionSupervisor(
         const identity = await readIdentity(key);
         if (identity && core.isAlive(identity))
           throw new Error("Stop the guest host before discarding it");
-        if (managed) await writePrivateState(retireFile(key), "");
+        await writePrivateState(retireFile(key), "");
         const dir = path.join(hostRoot, key);
         await cleanHost(key, identity);
         checkUntrackedSocket(key);
         await cleanLegacyHost(key);
-        if (managed) {
+        {
           if (!checkoutOwner(await readBinding(key)))
             await discardManagedCheckout(key, agentId);
           await core.removeLog(key);
-        } else {
-          await rm(cwdFile(key), { force: true });
         }
         await removeGuestDirectory(dir);
         await rm(selectedFile(key), { force: true });
@@ -1826,7 +1517,7 @@ export async function createSessionSupervisor(
         await rm(borrowedFromFile(key), { force: true });
         await core.removeLaunch(key);
         await rm(path.join(bindings, key), { force: true });
-        if (managed) await syncBindings();
+        await syncBindings();
         await recordBinding(agentId);
       });
     },
@@ -1879,13 +1570,7 @@ export async function createSessionSupervisor(
       const dirs = await Promise.all(
         (await trackedKeys()).map(async (key) => {
           const binding = await readBinding(key);
-          if (
-            binding === null ||
-            !(managedWorkspace
-              ? managedKind(binding)
-              : config.workspaces.has(binding))
-          )
-            return null;
+          if (binding === null || !managedKind(binding)) return null;
           const identity = await readIdentity(key);
           return identity && core.isAlive(identity)
             ? path.join(hostRoot, key)

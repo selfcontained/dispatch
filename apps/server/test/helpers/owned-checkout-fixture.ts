@@ -176,7 +176,6 @@ export async function ownedCheckoutFixture(
         ca: path.join(root, "unused-ca"),
         bins: { claudeBin: "", codexBin: "" },
         env: {},
-        workspaces: new Set(),
         hostCommand: () => ["/unused-host"],
         asWorkload: async (bin, args) =>
           bin === "realpath"
@@ -274,7 +273,6 @@ export async function ownedCheckoutFixture(
       const directory = await supervisor.checkoutDirectory(
         row.id,
         MANAGED_WORKSPACE,
-        undefined,
         checkout
       );
       return workload.run("checkout.read", { directory, request }, {});
@@ -287,7 +285,6 @@ export async function ownedCheckoutFixture(
       const directory = await supervisor.checkoutDirectory(
         row.id,
         MANAGED_WORKSPACE,
-        undefined,
         checkout
       );
       return workload.run("checkout.access", { directory, request }, {});

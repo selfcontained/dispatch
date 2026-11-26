@@ -63,7 +63,6 @@ const supervisor = await createSessionSupervisor(
     ca: path.join(runnerState, "ca.pem"),
     bins: { claudeBin: "", codexBin: "" },
     sessions: createSessionCore,
-    workspaces: new Set(),
     env: {},
     hostCommand: () => {
       throw new Error("The parity fixture does not start hosts");

@@ -213,7 +213,8 @@ export class PrivsepBindings extends BindingStore {
       const owner = this.ownerOf(binding);
       if (!owner) return null;
       launch = this.managedLaunch(owner, files);
-    } else launch = optional(".cwd");
+    } else if (binding === FOLDER_BINDING) launch = optional(".cwd");
+    else return null;
     if (launch === null) return null;
     const borrowed = optional(".borrowed-cwd");
     const borrowedFrom = borrowed && optional(".borrowed-from");
@@ -237,15 +238,6 @@ export class PrivsepBindings extends BindingStore {
   /** The platform's place for a managed session's checkout. */
   checkoutOf(session: string): string {
     return join(this.paths.sessions, storageKey(session), "checkout");
-  }
-
-  /** Whether an older build prepared this session; it finishes on that path. */
-  async legacy(session: string): Promise<boolean> {
-    const key = storageKey(session);
-    const old =
-      (await this.fs.read(this.file(key, ".repository"))) !== null ||
-      (await this.fs.read(this.file(key, ".checkout-plan"))) !== null;
-    return old && (await this.receipt(session)) === null;
   }
 
   /**

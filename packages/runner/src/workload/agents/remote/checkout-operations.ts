@@ -91,7 +91,6 @@ export function enrolledCheckouts(
               sessionToWire(target.session),
               MANAGED_WORKSPACE,
               commandSelector(target.checkout),
-              undefined,
               signal,
               run
             )
@@ -122,7 +121,6 @@ export function enrolledCheckouts(
         sessionToWire(target.session),
         MANAGED_WORKSPACE,
         "effective",
-        undefined,
         signal,
         (cwd) => worker.run("write", cwd, request, signal)
       );
@@ -168,7 +166,6 @@ export function enrolledCheckouts(
         session,
         MANAGED_WORKSPACE,
         operation.checkout,
-        undefined,
         signal,
         (cwd) => worker.manifest(cwd, session, operation, signal)
       );
@@ -200,7 +197,6 @@ export function enrolledCheckouts(
     const cwd = await supervisor.checkoutDirectory(
       session,
       MANAGED_WORKSPACE,
-      undefined,
       selection.checkout
     );
     signal.throwIfAborted();
@@ -262,7 +258,6 @@ export function enrolledCommand(
         session,
         MANAGED_WORKSPACE,
         checkout,
-        undefined,
         active,
         (cwd) => execute(cwd, session, input, sendOutput, active)
       );

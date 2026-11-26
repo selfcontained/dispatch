@@ -356,15 +356,9 @@ type WorkspacePreparationFactory = (options: {
   step: (op: string, args: unknown[]) => Promise<unknown>;
 }) => Promise<
   WorkspacePreparationPort & {
-    legacy(session: string): Promise<boolean>;
     bindingWritten(session: string): Promise<void>;
     hasReceipt(session: string): Promise<boolean>;
     remove(session: string): Promise<boolean>;
-    releaseLegacy(
-      session: string,
-      source: string | null,
-      request: Omit<Req<"workspace.release">, "session">
-    ): Promise<boolean>;
     /** A repository's cached clone, as a launch from that repository uses it. */
     repositoryClone?(url: string): Promise<string>;
   }
@@ -610,7 +604,6 @@ export async function runRemoteRunner(
     streamHelper: updateOptions.streamHelper,
     resolveBins,
     env,
-    workspaces: new Set(),
     asWorkload,
     githubCredentialHelper: async () =>
       githubCredentialHelper(await tools.resolve("gh")),
@@ -636,18 +629,6 @@ export async function runRemoteRunner(
         { env, timeout: 90_000, maxBuffer: 4 * 1024 * 1024 }
       );
       return JSON.parse(stdout);
-    },
-    async prepareDependencies(cwd) {
-      await execute(
-        setpriv,
-        workloadLogin([...self("runner-prepare-dependencies"), cwd]),
-        {
-          env: { ...env, GIT_TERMINAL_PROMPT: "0", GH_PROMPT_DISABLED: "1" },
-          timeout: 135_000,
-          maxBuffer: 8_192,
-        }
-      );
-      return true;
     },
     hostCommand: (dir, cwd) => {
       admission.assertMayStartProcess();
