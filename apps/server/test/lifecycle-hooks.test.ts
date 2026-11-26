@@ -1,3 +1,5 @@
+import type { Pool } from "pg";
+import { previewArchive } from "../src/agents/archive.js";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -208,6 +210,135 @@ describe("runLifecycleHook", () => {
     await expect(readFile(path.join(launch, "stopped"), "utf8")).resolves.toBe(
       "x\n"
     );
+  });
+
+  it("uses the launch checkout's archive hook for an older worktree", async () => {
+    const launch = path.join(root, "launch");
+    const worktree = path.join(root, "worktree");
+    await repoWithStopHook(worktree);
+    await mkdir(path.join(launch, ".dispatch"), { recursive: true });
+    await writeFile(
+      path.join(launch, ".dispatch", "tools.json"),
+      JSON.stringify({
+        hooks: {
+          archive: {
+            command: ["sh", "-c", 'echo "$DISPATCH_AGENT_ID" > archived'],
+          },
+        },
+      })
+    );
+
+    await runLifecycleHook(
+      "archive",
+      {
+        id: "agt_hook",
+        cwd: worktree,
+        placement: controllerPlacement,
+        launchCwd: launch,
+        worktreePath: worktree,
+      } as AgentRecord,
+      logger,
+      {}
+    );
+
+    await expect(readFile(path.join(launch, "archived"), "utf8")).resolves.toBe(
+      "agt_hook\n"
+    );
+  });
+
+  it("preserves the failing archive command error including trimmed stderr", async () => {
+    await mkdir(path.join(root, ".dispatch"), { recursive: true });
+    const command = ["sh", "-c", "echo reason >&2; exit 3"];
+    await writeFile(
+      path.join(root, ".dispatch", "tools.json"),
+      JSON.stringify({ hooks: { archive: { command } } })
+    );
+    await expect(
+      runLifecycleHook(
+        "archive",
+        {
+          id: "fixture",
+          cwd: root,
+          placement: controllerPlacement,
+        } as AgentRecord,
+        logger,
+        {}
+      )
+    ).rejects.toThrow(
+      "Command failed (sh -c echo reason >&2; exit 3), exitCode=3, stderr=reason"
+    );
+  });
+
+  it("leaves enrolled archive manifests and hooks untouched", async () => {
+    const requestSession = vi.fn();
+    await runLifecycleHook(
+      "archive",
+      {
+        id: "enrolled",
+        cwd: "runner://runner-a/main",
+        placement: placementForRunner("runner-a"),
+      } as AgentRecord,
+      logger,
+      { remote: { requestSession } as unknown as RemoteRunnerService }
+    );
+    expect(requestSession).not.toHaveBeenCalled();
+  });
+
+  it("previews configured cascade cleanup without running hooks", async () => {
+    const plain = path.join(root, "plain");
+    const configured = path.join(root, "configured");
+    await repoWithStopHook(plain);
+    await mkdir(path.join(configured, ".dispatch"), { recursive: true });
+    const description =
+      "Permanently deletes the owned isolated dev database and logs.";
+    await writeFile(
+      path.join(configured, ".dispatch", "tools.json"),
+      JSON.stringify({
+        hooks: {
+          archive: {
+            command: ["sh", "-c", "echo wiped > archived"],
+            description,
+          },
+        },
+      })
+    );
+    const agents = new Map<string, AgentRecord>([
+      [
+        "parent",
+        {
+          id: "parent",
+          placement: controllerPlacement,
+          cwd: plain,
+        } as AgentRecord,
+      ],
+      [
+        "child",
+        {
+          id: "child",
+          placement: controllerPlacement,
+          cwd: plain,
+          worktreePath: plain,
+          launchCwd: configured,
+        } as AgentRecord,
+      ],
+    ]);
+    const getRequiredAgent = vi.fn(async (id: string) => agents.get(id)!);
+    const pool = {
+      query: vi.fn(async (_sql: string, [id]: [string]) => ({
+        rows: id === "parent" ? [{ id: "child" }] : [],
+      })),
+    } as unknown as Pool;
+
+    await expect(
+      previewArchive({ pool, getRequiredAgent }, "parent", vi.fn())
+    ).resolves.toEqual({
+      worktreeStatus: null,
+      subAgentCount: 1,
+      cleanupDescriptions: [description],
+    });
+    await expect(
+      readFile(path.join(configured, "archived"))
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
 

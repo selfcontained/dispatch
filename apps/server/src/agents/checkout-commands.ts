@@ -25,13 +25,15 @@ export async function requestCheckoutCommand(
   runners: CheckoutCommandRunners,
   agent: CheckoutSession,
   operation: Extract<CheckoutCommand, { kind: "run" }>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  timeoutMs?: number
 ): Promise<CheckoutCommandResult>;
 export async function requestCheckoutCommand(
   runners: CheckoutCommandRunners,
   agent: CheckoutSession,
   operation: CheckoutCommand,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  timeoutMs = HOOK_TIMEOUT_MS
 ) {
   const { directory, placement } = checkoutRunners(runners, agent);
   const runner = directory.for(placement);
@@ -49,7 +51,7 @@ export async function requestCheckoutCommand(
       // Dispatch's terms for every runner: main's environment addition and
       // deadline, no output limit, a direct spawn.
       env: { DISPATCH_AGENT_ID: agent.id },
-      timeoutMs: operation.checkout === "effective" ? null : HOOK_TIMEOUT_MS,
+      timeoutMs: operation.checkout === "effective" ? null : timeoutMs,
       maxOutput: null,
       shell: "direct",
     },

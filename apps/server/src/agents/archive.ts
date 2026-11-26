@@ -1,3 +1,4 @@
+import type { AgentArchivePreview } from "@dispatch/shared";
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
@@ -18,7 +19,7 @@ import {
 import type { RunnerComposition } from "../runners/directory.js";
 import type { Runner } from "@dispatch/runner-protocol/contract";
 import type { RemoteRunnerService } from "./remote/service.js";
-import { runLifecycleHook } from "./lifecycle-hooks.js";
+import { resolveArchiveHooks, runLifecycleHook } from "./lifecycle-hooks.js";
 import { AgentError, LifecycleSuperseded } from "./errors.js";
 import type { AgentRuntime } from "./runtime.js";
 import type {
@@ -80,6 +81,51 @@ async function getChildAgentIds(
     [parentAgentId]
   );
   return result.rows.map((row) => row.id);
+}
+
+/** Read the effects of the target and its cascade without running a hook. */
+export async function previewArchive(
+  deps: Pick<
+    ArchiveDeps,
+    "pool" | "getRequiredAgent" | "remote" | "localRunnerChild"
+  >,
+  id: string,
+  readStatus: (
+    agent: AgentRecord
+  ) => Promise<NonNullable<AgentArchivePreview["worktreeStatus"]>>
+): Promise<AgentArchivePreview> {
+  const { pool, getRequiredAgent } = deps;
+  const target = await getRequiredAgent(id);
+  const cleanupDescriptions = new Set<string>();
+  const seen = new Set([id]);
+  const pending = [target];
+  for (const agent of pending) {
+    for await (const { hook } of resolveArchiveHooks(agent, {
+      remote: deps.remote,
+      child: deps.localRunnerChild,
+    })) {
+      if (hook.description) cleanupDescriptions.add(hook.description);
+    }
+    for (const childId of await getChildAgentIds(pool, agent.id)) {
+      if (seen.has(childId)) continue;
+      seen.add(childId);
+      pending.push(await getRequiredAgent(childId));
+    }
+  }
+  const status = target.worktreePath ? await readStatus(target) : null;
+  return {
+    worktreeStatus: status && {
+      hasWorktree: status.hasWorktree,
+      hasUnmergedCommits: status.hasUnmergedCommits,
+      hasUncommittedChanges: status.hasUncommittedChanges,
+      worktreePath: status.worktreePath,
+      branchName: status.branchName,
+      changedFiles: status.changedFiles,
+      uncommittedFiles: status.uncommittedFiles,
+    },
+    subAgentCount: pending.length - 1,
+    cleanupDescriptions: [...cleanupDescriptions],
+  };
 }
 
 /** The agent's runner, with what the composition gives it for archives. */
@@ -282,14 +328,22 @@ export async function executeArchive(
     }
     durations.stop = Date.now() - t;
 
+    await runLifecycleHook(
+      "archive",
+      agent,
+      logger,
+      { remote: deps.remote, child: deps.localRunnerChild },
+      deps.whileFenced && ((request) => deps.whileFenced!(agent, request))
+    );
+
     const publishPhase = async (phase: ArchivePhase) => {
       await deps.setArchivePhase(id, phase);
       const updated = await deps.getAgent(id);
       if (updated) callbacks.onPhaseChange(updated);
     };
 
-    // Stop dependents before removing this checkout. Reviewers can share it
-    // through cwd while their display parent is elsewhere.
+    // Stop dependents before removing this checkout. Children and reviewers
+    // can both share it through their working directories.
     const tCascade = Date.now();
     const cascadedIds: string[] = [];
     try {
@@ -347,6 +401,7 @@ export async function executeArchive(
     const deletedIds = [id, ...cascadedIds];
     callbacks.onComplete(deletedIds);
   } catch (error) {
+    if (error instanceof LifecycleSuperseded) return;
     logger.error({ err: error, agentId: id }, "Archive failed");
     try {
       await deps.setAgentStatus(
@@ -439,6 +494,27 @@ export async function deleteAgentDirect(
       );
     }
     durations.stop = Date.now() - t;
+  }
+
+  try {
+    await runLifecycleHook(
+      "archive",
+      agent,
+      logger,
+      { remote: deps.remote, child: deps.localRunnerChild },
+      deps.whileFenced &&
+        ((request) =>
+          deps.whileFenced!({ ...agent, status: "archiving" }, request))
+    );
+  } catch (error) {
+    if (error instanceof LifecycleSuperseded) return [];
+    await deps.setAgentStatus(
+      id,
+      "error",
+      error instanceof Error ? error.message : "Archive hook failed"
+    );
+    await deps.setArchivePhase(id, null);
+    throw error;
   }
 
   // The archive claim excludes this row from dependent lookup, preventing

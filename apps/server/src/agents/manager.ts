@@ -42,6 +42,7 @@ import { AttentionHistory } from "../notifications/attention-history.js";
 import { matchProjectIdentity } from "../projects/matching.js";
 import {
   attentionPreview,
+  type AgentArchivePreview,
   type Effort,
   type FileDiffResponse,
 } from "@dispatch/shared";
@@ -68,6 +69,7 @@ import {
   retainUnflaggedCheckout,
   beginArchive as beginArchiveImpl,
   executeArchive as executeArchiveImpl,
+  previewArchive,
   type ArchiveDeps,
 } from "./archive.js";
 import {
@@ -220,7 +222,6 @@ export type {
   AgentRecord,
   AgentRole,
   AgentTerminalAccess,
-  WorktreeStatus,
 } from "./types.js";
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
@@ -4587,9 +4588,17 @@ export class AgentManager {
     return executeArchiveImpl(this.archiveDeps(), id, callbacks);
   }
 
-  async checkWorktreeStatus(id: string): Promise<WorktreeStatus> {
-    const agent = await this.getRequiredAgent(id);
+  async checkArchivePreview(id: string): Promise<AgentArchivePreview> {
+    return previewArchive(this.archiveDeps(), id, (agent) =>
+      this.worktreeStatus(agent)
+    );
+  }
 
+  async checkWorktreeStatus(id: string): Promise<WorktreeStatus> {
+    return this.worktreeStatus(await this.getRequiredAgent(id));
+  }
+
+  private async worktreeStatus(agent: AgentRecord): Promise<WorktreeStatus> {
     let observation;
     try {
       observation = await observeArchiveCheckout(

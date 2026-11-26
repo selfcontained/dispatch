@@ -2,7 +2,11 @@
   "hooks": {
     "stop": {
       "command": ["./bin/dispatch-dev", "down"],
-      "description": "Tear down the agent's isolated dev environment on stop."
+      "description": "Stop the agent's isolated dev environment and keep its database for resuming."
+    },
+    "archive": {
+      "command": ["./bin/dispatch-dev", "down", "--wipe"],
+      "description": "Permanently deletes the owned isolated dev database and logs."
     }
   },
   "tools": [
@@ -58,7 +62,7 @@
     },
     {
       "name": "dev_down",
-      "description": "Stop a dev environment and remove its database container. Without a suffix, stops the current agent's dev environment.",
+      "description": "Stop a dev environment and keep its database. Pass wipe to permanently remove its database and logs, including after an earlier stop. Defaults to the current agent's stack.",
       "command": ["./bin/dispatch-dev", "down"],
       "params": [
         {
@@ -66,6 +70,12 @@
           "type": "string",
           "flag": "--suffix",
           "description": "Target a specific dev environment by its suffix (e.g. agt_abc123def456)."
+        },
+        {
+          "name": "wipe",
+          "type": "boolean",
+          "flag": "--wipe",
+          "description": "Permanently remove this stack's database volume and logs."
         }
       ]
     },

@@ -19,3 +19,19 @@ export type CliAgentType = (typeof CLI_AGENT_TYPES)[number];
 
 /** An engine-owned effort value, validated against its model capabilities. */
 export type Effort = string;
+
+export type AgentWorktreeStatus = {
+  hasWorktree: boolean;
+  hasUnmergedCommits: boolean;
+  hasUncommittedChanges: boolean;
+  worktreePath: string | null;
+  branchName: string | null;
+  changedFiles: string[];
+  uncommittedFiles: string[];
+};
+
+export type AgentArchivePreview = {
+  worktreeStatus: AgentWorktreeStatus | null;
+  subAgentCount: number;
+  cleanupDescriptions: string[];
+};

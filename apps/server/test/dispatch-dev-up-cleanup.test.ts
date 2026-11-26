@@ -25,7 +25,7 @@ afterEach(() => {
 
 function fixture(opts: { up?: string; down?: string } = {}) {
   const dir = mkdtempSync("/tmp/dispatch-up-cleanup-regression-");
-  const suffix = path.basename(dir);
+  const suffix = path.basename(dir).toLowerCase();
   const state = `/tmp/dispatch-dev-${suffix}.env`;
   const logDir = `/tmp/dispatch-dev-${suffix}`;
   const lockDir = `/tmp/dispatch-dev-${suffix}.create-lock`;
@@ -250,7 +250,7 @@ describe("dispatch-dev up: fresh-create Compose cleanup", () => {
     // (so the liveness check passes without a real server) and blocks;
     // a fake `pnpm --filter @dispatch/browser-extension package` fails.
     const dir = mkdtempSync("/tmp/dispatch-up-cleanup-regression-");
-    const suffix = path.basename(dir);
+    const suffix = path.basename(dir).toLowerCase();
     const state = `/tmp/dispatch-dev-${suffix}.env`;
     const logDir = `/tmp/dispatch-dev-${suffix}`;
     const lockDir = `/tmp/dispatch-dev-${suffix}.create-lock`;

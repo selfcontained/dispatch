@@ -263,6 +263,16 @@ export async function registerAgentLifecycleRoutes(
     }
   });
 
+  app.get("/api/v1/agents/:id/archive-preview", async (request, reply) => {
+    const params = request.params as { id?: string };
+
+    try {
+      return await deps.agentManager.checkArchivePreview(params.id ?? "");
+    } catch (error) {
+      return deps.handleAgentError(reply, error);
+    }
+  });
+
   app.get("/api/v1/agents/:id/worktree-status", async (request, reply) => {
     const params = request.params as { id?: string };
     const id = params.id ?? "";

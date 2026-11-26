@@ -2,6 +2,10 @@
   "version": 1,
   "rules": [
     {
+      "paths": ["README.md"],
+      "personas": ["code-review"]
+    },
+    {
       "paths": [
         "apps/server/src/routes/system.ts",
         "apps/server/src/routes/launch-targets.ts",
@@ -175,6 +179,8 @@
         "apps/server/test/engine-update-route-parity.test.ts",
         "apps/server/test/usage-watches.test.ts",
         "apps/server/test/lifecycle-routes.test.ts",
+        "apps/server/test/lifecycle-hooks.test.ts",
+        "docs/04-agent-lifecycle.md",
         "apps/server/test/*worktree*",
         "apps/server/test/workspace-target.test.ts",
         "apps/server/test/local-workspace-preparation.test.ts",
@@ -676,7 +682,7 @@
       "personas": ["auth-trust-owner"]
     },
     {
-      "paths": ["AGENTS.md", "CLAUDE.md"],
+      "paths": ["AGENTS.md", "CLAUDE.md", ".dispatch/tools.json"],
       "personas": ["mcp-contract-owner"]
     },
     {

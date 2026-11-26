@@ -167,7 +167,19 @@ Soft stop (default): the server sends `shutdown` over the host socket; the host 
 
 Force stop (`force: true` on `POST /agents/:id/stop`) skips the graceful ACP close.
 
-The repo's `stop` lifecycle hook (configured under `.dispatch/tools.json`) runs best-effort before the teardown.
+The repo's `stop` lifecycle hook (configured under `.dispatch/tools.json`) runs best-effort before the teardown. In this repo it stops the isolated dev
+stack and retains its database for resuming.
+
+During archive, Dispatch also runs the optional `archive` hook from
+`.dispatch/tools.json` before worktree cleanup, including for stopped agents,
+cascaded agents, and when the worktree is kept. Dispatch gives this hook the
+target agent's `DISPATCH_AGENT_ID`. Set the archive hook's `description` to
+explain its consequences in the archive dialog. This repo uses the hook to
+wipe the agent's isolated dev database and logs, even when keeping the
+worktree. If cleanup fails, the affected agent records
+the error and stays available so archive can be retried. If that agent
+still depends on another agent's worktree, archive preserves the shared
+checkout for the retry.
 
 For the built-in runner and enrolled runners with checkout command support,
 Dispatch reads the `stop` hook from the launch checkout, then from the selected

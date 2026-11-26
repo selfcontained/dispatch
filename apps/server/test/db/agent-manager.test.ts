@@ -3995,12 +3995,8 @@ describe("AgentManager", () => {
               });
             }
           );
-          expect(Boolean(await realpath(tree).catch(() => null))).toBe(
-            role === "review"
-          );
-          expect(Boolean(git("branch", "--list", "feature"))).toBe(
-            role === "review"
-          );
+          expect(Boolean(await realpath(tree).catch(() => null))).toBe(true);
+          expect(Boolean(git("branch", "--list", "feature"))).toBe(true);
         } finally {
           await rm(repo, { recursive: true, force: true });
         }
@@ -5756,6 +5752,12 @@ describe("AgentManager", () => {
                 uncommittedFiles: [],
               },
             });
+            const preview = await managerFor(
+              capable,
+              requestSession
+            ).checkArchivePreview(agent.id);
+            expect(preview.worktreeStatus?.hasWorktree ?? false).toBe(false);
+            expect(preview.cleanupDescriptions).toEqual([]);
             // What the runner is asked is unchanged.
             expect(requestSession.mock.calls[0]![1]).toEqual({
               kind: "checkoutRelease",

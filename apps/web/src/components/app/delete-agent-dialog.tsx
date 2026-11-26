@@ -1,28 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import type { AgentArchivePreview } from "@dispatch/shared";
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 
 import { type Agent } from "@/components/app/types";
 import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { descendantAgents } from "@/lib/agent-lineage";
 import { api } from "@/lib/api";
-
-type WorktreeStatus = {
-  hasWorktree: boolean;
-  hasUnmergedCommits: boolean;
-  hasUncommittedChanges: boolean;
-  worktreePath: string | null;
-  branchName: string | null;
-  changedFiles: string[];
-  uncommittedFiles: string[];
-};
 
 type DeleteStep = "confirm" | "worktree-choice";
 
 type DeleteAgentDialogProps = {
   open: boolean;
   deleteTarget: Agent | null;
-  /** Every agent currently known, so the dialog can name what archives with the target. */
-  agents: Agent[];
   setOpen: (open: boolean) => void;
   setDeleteTarget: (agent: Agent | null) => void;
   onDelete: (agent: Agent, cleanupWorktree?: string) => Promise<void>;
@@ -43,60 +33,37 @@ function FileList({ files }: { files: string[] }): JSX.Element {
 export function DeleteAgentDialog({
   open,
   deleteTarget,
-  agents,
   setOpen,
   setDeleteTarget,
   onDelete,
 }: DeleteAgentDialogProps): JSX.Element {
   const [step, setStep] = useState<DeleteStep>("confirm");
-  const [worktreeStatus, setWorktreeStatus] = useState<WorktreeStatus | null>(
-    null
-  );
-  const [loading, setLoading] = useState(false);
+  const targetId = deleteTarget?.id;
+  const preview = useQuery({
+    queryKey: ["agent-archive-preview", targetId],
+    queryFn: () =>
+      api<AgentArchivePreview>(`/api/v1/agents/${targetId}/archive-preview`),
+    enabled: open && Boolean(targetId),
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: false,
+  });
+  useEffect(() => {
+    setStep("confirm");
+  }, [open, targetId]);
 
-  // Archiving cascades to the target's sub agents, so the confirmation has to
-  // say how many go with it — otherwise a parent's archive silently takes out
-  // work the user never had in view.
-  const cascadeCount = useMemo(
-    () => (deleteTarget ? descendantAgents(deleteTarget.id, agents).length : 0),
-    [deleteTarget, agents]
-  );
+  const worktreeStatus = preview.data?.worktreeStatus;
+  const cascadeCount = preview.data?.subAgentCount ?? 0;
+  const cleanupDescriptions = preview.data?.cleanupDescriptions ?? [];
   const cascadeNote =
     cascadeCount > 0
       ? ` Its ${cascadeCount} sub agent${cascadeCount === 1 ? "" : "s"} ${
           cascadeCount === 1 ? "is" : "are"
         } archived too.`
       : "";
-
-  // Fetch worktree status when dialog opens for an agent with a worktree
-  useEffect(() => {
-    setStep("confirm");
-    setWorktreeStatus(null);
-    setLoading(false);
-    if (!open || !deleteTarget?.worktreePath) return;
-
-    let cancelled = false;
-    setLoading(true);
-    api<WorktreeStatus>(`/api/v1/agents/${deleteTarget.id}/worktree-status`)
-      .then((status) => {
-        if (!cancelled) {
-          setWorktreeStatus(status);
-          setLoading(false);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setWorktreeStatus(null);
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [open, deleteTarget]);
-
-  const choosing = step === "worktree-choice" && worktreeStatus !== null;
+  const previewReady = preview.isSuccess && !preview.isFetching;
+  const choosing = step === "worktree-choice" && Boolean(worktreeStatus);
   const name = deleteTarget ? `“${deleteTarget.name}”` : "this agent";
   const archive = async (cleanup: "auto" | "keep" | "force") => {
     if (deleteTarget) await onDelete(deleteTarget, cleanup);
@@ -129,9 +96,19 @@ export function DeleteAgentDialog({
           : `Archive ${name}?`
       }
       description={
-        choosing
-          ? `The agent will be archived either way.${cascadeNote}`
-          : `This removes the agent record and all files.${cascadeNote}`
+        <>
+          {choosing
+            ? `The agent will be archived either way.${cascadeNote}`
+            : `This removes the agent record and all files.${cascadeNote}`}
+          {cleanupDescriptions.length > 0 ? (
+            <span className="mt-2 block text-foreground">
+              {cleanupDescriptions.join(" ")}
+              {worktreeStatus?.hasWorktree
+                ? " Keeping the worktree still runs this cleanup."
+                : null}
+            </span>
+          ) : null}
+        </>
       }
       confirmLabel={choosing ? "Archive and remove worktree" : "Archive agent"}
       confirmTestId={
@@ -139,10 +116,11 @@ export function DeleteAgentDialog({
       }
       cancelTestId="delete-agent-cancel"
       errorTitle="Couldn’t archive the agent."
-      checking={loading}
+      checking={preview.isFetching}
+      confirmDisabled={!previewReady}
       onConfirm={confirm}
       alternative={
-        choosing
+        choosing && previewReady
           ? {
               label: "Archive, keep worktree",
               testId: "delete-agent-keep-worktree",
@@ -151,6 +129,18 @@ export function DeleteAgentDialog({
           : undefined
       }
     >
+      {preview.isError ? (
+        <Alert title="Couldn’t check what archive will remove.">
+          <Button
+            variant="secondary"
+            size="sm"
+            pending={preview.isFetching}
+            onClick={() => void preview.refetch()}
+          >
+            Retry
+          </Button>
+        </Alert>
+      ) : null}
       {choosing && worktreeStatus ? (
         <>
           {worktreeStatus.hasUnmergedCommits &&

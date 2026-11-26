@@ -1,3 +1,5 @@
+import { checkoutRunners } from "../runners/directory.js";
+import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 import type { FastifyBaseLogger } from "fastify";
 
 import {
@@ -13,37 +15,120 @@ import {
 import { LifecycleSuperseded } from "./errors.js";
 import type { AgentRecord } from "./types.js";
 
-/**
- * Names of repo-defined lifecycle hooks invoked at specific points in
- * the agent's life. Today only `stop` is wired through; if more hooks
- * are added (e.g. `archive`, `restart`), they belong here too.
- */
-export type LifecycleHookName = "stop";
+export type LifecycleHookName = "stop" | "archive";
 
-/**
- * Run a repo-defined lifecycle hook for `agent`. Best-effort:
- *   - Runs once per checkout: the launch worktree/cwd, and the moved
- *     workspace when there is one.
- *   - No-op when the repo's `.dispatch/tools.json` doesn't define this
- *     hook.
- *   - Non-zero exit codes are logged at `warn` level but never thrown
- *     — caller (stopAgent / executeArchive) can't usefully respond
- *     to a hook failure beyond logging.
- *
- * Runs with `DISPATCH_AGENT_ID` exported in env so the hook can
- * disambiguate which agent triggered it. 15-second hard timeout.
- *
- * A runner's update fence can land between any two of its requests:
- * `whileFenced` repeats the refused one once the runner's hold opens.
- */
+type WhileFenced = <T>(request: () => Promise<T>) => Promise<T>;
+const requestNow: WhileFenced = (request) => request();
+
+/** Preview and execution share main's order and retained-worktree fallback. */
+export async function* resolveArchiveHooks(
+  agent: AgentRecord,
+  runners: CheckoutCommandRunners,
+  whileFenced: WhileFenced = requestNow
+) {
+  const { directory, placement } = checkoutRunners(runners, agent);
+  if (!directory.for(placement).archive.repositoryHook) return;
+  const launch = agent.worktreePath ?? agent.cwd;
+  async function read(
+    row: AgentRecord,
+    checkout: "launch" | "moved",
+    root: string
+  ) {
+    const target = { checkout, path: REPO_TOOL_MANIFEST_PATH };
+    const file = await whileFenced(() =>
+      requestCheckoutCommand(runners, row, { ...target, kind: "read" }).catch(
+        (error) => {
+          // Main treats an unreadable manifest as absent. Fencing and command
+          // failures still belong to the runner and the lifecycle coordinator.
+          if (
+            error instanceof RunnerCallError ||
+            error instanceof LifecycleSuperseded
+          )
+            throw error;
+          return null;
+        }
+      )
+    );
+    const hook =
+      file && parseRepoHooks(parseRepoToolFile(file.content)).archive;
+    return file && hook ? { row, root, target, state: file.state, hook } : null;
+  }
+  const first = await read(agent, "launch", launch);
+  if (first) yield first;
+  else if (
+    agent.worktreePath &&
+    agent.launchCwd &&
+    agent.launchCwd !== launch &&
+    agent.launchCwd !== agent.workspacePath
+  ) {
+    const root = agent.launchCwd;
+    const fallback = await read(
+      { ...agent, worktreePath: root },
+      "launch",
+      root
+    );
+    if (fallback) yield fallback;
+  }
+  if (agent.workspacePath && agent.workspacePath !== launch) {
+    const moved = await read(agent, "moved", agent.workspacePath);
+    if (moved) yield moved;
+  }
+}
+
+/** Stop is best-effort. Archive propagates failures so cleanup can be retried. */
 export async function runLifecycleHook(
   hookName: LifecycleHookName,
   agent: AgentRecord,
   logger: FastifyBaseLogger,
   runners: CheckoutCommandRunners,
-  whileFenced: <T>(request: () => Promise<T>) => Promise<T> = (request) =>
-    request()
+  whileFenced: WhileFenced = requestNow
 ): Promise<void> {
+  if (hookName === "archive") {
+    for await (const { row, root, target, state, hook } of resolveArchiveHooks(
+      agent,
+      runners,
+      whileFenced
+    )) {
+      logger.info(
+        {
+          agentId: agent.id,
+          hook: hookName,
+          command: hook.command,
+          repoRoot: root,
+        },
+        "Running lifecycle hook"
+      );
+      const [command, ...args] = hook.command;
+      const result = await whileFenced(() =>
+        requestCheckoutCommand(
+          runners,
+          row,
+          { ...target, kind: "run", state, argv: hook.command },
+          undefined,
+          60_000
+        )
+      ).catch((error) => {
+        if (error instanceof RunnerCallError && error.code === "timeout")
+          throw new Error(
+            `Command timed out (${command} ${args.join(" ")}), timeoutMs=60000`
+          );
+        throw error;
+      });
+      if (result.exitCode !== 0)
+        throw new Error(
+          `Command failed (${command} ${args.join(" ")}), exitCode=${result.exitCode}, stderr=${result.stderr.trim()}`
+        );
+      const output = result.stdout.trim();
+      if (output)
+        logger.info(
+          { agentId: agent.id, repoRoot: root, output },
+          "Archive hook completed"
+        );
+    }
+    return;
+  }
+  const { directory, placement } = checkoutRunners(runners, agent);
+  const includeArchive = directory.for(placement).archive.repositoryHook;
   for (const checkout of ["launch", "moved"] as const) {
     try {
       const target = { checkout, path: REPO_TOOL_MANIFEST_PATH };
@@ -51,7 +136,10 @@ export async function runLifecycleHook(
         requestCheckoutCommand(runners, agent, { ...target, kind: "read" })
       );
       const hook =
-        file && parseRepoHooks(parseRepoToolFile(file.content))[hookName];
+        file &&
+        parseRepoHooks(parseRepoToolFile(file.content), includeArchive)[
+          hookName
+        ];
       if (!hook) continue;
       logger.info(
         { agentId: agent.id, hook: hookName, checkout },

@@ -199,7 +199,8 @@ export async function localCoOwner(
          AND id <> $1
          AND (worktree_path = $2
               OR workspace_path = ANY($4::text[])
-              OR (role = 'review' AND cwd = ANY($4::text[]))
+              OR cwd = ANY($4::text[])
+              OR launch_cwd = ANY($4::text[])
               OR ($3::text IS NOT NULL AND worktree_branch = $3))
        LIMIT 1`,
     [agent.id, worktreePath, agent.worktreeBranch, worktreeSpellings]
