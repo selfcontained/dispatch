@@ -967,7 +967,11 @@ export function createLocalCheckoutRunner(
    * failure the child answered with is the read's answer.
    */
   async function github<
-    K extends "github.pr.status" | "github.pr.details" | "github.pr.diff",
+    K extends
+      | "github.pr.head"
+      | "github.pr.status"
+      | "github.pr.details"
+      | "github.pr.diff",
   >(op: K, input: Req<K>, options?: CallOptions<K>): Promise<Res<K>> {
     const answered = await readAttempt(
       op,
@@ -977,6 +981,10 @@ export function createLocalCheckoutRunner(
     );
     if (answered) return answered.value;
     const port = { signal: options?.signal };
+    if (op === "github.pr.head")
+      return githubWorkload.pullRequestHead(
+        input as Req<"github.pr.head">
+      ) as Promise<Res<K>>;
     if (op === "github.pr.details")
       return githubWorkload.pullRequestDetails(
         input as Req<"github.pr.details">
@@ -1252,6 +1260,7 @@ export function createLocalCheckoutRunner(
           options as CallOptions<"checkout.exec">
         ) as Promise<Res<K>>;
       if (
+        op === "github.pr.head" ||
         op === "github.pr.status" ||
         op === "github.pr.details" ||
         op === "github.pr.diff"

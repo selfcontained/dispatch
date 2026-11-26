@@ -58,7 +58,6 @@ import {
   createDiagnosticsRecorder,
   type DiagnosticsRecorder,
 } from "../diagnostics.js";
-import { getPullRequestHead } from "../shared/github/pr.js";
 import { GitWorktreeError } from "@dispatch/runner-protocol";
 import { resolveFilesDir } from "../shared/files.js";
 import { agentIconPath, folderIconPath } from "./checkout-icon.js";
@@ -2731,60 +2730,48 @@ export class AgentManager {
         "The runner could not resolve the checkout repository.",
         400
       );
-    const localGit =
-      directory?.git.status === "ok" && directory.git.value
-        ? directory.canonicalPath
-        : undefined;
-    const checkoutContext = launcherDirectory
+    const pullRequestHead = (target: PullRequestTarget, cwd?: string) =>
+      runnerDirectory(this.checkoutReadRunners())
+        .for(placement)
+        .call("github.pr.head", {
+          ...target,
+          ...(cwd !== undefined && { cwd: pathFromWire(cwd) }),
+        });
+    const selectedDirectory = launcherDirectory ?? directory;
+    const checkoutContext = selectedDirectory
       ? {
-          // The folder's checkout on its runner, as a local folder's: the
-          // runner resolves its base; no Git runs on this machine.
           defaultBranch: async () => "main",
-          ...(launcherDirectory.git.status === "ok" &&
-            launcherDirectory.git.value && {
-              repository: async () => launcherDirectory.origin ?? undefined,
+          ...(selectedDirectory.git.status === "ok" &&
+            selectedDirectory.git.value && {
+              repository: async () => selectedDirectory.origin ?? undefined,
+              pullRequestHead: (target: PullRequestTarget) =>
+                pullRequestHead(target, selectedDirectory.canonicalPath),
               forkPullRequests: false,
             }),
         }
-      : directory
-        ? {
-            defaultBranch: async () => "main",
-            ...(localGit && {
-              repository: async () => directory.origin ?? undefined,
-              pullRequestHead: (target: PullRequestTarget) =>
-                getPullRequestHead({ cwd: localGit, ...target }),
-              forkPullRequests: false,
+      : {
+          ...(checkoutOwner &&
+            sessionSource && { defaultBranch: async () => "main" }),
+          ...(origin &&
+            location &&
+            remote && {
+              ...(!projectSource &&
+                !sessionSource && {
+                  defaultBranch: () =>
+                    runnerDefaultBranch(origin, (owner, repo) =>
+                      remote.listGitHubBranches(
+                        runnerIdForPlacement(placement),
+                        owner,
+                        repo
+                      )
+                    ),
+                }),
+              repository: async () => origin,
+              pullRequestHead,
+              ...(checkoutOwner &&
+                sessionSource && { forkPullRequests: false }),
             }),
-          }
-        : {
-            ...(checkoutOwner &&
-              sessionSource && { defaultBranch: async () => "main" }),
-            ...(origin &&
-              location &&
-              remote && {
-                ...(!projectSource &&
-                  !sessionSource && {
-                    defaultBranch: () =>
-                      runnerDefaultBranch(origin, (owner, repo) =>
-                        remote.listGitHubBranches(
-                          runnerIdForPlacement(placement),
-                          owner,
-                          repo
-                        )
-                      ),
-                  }),
-                repository: async () => origin,
-                pullRequestHead: ({ owner, repo, number }: PullRequestTarget) =>
-                  remote.lookupGitHubPullRequestHead(
-                    runnerIdForPlacement(placement),
-                    owner,
-                    repo,
-                    number
-                  ),
-                ...(checkoutOwner &&
-                  sessionSource && { forkPullRequests: false }),
-              }),
-          };
+        };
     // Remember the icon of the folder the launch reads, before a managed
     // worktree can change the agent's effective cwd (main's warm-up). A
     // launch with no folder to read yet warms up once its session exists.

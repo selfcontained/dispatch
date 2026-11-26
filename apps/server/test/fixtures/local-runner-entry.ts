@@ -16,6 +16,7 @@ import {
   localEnginePort,
   workspaceWorkload,
 } from "../helpers/checkout-workload.js";
+import { githubWorkload } from "../../src/agents/checkout-worker.js";
 import { localTerminalHandlers } from "../../src/terminal/runner-worker.js";
 import { localHostEntry } from "../../src/agents/acp/local-host-entry.js";
 
@@ -74,6 +75,7 @@ await runCli(process.argv.slice(2), {
     ...(embeddedBuild.revision && { revision: embeddedBuild.revision }),
   },
   platform: {
+    github: githubWorkload,
     engines,
     workload: checkoutWorkload,
     workspace: {

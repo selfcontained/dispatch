@@ -491,13 +491,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/manager.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/github/pr",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/provider-plans.ts",
     "kind": "R2 host access",
     "detail": "child_process",
