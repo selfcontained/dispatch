@@ -34,6 +34,7 @@ import {
   CONNECTION_WINDOW,
   FlowStreams,
   frameWriter,
+  wireFrames,
   type StreamFrame,
 } from "@dispatch/runner-client/v1/node";
 import { fencedError, type WriteFence } from "./fence.js";
@@ -240,7 +241,9 @@ export function serveOperationSocket(
     }
   };
 
-  jsonLines(socket, (message) => {
+  const readFrames =
+    endpoint.kind === "enrolled" ? wireFrames<unknown> : jsonLines;
+  readFrames(socket, (message) => {
     if (!trusted) {
       if (
         !socketHello.check(message) ||

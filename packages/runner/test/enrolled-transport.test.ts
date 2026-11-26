@@ -161,6 +161,35 @@ it("transfers an fs.ReadStream as bytes and closes the sink on a rejected downlo
   expect(Buffer.concat(received)).toEqual(expected);
 });
 
+it("keeps the enrolled frame budget for large launch prompts", async () => {
+  const systemText = "a".repeat(2 * 1024 * 1024);
+  const { client } = await pair({
+    calls: {
+      "session.launch": (request) => {
+        expect(request.systemText).toBe(systemText);
+        return {};
+      },
+    },
+  });
+  await expect(
+    client.call("session.launch", {
+      session,
+      launchId: "00000000-0000-4000-8000-000000000001",
+      engine: "codex",
+      model: null,
+      effort: null,
+      access: "default",
+      resume: null,
+      systemText,
+      firstText: null,
+      overflowNotice: null,
+      env: {},
+      mcp: [],
+      owner: null,
+    })
+  ).resolves.toEqual({});
+});
+
 it("closes on a local-only path frame", async () => {
   const { socket } = await pair({ calls: {} });
   const closed = once(socket, "close");

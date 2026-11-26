@@ -64,7 +64,7 @@ import {
   FlowStreams,
   acceptsStreams,
 } from "../v1/streams.js";
-import { frameWriter } from "../v1/node.js";
+import { frameWriter, wireFrames } from "../v1/node.js";
 
 export const socketHello = object({
   nonce: string,
@@ -329,7 +329,7 @@ export class LocalSocketConnection {
     onUpdateStatus?: (frame: UpdateStatusFrame) => void
   ) {
     const connection = new LocalSocketConnection(socket, { onUpdateStatus });
-    jsonLines(socket, (frame) => connection.receive(frame));
+    wireFrames<unknown>(socket, (frame) => connection.receive(frame));
     return connection;
   }
 
