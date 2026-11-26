@@ -13,6 +13,8 @@ The published binary bundles Bun and runs on glibc-based Linux. Session
 supervision requires a kernel with pidfd signaling (introduced in Linux 5.1).
 For manual source runs, use Bun.
 
+For session routing, recovery, and enrolled limitations, see [How Dispatch runs work on an agent’s machine](runner-architecture.md).
+
 1. In Dispatch, open **Settings → Runners → Add runner**, copy the
    installation command, and run it on the Linux host. The installer
    configures the installing user as the workload account and adds
