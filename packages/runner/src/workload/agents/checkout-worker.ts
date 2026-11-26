@@ -1633,17 +1633,14 @@ function isWithin(root: string, target: string): boolean {
 const symlinkDir = (segment: string) =>
   refuse(
     { reason: "symlink-dir", segment },
-    `Refusing to write through symlinked persona directory: ${segment}.`
+    `Refusing to write through symlinked directory: ${segment}.`
   );
 const symlinkFile = () =>
-  refuse(
-    { reason: "symlink-file" },
-    "Refusing to overwrite a symlinked persona file."
-  );
+  refuse({ reason: "symlink-file" }, "Refusing to overwrite a symlinked file.");
 const outside = () =>
   refuse(
     { reason: "outside" },
-    "Persona directory must remain inside the current workspace."
+    "Directory must remain inside the current workspace."
   );
 
 const errno = (error: unknown) => (error as NodeJS.ErrnoException)?.code;

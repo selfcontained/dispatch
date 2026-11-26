@@ -176,18 +176,6 @@ export const workloadVocabularyCompatibility = [
     reason: "The host reproduces this environment, build or on-disk name.",
   },
   {
-    file: "packages/runner/src/workload/agents/checkout-worker.ts",
-    token: "Persona directory must remain inside the current workspace.",
-    reason: "Preserve the diagnostic shown to the user.",
-    temporary: true,
-  },
-  {
-    file: "packages/runner/src/workload/agents/checkout-worker.ts",
-    token: "Refusing to overwrite a symlinked persona file.",
-    reason: "Preserve the diagnostic shown to the user.",
-    temporary: true,
-  },
-  {
     file: "packages/runner/src/workload/agents/default-branch-files.ts",
     token:
       "Could not refresh personas from origin. Using cached definitions; retry is delayed automatically.",
