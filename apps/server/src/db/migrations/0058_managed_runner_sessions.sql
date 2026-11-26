@@ -1,5 +1,4 @@
 ALTER TABLE agents
-  ADD COLUMN runner_managed boolean NOT NULL DEFAULT false,
   ADD COLUMN runner_repository jsonb,
   ADD COLUMN runner_cleanup_pending boolean NOT NULL DEFAULT false;
 

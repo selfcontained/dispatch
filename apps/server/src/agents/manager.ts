@@ -1989,12 +1989,11 @@ export class AgentManager {
    * launch checkout; a borrowed checkout inherits its owner's.
    */
   async comparisonBase(
-    agent: ComparisonBaseAgent & { id: string; runnerManaged?: boolean },
+    agent: ComparisonBaseAgent & { id: string },
     use: ComparisonUse
   ): Promise<string | null> {
     let launch: RunnerRepository["checkout"] | null = null;
     if (
-      agent.runnerManaged &&
       enrolledRunnerId(agent.placement ?? controllerPlacement) &&
       !agent.workspacePath
     ) {
@@ -2054,8 +2053,7 @@ export class AgentManager {
     const admission = this.admitCreateTarget(input, target);
     const { p, prepared, taskPersona, taskPersonaBody } =
       await this.prepareCreate(input, options, target, admission);
-    const { directory, worktree, repository, preparation, managed, owner } =
-      prepared;
+    const { directory, worktree, repository, preparation, owner } = prepared;
     // A local worktree request commits with its row, without touching Git,
     // so Start can finish it after a restart; as the enrolled runner's.
     await this.insertAgentRecord(
@@ -2064,7 +2062,6 @@ export class AgentManager {
       target.placement,
       repository,
       preparation,
-      managed,
       owner,
       directory && worktree ? localPreparation(directory, worktree) : null
     );
@@ -2775,7 +2772,6 @@ export class AgentManager {
         worktree,
         preparation,
         repository: runnerRepository,
-        managed: Boolean(location),
         owner: borrowed ? checkoutOwner?.id : undefined,
       },
     };
@@ -2860,15 +2856,14 @@ export class AgentManager {
     placement: Placement,
     repository: RunnerRepository | null,
     preparation: WorkspacePreparation | null,
-    runnerManaged: boolean,
     useWorktreeOf?: string,
     /** A local launch's worktree request: no `pending`, the local child prepares it. */
     local?: WorkspacePreparation | null
   ): Promise<void> {
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, role, status, cwd, launch_cwd, files_dir, agent_args, model, full_access, setup_phase, persona, parent_agent_id, launched_by_agent_id, persona_context, review_agent_type, cli_session_id, base_branch, template_id, project_id, effort, runner_repository, runner_managed, runner_worktree_owner, runner_id, runner_preparation, updated_at)
-      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22::jsonb, $23, $24, $25, $26::jsonb, NOW())
+      INSERT INTO agents (id, name, type, role, status, cwd, launch_cwd, files_dir, agent_args, model, full_access, setup_phase, persona, parent_agent_id, launched_by_agent_id, persona_context, review_agent_type, cli_session_id, base_branch, template_id, project_id, effort, runner_repository, runner_worktree_owner, runner_id, runner_preparation, updated_at)
+      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22::jsonb, $23, $24, $25::jsonb, NOW())
       `,
       [
         p.id,
@@ -2895,7 +2890,6 @@ export class AgentManager {
         repository
           ? JSON.stringify(repositoryRecord(placement, repository))
           : null,
-        runnerManaged,
         useWorktreeOf ?? null,
         runnerIdForPlacement(placement),
         preparation
@@ -3480,18 +3474,13 @@ export class AgentManager {
     const binding = placement
       ? (
           await this.pool.query<{
-            runner_repository: RunnerRepository | null;
-            runner_worktree_owner: string | null;
             runner_preparation: RecordedPreparation | null;
-          }>(
-            "SELECT runner_repository, runner_worktree_owner, runner_preparation FROM agents WHERE id = $1",
-            [agent.id]
-          )
+          }>("SELECT runner_preparation FROM agents WHERE id = $1", [agent.id])
         ).rows[0]
       : undefined;
     const steps = this.runnerWorkspaceProgress(
       agent,
-      Boolean(binding?.runner_repository || binding?.runner_preparation)
+      Boolean(binding?.runner_preparation)
     );
     const onWorkspaceProgress =
       placement && opts.recordWorkspaceProgress ? steps.onEvent : undefined;
@@ -3524,16 +3513,6 @@ export class AgentManager {
       }
       return await this.runtime.launch({
         agentId: agent.id,
-        repository:
-          binding?.runner_preparation || !binding?.runner_repository
-            ? undefined
-            : {
-                url: binding.runner_repository.url,
-                checkout: binding.runner_repository.checkout,
-              },
-        ...(binding?.runner_worktree_owner && {
-          useWorktreeOf: binding.runner_worktree_owner,
-        }),
         cwd: agent.cwd,
         placement,
         engine: agent.type,
@@ -4760,7 +4739,6 @@ export class AgentManager {
         setup_phase AS "setupPhase",
         archive_phase AS "archivePhase",
         archive_cleanup_mode AS "archiveCleanupMode",
-        runner_managed AS "runnerManaged",
         last_error AS "lastError",
         ${ACTIVITY_SQL} AS activity,
         ${CURRENT_TURN_SQL} AS "currentTurn",

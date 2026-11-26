@@ -1012,7 +1012,6 @@ describe("executeArchive", () => {
           parentAgentId: parent.id,
           cwd: "/runner/checkout",
           placement: placementForRunner("runner"),
-          runnerManaged: true,
         });
         const pool = makeChildQueryPool([
           { id: child.id, parentAgentId: parent.id },
@@ -1565,7 +1564,6 @@ it("archives an offline managed session with pending cleanup recorded in the sam
       makeAgent("remote", {
         cwd: "/runner/sessions/checkout",
         placement: placementForRunner("runner"),
-        runnerManaged: true,
         status: "archiving",
       })
     ),

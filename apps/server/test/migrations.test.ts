@@ -120,7 +120,7 @@ async function dropTasks(): Promise<void> {
     "DELETE FROM pgmigrations WHERE name = '0059_runner_worktree_owner'"
   );
   await pool.query(
-    "ALTER TABLE agents DROP COLUMN IF EXISTS runner_managed, DROP COLUMN IF EXISTS runner_repository, DROP COLUMN IF EXISTS runner_cleanup_pending"
+    "ALTER TABLE agents DROP COLUMN IF EXISTS runner_repository, DROP COLUMN IF EXISTS runner_cleanup_pending"
   );
   await pool.query(
     "DELETE FROM pgmigrations WHERE name = '0058_managed_runner_sessions'"

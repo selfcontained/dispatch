@@ -271,15 +271,14 @@ it("keeps the MCP caller surface and call outcomes at the recorded parity bounda
   );
   for (const [index, id] of callers.entries()) {
     await ctx.pool.query(
-      `INSERT INTO agents (id, name, type, status, cwd, files_dir, runner_id, project_id, runner_managed, base_branch)
-       VALUES ($1, $1, 'codex', 'running', $2, $3, $4, $5, $6, 'main')`,
+      `INSERT INTO agents (id, name, type, status, cwd, files_dir, runner_id, project_id, base_branch)
+       VALUES ($1, $1, 'codex', 'running', $2, $3, $4, $5, 'main')`,
       [
         id,
         index ? runnerCwd : checkout,
         path.join(root, id),
         index ? runnerId : "local",
         projectId,
-        Boolean(index),
       ]
     );
   }

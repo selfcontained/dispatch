@@ -1,3 +1,4 @@
+import { enrolledRunnerId, controllerPlacement } from "../runners/placement.js";
 import type { AgentArchivePreview } from "@dispatch/shared";
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
@@ -290,7 +291,8 @@ export async function executeArchive(
       await deps.settleStream(id);
       // The state directory holds the launch file with the MCP token; the
       // stream is already in the database.
-      if (agent.runnerManaged) await runtime.clearRemoteState?.(id);
+      if (enrolledRunnerId(agent.placement ?? controllerPlacement))
+        await runtime.clearRemoteState?.(id);
       else await runtime.discard(id);
       stopped = true;
     } catch (err) {
@@ -428,7 +430,10 @@ export async function deleteAgentDirect(
   }
 
   let stopped = false;
-  if (agent.status !== "stopped" || agent.runnerManaged) {
+  if (
+    agent.status !== "stopped" ||
+    enrolledRunnerId(agent.placement ?? controllerPlacement)
+  ) {
     const t = Date.now();
     // Not stopAgent: it writes `stopping`/`stopped`, releasing the claim above
     // and letting a fresh archive take this agent mid-teardown.
@@ -457,7 +462,8 @@ export async function deleteAgentDirect(
       await deps.settleStream(id);
       // The state directory holds the launch file with the MCP token; the
       // stream is already in the database.
-      if (agent.runnerManaged) await runtime.clearRemoteState?.(id);
+      if (enrolledRunnerId(agent.placement ?? controllerPlacement))
+        await runtime.clearRemoteState?.(id);
       else await runtime.discard(id);
       stopped = true;
     } catch (err) {
