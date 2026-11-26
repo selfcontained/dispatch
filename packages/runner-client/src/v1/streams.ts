@@ -3,6 +3,8 @@ import type { Duplex, Readable, Writable } from "node:stream";
 import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 
 export const STREAM_WINDOW = 256 * 1024;
+/** Unacknowledged enrolled TLS payload per connection, in each direction. */
+export const CONNECTION_WINDOW = 4 * STREAM_WINDOW;
 export const STREAM_CHUNK = 32 * 1024;
 // Count small frames against credit too, bounding the number of queued writes
 // when the sender emits very short records.
@@ -89,6 +91,9 @@ function cancelCode(code: unknown): Failure {
 export class FlowStreams {
   private readonly active = new Map<string, Active>();
   private readonly queued = new Map<Sender, () => void>();
+  private sending = 0;
+  private receiving = 0;
+  private readonly budgetWaiters = new Set<() => void>();
   private writing = false;
   private enabled = false;
 
@@ -98,7 +103,8 @@ export class FlowStreams {
       frame: StreamFrame,
       flushed?: (error?: Error | null) => void
     ) => void,
-    private readonly stallMs = STALL_TIMEOUT
+    private readonly stallMs = STALL_TIMEOUT,
+    private readonly window = Infinity
   ) {
     socket.once("close", () => {
       for (const entry of this.active.values()) {
@@ -178,6 +184,11 @@ export class FlowStreams {
         phase: "waiting",
         finish: (error) => {
           if (!this.active.delete(id)) return;
+          if (this.window !== Infinity && entry.phase !== "waiting") {
+            const outstanding = STREAM_WINDOW - entry.credit;
+            if (entry.direction === "send") this.returnSendCredit(outstanding);
+            else this.receiving -= outstanding;
+          }
           clearTimeout(entry.timer);
           entry.wake?.();
           entry.cancelWrite?.();
@@ -255,17 +266,36 @@ export class FlowStreams {
     return this.active.get(entry.id) === entry;
   }
 
+  private returnSendCredit(bytes: number) {
+    this.sending -= bytes;
+    for (const wake of this.budgetWaiters) wake();
+  }
+
   private async pump(entry: Sender) {
     if (!(await this.waitCredit(entry))) return;
     for await (const bytes of entry.io) {
       if (!(bytes instanceof Uint8Array)) throw new Error("Expected bytes");
       for (let offset = 0; offset < bytes.length; ) {
         if (!(await this.waitCredit(entry))) return;
+        while (this.window - this.sending < MIN_FRAME_CREDIT) {
+          if (this.active.get(entry.id) !== entry) return;
+          await new Promise<void>((resolve) => {
+            const wake = () => {
+              this.budgetWaiters.delete(wake);
+              resolve();
+            };
+            this.budgetWaiters.add(wake);
+          });
+        }
+        if (this.active.get(entry.id) !== entry) return;
         const slice = bytes.subarray(
           offset,
-          offset + Math.min(STREAM_CHUNK, entry.credit)
+          offset +
+            Math.min(STREAM_CHUNK, entry.credit, this.window - this.sending)
         );
-        entry.credit -= Math.max(slice.length, MIN_FRAME_CREDIT);
+        const cost = Math.max(slice.length, MIN_FRAME_CREDIT);
+        entry.credit -= cost;
+        if (this.window !== Infinity) this.sending += cost;
         offset += slice.length;
         await this.sendChunk(entry, slice);
       }
@@ -376,6 +406,8 @@ export class FlowStreams {
       bytes <= STREAM_WINDOW - entry.credit &&
       (entry.phase !== "waiting" || bytes === STREAM_WINDOW)
     ) {
+      if (this.window !== Infinity && entry.phase !== "waiting")
+        this.returnSendCredit(bytes);
       entry.credit += bytes;
       if (entry.phase === "waiting") entry.phase = "open";
       this.touch(entry, entry.phase === "ended");
@@ -415,9 +447,11 @@ export class FlowStreams {
         bytes.length > 0 &&
         bytes.length <= STREAM_CHUNK &&
         cost <= entry.credit &&
+        this.receiving + cost <= this.window &&
         bytes.toString("base64") === data
       ) {
         entry.credit -= cost;
+        if (this.window !== Infinity) this.receiving += cost;
         entry.io.write(bytes, (error) => {
           if (this.active.get(entry.id) !== entry) return;
           if (error) {
@@ -427,6 +461,7 @@ export class FlowStreams {
           this.touch(entry);
           if (entry.phase !== "open") return;
           entry.credit += cost;
+          if (this.window !== Infinity) this.receiving -= cost;
           this.reply(entry, { action: "credit", bytes: cost });
         });
         return;

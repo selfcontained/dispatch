@@ -1,0 +1,226 @@
+import { once } from "node:events";
+import { CONNECTION_WINDOW } from "@dispatch/runner-client/v1/node";
+import type { UpdateStatusFrame } from "@dispatch/runner-protocol";
+import { connect, createServer, type Socket } from "node:net";
+import { PassThrough, Readable, Writable } from "node:stream";
+import { afterEach, expect, it, vi } from "vitest";
+import { LocalSocketConnection } from "@dispatch/runner-client/transport/local-socket";
+import {
+  pathFromWire,
+  sessionFromWire,
+} from "@dispatch/runner-protocol/contract";
+import {
+  serveOperationSocket,
+  type Handlers,
+} from "../src/local/socket-server.js";
+import { WriteFence } from "../src/local/fence.js";
+
+const cleanup: Array<() => void> = [];
+afterEach(() => {
+  for (const close of cleanup.splice(0).reverse()) close();
+});
+
+// The transport seam starts after TLS authentication. Each pair has its own
+// connection-scoped IDs, exactly as after a runner reconnects.
+async function pair(
+  handlers: Handlers,
+  fence?: WriteFence,
+  status?: (frame: UpdateStatusFrame) => void
+) {
+  const server = createServer();
+  cleanup.push(() => server.close());
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string")
+    throw new Error("Expected TCP port");
+  const accepted = once(server, "connection");
+  const socket = connect(address.port, "127.0.0.1");
+  const [peer] = (await accepted) as [Socket];
+  cleanup.push(() => {
+    socket.destroy();
+    peer.destroy();
+  });
+  serveOperationSocket(peer, { kind: "enrolled" }, handlers, fence);
+  return {
+    client: LocalSocketConnection.fromAuthenticatedSocket(socket, status),
+    peer,
+    socket,
+  };
+}
+
+const session = sessionFromWire("agt_fixture");
+
+it("carries calls, terminal bytes in both directions and credited blob bytes", async () => {
+  const bytes: Buffer[] = [];
+  const { client } = await pair({
+    calls: {
+      "session.alive": () => ({ state: "live" }),
+      "files.put": async (input, context) => {
+        expect(context.receiveBlobPath).toBeUndefined();
+        await context.receiveBlob(
+          input.blob,
+          new Writable({
+            write(chunk: Buffer, _, callback) {
+              bytes.push(chunk);
+              callback();
+            },
+          })
+        );
+        return { path: pathFromWire("/fixture/file") };
+      },
+    },
+    opens: {
+      "terminal.open": async () => ({
+        info: { cwd: "/fixture", host: "fixture", user: "fixture" },
+        channel: new PassThrough(),
+      }),
+    },
+  });
+  await expect(client.call("session.alive", { session })).resolves.toEqual({
+    state: "live",
+  });
+  const { channel } = await client.openChannel("terminal.open", {
+    target: { session },
+    cols: 80,
+    rows: 24,
+  });
+  const received = once(channel, "data");
+  channel.write("terminal fixture\n");
+  expect(String((await received)[0])).toBe("terminal fixture\n");
+  channel.destroy();
+  const content = Buffer.alloc(800_000, 97);
+  const reply = client.call("files.put", {
+    session,
+    blob: "b",
+    size: content.length,
+    name: "fixture",
+    digest: "fixture",
+  });
+  await client.sendBlob("b", Readable.from([content]));
+  await expect(reply).resolves.toEqual({ path: "/fixture/file" });
+  expect(Buffer.concat(bytes).equals(content)).toBe(true);
+});
+
+it("closes on a local-only path frame", async () => {
+  const { socket } = await pair({ calls: {} });
+  const closed = once(socket, "close");
+  socket.write(
+    JSON.stringify({ type: "blob", id: "b", path: "/fixture" }) + "\n"
+  );
+  await closed;
+});
+
+it("refuses a fenced mutation before the handler", async () => {
+  const stop = vi.fn(() => ({}));
+  const fence = new WriteFence(true);
+  cleanup.push(() => fence.thaw());
+  const { client } = await pair({ calls: { "session.stop": stop } }, fence);
+  await expect(
+    client.call("session.stop", { session, force: false })
+  ).rejects.toMatchObject({ code: "fenced" });
+  expect(stop).not.toHaveBeenCalled();
+});
+
+it("never replays an admitted mutation or an interrupted read on the next connection", async () => {
+  let drop!: () => void;
+  const stop = vi.fn(() => {
+    drop();
+    return {};
+  });
+  const handlers = {
+    calls: {
+      "session.stop": stop,
+      "session.alive": () => new Promise<never>(() => {}),
+    },
+  };
+  const first = await pair(handlers);
+  drop = () => first.peer.destroy();
+  const read = expect(
+    first.client.call("session.alive", { session })
+  ).rejects.toMatchObject({ code: "unavailable" });
+  const mutation = expect(
+    first.client.call("session.stop", { session, force: false })
+  ).rejects.toMatchObject({ code: "unknown_outcome" });
+  const next = await pair({
+    calls: { "session.stop": stop, "session.alive": () => ({ state: "gone" }) },
+  });
+  await Promise.all([read, mutation]);
+  await expect(next.client.call("session.alive", { session })).resolves.toEqual(
+    { state: "gone" }
+  );
+  expect(stop).toHaveBeenCalledTimes(1);
+});
+
+it("bounds unacknowledged payload across stalled blobs and resumes every transfer", async () => {
+  const sinks: Writable[] = [];
+  const release: Array<() => void> = [];
+  let stalled = true;
+  const { client } = await pair({
+    calls: {
+      "files.put": async (input, context) => {
+        const sink = new Writable({
+          write(_chunk, _enc, cb) {
+            if (stalled) release.push(cb);
+            else cb();
+          },
+        });
+        sinks.push(sink);
+        await context.receiveBlob(input.blob, sink);
+        return { path: pathFromWire("/fixture") };
+      },
+    },
+  });
+  const content = Buffer.alloc(CONNECTION_WINDOW);
+  const transfers = Array.from({ length: 8 }, (_, i) => {
+    const blob = "blob-" + i;
+    const answer = client.call("files.put", {
+      session,
+      blob,
+      size: content.length,
+      name: blob,
+      digest: "fixture",
+    });
+    return Promise.all([
+      answer,
+      client.sendBlob(blob, Readable.from([content])),
+    ]);
+  });
+  const all = Promise.all(transfers);
+  await vi.waitFor(() =>
+    expect(sinks.reduce((sum, sink) => sum + sink.writableLength, 0)).toBe(
+      CONNECTION_WINDOW
+    )
+  );
+  stalled = false;
+  for (const proceed of release) proceed();
+  await all;
+});
+
+it.each([
+  { phase: "confirmed" },
+  { phase: "rolled_back", reason: "trial_interrupted" },
+  { phase: "deferred", reason: "cancelled" },
+])("carries $phase on reconnect without issuing a request", async (fields) => {
+  const observer = vi.fn();
+  const frame = {
+    type: "update_status",
+    attemptId: "00000000-0000-4000-8000-000000000001",
+    ...fields,
+    installed: {
+      version: "1.0.0",
+      revision: "a".repeat(40),
+      sha256: "b".repeat(64),
+    },
+  };
+  for (let epoch = 1; epoch <= 2; epoch++) {
+    const { peer, client } = await pair({ calls: {} }, undefined, observer);
+    const writes = vi.fn();
+    peer.on("data", writes);
+    peer.write(JSON.stringify(frame) + "\n");
+    await vi.waitFor(() => expect(observer).toHaveBeenCalledTimes(epoch));
+    expect(observer).toHaveBeenLastCalledWith(frame);
+    expect(writes).not.toHaveBeenCalled();
+    client.close();
+  }
+});

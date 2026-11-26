@@ -30,7 +30,7 @@
  * A failure before the request is written is `unavailable` (not sent); a
  * connection lost after it is `unknown_outcome`.
  */
-import { connect, type Socket } from "node:net";
+import { connect } from "node:net";
 import { Duplex, PassThrough, type Readable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import {
@@ -49,12 +49,21 @@ import {
   type ErrorCode,
   type Infer,
   type OpenName,
+  type OpName,
   type OperationSpec,
   type Req,
   type Res,
   type RunnerError,
 } from "@dispatch/runner-protocol/contract";
-import { FlowStreams, acceptsStreams } from "../v1/streams.js";
+import {
+  parseUpdateStatus,
+  type UpdateStatusFrame,
+} from "@dispatch/runner-protocol";
+import {
+  CONNECTION_WINDOW,
+  FlowStreams,
+  acceptsStreams,
+} from "../v1/streams.js";
 import { frameWriter } from "../v1/node.js";
 
 export const socketHello = object({
@@ -200,6 +209,55 @@ export function channelDuplex(toPeer: PassThrough, fromPeer: PassThrough) {
   return duplex;
 }
 
+/** Repeatable mutations (for example session.stop) still have an uncertain outcome. */
+const enrolledReads: ReadonlySet<OpName> = new Set<OpName>([
+  "runner.describe",
+  "runner.health",
+  "session.attach",
+  "session.alive",
+  "session.logs",
+  "session.list",
+  "session.sample",
+  "workspace.describe",
+  "workspace.observe",
+  "path.resolve",
+  "path.complete",
+  "checkout.list",
+  "checkout.access",
+  "checkout.read",
+  "checkout.preview",
+  "checkout.index",
+  "checkout.stats",
+  "checkout.diff",
+  "checkout.image",
+  "checkout.changes",
+  "checkout.defaultFiles",
+  "checkout.watch",
+  "files.get",
+  "git.roots",
+  "git.origin",
+  "git.context",
+  "git.defaultBranch",
+  "git.remoteHeads",
+  "git.branches",
+  "git.base",
+  "github.account",
+  "github.repositories",
+  "github.branches",
+  "github.pr.head",
+  "github.pr.status",
+  "github.pr.details",
+  "github.pr.diff",
+  "engine.list",
+  "engine.update.inspect",
+  "engine.update.probe",
+  "engine.operation",
+  "engine.login.status",
+  "engine.models",
+  "engine.usage",
+  "engine.plugin.status",
+]);
+
 type Pending = {
   op: string;
   onEvent?: (event: unknown) => void;
@@ -223,9 +281,19 @@ export class LocalSocketConnection {
   readonly streams: FlowStreams;
   private open = true;
 
-  private constructor(private readonly socket: Socket) {
+  private constructor(
+    private readonly socket: Duplex,
+    private readonly enrolled?: {
+      onUpdateStatus?: (frame: UpdateStatusFrame) => void;
+    }
+  ) {
     this.send = frameWriter<unknown>(socket);
-    this.streams = new FlowStreams(socket, this.send);
+    this.streams = new FlowStreams(
+      socket,
+      this.send,
+      undefined,
+      enrolled ? CONNECTION_WINDOW : undefined
+    );
     this.streams.enable();
     socket.once("close", () => {
       this.open = false;
@@ -233,12 +301,29 @@ export class LocalSocketConnection {
         "unknown_outcome",
         "The local runner connection closed before it answered"
       );
-      for (const pending of this.pending.values()) pending.reject(lost);
+      for (const pending of this.pending.values())
+        pending.reject(this.lostReply(pending, lost));
       this.pending.clear();
       for (const blob of this.blobs.values()) blob.reject(lost);
       this.blobs.clear();
       for (const listener of this.closeListeners) listener();
     });
+  }
+
+  private lostReply(pending: Pending, error: RunnerCallError) {
+    return this.enrolled && enrolledReads.has(pending.op as OpName)
+      ? fail("unavailable", "The runner connection closed before it answered")
+      : error;
+  }
+
+  /** The TLS service has already authenticated this connection. */
+  static fromAuthenticatedSocket(
+    socket: Duplex,
+    onUpdateStatus?: (frame: UpdateStatusFrame) => void
+  ) {
+    const connection = new LocalSocketConnection(socket, { onUpdateStatus });
+    jsonLines(socket, (frame) => connection.receive(frame));
+    return connection;
   }
 
   /** Connect and present the nonce. Rejects with `unavailable`. */
@@ -298,6 +383,18 @@ export class LocalSocketConnection {
   }
 
   private receive(frame: unknown) {
+    if (
+      this.enrolled &&
+      typeof frame === "object" &&
+      frame !== null &&
+      "type" in frame &&
+      frame.type === "update_status"
+    ) {
+      const status = parseUpdateStatus(frame);
+      if (!status) return this.socket.destroy();
+      this.enrolled.onUpdateStatus?.(status);
+      return;
+    }
     if (this.streams.handle(frame)) return;
     if (blobPathReply.check(frame)) {
       const blob = this.blobs.get(frame.id);
@@ -349,15 +446,18 @@ export class LocalSocketConnection {
         },
         (error: unknown) =>
           pending.reject(
-            error instanceof RunnerCallError
-              ? new RunnerCallError({
-                  code: "unknown_outcome",
-                  message: `The ${pending.op} reply did not arrive: ${error.message}`,
-                })
-              : fail(
-                  "unknown_outcome",
-                  `The ${pending.op} reply did not arrive`
-                )
+            this.lostReply(
+              pending,
+              error instanceof RunnerCallError
+                ? new RunnerCallError({
+                    code: "unknown_outcome",
+                    message: `The ${pending.op} reply did not arrive: ${error.message}`,
+                  })
+                : fail(
+                    "unknown_outcome",
+                    `The ${pending.op} reply did not arrive`
+                  )
+            )
           )
       );
       return;
@@ -501,6 +601,10 @@ export class LocalSocketConnection {
   ): Promise<void> {
     if (!("path" in source) || typeof source.path !== "string")
       return this.streams.send(id, source as Readable, signal);
+    if (this.enrolled)
+      return Promise.reject(
+        fail("invalid", "A blob path requires a local socket")
+      );
     const { path, inPlace } = source as {
       path: string;
       inPlace?: { mustExist: boolean };

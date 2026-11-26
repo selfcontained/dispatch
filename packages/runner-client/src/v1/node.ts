@@ -72,5 +72,5 @@ export function hostChannel(
   });
 }
 
-export { FlowStreams, acceptsStreams } from "./streams.js";
+export { CONNECTION_WINDOW, FlowStreams, acceptsStreams } from "./streams.js";
 export type { StreamFrame } from "./streams.js";
