@@ -31,7 +31,8 @@ export function useAgentSelectionMemory({
     if (!agentsLoaded || !rememberedId) return;
     if (
       !agents.some(
-        (agent) => agent.id === rememberedId && isAgentInScope(agent, projectId)
+        (agent) =>
+          agent.id === rememberedId && isAgentInScope(agent, projectId, agents)
       )
     ) {
       // A valid URL may have just replaced a stale memory in the effect
@@ -39,7 +40,8 @@ export function useAgentSelectionMemory({
       remember((current) =>
         current &&
         agents.some(
-          (agent) => agent.id === current && isAgentInScope(agent, projectId)
+          (agent) =>
+            agent.id === current && isAgentInScope(agent, projectId, agents)
         )
           ? current
           : null

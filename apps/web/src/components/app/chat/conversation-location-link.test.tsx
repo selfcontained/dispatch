@@ -9,6 +9,7 @@ import {
   ConversationReturnLink,
 } from "./conversation-location-link";
 vi.mock("@/hooks/use-agent-tree", () => ({
+  useAgentScopeProjectId: () => undefined,
   useAgentRecord: (id: string) =>
     id === "missing"
       ? undefined

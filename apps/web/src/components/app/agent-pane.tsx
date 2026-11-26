@@ -1,5 +1,6 @@
 import { BackgroundWorkButton } from "./background-work-button";
 import { AgentChatNavigation } from "./agent-chat-navigation";
+import { agentScopeProjectId } from "@/lib/agent-lineage";
 import { useProjects } from "@/hooks/use-projects";
 import { ProjectIcon } from "./project-location";
 import { ScheduledMessagesButton } from "./scheduled-messages-button";
@@ -124,7 +125,11 @@ export function AgentPane({
 }: AgentPaneProps): JSX.Element {
   const [mountedAgentId, setMountedAgentId] = useState(agentId);
   const { data: projects = [] } = useProjects();
-  const project = projects.find((p) => p.id === agent?.projectId);
+  // A child is shown under its parent's card, so it takes that card's project.
+  const scopedProjectId = agent
+    ? agentScopeProjectId(agent, agents ?? [])
+    : undefined;
+  const project = projects.find((p) => p.id === scopedProjectId);
 
   // Route changes should paint the newly selected agent before mounting its
   // cached feed. Rendering a large cached stream in the navigation commit

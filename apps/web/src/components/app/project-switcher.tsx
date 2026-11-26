@@ -17,6 +17,7 @@ import {
   type Project,
 } from "@/hooks/use-projects";
 import type { Agent } from "./types";
+import { agentScopeProjectId } from "@/lib/agent-lineage";
 import { ProjectIcon } from "./project-location";
 import { ProjectEditor } from "./project-editor";
 import { Button } from "@/components/ui/button";
@@ -66,10 +67,13 @@ export function ProjectSwitcher({ allowAll = true }: { allowAll?: boolean }) {
     // navigation, so its chat never renders under the other project.
     const agentId = matchPath("/agents/:agentId/*", location.pathname)?.params
       .agentId;
-    const agent = queryClient
-      .getQueryData<Agent[]>(["agents"])
-      ?.find((a) => a.id === agentId);
-    if (agentId && id && agent?.projectId !== id) {
+    const agents = queryClient.getQueryData<Agent[]>(["agents"]) ?? [];
+    const agent = agents.find((a) => a.id === agentId);
+    if (
+      agentId &&
+      id &&
+      (!agent || agentScopeProjectId(agent, agents) !== id)
+    ) {
       for (const key of ["thread", "file", "line"]) query.delete(key);
       navigate(
         { pathname: "/agents", search: query.toString() },

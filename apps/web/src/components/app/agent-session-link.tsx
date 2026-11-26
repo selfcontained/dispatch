@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { useAgentRecord } from "@/hooks/use-agent-tree";
+import { useAgentRecord, useAgentScopeProjectId } from "@/hooks/use-agent-tree";
 import { useProjectScope } from "@/hooks/use-projects";
 import { agentHistoryRoute, agentRoute } from "@/lib/agent-routes";
 import { cn } from "@/lib/utils";
@@ -25,12 +25,15 @@ export function AgentSessionLink({
   const agent = useAgentRecord(agentId);
   const scope = useProjectScope();
   const label = agent?.name?.trim() || name?.trim() || "Agent";
+  const scopedProject = useAgentScopeProjectId(agentId);
   const project =
-    agent?.projectId !== undefined
-      ? agent.projectId
-      : projectId !== undefined
-        ? projectId
-        : scope.projectId;
+    scopedProject !== undefined
+      ? scopedProject
+      : agent?.projectId !== undefined
+        ? agent.projectId
+        : projectId !== undefined
+          ? projectId
+          : scope.projectId;
   const query = new URLSearchParams({ project: project ?? "" });
   const route = agent?.archived
     ? agentHistoryRoute(agentId)
