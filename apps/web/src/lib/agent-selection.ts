@@ -12,6 +12,10 @@ export function isAgentInScope(
 ) {
   return (
     agent.status !== "archiving" &&
-    (!projectId || agentScopeProjectId(agent, agents) === projectId)
+    (!projectId ||
+      agentScopeProjectId(agent, agents) === projectId ||
+      // An older link or bookmark may carry a child's own row project; keep
+      // the live session open rather than treating it as gone.
+      agent.projectId === projectId)
   );
 }

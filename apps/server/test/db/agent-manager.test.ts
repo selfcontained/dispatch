@@ -295,6 +295,13 @@ describe("AgentManager", () => {
       ]);
       await manager.setProject(parent.id, "project-a");
       expect((await manager.getAgent(child.id))?.projectId).toBe("project-a");
+
+      // Once the parent is gone, the orphan renders as its own card and moves alone.
+      await pool.query("UPDATE agents SET deleted_at=now() WHERE id=$1", [
+        parent.id,
+      ]);
+      const orphan = await manager.setProject(child.id, "project-b");
+      expect(orphan.projectId).toBe("project-b");
     });
   });
 

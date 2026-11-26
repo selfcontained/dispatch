@@ -1301,7 +1301,8 @@ export class AgentManager {
    */
   async setProject(id: string, projectId: string | null): Promise<AgentRecord> {
     const current = await this.getRequiredAgent(id);
-    if (current.parentAgentId)
+    // An orphan (archived parent) renders as its own card and moves alone.
+    if (current.parentAgentId && (await this.getAgent(current.parentAgentId)))
       throw new AgentError(
         "A child agent stays in its parent's project. Move the parent instead.",
         409

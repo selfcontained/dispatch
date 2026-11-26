@@ -5,6 +5,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 
 import type { Agent } from "@/components/app/types";
 import { api } from "@/lib/api";
+import { agentScopeProjectId } from "@/lib/agent-lineage";
 
 type Lineage = Pick<Agent, "id" | "parentAgentId">;
 
@@ -166,6 +167,31 @@ export function liveIdentityFields(agent: Agent) {
     ...(parentAgentId !== undefined && { parentAgentId }),
     ...(projectId !== undefined && { projectId }),
   };
+}
+
+/**
+ * The project a live agent is listed under (its sidebar card root's), or
+ * undefined when it is not in the live list. A child left in another project
+ * still opens in its parent's scope, where the sidebar shows it.
+ */
+export function useAgentScopeProjectId(
+  agentId: string | null
+): string | null | undefined {
+  const select = useCallback(
+    (agents: Agent[]) => {
+      const agent = agentId && agents.find((a) => a.id === agentId);
+      return agent ? agentScopeProjectId(agent, agents) : undefined;
+    },
+    [agentId]
+  );
+  const { data } = useQuery({
+    queryKey: ["agents"],
+    queryFn: fetchAgents,
+    select,
+    enabled: agentId !== null,
+    staleTime: AGENT_RECORD_STALE_TIME,
+  });
+  return data;
 }
 
 /** One cached record, including archived agents; live metadata wins. */

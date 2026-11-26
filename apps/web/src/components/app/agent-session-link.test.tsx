@@ -33,8 +33,11 @@ const records = vi.hoisted(
       }
     >()
 );
+const scopes = vi.hoisted(() => new Map<string, string | null>());
 vi.mock("@/hooks/use-agent-tree", () => ({
   useAgentRecord: (id: string) => records.get(id) ?? null,
+  useAgentScopeProjectId: (id: string) =>
+    scopes.has(id) ? scopes.get(id) : undefined,
 }));
 vi.mock("@/hooks/use-projects", () => ({
   useProjectScope: () => ({ projectId: "project current" }),
@@ -50,6 +53,7 @@ vi.mock("@/components/app/user-avatar/user-avatar", () => ({
 afterEach(() => {
   cleanup();
   records.clear();
+  scopes.clear();
 });
 function Location() {
   const location = useLocation();
@@ -145,6 +149,15 @@ describe("passive session identities", () => {
       ).toBe(`/agents/target${search}`);
     }
   );
+
+  it("opens a live child left in another project under its parent's scope", () => {
+    records.set("child", { name: "Child", projectId: "stale project" });
+    scopes.set("child", "parent project");
+    ui(<AgentSessionLink agentId="child" />);
+    expect(screen.getByRole("link").getAttribute("href")).toBe(
+      "/agents/child?project=parent+project"
+    );
+  });
 
   it("uses All projects for a known projectless author from a scoped task", () => {
     records.set("projectless", { name: "Projectless", projectId: null });
