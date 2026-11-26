@@ -41,7 +41,12 @@ import { embeddedBuild } from "../src/agents/build-identity.js";
 import type { DriverEvent } from "@dispatch/runner/host/driver";
 import { createAcpRuntime } from "../src/agents/acp/runtime.js";
 import { preparePromptContext } from "@dispatch/runner/host/host-env";
-import { HostClient } from "@dispatch/runner-client/host-client";
+import {
+  HostClient,
+  type HostClientDeps,
+  UpdateAcknowledgementLost,
+} from "@dispatch/runner-client/host-client";
+import { isPromptSource } from "../src/agents/acp/prompt-source.js";
 import { mainLocalHosts } from "./helpers/main-local-hosts.js";
 import { RunnerUnavailable } from "../src/agents/remote/service.js";
 import { RunnerUpdateHolds } from "../src/agents/remote/update-hold.js";
@@ -169,6 +174,74 @@ const until = async (check: () => boolean, ms = 10_000) => {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
 };
+
+describe("host client construction", () => {
+  it.each(["local", "enrolled", "idle recovery"] as const)(
+    "keeps the %s attachment options and acknowledgement error",
+    async (mode) => {
+      const id = "agt_client_options";
+      const placement = { runner: "fixture", workspace: "test" };
+      const { runtime } = runtimeWith("", () => 17, "stored-journal", null, {
+        placement: async () => (mode === "enrolled" ? placement : null),
+        remote: {
+          available: () => true,
+          requestSession: async () => ({ value: true }),
+        },
+      });
+      const alive = vi.spyOn(runtime, "isAlive").mockResolvedValue(true);
+      const lost = new UpdateAcknowledgementLost(
+        Promise.resolve(null),
+        "claimed"
+      );
+      const connect = vi
+        .spyOn(HostClient.prototype, "connect")
+        .mockRejectedValue(lost);
+      try {
+        const recovery = mode === "idle recovery";
+        expect(
+          await (recovery
+            ? runtime.stopIdleHostForRecovery!(id)
+            : runtime.attach(id))
+        ).toBe(false);
+        expect(connect).toHaveBeenCalledTimes(1);
+        const client = connect.mock.contexts[0] as unknown as {
+          deps: HostClientDeps;
+        };
+        expect(Object.keys(client.deps)).toEqual([
+          "validSource",
+          "agentId",
+          "remote",
+          "openSocket",
+          ...(recovery ? [] : ["reconnectError", "onReady", "updateDeadline"]),
+          "logger",
+          "fromSeq",
+          "journalId",
+          "onEvent",
+          ...(recovery ? [] : ["onPermissions"]),
+          "onWelcome",
+          "onGone",
+        ]);
+        expect(client.deps.validSource).toBe(isPromptSource);
+        expect(client.deps.agentId).toBe(id);
+        expect(client.deps.remote).toBe(mode === "enrolled");
+        expect(client.deps.logger).toBe(logger);
+        expect(client.deps.fromSeq()).toBe(
+          recovery ? Number.MAX_SAFE_INTEGER : 17
+        );
+        expect(client.deps.journalId()).toBe(
+          recovery ? null : "stored-journal"
+        );
+        expect(lost.constructor).toBe(UpdateAcknowledgementLost);
+        expect(lost.message).toBe(
+          "Runner connection dropped before acknowledgement; execution is unknown."
+        );
+      } finally {
+        connect.mockRestore();
+        alive.mockRestore();
+      }
+    }
+  );
+});
 
 describe("agent host", () => {
   let stateRoot: string;
