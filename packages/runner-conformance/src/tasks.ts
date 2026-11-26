@@ -51,7 +51,7 @@ export const OPERATION_TASK = {
   "github.logout": "T32",
   "github.repositories": "T32",
   "github.branches": "T32",
-  "github.pr.head": "T32",
+  "github.pr.head": "T40",
   "github.pr.status": "T32",
   "github.pr.details": "T33",
   "github.pr.diff": "T33",

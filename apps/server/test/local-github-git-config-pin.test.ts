@@ -4,10 +4,12 @@
  * `gh auth setup-git`, and the local runner has no GitHub sign-in at all; the
  * agent's plain git uses whatever the user already configured.
  */
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { expect, it, vi } from "vitest";
+import { pathFromWire } from "@dispatch/runner-protocol/contract";
+import { githubWorkload } from "../src/agents/checkout-worker.js";
 import { githubHandlers } from "../../../packages/runner/src/core/github.js";
 import type { Platform } from "../../../packages/runner/src/platform/types.js";
 import {
@@ -20,6 +22,7 @@ it("the local runner serves only GitHub reads, with no account operations", () =
   const handlers = githubHandlers({
     workload: { run: vi.fn() } as unknown as Platform["workload"],
     github: {
+      pullRequestHead: vi.fn(),
       pullRequestStatus: vi.fn(),
       pullRequestDetails: vi.fn(),
       pullRequestDiff: vi.fn(),
@@ -28,6 +31,7 @@ it("the local runner serves only GitHub reads, with no account operations", () =
   expect(Object.keys(handlers).sort()).toEqual([
     "github.pr.details",
     "github.pr.diff",
+    "github.pr.head",
     "github.pr.status",
   ]);
 });
@@ -71,5 +75,36 @@ it("local GitHub reads run only gh reads and leave HOME untouched", async () => 
   } finally {
     process.env.HOME = previous;
     await rm(home, { recursive: true, force: true });
+  }
+});
+
+it("runs gh for the PR head in the chosen checkout and preserves command failures", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "pr-head-"));
+  const bin = path.join(cwd, "gh");
+  const pr = { owner: "org", repo: "repo", number: 12, cwd: pathFromWire(cwd) };
+  const command =
+    "gh api repos/org/repo/pulls/12 --jq {url:.head.repo.clone_url,branch:.head.ref}";
+  try {
+    vi.stubEnv("PATH", cwd);
+    await writeFile(path.join(cwd, "selected"), "");
+    await writeFile(
+      bin,
+      `#!/bin/sh
+test -f ./selected || exit 3
+printf '%s' '{"url":"https://github.com/org/fork.git","branch":"topic"}'
+`,
+      { mode: 0o700 }
+    );
+    expect(await githubWorkload.pullRequestHead(pr)).toEqual({
+      url: "https://github.com/org/fork.git",
+      branch: "topic",
+    });
+    await writeFile(bin, "#!/bin/sh\nprintf 'fixture denied' >&2\nexit 2\n");
+    await expect(githubWorkload.pullRequestHead(pr)).rejects.toThrow(
+      `Command failed (${command}), exitCode=2, stderr=fixture denied`
+    );
+  } finally {
+    vi.unstubAllEnvs();
+    await rm(cwd, { force: true, recursive: true });
   }
 });

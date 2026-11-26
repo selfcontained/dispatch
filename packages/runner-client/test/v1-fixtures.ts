@@ -853,6 +853,10 @@ export const results: ResultFixture[] = [
     value: json({ url: "https://github.com/acme/app", branch: "feature" }),
   },
   {
+    command: github({ type: "pullRequestHeadAtPath", ...pr, cwd: "/checkout" }),
+    value: json({ url: "https://github.com/acme/app", branch: "feature" }),
+  },
+  {
     command: github({
       type: "pullRequestStatus",
       ...pr,

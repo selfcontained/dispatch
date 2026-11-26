@@ -200,7 +200,7 @@
   {
     "lane": "local",
     "scenario": "github.pr.head/pending",
-    "task": "T32",
+    "task": "T40",
     "reason": "no local runner child yet"
   },
   {
@@ -458,7 +458,7 @@
   {
     "lane": "remote",
     "scenario": "github.pr.head/pending",
-    "task": "T32",
+    "task": "T40",
     "reason": "scenario not written yet"
   },
   {
