@@ -59,7 +59,7 @@ import {
   type DiagnosticsRecorder,
 } from "../diagnostics.js";
 import { getPullRequestHead } from "../shared/github/pr.js";
-import { GitWorktreeError } from "../shared/git/worktree.js";
+import { GitWorktreeError } from "@dispatch/runner-protocol";
 import { resolveFilesDir } from "../shared/files.js";
 import { agentIconPath, folderIconPath } from "./checkout-icon.js";
 import { getActivePersonality } from "../db/personalities.js";
