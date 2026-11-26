@@ -5435,38 +5435,99 @@ describe("AgentManager", () => {
           })
         );
 
+      const unavailable = {
+        error: {
+          statusCode: 503,
+          message: "Checkout status is unavailable on the owning runner.",
+        },
+      };
+      const json = (reply: unknown) => async () => ({
+        value: JSON.stringify(reply),
+      });
+      // Each reply's own expected outcome, asserted on both paths before
+      // they are compared: a shared wrong answer cannot pass.
       it.each([
-        ...Object.entries(replies).map(
-          ([name, reply]) =>
-            [name, async () => ({ value: JSON.stringify(reply) })] as const
-        ),
+        [
+          "owned and dirty",
+          json(replies.owned),
+          {
+            status: expect.objectContaining({
+              ownership: "owned",
+              borrowers: ["agt_review"],
+              checkoutState: "0".repeat(64),
+              hasWorktree: true,
+              hasUnmergedCommits: false,
+              hasUncommittedChanges: true,
+              worktreePath: "/srv/checkouts/kept",
+              branchName: "feature",
+              changedFiles: ["a.ts"],
+              uncommittedFiles: ["?? b.ts"],
+            }),
+          },
+        ],
+        [
+          "borrowed",
+          json(replies.borrowed),
+          {
+            status: expect.objectContaining({
+              ownership: "borrowed",
+              hasWorktree: false,
+            }),
+          },
+        ],
+        [
+          "external",
+          json(replies.external),
+          {
+            status: expect.objectContaining({
+              ownership: "external",
+              hasWorktree: false,
+            }),
+          },
+        ],
+        [
+          "gone",
+          json(replies.gone),
+          {
+            status: expect.objectContaining({
+              ownership: "owned",
+              hasWorktree: true,
+              hasUncommittedChanges: false,
+              worktreePath: "/srv/checkouts/kept",
+            }),
+          },
+        ],
         [
           "offline",
           async () => {
             throw new Error("Runner runner-test is not connected.");
           },
-        ] as const,
+          unavailable,
+        ],
         [
           "an error reply",
           async () => {
             throw new Error("Checkout observation failed.");
           },
-        ] as const,
-        ["not an observation", async () => ({ value: "not json" })] as const,
-      ])(
-        "%s: the same status (or 503 body) as through the snapshot transport",
-        async (_name, reply) => {
+          unavailable,
+        ],
+        [
+          "not an observation",
+          async () => ({ value: "not json" }),
+          unavailable,
+        ],
+      ] as const)(
+        "%s: the expected status (or 503 body), the same through the snapshot transport",
+        async (_name, reply, expected) => {
           const agent = await runnerAgent();
           const results = [];
           for (const capable of [false, true]) {
             const requestSession = vi.fn(reply);
-            results.push(
-              await outcome(
-                managerFor(capable, requestSession).checkWorktreeStatus(
-                  agent.id
-                )
-              )
+            const result = await outcome(
+              managerFor(capable, requestSession).checkWorktreeStatus(agent.id)
             );
+            expect({ capable, result }).toEqual({ capable, result: expected });
+            results.push(result);
             expect(requestSession).toHaveBeenCalledOnce();
             // The capable peer is asked for the checkout's state (changes);
             // the snapshot peer gets its own frame, as before.
@@ -5479,11 +5540,6 @@ describe("AgentManager", () => {
             });
           }
           expect(results[1]).toEqual(results[0]);
-          if ("error" in results[0]!)
-            expect(results[0].error).toEqual({
-              statusCode: 503,
-              message: "Checkout status is unavailable on the owning runner.",
-            });
         }
       );
 

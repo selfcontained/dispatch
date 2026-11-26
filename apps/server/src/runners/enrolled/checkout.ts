@@ -1,7 +1,6 @@
 import {
   isCheckoutCommandFile,
   isCheckoutObservation,
-  remotePlacement,
   isCheckoutReadName,
   type CheckoutView,
   type GitQuery,
