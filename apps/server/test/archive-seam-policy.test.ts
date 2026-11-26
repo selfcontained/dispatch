@@ -27,6 +27,7 @@ type Checkout = "clean" | "dirty" | "unreadable" | "gone";
 type Fixture = {
   ownership?: "owned" | "borrowed" | "none";
   checkout?: Checkout;
+  statusFailure?: string;
   borrowers?: string[];
   /** What the release does. */
   release?: "removes" | "unknown_outcome" | "failed";
@@ -44,10 +45,18 @@ const CLEAN = {
 };
 
 function fixtureRunner(policy: "local" | "enrolled", f: Fixture = {}) {
-  const call = vi.fn(async (op: string) => {
+  const call = vi.fn(async (op: string, input?: { policy?: string }) => {
     if (op === "path.resolve")
       return { canonicalPath: "/checkout", exists: true };
-    if (op === "workspace.observe")
+    if (op === "workspace.observe") {
+      if (
+        input?.policy !== "ownership" &&
+        (f.checkout === "unreadable" || f.statusFailure)
+      )
+        throw new RunnerCallError({
+          code: f.statusFailure === "Git timeout" ? "timeout" : "failed",
+          message: f.statusFailure ?? "unreadable",
+        });
       return {
         ownership: f.ownership ?? "owned",
         owner: (f.ownership ?? "owned") === "owned" ? "agt_a" : null,
@@ -55,12 +64,11 @@ function fixtureRunner(policy: "local" | "enrolled", f: Fixture = {}) {
         checkout:
           f.checkout === "dirty"
             ? { ...CLEAN, uncommittedFiles: ["draft.txt"] }
-            : // The runner keeps an unreadable status, and a gone checkout,
-              // as no checkout state.
-              f.checkout === "unreadable" || f.checkout === "gone"
+            : f.checkout === "gone"
               ? null
               : CLEAN,
       };
+    }
     if (op === "workspace.release") {
       if (f.release === "unknown_outcome" || f.release === "failed")
         throw new RunnerCallError({ code: f.release, message: "release" });
@@ -135,7 +143,6 @@ describe("the composition gives each runner its archive policy", () => {
       enrolledArchivePolicy
     );
     expect(localArchivePolicy).toEqual({
-      repositoryHook: true,
       coOwner: "recorded",
       borrowers: "recorded",
       forceSkipsObserve: true,
@@ -143,7 +150,6 @@ describe("the composition gives each runner its archive policy", () => {
       awaitsStoppedHost: false,
     });
     expect(enrolledArchivePolicy).toEqual({
-      repositoryHook: false,
       coOwner: "observed",
       borrowers: "observed",
       forceSkipsObserve: false,
@@ -267,6 +273,34 @@ describe.each([
     );
   });
 });
+
+describe.each(["local", "enrolled"] as const)(
+  "%s status failure",
+  (placement) => {
+    it.each([
+      "Git error",
+      "Git timeout",
+      "unreadable .git",
+      "runner observation failed",
+    ])(
+      "retains on %s and force skips the status read",
+      async (statusFailure) => {
+        const auto = run(placement, "auto", { statusFailure });
+        expect(await auto.outcome).toEqual(kept("failed"));
+        expect(auto.ops()).not.toContain("workspace.release");
+        expect(auto.queries).toContain(
+          "UPDATE agents SET archive_cleanup_mode = 'keep', archive_checkout_state = NULL WHERE id = $1"
+        );
+        expect(auto.logger.warn).toHaveBeenCalledWith(
+          expect.anything(),
+          "Worktree cleanup failed; leaving on disk."
+        );
+        const forced = run(placement, "force", { statusFailure });
+        expect(await forced.outcome).toEqual(released);
+      }
+    );
+  }
+);
 
 describe("failures and the host", () => {
   it("logs each policy's own warning", async () => {

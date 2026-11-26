@@ -1765,8 +1765,9 @@ describe("runner session supervision", () => {
       checkout: null,
     });
     expect(observeCheckout).not.toHaveBeenCalled();
-    // The caller's decision needs the state: it is read.
-    await calls["workspace.observe"]({ session });
+    await expect(calls["workspace.observe"]({ session })).rejects.toThrow(
+      "no checkout state is read"
+    );
     expect(observeCheckout).toHaveBeenCalledOnce();
   });
 

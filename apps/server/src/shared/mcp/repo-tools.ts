@@ -188,10 +188,7 @@ function parseRepoTool(value: unknown, index: number): RepoToolConfig {
   return { name, description, command, params, scope };
 }
 
-export function parseRepoHooks(
-  config: RepoToolFile | null,
-  includeArchive = true
-): RepoHooks {
+export function parseRepoHooks(config: RepoToolFile | null): RepoHooks {
   if (
     !config?.hooks ||
     typeof config.hooks !== "object" ||
@@ -202,8 +199,7 @@ export function parseRepoHooks(
   const raw = config.hooks as Record<string, unknown>;
   const hooks: RepoHooks = {};
   if (raw.stop) hooks.stop = parseHookDefinition(raw.stop, "stop");
-  if (includeArchive && raw.archive)
-    hooks.archive = parseHookDefinition(raw.archive, "archive");
+  if (raw.archive) hooks.archive = parseHookDefinition(raw.archive, "archive");
   return hooks;
 }
 

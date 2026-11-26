@@ -1,4 +1,7 @@
-import { sessionFromWire } from "@dispatch/runner-protocol/contract";
+import {
+  RunnerCallError,
+  sessionFromWire,
+} from "@dispatch/runner-protocol/contract";
 import { withTestWorkspaceRunner } from "../helpers/test-workspace-runner.js";
 import { createMcpHandlers } from "../../src/server/mcp-handlers.js";
 import { sessionFilesWorkload } from "../../../../packages/runner/src/workload/agents/checkout-worker.js";
@@ -36,7 +39,6 @@ import {
   managerEnrolledRunner,
 } from "../helpers/manager-enrolled-runner.js";
 import { placementForRunner } from "../../src/runners/placement.js";
-import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 import type { RemoteRunnerService } from "../../src/agents/remote/service.js";
 
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./setup.js";
@@ -660,26 +662,31 @@ describe("AgentManager", () => {
         onComplete: vi.fn(),
         onError: vi.fn(),
       });
-      const pending = async () =>
-        (
-          await pool.query(
-            "SELECT runner_cleanup_pending FROM agents WHERE id = $1 AND deleted_at IS NOT NULL",
-            [agent.id]
-          )
-        ).rows[0]?.runner_cleanup_pending;
-      expect(await pending()).toBe(true);
-      call.mockClear();
-      await resumed.reconcileAgentStatuses();
-      expect(call).not.toHaveBeenCalled();
-      expect(await pending()).toBe(true);
+      expect(await resumed.getAgent(agent.id)).toMatchObject({
+        status: "archiving",
+      });
+      expect(call.mock.calls.some(([, op]) => op === "workspace.release")).toBe(
+        false
+      );
       const reconnected = new AgentManager(pool, noopLogger, testConfig, {
         runtime: { ...createSpyRuntime(), discard },
         remote,
       });
       available.mockReturnValue(true);
-      await reconnected.reconcileAgentStatuses();
-      await vi.waitFor(async () => expect(await pending()).toBe(false));
-      expect(call.mock.calls.at(-1)?.slice(0, 3)).toEqual([
+      await reconnected.executeArchive(agent.id, {
+        onPhaseChange: vi.fn(),
+        onComplete: vi.fn(),
+        onError: vi.fn(),
+      });
+      expect(await reconnected.getAgent(agent.id)).toBeNull();
+      expect(
+        call.mock.calls.filter(([, op]) => op === "workspace.release")
+      ).toHaveLength(1);
+      expect(
+        call.mock.calls
+          .find(([, op]) => op === "workspace.release")
+          ?.slice(0, 3)
+      ).toEqual([
         testRunner,
         "workspace.release",
         {
@@ -5039,6 +5046,52 @@ describe("AgentManager", () => {
           }
         }
       );
+
+      it("skips the owner's hook for a borrower and shows the keep warning on an unreadable owner checkout", async () => {
+        const { root, owner, borrower } = await ownerAndBorrower();
+        try {
+          const config = path.join(root, ".dispatch");
+          await mkdir(config, { recursive: true });
+          await writeFile(
+            path.join(config, "tools.json"),
+            JSON.stringify({
+              hooks: {
+                archive: {
+                  command: ["sh", "-c", "echo invoked >> invoked"],
+                  description: "Clean up",
+                },
+              },
+            })
+          );
+          expect(
+            (await manager.checkArchivePreview(borrower.id)).cleanupDescriptions
+          ).toEqual([]);
+          await writeFile(
+            path.join(root, ".git", "index"),
+            Buffer.from("invalid index")
+          );
+          const preview = await manager.checkArchivePreview(owner.id);
+          expect(preview).toMatchObject({
+            worktreeStatus: null,
+            worktreeStatusUnreadable: true,
+            cleanupDescriptions: ["Clean up"],
+          });
+          await expect(
+            manager.checkWorktreeStatus(owner.id)
+          ).rejects.toMatchObject({ statusCode: 503 });
+          await manager.beginArchive(borrower.id, "force");
+          await manager.executeArchive(borrower.id, {
+            onPhaseChange: vi.fn(),
+            onComplete: vi.fn(),
+            onError: vi.fn(),
+          });
+          await expect(
+            readFile(path.join(root, "invoked"))
+          ).rejects.toMatchObject({ code: "ENOENT" });
+        } finally {
+          await rm(root, { recursive: true, force: true });
+        }
+      });
 
       it("a forced archive carrying the owner's remembered state leaves the owner's checkout alone", async () => {
         const { root, owner, borrower } = await ownerAndBorrower();

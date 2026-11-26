@@ -90,7 +90,7 @@ export interface InProcessPorts<Bytes extends Uint8Array> {
       path: string,
       options?: Omit<Req<"path.resolve">, "path">
     ): Promise<Res<"path.resolve">>;
-    observe(path: string): Promise<CheckoutState>;
+    observe(path: string): Promise<CheckoutState | null>;
     gone(path: string): Promise<boolean>;
     git(path: string): Promise<{ worktreePath: string } | null | "error">;
     release(

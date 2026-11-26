@@ -181,7 +181,11 @@ function harness(
   const remote = {
     connectionEpoch: () => (options.offline ? undefined : 1),
     call: async (_runner: string, op: string) => {
-      if (options.offline) throw new Error("Runner is offline.");
+      if (options.offline)
+        throw new RunnerCallError({
+          code: "unavailable",
+          message: "Runner is offline.",
+        });
       if (op === "workspace.observe") return observeRow();
       if (options.releaseError) throw new Error("release failed");
       const removed = await workspaceWorkload.release(
@@ -519,8 +523,17 @@ describe("main's local automatic cleanup", () => {
     expect(git(repo, "branch", "--list", "feature")).toBe("");
   });
 
+  it("keeps the branch and directory when Git cannot read the worktree metadata", async () => {
+    writeFileSync(path.join(checkout, ".git"), "invalid Git worktree metadata");
+    expect(await archive(auto)).toMatchObject({
+      removed: false,
+      pending: false,
+    });
+    expect(git(repo, "branch", "--list", "feature")).toContain("feature");
+  });
+
   it.each([false, true])(
-    "ignores a failed status check while honoring committed changes=%s",
+    "keeps a checkout with an unreadable index, including with committed changes=%s",
     async (unmerged) => {
       if (unmerged) shape("unmerged");
       const index = path.resolve(
@@ -529,10 +542,10 @@ describe("main's local automatic cleanup", () => {
       );
       writeFileSync(index, Buffer.alloc(16, 7));
       expect(await archive(auto)).toMatchObject({
-        removed: !unmerged,
+        removed: false,
         pending: false,
       });
-      expect(Boolean(git(repo, "branch", "--list", "feature"))).toBe(unmerged);
+      expect(Boolean(git(repo, "branch", "--list", "feature"))).toBe(true);
     }
   );
 });
@@ -1002,7 +1015,7 @@ describe("local release: ownership by the child's binding alone", () => {
         return { path: checkout, checkoutRoot: checkout, moved: false };
       }
       if (op === "workspace.observe") {
-        if (spec.observe === "failed")
+        if (spec.observe === "failed" || spec.observe === "unreadable")
           throw new RunnerCallError({ code: "failed", message: op });
         if (spec.observe === "external")
           return {
@@ -1011,10 +1024,7 @@ describe("local release: ownership by the child's binding alone", () => {
             borrowers: [],
             checkout: null,
           };
-        const observed = await observeRow();
-        return spec.observe === "unreadable"
-          ? { ...observed, checkout: null }
-          : observed;
+        return observeRow();
       }
       expect(op).toBe("workspace.release");
       const release = spec.release ?? "removes";
@@ -1043,7 +1053,7 @@ describe("local release: ownership by the child's binding alone", () => {
   // [case, child, state, removed when forced (main: always), removed under auto]
   it.each([
     ["dirty", {}, "dirty", true, false],
-    ["unreadable status", { observe: "unreadable" }, "clean", true, true],
+    ["unreadable status", { observe: "unreadable" }, "clean", true, false],
     ["the child's observe failing", { observe: "failed" }, "clean", true, null],
     ["describe failing", { describe: "failed" }, "clean", true, null],
     ["no binding at the child", { describe: "not_found" }, "clean", true, true],

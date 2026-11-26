@@ -73,8 +73,6 @@ export type RunnerComposition = {
  * The archive executor reads only this, never the placement or the row.
  */
 export type ArchivePolicy = {
-  /** Whether archive runs a repository-defined cleanup hook. */
-  repositoryHook: boolean;
   /**
    * `recorded` (main's): the worktree the row records is the agent's own; no
    * recorded worktree is not managed; another live row naming it keeps it,
@@ -103,7 +101,6 @@ export type ArchivePolicy = {
 
 /** Main's archive rule, for the runner on this machine. */
 export const localArchivePolicy: ArchivePolicy = {
-  repositoryHook: true,
   coOwner: "recorded",
   borrowers: "recorded",
   forceSkipsObserve: true,
@@ -113,7 +110,6 @@ export const localArchivePolicy: ArchivePolicy = {
 
 /** The enrolled runners' archive rule (N35). */
 export const enrolledArchivePolicy: ArchivePolicy = {
-  repositoryHook: false,
   coOwner: "observed",
   borrowers: "observed",
   forceSkipsObserve: false,

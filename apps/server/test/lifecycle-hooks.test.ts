@@ -1,5 +1,9 @@
 import type { Pool } from "pg";
-import { previewArchive } from "../src/agents/archive.js";
+import {
+  executeArchive,
+  previewArchive,
+  type ArchiveDeps,
+} from "../src/agents/archive.js";
 import { execFileSync, spawn } from "node:child_process";
 import { realpathSync, renameSync } from "node:fs";
 import {
@@ -515,19 +519,146 @@ describe("runLifecycleHook", () => {
     );
   });
 
-  it("leaves enrolled archive manifests and hooks untouched", async () => {
-    const call = vi.fn();
-    await runLifecycleHook(
-      "archive",
+  it("previews and executes the enrolled runner's resolved command once in its session checkout", async () => {
+    const directory = "/workload/owned";
+    const agent = {
+      id: "enrolled",
+      cwd: directory,
+      placement: placementForRunner("runner-a"),
+    } as AgentRecord;
+    const call = vi.fn(async (op: string, input: { mode?: string }) => {
+      if (op === "checkout.read" && input.mode === "command-manifest")
+        return null;
+      if (op === "workspace.observe")
+        return {
+          ownership: "owned",
+          owner: "enrolled",
+          borrowers: [],
+          checkout: null,
+        };
+      if (op === "checkout.read")
+        return {
+          data: archiveManifest,
+          root: directory,
+          rootIdentity: "native-id",
+        };
+      if (op === "workspace.release") return { removed: true };
+      if (op === "checkout.exec")
+        return { exitCode: 0, stdout: "", stderr: "" };
+      throw new Error(op);
+    });
+    const remote = {
+      connectionEpoch: () => 1,
+      call: (_runner: string, op: string, input: { mode?: string }) =>
+        call(op, input),
+    } as unknown as RemoteRunnerService;
+    const preview = await previewArchive(
       {
-        id: "enrolled",
-        cwd: "/runner-a/main",
-        placement: placementForRunner("runner-a"),
-      } as AgentRecord,
-      logger,
-      { remote: { call } as unknown as RemoteRunnerService }
+        remote,
+        pool: { query: async () => ({ rows: [] }) } as unknown as Pool,
+        getRequiredAgent: async () => agent,
+      },
+      agent.id,
+      vi.fn()
     );
-    expect(call).not.toHaveBeenCalled();
+    expect(preview.cleanupDescriptions).toEqual(["Clean up"]);
+    expect(call.mock.calls.map(([op]) => op)).toEqual([
+      "workspace.observe",
+      "checkout.read",
+    ]);
+    const onComplete = vi.fn();
+    const onError = vi.fn();
+    await executeArchive(
+      {
+        remote,
+        pool: { query: async () => ({ rows: [] }) },
+        logger: { ...logger, error: vi.fn() },
+        getRequiredAgent: async () => agent,
+        getAgent: async () => agent,
+        runtime: { stop: vi.fn(), clearRemoteState: vi.fn() },
+        beginStopStream: vi.fn(),
+        settleStream: vi.fn(),
+        setArchivePhase: vi.fn(),
+      } as unknown as ArchiveDeps,
+      agent.id,
+      { onPhaseChange: vi.fn(), onComplete, onError }
+    );
+    expect(onError).not.toHaveBeenCalled();
+    expect(onComplete).toHaveBeenCalledWith([agent.id]);
+    expect(call.mock.calls.map(([op]) => op)).toEqual([
+      "workspace.observe",
+      "checkout.read",
+      "checkout.read", // stop manifest, launch
+      "checkout.read", // stop manifest, moved
+      "workspace.observe",
+      "checkout.read",
+      "checkout.exec",
+      "workspace.observe",
+      "workspace.release",
+    ]);
+    expect(call).toHaveBeenCalledWith(
+      "checkout.exec",
+      expect.objectContaining({
+        target: { session: agent.id, checkout: "launch" },
+        guard: { root: directory, identity: "native-id" },
+        timeoutMs: 60000,
+        env: { DISPATCH_AGENT_ID: agent.id },
+      })
+    );
+  });
+
+  it("resumes after a disconnect between checkouts without running the acknowledged command twice", async () => {
+    const agent = {
+      ...localArchiveAgent(),
+      workspacePath: path.join(root, "moved"),
+    };
+    await mkdir(path.join(root, ".dispatch"));
+    await mkdir(path.join(agent.workspacePath, ".dispatch"), {
+      recursive: true,
+    });
+    await writeFile(path.join(root, ".dispatch/tools.json"), archiveManifest);
+    await writeFile(
+      path.join(agent.workspacePath, ".dispatch/tools.json"),
+      archiveManifest
+    );
+    const movedManifest = await realpath(
+      path.join(agent.workspacePath, ".dispatch/tools.json")
+    );
+    const original = vi.mocked(readFile).getMockImplementation()!;
+    let offline = true;
+    vi.mocked(readFile).mockImplementation((...args) => {
+      if (offline && args[0] === movedManifest)
+        return Promise.reject(
+          new RunnerCallError({ code: "unavailable", message: "offline" })
+        );
+      return original(...args);
+    });
+    try {
+      const runners = {
+        recordArchivePhase: async (phase: AgentRecord["archivePhase"]) => {
+          agent.archivePhase = phase;
+        },
+      };
+      await expect(
+        runLifecycleHook("archive", agent, logger, runners)
+      ).rejects.toMatchObject({ code: "unavailable" });
+      expect(agent.archivePhase).toBe("archive-launch-complete");
+      offline = false;
+      await runLifecycleHook("archive", agent, logger, runners);
+      expect(await readFile(path.join(root, "invoked"), "utf8")).toBe(
+        "agt_hook\n"
+      );
+      expect(
+        await readFile(path.join(agent.workspacePath, "invoked"), "utf8")
+      ).toBe("agt_hook\n");
+      expect(agent.archivePhase).toBe("archive-hooks-complete");
+      agent.archivePhase = "archive-hook-running";
+      await expect(
+        runLifecycleHook("archive", agent, logger, runners)
+      ).rejects.toMatchObject({ code: "unknown_outcome" });
+    } finally {
+      vi.mocked(readFile).mockImplementation(original);
+    }
   });
 
   it("previews configured cascade cleanup without running hooks", async () => {

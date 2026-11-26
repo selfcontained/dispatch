@@ -1,3 +1,4 @@
+import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -451,7 +452,7 @@ describe("executeArchive", () => {
     });
   });
 
-  it("attempts auto cleanup when the built-in runner cannot observe the checkout", async () => {
+  it("archives and keeps the checkout when the built-in runner cannot observe it", async () => {
     vi.mocked(observeGitCheckout).mockRejectedValueOnce(
       new Error("Git status unavailable")
     );
@@ -464,7 +465,7 @@ describe("executeArchive", () => {
       ),
     });
     await executeArchive(deps, "a1", makeCallbacks());
-    expect(cleanupGitWorktree).toHaveBeenCalledOnce();
+    expect(cleanupGitWorktree).not.toHaveBeenCalled();
   });
 
   describe("worktree cleanup decision — keep mode", () => {
@@ -703,6 +704,67 @@ describe("executeArchive", () => {
         expect(callbacks.onComplete).toHaveBeenCalledWith(["a1"]);
       }
     );
+
+    it.each(["unavailable", "unknown_outcome", "failed"] as const)(
+      "retains an enrolled agent when its hook returns %s",
+      async (code) => {
+        const failure = new RunnerCallError({
+          code,
+          message: "archive hook failed",
+        });
+        const agent = makeAgent("a1", {
+          cwd: "/runner/checkout",
+          placement: placementForRunner("test"),
+        });
+        const pool = makePool();
+        const deps = makeDeps({
+          pool: pool as never,
+          getRequiredAgent: vi.fn().mockResolvedValue(agent),
+        });
+        const callbacks = makeCallbacks();
+        vi.mocked(runLifecycleHook)
+          .mockResolvedValueOnce(undefined)
+          .mockRejectedValueOnce(failure);
+        await executeArchive(deps, agent.id, callbacks);
+        expect(callbacks.onComplete).not.toHaveBeenCalled();
+        expect(
+          pool.query.mock.calls.some(([sql]) =>
+            String(sql).includes("SET deleted_at = NOW()")
+          )
+        ).toBe(false);
+        if (code === "unavailable") {
+          expect(deps.setAgentStatus).not.toHaveBeenCalled();
+          await executeArchive(deps, agent.id, callbacks);
+          expect(callbacks.onComplete).toHaveBeenCalledOnce();
+        } else {
+          expect(deps.setAgentStatus).toHaveBeenCalledWith(
+            agent.id,
+            "error",
+            failure.message
+          );
+          expect(callbacks.onError).toHaveBeenCalledWith(failure);
+        }
+      }
+    );
+
+    it("skips repository archive hooks for a borrower", async () => {
+      const agent = makeAgent("borrower");
+      const pool = makePool(async (sql) =>
+        String(sql).includes("AS borrowed")
+          ? { rows: [{ borrowed: true }] }
+          : defaultQueryImpl(sql)
+      );
+      const deps = makeDeps({
+        pool: pool as never,
+        getRequiredAgent: vi.fn().mockResolvedValue(agent),
+      });
+      const callbacks = makeCallbacks();
+      await executeArchive(deps, agent.id, callbacks);
+      expect(
+        vi.mocked(runLifecycleHook).mock.calls.map(([name]) => name)
+      ).not.toContain("archive");
+      expect(callbacks.onComplete).toHaveBeenCalledOnce();
+    });
 
     it("surfaces a cleanup failure and leaves the agent available for a retry", async () => {
       const failure = new Error("database volume is in use");

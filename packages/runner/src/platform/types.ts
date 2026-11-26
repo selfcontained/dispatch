@@ -229,7 +229,7 @@ export interface WorkspacePort {
     unmerged: boolean;
     changedFiles: string[];
     uncommittedFiles: string[];
-  }>;
+  } | null>;
   /**
    * A session file handed over where it is (`files.put` on a transport that
    * passes a path in place): the path the session opens. `mustExist` fails

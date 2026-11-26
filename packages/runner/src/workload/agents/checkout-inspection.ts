@@ -351,7 +351,7 @@ async function readArchiveChanges(root: string) {
       allowedExitCodes: [0, 128],
       timeoutMs: 5_000,
     }
-  ).catch(() => null);
+  );
   if (tracking?.exitCode === 0 && tracking.stdout) upstream = tracking.stdout;
   const remoteBranch = upstream?.startsWith("origin/")
     ? upstream.slice("origin/".length)
@@ -361,7 +361,12 @@ async function readArchiveChanges(root: string) {
     allowedExitCodes: [0, 1, 128],
     timeoutMs: 15_000,
   });
-  const baseRef = await resolveBaseRef(root, upstream, { runCommand: run });
+  const baseRef = await resolveBaseRef(root, upstream, {
+    runCommand: run,
+    onError(error) {
+      throw error;
+    },
+  });
   if (!baseRef) return { baseRef, changedFiles: [] };
   const merge = await run(
     "git",
@@ -398,21 +403,18 @@ export async function observeGitCheckout(
     run("git", ["symbolic-ref", "--short", "--quiet", "HEAD"], {
       cwd: root,
       allowedExitCodes: [0, 1],
-    }).catch(() => null),
+    }),
     run("git", ["status", "--porcelain"], {
       cwd: root,
       timeoutMs: 10_000,
-    }).catch(() => null),
-    readArchiveChanges(root).catch(() => ({ baseRef: null, changedFiles: [] })),
+    }),
+    readArchiveChanges(root),
   ]);
 
-  // The archive checks are independent. An unreadable index, for example,
-  // prevents a fingerprint but still leaves the committed comparison usable.
   const stateId = fingerprint
     ? await (async () => {
         const top = await run("git", ["rev-parse", "--show-toplevel"], cwd);
-        if (top.stdout.replace(/\n$/, "") !== root)
-          throw new Error("The bound directory is not a Git checkout root");
+        if (top.stdout.replace(/\n$/, "") !== root) return UNOBSERVED_STATE;
         const identity = await lstat(root);
         const { stdout: head } = await run(
           "git",
@@ -453,7 +455,7 @@ export async function observeGitCheckout(
             ])
           )
           .digest("hex");
-      })().catch(() => UNOBSERVED_STATE)
+      })()
     : UNOBSERVED_STATE;
   return {
     path: root,

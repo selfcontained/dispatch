@@ -16,10 +16,17 @@ import {
   type ArchiveOutcome,
 } from "./archive-policy.js";
 import type { RunnerComposition } from "../runners/directory.js";
-import type { Runner } from "@dispatch/runner-protocol/contract";
+import {
+  RunnerCallError,
+  type Runner,
+} from "@dispatch/runner-protocol/contract";
 import type { RemoteRunnerService } from "./remote/service.js";
 import { resolveArchiveHooks, runLifecycleHook } from "./lifecycle-hooks.js";
-import { AgentError, LifecycleSuperseded } from "./errors.js";
+import {
+  AgentError,
+  CheckoutStatusUnavailable,
+  LifecycleSuperseded,
+} from "./errors.js";
 import type { AgentRuntime } from "./runtime.js";
 import type {
   AgentRecord,
@@ -82,6 +89,27 @@ async function getChildAgentIds(
   return result.rows.map((row) => row.id);
 }
 
+/** A borrower must never run a repository's destructive cleanup in its owner's checkout. */
+async function skipArchiveHook(
+  pool: Pool,
+  agent: AgentRecord
+): Promise<boolean> {
+  if (agent.worktreePath) return false;
+  const { rows } = await pool.query<{ borrowed: boolean }>(
+    `SELECT EXISTS (
+      SELECT 1 FROM agents a WHERE a.id = $1 AND (
+        (a.runner_worktree_owner IS NOT NULL AND a.runner_worktree_owner <> a.id)
+        OR (a.worktree_path IS NULL AND EXISTS (
+          SELECT 1 FROM agents owner WHERE owner.id <> a.id
+          AND owner.worktree_path = a.cwd AND (owner.deleted_at IS NULL OR owner.runner_cleanup_pending)
+        ))
+      )
+    ) AS borrowed`,
+    [agent.id]
+  );
+  return rows[0]?.borrowed === true;
+}
+
 /** Read the effects of the target and its cascade without running a hook. */
 export async function previewArchive(
   deps: Pick<
@@ -99,20 +127,31 @@ export async function previewArchive(
   const seen = new Set([id]);
   const pending = [target];
   for (const agent of pending) {
-    for await (const { hook } of resolveArchiveHooks(agent, {
-      remote: deps.remote,
-      child: deps.localRunnerChild,
-    })) {
-      if (hook.description) cleanupDescriptions.add(hook.description);
-    }
+    if (!(await skipArchiveHook(pool, agent)))
+      for await (const { hook } of resolveArchiveHooks(agent, {
+        remote: deps.remote,
+        child: deps.localRunnerChild,
+      })) {
+        if (hook.description) cleanupDescriptions.add(hook.description);
+      }
     for (const childId of await getChildAgentIds(pool, agent.id)) {
       if (seen.has(childId)) continue;
       seen.add(childId);
       pending.push(await getRequiredAgent(childId));
     }
   }
-  const status = target.worktreePath ? await readStatus(target) : null;
+  let status = null;
+  let unreadable = false;
+  if (target.worktreePath) {
+    try {
+      status = await readStatus(target);
+    } catch (error) {
+      if (!(error instanceof CheckoutStatusUnavailable)) throw error;
+      unreadable = true;
+    }
+  }
   return {
+    ...(unreadable && { worktreeStatusUnreadable: true }),
     worktreeStatus: status && {
       hasWorktree: status.hasWorktree,
       hasUnmergedCommits: status.hasUnmergedCommits,
@@ -153,25 +192,39 @@ export async function archiveCheckout(
     return { kind: "kept", reason: "notManaged" };
   const executor = archiveExecutor(pool, agent, runner, stopped);
   const budget = runner.cleanupBudgetMs;
+  if (budget === undefined)
+    return finishArchiveCheckout(pool, logger, agent, mode, executor, hooks);
+
+  // A late observation cannot authorize a release after the budget expired.
+  const deadline = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      finishArchiveCheckout(pool, logger, agent, mode, executor, hooks),
-      ...(budget === undefined
-        ? []
-        : [
-            new Promise<never>((_, reject) => {
-              timer = setTimeout(
-                () =>
-                  reject(
-                    new Error(`Worktree cleanup timed out after ${budget}ms`)
-                  ),
-                budget
-              );
-            }),
-          ]),
+      finishArchiveCheckout(
+        pool,
+        logger,
+        agent,
+        mode,
+        executor,
+        hooks,
+        mode === "auto" ? deadline.signal : undefined
+      ),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new Error(
+            `Worktree cleanup timed out after ${budget}ms`
+          );
+          deadline.abort(error);
+          reject(error);
+        }, budget);
+      }),
     ]);
   } catch (err) {
+    if (mode === "auto" && deadline.signal.aborted)
+      await pool.query(
+        "UPDATE agents SET archive_cleanup_mode = 'keep', archive_checkout_state = NULL WHERE id = $1",
+        [agent.id]
+      );
     const failure = archiveFailure(policy);
     logger.warn(
       { err, agentId: agent.id, worktreePath: agent.worktreePath },
@@ -303,13 +356,18 @@ export async function executeArchive(
     }
     durations.stop = Date.now() - t;
 
-    await runLifecycleHook(
-      "archive",
-      agent,
-      logger,
-      { remote: deps.remote, child: deps.localRunnerChild },
-      deps.whileFenced && ((request) => deps.whileFenced!(agent, request))
-    );
+    if (!(await skipArchiveHook(pool, agent)))
+      await runLifecycleHook(
+        "archive",
+        agent,
+        logger,
+        {
+          remote: deps.remote,
+          child: deps.localRunnerChild,
+          recordArchivePhase: (phase) => deps.setArchivePhase(id, phase),
+        },
+        deps.whileFenced && ((request) => deps.whileFenced!(agent, request))
+      );
 
     const publishPhase = async (phase: ArchivePhase) => {
       await deps.setArchivePhase(id, phase);
@@ -377,6 +435,8 @@ export async function executeArchive(
     callbacks.onComplete(deletedIds);
   } catch (error) {
     if (error instanceof LifecycleSuperseded) return;
+    if (error instanceof RunnerCallError && error.code === "unavailable")
+      return;
     logger.error({ err: error, agentId: id }, "Archive failed");
     try {
       await deps.setAgentStatus(
@@ -476,17 +536,26 @@ export async function deleteAgentDirect(
   }
 
   try {
-    await runLifecycleHook(
-      "archive",
-      agent,
-      logger,
-      { remote: deps.remote, child: deps.localRunnerChild },
-      deps.whileFenced &&
-        ((request) =>
-          deps.whileFenced!({ ...agent, status: "archiving" }, request))
-    );
+    if (!(await skipArchiveHook(pool, agent)))
+      await runLifecycleHook(
+        "archive",
+        agent,
+        logger,
+        {
+          remote: deps.remote,
+          child: deps.localRunnerChild,
+          recordArchivePhase: (phase) => deps.setArchivePhase(id, phase),
+        },
+        deps.whileFenced &&
+          ((request) =>
+            deps.whileFenced!({ ...agent, status: "archiving" }, request))
+      );
   } catch (error) {
-    if (error instanceof LifecycleSuperseded) return [];
+    if (
+      error instanceof LifecycleSuperseded ||
+      (error instanceof RunnerCallError && error.code === "unavailable")
+    )
+      return [];
     await deps.setAgentStatus(
       id,
       "error",

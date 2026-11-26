@@ -6,6 +6,7 @@ import {
   type CheckoutReleaseResult,
 } from "@dispatch/runner-protocol";
 import {
+  RunnerCallError,
   displayPath,
   sessionFromWire,
   type Runner,
@@ -80,12 +81,14 @@ export async function finishArchiveCheckout(
   agent: ArchiveCheckoutAgent,
   mode: WorktreeCleanupMode,
   executor: ArchiveExecutor,
-  hooks: ArchiveCheckoutHooks = {}
+  hooks: ArchiveCheckoutHooks = {},
+  budget?: AbortSignal
 ): Promise<ArchiveOutcome> {
   if (!executor.ready) return { kind: "pending", reason: "unavailable" };
   try {
     const started = Date.now();
     const coOwner = await executor.coOwner?.();
+    if (budget?.aborted) return { kind: "kept", reason: "failed" };
     if (coOwner) {
       logger.warn(
         {
@@ -98,7 +101,29 @@ export async function finishArchiveCheckout(
       );
       return { kind: "kept", reason: "coOwner" };
     }
-    const observation = mode === "keep" ? null : await executor.observe(mode);
+    let observation: CheckoutObservation | null = null;
+    if (mode !== "keep") {
+      try {
+        observation = await executor.observe(mode);
+      } catch (err) {
+        if (budget?.aborted) return { kind: "kept", reason: "failed" };
+        if (
+          mode !== "auto" ||
+          (err instanceof RunnerCallError && err.code === "unavailable")
+        )
+          throw err;
+        await pool.query(
+          "UPDATE agents SET archive_cleanup_mode = 'keep', archive_checkout_state = NULL WHERE id = $1",
+          [agent.id]
+        );
+        logger.warn(
+          { err, agentId: agent.id, worktreePath: agent.worktreePath },
+          "Worktree cleanup failed; leaving on disk."
+        );
+        return { kind: "kept", reason: "failed" };
+      }
+    }
+    if (budget?.aborted) return { kind: "kept", reason: "failed" };
     if (executor.releaseBound) {
       if (hooks.durations && observation)
         hooks.durations.outstandingChangesCheck = Date.now() - started;
@@ -124,6 +149,7 @@ export async function finishArchiveCheckout(
       }
       await hooks.onCleanupStart?.();
       const releaseStarted = Date.now();
+      if (budget?.aborted) return { kind: "kept", reason: "failed" };
       const removed = await executor.releaseBound();
       if (hooks.durations)
         hooks.durations.worktreeCleanup = Date.now() - releaseStarted;
@@ -132,9 +158,10 @@ export async function finishArchiveCheckout(
         : { kind: "kept", reason: "changed" };
     }
     const owned = observation?.ownership === "owned";
-    const expectedState = owned
-      ? archiveReleaseState(mode, observation.checkout)
-      : null;
+    const expectedState =
+      observation?.ownership === "owned"
+        ? archiveReleaseState(mode, observation.checkout)
+        : null;
     if (hooks.durations && observation)
       hooks.durations.outstandingChangesCheck = Date.now() - started;
     if (expectedState !== null) {
@@ -152,6 +179,7 @@ export async function finishArchiveCheckout(
       );
     }
     const releaseStarted = Date.now();
+    if (budget?.aborted) return { kind: "kept", reason: "failed" };
     const result = await executor.release(expectedState);
     if (hooks.durations && expectedState !== null)
       hooks.durations.worktreeCleanup = Date.now() - releaseStarted;
@@ -161,6 +189,7 @@ export async function finishArchiveCheckout(
       return { kind: "kept", reason: "notAuthorized" };
     return { kind: "kept", reason: "changed" };
   } catch (err) {
+    if (budget?.aborted) return { kind: "kept", reason: "failed" };
     logger.warn(
       { err, agentId: agent.id, worktreePath: agent.worktreePath },
       executor.onError.message

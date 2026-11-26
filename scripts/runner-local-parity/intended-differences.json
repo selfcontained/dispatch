@@ -58,5 +58,103 @@
     "main": "[{\"key\":\"agent_models:claude\"}]",
     "head": "[{\"key\":\"agent_models:claude\"},{\"key\":\"agent_models:opencode\"}]",
     "decision": "Owner 2026-11-25: stale-while-revalidate model discovery on every runner"
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "git > branchConfig > branch.case-7.merge",
+    "main": "<absent>",
+    "head": "\"refs/heads/main\"",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "git > branchConfig > branch.case-7.remote",
+    "main": "<absent>",
+    "head": "\"origin\"",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "git > refs > refs/heads/case-7",
+    "main": "<absent>",
+    "head": "\"c484f011a9da02965bf4c49ced8c0002b18b01ba\"",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "git > worktrees > <root>/work/repo-case-7",
+    "main": "<absent>",
+    "head": "[\"HEAD c484f011a9da02965bf4c49ced8c0002b18b01ba\",\"branch refs/heads/case-7\"]",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "status fails: directory remains",
+    "main": "false",
+    "head": "true",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "status fails: status > body > branchName",
+    "main": "\"case-7\"",
+    "head": "<absent>",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "status fails: status > body > changedFiles",
+    "main": "[]",
+    "head": "<absent>",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "status fails: status > body > error",
+    "main": "<absent>",
+    "head": "\"Checkout status is unavailable on the owning runner.\"",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "status fails: status > body > hasUncommittedChanges",
+    "main": "false",
+    "head": "<absent>",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "status fails: status > body > hasUnmergedCommits",
+    "main": "false",
+    "head": "<absent>",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "status fails: status > body > hasWorktree",
+    "main": "true",
+    "head": "<absent>",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "status fails: status > body > uncommittedFiles",
+    "main": "[]",
+    "head": "<absent>",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "status fails: status > body > worktreePath",
+    "main": "\"<root>/work/repo-case-7\"",
+    "head": "<absent>",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "status fails: status > status",
+    "main": "200",
+    "head": "503",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
   }
 ]

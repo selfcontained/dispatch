@@ -144,6 +144,30 @@ it.each([
   }
 );
 
+it("distinguishes a gone checkout root from a failed Git read at an existing root", async () => {
+  await expect(workspaceWorkload.observe(worktree)).rejects.toThrow();
+  await rm(worktree, { recursive: true });
+  expect(await workspaceWorkload.observe(worktree)).toBeNull();
+});
+
+it("does not release a checkout after a late clean observation", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const { child, call } = owningChild();
+  const serve = call.getMockImplementation()!;
+  const deferred = Promise.withResolvers<void>();
+  call.mockImplementation(async (op, input) => {
+    if (op === "workspace.observe") await deferred.promise;
+    return serve(op, input);
+  });
+  const { outcome, logger } = archive(child, "auto");
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(await outcome).toEqual({ kind: "kept", reason: "failed" });
+  deferred.resolve();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(call.mock.calls.map(([op]) => op)).not.toContain("workspace.release");
+  expect(logger.warn).toHaveBeenCalledTimes(1);
+});
+
 it("gives an enrolled runner no cleanup budget: its transport bounds it", () => {
   const enrolled = runnerDirectory({}).for(placementForRunner("enrolled-1"));
   expect(enrolled.cleanupBudgetMs).toBeUndefined();
