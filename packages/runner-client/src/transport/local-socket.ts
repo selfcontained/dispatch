@@ -286,7 +286,7 @@ const enrolledReads: ReadonlySet<OpName> = new Set<OpName>([
 ]);
 
 /** Budgets count the encoded JSON, including escaped text and worker metadata. */
-function replyBudget(op: string, input: unknown, enrolled: boolean) {
+function enrolledReplyBudget(op: string, input: unknown) {
   const metadata = 16 * 1024;
   const spec = (operations as Record<string, OperationSpec>)[op];
   if (
@@ -298,7 +298,7 @@ function replyBudget(op: string, input: unknown, enrolled: boolean) {
   if (op === "checkout.read") {
     const read = input as Req<"checkout.read">;
     const max =
-      enrolled && read.mode === "command-manifest"
+      read.mode === "command-manifest"
         ? Math.min(read.maxBytes ?? Infinity, MAX_CHECKOUT_COMMAND_FILE_BYTES)
         : read.maxBytes;
     if (max !== null && max >= 0)
@@ -323,10 +323,7 @@ function replyBudget(op: string, input: unknown, enrolled: boolean) {
     ].includes(op)
   )
     return MAX_CHECKOUT_VIEW_BYTES + metadata;
-  if (op === "files.get")
-    return enrolled
-      ? metadata
-      : metadata + 4 * Math.ceil(MAX_SESSION_FILE_BYTES / 3);
+  if (op === "files.get") return metadata;
   return DEFAULT_REPLY_BYTES;
 }
 
@@ -615,7 +612,7 @@ export class LocalSocketConnection {
       signal?.addEventListener("abort", abort, { once: true });
       this.pending.set(id, {
         op,
-        budget: replyBudget(op, input, Boolean(this.enrolled)),
+        budget: this.enrolled ? enrolledReplyBudget(op, input) : Infinity,
         onEvent,
         resolve: (value) => {
           done();
