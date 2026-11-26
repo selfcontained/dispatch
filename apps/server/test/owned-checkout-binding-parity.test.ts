@@ -157,7 +157,7 @@ it("pins main owner output and binding roots through moves, reopen and repeated 
   }
 });
 
-it("pins an accepted path whose imported binding differs from main because row import trims it", async () => {
+it("pins an accepted path with a retained pre-fix trimmed binding", async () => {
   const root = await realpath(
     await mkdtemp(path.join(tmpdir(), "owned-binding-spaces-"))
   );
@@ -173,6 +173,15 @@ it("pins an accepted path whose imported binding differs from main because row i
     expect(resolved.isDirectory).toBe(true);
     const agent = row(mainPath, null, null),
       store = new BindingStore(path.join(root, "state"));
+    // A legacy record survives repeated import; new imports are fixed in #1613.
+    await store.import([
+      {
+        session: agent.id,
+        path: importedPath,
+        currentPath: null,
+        worktree: null,
+      },
+    ]);
     await store.import([bindingFromRow(agent)]);
     expect((await store.get(agent.id))?.checkout.path).toBe(importedPath);
     expect(evidence(await loadCodeowners(agent.cwd!))).toEqual({

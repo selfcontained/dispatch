@@ -1,3 +1,4 @@
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import {
@@ -204,3 +205,112 @@ it.each(names)(
     }
   }
 );
+
+it.each(
+  names.flatMap(
+    (name) =>
+      [
+        [name, "child"],
+        [name, "no-child"],
+      ] as const
+  )
+)("reads owned through the adapter (%s, %s)", async (name, mode) => {
+  const row = fixture.rows.find((r) => r.name === name)!;
+  const agent = { ...row, placement: controllerPlacement, launchCwd: row.cwd };
+  const runner = runnerDirectory(
+    mode === "child" ? { child: () => child.session } : {},
+    agent
+  ).for(controllerPlacement);
+  const port = vi.spyOn(native.workload!, "run");
+  const calls = vi.spyOn(child.session, "call");
+  try {
+    const result = await runner
+      .call("checkout.read", {
+        target: { session: sessionFromWire(row.id), checkout: "owned" },
+        path: ".agents/owners.json",
+        encoding: "utf8",
+        maxBytes: null,
+      })
+      .then(ownerReply)
+      .catch(() => null);
+    expect(ownerEvidence(result)).toEqual(row.expected);
+    expect(port).toHaveBeenCalledTimes(mode === "child" ? 0 : 1);
+    if (mode === "no-child")
+      expect(port.mock.calls[0]?.[1].directory).toBe(row.home);
+    else
+      expect(
+        calls.mock.calls
+          .filter(([op]) => op === "checkout.read")
+          .map(([, input]) => input)
+      ).toEqual([
+        {
+          target: { session: sessionFromWire(row.id), checkout: "owned" },
+          path: ".agents/owners.json",
+          encoding: "utf8",
+          maxBytes: null,
+        },
+      ]);
+  } finally {
+    calls.mockRestore();
+    port.mockRestore();
+  }
+});
+
+it("uses main's path for a legacy mismatched binding without sending the child a wrong read", async () => {
+  const home = path.join(fixture.root, "legacy-notes "),
+    stale = path.join(fixture.root, "legacy-notes"),
+    id = "agt_stale";
+  for (const [dir, owner] of [
+    [home, "main-owner"],
+    [stale, "stale-owner"],
+  ]) {
+    await mkdir(path.join(dir, ".agents"), { recursive: true });
+    await writeFile(
+      path.join(dir, ".agents/owners.json"),
+      JSON.stringify({
+        version: 1,
+        rules: [{ paths: ["src/**"], personas: [owner] }],
+      })
+    );
+  }
+  // A pre-fix binding is deliberately retained even after a correct row arrives.
+  const store = new BindingStore(state);
+  await store.import([
+    { session: id, path: stale, currentPath: null, worktree: null },
+  ]);
+  await store.import([
+    { session: id, path: home, currentPath: null, worktree: null },
+  ]);
+  await child.session.call("runner.describe", {});
+  const calls = vi.spyOn(child.session, "call"),
+    port = vi.spyOn(native.workload!, "run");
+  const agent = {
+    id,
+    cwd: home,
+    worktreePath: null,
+    workspacePath: null,
+    placement: controllerPlacement,
+  };
+  try {
+    const result = await runnerDirectory({ child: () => child.session }, agent)
+      .for(controllerPlacement)
+      .call("checkout.read", {
+        target: { session: sessionFromWire(id), checkout: "owned" },
+        path: ".agents/owners.json",
+        encoding: "utf8",
+        maxBytes: null,
+      });
+    expect(ownerEvidence(ownerReply(result))).toEqual({ "main-owner": 1 });
+    expect(calls.mock.calls.filter(([op]) => op === "checkout.read")).toEqual(
+      []
+    );
+    expect(
+      calls.mock.calls.filter(([op]) => op === "workspace.describe")
+    ).toHaveLength(1);
+    expect(port).toHaveBeenCalledTimes(1);
+    expect(port.mock.calls[0]?.[1].directory).toBe(home);
+  } finally {
+    calls.mockRestore();
+    port.mockRestore();
+  }
+});
