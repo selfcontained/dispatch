@@ -1362,6 +1362,10 @@ async function registerRoutes() {
     return coordinator;
   };
   await registerSystemRoutes(app, {
+    runners: {
+      remote: remoteRunner,
+      child: () => localRunnerOf(localRunnerProcess),
+    },
     runnerEngines: (runnerId) => {
       const scope = engineScopeForRunner(runnerId);
       return {
