@@ -147,6 +147,7 @@
         "apps/server/test/helpers/provider-plans-reporter.ts",
         "apps/server/src/agents/provider-plans-reporter.ts",
         "apps/server/src/runners/enrolled/engine-ack.ts",
+        "apps/server/src/runners/enrolled/host-session-client.ts",
         "apps/server/test/engine-detected-update-order.test.ts",
         "apps/server/test/engine-update-cache-order.test.ts",
         "apps/server/test/engine-capability-routing.test.ts",
