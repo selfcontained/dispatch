@@ -574,18 +574,9 @@ export function createLocalCheckoutRunner(
     const answered =
       (await childHolds(target.session, selector, directory, options)) &&
       (await attempt(
-        (child) =>
-          child.call(
-            "checkout.exec",
-            "path" in input.guard
-              ? {
-                  ...input,
-                  guard: input.guard,
-                  target: { session: target.session, checkout: selector },
-                }
-              : input,
-            once(options)
-          ),
+        // The child admits mutations through its fence before validating the
+        // request. Its checkout handler also defaults a missing selector to current.
+        (child) => child.call("checkout.exec", input, once(options)),
         neverSent,
         options?.signal
       ));

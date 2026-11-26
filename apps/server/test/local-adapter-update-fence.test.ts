@@ -8,7 +8,14 @@ import { inProcessPorts } from "../src/runners/in-process.js";
  * answer. Thawed, mutations are made again.
  */
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -65,7 +72,7 @@ const outcome = (run: () => Promise<unknown>) =>
   );
 
 /** Each mutation the adapter serves, and what it would have changed. */
-const mutations = () => ({
+const mutations = (digest: string, identity: string) => ({
   "checkout.write": () =>
     adapter().call("checkout.write", {
       target: { session, checkout: "current" },
@@ -73,7 +80,28 @@ const mutations = () => ({
       data: "x",
       expectedDigest: null,
     }),
-  "checkout.exec": () =>
+  "checkout.exec (file digest)": () =>
+    adapter().call("checkout.exec", {
+      target: { session },
+      guard: { path: "a.txt", digest },
+      argv: ["touch", "exec-ran.txt"],
+      env: {},
+      timeoutMs: 5000,
+      maxOutput: null,
+      shell: "direct",
+    }),
+  "checkout.exec (resolved root)": () =>
+    adapter().call("checkout.exec", {
+      target: { session, checkout: "launch" },
+      guard: { root: pathFromWire(repo), identity },
+      argv: ["touch", "exec-ran.txt"],
+      env: {},
+      timeoutMs: 5000,
+      maxOutput: null,
+      shell: "direct",
+    }),
+  // Admission also precedes wire validation for a malformed request.
+  "checkout.exec (malformed)": () =>
     adapter().call("checkout.exec", {
       target: { session, checkout: "current" },
       command: ["touch", "exec-ran.txt"],
@@ -152,16 +180,26 @@ describe("mutations while the app's update fence is wanted", () => {
       vi.spyOn(sessionFilesWorkload, "put"),
     ];
     try {
+      const manifest = await adapter().readManifest({
+        kind: "read",
+        checkout: "effective",
+        path: "a.txt",
+      });
+      const dir = await stat(repo, { bigint: true });
+      const requests = mutations(manifest!.state, `${dir.dev}:${dir.ino}`);
       await local.freeze();
       expect(local.frozen).toBe(true);
       // Reachable and frozen: the child refuses.
-      for (const [op, run] of Object.entries(mutations()))
+      for (const [op, run] of Object.entries(requests))
         expect(await outcome(run), op).toBe("fenced");
       // The child is away (disconnected); it would come back frozen.
       local.runner.setEndpoint(null);
-      for (const [op, run] of Object.entries(mutations()))
+      for (const [op, run] of Object.entries(requests))
         expect(await outcome(run), op).toBe("fenced");
       for (const spy of here) expect(spy).not.toHaveBeenCalled();
+      await expect(stat(join(repo, "exec-ran.txt"))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
       // Reads are not fenced: they answer here.
       expect(
         await adapter().call("checkout.read", {
@@ -177,7 +215,7 @@ describe("mutations while the app's update fence is wanted", () => {
       // Thawed: a mutation the child cannot take is made here again.
       await local.thaw();
       expect(local.frozen).toBe(false);
-      expect(await outcome(mutations()["checkout.write"])).toBe("made");
+      expect(await outcome(requests["checkout.write"])).toBe("made");
       expect(
         here[0]!.mock.calls.filter(([op]) => op === "checkout.write")
       ).toHaveLength(1);
