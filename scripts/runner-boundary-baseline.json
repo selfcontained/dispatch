@@ -88,14 +88,7 @@
     "kind": "R1 placement read",
     "detail": "placement.runner",
     "task": "T07",
-    "count": 14
-  },
-  {
-    "file": "apps/server/src/agents/remote/service.ts",
-    "kind": "R2 host access",
-    "detail": "fs",
-    "task": "T04",
-    "count": 1
+    "count": 5
   },
   {
     "file": "apps/server/src/agents/remote/service.ts",

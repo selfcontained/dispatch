@@ -31,8 +31,8 @@ import {
   type EnrollmentRequest,
   type EnrollmentReply,
 } from "../../../packages/runner/src/workload/agents/remote/protocol.js";
-import { wireFrames } from "../src/runners/enrolled/v1-framing.js";
-import type { StreamFrame } from "../src/runners/enrolled/v1-framing.js";
+import { wireFrames } from "@dispatch/runner-client/v1/node";
+import type { StreamFrame } from "@dispatch/runner-client/v1/node";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 const HOST = "127.0.0.1";
@@ -98,7 +98,6 @@ describe("runner-initiated connect enrollment", () => {
 
   const makeService = (approvalOrigin?: string) => {
     const service = new RemoteRunnerService(
-      undefined,
       {
         registry: new RunnerRegistry(pool),
         host: HOST,
@@ -255,7 +254,7 @@ describe("runner-initiated connect enrollment", () => {
   it("rejects a malformed DISPATCH_RUNNER_APPROVAL_ORIGIN", () => {
     expect(
       () =>
-        new RemoteRunnerService(undefined, {
+        new RemoteRunnerService({
           registry: new RunnerRegistry(pool),
           host: HOST,
           approvalOrigin: "https://example.com/settings",
@@ -263,7 +262,7 @@ describe("runner-initiated connect enrollment", () => {
     ).toThrow(/bare origin/);
     expect(
       () =>
-        new RemoteRunnerService(undefined, {
+        new RemoteRunnerService({
           registry: new RunnerRegistry(pool),
           host: HOST,
           approvalOrigin: "ftp://example.com",

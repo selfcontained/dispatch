@@ -76,3 +76,6 @@ export async function withSessionPeer<K extends OpName, T>(
     throw unavailable();
   return await send(peer.connection);
 }
+
+export { operationChannel as openOperationChannel } from "@dispatch/runner-client/session";
+export type OperationConnection = LocalSocketConnection;

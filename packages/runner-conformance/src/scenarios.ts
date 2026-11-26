@@ -1034,41 +1034,6 @@ const workspacePreparation: Scenario[] = [
         phases.includes("copy") && phases.at(-1) === "ready",
         "Resume did not finish its recorded worktree."
       );
-
-      // A session launched by the original wire command still uses its old binding.
-      const legacy = sessionFromWire("legacy-scratch");
-      await runner.call("session.launch", launchRequest(legacy));
-      try {
-        const legacyBinding = await runner.call("workspace.resume", {
-          session: legacy,
-        });
-        expect(
-          legacyBinding?.worktree === undefined && !!legacyBinding?.path,
-          "Legacy binding was replaced."
-        );
-        expect(
-          (await runner.call("session.alive", { session: legacy })).state ===
-            "live",
-          "Legacy host stopped during resume."
-        );
-        await runner.call("session.stop", { session: legacy, force: true });
-        await runner.call("session.launch", launchRequest(legacy));
-        expect(
-          (await runner.call("workspace.describe", { session: legacy }))
-            .path === legacyBinding.path,
-          "Restart changed the legacy checkout."
-        );
-        const current = await runner.call("git.defaultBranch", {
-          target: { session: legacy },
-        });
-        expect(
-          current.branch === null && current.currentBranch === null,
-          "Legacy scratch checkout read failed."
-        );
-      } finally {
-        await runner.call("session.stop", { session: legacy, force: true });
-        await runner.call("session.discard", { session: legacy });
-      }
     },
   },
 ];

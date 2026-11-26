@@ -66,9 +66,9 @@ import { createLinuxPrivsep } from "../../../packages/runner/src/platform/linux-
 import { storageKey } from "../../../packages/runner/src/platform/linux-privsep/layout.js";
 import {
   startTerminalWorker,
-  streamCheckoutWorker,
+  streamCommandOutput,
 } from "../../../packages/runner/src/workload/agents/remote/runner.js";
-import { FlowStreams } from "../src/runners/enrolled/v1-framing.js";
+import { FlowStreams } from "@dispatch/runner-client/v1/node";
 
 import {
   observeGitCheckout,
@@ -391,7 +391,7 @@ describe("runner session supervision", () => {
     const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(3000)]);
     const started = path.join(root, "checkout-started");
     const release = path.join(root, "checkout-release");
-    let work: Promise<string> | undefined;
+    let work: ReturnType<typeof streamCommandOutput> | undefined;
     try {
       expect(terminal.stdio).toHaveLength(3);
       expect(await text(terminal.stderr)).toBe("ready");
@@ -412,7 +412,7 @@ describe("runner session supervision", () => {
         )
       );
       void output.catch(() => {});
-      work = streamCheckoutWorker(
+      work = streamCommandOutput(
         [
           process.execPath,
           "-e",
@@ -434,15 +434,9 @@ describe("runner session supervision", () => {
         ],
         {},
         "",
-        {
-          stdout: "stdout",
-          stderr: "stderr",
-          shell: "direct",
-          env: {},
-          timeoutMs: null,
-          maxOutput: null,
-        },
-        streams,
+        null,
+        (name, source, active) =>
+          streams.send(name, source, active, { stall: "blocked" }),
         signal
       );
       void work.catch(() => {});
@@ -503,7 +497,7 @@ describe("runner session supervision", () => {
       root,
       abort.signal,
       () =>
-        streamCheckoutWorker(
+        streamCommandOutput(
           [
             process.execPath,
             "-e",
@@ -516,15 +510,9 @@ describe("runner session supervision", () => {
           ],
           {},
           "",
-          {
-            stdout: "stdout",
-            stderr: "stderr",
-            shell: "direct",
-            env: {},
-            timeoutMs: null,
-            maxOutput: null,
-          },
-          streams,
+          null,
+          (name, source, active) =>
+            streams.send(name, source, active, { stall: "blocked" }),
           abort.signal
         )
     );

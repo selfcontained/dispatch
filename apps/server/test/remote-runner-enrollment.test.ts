@@ -17,18 +17,17 @@ import {
 } from "vitest";
 import { exchangeCode } from "../../../packages/runner/src/workload/agents/remote/enrollment.js";
 import {
-  type Frame,
+  type RunnerHealth,
   type EnrollmentRequest,
   type EnrollmentReply,
 } from "../../../packages/runner/src/workload/agents/remote/protocol.js";
-import { wireFrames } from "../src/runners/enrolled/v1-framing.js";
+import { wireFrames } from "@dispatch/runner-client/v1/node";
 import { RunnerRegistry } from "../src/agents/remote/registry.js";
 import {
   advertisedHost,
   RemoteRunnerService,
   RunnerRequestError,
   RunnerUnavailable,
-  RunnerAcknowledgementLost,
   RunnerRevoked,
 } from "../src/agents/remote/service.js";
 import { generateRunnerKey } from "../../../packages/runner/src/workload/agents/remote/x509.js";
@@ -52,38 +51,28 @@ function parseCommand(command: string) {
   };
 }
 
+type Request = { id: number; op: string; input: unknown };
 type FakeRunner = {
   socket: TLSSocket;
   closed: Promise<void>;
-  requests: Frame[];
+  requests: Request[];
   send: (frame: unknown) => void;
 };
 
-/** A minimal runner peer: mTLS, `ready`, and replies naming itself. */
+/** A certificate-authenticated operation peer for enrollment and revocation tests. */
 function dialRunner(input: {
   endpoint: string;
   ca: string;
   cert: string;
   key: string;
   label: string;
-  workspaces: string[];
   answer?: boolean;
-  health?: Extract<Frame, { type: "health" }>["sample"];
-  managedWorkspace?: true;
-  sharedWorktree?: true;
-  checkoutInspection?: true;
-  defaultBranchFiles?: true;
-  githubManagement?: true;
-  engineManagement?: true;
-  engineCapabilities?: true;
-  pullRequestStatus?: true;
-  sessionFiles?: true;
-  launchReconcile?: true;
+  health?: RunnerHealth;
   selfUpdate?: object;
 }): Promise<FakeRunner> {
   const url = new URL(input.endpoint);
   return new Promise((resolve, reject) => {
-    const requests: Frame[] = [];
+    const requests: Request[] = [];
     const socket = connect({
       host: url.hostname,
       port: Number(url.port),
@@ -94,33 +83,42 @@ function dialRunner(input: {
     });
     const closed = new Promise<void>((done) => socket.on("close", done));
     socket.on("error", reject);
-    const send = wireFrames<Frame, unknown>(socket, (frame) => {
+    const send = wireFrames<Request, unknown>(socket, (frame) => {
+      if (!frame.op) return;
+      const value = (value: unknown) => send({ id: frame.id, ok: true, value });
+      if (frame.op === "runner.describe")
+        return value({
+          runnerId: input.label,
+          displayName: input.label,
+          build: { version: "1.0" },
+          protocol: 1,
+          engines: [],
+          capabilities: input.selfUpdate
+            ? { selfUpdate: input.selfUpdate }
+            : {},
+        });
+      if (frame.op === "runner.health") {
+        if (input.health) value(input.health);
+        else
+          send({
+            id: frame.id,
+            ok: false,
+            error: { code: "unavailable", message: "No sample" },
+          });
+        return;
+      }
+      if (frame.op === "engine.list") return value({ entries: [] });
       requests.push(frame);
-      if (frame.type === "accept_health" && input.health)
-        send({ type: "health", sample: input.health });
-      if (frame.type === "request" && input.answer !== false)
-        send({ type: "result", id: frame.id, value: input.label });
+      if (input.answer !== false && frame.op === "github.repositories")
+        value({
+          repositories: [
+            { name: input.label, url: "https://example.invalid/test" },
+          ],
+        });
     });
-    socket.once("secureConnect", () => {
-      send({
-        type: "ready",
-        version: 1,
-        workspaces: input.workspaces,
-        ...(input.health ? { health: true as const } : {}),
-        managedWorkspace: input.managedWorkspace,
-        sharedWorktree: input.sharedWorktree,
-        checkoutInspection: input.checkoutInspection,
-        defaultBranchFiles: input.defaultBranchFiles,
-        githubManagement: input.githubManagement,
-        engineManagement: input.engineManagement,
-        engineCapabilities: input.engineCapabilities,
-        pullRequestStatus: input.pullRequestStatus,
-        sessionFiles: input.sessionFiles,
-        launchReconcile: input.launchReconcile,
-        ...(input.selfUpdate ? { selfUpdate: input.selfUpdate } : {}),
-      });
-      resolve({ socket, closed, requests, send });
-    });
+    socket.once("secureConnect", () =>
+      resolve({ socket, closed, requests, send })
+    );
   });
 }
 
@@ -172,7 +170,6 @@ describe("runner enrollment service", () => {
 
   const makeService = () => {
     const service = new RemoteRunnerService(
-      undefined,
       {
         registry: new RunnerRegistry(pool),
         host: HOST,
@@ -241,47 +238,6 @@ describe("runner enrollment service", () => {
     expect(await registry.list()).toEqual([]);
   });
 
-  it("keeps PR status enabled on a peer without the evidence capability", async () => {
-    const service = makeService();
-    const enrolled = await enroll(service, "legacy-github");
-    const peer = await dialRunner({
-      ...enrolled,
-      workspaces: ["work"],
-      githubManagement: true,
-      pullRequestStatus: true,
-      label: JSON.stringify({
-        state: "OPEN",
-        draft: false,
-        title: "PR",
-        head: null,
-        rollup: null,
-      }),
-    });
-    runners.push(peer);
-    const runnerId = enrolled.created.id;
-    await waitFor(() =>
-      service.available({ runner: runnerId, workspace: "work" })
-    );
-    const pr = { owner: "example", repo: "repo", number: 1 };
-    expect(await service.readPullRequestStatus(runnerId, pr)).toMatchObject({
-      state: "OPEN",
-    });
-    await expect(service.readPullRequestDetails(runnerId, pr)).rejects.toThrow(
-      /update.*evidence/i
-    );
-    await expect(
-      service.readPullRequestDiff(runnerId, {
-        ...pr,
-        base: "a".repeat(40),
-        head: "b".repeat(40),
-        context: "a".repeat(64),
-      })
-    ).rejects.toThrow(/update.*evidence/i);
-    expect(
-      peer.requests.filter((frame) => frame.type === "request")
-    ).toHaveLength(1);
-  });
-
   it("negotiates supervisor update frames only with an advertising peer", async () => {
     const service = makeService();
     const revision = "b".repeat(40);
@@ -298,13 +254,11 @@ describe("runner enrollment service", () => {
     const older = await enroll(service, "older");
     const currentPeer = await dialRunner({
       ...current,
-      workspaces: ["work"],
       label: "current",
       selfUpdate: advert,
     });
     const olderPeer = await dialRunner({
       ...older,
-      workspaces: ["work"],
       label: "older",
     });
     runners.push(currentPeer, olderPeer);
@@ -324,7 +278,7 @@ describe("runner enrollment service", () => {
       revision: "d".repeat(40),
     };
 
-    // An old runner sees exactly the old handshake and nothing new.
+    // A runner without protected update support receives no update operation.
     expect(service.selfUpdate(olderId)).toBeUndefined();
     expect(() => service.offerUpdate(olderId, attemptId, target)).toThrow(
       /does not support supervisor updates/
@@ -361,11 +315,9 @@ describe("runner enrollment service", () => {
       )
     ).toThrow(TypeError);
     await waitFor(() => currentPeer.requests.length === 1);
-    expect(currentPeer.requests[0]).toEqual({
-      type: "update_offer",
-      attemptId,
-      target,
-      retry: false,
+    expect(currentPeer.requests[0]).toMatchObject({
+      op: "update.offer",
+      input: { attempt: attemptId, target, retry: false },
     });
 
     const status = {
@@ -404,7 +356,6 @@ describe("runner enrollment service", () => {
     };
     const peer = await dialRunner({
       ...enrolled,
-      workspaces: ["work"],
       label: "unreadable",
       selfUpdate: { ...advert, fenceUnreadable: true },
     });
@@ -431,36 +382,6 @@ describe("runner enrollment service", () => {
     stop();
   });
 
-  it("rejects checkout commands on an older peer while preserving the workspace operation", async () => {
-    const service = makeService();
-    const enrolled = await enroll(service, "legacy-checkout");
-    const placement = { runner: enrolled.created.id, workspace: "work" };
-    const peer = await dialRunner({
-      ...enrolled,
-      workspaces: ["work"],
-      label: "approved",
-    });
-    runners.push(peer);
-    await waitFor(() => service.available(placement));
-
-    await expect(
-      service.requestSession(placement, {
-        kind: "checkoutCommand",
-        agentId: "session",
-        operation: { kind: "read", checkout: "effective", path: "tools.json" },
-      })
-    ).rejects.toThrow(/update.*checkout commands/i);
-    await expect(
-      service.requestSession(placement, {
-        kind: "repo",
-        agentId: "session",
-      })
-    ).resolves.toMatchObject({ value: "approved" });
-    expect(
-      peer.requests.filter((frame) => frame.type === "request")
-    ).toHaveLength(1);
-  });
-
   it("pairs with a one-time code over a pinned CA and lists the runner", async () => {
     const service = makeService();
     const created = await service.createRegistration("alpha");
@@ -469,7 +390,7 @@ describe("runner enrollment service", () => {
     expect(created.command).toMatch(
       /^dispatch-runner remote-runner-pair --endpoint https:\/\/127\.0\.0\.1:\d+ --ca-sha256 [a-f0-9]{64} --code \S+$/
     );
-    expect(await service.list()).toEqual([
+    expect(await service.list()).toMatchObject([
       {
         id: created.id,
         name: "alpha",
@@ -477,7 +398,6 @@ describe("runner enrollment service", () => {
         automaticUpdates: true,
         engineManagement: false,
         githubManagement: false,
-        workspaces: [],
       },
     ]);
 
@@ -517,7 +437,6 @@ describe("runner enrollment service", () => {
         cert: enrolled.cert,
         key: runnerKey.key,
         label: "alpha",
-        workspaces: ["proof"],
       })
     );
     await waitFor(() =>
@@ -527,15 +446,14 @@ describe("runner enrollment service", () => {
     expect(service.available({ runner: "alpha", workspace: "proof" })).toBe(
       false
     );
-    expect(await service.list()).toEqual([
+    expect(await service.list()).toMatchObject([
       {
         id: created.id,
         name: "alpha",
         status: "online",
         automaticUpdates: true,
-        engineManagement: false,
-        githubManagement: false,
-        workspaces: ["proof"],
+        engineManagement: true,
+        githubManagement: true,
       },
     ]);
   });
@@ -562,7 +480,7 @@ describe("runner enrollment service", () => {
     );
   });
 
-  it("stores a negotiated runner-pushed sample under the peer identity and retains it offline", async () => {
+  it("stores a requested health sample under the peer identity and retains it offline", async () => {
     const service = makeService();
     const alpha = await enroll(service, "alpha");
     const beta = await enroll(service, "beta");
@@ -577,7 +495,6 @@ describe("runner enrollment service", () => {
     const runner = await dialRunner({
       ...alpha,
       label: "alpha",
-      workspaces: ["proof"],
       health,
     });
     runners.push(runner);
@@ -617,7 +534,7 @@ describe("runner enrollment service", () => {
     );
   });
 
-  it("routes identically named workspaces to independent peers and revokes one", async () => {
+  it("routes operations to independent registrations and revokes one", async () => {
     const service = makeService();
     const a = await enroll(service, "alpha");
     const b = await enroll(service, "beta");
@@ -627,7 +544,6 @@ describe("runner enrollment service", () => {
       cert: a.cert,
       key: a.key,
       label: "alpha",
-      workspaces: ["proof"],
       answer: false,
     });
     const beta = await dialRunner({
@@ -636,7 +552,6 @@ describe("runner enrollment service", () => {
       cert: b.cert,
       key: b.key,
       label: "beta",
-      workspaces: ["proof"],
     });
     runners.push(alpha, beta);
     const alphaPlace = { runner: a.id, workspace: "proof" };
@@ -644,22 +559,21 @@ describe("runner enrollment service", () => {
     await waitFor(
       () => service.available(alphaPlace) && service.available(betaPlace)
     );
-    const command = {
-      kind: "alive",
-      agentId: "agt_x",
-      workspace: "proof",
-    } as const;
-    expect((await service.request(betaPlace, command)).value).toBe("beta");
-    expect(alpha.requests.filter((f) => f.type === "request")).toHaveLength(0);
-
-    // Alpha holds a request open; revoking it fails only alpha's request.
-    const inFlight = service.request(alphaPlace, command);
-    await waitFor(() => alpha.requests.some((f) => f.type === "request"));
+    const query = (id: string, peer = service) =>
+      peer.call(id, "github.repositories", { query: "x" });
+    expect((await query(b.id)).repositories[0]?.name).toBe("beta");
+    expect(alpha.requests).toHaveLength(0);
+    const inFlight = expect(query(a.id)).rejects.toMatchObject({
+      code: "unavailable",
+    });
+    await waitFor(() =>
+      alpha.requests.some((f) => f.op === "github.repositories")
+    );
     await service.revoke(a.id);
-    await expect(inFlight).rejects.toBeInstanceOf(RunnerUnavailable);
+    await inFlight;
     await alpha.closed;
     expect(service.available(alphaPlace)).toBe(false);
-    expect((await service.request(betaPlace, command)).value).toBe("beta");
+    expect((await query(b.id)).repositories[0]?.name).toBe("beta");
 
     expect((await service.list()).find((r) => r.id === a.id)?.status).toBe(
       "revoked"
@@ -676,26 +590,21 @@ describe("runner enrollment service", () => {
       cert: a.cert,
       key: a.key,
       label: "alpha",
-      workspaces: ["proof"],
     }).catch(() => undefined);
     if (again) {
       runners.push(again);
       await again.closed;
     }
     expect(service.available(alphaPlace)).toBe(false);
-    await expect(service.request(alphaPlace, command)).rejects.toBeInstanceOf(
-      RunnerRevoked
-    );
-    expect((await service.request(betaPlace, command)).value).toBe("beta");
+    await expect(query(a.id)).rejects.toBeInstanceOf(RunnerRevoked);
+    expect((await query(b.id)).repositories[0]?.name).toBe("beta");
     // A fresh service rebuilds the roster from persisted registrations.
     service.close();
     const restarted = makeService();
     expect((await restarted.list()).map((r) => [r.id, r.status])).toEqual([
       [b.id, "offline"],
     ]);
-    await expect(restarted.request(alphaPlace, command)).rejects.toBeInstanceOf(
-      RunnerRevoked
-    );
+    await expect(query(a.id, restarted)).rejects.toBeInstanceOf(RunnerRevoked);
     await expect(restarted.revoke("rnr_missing")).rejects.toMatchObject({
       status: 404,
     });
@@ -713,7 +622,6 @@ describe("runner enrollment service", () => {
       cert,
       key: key.key,
       label: "rogue",
-      workspaces: ["proof"],
     });
     runners.push(rogue);
     await rogue.closed;
@@ -739,19 +647,14 @@ describe("runner enrollment service", () => {
       cert: fresh.cert,
       key: fresh.key,
       label: "fresh",
-      workspaces: ["proof"],
     });
     runners.push(runner);
     await waitFor(() => service.available(freshPlace));
     expect(service.available(oldPlace)).toBe(false);
     await expect(
-      service.request(oldPlace, {
-        kind: "alive",
-        agentId: "agt_old",
-        workspace: "proof",
-      })
+      service.call(oldPlace.runner, "github.repositories", { query: "x" })
     ).rejects.toBeInstanceOf(RunnerRevoked);
-    expect(runner.requests.some((f) => f.type === "request")).toBe(false);
+    expect(runner.requests.length > 0).toBe(false);
     expect(
       service.permitsAgentMcp({ runner: "rnr_unknown", workspace: "proof" })
     ).toBe(false);
@@ -772,7 +675,6 @@ describe("runner enrollment service", () => {
       cert: a.cert,
       key: a.key,
       label: "old",
-      workspaces: ["proof"],
     });
     runners.push(before);
     await waitFor(() => service.available(place));
@@ -796,7 +698,6 @@ describe("runner enrollment service", () => {
       cert: a.cert,
       key: a.key,
       label: "old",
-      workspaces: ["proof"],
     });
     runners.push(stale);
     await stale.closed;
@@ -806,257 +707,16 @@ describe("runner enrollment service", () => {
       cert: renewed.cert,
       key: key.key,
       label: "new",
-      workspaces: ["proof"],
     });
     runners.push(after);
     await waitFor(() => service.available(place));
     expect(
-      (
-        await service.request(place, {
-          kind: "alive",
-          agentId: "agt_x",
-          workspace: "proof",
-        })
-      ).value
+      (await service.call(a.id, "github.repositories", { query: "x" }))
+        .repositories[0]?.name
     ).toBe("new");
     await service.revoke(a.id);
     await expect(service.reissueRegistration(a.id)).rejects.toMatchObject({
       status: 404,
-    });
-  });
-
-  it("gates worktree reuse, inspection and terminals before sending requests to older peers", async () => {
-    const service = makeService();
-    const a = await enroll(service, "alpha");
-    const placement = { runner: a.id, workspace: "@session" };
-    const legacy = await dialRunner({
-      ...a,
-      label: "old",
-      workspaces: ["@session"],
-    });
-    await waitFor(() => service.available(placement));
-    const query = {
-      kind: "inspectCheckout",
-      agentId: "author",
-      query: { kind: "changes", baseBranch: null },
-    } as const;
-    const defaultFiles = {
-      ...query,
-      query: {
-        kind: "defaultBranchFiles" as const,
-        directories: [".config"],
-        waitForRefresh: false,
-      },
-    };
-    const launch = {
-      kind: "launch",
-      agentId: "reviewer",
-      launch: {
-        agentId: "reviewer",
-        engine: "codex",
-        model: null,
-        systemPrompt: null,
-        resumeSessionId: null,
-        useWorktreeOf: "author",
-      },
-    } as const;
-    try {
-      await expect(service.requestSession(placement, query)).rejects.toThrow(
-        "Update the runner"
-      );
-      await expect(service.requestSession(placement, launch)).rejects.toThrow(
-        "Update the runner"
-      );
-      await expect(
-        service.requestSession(placement, {
-          kind: "openTerminal",
-          agentId: "author",
-        })
-      ).rejects.toThrow("Update this runner to open a terminal.");
-      expect(legacy.requests.filter((f) => f.type === "request")).toEqual([]);
-    } finally {
-      legacy.socket.destroy();
-    }
-    await waitFor(() => !service.available(placement));
-    const current = await dialRunner({
-      ...a,
-      label: "current",
-      workspaces: ["@session"],
-      checkoutInspection: true,
-      sharedWorktree: true,
-    });
-    try {
-      await waitFor(() => service.supportsSharedWorktree(placement));
-      await expect(
-        service.requestSession(placement, defaultFiles)
-      ).rejects.toThrow("Update the runner to read default-branch files");
-      expect(
-        current.requests.filter((frame) => frame.type === "request")
-      ).toEqual([]);
-      expect((await service.requestSession(placement, query)).value).toBe(
-        "current"
-      );
-      expect((await service.requestSession(placement, launch)).value).toBe(
-        "current"
-      );
-    } finally {
-      current.socket.destroy();
-    }
-    await waitFor(() => !service.available(placement));
-    const extended = await dialRunner({
-      ...a,
-      label: "with default files",
-      workspaces: ["@session"],
-      checkoutInspection: true,
-      defaultBranchFiles: true,
-    });
-    try {
-      await waitFor(() => service.available(placement));
-      expect(
-        (await service.requestSession(placement, defaultFiles)).value
-      ).toBe("with default files");
-      expect(extended.requests).toContainEqual(
-        expect.objectContaining({
-          type: "request",
-          command: { ...defaultFiles, workspace: "@session" },
-        })
-      );
-    } finally {
-      extended.socket.destroy();
-    }
-  });
-
-  it("sends a launch ID only to a runner that reconciles it, and reports a lost reply as such", async () => {
-    const service = makeService();
-    const a = await enroll(service, "alpha");
-    const placement = { runner: a.id, workspace: "@session" };
-    const launchId = "6f1c2d3e-4a5b-4c6d-8e7f-8091a2b3c4d5";
-    const launch = {
-      kind: "launch",
-      agentId: "agt_one",
-      launch: {
-        agentId: "agt_one",
-        engine: "codex",
-        model: null,
-        systemPrompt: null,
-        resumeSessionId: null,
-        launchId,
-      },
-    } as const;
-    const sentLaunches = (peer: FakeRunner) =>
-      peer.requests.flatMap((frame) =>
-        frame.type === "request" && frame.command.kind === "launch"
-          ? [frame.command.launch]
-          : []
-      );
-    const peer = (
-      label: string,
-      extra: Partial<Parameters<typeof dialRunner>[0]> = {}
-    ) =>
-      dialRunner({
-        ...a,
-        label,
-        workspaces: ["@session"],
-        managedWorkspace: true,
-        ...extra,
-      });
-
-    expect(service.lastSeenCapabilities(placement)).toBeUndefined();
-    const old = await peer("old");
-    try {
-      await waitFor(() => service.available(placement));
-      expect(service.reconcilesLaunches(placement)).toBe(false);
-      await service.requestSession(placement, launch);
-      // An older runner sees exactly the launch shape it knows.
-      const { launchId: _, ...known } = launch.launch;
-      expect(sentLaunches(old)).toEqual([known]);
-      expect(sentLaunches(old)[0]).not.toHaveProperty("launchId");
-    } finally {
-      old.socket.destroy();
-    }
-    await waitFor(() => !service.available(placement));
-    expect(service.reconcilesLaunches(placement)).toBe(false);
-    // Kept after it went offline, for a launch an update holds.
-    expect(service.lastSeenCapabilities(placement)).toEqual({
-      managedWorkspace: true,
-      sessionFiles: false,
-      sharedWorktree: false,
-      preparedLaunch: false,
-    });
-    expect(
-      service.lastSeenCapabilities({ runner: a.id, workspace: "other" })
-    ).toBeUndefined();
-
-    const current = await peer("current", {
-      answer: false,
-      launchReconcile: true,
-      sessionFiles: true,
-      sharedWorktree: true,
-    });
-    try {
-      await waitFor(() => service.reconcilesLaunches(placement));
-      const pending = service.requestSession(placement, launch);
-      await waitFor(() => sentLaunches(current).length === 1);
-      expect(sentLaunches(current)).toEqual([launch.launch]);
-      current.socket.destroy();
-      await expect(pending).rejects.toBeInstanceOf(RunnerAcknowledgementLost);
-    } finally {
-      current.socket.destroy();
-    }
-    await waitFor(() => !service.available(placement));
-    expect(service.lastSeenCapabilities(placement)).toEqual({
-      managedWorkspace: true,
-      sessionFiles: true,
-      sharedWorktree: true,
-      preparedLaunch: false,
-    });
-    await service.revoke(a.id);
-    expect(service.lastSeenCapabilities(placement)).toBeUndefined();
-  });
-
-  it("distinguishes a configured @session handle from managed mode and retains the mode offline", async () => {
-    const service = makeService();
-    const a = await enroll(service, "alpha");
-    const placement = { runner: a.id, workspace: "@session" };
-    const connectSession = async (managedWorkspace?: true) => {
-      const session = await dialRunner({
-        endpoint: a.endpoint,
-        ca: a.ca,
-        cert: a.cert,
-        key: a.key,
-        label: "alpha",
-        workspaces: ["@session"],
-        managedWorkspace,
-      });
-      runners.push(session);
-      return session;
-    };
-    await connectSession();
-    await waitFor(() => service.available(placement));
-    expect(service.isManagedWorkspace(placement)).toBe(false);
-    expect((await service.list())[0]).not.toHaveProperty("managedWorkspace");
-
-    const managed = await connectSession(true);
-    await waitFor(() => service.isManagedWorkspace(placement));
-    expect((await service.list())[0]).toMatchObject({
-      workspaces: ["@session"],
-      managedWorkspace: true,
-    });
-    await waitFor(
-      async () =>
-        (
-          await pool.query(
-            "SELECT managed_workspace FROM runner_registrations WHERE id = $1",
-            [a.id]
-          )
-        ).rows[0]?.managed_workspace === true
-    );
-    managed.socket.destroy();
-    await waitFor(() => !service.available(placement));
-    expect((await service.list())[0]).toMatchObject({
-      status: "offline",
-      workspaces: ["@session"],
-      managedWorkspace: true,
     });
   });
 
@@ -1078,21 +738,17 @@ describe("runner enrollment service", () => {
         cert: a.cert,
         key: a.key,
         label: "alpha",
-        workspaces: ["proof", "other"],
       })
     );
     await waitFor(() => second.available(place("other")));
     second.close();
     services.splice(services.indexOf(second), 1);
-    // Last reported workspaces survive while offline.
+    // The registration survives while offline.
     const third = makeService();
     await third.startEnrolled();
-    await waitFor(
-      async () => (await third.list())[0]?.workspaces.includes("other") ?? false
-    );
+
     expect((await third.list())[0]).toMatchObject({
       status: "offline",
-      workspaces: ["proof", "other"],
     });
   });
 
@@ -1237,7 +893,6 @@ it("relays on an anonymous socket with a simulated Bun authorization flag", asyn
   const debug = vi.fn();
   const service = new RemoteRunnerService(
     undefined,
-    undefined,
     {
       host: HOST,
       port: (api.address() as AddressInfo).port,
@@ -1337,7 +992,7 @@ describe("runner listener request prefixes", () => {
     });
     api.listen(0, HOST);
     await once(api, "listening");
-    service = new RemoteRunnerService(undefined, undefined, {
+    service = new RemoteRunnerService(undefined, {
       host: HOST,
       port: (api.address() as AddressInfo).port,
       tls: false,
@@ -1492,41 +1147,6 @@ describe("runner listener request prefixes", () => {
       socket.destroy();
       Object.defineProperty(service, "maxHttpRelays", { value: relayLimit });
     }
-  });
-});
-
-describe("legacy runner config", () => {
-  it("keeps its locator and gates MCP on the live approval file", async () => {
-    const { mkdtemp, writeFile } = await import("node:fs/promises");
-    const { tmpdir } = await import("node:os");
-    const path = await import("node:path");
-    const dir = await mkdtemp(path.join(tmpdir(), "legacy-runner-"));
-    const approval = path.join(dir, "approval");
-    await writeFile(approval, "AA:BB\n");
-    const service = new RemoteRunnerService({
-      id: "lima",
-      host: HOST,
-      port: 0,
-      cert: "",
-      key: "",
-      ca: "",
-      approval,
-      workspaces: ["proof"],
-      endpointHost: "host.lima.internal",
-    });
-    const place = { runner: "lima", workspace: "proof" };
-    expect(service.permitsAgentMcp(place)).toBe(true);
-    expect(service.permitsAgentMcp({ runner: "lima", workspace: "x" })).toBe(
-      false
-    );
-    expect(service.originFor(place)).toBe("https://host.lima.internal:0");
-    expect((await service.list())[0]).toMatchObject({
-      id: "lima",
-      name: "lima",
-    });
-    await expect(service.revoke("lima")).rejects.toMatchObject({ status: 409 });
-    await writeFile(approval, "");
-    expect(service.permitsAgentMcp(place)).toBe(false);
   });
 });
 

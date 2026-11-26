@@ -1,6 +1,6 @@
 /*
  * Remote lane: the compiled runner program on Linux in a Docker container,
- * with real TLS, the privilege-separated workload account and the v1 wire.
+ * with real TLS, the privilege-separated workload account and the authenticated operation carrier.
  * Its only engine is the deterministic ACP fixture adapter. Everything it
  * creates is labelled with the run id and removed on close.
  *
@@ -26,6 +26,9 @@ import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   RunnerCallError,
+  pathFromWire,
+  type Runner,
+  type Req,
   sessionToWire,
   sessionFromWire,
 } from "@dispatch/runner-protocol/contract";
@@ -36,7 +39,6 @@ import { launchRequest } from "../session.js";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const IMAGE = process.env.RUNNER_CONFORMANCE_IMAGE ?? "node:22-bookworm";
-const WORKSPACE = "conformance";
 const WORKSPACE_DIR = "/opt/conformance-checkout";
 const UID = 1500;
 const MANAGED_STATE = "/var/lib/runner-managed";
@@ -227,7 +229,6 @@ export async function startRemoteLane(): Promise<Lane> {
     const credentials = certificates(config);
     listener = acceptRemoteRunner(credentials, {
       runnerId: id,
-      workspace: WORKSPACE,
     });
     managedListener = acceptRemoteRunner(credentials, {
       runnerId: id + "-managed",
@@ -250,7 +251,6 @@ export async function startRemoteLane(): Promise<Lane> {
         ...baseConfig,
         endpoint: endpoint(await listener.port),
         state: "/var/lib/runner",
-        workspaces: { [WORKSPACE]: { cwd: WORKSPACE_DIR } },
       })
     );
     writeFileSync(
@@ -299,15 +299,6 @@ export async function startRemoteLane(): Promise<Lane> {
       Promise.all([listener.accepted, managedListener.accepted]),
       timeout,
     ]).finally(() => clearTimeout(timer));
-    if (
-      !managed.ready.workspacePrepare ||
-      !managed.ready.preparedLaunch ||
-      accepted.ready.workspacePrepare ||
-      accepted.ready.preparedLaunch
-    )
-      throw new Error(
-        "Workspace preparation was advertised on the wrong runner."
-      );
     const rootExec = (...args: string[]) =>
       run("docker", ["exec", container, ...args]);
     const workload = (...args: string[]) =>
@@ -323,8 +314,23 @@ export async function startRemoteLane(): Promise<Lane> {
       createHash("sha256").update(sessionToWire(session)).digest("base64url");
     const checkout = (session: Parameters<typeof sessionToWire>[0]) =>
       `${MANAGED_STATE}/sessions/${key(session)}/checkout`;
-    await accepted.runner.call("session.launch", launchRequest(SESSION));
-    if (accepted.ready.checkoutExecStream) {
+    // The fixture binds each session to the directory seeded by the scenario.
+    const runner: Runner = {
+      ...accepted.runner,
+      async call(op, request, options) {
+        if (op === "session.launch") {
+          await accepted.runner.call("workspace.prepare", {
+            session: (request as Req<"session.launch">).session,
+            source: { directory: pathFromWire(WORKSPACE_DIR) },
+            copyIgnored: [],
+            installDependencies: false,
+          });
+        }
+        return accepted.runner.call(op, request, options);
+      },
+    };
+    await runner.call("session.launch", launchRequest(SESSION));
+    {
       const target = { session: SESSION, checkout: "current" } as const;
       const path = ".exec-probe";
       const manifest = await accepted.runner.call("checkout.read", {
@@ -399,7 +405,7 @@ export async function startRemoteLane(): Promise<Lane> {
       }
     }
     return {
-      runner: accepted.runner,
+      runner,
       session: SESSION,
       workspace: {
         runner: checked(managed.runner),
@@ -486,11 +492,11 @@ export async function startRemoteLane(): Promise<Lane> {
                 originalBranch: "main",
               })
             ).removed,
-            "A configured checkout was accepted for removal."
+            "An external directory binding was accepted for removal."
           );
           check(
             rootExec("cat", WORKSPACE_DIR + "/.root-only") === "private",
-            "Configured checkout changed."
+            "External checkout changed."
           );
 
           await prepare(owner, "release-original");
@@ -641,95 +647,6 @@ export async function startRemoteLane(): Promise<Lane> {
           check(
             branches().includes("release-missing"),
             "Release with deleteBranch=false deleted the branch."
-          );
-
-          // Lay out a repository binding from before workspace receipts.
-          const legacyRepo = sessionFromWire("release-legacy-repository");
-          const legacyUrl = "https://example.invalid/conformance.git";
-          const legacyCache = `${MANAGED_STATE}/repositories/${createHash("sha256").update(legacyUrl).digest("hex")}`;
-          rootExec(
-            "install",
-            "-d",
-            "-m",
-            "700",
-            "-o",
-            String(UID),
-            "-g",
-            String(UID),
-            legacyCache
-          );
-          workload("git", "clone", "--bare", BARE_REMOTE, legacyCache);
-          rootExec(
-            "install",
-            "-d",
-            "-m",
-            "751",
-            "-g",
-            String(UID),
-            parent(legacyRepo)
-          );
-          rootExec(
-            "install",
-            "-d",
-            "-m",
-            "755",
-            "-o",
-            String(UID),
-            "-g",
-            String(UID),
-            checkout(legacyRepo)
-          );
-          workload(
-            "git",
-            "-C",
-            legacyCache,
-            "worktree",
-            "add",
-            "-b",
-            "legacy-release",
-            checkout(legacyRepo)
-          );
-          rootExec(
-            "sh",
-            "-c",
-            'printf "\\000managed" > "$1"; printf "%s" "$2" > "$1.repository"',
-            "sh",
-            binding(legacyRepo),
-            JSON.stringify({
-              url: legacyUrl,
-              checkout: { kind: "new", branch: "legacy-release" },
-            })
-          );
-          check(
-            (await release(legacyRepo, "legacy-release")).removed,
-            "Legacy repository release failed."
-          );
-          check(
-            absent(parent(legacyRepo)) && absent(binding(legacyRepo)),
-            "Legacy repository release left its directory or binding."
-          );
-          check(
-            !workload(
-              "git",
-              "-C",
-              legacyCache,
-              "branch",
-              "--list",
-              "legacy-release"
-            ).trim(),
-            "Legacy release did not remove the branch."
-          );
-
-          const legacy = sessionFromWire("release-legacy-scratch");
-          await runner.call("session.launch", launchRequest(legacy));
-          await runner.call("session.stop", { session: legacy, force: true });
-          check(
-            (await release(legacy, null, false)).removed,
-            "Legacy scratch release failed."
-          );
-          check(
-            absent(parent(legacy)) && absent(binding(legacy)),
-            "Legacy release left its directory or binding."
           );
         },
         async proveIsolation(session, path) {

@@ -21,27 +21,27 @@ const release = {
   originalBranch: "agt/topic",
 };
 
-function service(options: { capable?: boolean; epochs?: number[] } = {}) {
-  const epochs = [...(options.epochs ?? [7])];
-  let epoch = epochs[0];
-  const requestSession = vi.fn(
-    async (
-      _placement: unknown,
-      operation: { kind: string; operation?: { kind?: string } }
-    ) => {
-      epoch = epochs.shift() ?? epoch;
-      return {
-        value:
-          operation.kind === "workspaceRelease"
-            ? JSON.stringify({ removed: true })
-            : JSON.stringify(observed),
-      };
-    }
-  );
+function service(options: { epochs?: number[] } = {}) {
+  const epochs = options.epochs ?? [7];
+  let index = 0;
   return {
-    requestSession,
-    connectionEpoch: vi.fn(() => epoch),
-    supportsWorkspaceRelease: vi.fn(() => options.capable ?? true),
+    connectionEpoch: () => epochs[Math.min(index, epochs.length - 1)],
+    call: vi.fn(
+      async (
+        _id: string,
+        op: string,
+        _req: unknown,
+        _options: unknown,
+        epoch: number
+      ) => {
+        if (epoch !== epochs[Math.min(index++, epochs.length - 1)])
+          throw new RunnerCallError({
+            code: "unavailable",
+            message: "Connection changed",
+          });
+        return op === "workspace.release" ? { removed: true } : observed;
+      }
+    ),
   };
 }
 
@@ -49,7 +49,6 @@ function adapter(remote: ReturnType<typeof service>) {
   return createEnrolledCheckoutRunner(
     remote as unknown as RemoteRunnerService,
     placement.runner,
-    placement,
     { id: agentId } as CheckoutSession,
     () => ({}) as never
   );
@@ -66,15 +65,16 @@ describe("archive operations on an enrolled runner", () => {
       await runner.call("workspace.release", { session, ...release })
     ).toEqual({ removed: true });
 
-    // As sent: `requestSession` stamps the placement's workspace on each.
-    const frames = (remote: ReturnType<typeof service>) =>
-      remote.requestSession.mock.calls.map(([where, operation, , , epoch]) => [
-        where,
-        { ...operation, workspace: placement.workspace },
-        epoch,
-      ]);
-
-    expect(frames(viaAdapter).map(([, , epoch]) => epoch)).toEqual([7, 7]);
+    expect(viaAdapter.call.mock.calls).toEqual([
+      [placement.runner, "workspace.observe", { session }, undefined, 7],
+      [
+        placement.runner,
+        "workspace.release",
+        { session, ...release },
+        undefined,
+        7,
+      ],
+    ]);
   });
 
   it.each([
@@ -88,16 +88,16 @@ describe("archive operations on an enrolled runner", () => {
         session,
         ...(policy === "ownership" && { policy }),
       });
-      // Byte for byte, as `requestSession` writes it (workspace appended).
-      const sent = (remote: ReturnType<typeof service>) =>
-        JSON.stringify({
-          ...(remote.requestSession.mock.calls[0]![1] as object),
-          workspace: placement.workspace,
-        });
-      expect(JSON.parse(sent(viaAdapter))).toMatchObject({
-        kind: "checkoutRelease",
-        operation: { kind: "observe", policy },
-      });
+      expect(viaAdapter.call).toHaveBeenCalledExactlyOnceWith(
+        placement.runner,
+        "workspace.observe",
+        {
+          session,
+          ...(policy === "ownership" && { policy }),
+        },
+        undefined,
+        7
+      );
     }
   );
 
@@ -106,10 +106,10 @@ describe("archive operations on an enrolled runner", () => {
     const remote = service({ epochs: [7, 8] });
     const runner = adapter(remote);
     await runner.call("workspace.observe", { session });
-    await runner.call("workspace.release", { session, ...release });
-    expect(remote.requestSession.mock.calls.map((call) => call[4])).toEqual([
-      7, 7,
-    ]);
+    await expect(
+      runner.call("workspace.release", { session, ...release })
+    ).rejects.toMatchObject({ code: "unavailable" });
+    expect(remote.call.mock.calls.map((call) => call[4])).toEqual([7, 7]);
   });
 
   it("refuse another session's checkout", async () => {
@@ -119,13 +119,13 @@ describe("archive operations on an enrolled runner", () => {
         session: sessionFromWire("agt_other"),
       })
     ).rejects.toBeInstanceOf(RunnerCallError);
-    expect(remote.requestSession).not.toHaveBeenCalled();
+    expect(remote.call).not.toHaveBeenCalled();
   });
 
   it("reject an observation the runner did not shape", async () => {
     const remote = service();
-    remote.requestSession.mockResolvedValueOnce({
-      value: JSON.stringify({ ownership: "maybe" }),
+    remote.call.mockResolvedValueOnce({
+      ownership: "maybe",
     });
     await expect(
       adapter(remote).call("workspace.observe", { session })

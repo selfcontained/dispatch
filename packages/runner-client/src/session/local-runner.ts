@@ -276,15 +276,7 @@ export class LocalRunnerSession implements Runner {
     opts: SessionCallOptions<K> = {}
   ): Promise<{ info: Res<K>; channel: CallerChannel<K> }> {
     const { info, channel } = await this.openStream(op, req, opts);
-    const spec = (operations[op] as OperationSpec).channel;
-    return {
-      info,
-      channel: typedChannel(
-        channel,
-        spec?.fromRunner === "bytes" ? null : (spec?.fromRunner ?? null),
-        spec?.toRunner === "bytes" ? null : (spec?.toRunner ?? null)
-      ) as unknown as CallerChannel<K>,
-    };
+    return { info, channel: operationChannel(op, channel) };
   }
 
   /** Hand the runner a blob it expects; on this transport a path may be sent. */
@@ -296,6 +288,18 @@ export class LocalRunnerSession implements Runner {
     const connection = await this.connected(false, signal);
     return connection.sendBlob(id, source, signal);
   }
+}
+
+export function operationChannel<K extends OpenName>(
+  op: K,
+  channel: Duplex
+): CallerChannel<K> {
+  const spec = (operations[op] as OperationSpec).channel;
+  return typedChannel(
+    channel,
+    spec?.fromRunner === "bytes" ? null : (spec?.fromRunner ?? null),
+    spec?.toRunner === "bytes" ? null : (spec?.toRunner ?? null)
+  ) as unknown as CallerChannel<K>;
 }
 
 /** A channel over a duplex: JSON lines when typed, bytes otherwise. */

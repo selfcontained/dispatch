@@ -9,7 +9,7 @@ import {
   type ResultFrame,
   type ServiceFrame,
 } from "../../../../packages/runner/src/workload/agents/remote/protocol.js";
-import { wireFrames } from "../../src/runners/enrolled/v1-framing.js";
+import { wireFrames } from "@dispatch/runner-client/v1/node";
 import { generateRunnerKey } from "../../../../packages/runner/src/workload/agents/remote/x509.js";
 
 type Request = Extract<ServiceFrame, { type: "request" }>;

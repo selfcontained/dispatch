@@ -64,6 +64,7 @@ import type { Placement } from "@dispatch/runner-protocol";
 import type { RemoteEventInbox } from "../remote/event-inbox.js";
 import {
   createHostSessionClient,
+  enrolledHostStream,
   type HostSessionClient,
   type HostQuiesceLease,
   isUpdateAcknowledgementLost,
@@ -412,7 +413,7 @@ export type AcpRuntimeDeps = {
     images: PromptImage[],
     text: string
   ) => Promise<{ images: PromptImage[]; text: string }>;
-  remote?: Pick<RemoteRunnerService, "available" | "requestSession"> &
+  remote?: Pick<RemoteRunnerService, "available" | "call" | "openStream"> &
     Partial<
       Pick<
         RemoteRunnerService,
@@ -589,15 +590,70 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     }
   }
 
-  function requestSession(
+  async function requestSession(
     placement: Placement | null | undefined,
     operation: SessionLifecycleOperation,
     request?: Req<"session.launch">,
     onProgress?: RuntimeLaunch["onWorkspaceProgress"]
   ): Promise<SessionResult> {
-    return placement
-      ? remoteService().requestSession(placement, operation, onProgress)
-      : requestLocalSession(operation, request);
+    if (!placement) return requestLocalSession(operation, request);
+    const runner = runnerIdAt(placement);
+    const session = sessionFromWire(operation.agentId);
+    const service = remoteService();
+    try {
+      switch (operation.kind) {
+        case "launch":
+          if (!request || request.session !== session)
+            throw new Error("Missing or mismatched launch request");
+          await service.call(runner, "session.launch", request);
+          return {};
+        case "attach": {
+          const { channel } = await service.openStream(
+            runner,
+            "session.attach",
+            { session }
+          );
+          return { channel: enrolledHostStream(channel, operation.agentId) };
+        }
+        case "log":
+          return {
+            value: (
+              await service.call(runner, "session.logs", {
+                session,
+                lines: LOG_TAIL_LINES,
+              })
+            ).text,
+          };
+        case "alive":
+          return {
+            value:
+              (await service.call(runner, "session.alive", { session }))
+                .state === "live",
+          };
+        case "discard":
+          await service.call(runner, "session.discard", { session });
+          return {};
+        case "stop": {
+          const { force, expectedLaunchId, expectedOwner } = operation;
+          await service.call(runner, "session.stop", {
+            session,
+            force,
+            expectedLaunchId,
+            expectedOwner,
+          });
+          return {};
+        }
+      }
+    } catch (error) {
+      if (!(error instanceof RunnerCallError)) throw error;
+      if (error.code === "host_gone") throw new RunnerHostGone(error.message);
+      if (error.code === "unavailable")
+        throw new RunnerUnavailable(error.message);
+      if (error.code === "unknown_outcome")
+        throw new RunnerAcknowledgementLost(error.message);
+      if (error.code === "fenced") throw new RunnerUpdateFenced(error.message);
+      throw error;
+    }
   }
 
   function localChild(): LocalSessionRunner {
