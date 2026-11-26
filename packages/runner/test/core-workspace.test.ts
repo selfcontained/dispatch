@@ -727,6 +727,41 @@ describe("workspace.observe", () => {
   });
 });
 
+describe("workspace.observe with policy ownership", () => {
+  it("answers ownership and reads no checkout state; without it, the state is read", async () => {
+    const { root, connection, calls } = await harness();
+    const repo = repository(root);
+    const owner = await connection.call(
+      "workspace.prepare",
+      request("owner", repo, {
+        name: "feature",
+        branch: "feature",
+        base: "main",
+        create: true,
+      })
+    );
+    const tree = String(owner.worktree!.path);
+    calls.length = 0;
+    expect(
+      await connection.call("workspace.observe", {
+        session: sessionFromWire("owner"),
+        policy: "ownership",
+      })
+    ).toEqual({
+      ownership: "owned",
+      owner: "owner",
+      borrowers: [],
+      checkout: null,
+    });
+    expect(calls).toEqual([]);
+    const state = await connection.call("workspace.observe", {
+      session: sessionFromWire("owner"),
+    });
+    expect(state.checkout).toMatchObject({ path: tree, stateId: "state" });
+    expect(calls).toEqual([`observe ${tree}`]);
+  });
+});
+
 describe("path.resolve", () => {
   it("answers from the platform's port, as the workload", async () => {
     const { connection, calls } = await harness();

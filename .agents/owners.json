@@ -66,6 +66,7 @@
         "apps/server/test/archive-local-budget.test.ts",
         "apps/server/test/enrolled-archive-operations.test.ts",
         "apps/server/test/archive-seam-policy.test.ts",
+        "apps/server/test/observe-ownership-local-child.test.ts",
         "apps/server/test/db/archive-co-owner-parity.test.ts",
         "apps/server/test/effective-base.test.ts",
         "apps/server/test/comparison-base-parity.test.ts",
