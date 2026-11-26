@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   loadPersonaBySlug,
   supportsPersonaType,
-} from "../src/personas/loader.js";
+} from "./helpers/persona-loader.js";
 import {
   PERSONA_TEMPLATES,
   validatePersonaSlug,

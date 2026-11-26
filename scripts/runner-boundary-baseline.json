@@ -286,13 +286,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/effective-base.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/shared/git/default-branch",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/engine-availability.ts",
     "kind": "R2 host access",
     "detail": "fs/promises",
@@ -1152,13 +1145,6 @@
   },
   {
     "file": "apps/server/src/personas/codeowners.ts",
-    "kind": "R2 host access",
-    "detail": "fs/promises",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/personas/loader.ts",
     "kind": "R2 host access",
     "detail": "fs/promises",
     "task": "T04",

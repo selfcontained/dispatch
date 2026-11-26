@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { checkoutWorkload } from "./helpers/checkout-workload.js";
+import { loadPersonas as loadThroughRunner } from "../src/personas/loader.js";
 import { loadCheckoutPersonas } from "../src/personas/loader.js";
 
 // origin/main loader.ts: readdir, sorted matching names, seen before readFile.
@@ -41,7 +42,7 @@ async function mainLoad(root: string) {
   };
 }
 
-it.each([mainLoad, runnerLoad])(
+it.each([mainLoad, runnerLoad, controllerLoad])(
   "pins exact native warnings, order, shadowing and an outside symlink (%#)",
   async (load) => {
     const root = await fixture();
@@ -82,7 +83,7 @@ it.each([mainLoad, runnerLoad])(
   }
 );
 
-it.each([mainLoad, runnerLoad])(
+it.each([mainLoad, runnerLoad, controllerLoad])(
   "lists FIFO names without opening them and blocks the read until a writer appears (%#)",
   async (load) => {
     const root = await fixture();
@@ -172,7 +173,7 @@ it.each(["../escape", "/absolute", "x/../../escape"])(
   }
 );
 
-it.each([mainLoad, runnerLoad])(
+it.each([mainLoad, runnerLoad, controllerLoad])(
   "pins unreadable errors and uncapped empty/large files (%#)",
   async (load) => {
     const root = await fixture();
@@ -189,6 +190,26 @@ it.each([mainLoad, runnerLoad])(
     ]);
     expect(result.warnings).toEqual([
       "Could not load persona .agents/personas/denied.md: EACCES: permission denied, open '<root>/.agents/personas/denied.md'",
+    ]);
+  }
+);
+
+async function controllerLoad(root: string) {
+  const warnings: string[] = [];
+  const personas = await loadThroughRunner(root, warnings, {});
+  return {
+    personas,
+    warnings: warnings.map((s) => s.replaceAll(root, "<root>")),
+  };
+}
+it.each([mainLoad, controllerLoad])(
+  "preserves relative native error spelling (%#)",
+  async (load) => {
+    const absolute = await fixture();
+    const relative = path.relative(process.cwd(), absolute);
+    await symlink("missing", path.join(absolute, ".agents/personas/a.md"));
+    expect((await load(relative)).warnings).toEqual([
+      "Could not load persona .agents/personas/a.md: ENOENT: no such file or directory, open '<root>/.agents/personas/a.md'",
     ]);
   }
 );

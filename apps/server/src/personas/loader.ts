@@ -1,7 +1,14 @@
-import { readdir, readFile } from "node:fs/promises";
+import {
+  pathFromWire,
+  RunnerCallError,
+} from "@dispatch/runner-protocol/contract";
+import {
+  runnerDirectory,
+  type CheckoutCommandRunners,
+} from "../runners/directory.js";
+import { controllerPlacement } from "../runners/placement.js";
 import path from "node:path";
 
-import { appendBuiltInPersonas, BUILT_IN_PERSONAS } from "./built-in.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import { PERSONA_DIRS } from "./paths.js";
 
@@ -72,15 +79,66 @@ export function parseFrontmatter(content: string): {
   return { frontmatter: frontmatter as PersonaFrontmatter, body };
 }
 
+/** Folder/project definitions use native semantics; session readers retain their own ports. */
+function folderFiles(root: string, runners: CheckoutCommandRunners) {
+  const runner = runnerDirectory(runners).for(controllerPlacement);
+  const target = { path: pathFromWire(path.resolve(root)) };
+  return {
+    async list(dir: string) {
+      const reply = await runner.call("checkout.list", {
+        target,
+        path: dir,
+        mode: "native",
+      });
+      if (!reply.names)
+        throw new Error("Runner did not return native directory names.");
+      return reply.names;
+    },
+    async read(file: string) {
+      try {
+        const reply = await runner.call("checkout.read", {
+          target,
+          path: file,
+          mode: "native",
+          encoding: "utf8",
+          maxBytes: null,
+        });
+        return reply?.data ?? null;
+      } catch (error) {
+        if (
+          !(error instanceof RunnerCallError) ||
+          error.code !== "failed" ||
+          !error.details ||
+          typeof error.details !== "object" ||
+          Array.isArray(error.details)
+        )
+          throw error;
+        const details = error.details;
+        const original = path.join(root, file);
+        const message =
+          typeof details.path === "string"
+            ? error.message.replaceAll(
+                "'" + details.path + "'",
+                "'" + original + "'"
+              )
+            : error.message;
+        throw Object.assign(new Error(message), {
+          code: details.code,
+          path: original,
+          syscall: details.syscall,
+        });
+      }
+    },
+  };
+}
+
 export async function loadPersonas(
   repoRoot: string,
-  warnings: string[] = []
+  warnings: string[],
+  runners: CheckoutCommandRunners
 ): Promise<PersonaDefinition[]> {
-  return loadCheckoutPersonas(
-    (dir) => readdir(path.join(repoRoot, dir)),
-    (file) => readFile(path.join(repoRoot, file), "utf8"),
-    warnings
-  );
+  const files = folderFiles(repoRoot, runners);
+  return loadCheckoutPersonas(files.list, files.read, warnings);
 }
 
 export async function loadCheckoutPersonas(
@@ -146,38 +204,15 @@ export function mergePersonasWithWorktreePrecedence<
   ];
 }
 
-export async function loadPersonasFromRoots(input: {
-  worktreeRoot?: string | null;
-  repoRoot?: string | null;
-  warnings?: string[];
-}): Promise<PersonaDefinition[]> {
-  const worktreeRoot = input.worktreeRoot ?? null;
-  const repoRoot = input.repoRoot ?? null;
-
-  const worktreePersonas = worktreeRoot
-    ? await loadPersonas(worktreeRoot, input.warnings)
-    : [];
-  const repoPersonas =
-    repoRoot && repoRoot !== worktreeRoot
-      ? await loadPersonas(repoRoot, input.warnings)
-      : [];
-
-  return appendBuiltInPersonas(
-    mergePersonasWithWorktreePrecedence({
-      worktreePersonas,
-      repoPersonas,
-    }),
-    BUILT_IN_PERSONAS
-  );
-}
-
 export async function loadPersonaBySlug(
   repoRoot: string,
-  slug: string
+  slug: string,
+  runners: CheckoutCommandRunners
 ): Promise<PersonaDefinition | null> {
+  const files = folderFiles(repoRoot, runners);
   return loadPersonaFromCheckout(slug, async (filePath) => {
     try {
-      return await readFile(path.join(repoRoot, filePath), "utf-8");
+      return await files.read(filePath);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw error;

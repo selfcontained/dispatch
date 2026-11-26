@@ -221,7 +221,7 @@ export const results: ResultFixture[] = [
         request: { target: { path: "/srv/work" } },
       },
     }),
-    value: json({ data: { branch: "trunk" } }),
+    value: json({ data: { branch: "trunk", currentBranch: "feature" } }),
   },
   {
     command: s("gitQuery", {

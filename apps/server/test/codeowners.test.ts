@@ -19,7 +19,7 @@ import {
   type CodeownersConfig,
 } from "../src/personas/codeowners.js";
 import { runCommand } from "../src/shared/lib/run-command.js";
-import { loadPersonas } from "../src/personas/loader.js";
+import { loadPersonas } from "./helpers/persona-loader.js";
 
 const temporary: string[] = [];
 async function workspace() {

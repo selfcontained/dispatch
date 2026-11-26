@@ -11,6 +11,7 @@ import {
 import { workspaceHandlers } from "../../../../packages/runner/src/core/workspace.js";
 import { BindingStore } from "../../../../packages/runner/src/local/bindings.js";
 import type { AgentManager } from "../../src/agents/manager.js";
+import { checkoutWorkload } from "./checkout-workload.js";
 import { workspaceWorkload } from "../../src/agents/checkout-worker.js";
 import { localLaunchSettings } from "../../src/agents/acp/launch-env.js";
 import { localRunnerIn } from "./local-runner-child.js";
@@ -62,6 +63,19 @@ export function withTestWorkspaceRunner(Manager: typeof AgentManager) {
         ): Promise<Res<K>> {
           if (op.startsWith("session."))
             return sessions().call(op, request, opts);
+          // Persona fixtures read their real temporary files through the same
+          // native workload as the application, while retaining Git mocks.
+          if (op === "checkout.list" || op === "checkout.read") {
+            const read = request as Req<"checkout.list"> | Req<"checkout.read">;
+            if (read.mode === "native" && "path" in read.target) {
+              const { target, ...input } = read;
+              return (await checkoutWorkload.run(
+                op,
+                { directory: target.path, request: input } as never,
+                { signal: opts?.signal }
+              )) as Res<K>;
+            }
+          }
           if (op === "workspace.describe")
             throw new RunnerCallError({
               code: "not_found",
