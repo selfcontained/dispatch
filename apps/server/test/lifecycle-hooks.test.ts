@@ -17,6 +17,10 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  RunnerCallError,
+  type Runner,
+} from "@dispatch/runner-protocol/contract";
 import { checkoutCommandTimeoutMs } from "@dispatch/runner-protocol";
 
 import { requestCheckoutCommand } from "../src/agents/checkout-commands.js";
@@ -419,6 +423,23 @@ describe("runLifecycleHook", () => {
     await expect(
       runLifecycleHook("archive", localArchiveAgent(), logger, {})
     ).resolves.toBeUndefined();
+  });
+
+  it("propagates transport failures carrying syscall metadata", async () => {
+    const failure = new RunnerCallError({
+      code: "failed",
+      message: "Binding lookup failed",
+      details: { syscall: "read" },
+    });
+    const child = {
+      connection: { epoch: 1 },
+      call: vi.fn().mockRejectedValue(failure),
+    } as unknown as Runner;
+    await expect(
+      runLifecycleHook("archive", localArchiveAgent(), logger, {
+        child: () => child,
+      })
+    ).rejects.toBe(failure);
   });
 
   it("retains invalid archive definitions while treating native file errors as absent", async () => {
