@@ -51,6 +51,7 @@ import { uploadAgentFile } from "@/lib/file-upload";
 import { type AgentType } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
 import { cn } from "@/lib/utils";
+import { agentsInProjectScope } from "@/lib/agent-lineage";
 import { useAgentActions } from "@/hooks/use-agent-actions";
 import { useAgentSelectionMemory } from "@/hooks/use-agent-selection-memory";
 import { useAgents } from "@/hooks/use-agents";
@@ -115,6 +116,10 @@ export function AgentsView({
   } = useAgents(true, routeAgentId ?? null, selectionProjectId);
 
   useFollowRouteAgentProject(routeAgentId ?? null, agents, agentsLoaded);
+  const scopedAgents = useMemo(
+    () => agentsInProjectScope(agents, projectId),
+    [agents, projectId]
+  );
 
   useAgentSelectionMemory({
     projectId: selectionProjectId,
@@ -520,11 +525,7 @@ export function AgentsView({
           onNavigate={onNavigateSection}
         >
           <AgentListContent
-            agents={
-              projectId
-                ? agents.filter((a) => a.projectId === projectId)
-                : agents
-            }
+            agents={scopedAgents}
             selectedAgentId={validatedSelectedAgentId}
             expandedAgentId={expandedAgentId}
             overflowAgentId={overflowAgentId}

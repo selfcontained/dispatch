@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   agentRelation,
+  agentScopeProjectId,
+  agentsInProjectScope,
   cardIdForAgent,
   descendantAgents,
   partitionAgentsByLineage,
@@ -207,5 +209,50 @@ describe("agentRelation", () => {
     expect(agentRelation("agt_me", "agt_gone", byId)).toBe("agent");
     expect(agentRelation("agt_gone", "agt_me", byId)).toBe("agent");
     expect(agentRelation("agt_me", "agt_me", byId)).toBe("agent");
+  });
+});
+
+describe("agentsInProjectScope", () => {
+  const parent = { id: "agt_parent", projectId: "project-a" };
+  // A child row left in another project when its parent moved.
+  const staleChild = {
+    id: "agt_child",
+    parentAgentId: "agt_parent",
+    projectId: "project-b",
+  };
+  const unrelated = { id: "agt_other", projectId: "project-b" };
+  const launched = {
+    id: "agt_independent",
+    parentAgentId: null,
+    projectId: "project-b",
+  };
+  const agents = [parent, staleChild, unrelated, launched];
+
+  it("lists a child under its parent's project, not its own row's", () => {
+    expect(agentsInProjectScope(agents, "project-a").map((a) => a.id)).toEqual([
+      "agt_parent",
+      "agt_child",
+    ]);
+    expect(agentsInProjectScope(agents, "project-b").map((a) => a.id)).toEqual([
+      "agt_other",
+      "agt_independent",
+    ]);
+    expect(agentsInProjectScope(agents, null)).toHaveLength(4);
+    expect(agentScopeProjectId(staleChild, agents)).toBe("project-a");
+  });
+
+  it("falls back to the child's own project when its parent is absent", () => {
+    expect(agentScopeProjectId(staleChild, [staleChild])).toBe("project-b");
+    expect(
+      agentsInProjectScope([staleChild], "project-b").map((a) => a.id)
+    ).toEqual(["agt_child"]);
+  });
+
+  it("keeps a projectless parent's child out of project filters", () => {
+    const loose = [
+      { id: "agt_p", projectId: null },
+      { ...staleChild, parentAgentId: "agt_p" },
+    ];
+    expect(agentsInProjectScope(loose, "project-b")).toEqual([]);
   });
 });

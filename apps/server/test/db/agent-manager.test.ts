@@ -240,6 +240,64 @@ beforeEach(async () => {
 });
 
 describe("AgentManager", () => {
+  describe("setProject", () => {
+    it("moves an agent's children with it and keeps child: false launches put", async () => {
+      await pool.query(
+        "INSERT INTO projects (id, name, repo_root) VALUES ('project-a', 'A', '/tmp'), ('project-b', 'B', '/var/tmp') ON CONFLICT DO NOTHING"
+      );
+      const parent = await manager.createAgent({
+        cwd: "/tmp",
+        projectId: "project-a",
+        useWorktree: false,
+      });
+      const child = await manager.createAgent({
+        cwd: parent.cwd,
+        parentAgentId: parent.id,
+        useWorktree: false,
+      });
+      const independent = await manager.createAgent({
+        cwd: parent.cwd,
+        launchedByAgentId: parent.id,
+        useWorktree: false,
+      });
+      expect(child.projectId).toBe("project-a");
+      expect(independent.projectId).toBe("project-a");
+
+      const moved = await manager.setProject(parent.id, "project-b");
+      expect(moved.projectId).toBe("project-b");
+      expect((await manager.getAgent(child.id))?.projectId).toBe("project-b");
+      expect((await manager.getAgent(independent.id))?.projectId).toBe(
+        "project-a"
+      );
+
+      await expect(manager.setProject(child.id, "project-a")).rejects.toThrow(
+        /child agent stays in its parent's project/
+      );
+      expect((await manager.getAgent(child.id))?.projectId).toBe("project-b");
+    });
+
+    it("re-saving a parent's project repairs a child left behind earlier", async () => {
+      await pool.query(
+        "INSERT INTO projects (id, name, repo_root) VALUES ('project-a', 'A', '/tmp'), ('project-b', 'B', '/var/tmp') ON CONFLICT DO NOTHING"
+      );
+      const parent = await manager.createAgent({
+        cwd: "/tmp",
+        projectId: "project-a",
+        useWorktree: false,
+      });
+      const child = await manager.createAgent({
+        cwd: parent.cwd,
+        parentAgentId: parent.id,
+        useWorktree: false,
+      });
+      await pool.query("UPDATE agents SET project_id='project-b' WHERE id=$1", [
+        child.id,
+      ]);
+      await manager.setProject(parent.id, "project-a");
+      expect((await manager.getAgent(child.id))?.projectId).toBe("project-a");
+    });
+  });
+
   describe("createAgent", () => {
     it.each([null, "project-b"])(
       "inherits parent membership with template project %s",

@@ -41,7 +41,7 @@ export function useAgents(
     if (
       selectedAgentId &&
       agents.some(
-        (a) => a.id === selectedAgentId && isAgentInScope(a, projectId)
+        (a) => a.id === selectedAgentId && isAgentInScope(a, projectId, agents)
       )
     ) {
       return selectedAgentId;

@@ -10,6 +10,7 @@ import {
   type To,
 } from "react-router-dom";
 import { api } from "@/lib/api";
+import { agentScopeProjectId } from "@/lib/agent-lineage";
 import { selectedProjectIdAtom } from "@/lib/store";
 import type { Agent } from "@/components/app/types";
 import type { ProjectRecord } from "../../../server/src/projects/store";
@@ -127,13 +128,16 @@ export function useFollowRouteAgentProject(
     if (followed.current === routeAgentId || explicit) return;
     if (!agentsLoaded || !agent || !isSuccess || isFetching) return;
     followed.current = routeAgentId;
-    if (!projectId || agent.projectId === projectId) return;
+    // A child follows its parent's card, not a stale row of its own.
+    const agentProjectId = agentScopeProjectId(agent, agents);
+    if (!projectId || agentProjectId === projectId) return;
     saveId(
-      agent.projectId && projects.some((p) => p.id === agent.projectId)
-        ? agent.projectId
+      agentProjectId && projects.some((p) => p.id === agentProjectId)
+        ? agentProjectId
         : null
     );
   }, [
+    agents,
     routeAgentId,
     agent,
     agentsLoaded,

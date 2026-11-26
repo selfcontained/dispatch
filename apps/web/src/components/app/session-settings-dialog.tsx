@@ -28,6 +28,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useAgentDiffStats } from "@/hooks/use-agent-diff-stats";
 import { api } from "@/lib/api";
+import { descendantAgents } from "@/lib/agent-lineage";
 import { Alert } from "@/components/ui/alert";
 import { Field } from "@/components/ui/field";
 
@@ -102,11 +103,20 @@ export function SessionSettingsDialog({
           method: "PATCH",
           body: JSON.stringify({ projectId }),
         });
-      queryClient.setQueryData<Agent[]>(["agents"], (old) =>
-        old?.map((a) =>
-          a.id === agent.id ? { ...a, name: result.agent.name, projectId } : a
-        )
-      );
+      queryClient.setQueryData<Agent[]>(["agents"], (old) => {
+        if (!old) return old;
+        // The server moves the agent's children with it.
+        const moved = new Set(
+          descendantAgents(agent.id, old).map((child) => child.id)
+        );
+        return old.map((a) =>
+          a.id === agent.id
+            ? { ...a, name: result.agent.name, projectId }
+            : moved.has(a.id)
+              ? { ...a, projectId }
+              : a
+        );
+      });
       onOpenChange(false);
     } catch (err) {
       setFailure(err);
@@ -151,24 +161,26 @@ export function SessionSettingsDialog({
                 />
               </div>
             ) : null}
-            <Field label="Project">
-              <Select
-                value={projectId ?? "none"}
-                onValueChange={(v) => setProjectId(v === "none" ? null : v)}
-              >
-                <SelectTrigger aria-label="Project membership">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No project</SelectItem>
-                  {projects.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
+            {agent?.parentAgentId ? null : (
+              <Field label="Project">
+                <Select
+                  value={projectId ?? "none"}
+                  onValueChange={(v) => setProjectId(v === "none" ? null : v)}
+                >
+                  <SelectTrigger aria-label="Project membership">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No project</SelectItem>
+                    {projects.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
             <Field
               id="session-name"
               label="Name"
