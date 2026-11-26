@@ -205,43 +205,36 @@ export async function archiveCheckout(
   if (budget === undefined)
     return finishArchiveCheckout(pool, logger, agent, mode, executor, hooks);
 
-  // Once the cleanup budget expires, a late observation cannot authorize removal.
+  // A late observation cannot authorize a release after the budget expired.
+  const deadline = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let expired = false;
-  let rejectObservation: ((error: Error) => void) | undefined;
-  const error = new Error(`Worktree cleanup timed out after ${budget}ms`);
-  if (mode === "auto") {
-    const observe = executor.observe;
-    executor.observe = async (request) => {
-      if (expired) throw error;
-      try {
-        return await Promise.race([
-          observe(request),
-          new Promise<never>((_, reject) => {
-            rejectObservation = reject;
-          }),
-        ]);
-      } finally {
-        rejectObservation = undefined;
-      }
-    };
-    const release = executor.release;
-    executor.release = (state) => {
-      if (expired) throw error;
-      return release(state);
-    };
-  }
   try {
     return await Promise.race([
-      finishArchiveCheckout(pool, logger, agent, mode, executor, hooks),
+      finishArchiveCheckout(
+        pool,
+        logger,
+        agent,
+        mode,
+        executor,
+        hooks,
+        mode === "auto" ? deadline.signal : undefined
+      ),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
-          expired = true;
-          (rejectObservation ?? reject)(error);
+          const error = new Error(
+            `Worktree cleanup timed out after ${budget}ms`
+          );
+          deadline.abort(error);
+          reject(error);
         }, budget);
       }),
     ]);
   } catch (err) {
+    if (mode === "auto" && deadline.signal.aborted)
+      await pool.query(
+        "UPDATE agents SET archive_cleanup_mode = 'keep', archive_checkout_state = NULL WHERE id = $1",
+        [agent.id]
+      );
     const failure = archiveFailure(policy);
     logger.warn(
       { err, agentId: agent.id, worktreePath: agent.worktreePath },

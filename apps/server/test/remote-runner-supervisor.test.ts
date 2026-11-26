@@ -1658,11 +1658,13 @@ describe("runner session supervision", () => {
       checkout: null,
     });
     expect(observeCheckout).not.toHaveBeenCalled();
-    // The caller's decision needs the state: it is read.
-    await running.checkoutRelease(agentId, workspace, {
-      kind: "observe",
-      policy: "changes",
-    });
+    // A failed Git read is reported to the archive caller.
+    await expect(
+      running.checkoutRelease(agentId, workspace, {
+        kind: "observe",
+        policy: "changes",
+      })
+    ).rejects.toThrow("no checkout state is read");
     expect(observeCheckout).toHaveBeenCalledOnce();
   });
 
