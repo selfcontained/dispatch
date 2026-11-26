@@ -358,6 +358,8 @@
         "apps/server/test/helpers/project-matching.ts",
         "apps/server/test/helpers/native-persona-authoring.ts",
         "apps/server/test/helpers/persona-catalog.ts",
+        "apps/server/test/assessor-owned-file-semantics.test.ts",
+        "apps/server/test/codeowners-native-selection-pin.test.ts",
         "apps/server/test/owned-checkout-binding-parity.test.ts",
         "apps/server/test/owned-checkout-local-parity.test.ts",
         "apps/server/test/owned-checkout-enrolled-parity.test.ts",
