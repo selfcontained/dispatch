@@ -152,127 +152,132 @@ it("pins main's separate creation/cleanup trims without changing them", async ()
   }
 });
 
-it("keeps imported bytes for launch, read, write and command binding checks", async () => {
-  const { root, raw, trimmed } = await fixture();
-  const state = path.join(root, "state"),
-    store = new BindingStore(state),
-    id = "space-agent";
-  let sessions: ReturnType<typeof localSessionHandlers> | undefined;
-  try {
-    await store.import([bindingFromRow(row(id, raw))]);
-    let launched: string | undefined;
-    const stop = new Error("captured launch before spawning");
-    sessions = localSessionHandlers({
-      root: state,
-      sweepMs: null,
-      boundDirectory: async (key) => {
-        const binding = await store.get(key);
-        return binding ? (binding.currentPath ?? binding.path) : null;
-      },
-      entry: {
-        command: () => {
-          throw new Error("no host");
+it.each([false, true])(
+  "keeps imported bytes for launch/read/mutations (moved=%s)",
+  async (moved) => {
+    const { root, raw, trimmed } = await fixture();
+    const state = path.join(root, "state"),
+      store = new BindingStore(state),
+      id = "space-agent";
+    let sessions: ReturnType<typeof localSessionHandlers> | undefined;
+    try {
+      await store.import([
+        bindingFromRow(moved ? row(id, trimmed, null, raw) : row(id, raw)),
+      ]);
+      let launched: string | undefined;
+      const stop = new Error("captured launch before spawning");
+      sessions = localSessionHandlers({
+        root: state,
+        sweepMs: null,
+        boundDirectory: async (key) => {
+          const binding = await store.get(key);
+          return binding ? (binding.currentPath ?? binding.path) : null;
         },
-        wrap: () => {
-          throw new Error("no host");
+        entry: {
+          command: () => {
+            throw new Error("no host");
+          },
+          wrap: () => {
+            throw new Error("no host");
+          },
+          env: () => ({}),
+          ownership: {
+            create: (env) => ({ marker: "unused", env }),
+            cleanup() {},
+            members: () => [],
+          },
+          prepare: async (_dir, request) => {
+            launched = displayPath(request.directory!);
+            throw stop;
+          },
         },
-        env: () => ({}),
-        ownership: {
-          create: (env) => ({ marker: "unused", env }),
-          cleanup() {},
-          members: () => [],
-        },
-        prepare: async (_dir, request) => {
-          launched = displayPath(request.directory!);
-          throw stop;
-        },
-      },
-    });
-    await expect(
-      sessions.calls!["session.launch"]!({
-        session: sessionFromWire(id),
-        launchId: "pin",
-        engine: "fixture",
-        model: null,
-        effort: null,
-        access: "default",
-        resume: null,
-        systemText: null,
-        firstText: null,
-        overflowNotice: null,
-        env: {},
-        mcp: [],
-        owner: null,
-      })
-    ).rejects.toBe(stop);
-    expect(launched).toBe(raw);
-    const commands: string[] = [];
-    const workload = {
-      ...checkoutWorkload,
-      run: (async (op, input, options) => {
-        if (op === "checkout.exec") {
-          commands.push(input.directory);
-          return { exitCode: 0, stdout: input.directory, stderr: "" };
-        }
-        return checkoutWorkload.run(op, input as never, options);
-      }) as typeof checkoutWorkload.run,
-    };
-    const handlers = checkoutHandlers(store, { workload }),
-      target = { session: sessionFromWire(id) };
-    const read = await handlers["checkout.read"]!(
-      {
-        target,
-        path: ".agents/personas/pin.md",
-        encoding: "utf8",
-        maxBytes: null,
-      },
-      context
-    );
-    expect(read?.data).toBe("raw");
-    await handlers["checkout.write"]!(
-      {
-        target,
-        path: ".agents/personas/pin.md",
-        data: "written",
-        expectedDigest: read!.digest,
-      },
-      context
-    );
-    expect(
-      await readFile(path.join(raw, ".agents/personas/pin.md"), "utf8")
-    ).toBe("written");
-    expect(
-      await readFile(path.join(trimmed, ".agents/personas/pin.md"), "utf8")
-    ).toBe("trimmed");
-    await handlers["checkout.exec"]!(
-      {
-        target,
-        guard: { path: ".dispatch/tools.json", digest: "fixture" },
-        argv: ["fixture"],
-        env: {},
-        timeoutMs: null,
-        maxOutput: null,
-        shell: "direct",
-      },
-      context
-    );
-    expect(commands).toEqual([raw]);
-    await expect(
-      handlers["checkout.write"]!(
+      });
+      await expect(
+        sessions.calls!["session.launch"]!({
+          session: sessionFromWire(id),
+          launchId: "pin",
+          engine: "fixture",
+          model: null,
+          effort: null,
+          access: "default",
+          resume: null,
+          systemText: null,
+          firstText: null,
+          overflowNotice: null,
+          env: {},
+          mcp: [],
+          owner: null,
+        })
+      ).rejects.toBe(stop);
+      expect(launched).toBe(raw);
+      const commands: string[] = [];
+      const workload = {
+        ...checkoutWorkload,
+        run: (async (op, input, options) => {
+          if (op === "checkout.exec") {
+            commands.push(input.directory);
+            return { exitCode: 0, stdout: input.directory, stderr: "" };
+          }
+          return checkoutWorkload.run(op, input as never, options);
+        }) as typeof checkoutWorkload.run,
+      };
+      const handlers = checkoutHandlers(store, { workload }),
+        target = { session: sessionFromWire(id) };
+      const read = await handlers["checkout.read"]!(
         {
-          target: { path: pathFromWire(raw) },
+          target,
           path: ".agents/personas/pin.md",
-          data: "forbidden",
-          expectedDigest: null,
+          encoding: "utf8",
+          maxBytes: null,
         },
         context
-      )
-    ).rejects.toMatchObject({ code: "unsupported" });
-  } finally {
-    await sessions?.stop();
-    await rm(root, { recursive: true, force: true });
+      );
+      expect(read?.data).toBe("raw");
+      await handlers["checkout.write"]!(
+        {
+          target,
+          path: ".agents/personas/pin.md",
+          data: "written",
+          expectedDigest: read!.digest,
+        },
+        context
+      );
+      expect(
+        await readFile(path.join(raw, ".agents/personas/pin.md"), "utf8")
+      ).toBe("written");
+      expect(
+        await readFile(path.join(trimmed, ".agents/personas/pin.md"), "utf8")
+      ).toBe("trimmed");
+      await handlers["checkout.exec"]!(
+        {
+          target,
+          guard: { path: ".dispatch/tools.json", digest: "fixture" },
+          argv: ["fixture"],
+          env: {},
+          timeoutMs: null,
+          maxOutput: null,
+          shell: "direct",
+        },
+        context
+      );
+      expect(commands).toEqual([raw]);
+      await expect(
+        handlers["checkout.write"]!(
+          {
+            target: { path: pathFromWire(raw) },
+            path: ".agents/personas/pin.md",
+            data: "forbidden",
+            expectedDigest: null,
+          },
+          context
+        )
+      ).rejects.toMatchObject({ code: "unsupported" });
+    } finally {
+      await sessions?.stop();
+      await rm(root, { recursive: true, force: true });
+    }
   }
-});
+);
 
 it("observes the exact imported worktree main's archive names", async () => {
   const root = await realpath(
