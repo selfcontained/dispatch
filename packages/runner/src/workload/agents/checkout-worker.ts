@@ -1226,8 +1226,7 @@ export const workspaceWorkload = {
       const failure = error as NodeJS.ErrnoException;
       if (
         failure.code === "ENOENT" &&
-        failure.syscall === "realpath" &&
-        failure.path === directory
+        (await workspaceWorkload.gone(directory))
       )
         return null;
       throw error;

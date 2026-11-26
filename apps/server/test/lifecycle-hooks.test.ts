@@ -1,5 +1,9 @@
 import type { Pool } from "pg";
-import { previewArchive } from "../src/agents/archive.js";
+import {
+  executeArchive,
+  previewArchive,
+  type ArchiveDeps,
+} from "../src/agents/archive.js";
 import { execFileSync, spawn } from "node:child_process";
 import { realpathSync, renameSync } from "node:fs";
 import {
@@ -520,17 +524,25 @@ describe("runLifecycleHook", () => {
     const directory = "/workload/owned";
     const agent = {
       id: "enrolled",
+      runnerManaged: true,
       cwd: "runner://runner-a/main",
       placement: placementForRunner("runner-a"),
     } as AgentRecord;
     const call = vi.fn(async (op: string) => {
-      if (op === "workspace.observe") return { ownership: "owned" };
+      if (op === "workspace.observe")
+        return {
+          ownership: "owned",
+          owner: "enrolled",
+          borrowers: [],
+          checkout: null,
+        };
       if (op === "checkout.read")
         return {
           data: archiveManifest,
           root: directory,
           rootIdentity: "native-id",
         };
+      if (op === "workspace.release") return { removed: true };
       if (op === "checkout.exec")
         return { exitCode: 0, stdout: "", stderr: "" };
       throw new Error(op);
@@ -538,7 +550,11 @@ describe("runLifecycleHook", () => {
     const adapter = vi.spyOn(directories, "checkoutRunners").mockReturnValue({
       placement: agent.placement,
       directory: {
-        for: () => ({ call, archive: directories.enrolledArchivePolicy }),
+        for: () => ({
+          call,
+          readManifest: async () => null,
+          archive: directories.enrolledArchivePolicy,
+        }),
       },
     } as never);
     try {
@@ -555,15 +571,34 @@ describe("runLifecycleHook", () => {
         "workspace.observe",
         "checkout.read",
       ]);
-      await runLifecycleHook("archive", agent, logger, {});
+      const onComplete = vi.fn();
+      const onError = vi.fn();
+      await executeArchive(
+        {
+          pool: { query: async () => ({ rows: [] }) },
+          logger: { ...logger, error: vi.fn() },
+          getRequiredAgent: async () => agent,
+          getAgent: async () => agent,
+          runtime: { stop: vi.fn(), clearRemoteState: vi.fn() },
+          beginStopStream: vi.fn(),
+          settleStream: vi.fn(),
+          setArchivePhase: vi.fn(),
+        } as unknown as ArchiveDeps,
+        agent.id,
+        { onPhaseChange: vi.fn(), onComplete, onError }
+      );
+      expect(onError).not.toHaveBeenCalled();
+      expect(onComplete).toHaveBeenCalledWith([agent.id]);
       expect(call.mock.calls.map(([op]) => op)).toEqual([
         "workspace.observe",
         "checkout.read",
         "workspace.observe",
         "checkout.read",
         "checkout.exec",
+        "workspace.observe",
+        "workspace.release",
       ]);
-      expect(call).toHaveBeenLastCalledWith(
+      expect(call).toHaveBeenCalledWith(
         "checkout.exec",
         expect.objectContaining({
           target: { session: agent.id, checkout: "launch" },

@@ -144,6 +144,12 @@ it.each([
   }
 );
 
+it("distinguishes a gone checkout root from a failed Git read at an existing root", async () => {
+  await expect(workspaceWorkload.observe(worktree)).rejects.toThrow();
+  await rm(worktree, { recursive: true });
+  expect(await workspaceWorkload.observe(worktree)).toBeNull();
+});
+
 it("does not release a checkout after a late clean observation", async () => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   const { child, call } = owningChild();
