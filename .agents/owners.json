@@ -356,6 +356,7 @@
         "apps/server/test/helpers/task-scope.ts",
         "apps/server/test/helpers/project-matching.ts",
         "apps/server/test/helpers/native-persona-authoring.ts",
+        "apps/server/test/helpers/persona-catalog.ts",
         "apps/server/test/helpers/owner-coverage.ts",
         "apps/server/test/helpers/persona-scope.ts",
         "apps/server/test/helpers/persona-loader.ts",
