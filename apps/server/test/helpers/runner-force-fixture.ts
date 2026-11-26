@@ -1,3 +1,4 @@
+import { RunnerCallError, type Res } from "@dispatch/runner-protocol/contract";
 import { attachedHost } from "../runner-update-hold-fixtures.js";
 import {
   enrolledTarget,
@@ -341,12 +342,13 @@ export async function forceWorld(pool: Pool) {
 
   function controller(build = target) {
     let dead = false;
+    const available = () => !dead && epoch !== undefined;
     const guard = () => {
-      if (dead || epoch === undefined) throw new RunnerUnavailable("offline");
+      if (!available()) throw new RunnerUnavailable("offline");
     };
     const channels = new Set<Duplex>();
     const remote = {
-      available: () => !dead && epoch !== undefined,
+      available,
       connectionEpoch: () => (dead ? undefined : epoch),
       lastConnectionEpoch: () => 1,
       permitsAgentMcp: () => true,
@@ -375,7 +377,11 @@ export async function forceWorld(pool: Pool) {
         op: string,
         input: { session: string; launchId?: string; resume?: string | null }
       ) {
-        guard();
+        if (!available())
+          throw new RunnerCallError({
+            code: "unavailable",
+            message: "offline",
+          });
         if (
           op === "workspace.prepare" ||
           op === "workspace.describe" ||
@@ -388,6 +394,15 @@ export async function forceWorld(pool: Pool) {
             origin: null,
             git: null,
           };
+        if (op === "workspace.observe")
+          return {
+            ownership: "owned",
+            owner: input.session,
+            borrowers: [],
+            checkout: null,
+          } satisfies Res<"workspace.observe">;
+        if (op === "workspace.release")
+          return { removed: true } satisfies Res<"workspace.release">;
         if (op === "checkout.read" || op === "git.context") return null;
         if (op === "session.list") {
           runner.inventories++;
