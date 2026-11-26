@@ -29,4 +29,20 @@ export { createRemoteWorkspacePreparation } from "./platform/linux-privsep/index
 export { createSessionCore } from "./core/sessions.js";
 export { localSessionHandlers } from "./local/sessions.js";
 
-export { runAgentHost, type AgentHostOptions } from "./host/main.js";
+export type { AgentHostOptions } from "./host/main.js";
+
+import { runAgentHost as runHost, type AgentHostOptions } from "./host/main.js";
+import {
+  ownedEnvironment,
+  killOwnedProcesses,
+} from "./workload/shared/process/owned-processes.js";
+
+export function runAgentHost(
+  argv: string[],
+  options: Omit<AgentHostOptions, "ownership">
+) {
+  return runHost(argv, {
+    ...options,
+    ownership: { ownedEnvironment, killOwnedProcesses },
+  });
+}
