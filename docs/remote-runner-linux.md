@@ -83,6 +83,7 @@ DISPATCH_BUN_TARGETS=bun-linux-x64,bun-linux-arm64 pnpm run build:bun
 mkdir -p "$DISPATCH_RUNNER_ARTIFACT_DEV_DIR"
 cp bin/install-dispatch-runner.sh "$DISPATCH_RUNNER_ARTIFACT_DEV_DIR/"
 for arch in x64 arm64; do
+  bun scripts/build-standalone-runner.mjs "bun-linux-$arch"
   bin/pack-release --runner-arch "$arch" \
     --output "$DISPATCH_RUNNER_ARTIFACT_DEV_DIR/dispatch-runner-linux-$arch.tar.gz"
 done

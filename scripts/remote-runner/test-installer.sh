@@ -252,7 +252,7 @@ HARNESS
 
 openssl genrsa -out "$root/private.pem" 2048 2>/dev/null
 openssl rsa -in "$root/private.pem" -pubout -out "$root/public.pem" 2>/dev/null
-mkdir -p "$root/archive/dist/bun" "$root/archive/bin"
+mkdir -p "$root/archive/dist/runner/dist/bun" "$root/archive/dist/bun" "$root/archive/bin"
 cp bin/{dispatch-runner,dispatch-runner.service,dispatch-runner-update@.service,dispatch-runner-trial.service,50-dispatch-trial.conf,install-dispatch-runner.sh,runner-handoff-v1.py,pack-release} "$root/archive/bin/"
 touch "$root/archive/README.md" "$root/archive/.env.example"
 if "$root/archive/bin/pack-release" --runner-arch riscv64 > "$root/pack-error" 2>&1; then exit 1; fi
@@ -263,7 +263,8 @@ for version in 1.0.0 1.0.1; do
   release="$root/releases/v$version"
   mkdir -p "$release"
   for arch in x64 arm64; do
-    binary="$root/archive/dist/bun/dispatch-$version-bun-linux-$arch"
+    printf 'server-only fixture\n' > "$root/archive/dist/bun/dispatch-$version-bun-linux-$arch"
+    binary="$root/archive/dist/runner/dist/bun/dispatch-$version-bun-linux-$arch"
     printf '#!/usr/bin/env bash\nversion=%s\n' "$version" > "$binary"
     cat >> "$binary" <<'RUNNER'
 if [[ "$*" == runner-update-compatibility ]]; then
@@ -276,7 +277,7 @@ printf 'fixture-cert\n' > "$settings/cert.pem"
 printf 'fixture-ca\n' > "$settings/ca.pem"
 RUNNER
     if [[ "$version" == 1.0.1 ]]; then
-      printf '# release-new %s\n' "$arch" >> "$root/archive/dist/bun/dispatch-$version-bun-linux-$arch"
+      printf '# release-new %s\n' "$arch" >> "$root/archive/dist/runner/dist/bun/dispatch-$version-bun-linux-$arch"
     fi
   done
   printf '{"version":"%s","revision":"abc1234"}\n' "$version" > "$root/archive/dist/bun/BUILD_IDENTITY.json"
@@ -286,7 +287,7 @@ RUNNER
     tar -xOzf "$asset" bin/install-dispatch-runner.sh > "$release/bootstrap"
     cmp bin/install-dispatch-runner.sh "$release/bootstrap"
     openssl dgst -sha256 -sign "$root/private.pem" -out "$asset.sigstore.json" "$asset"
-    rm "$root/archive/dist/bun/dispatch-$version-bun-linux-$arch"
+    rm "$root/archive/dist/runner/dist/bun/dispatch-$version-bun-linux-$arch"
   done
 done
 
