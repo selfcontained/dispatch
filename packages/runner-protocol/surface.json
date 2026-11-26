@@ -2755,6 +2755,31 @@
       },
       "response": {
         "object": {
+          "diagnostics": {
+            "optional": {
+              "array": {
+                "union": [
+                  {
+                    "object": {
+                      "code": {
+                        "literal": ["unsupported", "unreadable"]
+                      },
+                      "path": "string",
+                      "fileIndex": "integer"
+                    }
+                  },
+                  {
+                    "object": {
+                      "code": {
+                        "literal": ["limit", "refresh", "cache", "incomplete"]
+                      },
+                      "fileIndex": "integer"
+                    }
+                  }
+                ]
+              }
+            }
+          },
           "hasOrigin": "boolean",
           "files": {
             "array": {

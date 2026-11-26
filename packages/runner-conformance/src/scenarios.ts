@@ -718,6 +718,15 @@ const checkoutReads: Scenario[] = [
         dirs: [".agents/personas"],
         wait: true,
       });
+      let previousIndex = 0;
+      for (const diagnostic of result.diagnostics ?? []) {
+        expect(
+          diagnostic.fileIndex >= previousIndex &&
+            diagnostic.fileIndex <= result.files.length,
+          "File diagnostics must follow listing order."
+        );
+        previousIndex = diagnostic.fileIndex;
+      }
       expect(
         result.hasOrigin || (result.files.length === 0 && !result.refreshing),
         "A checkout without an origin listed default-branch files."

@@ -1,3 +1,5 @@
+import { fileDiagnostic } from "./contract/views.js";
+import type { Infer } from "./contract/schema.js";
 import { isOpaqueId } from "./placement.js";
 import { isRecord } from "./validation.js";
 
@@ -37,6 +39,7 @@ export type DefaultBranchFilesReply = {
   hasOrigin: boolean;
   files: { path: string; content: string }[];
   warnings: string[];
+  diagnostics?: Infer<typeof fileDiagnostic>[];
   refreshing: boolean;
   updatedAt: number | null;
   truncated: boolean;
@@ -101,6 +104,22 @@ export function isCheckoutQuery(value: unknown): value is CheckoutQuery {
   );
 }
 
+function validFileDiagnostics(value: unknown, fileCount: number): boolean {
+  if (value === undefined) return true;
+  if (!Array.isArray(value)) return false;
+  let previous = 0;
+  for (const item of value) {
+    if (
+      !fileDiagnostic.check(item) ||
+      item.fileIndex < previous ||
+      item.fileIndex > fileCount
+    )
+      return false;
+    previous = item.fileIndex;
+  }
+  return true;
+}
+
 export function isCheckoutReply(
   value: unknown,
   query: CheckoutQuery
@@ -121,6 +140,7 @@ export function isCheckoutReply(
       ) &&
       Array.isArray(value.files) &&
       value.files.length <= DEFAULT_BRANCH_FILE_LIMIT &&
+      validFileDiagnostics(value.diagnostics, value.files.length) &&
       value.files.every(
         (file) =>
           isRecord(file) &&
