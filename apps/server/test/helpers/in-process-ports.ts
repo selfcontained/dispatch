@@ -8,9 +8,15 @@ vi.mock("../../src/runners/in-process.js", async (importOriginal) => {
   const workload = await import("../../src/agents/checkout-worker.js");
   const { parseEngineCapabilityResult } =
     await import("../../src/agents/remote/engine-capability-result.js");
+  const { createLaunchFolderProbes } =
+    await import("../../src/agents/local-workspace-probes.js");
+  const privacy = await import("../../src/shared/mac-path-privacy.js");
   await actual.loadInProcessPorts(
     async () => workload,
-    parseEngineCapabilityResult
+    parseEngineCapabilityResult,
+    createLaunchFolderProbes((path, home) =>
+      privacy.shouldSkipAutomaticMacPathProbe(path, home)
+    )
   );
   return actual;
 });

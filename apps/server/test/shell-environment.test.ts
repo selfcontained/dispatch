@@ -325,7 +325,7 @@ describe("shell environment protocol", () => {
     const restoreAt = main.indexOf(
       "await restoreLegacyMacLaunchAgentEnvironment()"
     );
-    const portsAt = main.indexOf("await loadInProcessPorts(loadCheckoutWorker");
+    const portsAt = main.indexOf("await loadInProcessPorts(");
     const serverAt = main.indexOf('await import("./server.js")');
     expect(restoreAt).toBeGreaterThan(0);
     expect(portsAt).toBeGreaterThan(restoreAt);
@@ -344,7 +344,8 @@ describe("shell environment protocol", () => {
         async () => {
           throw failure;
         },
-        () => null
+        () => null,
+        { inspect: vi.fn(), complete: vi.fn(), remoteHeads: vi.fn() }
       )
     ).rejects.toBe(failure);
   });

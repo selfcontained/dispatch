@@ -142,7 +142,10 @@ export type SessionOperation =
   | {
       agentId: string;
       kind: "pathResolve";
-      operation: { op: "path.resolve"; request: Req<"path.resolve"> };
+      operation:
+        | { op: "path.resolve"; request: Req<"path.resolve"> }
+        | { op: "path.complete"; request: Req<"path.complete"> }
+        | { op: "git.remoteHeads"; request: Req<"git.remoteHeads"> };
     }
   | { agentId: string; kind: "sessionFile"; operation: SessionFileOperation }
   | { agentId: string; kind: "watchCheckout" }
@@ -649,8 +652,10 @@ function isCommand(value: unknown): value is Command {
       const op = value.operation;
       return (
         isRecord(op) &&
-        op.op === "path.resolve" &&
-        operations["path.resolve"].request.check(op.request)
+        (op.op === "path.resolve" ||
+          op.op === "path.complete" ||
+          op.op === "git.remoteHeads") &&
+        operations[op.op].request.check(op.request)
       );
     }
     case "gitQuery": {

@@ -5,7 +5,7 @@ type Ports = InProcessPorts<Buffer>;
 
 type WorkloadExports = Omit<
   Ports,
-  "checkoutWorkload" | "parseEngineCapabilityResult"
+  "checkoutWorkload" | "parseEngineCapabilityResult" | "launchProbes"
 > & {
   createCheckoutWorkload(inputs: {
     parseDefinition: typeof toPersonaDefinition;
@@ -15,7 +15,8 @@ type WorkloadExports = Omit<
 /** Constructed once for the server process after its shell environment is restored. */
 export function composeInProcessPorts(
   workload: WorkloadExports,
-  parseEngineCapabilityResult: Ports["parseEngineCapabilityResult"]
+  parseEngineCapabilityResult: Ports["parseEngineCapabilityResult"],
+  launchProbes: Ports["launchProbes"]
 ): Ports {
   const {
     createCheckoutWorkload,
@@ -27,6 +28,7 @@ export function composeInProcessPorts(
     hostCommand,
   } = workload;
   return {
+    launchProbes,
     checkoutWorkload: createCheckoutWorkload({
       parseDefinition: toPersonaDefinition,
     }),
@@ -44,9 +46,10 @@ let ports: Ports | undefined;
 
 export async function loadInProcessPorts(
   load: () => Promise<WorkloadExports>,
-  parse: Ports["parseEngineCapabilityResult"]
+  parse: Ports["parseEngineCapabilityResult"],
+  launchProbes: Ports["launchProbes"]
 ) {
-  ports = composeInProcessPorts(await load(), parse);
+  ports = composeInProcessPorts(await load(), parse, launchProbes);
 }
 
 export function inProcessPorts(): Ports {

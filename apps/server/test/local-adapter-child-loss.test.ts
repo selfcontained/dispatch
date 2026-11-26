@@ -270,6 +270,37 @@ describe("a read whose child dies mid-call", () => {
     }
   }, 30_000);
 
+  it.each(["inspect", "complete", "remoteHeads"] as const)(
+    "serves launch-form %s in the child and falls back once on connection loss",
+    async (operation) => {
+      const probes = inProcessPorts().launchProbes;
+      const here = vi.spyOn(probes, operation);
+      const target = adapter(() => child.session);
+      const run = () => {
+        if (operation === "inspect")
+          return target.call("path.resolve", { path: repo, automatic: true });
+        if (operation === "complete")
+          return target.call("path.complete", {
+            prefix: repo + "/",
+            limit: 20,
+          });
+        return target.call("git.remoteHeads", { path: repo });
+      };
+      try {
+        const healthy = await outcome(run);
+        expect(healthy).not.toHaveProperty("error");
+        expect(here).not.toHaveBeenCalled();
+        const { answer, ms } = await interrupted(run);
+        expect(answer).toEqual(healthy);
+        expect(here).toHaveBeenCalledTimes(1);
+        expect(ms).toBeLessThan(NO_WAIT_MS);
+      } finally {
+        here.mockRestore();
+      }
+    },
+    30_000
+  );
+
   it("reads the moved folder the child would, after set_workspace", async () => {
     // The move goes through the adapter to the child, as `set_workspace` does;
     // the row then records it.

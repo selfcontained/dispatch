@@ -69,7 +69,14 @@ type Input<K extends WorkloadOp> = {
 type Read<K extends "github.pr.head" | "github.pr.diff" | "github.pr.details"> =
   (request: Req<K>) => Promise<Res<K>>;
 
+export interface LaunchFolderProbes {
+  inspect(path: string): Promise<Res<"path.resolve">>;
+  complete(request: Req<"path.complete">): Promise<Res<"path.complete">>;
+  remoteHeads(request: Req<"git.remoteHeads">): Promise<Res<"git.remoteHeads">>;
+}
+
 export interface InProcessPorts<Bytes extends Uint8Array> {
+  launchProbes: LaunchFolderProbes;
   checkoutWorkload: {
     run<K extends WorkloadOp>(
       op: K,

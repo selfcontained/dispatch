@@ -2321,16 +2321,24 @@ export class RemoteRunnerService {
     runnerId: string,
     request: Req<"path.resolve">
   ): Promise<Res<"path.resolve">> {
+    return this.readRunnerPath(runnerId, "path.resolve", request);
+  }
+
+  async readRunnerPath<
+    K extends "path.resolve" | "path.complete" | "git.remoteHeads",
+  >(runnerId: string, op: K, request: Req<K>): Promise<Res<K>> {
     const peer = this.peers.get(runnerId);
     if (peer?.pathResolve)
       for (const workspace of peer.workspaces) {
         const placement = { runner: runnerId, workspace };
         if (!this.workspacePeer(placement)) continue;
-        const op = "path.resolve";
         const { value } = await this.requestSession(placement, {
           agentId: "@path",
           kind: "pathResolve",
-          operation: { op, request },
+          operation: { op, request } as Extract<
+            Command,
+            { kind: "pathResolve" }
+          >["operation"],
         });
         try {
           return decodeResult(
