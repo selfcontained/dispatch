@@ -20,6 +20,7 @@ import {
   type CallerChannel,
   type CallOptions,
   type OpenName,
+  type OperationSpec,
   type Req,
   type Res,
   type Runner,
@@ -264,6 +265,73 @@ async function fromChild<T>(
   }
 }
 
+/**
+ * A read at the child under the local transport's deadline, kept by the
+ * adapter (the attempt itself carries none). At each deadline the child is
+ * asked whether it still answers (`runner.describe`, briefly): if it does,
+ * the read is slow, not lost, and is waited for as main's read keeps going,
+ * so nothing is ever read twice; if it does not, the read is given up and
+ * rejects with `unknown_outcome`. A connection lost mid-read rejects at once.
+ */
+async function readWithinDeadline<T>(
+  runner: Runner,
+  op: CallName,
+  input: unknown,
+  send: (options: {
+    signal: AbortSignal;
+    timeoutMs: null;
+    wait: false;
+  }) => Promise<T>,
+  signal?: AbortSignal
+): Promise<T> {
+  const ms = localReadDeadline.ms(op, input);
+  // Aborted only when the child stopped answering: the read is given up.
+  const lost = new AbortController();
+  const pending = send({
+    signal: signal ? AbortSignal.any([signal, lost.signal]) : lost.signal,
+    timeoutMs: null,
+    wait: false,
+  });
+  const settled = pending.then(
+    () => false,
+    () => false
+  );
+  if (ms !== null)
+    for (;;) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const passed = await Promise.race([
+        settled,
+        new Promise<true>((resolve) => {
+          timer = setTimeout(() => resolve(true), ms);
+        }),
+      ]).finally(() => clearTimeout(timer));
+      if (!passed || signal?.aborted) break;
+      if (await answering(runner, signal)) continue;
+      // Given up: its late answer, if any, is dropped.
+      lost.abort();
+      pending.catch(() => {});
+      throw new RunnerCallError({
+        code: "unknown_outcome",
+        message: "The local runner stopped answering",
+      });
+    }
+  return pending;
+}
+
+/** Whether the child still answers: the cheapest call, briefly. */
+async function answering(runner: Runner, signal?: AbortSignal) {
+  try {
+    await runner.call("runner.describe", {}, {
+      signal,
+      timeoutMs: localReadDeadline.probeMs,
+      wait: false,
+    } as never);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function createLocalCheckoutRunner(
   agent: CheckoutSession | undefined,
   description: RunnerDescription,
@@ -297,15 +365,11 @@ export function createLocalCheckoutRunner(
     return fromChild(() => run(runner), missed, signal);
   }
   /**
-   * One read at the child under the transport's deadline, kept here. At each
-   * deadline the child is asked whether it is still answering
-   * (`runner.describe`, briefly): if it is, the read is slow, not lost, and
-   * is waited for as main's read keeps going (never a second reader); if it
-   * is not, the read is missed and the port here answers once. A connection
-   * lost mid-read is missed at once. The attempt carries no transport
-   * deadline of its own.
+   * One read at the child under the transport's deadline, kept here
+   * (`readWithinDeadline`): a read the child stopped answering is missed,
+   * and the port here answers once.
    */
-  async function readAttempt<T>(
+  function readAttempt<T>(
     op: CallName,
     input: unknown,
     // The local session's own options (one attempt, no transport deadline),
@@ -313,55 +377,14 @@ export function createLocalCheckoutRunner(
     run: (child: Runner, options: never) => Promise<T>,
     options?: { signal?: AbortSignal }
   ): Promise<{ value: T } | null> {
-    const runner = child;
-    if (!runner) return null;
-    const ms = localReadDeadline.ms(op, input);
-    // Aborted only when the child stopped answering: the read is given up.
-    const lost = new AbortController();
-    const signal = options?.signal
-      ? AbortSignal.any([options.signal, lost.signal])
-      : lost.signal;
-    const read = {
-      ...options,
-      signal,
-      timeoutMs: null,
-      wait: false as const,
-    };
-    const missed = (error: unknown) =>
-      readMissed(error) || (lost.signal.aborted && !options?.signal?.aborted);
-    const answer = fromChild(() => run(runner, read as never), missed);
-    if (ms !== null) {
-      for (;;) {
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        const passed = await Promise.race([
-          answer.then(() => false),
-          new Promise<true>((resolve) => {
-            timer = setTimeout(() => resolve(true), ms);
-          }),
-        ]).finally(() => clearTimeout(timer));
-        if (!passed || options?.signal?.aborted) break;
-        if (await answering(runner, options?.signal)) continue;
-        lost.abort();
-        break;
-      }
-    }
-    const value = await answer;
-    if (!value) options?.signal?.throwIfAborted();
-    return value;
-  }
-
-  /** Whether the child still answers: the cheapest call, briefly. */
-  async function answering(runner: Runner, signal?: AbortSignal) {
-    try {
-      await runner.call("runner.describe", {}, {
-        signal,
-        timeoutMs: localReadDeadline.probeMs,
-        wait: false,
-      } as never);
-      return true;
-    } catch {
-      return false;
-    }
+    return attempt(
+      (runner) =>
+        readWithinDeadline(runner, op, input, (read) =>
+          run(runner, { ...options, ...read } as never)
+        ),
+      readMissed,
+      options?.signal
+    );
   }
 
   /**
@@ -1550,8 +1573,21 @@ export function localEngineCalls(
         op === "engine.login.start" ||
         op === "engine.login.submit" ||
         op === "engine.login.cancel";
+      // A read (the contract's retry rule) runs under the adapter's deadline,
+      // as checkout reads do: a live child is waited for, a lost one is not.
+      const read =
+        !signIn && (operations[op] as OperationSpec).retry.kind === "read";
       if (runner?.connection.state === "ready")
         try {
+          if (read)
+            return await readWithinDeadline(
+              runner,
+              op,
+              input,
+              (attempt) =>
+                runner.call(op, input, { ...options, ...attempt } as never),
+              options?.signal
+            );
           const attempt = signIn ? options : { ...options, wait: false };
           return await runner.call(op, input, attempt);
         } catch (error) {
