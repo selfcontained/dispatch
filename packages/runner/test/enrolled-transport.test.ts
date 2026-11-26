@@ -1018,7 +1018,7 @@ it("runs each guard in its bound checkout and refuses stale or fenced commands b
     ).rejects.toMatchObject({
       code: "stale",
     });
-    for (const checkout of ["current", "moved", undefined] as const) {
+    for (const checkout of ["current", "moved"] as const) {
       const selected = { session, checkout };
       const selectedFile = await client.call("checkout.read", {
         ...read,
@@ -1055,14 +1055,14 @@ it("runs each guard in its bound checkout and refuses stale or fenced commands b
       root: root.root,
       rootIdentity: root.identity,
     });
-    expect(await readFile(join(moved, "executions"), "utf8")).toBe("xxx");
+    expect(await readFile(join(moved, "executions"), "utf8")).toBe("xx");
     await fence.freeze();
     await expect(
       run({ guard: { ...root, identity: "wrong" } })
     ).rejects.toMatchObject({
       code: "fenced",
     });
-    expect(execute).toHaveBeenCalledTimes(11);
+    expect(execute).toHaveBeenCalledTimes(9);
     expect(await readFile(join(actual, "executions"), "utf8")).toBe("xx");
   } finally {
     await rm(base, { recursive: true, force: true });

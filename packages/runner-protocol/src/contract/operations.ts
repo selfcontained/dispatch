@@ -595,7 +595,7 @@ export const operations = {
       object({
         target: object({
           session: sessionHandle,
-          checkout: optional(checkoutSelector),
+          checkout: checkoutSelector,
         }),
         guard: object({ root: runnerPath, identity: string }),
         ...execOptions,
