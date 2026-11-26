@@ -216,3 +216,7 @@ The controller composition root temporarily supplies the existing Zod capability
 The controller owns `files/session-file-io.ts` and `files/open-workspace-file.ts`. They open a controller-held source for lazy delivery through `files.put`. At the workload move, copy only `openRegularFile`, `openLinuxDirectory` and their required constants into the runner for checkout and session workers. Compare both implementations against the same regular-file, symlink and directory fixtures on each supported platform. The controller retains the existing `fs` and `fs/promises` own-machine accesses in `open-workspace-file.ts`.
 
 The workload engineUpdatePort wrapper serves the legacy detected-update executor. Delete it with that executor. Fold the shared operation facade into the controller when the controller is its only caller.
+
+## Owned file reads and launch folders
+
+`checkout.read` alone accepts `checkout: "owned"`: the checkout held for the session, independent of its selected workspace. Writes and commands keep the existing target schema. Locally, owned means `worktreePath ?? cwd`; the launch selector retains `launchCwd ?? repoRoot ?? cwd` for launch-folder/icon reads. Enrolled runners' launch and owned reads are the same immutable checkout and use the existing launch stream. These selectors intentionally differ locally; do not unify launch with owned or current. A stale local binding is compared with the row's desired directory before reading, using the existing identical in-process read on mismatch.

@@ -242,6 +242,8 @@ describe("v1 credit streams", () => {
     ["launch", "utf8"],
     ["current", "base64"],
     ["launch", "base64"],
+    ["owned", "utf8"],
+    ["owned", "base64"],
   ] as const)(
     "streams unlimited %s %s checkout reads",
     async (checkout, encoding) => {
@@ -275,7 +277,7 @@ describe("v1 credit streams", () => {
         const frame = parseServiceFrame(link.received[0]);
         if (frame?.type !== "request" || frame.command.kind !== "checkoutRead")
           throw new Error("Missing checkout read frame");
-        if (checkout === "launch")
+        if (checkout === "launch" || checkout === "owned")
           expect(frame.command.operation.checkout).toBe("launch");
         else expect(frame.command.operation).not.toHaveProperty("checkout");
         expect(frame.command.operation.request).toEqual({
