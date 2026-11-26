@@ -51,10 +51,11 @@ const text = (value: string | null) => {
  * (no `cwd`, or a runner locator left by an older build).
  */
 export function bindingFromRow(row: LocalBindingRow): LocalBinding | null {
-  const cwd = text(row.cwd);
+  // Paths are filesystem identities, not labels: main preserves their bytes.
+  const cwd = row.cwd;
   if (!cwd || remotePlacement(cwd)) return null;
-  const worktreePath = text(row.worktreePath);
-  const workspacePath = text(row.workspacePath);
+  const worktreePath = row.worktreePath;
+  const workspacePath = row.workspacePath;
   return {
     session: row.id,
     path: cwd,
