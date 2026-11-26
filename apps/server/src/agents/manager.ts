@@ -2004,8 +2004,7 @@ export class AgentManager {
     let launch: RunnerRepository["checkout"] | null = null;
     if (
       agent.runnerManaged &&
-      agent.cwd &&
-      remotePlacement(agent.cwd) &&
+      enrolledRunnerId(agent.placement ?? controllerPlacement) &&
       !agent.workspacePath
     ) {
       const { rows } = await this.pool.query<{

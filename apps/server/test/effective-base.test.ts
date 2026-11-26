@@ -1,3 +1,4 @@
+import { placementForRunner } from "../src/runners/placement.js";
 import { describe, expect, it, vi } from "vitest";
 import {
   readAgentStats,
@@ -16,7 +17,11 @@ const LOCAL = {
   cwd: "/repo/.dispatch/worktrees/a",
   worktreePath: "/repo/.dispatch/worktrees/a",
 };
-const REMOTE = { cwd: "runner://runner-a/@session", worktreePath: null };
+const REMOTE = {
+  placement: placementForRunner("runner-a"),
+  cwd: "runner://runner-a/@session",
+  worktreePath: null,
+};
 const USES: ComparisonUse[] = ["changes", "review"];
 
 type Shape = {

@@ -1,3 +1,4 @@
+import { placementForRunner } from "../src/runners/placement.js";
 import { inProcessPorts } from "../src/runners/in-process.js";
 /*
  * The comparison base a local agent's Changes and review read, pinned on real
@@ -105,7 +106,8 @@ describe("a local agent's comparison base", () => {
   it("for a runner agent is left to its runner", async () => {
     const runnerAgent: ComparisonBaseAgent = {
       ...worktreeAgent(fixtures.worktree!),
-      cwd: "runner://runner-a/@session",
+      cwd: "/runner/worktree",
+      placement: placementForRunner("runner-a"),
       worktreePath: null,
     };
     for (const use of USES)

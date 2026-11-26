@@ -56,18 +56,11 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/effective-base.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(agent.cwd)",
-    "task": "T07",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/agents/manager.ts",
     "kind": "R1 placement call",
     "detail": "remotePlacement(agent.cwd)",
     "task": "T07",
-    "count": 2
+    "count": 1
   },
   {
     "file": "apps/server/src/agents/manager.ts",

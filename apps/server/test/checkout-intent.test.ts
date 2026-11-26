@@ -1,3 +1,4 @@
+import { placementForRunner } from "../src/runners/placement.js";
 import { checkoutReadPlacement } from "../src/runners/placement.js";
 import type { RepositoryCheckout } from "@dispatch/runner-protocol";
 import { execFileSync } from "node:child_process";
@@ -228,7 +229,12 @@ it.each([
         expect(await agentComparisonBase(agent, use)).toBe(branch);
         expect(
           await agentComparisonBase(
-            { ...agent, cwd: "runner://runner/@session", worktreePath: null },
+            {
+              ...agent,
+              cwd: "/runner/session",
+              placement: placementForRunner("runner"),
+              worktreePath: null,
+            },
             use,
             launch
           )
