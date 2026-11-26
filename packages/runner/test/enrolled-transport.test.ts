@@ -1,3 +1,4 @@
+import { enrolledEngineCalls } from "../src/workload/agents/remote/machine-operations.js";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { enrolledFiles } from "../src/workload/agents/remote/file-operations.js";
@@ -231,6 +232,26 @@ it("runs bound file operations through the workload and reports byte count and d
   expect(launch).toHaveBeenCalledTimes(2);
 });
 
+it("addresses an engine workload operation without a session", async () => {
+  const called = vi.fn();
+  const { client } = await pair({
+    calls: enrolledEngineCalls({
+      async callHost(op, request) {
+        called(op, request);
+        throw new RunnerCallError({
+          code: "fenced",
+          message: "The runner is updating.",
+        });
+      },
+    }),
+  });
+  await expect(
+    client.call("engine.login.status", { loginId: "fixture" })
+  ).rejects.toMatchObject({ code: "fenced" });
+  expect(called).toHaveBeenCalledExactlyOnceWith("engine.login.status", {
+    loginId: "fixture",
+  });
+});
 it("keeps the enrolled frame budget for large launch prompts", async () => {
   const systemText = "a".repeat(2 * 1024 * 1024);
   const { client } = await pair({

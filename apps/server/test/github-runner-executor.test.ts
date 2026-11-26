@@ -1,3 +1,4 @@
+import { enrolledGitHubCalls } from "../../../packages/runner/src/workload/agents/remote/machine-operations.js";
 import { execFileSync } from "node:child_process";
 import {
   access,
@@ -248,6 +249,30 @@ esac
     await rm(root, { recursive: true, force: true });
   }
 }
+
+it("serves the current account and rejects an invalid repository before running a CLI", async () => {
+  await fixture(async ({ executor, root }) => {
+    await writeFile(path.join(root, "login"), "fixture-user\n");
+    const calls = enrolledGitHubCalls(executor, new AbortController().signal);
+    await expect(calls["github.account"]()).resolves.toMatchObject({
+      status: "signed-in",
+      login: "fixture-user",
+    });
+    const handle = vi.spyOn(executor, "handle");
+    await expect(
+      calls["github.branches"]({ owner: "../bad", repo: "repo" })
+    ).rejects.toMatchObject({ code: "invalid" });
+    expect(
+      calls["github.pr.diff"]({
+        owner: "org",
+        repo: "repo",
+        number: 1,
+        head: "commit",
+      })
+    ).toBeNull();
+    expect(handle).not.toHaveBeenCalled();
+  });
+});
 
 it("offers sign-in for an empty legacy gh account and preserves network failures", async () => {
   await fixture(async ({ executor, root }) => {
