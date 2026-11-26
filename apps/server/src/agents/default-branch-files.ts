@@ -9,7 +9,7 @@ export type DefinitionParser = (slug: string, content: string) => unknown;
 export const DEFAULT_BRANCH_REFRESH_MS = 5 * 60_000;
 const MAX_BACKOFF_MS = 60 * 60_000;
 const LOCK_TTL_MS = 5 * 60_000;
-export const PERSONA_CATALOG_LIMIT_WARNING =
+export const CATALOG_LIMIT_WARNING =
   "Persona catalog exceeds the 100-file or 4 MiB limit.";
 const REFRESH_WARNING =
   "Could not refresh personas from origin. Using cached definitions; retry is delayed automatically.";
@@ -104,7 +104,7 @@ export class DefaultBranchFiles {
         const [mode, kind, blob, size] = metadata.trim().split(/\s+/);
         bytes += Number(size) || 0;
         if (seen.size > 100 || bytes > 4 * 1024 * 1024) {
-          warnings.push(PERSONA_CATALOG_LIMIT_WARNING);
+          warnings.push(CATALOG_LIMIT_WARNING);
           return { files, truncated: true, warnings };
         }
         if (

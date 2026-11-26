@@ -1,7 +1,7 @@
 import {
   DefaultBranchFiles,
   type DefinitionParser,
-  PERSONA_CATALOG_LIMIT_WARNING,
+  CATALOG_LIMIT_WARNING,
 } from "./default-branch-files.js";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -485,9 +485,9 @@ function encodeReply(reply: CheckoutReply): string {
       ...reply,
       files: [] as typeof reply.files,
       truncated: true,
-      warnings: reply.warnings.includes(PERSONA_CATALOG_LIMIT_WARNING)
+      warnings: reply.warnings.includes(CATALOG_LIMIT_WARNING)
         ? reply.warnings
-        : [...reply.warnings, PERSONA_CATALOG_LIMIT_WARNING],
+        : [...reply.warnings, CATALOG_LIMIT_WARNING],
     };
     let bytes = Buffer.byteLength(JSON.stringify(limited) + "\n");
     for (const file of reply.files) {
