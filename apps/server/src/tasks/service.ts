@@ -16,7 +16,12 @@ import { validateAgentEffort } from "../shared/agent-effort.js";
 import { taskAgentName } from "@dispatch/shared";
 import { SESSION_RENAME_ASK } from "../shared/lib/agent-strings.js";
 import path from "node:path";
-import { mkdir, writeFile, rm } from "node:fs/promises";
+import {
+  createTaskAttachmentDirectory,
+  removeTaskAttachments,
+  taskAttachmentPath,
+  writeTaskAttachment,
+} from "./attachment-storage.js";
 import { timestampFileName } from "../agents/file-seed.js";
 import { fileMetadataFromBuffer } from "../files/metadata.js";
 import {
@@ -1489,11 +1494,11 @@ export class TaskService {
           links: links.map((url) => ({ kind: "url", url, label: url })),
         });
       if (files.length)
-        await mkdir(this.attachmentDir(id), { recursive: true });
+        await createTaskAttachmentDirectory(this.deps.filesRoot, id);
       const now = new Date();
       for (const [index, file] of files.entries()) {
         const name = timestampFileName(file.fileName, now, index);
-        await writeFile(path.join(this.attachmentDir(id), name), file.buffer);
+        await writeTaskAttachment(this.deps.filesRoot, id, name, file.buffer);
         await this.store.insertAttachment({
           taskId: id,
           fileName: name,
@@ -1862,16 +1867,10 @@ export class TaskService {
     await Promise.all(taskIds.map((id) => this.cleanupAttachments(id)));
   }
 
-  private attachmentDir(id: string): string {
-    if (!this.deps.filesRoot)
-      throw new Error("Task file storage is unavailable.");
-    return path.resolve(this.deps.filesRoot, "tasks", id);
-  }
-
   private async cleanupAttachments(id: string): Promise<void> {
     if (!this.deps.filesRoot) return;
     try {
-      await rm(this.attachmentDir(id), { recursive: true, force: true });
+      await removeTaskAttachments(this.deps.filesRoot, id);
     } catch (err) {
       this.deps.log.warn(
         { err, taskId: id },
@@ -1897,7 +1896,7 @@ export class TaskService {
     const row = await this.store.getAttachment(id, attachmentId);
     if (!row) throw notFound("Attachment");
     return {
-      path: path.join(this.attachmentDir(id), row.file_name),
+      path: taskAttachmentPath(this.deps.filesRoot, id, row.file_name),
       mimeType: row.mime_type,
     };
   }
@@ -1906,7 +1905,7 @@ export class TaskService {
     return (await this.store.listAttachments(id)).map((row) => ({
       name: row.display_name,
       mimeType: row.mime_type,
-      path: path.join(this.attachmentDir(id), row.file_name),
+      path: taskAttachmentPath(this.deps.filesRoot, id, row.file_name),
       fileName: row.file_name,
     }));
   }

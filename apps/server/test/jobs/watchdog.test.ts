@@ -1,3 +1,7 @@
+import { randomUUID } from "node:crypto";
+import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { JobService } from "../../src/jobs/service.js";
 
@@ -92,6 +96,42 @@ describe("job inactivity watchdog", () => {
     service.stopAllSchedulers();
     await vi.advanceTimersByTimeAsync(2000);
     await service.shutdown();
+  });
+  it("includes the last twenty trimmed legacy setup lines, following links and ignoring read failures", async () => {
+    const agentId = `agt_${randomUUID().replaceAll("-", "")}`;
+    const log = `/tmp/dispatch_setup_${agentId}.log`;
+    const dir = await mkdtemp(path.join(tmpdir(), "job-setup-"));
+    const target = path.join(dir, "source");
+    async function expectTail(tail: string) {
+      const { service, run, manager, store } = fixture();
+      run.agentId = agentId;
+      manager.hasOpenTurn.mockReturnValue(false);
+      await service.reconcileActiveRuns();
+      const message =
+        "Job turn was lost before server startup reconciliation." + tail;
+      expect(store.markCrashed).toHaveBeenCalledWith(
+        run.id,
+        expect.objectContaining({
+          tasks: [
+            expect.objectContaining({
+              errors: [expect.objectContaining({ message })],
+            }),
+          ],
+        })
+      );
+    }
+    try {
+      await symlink(target, log);
+      await expectTail("");
+      await writeFile(target, "  \n ");
+      await expectTail("");
+      const lines = Array.from({ length: 23 }, (_, i) => `entry ${i}`);
+      await writeFile(target, "  " + lines.join("\n") + "  \n");
+      await expectTail("\n\nSetup log tail:\n" + lines.slice(-20).join("\n"));
+    } finally {
+      await rm(log, { force: true });
+      await rm(dir, { recursive: true, force: true });
+    }
   });
   it("reconciles a running row whose turn is gone on startup", async () => {
     const { service, manager, store } = fixture();

@@ -99,7 +99,7 @@ import {
 import { GENERIC_REVIEW_PERSONA_SLUG } from "../src/personas/built-in.js";
 import { getEnabledAgentTypes } from "../src/agent-type-settings.js";
 import { resolveFilesDir } from "../src/shared/files.js";
-import { readFile, realpath, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, unlink, writeFile } from "node:fs/promises";
 import { SlackNotifier } from "../src/notifications/slack.js";
 import { IMAGE_LIMITS } from "../src/notifications/slack-images.js";
 import { BINARY_BYTES, PNG_BYTES } from "./helpers/file-bytes.js";
@@ -3011,6 +3011,59 @@ describe("createMcpHandlers", () => {
   });
 
   describe("shareFile", () => {
+    it("stores, replaces and deletes published bytes under the controller file directory", async () => {
+      const fs =
+        await vi.importActual<typeof import("node:fs/promises")>(
+          "node:fs/promises"
+        );
+      const root = await fs.mkdtemp("/tmp/mcp-published-");
+      const dir = path.join(root, "files");
+      const input = { filePath: "/runner/source.md", description: "notes" };
+      try {
+        vi.mocked(resolveFilesDir).mockReturnValueOnce(dir);
+        vi.mocked(mkdir).mockImplementationOnce(fs.mkdir);
+        vi.mocked(writeFile).mockImplementationOnce(fs.writeFile);
+        const initial = Buffer.from("first\n");
+        deps.agentManager.collectSessionFile.mockResolvedValueOnce(initial);
+        const result = await handlers.shareFile("agt_test1", input);
+        const stored = path.join(dir, result.fileName);
+        expect(await fs.readFile(stored)).toEqual(initial);
+        expect((await fs.stat(dir)).mode & 0o777).toBe(
+          0o777 & ~process.umask()
+        );
+        expect((await fs.stat(stored)).mode & 0o777).toBe(
+          0o666 & ~process.umask()
+        );
+        await fs.chmod(stored, 0o600);
+        vi.mocked(resolveFilesDir).mockReturnValueOnce(dir);
+        vi.mocked(mkdir).mockImplementationOnce(fs.mkdir);
+        vi.mocked(writeFile).mockImplementationOnce(fs.writeFile);
+        deps.pool.query.mockResolvedValueOnce({
+          rows: [{ file_name: result.fileName }],
+        });
+        const replacement = Buffer.from("second\n");
+        deps.agentManager.collectSessionFile.mockResolvedValueOnce(replacement);
+        await handlers.shareFile("agt_test1", {
+          ...input,
+          update: result.fileName,
+        });
+        expect(await fs.readFile(stored)).toEqual(replacement);
+        expect((await fs.stat(stored)).mode & 0o777).toBe(0o600);
+        for (let deletion = 0; deletion < 2; deletion++) {
+          vi.mocked(resolveFilesDir).mockReturnValueOnce(dir);
+          vi.mocked(unlink).mockImplementationOnce(fs.unlink);
+          deps.pool.query.mockResolvedValueOnce({
+            rows: [{ file_name: result.fileName }],
+          });
+          await handlers.deleteFile("agt_test1", result.fileName);
+          await expect(fs.stat(stored)).rejects.toMatchObject({
+            code: "ENOENT",
+          });
+        }
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    });
     it.each([230, 231])(
       "imports a %i-byte name with a bounded timestamp suffix",
       async (length) => {

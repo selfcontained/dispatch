@@ -21,7 +21,7 @@ import {
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import { ProjectStore } from "../projects/store.js";
 import { randomBytes, randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readSetupLogTail } from "./setup-log.js";
 
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
@@ -1462,9 +1462,7 @@ export class JobService {
     taskName = "guardrails",
     scheduleRecovery = true
   ): Promise<JobRunRecord> {
-    const diagnostics = run.agentId
-      ? await this.readAgentDiagnostics(run.agentId)
-      : "";
+    const diagnostics = run.agentId ? await readSetupLogTail(run.agentId) : "";
     const fullMessage = diagnostics ? `${message}\n\n${diagnostics}` : message;
     this.logger.warn({ runId: run.id, agentId: run.agentId }, message);
     const updated = await this.store.markCrashed(run.id, {
@@ -1497,21 +1495,6 @@ export class JobService {
     const updated = recovery ?? run;
     this.emitRunStateChange(updated);
     return updated;
-  }
-
-  private async readAgentDiagnostics(agentId: string): Promise<string> {
-    const sections: string[] = [];
-    const setupLog = await readFile(
-      `/tmp/dispatch_setup_${agentId}.log`,
-      "utf8"
-    ).catch(() => "");
-    if (setupLog.trim()) {
-      sections.push(
-        `Setup log tail:\n${setupLog.trim().split("\n").slice(-20).join("\n")}`
-      );
-    }
-
-    return sections.join("\n\n");
   }
 }
 

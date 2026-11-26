@@ -1,6 +1,10 @@
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import path from "node:path";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
+import {
+  createPublishedFilesDirectory,
+  writePublishedFile,
+  unlinkPublishedFile,
+} from "./mcp-file-storage.js";
 
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
@@ -781,7 +785,7 @@ async function handleShareFile(
       : "screenshot";
 
   const filesDir = resolveFilesDir(agentId, agent.filesDir, deps.filesRoot);
-  await mkdir(filesDir, { recursive: true });
+  await createPublishedFilesDirectory(filesDir);
 
   // Derived from the bytes we are about to write, not from the file on disk.
   // The dimensions and the bytes are the same object, so the row cannot come to
@@ -810,7 +814,7 @@ async function handleShareFile(
     // write leave the row describing bytes that never landed; this way a
     // failure between the two leaves the row lagging its file until the next
     // replacement, which costs one image a stale reserved box and nothing else.
-    await writeFile(filePath, buffer);
+    await writePublishedFile(filePath, buffer);
     await deps.pool.query(
       `UPDATE files SET size_bytes = $1, description = $2, updated_at = NOW(),
               metadata = $5, mime_type = $6
@@ -849,7 +853,7 @@ async function handleShareFile(
     `shared-${timestamp}${fallbackExt}`;
   const fileName = timestampedFileName(safeName);
 
-  await writeFile(path.join(filesDir, fileName), buffer);
+  await writePublishedFile(path.join(filesDir, fileName), buffer);
   await deps.pool.query(
     `INSERT INTO files (agent_id, file_name, source, size_bytes, description,
                         metadata, mime_type)
@@ -1059,20 +1063,7 @@ async function handleDeleteFile(
     throw new Error("Invalid file path.");
   }
 
-  try {
-    await unlink(filePath);
-  } catch (error: unknown) {
-    if (
-      !(
-        error &&
-        typeof error === "object" &&
-        "code" in error &&
-        error.code === "ENOENT"
-      )
-    ) {
-      throw error;
-    }
-  }
+  await unlinkPublishedFile(filePath);
   await removeImageVariants(filePath);
 
   await deps.pool.query(

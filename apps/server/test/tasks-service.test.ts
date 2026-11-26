@@ -14,6 +14,7 @@ import {
   readFile,
   readdir,
   realpath,
+  stat,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -3359,6 +3360,18 @@ it("stores task attachments and links, briefs agents, and cleans up on deletion"
   const attachment = await service.attachmentFile(
     task.id,
     detail.attachments[0]!.id
+  );
+  expect(path.dirname(attachment.path)).toBe(
+    path.resolve(filesRoot, "tasks", task.id)
+  );
+  expect(path.basename(attachment.path)).toMatch(
+    /^context-\d{4}(?:-\d{2}){5}-\d{3}-1\.md$/
+  );
+  expect((await stat(attachment.path)).mode & 0o777).toBe(
+    0o666 & ~process.umask()
+  );
+  expect((await stat(path.dirname(attachment.path))).mode & 0o777).toBe(
+    0o777 & ~process.umask()
   );
   expect(await readFile(attachment.path)).toEqual(buffer);
   expect((await service.briefingFor(task.id)).text).toContain(
