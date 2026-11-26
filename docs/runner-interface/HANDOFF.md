@@ -141,7 +141,9 @@ Enrolled runners retain the existing 300-second read transport deadline for nati
 
 ## Open differences — must close before the seal
 
-- **Local consuming reads:** local read deadline starts a second reader while the child is still reading (consuming reads, e.g. FIFO). The in-flight FIFO byte-parity pin is an expected failure until the adapter keeps waiting for a responsive child; the adapter owner flips it to a normal pass. The fixture-paused native list/read deadline pins currently expect one fallback and must also change with that fix (paused but responsive child means keep waiting).
+- **Archive under `auto` when a checkout's state cannot be read (owner decision, one answer for both):**
+  1. Main treats a failed status read as clean, so `auto` removes the worktree (design 0.5, `auto` rule). The owner has been asked whether an unreadable status should keep the checkout instead (unreadable ≠ clean), for every runner.
+  2. Local `auto` archive through the adapter: when the child's `workspace.describe` or `workspace.observe` fails with an ordinary error (not a missed read), the archive keeps the checkout (`kept: failed`), where main observes in process and, per 1, removes it. Option A (#1614) covers the release only; this observe path is left as it is until 1 is decided, then both move together.
 
 ## Known gaps accepted by the owner
 
