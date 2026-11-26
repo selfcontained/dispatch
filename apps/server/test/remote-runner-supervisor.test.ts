@@ -721,6 +721,36 @@ describe("runner session supervision", () => {
     }
   });
 
+  it.each(["release", "discard"] as const)(
+    "%s of a never-bound session fences a delayed launch across restart",
+    async (operation) => {
+      const runner = await start([]);
+      const bindings = path.join(state, "bindings");
+      const before = await readdir(bindings);
+      const release = vi.fn(async () => true);
+      if (operation === "release") {
+        await expect(
+          runner.releaseWorkspace(agentId, MANAGED_WORKSPACE, release)
+        ).resolves.toBe(true);
+      } else {
+        await runner.discard(agentId, MANAGED_WORKSPACE);
+      }
+      runner.close();
+      const restarted = await start([]);
+      await expect(
+        restarted.launch(launch(MANAGED_WORKSPACE), undefined)
+      ).rejects.toThrow("This runner session has been archived.");
+      expect((await readdir(bindings)).sort()).toEqual(
+        [...before, agentId + ".retired"].sort()
+      );
+      await expect(
+        stat(path.join(state, "sessions", agentId))
+      ).rejects.toMatchObject({ code: "ENOENT" });
+      expect(processes.spawn).not.toHaveBeenCalled();
+      expect(release).not.toHaveBeenCalled();
+    }
+  );
+
   it("prepares managed scratch and reports request-scoped progress before starting the host", async () => {
     const runner = await start([]);
     const progress = vi.fn();
