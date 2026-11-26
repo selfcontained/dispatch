@@ -551,6 +551,15 @@ describe("main's local automatic cleanup", () => {
     expect(git(repo, "branch", "--list", "feature")).toBe("");
   });
 
+  it("keeps the branch and directory when Git cannot read the worktree metadata", async () => {
+    writeFileSync(path.join(checkout, ".git"), "invalid Git worktree metadata");
+    expect(await archive(auto)).toMatchObject({
+      removed: false,
+      pending: false,
+    });
+    expect(git(repo, "branch", "--list", "feature")).toContain("feature");
+  });
+
   it.each([false, true])(
     "keeps a checkout with an unreadable index, including with committed changes=%s",
     async (unmerged) => {

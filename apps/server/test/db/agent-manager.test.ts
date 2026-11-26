@@ -1,4 +1,8 @@
-import { sessionFromWire } from "@dispatch/runner-protocol/contract";
+import * as lifecycleHooks from "../../src/agents/lifecycle-hooks.js";
+import {
+  RunnerCallError,
+  sessionFromWire,
+} from "@dispatch/runner-protocol/contract";
 import { withTestWorkspaceRunner } from "../helpers/test-workspace-runner.js";
 import * as checkoutIntent from "../../src/agents/checkout-intent.js";
 import { createMcpHandlers } from "../../src/server/mcp-handlers.js";
@@ -547,9 +551,23 @@ describe("AgentManager", () => {
       });
     });
 
-    it("persists managed placement across restart and retries archive when the original runner returns", async () => {
+    it("persists managed placement across restart and retries archive when the original runner returns", async ({
+      onTestFinished,
+    }) => {
       const available = vi.fn(() => true);
       const stateId = "2".repeat(64);
+      // These database scenarios exercise archive recovery across manager instances.
+      // The runner has no manifest once reachable; an offline read is not an empty manifest.
+      const hook = vi
+        .spyOn(lifecycleHooks, "runLifecycleHook")
+        .mockImplementation(async (name) => {
+          if (name === "archive" && !available())
+            throw new RunnerCallError({
+              code: "unavailable",
+              message: "offline",
+            });
+        });
+      onTestFinished(() => hook.mockRestore());
       const requestSession = vi.fn(
         async (_placement: unknown, operation: SessionOperation) => {
           if (!available()) throw new Error("offline");
@@ -631,32 +649,28 @@ describe("AgentManager", () => {
         onComplete: vi.fn(),
         onError: vi.fn(),
       });
-      const pending = async () =>
-        (
-          await pool.query(
-            "SELECT runner_cleanup_pending FROM agents WHERE id = $1 AND deleted_at IS NOT NULL",
-            [agent.id]
-          )
-        ).rows[0]?.runner_cleanup_pending;
-      expect(await pending()).toBe(true);
+      expect(await resumed.getAgent(agent.id)).toMatchObject({
+        status: "archiving",
+      });
       const placement = { runner: "runner-test", workspace: "@session" };
-      requestSession.mockClear();
-      await resumed.reconcileAgentStatuses();
-      await vi.waitFor(() =>
-        expect(requestSession).toHaveBeenCalledWith(placement, {
-          kind: "checkoutRelease",
-          agentId: agent.id,
-          operation: { kind: "observe" },
-        })
-      );
-      expect(await pending()).toBe(true);
+      expect(
+        requestSession.mock.calls.some(
+          ([, request]) =>
+            request.kind === "checkoutRelease" &&
+            request.operation.kind === "release"
+        )
+      ).toBe(false);
       const reconnected = new AgentManager(pool, noopLogger, testConfig, {
         runtime: { ...createSpyRuntime(), discard },
         remote,
       });
       available.mockReturnValue(true);
-      await reconnected.reconcileAgentStatuses();
-      await vi.waitFor(async () => expect(await pending()).toBe(false));
+      await reconnected.executeArchive(agent.id, {
+        onPhaseChange: vi.fn(),
+        onComplete: vi.fn(),
+        onError: vi.fn(),
+      });
+      expect(await reconnected.getAgent(agent.id)).toBeNull();
       expect(requestSession).toHaveBeenLastCalledWith(placement, {
         kind: "checkoutRelease",
         agentId: agent.id,
@@ -719,8 +733,22 @@ describe("AgentManager", () => {
       ).toEqual([]);
     });
 
-    it("retries an offline archive in a configured runner workspace until the host is stopped and released (audit #17)", async () => {
+    it("retries an offline archive in a configured runner workspace until the host is stopped and released (audit #17)", async ({
+      onTestFinished,
+    }) => {
       const available = vi.fn(() => false);
+      // These database scenarios exercise archive recovery across manager instances.
+      // The runner has no manifest once reachable; an offline read is not an empty manifest.
+      const hook = vi
+        .spyOn(lifecycleHooks, "runLifecycleHook")
+        .mockImplementation(async (name) => {
+          if (name === "archive" && !available())
+            throw new RunnerCallError({
+              code: "unavailable",
+              message: "offline",
+            });
+        });
+      onTestFinished(() => hook.mockRestore());
       const requestSession = vi.fn(
         async (_placement: unknown, operation: SessionOperation) => {
           if (!available()) throw new Error("offline");
@@ -766,24 +794,15 @@ describe("AgentManager", () => {
         onComplete,
         onError: vi.fn(),
       });
-      expect(onComplete).toHaveBeenCalledWith(["configured-runner"]);
-      const pending = async () =>
-        (
-          await pool.query(
-            "SELECT runner_cleanup_pending FROM agents WHERE id = 'configured-runner' AND deleted_at IS NOT NULL"
-          )
-        ).rows[0]?.runner_cleanup_pending;
-      expect(await pending()).toBe(true);
-
-      // Still offline: the retry stays pending.
-      await offline.reconcileAgentStatuses();
-      await vi.waitFor(() =>
-        expect(offlineRuntime.stop).toHaveBeenCalledTimes(2)
-      );
-      expect(await pending()).toBe(true);
+      expect(onComplete).not.toHaveBeenCalled();
+      expect(await offline.getAgent("configured-runner")).toMatchObject({
+        status: "archiving",
+      });
       const releases = () =>
         requestSession.mock.calls.filter(
-          ([, request]) => request.kind === "checkoutRelease"
+          ([, request]) =>
+            request.kind === "checkoutRelease" &&
+            request.operation.kind === "release"
         );
       expect(releases()).toEqual([]);
 
@@ -794,8 +813,12 @@ describe("AgentManager", () => {
         runtime: onlineRuntime,
         remote,
       });
-      await reconnected.reconcileAgentStatuses();
-      await vi.waitFor(async () => expect(await pending()).toBe(false));
+      await reconnected.executeArchive("configured-runner", {
+        onPhaseChange: vi.fn(),
+        onComplete,
+        onError: vi.fn(),
+      });
+      expect(onComplete).toHaveBeenCalledWith(["configured-runner"]);
       expect(onlineRuntime.stop).toHaveBeenCalledWith(
         "configured-runner",
         true
