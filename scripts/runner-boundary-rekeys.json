@@ -1,5 +1,5 @@
 {
-  "budget": 18,
+  "budget": 17,
   "importers": [
     "apps/server/src/agents/acp/host-search-path.ts",
     "apps/server/src/agents/acp/local-host-entry.ts",
@@ -62,20 +62,6 @@
       "type": "input-seam",
       "provider": "apps/server/src/agents/engine-availability.ts",
       "consumers": ["packages/runner/src/host/main.ts"]
-    },
-    {
-      "key": {
-        "file": "apps/server/src/main.ts",
-        "kind": "R2 host import",
-        "detail": "apps/server/src/shared/process/owned-processes"
-      },
-      "class": "moves-with-workload",
-      "task": "T40",
-      "reason": "The composition root supplies the same process-ownership functions as explicit host inputs.",
-      "movedDependency": "apps/server/src/agents/acp/driver.ts",
-      "type": "input-seam",
-      "provider": "apps/server/src/shared/process/owned-processes.js",
-      "consumers": ["packages/runner/src/host/driver.ts"]
     },
     {
       "key": {
