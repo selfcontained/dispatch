@@ -26,6 +26,7 @@ import {
   blob,
   commandResult,
   checkoutReadTarget,
+  checkoutSelector,
   engineComplete,
   engineInstallation,
   engineOperationState,
@@ -594,7 +595,7 @@ export const operations = {
       object({
         target: object({
           session: sessionHandle,
-          checkout: literal("launch", "moved"),
+          checkout: checkoutSelector,
         }),
         guard: object({ root: runnerPath, identity: string }),
         ...execOptions,

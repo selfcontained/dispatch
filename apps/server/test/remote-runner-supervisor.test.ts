@@ -2044,6 +2044,9 @@ describe("runner session supervision", () => {
     const runner = await start(asWorkload);
     await startHost(runner, launch());
     const ownedCheckout = await runner.checkoutDirectory(agentId);
+    await expect(
+      runner.checkoutDirectory(agentId, "moved")
+    ).rejects.toMatchObject({ code: "not_found" });
     const select = (path: string) =>
       runner.sessionCheckout(agentId, { kind: "select", path });
     const sessions = path.join(state, "sessions");
@@ -2088,7 +2091,11 @@ describe("runner session supervision", () => {
     expect(await runner.checkoutDirectory(agentId, "launch")).toBe(
       ownedCheckout
     );
-    for (const unknown of ["moved", "unknown", null, 1])
+    expect(await runner.checkoutDirectory(agentId, "moved")).toBe(nested);
+    expect(await runner.checkoutDirectory(agentId, "owned")).toBe(
+      ownedCheckout
+    );
+    for (const unknown of ["unknown", null, 1])
       await expect(
         runner.checkoutDirectory(agentId, unknown as never)
       ).rejects.toThrow("Invalid checkout read selector.");

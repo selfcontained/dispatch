@@ -1277,16 +1277,29 @@ export async function createSessionSupervisor(
     },
     checkoutDirectory(
       agentId: string,
-      checkout: "current" | "launch" = "current"
+      checkout: "current" | "launch" | "moved" | "owned" = "current"
     ): Promise<string> {
-      if (checkout !== "current" && checkout !== "launch")
-        return Promise.reject(new Error("Invalid checkout read selector."));
       const key = runnerStorageKey(agentId);
       return serialize(key, async () => {
         const initial = await initialDirectory(key);
-        return checkout === "launch"
-          ? initial
-          : selectedDirectory(key, initial);
+        switch (checkout) {
+          case "launch":
+          case "owned":
+            return initial;
+          case "current":
+            return selectedDirectory(key, initial);
+          case "moved": {
+            const selected = await selectedDirectory(key, initial);
+            if (selected === initial)
+              throw new RunnerCallError({
+                code: "not_found",
+                message: "No checkout is bound to this session",
+              });
+            return selected;
+          }
+          default:
+            throw new Error("Invalid checkout read selector.");
+        }
       });
     },
     gitContext(

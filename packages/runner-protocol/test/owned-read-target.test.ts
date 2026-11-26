@@ -63,13 +63,13 @@ it("requires an explicit session checkout for commands bound to a resolved direc
     shell: "direct",
   };
   const guard = { root: "/root", identity: "1:2" };
-  for (const checkout of ["launch", "moved"])
+  for (const checkout of ["current", "launch", "moved"])
     expect(
       exec.check({ ...command, guard, target: { session, checkout } })
     ).toBe(true);
   for (const target of [
     { session },
-    { session, checkout: "current" },
+    { session, checkout: "owned" },
     { path: "/root" },
     { repository: "r" },
   ])
