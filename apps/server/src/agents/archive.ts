@@ -17,7 +17,10 @@ import {
   type ArchiveOutcome,
 } from "./archive-policy.js";
 import type { RunnerComposition } from "../runners/directory.js";
-import type { Runner } from "@dispatch/runner-protocol/contract";
+import {
+  RunnerCallError,
+  type Runner,
+} from "@dispatch/runner-protocol/contract";
 import type { RemoteRunnerService } from "./remote/service.js";
 import { resolveArchiveHooks, runLifecycleHook } from "./lifecycle-hooks.js";
 import {
@@ -87,6 +90,28 @@ async function getChildAgentIds(
   return result.rows.map((row) => row.id);
 }
 
+/** A borrower must never run a repository's destructive cleanup in its owner's checkout. */
+async function skipArchiveHook(
+  pool: Pool,
+  agent: AgentRecord
+): Promise<boolean> {
+  if (retainUnflaggedCheckout(agent)) return true;
+  if (agent.worktreePath) return false;
+  const { rows } = await pool.query<{ borrowed: boolean }>(
+    `SELECT EXISTS (
+      SELECT 1 FROM agents a WHERE a.id = $1 AND (
+        (a.runner_worktree_owner IS NOT NULL AND a.runner_worktree_owner <> a.id)
+        OR (a.worktree_path IS NULL AND EXISTS (
+          SELECT 1 FROM agents owner WHERE owner.id <> a.id
+          AND owner.worktree_path = a.cwd AND (owner.deleted_at IS NULL OR owner.runner_cleanup_pending)
+        ))
+      )
+    ) AS borrowed`,
+    [agent.id]
+  );
+  return rows[0]?.borrowed === true;
+}
+
 /** Read the effects of the target and its cascade without running a hook. */
 export async function previewArchive(
   deps: Pick<
@@ -104,12 +129,13 @@ export async function previewArchive(
   const seen = new Set([id]);
   const pending = [target];
   for (const agent of pending) {
-    for await (const { hook } of resolveArchiveHooks(agent, {
-      remote: deps.remote,
-      child: deps.localRunnerChild,
-    })) {
-      if (hook.description) cleanupDescriptions.add(hook.description);
-    }
+    if (!(await skipArchiveHook(pool, agent)))
+      for await (const { hook } of resolveArchiveHooks(agent, {
+        remote: deps.remote,
+        child: deps.localRunnerChild,
+      })) {
+        if (hook.description) cleanupDescriptions.add(hook.description);
+      }
     for (const childId of await getChildAgentIds(pool, agent.id)) {
       if (seen.has(childId)) continue;
       seen.add(childId);
@@ -363,13 +389,18 @@ export async function executeArchive(
     }
     durations.stop = Date.now() - t;
 
-    await runLifecycleHook(
-      "archive",
-      agent,
-      logger,
-      { remote: deps.remote, child: deps.localRunnerChild },
-      deps.whileFenced && ((request) => deps.whileFenced!(agent, request))
-    );
+    if (!(await skipArchiveHook(pool, agent)))
+      await runLifecycleHook(
+        "archive",
+        agent,
+        logger,
+        {
+          remote: deps.remote,
+          child: deps.localRunnerChild,
+          recordArchivePhase: (phase) => deps.setArchivePhase(id, phase),
+        },
+        deps.whileFenced && ((request) => deps.whileFenced!(agent, request))
+      );
 
     const publishPhase = async (phase: ArchivePhase) => {
       await deps.setArchivePhase(id, phase);
@@ -437,6 +468,8 @@ export async function executeArchive(
     callbacks.onComplete(deletedIds);
   } catch (error) {
     if (error instanceof LifecycleSuperseded) return;
+    if (error instanceof RunnerCallError && error.code === "unavailable")
+      return;
     logger.error({ err: error, agentId: id }, "Archive failed");
     try {
       await deps.setAgentStatus(
@@ -532,17 +565,26 @@ export async function deleteAgentDirect(
   }
 
   try {
-    await runLifecycleHook(
-      "archive",
-      agent,
-      logger,
-      { remote: deps.remote, child: deps.localRunnerChild },
-      deps.whileFenced &&
-        ((request) =>
-          deps.whileFenced!({ ...agent, status: "archiving" }, request))
-    );
+    if (!(await skipArchiveHook(pool, agent)))
+      await runLifecycleHook(
+        "archive",
+        agent,
+        logger,
+        {
+          remote: deps.remote,
+          child: deps.localRunnerChild,
+          recordArchivePhase: (phase) => deps.setArchivePhase(id, phase),
+        },
+        deps.whileFenced &&
+          ((request) =>
+            deps.whileFenced!({ ...agent, status: "archiving" }, request))
+      );
   } catch (error) {
-    if (error instanceof LifecycleSuperseded) return [];
+    if (
+      error instanceof LifecycleSuperseded ||
+      (error instanceof RunnerCallError && error.code === "unavailable")
+    )
+      return [];
     await deps.setAgentStatus(
       id,
       "error",

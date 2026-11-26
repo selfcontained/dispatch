@@ -5286,6 +5286,52 @@ describe("AgentManager", () => {
         }
       );
 
+      it("skips the owner's hook for a borrower and shows the keep warning on an unreadable owner checkout", async () => {
+        const { root, owner, borrower } = await ownerAndBorrower();
+        try {
+          const config = path.join(root, ".dispatch");
+          await mkdir(config, { recursive: true });
+          await writeFile(
+            path.join(config, "tools.json"),
+            JSON.stringify({
+              hooks: {
+                archive: {
+                  command: ["sh", "-c", "echo invoked >> invoked"],
+                  description: "Clean up",
+                },
+              },
+            })
+          );
+          expect(
+            (await manager.checkArchivePreview(borrower.id)).cleanupDescriptions
+          ).toEqual([]);
+          await writeFile(
+            path.join(root, ".git", "index"),
+            Buffer.from("invalid index")
+          );
+          const preview = await manager.checkArchivePreview(owner.id);
+          expect(preview).toMatchObject({
+            worktreeStatus: null,
+            worktreeStatusUnreadable: true,
+            cleanupDescriptions: ["Clean up"],
+          });
+          await expect(
+            manager.checkWorktreeStatus(owner.id)
+          ).rejects.toMatchObject({ statusCode: 503 });
+          await manager.beginArchive(borrower.id, "force");
+          await manager.executeArchive(borrower.id, {
+            onPhaseChange: vi.fn(),
+            onComplete: vi.fn(),
+            onError: vi.fn(),
+          });
+          await expect(
+            readFile(path.join(root, "invoked"))
+          ).rejects.toMatchObject({ code: "ENOENT" });
+        } finally {
+          await rm(root, { recursive: true, force: true });
+        }
+      });
+
       it("a forced archive carrying the owner's remembered state leaves the owner's checkout alone", async () => {
         const { root, owner, borrower } = await ownerAndBorrower();
         try {

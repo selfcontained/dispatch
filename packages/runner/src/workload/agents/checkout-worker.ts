@@ -316,7 +316,10 @@ async function work<K extends WorkerOp>(
           nativeFailure(error, native.bindRoot);
         }
         return {
-          ...(rootIdentity !== undefined && { rootIdentity }),
+          ...(rootIdentity !== undefined && {
+            rootIdentity,
+            root: pathFromWire(directory),
+          }),
           data,
           digest: createHash("sha256").update(bytes).digest("hex"),
         };

@@ -126,6 +126,14 @@ export function createAgentLifecycleRuntime(
         });
         activeArchives.add(archivePromise);
         archivingAgentIds.add(agentId);
+        // An offline archive stays pending and settles without either callback.
+        // Relinquish tracking so reconciliation can resume it after reconnect.
+        void archivePromise
+          .finally(() => {
+            if (activeArchives.delete(archivePromise))
+              archivingAgentIds.delete(agentId);
+          })
+          .catch((error) => this.onArchiveError(agentId, error));
       } catch (err) {
         appLog.warn({ err, agentId }, "Auto-archive of job agent failed");
       }

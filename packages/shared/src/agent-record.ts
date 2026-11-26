@@ -40,6 +40,9 @@ export type AgentActivity =
 export type SetupPhase = "worktree" | "env" | "deps" | "session" | null;
 
 export type ArchivePhase =
+  | "archive-hook-running"
+  | "archive-launch-complete"
+  | "archive-hooks-complete"
   | "stopping"
   | "worktree-check"
   | "worktree-cleanup"

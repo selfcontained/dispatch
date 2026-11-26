@@ -143,7 +143,6 @@ describe("the composition gives each runner its archive policy", () => {
       enrolledArchivePolicy
     );
     expect(localArchivePolicy).toEqual({
-      repositoryHook: true,
       coOwner: "recorded",
       borrowers: "recorded",
       forceSkipsObserve: true,
@@ -151,7 +150,6 @@ describe("the composition gives each runner its archive policy", () => {
       awaitsStoppedHost: false,
     });
     expect(enrolledArchivePolicy).toEqual({
-      repositoryHook: false,
       coOwner: "observed",
       borrowers: "observed",
       forceSkipsObserve: false,

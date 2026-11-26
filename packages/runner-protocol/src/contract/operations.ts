@@ -435,6 +435,7 @@ export const operations = {
         data: string,
         digest: optional(string),
         rootIdentity: optional(string),
+        root: optional(runnerPath),
       })
     ),
     errors: ["forbidden", "too_large"],
