@@ -1,7 +1,7 @@
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import { RunnerCapabilityUnavailable } from "../agents/remote/service.js";
 import { readAgentCheckoutFile } from "../server/mcp-checkout.js";
-import type { PersonaScope } from "./persona-scope.js";
+import { personaCheckoutRoot, type PersonaScope } from "./persona-scope.js";
 import { PERSONA_DIRS } from "./paths.js";
 import {
   loadPersonaBySlug,
@@ -17,7 +17,6 @@ import {
   BUILT_IN_PERSONAS,
   getBuiltInPersona,
 } from "./built-in.js";
-import { resolveWorktreeRoot } from "../shared/git/git-context.js";
 import {
   personaCatalog,
   parseDefaultBranchPersonas,
@@ -127,7 +126,8 @@ async function personaSources(scope: PersonaScope): Promise<Sources> {
   }
   if (scope.kind === "builtins") return null;
   const cwd = scope.kind === "folder" ? scope.cwd : scope.repoRoot;
-  const root = await resolveWorktreeRoot(cwd).catch(() => cwd);
+  const root =
+    (await personaCheckoutRoot(cwd, scope.runners()).catch(() => null)) ?? cwd;
   const workspace = scope.kind === "folder" && scope.source === "workspace";
   return {
     load: (warnings: string[]) =>
