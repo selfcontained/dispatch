@@ -97,11 +97,10 @@ it("force reads no checkout state before removing, as main", async () => {
   const { outcome } = archive(child);
   expect(await outcome).toEqual({ kind: "released" });
   // The archive's own calls: the co-owner spelling, then the removal. The
-  // adapter checks the child owns the worktree before removing it.
+  // adapter checks the child's binding names the worktree before removing it.
   expect(call.mock.calls.map(([op]) => op)).toEqual([
     "path.resolve",
     "workspace.describe",
-    "workspace.observe",
     "workspace.release",
   ]);
 });
