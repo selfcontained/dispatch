@@ -33,7 +33,7 @@ it("updates the runner picker options when switching from a project to a bare re
   const picker = (projectId: string | null) => (
     <QueryClientProvider client={client}>
       <AgentPersonaSelect
-        cwd="runner://test/@session"
+        cwd="/srv/fixture/checkout"
         projectId={projectId}
         value={null}
         onChange={vi.fn()}

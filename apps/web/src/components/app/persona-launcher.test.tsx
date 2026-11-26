@@ -1,3 +1,7 @@
+import {
+  placementOf,
+  runnerIdFromWire,
+} from "@dispatch/runner-protocol/contract";
 import { localAgentPlacement } from "@/test-utils/__fixtures__/agent-placement";
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -125,7 +129,8 @@ describe("PersonaLauncher", () => {
     });
     renderLauncher({
       ...agent,
-      cwd: `runner://${runnerId}/@session`,
+      cwd: "/srv/linux/checkout",
+      placement: placementOf(runnerIdFromWire(runnerId)),
       workspacePath: "/remote/repo",
       reviewAgentType: "claude",
     });

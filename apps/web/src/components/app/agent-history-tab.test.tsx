@@ -52,7 +52,7 @@ it("renders a supplied project key with the existing folder label formatter", ()
       name: "Session",
       type: "codex",
       status: "done",
-      cwd: "runner://fixture/@session",
+      cwd: "/srv/fixture/checkout",
       project: "https://example.com/demo/alpha",
       totalTokens: 0,
       groupTotalTokens: 0,
