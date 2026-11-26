@@ -6,10 +6,9 @@ import {
 import {
   isCheckoutCommand,
   isCheckoutExecutionOptions,
-  MAX_CHECKOUT_COMMAND_OUTPUT_BYTES,
 } from "@dispatch/runner-protocol";
 import {
-  executeCheckoutCommand,
+  checkoutCommandGuard,
   executeStreamedCheckoutCommand,
   reportCheckoutWorkerStatus,
 } from "../checkout-command-executor.js";
@@ -18,7 +17,7 @@ import { readCheckoutCommandFile } from "../checkout-inspection.js";
 export async function runCheckoutCommandCli(
   cwd: string,
   session: string,
-  configuredRoot: string | undefined,
+  _reserved: string | undefined,
   loginPath: string | undefined
 ) {
   let streamed = false;
@@ -35,8 +34,7 @@ export async function runCheckoutCommandCli(
     const operation: unknown = JSON.parse(
       Buffer.concat(chunks).toString("utf8")
     );
-    const read = (file: string) =>
-      readCheckoutCommandFile(cwd, file, { configuredRoot });
+    const read = (file: string) => readCheckoutCommandFile(cwd, file);
     if (operations["checkout.exec"].request.check(operation)) {
       const { target, guard, argv } = operation;
       if (
@@ -70,28 +68,16 @@ export async function runCheckoutCommandCli(
       await reportCheckoutWorkerStatus({ exitCode });
       return;
     }
-    if (!isCheckoutCommand(operation))
+    if (!isCheckoutCommand(operation) || operation.kind !== "read")
       throw new Error("Invalid checkout command.");
-    if (operation.kind === "run" && operation.execution) {
-      streamed = true;
-      const exitCode = await executeStreamedCheckoutCommand(
-        cwd,
-        session,
-        operation,
-        operation.execution,
-        loginPath,
-        read
-      );
-      await reportCheckoutWorkerStatus({ exitCode });
-      return;
-    }
+    const { content, state } = await checkoutCommandGuard(
+      cwd,
+      session,
+      operation,
+      read
+    );
     process.stdout.write(
-      JSON.stringify(
-        await executeCheckoutCommand(cwd, session, operation, read, {
-          outputLimit: MAX_CHECKOUT_COMMAND_OUTPUT_BYTES,
-          loginShell: process.env.SHELL || "/bin/bash",
-        })
-      )
+      JSON.stringify(content === null ? null : { content, state })
     );
   } catch (error) {
     const message = (

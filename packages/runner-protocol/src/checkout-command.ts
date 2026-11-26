@@ -1,10 +1,8 @@
 import { isCheckoutQuery } from "./checkout.js";
-import { isOpaqueId } from "./placement.js";
 import { isRecord } from "./validation.js";
 
 const REPO_TOOL_TIMEOUT_MS = 5 * 60_000;
 const LIFECYCLE_HOOK_TIMEOUT_MS = 15_000;
-export const MAX_CHECKOUT_COMMAND_OUTPUT_BYTES = 64 * 1024;
 export const MAX_CHECKOUT_COMMAND_FILE_BYTES = 256 * 1024;
 export const MAX_CHECKOUT_COMMAND_REPLY_BYTES = 4 * 1024 * 1024;
 
@@ -17,7 +15,6 @@ export type CheckoutCommand = {
       kind: "run";
       state: string;
       argv: string[];
-      execution?: CheckoutExecution;
     }
 );
 
@@ -26,13 +23,11 @@ export type CheckoutExecution = {
   maxOutput: number | null;
   shell: "direct" | "login";
   env: Record<string, string>;
-  stdout: string;
-  stderr: string;
 };
 
 export function isCheckoutExecutionOptions(
   value: unknown
-): value is Omit<CheckoutExecution, "stdout" | "stderr"> {
+): value is CheckoutExecution {
   const limit = (n: unknown) =>
     n === null || (typeof n === "number" && Number.isSafeInteger(n) && n >= 0);
   return (
@@ -48,17 +43,6 @@ export function isCheckoutExecutionOptions(
         typeof entry === "string" &&
         !entry.includes("\0")
     )
-  );
-}
-
-function isCheckoutExecution(value: unknown): value is CheckoutExecution {
-  return (
-    isRecord(value) &&
-    Object.keys(value).length === 6 &&
-    isOpaqueId(value.stdout) &&
-    isOpaqueId(value.stderr) &&
-    value.stdout !== value.stderr &&
-    isCheckoutExecutionOptions(value)
   );
 }
 
@@ -102,9 +86,7 @@ export function isCheckoutCommand(value: unknown): value is CheckoutCommand {
   if (value.kind === "read") return Object.keys(value).length === 3;
   return (
     value.kind === "run" &&
-    (Object.hasOwn(value, "execution")
-      ? Object.keys(value).length === 6 && isCheckoutExecution(value.execution)
-      : Object.keys(value).length === 5) &&
+    Object.keys(value).length === 5 &&
     digest(value.state) &&
     Array.isArray(value.argv) &&
     value.argv.length > 0 &&
@@ -127,19 +109,6 @@ export function isCheckoutCommandFile(
       typeof value.content === "string" &&
       fits(value.content, MAX_CHECKOUT_COMMAND_FILE_BYTES) &&
       digest(value.state))
-  );
-}
-
-export function isCheckoutCommandResult(
-  value: unknown
-): value is CheckoutCommandResult {
-  return (
-    isCheckoutCommandStatus(value) &&
-    [value.stdout, value.stderr].every(
-      (output) =>
-        typeof output === "string" &&
-        fits(output, MAX_CHECKOUT_COMMAND_OUTPUT_BYTES)
-    )
   );
 }
 

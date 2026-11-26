@@ -193,8 +193,7 @@ export async function finishCheckout(
   onCleanupStart?: () => Promise<void>
 ): Promise<boolean> {
   const hooks = { durations, onCleanupStart };
-  // Every runner placement, managed or a configured workspace, finishes on
-  // its runner: offline, the release stays pending and is retried.
+  // Release on the runner that owns the binding. An offline release stays pending.
   const outcome = await archiveCheckout(
     deps.pool,
     deps.logger,
