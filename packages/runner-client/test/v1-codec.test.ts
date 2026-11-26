@@ -26,6 +26,7 @@ import {
 import { describe, expect, it } from "vitest";
 import {
   NOT_ON_V1,
+  STREAMED_ON_V1,
   ResultError,
   decodeCommand,
   decodeError,
@@ -247,12 +248,14 @@ describe("codec coverage", () => {
     ...updates.map((frame) => decodeUpdateFrame(frame).op),
   ]);
 
-  it("every operation is mapped from v1 or listed as not on v1", () => {
+  it("every operation has exactly one legacy, stream-only or unavailable v1 treatment", () => {
     for (const op of operationNames)
       expect(
-        mapped.has(op) !== Object.hasOwn(NOT_ON_V1, op),
-        `${op}: exactly one of mapped or NOT_ON_V1`
-      ).toBe(true);
+        Number(mapped.has(op)) +
+          Number(Object.hasOwn(STREAMED_ON_V1, op)) +
+          Number(Object.hasOwn(NOT_ON_V1, op)),
+        `${op}: exactly one of mapped, STREAMED_ON_V1 or NOT_ON_V1`
+      ).toBe(1);
   });
 
   it("every v1 command kind has a fixture", () => {

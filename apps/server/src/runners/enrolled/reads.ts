@@ -95,6 +95,7 @@ export async function callCheckoutRead<K extends CheckoutReadName>(
   legacyView?: CheckoutView
 ): Promise<Res<K>> {
   const view =
+    op !== "checkout.access" &&
     op !== "checkout.read" &&
     op !== "checkout.changes" &&
     op !== "checkout.defaultFiles" &&
@@ -121,6 +122,7 @@ export async function callCheckoutRead<K extends CheckoutReadName>(
   if (streamed) return streamed;
   // The legacy inspection carrier has no selector; it can only read current.
   if (
+    op === "checkout.access" ||
     request.target.checkout === "launch" ||
     request.target.checkout === "owned" ||
     ((op === "checkout.list" || op === "checkout.read") &&

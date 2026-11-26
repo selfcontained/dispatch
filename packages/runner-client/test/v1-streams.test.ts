@@ -291,6 +291,80 @@ describe("v1 credit streams", () => {
     }
   );
 
+  it.each(["current", "launch", "owned"] as const)(
+    "streams boolean access responses for %s",
+    async (checkout) => {
+      for (const data of [true, false]) {
+        const link = await loopback(
+          true,
+          undefined,
+          Buffer.from(JSON.stringify({ data }))
+        );
+        try {
+          expect(
+            await receiveCheckoutRead(
+              "checkout.access",
+              {
+                target: { session: sessionFromWire("reader"), checkout },
+                path: "file",
+              },
+              "test",
+              (command, signal) => link.connection.request(command, { signal }),
+              link.client
+            )
+          ).toBe(data);
+          const frame = parseServiceFrame(link.received[0]);
+          if (
+            frame?.type !== "request" ||
+            frame.command.kind !== "checkoutRead"
+          )
+            throw new Error("Missing access frame");
+          expect(frame.command.operation).toEqual({
+            op: "checkout.access",
+            request: { path: "file" },
+            ...(checkout !== "current" && { checkout: "launch" }),
+            streamId: expect.any(String),
+          });
+        } finally {
+          await link.close();
+        }
+      }
+    }
+  );
+
+  it("preserves native access error details over the read stream", async () => {
+    const error = {
+      code: "failed",
+      message: "ENOTDIR: not a directory, access '/checkout/file/child'",
+      details: {
+        code: "ENOTDIR",
+        path: "/checkout/file/child",
+        syscall: "access",
+      },
+    };
+    const link = await loopback(
+      true,
+      undefined,
+      Buffer.from(JSON.stringify({ error }))
+    );
+    try {
+      await expect(
+        receiveCheckoutRead(
+          "checkout.access",
+          {
+            target: { session: sessionFromWire("reader"), checkout: "owned" },
+            path: "file/child",
+          },
+          "test",
+          (command, signal) => link.connection.request(command, { signal }),
+          link.client
+        )
+      ).rejects.toMatchObject(error);
+    } finally {
+      await link.close();
+    }
+  });
+
   it("round-trips old and selected read frames and rejects unknown selectors", () => {
     const operation = {
       op: "checkout.read",

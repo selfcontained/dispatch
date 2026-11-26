@@ -13,6 +13,7 @@ import type { Req, Res } from "@dispatch/runner-protocol/contract";
  * workload's identity. They write nothing, so a frozen runner serves them.
  */
 export const WORKER_OPS = [
+  "checkout.access",
   "checkout.list",
   "checkout.preview",
   "checkout.index",

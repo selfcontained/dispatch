@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { operations, sessionFromWire } from "../src/contract/index.js";
 const session = sessionFromWire("owned-reader");
-it("accepts owned only for a file read, leaving other target schemas unchanged", () => {
+it("accepts owned for file and presence reads, leaving other target schemas unchanged", () => {
   const target = { session, checkout: "owned" };
   expect(
     operations["checkout.read"].request.check({
@@ -10,6 +10,9 @@ it("accepts owned only for a file read, leaving other target schemas unchanged",
       encoding: "utf8",
       maxBytes: null,
     })
+  ).toBe(true);
+  expect(
+    operations["checkout.access"].request.check({ target, path: "file" })
   ).toBe(true);
   expect(operations["checkout.list"].request.check({ target, path: "" })).toBe(
     false
@@ -33,7 +36,7 @@ it("accepts owned only for a file read, leaving other target schemas unchanged",
       shell: "direct",
     })
   ).toBe(false);
-  expect(Object.keys(operations)).toHaveLength(72);
+  expect(Object.keys(operations)).toHaveLength(73);
 });
 it.each([undefined, "current", "launch", "moved"] as const)(
   "keeps the existing read target: %s",

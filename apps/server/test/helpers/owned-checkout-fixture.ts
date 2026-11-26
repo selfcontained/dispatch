@@ -223,6 +223,19 @@ export async function ownedCheckoutFixture(
       );
       return workload.run("checkout.read", { directory, request }, {});
     },
+    async access(
+      row: (typeof rows)[number],
+      checkout: "current" | "launch",
+      request: Omit<Req<"checkout.access">, "target">
+    ) {
+      const directory = await supervisor.checkoutDirectory(
+        row.id,
+        "configured",
+        undefined,
+        checkout
+      );
+      return workload.run("checkout.access", { directory, request }, {});
+    },
     async direct(row: (typeof rows)[number]) {
       return workload.run(
         "checkout.read",

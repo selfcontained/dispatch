@@ -2094,6 +2094,50 @@
       "timeout": "long",
       "capability": "baseline"
     },
+    "checkout.access": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "target": {
+            "union": [
+              {
+                "object": {
+                  "session": {
+                    "opaque": "SessionHandle"
+                  },
+                  "checkout": {
+                    "optional": {
+                      "literal": ["current", "launch", "moved", "owned"]
+                    }
+                  }
+                }
+              },
+              {
+                "object": {
+                  "path": {
+                    "opaque": "RunnerPath"
+                  }
+                }
+              },
+              {
+                "object": {
+                  "repository": "string"
+                }
+              }
+            ]
+          },
+          "path": "string"
+        }
+      },
+      "response": "boolean",
+      "errors": [],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "long",
+      "capability": "baseline"
+    },
     "checkout.read": {
       "scope": "session",
       "kind": "call",
