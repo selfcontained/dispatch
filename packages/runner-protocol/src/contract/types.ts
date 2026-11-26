@@ -33,6 +33,17 @@ export const target = union(
 );
 export type Target = Infer<typeof target>;
 
+/** A file read may name the checkout held for the session, independent of its current folder. */
+export const checkoutReadTarget = union(
+  object({
+    session: sessionHandle,
+    checkout: optional(literal("current", "launch", "moved", "owned")),
+  }),
+  object({ path: runnerPath }),
+  object({ repository: string })
+);
+export type ReadTarget = Infer<typeof checkoutReadTarget>;
+
 /** An environment value: literal text, or a value only the runner knows. */
 export const envValue = union(
   string,

@@ -1030,13 +1030,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/jobs/service.ts",
-    "kind": "R2 host access",
-    "detail": "fs/promises",
-    "task": "T04",
-    "count": 1
-  },
-  {
     "file": "apps/server/src/main.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/checkout-worker",
@@ -1105,13 +1098,6 @@
     "file": "apps/server/src/main.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/terminal/runner-worker",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/observability/service-resources.ts",
-    "kind": "R2 host access",
-    "detail": "os",
     "task": "T04",
     "count": 1
   },
@@ -1234,13 +1220,6 @@
     "detail": "agentWorkspaceDir(parent)",
     "task": "T07",
     "count": 2
-  },
-  {
-    "file": "apps/server/src/server/mcp-handlers.ts",
-    "kind": "R2 host access",
-    "detail": "fs/promises",
-    "task": "T04",
-    "count": 1
   },
   {
     "file": "apps/server/src/server/mcp-persona-handlers.ts",
@@ -1548,13 +1527,6 @@
     "file": "apps/server/src/stream-manager.ts",
     "kind": "R2 host access",
     "detail": "loopback fetch",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/tasks/service.ts",
-    "kind": "R2 host access",
-    "detail": "fs/promises",
     "task": "T04",
     "count": 1
   },

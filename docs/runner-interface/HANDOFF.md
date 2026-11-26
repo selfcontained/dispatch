@@ -193,6 +193,8 @@ bindings remain violations. Single owners retain manager, ACP runtime, local
 adapter, remote service and supervisor files; fallback removal still requires the
 lead's recovery decision.
 
+The controller reads the last 20 lines of a retained agent setup log when reporting a job crash. Release v0.38.16 wrote this file through tmux. Commit `ae3156db` removed the writer, while main still follows the old path when present. The owner may retire the reader after deciding how to handle retained logs.
+
 T40 move records stay counted, with exact approved importers and verified package targets; only main.ts may supply app-owned providers through a separately validated input seam.
 The move list has a reviewed record budget and shrinking importer list; growth requires the named-commit policy fixture. Frozen historical list snapshots only replay existing commits.
 Remove each record with its baseline entry; the final seal requires zero records and zero budget.
@@ -216,3 +218,7 @@ The controller owns `files/session-file-io.ts` and `files/open-workspace-file.ts
 The workload engineUpdatePort wrapper serves the legacy detected-update executor. Delete it with that executor. Fold the shared operation facade into the controller when the controller is its only caller.
 
 Unused in source since the archive seam and B2, deleted with legacy (tests still use both as references, so pin a fixed expectation first): `enrolledArchiveCheckout().releaseBound` in `runners/enrolled/checkout.ts` (the adapter's `workspace.release` sends the same frame; `enrolled-archive-operations.test.ts` compares against it), and `localDefaultBranch` in `shared/git/default-branch.ts` (`effective-base.ts` reads `git.defaultBranch`; `comparison-base-parity.test.ts` and `checkout-intent.test.ts` use it as the old rule).
+
+## Owned file reads and launch folders
+
+`checkout.read` alone accepts `checkout: "owned"`: the checkout held for the session, independent of its selected workspace. Writes and commands keep the existing target schema. Locally, owned means `worktreePath ?? cwd`; the launch selector retains `launchCwd ?? repoRoot ?? cwd` for launch-folder/icon reads. Enrolled runners' launch and owned reads are the same immutable checkout and use the existing launch stream. These selectors intentionally differ locally; do not unify launch with owned or current. A stale local binding is compared with the row's desired directory before reading, using the existing identical in-process read on mismatch.

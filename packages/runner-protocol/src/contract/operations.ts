@@ -25,6 +25,7 @@ import {
 import {
   blob,
   commandResult,
+  checkoutReadTarget,
   engineComplete,
   engineInstallation,
   engineOperationState,
@@ -400,7 +401,7 @@ export const operations = {
     scope: "session",
     kind: "call",
     request: object({
-      target,
+      target: checkoutReadTarget,
       path: string,
       /** Folder/project definition readers only: native file/error semantics. */
       mode: optional(literal("native")),

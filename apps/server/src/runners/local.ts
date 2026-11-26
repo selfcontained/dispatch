@@ -417,13 +417,16 @@ export function createLocalCheckoutRunner(
     const row = { baseBranch: null, ...agent };
     // The folder the agent was launched in: where main looks for its icon.
     const launched = target.checkout === "launch";
-    const directory = launched
-      ? (row.launchCwd ?? row.gitContext?.repoRoot ?? row.cwd)
-      : op === "checkout.stats" ||
-          op === "checkout.diff" ||
-          op === "checkout.image"
-        ? agentDiffPath(row)
-        : agentWorkspaceDir(row);
+    const owned = op === "checkout.read" && target.checkout === "owned";
+    const directory = owned
+      ? (row.worktreePath ?? row.cwd)
+      : launched
+        ? (row.launchCwd ?? row.gitContext?.repoRoot ?? row.cwd)
+        : op === "checkout.stats" ||
+            op === "checkout.diff" ||
+            op === "checkout.image"
+          ? agentDiffPath(row)
+          : agentWorkspaceDir(row);
     if (!directory) {
       if (op === "checkout.stats") return null as Res<K>;
       throw new RunnerCallError({
@@ -437,7 +440,7 @@ export function createLocalCheckoutRunner(
     const answered =
       (await childHolds(
         target.session,
-        launched ? "launch" : "current",
+        owned || launched ? "launch" : "current",
         directory,
         options
       )) &&
@@ -447,13 +450,15 @@ export function createLocalCheckoutRunner(
         (child, read) =>
           child.call(
             op,
-            {
-              ...input,
-              target: {
-                session: target.session,
-                checkout: launched ? "launch" : "current",
-              },
-            },
+            owned
+              ? input
+              : {
+                  ...input,
+                  target: {
+                    session: target.session,
+                    checkout: launched ? "launch" : "current",
+                  },
+                },
             read
           ),
         options
