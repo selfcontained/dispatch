@@ -27,7 +27,6 @@ import {
   runnerPublicKey,
 } from "../src/agents/remote/certificate-authority.js";
 import {
-  type Frame,
   type EnrollmentRequest,
   type EnrollmentReply,
 } from "../../../packages/runner/src/workload/agents/remote/protocol.js";
@@ -40,7 +39,7 @@ const HOST = "127.0.0.1";
 type FakeRunner = {
   socket: TLSSocket;
   closed: Promise<void>;
-  send: (frame: Frame | StreamFrame) => void;
+  send: (frame: StreamFrame) => void;
 };
 
 function dialRunner(input: {
@@ -48,7 +47,7 @@ function dialRunner(input: {
   ca: string;
   cert: string;
   key: string;
-  onFrame?: (frame: Frame | StreamFrame) => void;
+  onFrame?: (frame: StreamFrame) => void;
 }): Promise<FakeRunner> {
   const url = new URL(input.endpoint);
   return new Promise((resolve, reject) => {
@@ -342,7 +341,7 @@ describe("runner-initiated connect enrollment", () => {
     if (polled.status !== "approved")
       throw new Error("Runner approval missing");
     const { ca, cert, endpoint } = polled;
-    const frames: (Frame | StreamFrame)[] = [];
+    const frames: StreamFrame[] = [];
     const runner = await dialRunner({
       endpoint,
       ca,

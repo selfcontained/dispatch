@@ -1,12 +1,12 @@
 import { Duplex } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
-import type { Frame, ChannelFrame } from "@dispatch/runner-protocol";
+import type { ChannelFrame } from "@dispatch/runner-protocol";
 
 /** `flushed` runs once the frame has been handed to the transport, or with
  * an error if the transport closed first. */
 type Send<T> = (frame: T, flushed?: (error?: Error | null) => void) => void;
 
-export function wireFrames<Incoming = Frame, Outgoing = Frame>(
+export function wireFrames<Incoming = unknown, Outgoing = unknown>(
   socket: Duplex,
   receive: (frame: Incoming) => void,
   maxLineLength = 32 * 1024 * 1024
