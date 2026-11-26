@@ -131,6 +131,15 @@ function registration(row: Row): Registration {
 export class RunnerRegistry {
   constructor(private readonly pool: Pool) {}
 
+  /** Archived rows retain their placement while a bound release is pending. */
+  async ownsSessions(runnerId: string, sessions: string[]) {
+    const result = await this.pool.query(
+      "SELECT id FROM agents WHERE runner_id = $1 AND id = ANY($2::text[])",
+      [runnerId, sessions]
+    );
+    return result.rowCount === sessions.length;
+  }
+
   /** Load the authority, creating the CA on first use and widening SANs. */
   async authority(hosts: string[] = []): Promise<Authority> {
     const client = await this.pool.connect();
