@@ -933,10 +933,7 @@ export async function createSessionSupervisor(
     // the certificate into the private workload state before starting the host.
     const mcpCa = mcp ? await readFile(config.ca) : undefined;
     const {
-      repository: _repository,
-      useWorktreeOf: _owner,
       owner: _sessionOwner,
-      prepareWorkspace: _preparation,
       launchId: _launchId,
       ...launchOptions
     } = host;

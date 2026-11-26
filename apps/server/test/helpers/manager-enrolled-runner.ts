@@ -73,7 +73,7 @@ export function managerEnrolledRunner(
         case "git.context":
           return null;
         case "checkout.read":
-          return { data: null };
+          return null;
         case "workspace.observe":
           return {
             ownership: "none",

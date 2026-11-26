@@ -1,6 +1,5 @@
 import { sessionFromWire } from "@dispatch/runner-protocol/contract";
 import { withTestWorkspaceRunner } from "../helpers/test-workspace-runner.js";
-import * as checkoutIntent from "../../src/agents/checkout-intent.js";
 import { createMcpHandlers } from "../../src/server/mcp-handlers.js";
 import { sessionFilesWorkload } from "../../../../packages/runner/src/workload/agents/checkout-worker.js";
 import { TemplateService } from "../../src/templates/service.js";
@@ -31,7 +30,13 @@ import {
   vi,
 } from "vitest";
 import type { Pool } from "pg";
-import type { SessionOperation } from "@dispatch/runner-protocol";
+import {
+  enrolledTarget,
+  seedEnrolledProject,
+  managerEnrolledRunner,
+} from "../helpers/manager-enrolled-runner.js";
+import { placementForRunner } from "../../src/runners/placement.js";
+import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 import type { RemoteRunnerService } from "../../src/agents/remote/service.js";
 
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./setup.js";
@@ -237,6 +242,7 @@ beforeAll(async () => {
   inertTestConfig.agentStateRoot = testConfig.agentStateRoot;
   pool = await setupTestDb();
   await runTestMigrations();
+  await seedEnrolledProject(pool);
 });
 
 afterAll(async () => {
@@ -271,6 +277,30 @@ beforeEach(async () => {
     })
   );
 });
+
+const testRunner = "runner-test";
+const runnerPlacement = placementForRunner(testRunner);
+const target = enrolledTarget(testRunner);
+function enrolledFixture(
+  handlers: Record<string, (input: any) => unknown> = {},
+  online = () => true
+) {
+  const base = managerEnrolledRunner({ online });
+  const call = vi.fn(async (runner: string, op: string, input: any) => {
+    if (!online())
+      throw new RunnerCallError({
+        code: "unavailable",
+        message: "Runner is offline.",
+      });
+    return handlers[op]
+      ? await handlers[op](input)
+      : base.call(runner, op, input);
+  });
+  return {
+    remote: { ...base.remote, call } as unknown as RemoteRunnerService,
+    call,
+  };
+}
 
 describe("AgentManager", () => {
   it.each([
@@ -550,60 +580,56 @@ describe("AgentManager", () => {
     it("persists managed placement across restart and retries archive when the original runner returns", async () => {
       const available = vi.fn(() => true);
       const stateId = "2".repeat(64);
-      const requestSession = vi.fn(
-        async (_placement: unknown, operation: SessionOperation) => {
-          if (!available()) throw new Error("offline");
-          if (operation.kind === "workspaceRelease")
-            return { value: JSON.stringify({ removed: true }) };
-          if (operation.kind !== "checkoutRelease")
-            throw new Error("Unexpected request");
-          return {
-            value:
-              operation.operation.kind === "release"
-                ? "released"
-                : JSON.stringify({
-                    ownership: "owned",
-                    owner: "test-owner",
-                    borrowers: [],
-                    checkout: {
-                      path: "/runner/checkout",
-                      branch: "agent-work",
-                      stateId,
-                      unmerged: false,
-                      changedFiles: [],
-                      uncommittedFiles: [],
-                    },
-                  }),
-          };
-        }
+      const cwd = "/runner/checkout";
+      const prepared = {
+        path: cwd,
+        moved: false,
+        origin: "https://example.test/fixture",
+        worktree: { path: cwd, branch: "agent-work", base: "develop" },
+      };
+      const { remote, call } = enrolledFixture(
+        {
+          "workspace.prepare": () => prepared,
+          "workspace.resume": () => prepared,
+          "workspace.observe": ({ session }) => ({
+            ownership: "owned",
+            owner: session,
+            borrowers: [],
+            checkout: {
+              path: cwd,
+              branch: "agent-work",
+              stateId,
+              unmerged: false,
+              changedFiles: [],
+              uncommittedFiles: [],
+            },
+          }),
+        },
+        available
       );
-      const remote = {
-        available,
-        connectionEpoch: () => (available() ? 1 : undefined),
-        requestSession,
-        isManagedWorkspace: available,
-        originFor: () => "https://example.test",
-      } as unknown as RemoteRunnerService;
       const first = new AgentManager(pool, noopLogger, testConfig, {
         runtime,
         remote,
       });
-      const cwd = "runner://runner-test/@session";
       const projectId = "managed-runner-project";
       await pool.query(
-        "INSERT INTO projects (id, name, repo_root) VALUES ($1, 'Runner', '/tmp/remote-project')",
+        "INSERT INTO projects (id, name, repo_root,repository) VALUES ($1, 'Runner', '/tmp/remote-project','https://example.test/fixture')",
         [projectId]
       );
       const repository = {
         url: "https://example.test/fixture.git",
         checkout: { kind: "new", branch: "agent-work", base: "develop" },
       };
-      const agent = await first.createAgent({ cwd, projectId, repository });
+      const agent = await first.createAgent({
+        ...target,
+        projectId,
+        repository,
+      });
       expect(agent).toMatchObject({ cwd, projectId });
       expect(runtime.launch).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          placement: { runner: "runner-test", workspace: "@session" },
-          repository,
+          placement: testRunner,
+          cwd,
         })
       );
 
@@ -616,7 +642,7 @@ describe("AgentManager", () => {
       await resumed.stopAgent(agent.id);
       await resumed.startAgent(agent.id);
       expect(resumedRuntime.launch).toHaveBeenCalledWith(
-        expect.objectContaining({ repository })
+        expect.objectContaining({ placement: testRunner, cwd })
       );
       const observed = await resumed.checkWorktreeStatus(agent.id);
       expect(observed).toMatchObject({
@@ -642,10 +668,9 @@ describe("AgentManager", () => {
           )
         ).rows[0]?.runner_cleanup_pending;
       expect(await pending()).toBe(true);
-      const placement = { runner: "runner-test", workspace: "@session" };
-      requestSession.mockClear();
+      call.mockClear();
       await resumed.reconcileAgentStatuses();
-      expect(requestSession).not.toHaveBeenCalled();
+      expect(call).not.toHaveBeenCalled();
       expect(await pending()).toBe(true);
       const reconnected = new AgentManager(pool, noopLogger, testConfig, {
         runtime: { ...createSpyRuntime(), discard },
@@ -654,18 +679,15 @@ describe("AgentManager", () => {
       available.mockReturnValue(true);
       await reconnected.reconcileAgentStatuses();
       await vi.waitFor(async () => expect(await pending()).toBe(false));
-      expect(requestSession.mock.calls.at(-1)?.slice(0, 2)).toEqual([
-        placement,
+      expect(call.mock.calls.at(-1)?.slice(0, 3)).toEqual([
+        testRunner,
+        "workspace.release",
         {
-          kind: "workspaceRelease",
-          workspace: placement.workspace,
-          agentId: agent.id,
-          operation: {
-            deleteBranch: Boolean(
-              agent.worktreeBranch && agent.worktreeBranch !== agent.baseBranch
-            ),
-            originalBranch: agent.worktreeBranch,
-          },
+          session: agent.id,
+          deleteBranch: Boolean(
+            agent.worktreeBranch && agent.worktreeBranch !== agent.baseBranch
+          ),
+          originalBranch: agent.worktreeBranch,
         },
       ]);
       expect(discard).not.toHaveBeenCalled();
@@ -673,38 +695,23 @@ describe("AgentManager", () => {
 
     it("refreshes a runner branch after a turn and keeps the last context if the probe fails", async () => {
       const root = "/runner/checkout";
-      const requestSession = vi.fn(
-        async (_placement: unknown, request: SessionOperation) => {
-          if (
-            request.kind !== "sessionCheckout" ||
-            request.operation.kind !== "context"
-          )
-            throw new Error("Unexpected request");
-          return {
-            value: JSON.stringify({
-              repoRoot: root,
-              worktreePath: root,
-              worktreeName: "checkout",
-              isWorktree: false,
-              branch,
-              repoIconPath: "favicon.svg",
-            }),
-          };
-        }
-      );
       let branch = "main";
-      const remote = {
-        available: () => true,
-        isManagedWorkspace: () => true,
-        requestSession,
-        originFor: () => "https://example.test",
-      } as unknown as RemoteRunnerService;
+      const { remote, call } = enrolledFixture({
+        "git.context": () => ({
+          repoRoot: root,
+          worktreePath: root,
+          worktreeName: "checkout",
+          isWorktree: false,
+          branch,
+          repoIconPath: "favicon.svg",
+        }),
+      });
       const first = new AgentManager(pool, noopLogger, testConfig, {
         runtime,
         remote,
       });
       const agent = await first.createAgent({
-        cwd: "runner://runner-test/@session",
+        ...target,
       });
       expect(agent.gitContext).toMatchObject({
         branch,
@@ -731,7 +738,7 @@ describe("AgentManager", () => {
         });
       });
 
-      requestSession.mockRejectedValueOnce(new Error("runner offline"));
+      call.mockRejectedValueOnce(new Error("runner offline"));
       await settle();
       await vi.waitFor(async () => {
         expect(await first.getAgent(agent.id)).toMatchObject({
@@ -742,34 +749,38 @@ describe("AgentManager", () => {
     });
 
     it("records a runner selection only after acknowledgement and binds independent children to the selected origin", async () => {
-      const cwd = "runner://runner-test/@session";
+      const cwd = "/runner/checkout";
       const projectId = "managed-runner-project";
       await pool.query(
-        "INSERT INTO projects (id, name, repo_root) VALUES ($1, 'Runner', '/tmp/remote-project') ON CONFLICT DO NOTHING",
+        "INSERT INTO projects (id, name, repo_root,repository) VALUES ($1, 'Runner', '/tmp/remote-project','https://example.test/fixture') ON CONFLICT DO NOTHING",
         [projectId]
       );
-      const requestSession = vi.fn(async () => ({
-        value: JSON.stringify({
-          path: "/workload/moved",
-          moved: true,
-          origin: "https://example.test/moved.git",
-        }),
-      }));
-      const remote = {
-        available: () => true,
-        isManagedWorkspace: () => true,
-        requestSession,
-        originFor: () => "https://example.test",
-      } as unknown as RemoteRunnerService;
+      const selection = {
+        path: "/workload/moved",
+        moved: true,
+        origin: "https://example.test/moved.git",
+      };
+      const prepared = {
+        path: cwd,
+        moved: false,
+        origin: "https://example.test/fixture",
+        worktree: null,
+      };
+      const { remote, call } = enrolledFixture({
+        "workspace.select": () => selection,
+        "workspace.describe": () => selection,
+        "workspace.prepare": () => prepared,
+        "workspace.resume": () => prepared,
+      });
       const first = new AgentManager(pool, noopLogger, testConfig, {
         runtime,
         remote,
       });
-      const parent = await first.createAgent({ cwd, projectId });
+      const parent = await first.createAgent({ ...target, projectId });
       expect(parent).toMatchObject({ cwd, projectId, workspacePath: null });
-      requestSession.mockClear();
+      call.mockClear();
       const move = { path: "/workload/moved/src", baseBranch: "develop" };
-      requestSession.mockRejectedValueOnce(new Error("runner offline"));
+      call.mockRejectedValueOnce(new Error("runner offline"));
       await expect(first.setWorkspace(parent.id, move)).rejects.toThrow(
         "runner offline"
       );
@@ -777,26 +788,22 @@ describe("AgentManager", () => {
         workspacePath: null,
       });
       await expect(
-        first.setWorkspace(parent.id, { path: "runner://other/@session" })
+        first.setWorkspace(parent.id, { path: "relative/path" })
       ).rejects.toThrow("Workspace path must be absolute.");
-      expect(requestSession).toHaveBeenCalledTimes(1);
+      expect(call).toHaveBeenCalledTimes(1);
       await expect(first.setWorkspace(parent.id, move)).resolves.toMatchObject({
         cwd,
         projectId,
         workspacePath: "/workload/moved",
         workspaceBaseBranch: "develop",
       });
-      expect(requestSession).toHaveBeenCalledWith(
-        { runner: "runner-test", workspace: "@session" },
-        {
-          agentId: parent.id,
-          kind: "sessionCheckout",
-          operation: { kind: "select", path: move.path },
-          workspace: "@session",
-        },
+      expect(call.mock.calls).toContainEqual([
+        testRunner,
+        "workspace.select",
+        { session: parent.id, path: move.path },
         undefined,
-        undefined
-      );
+        undefined,
+      ]);
 
       const childInput = {
         cwd,
@@ -808,21 +815,21 @@ describe("AgentManager", () => {
       // The launcher's folder is its session's (T36): no binding option.
       const child = await first.createAgent(childInput);
       expect(child).toMatchObject({ cwd, projectId, parentAgentId: parent.id });
+      expect(call.mock.calls.map((args) => args.slice(0, 3))).toContainEqual([
+        testRunner,
+        "workspace.prepare",
+        expect.objectContaining({
+          session: child.id,
+          source: { session: parent.id },
+          worktree: expect.objectContaining({ base: "develop" }),
+        }),
+      ]);
       const launch = expect.objectContaining({
         agentId: child.id,
-        repository: {
-          url: "https://example.test/moved.git",
-          checkout: {
-            kind: "new",
-            branch: expect.stringContaining(child.id),
-            base: "develop",
-          },
-        },
+        placement: testRunner,
+        cwd,
       });
       expect(runtime.launch).toHaveBeenLastCalledWith(launch);
-      expect(
-        runtime.launch.mock.calls.at(-1)?.[0].useWorktreeOf
-      ).toBeUndefined();
       const restarted = new AgentManager(pool, noopLogger, testConfig, {
         runtime,
         remote,
@@ -838,114 +845,70 @@ describe("AgentManager", () => {
     });
 
     it("records the branch from a runner's prepared worktree and resumes it on restart", async () => {
-      const cwd = "runner://runner-test/@session";
+      const cwd = "/workload/prepared";
       const projectId = "capable-runner-project";
       const repository = "https://example.test/project";
       await pool.query(
         "INSERT INTO projects (id, name, repo_root, repository) VALUES ($1, 'Runner', '/tmp/capable-runner-project', $2)",
         [projectId, repository]
       );
-      const requestSession = vi.fn(
-        async (_placement: unknown, _command: { kind: string }) => ({
-          value: JSON.stringify({
-            data: {
-              path: "/workload/prepared",
-              moved: false,
-              origin: repository,
-              worktree: {
-                path: "/workload/prepared",
-                branch: "prepared-feature",
-                base: "trunk",
-              },
-            },
-          }),
-        })
-      );
-      const remote = {
-        available: () => true,
-        isManagedWorkspace: () => true,
-        supportsPreparedLaunch: () => true,
-        originFor: () => "https://example.test",
-        requestSession,
-      } as unknown as RemoteRunnerService;
+      const prepared = {
+        path: cwd,
+        moved: false,
+        origin: repository,
+        worktree: { path: cwd, branch: "prepared-feature", base: "trunk" },
+      };
+      const { remote, call } = enrolledFixture({
+        "workspace.prepare": () => prepared,
+        "workspace.resume": () => prepared,
+      });
       const manager = new AgentManager(pool, noopLogger, testConfig, {
         runtime,
         remote,
       });
-      await expect(manager.createAgent({ cwd })).rejects.toThrow(
-        "Choose a project to launch on this runner."
-      );
+      await expect(
+        manager.createAgent({ cwd, placement: runnerPlacement })
+      ).rejects.toThrow("Choose a project to launch on this runner.");
       const agent = await manager.createAgent({
-        cwd,
+        ...target,
         projectId,
         repository: { url: "https://other.test/ignored" },
         baseBranch: "trunk",
         worktreeBranch: "feature",
       });
       expect(agent.worktreeBranch).toBe("prepared-feature");
-      expect(requestSession).toHaveBeenCalledWith(
-        { runner: "runner-test", workspace: "@session" },
+      expect(call.mock.calls.map((args) => args.slice(0, 3))).toContainEqual([
+        testRunner,
+        "workspace.prepare",
         expect.objectContaining({
-          agentId: agent.id,
-          kind: "workspacePrepare",
-          operation: expect.objectContaining({
-            source: {
-              repository,
-              checkout: { kind: "new", branch: "feature", base: "trunk" },
-            },
-          }),
+          session: agent.id,
+          source: {
+            repository,
+            checkout: { kind: "new", branch: "feature", base: "trunk" },
+          },
         }),
-        expect.any(Function),
-        undefined
-      );
+      ]);
       expect(runtime.launch.mock.calls.at(-1)?.[0].repository).toBeUndefined();
       await manager.stopAgent(agent.id);
-      requestSession.mockClear();
+      call.mockClear();
       expect(await manager.startAgent(agent.id)).toMatchObject({
         worktreeBranch: "prepared-feature",
       });
-      expect(requestSession).toHaveBeenCalledWith(
-        { runner: "runner-test", workspace: "@session" },
-        expect.objectContaining({ kind: "workspaceResume", agentId: agent.id }),
-        undefined,
-        undefined
+      expect(call.mock.calls.map((args) => args.slice(0, 3))).toContainEqual([
+        testRunner,
+        "workspace.resume",
+        { session: agent.id },
+      ]);
+      expect(call.mock.calls.some(([, op]) => op === "workspace.prepare")).toBe(
+        false
       );
-      expect(
-        requestSession.mock.calls.some(
-          ([, command]) =>
-            (command as { kind: string }).kind === "workspacePrepare"
-        )
-      ).toBe(false);
     });
-
     describe("a runner launch from a bare repository URL", () => {
-      const cwd = "runner://runner-test/@session";
       const joined = "https://example.test/joined";
-      const runnerManager = (prepared: boolean) =>
+      const runnerManager = () =>
         new AgentManager(pool, noopLogger, testConfig, {
           runtime,
-          remote: {
-            available: () => true,
-            isManagedWorkspace: () => true,
-            supportsPreparedLaunch: () => prepared,
-            originFor: () => "https://example.test",
-            requestSession: vi.fn(
-              async (_p: unknown, command: { kind: string }) => {
-                const checkout = {
-                  path: "/workload/prepared",
-                  moved: false,
-                  origin: "https://example.test/explicit",
-                };
-                return {
-                  value: JSON.stringify(
-                    command.kind === "sessionCheckout"
-                      ? checkout
-                      : { data: checkout }
-                  ),
-                };
-              }
-            ),
-          } as unknown as RemoteRunnerService,
+          remote: enrolledFixture().remote,
         });
       beforeAll(async () => {
         await pool.query(
@@ -959,19 +922,19 @@ describe("AgentManager", () => {
       it("keeps today's outcome for a URL no project has", async () => {
         const repository = { url: "https://example.test/nomatch" };
         await expect(
-          runnerManager(true).createAgent({ cwd, repository })
+          runnerManager().createAgent({
+            cwd: "",
+            placement: runnerPlacement,
+            repository,
+          })
         ).rejects.toThrow("Choose a project to launch on this runner.");
-        const older = await runnerManager(false).createAgent({
-          cwd,
-          repository,
-        });
-        expect(older.projectId).toBeNull();
       });
 
       it("starts in the project for its repository", async () => {
-        for (const prepared of [true, false]) {
-          const agent = await runnerManager(prepared).createAgent({
-            cwd,
+        {
+          const agent = await runnerManager().createAgent({
+            cwd: "",
+            placement: runnerPlacement,
             repository: { url: `${joined}.git` },
           });
           expect(agent.projectId).toBe("url-joined");
@@ -980,15 +943,17 @@ describe("AgentManager", () => {
 
       it("keeps an explicit project and a parent's project", async () => {
         const repository = { url: `${joined}.git` };
-        const manager = runnerManager(true);
+        const manager = runnerManager();
         const explicit = await manager.createAgent({
-          cwd,
+          cwd: "",
+          placement: runnerPlacement,
           projectId: "url-explicit",
           repository,
         });
         expect(explicit.projectId).toBe("url-explicit");
         const child = await manager.createAgent({
-          cwd,
+          cwd: "",
+          placement: runnerPlacement,
           parentAgentId: explicit.id,
           launchedByAgentId: explicit.id,
           repository,
@@ -998,7 +963,7 @@ describe("AgentManager", () => {
 
       it("leaves a local launch to main's folder matching", async () => {
         const folder = await mkdtemp(path.join(os.tmpdir(), "url-local-"));
-        const local = await runnerManager(true).createAgent({
+        const local = await runnerManager().createAgent({
           cwd: folder,
           repository: { url: joined },
         });
@@ -1006,8 +971,8 @@ describe("AgentManager", () => {
       });
     });
 
-    it("shows a runner's prepared checkout on the row, keeping its locator and its worktree status", async () => {
-      const cwd = "runner://runner-test/@session";
+    it("shows a runner's prepared checkout on the row, keeping its placement and worktree status", async () => {
+      const cwd = "/workload/displayed";
       const projectId = "displayed-runner-project";
       const repository = "https://example.test/displayed";
       await pool.query(
@@ -1015,39 +980,21 @@ describe("AgentManager", () => {
         [projectId, repository]
       );
       let observed: unknown = null;
-      const requestSession = vi.fn(
-        async (_placement: unknown, command: { kind: string }) => ({
-          value: JSON.stringify(
-            command.kind === "checkoutRelease"
-              ? observed
-              : {
-                  data: {
-                    path: "/workload/displayed",
-                    moved: false,
-                    origin: repository,
-                    worktree: {
-                      path: "/workload/displayed",
-                      branch: "displayed",
-                      base: "main",
-                    },
-                  },
-                }
-          ),
-        })
-      );
-      const remote = {
-        available: () => true,
-        isManagedWorkspace: () => true,
-        supportsPreparedLaunch: () => true,
-        originFor: () => "https://example.test",
-        requestSession,
-      } as unknown as RemoteRunnerService;
+      const { remote } = enrolledFixture({
+        "workspace.observe": () => observed,
+        "workspace.prepare": () => ({
+          path: cwd,
+          moved: false,
+          origin: repository,
+          worktree: { path: cwd, branch: "displayed", base: "main" },
+        }),
+      });
       const manager = new AgentManager(pool, noopLogger, testConfig, {
         runtime,
         remote,
       });
       const agent = await manager.createAgent({
-        cwd,
+        ...target,
         projectId,
         worktreeBranch: "displayed",
       });
@@ -1111,37 +1058,32 @@ describe("AgentManager", () => {
     });
 
     it("passes the parent session for both remote checkout modes", async () => {
-      const cwd = "runner://runner-test/@session";
+      const cwd = "/runner/current";
       const projectId = "session-source-project";
       await pool.query(
         "INSERT INTO projects (id, name, repository) VALUES ($1, 'Runner', 'https://example.test/session-source')",
         [projectId]
       );
-      const requestSession = vi.fn(async () => ({
-        value: JSON.stringify({
-          data: { path: "/runner/current", moved: false, origin: null },
+      const { call, remote } = enrolledFixture({
+        "workspace.prepare": () => ({
+          path: cwd,
+          moved: false,
+          origin: null,
+          worktree: null,
         }),
-      }));
-      const remote = {
-        available: () => true,
-        isManagedWorkspace: () => true,
-        supportsPreparedLaunch: () => true,
-        supportsSessionWorkspaceSource: () => true,
-        originFor: () => "https://example.test",
-        requestSession,
-      } as unknown as RemoteRunnerService;
+      });
       const manager = new AgentManager(pool, noopLogger, testConfig, {
         runtime,
         remote,
       });
       const parent = await manager.createAgent({
-        cwd,
+        ...target,
         projectId,
         useWorktree: false,
       });
 
       for (const useWorktree of [false, true]) {
-        requestSession.mockClear();
+        call.mockClear();
         const child = await manager.createAgent({
           cwd,
           parentAgentId: parent.id,
@@ -1153,52 +1095,35 @@ describe("AgentManager", () => {
           parentAgentId: parent.id,
           status: "running",
         });
-        expect(requestSession).toHaveBeenCalledWith(
-          { runner: "runner-test", workspace: "@session" },
+        expect(call.mock.calls.map((args) => args.slice(0, 3))).toContainEqual([
+          testRunner,
+          "workspace.prepare",
           expect.objectContaining({
-            agentId: child.id,
-            kind: "workspacePrepare",
-            operation: {
-              source: { session: parent.id },
-              ...(useWorktree && {
-                worktree: expect.objectContaining({
-                  base: "develop",
-                  create: false,
-                }),
+            session: child.id,
+            source: { session: parent.id },
+            ...(useWorktree && {
+              worktree: expect.objectContaining({
+                base: "develop",
+                create: false,
               }),
-              copyIgnored: expect.any(Array),
-              installDependencies: true,
-            },
+            }),
+            copyIgnored: expect.any(Array),
+            installDependencies: true,
           }),
-          expect.any(Function),
-          undefined
-        );
+        ]);
         expect(lastLaunch().agentId).toBe(child.id);
-        expect(lastLaunch().useWorktreeOf).toBe(
-          useWorktree ? undefined : parent.id
-        );
+        expect(lastLaunch().placement).toBe(testRunner);
       }
     });
 
     it("launches a runner caller's child in a folder it names on that runner (D7)", async () => {
-      const cwd = "runner://runner-test/@session";
+      const cwd = "/srv/other";
       const projectId = "named-folder-project";
       await pool.query(
         "INSERT INTO projects (id, name, repository) VALUES ($1, 'Runner', 'https://example.test/named-folder')",
         [projectId]
       );
       let prepareError: object | null = null;
-      const requestSession = vi.fn(
-        async (_location: unknown, { kind }: { kind: string }) => ({
-          value: JSON.stringify(
-            kind === "workspacePrepare" && prepareError
-              ? { error: prepareError }
-              : {
-                  data: { path: "/srv/other", moved: false, origin: null },
-                }
-          ),
-        })
-      );
       // The runner's own answer, as its workload worker resolves the path.
       const resolveRunnerPath = vi.fn(
         async (_runner: string, { path: raw }: { path: string }) => ({
@@ -1212,21 +1137,19 @@ describe("AgentManager", () => {
           git: null,
         })
       );
-      const remote = {
-        available: () => true,
-        isManagedWorkspace: () => true,
-        supportsPreparedLaunch: () => true,
-        supportsSessionWorkspaceSource: () => true,
-        originFor: () => "https://example.test",
-        requestSession,
-        resolveRunnerPath,
-      } as unknown as RemoteRunnerService;
+      const { call, remote } = enrolledFixture({
+        "path.resolve": (input) => resolveRunnerPath(testRunner, input),
+        "workspace.prepare": () => {
+          if (prepareError) throw new RunnerCallError(prepareError as never);
+          return { path: cwd, moved: false, origin: null, worktree: null };
+        },
+      });
       const manager = new AgentManager(pool, noopLogger, testConfig, {
         runtime,
         remote,
       });
       const parent = await manager.createAgent({
-        cwd,
+        ...target,
         projectId,
         useWorktree: false,
       });
@@ -1241,7 +1164,7 @@ describe("AgentManager", () => {
         });
 
       for (const useWorktree of [false, true]) {
-        requestSession.mockClear();
+        call.mockClear();
         resolveRunnerPath.mockClear();
         const child = await named("/srv/other", {
           useWorktree,
@@ -1257,26 +1180,22 @@ describe("AgentManager", () => {
           parentAgentId: parent.id,
           status: "running",
         });
-        expect(requestSession).toHaveBeenCalledWith(
-          { runner: "runner-test", workspace: "@session" },
+        expect(call.mock.calls.map((args) => args.slice(0, 3))).toContainEqual([
+          testRunner,
+          "workspace.prepare",
           expect.objectContaining({
-            agentId: child.id,
-            kind: "workspacePrepare",
-            operation: {
-              source: { directory: "/srv/other" },
-              ...(useWorktree && {
-                worktree: expect.objectContaining({
-                  base: "develop",
-                  create: false,
-                }),
+            session: child.id,
+            source: { directory: "/srv/other" },
+            ...(useWorktree && {
+              worktree: expect.objectContaining({
+                base: "develop",
+                create: false,
               }),
-              copyIgnored: expect.any(Array),
-              installDependencies: true,
-            },
+            }),
+            copyIgnored: expect.any(Array),
+            installDependencies: true,
           }),
-          expect.any(Function),
-          undefined
-        );
+        ]);
         // Its own session: it borrows nothing of its launcher's.
         expect(lastLaunch().agentId).toBe(child.id);
         expect(lastLaunch().useWorktreeOf).toBeUndefined();
@@ -1292,7 +1211,7 @@ describe("AgentManager", () => {
       }
 
       // A folder that does not exist there: main's 400, before any record.
-      requestSession.mockClear();
+      call.mockClear();
       const before = (await pool.query("SELECT count(*) FROM agents")).rows[0]
         .count;
       await expect(named("/srv/missing")).rejects.toMatchObject({
@@ -1302,19 +1221,17 @@ describe("AgentManager", () => {
       expect(
         (await pool.query("SELECT count(*) FROM agents")).rows[0].count
       ).toBe(before);
-      expect(requestSession).not.toHaveBeenCalled();
+      expect(call.mock.calls.map(([, op]) => op)).toEqual(["path.resolve"]);
 
       // A preparation the runner refuses fails the launch; the launcher's
       // checkout is never asked for or released.
-      requestSession.mockClear();
+      call.mockClear();
       prepareError = {
         code: "not_found",
         message: "Working directory does not exist or is not a directory.",
       };
       const failed = await named("/srv/other").catch((error) => error);
-      const sessions = requestSession.mock.calls.map(
-        ([, request]) => (request as { agentId: string }).agentId
-      );
+      const sessions = call.mock.calls.map(([, , request]) => request.session);
       expect(sessions).not.toContain(parent.id);
       const failedId =
         failed?.id ??
@@ -1332,30 +1249,25 @@ describe("AgentManager", () => {
     });
 
     it("settles an unattempted remote launch while offline and prepares once on Start", async () => {
-      const cwd = "runner://runner-test/@session";
+      const cwd = "/runner/checkout";
       const projectId = "remote-create-crash-project";
       await pool.query(
         "INSERT INTO projects (id, name, repo_root, repository) VALUES ($1, 'Runner', '/tmp/remote-crash-root', 'https://example.test/create-crash')",
         [projectId]
       );
       let online = true;
-      const requestSession = vi.fn(
-        async (_location: unknown, { kind }: { kind: string }) => ({
-          value: JSON.stringify({
-            data:
-              kind === "workspaceResume"
-                ? null
-                : { path: "/runner/checkout", moved: false, origin: null },
+      const { call, remote } = enrolledFixture(
+        {
+          "workspace.resume": () => null,
+          "workspace.prepare": () => ({
+            path: cwd,
+            moved: false,
+            origin: null,
+            worktree: null,
           }),
-        })
+        },
+        () => online
       );
-      const remote = {
-        available: () => online,
-        isManagedWorkspace: () => true,
-        supportsPreparedLaunch: () => true,
-        originFor: () => "https://example.test",
-        requestSession,
-      } as unknown as RemoteRunnerService;
       const first = new AgentManager(pool, noopLogger, testConfig, {
         runtime,
         remote,
@@ -1366,7 +1278,7 @@ describe("AgentManager", () => {
       try {
         const created = await first.createAgent(
           {
-            cwd,
+            ...target,
             projectId,
             persona: "builder",
             useWorktree: true,
@@ -1376,9 +1288,12 @@ describe("AgentManager", () => {
         );
         expect(created.status).toBe("creating");
         await vi.waitFor(() => expect(catalog).toHaveBeenCalled());
-        expect(requestSession).not.toHaveBeenCalled();
+        expect(call.mock.calls.map(([, op]) => op)).not.toContain(
+          "workspace.prepare"
+        );
         expect(runtime.launch).not.toHaveBeenCalled();
 
+        call.mockClear();
         online = false;
         const retryRuntime = createSpyRuntime();
         retryRuntime.isAlive.mockResolvedValue(true);
@@ -1393,19 +1308,17 @@ describe("AgentManager", () => {
           status: "stopped",
         });
         expect(retryRuntime.isAlive).not.toHaveBeenCalled();
-        expect(requestSession).not.toHaveBeenCalled();
+        expect(call).not.toHaveBeenCalled();
 
         online = true;
         expect(await restarted.startAgent(created.id)).toMatchObject({
           status: "running",
         });
+        expect(call.mock.calls.map(([, op]) => op)).toContain(
+          "workspace.resume"
+        );
         expect(
-          requestSession.mock.calls.map(([, command]) => command.kind)
-        ).toContain("workspaceResume");
-        expect(
-          requestSession.mock.calls.filter(
-            ([, command]) => command.kind === "workspacePrepare"
-          )
+          call.mock.calls.filter(([, op]) => op === "workspace.prepare")
         ).toHaveLength(1);
         expect(retryRuntime.launch).toHaveBeenCalledTimes(1);
       } finally {
@@ -1413,27 +1326,14 @@ describe("AgentManager", () => {
       }
     });
 
-    it("carries MCP new and existing checkout intent to the runner launch request", async ({
-      onTestFinished,
-    }) => {
-      const remote = {
-        available: () => true,
-        isManagedWorkspace: () => true,
-        originFor: () => "https://example.test",
-        requestSession: vi.fn(async () => ({
-          value: JSON.stringify({
-            path: "/workload/source",
-            moved: false,
-            origin: "https://example.test/source.git",
-          }),
-        })),
-      } as unknown as RemoteRunnerService;
+    it("carries MCP new and existing checkout intent to the runner launch request", async () => {
+      const { call, remote } = enrolledFixture();
       const manager = new AgentManager(pool, noopLogger, testConfig, {
         runtime,
         remote,
       });
       const parent = await manager.createAgent({
-        cwd: "runner://runner-test/@session",
+        ...target,
       });
       const mcp = createMcpHandlers({
         pool,
@@ -1441,10 +1341,6 @@ describe("AgentManager", () => {
         publishUiEvent: vi.fn(),
         withStreamFlag: (agent) => ({ ...agent, hasStream: false }),
       } as Parameters<typeof createMcpHandlers>[0]);
-      const convert = vi.spyOn(checkoutIntent, "toRunnerCheckout");
-      onTestFinished(() => {
-        convert.mockRestore();
-      });
       const input = {
         name: "existing",
         prompt: "Work independently",
@@ -1477,46 +1373,73 @@ describe("AgentManager", () => {
           { kind: "new", branch: expect.stringMatching(/^agt_.+\/existing$/) },
         ],
       ] as const) {
-        convert.mockClear();
         const child = await mcp.launchAgent(parent.id, { ...input, ...refs });
-        expect(convert).toHaveReturnedWith(expect.objectContaining(checkout));
+        await vi.waitFor(() =>
+          expect(
+            call.mock.calls.some(
+              ([, op, input]) =>
+                op === "workspace.prepare" && input.session === child.agentId
+            )
+          ).toBe(true)
+        );
+        expect(call.mock.calls.map((args) => args.slice(0, 3))).toContainEqual([
+          testRunner,
+          "workspace.prepare",
+          expect.objectContaining({
+            session: child.agentId,
+            source: { session: parent.id },
+            worktree: expect.objectContaining({
+              create: checkout.kind === "new",
+              branch: "branch" in checkout ? checkout.branch : "main",
+              ...("base" in checkout && { base: checkout.base }),
+            }),
+          }),
+        ]);
         expect(runtime.launch).toHaveBeenLastCalledWith(
           expect.objectContaining({
             agentId: child.agentId,
-            repository: {
-              url: "https://example.test/source.git",
-              checkout,
-            },
+            placement: testRunner,
           })
         );
       }
     });
 
     it("resolves a web repository launch from worktree intent like the old raw checkout", async () => {
-      const remote = {
-        available: () => true,
-        isManagedWorkspace: () => true,
-        listGitHubBranches: vi.fn(async () => ({
+      const url = "https://example.test/r.git";
+      const github = "https://github.com/owner/repo.git";
+      await pool.query(
+        "INSERT INTO projects(id,name,repository) VALUES ('web-topic','Web',$1),('web-gh','GitHub',$2)",
+        [url, github]
+      );
+      const { call, remote } = enrolledFixture({
+        "git.branches": () => ({
           branches: ["main", "trunk"],
           defaultBranch: "trunk",
-        })),
-        originFor: () => "https://example.test",
-      } as unknown as RemoteRunnerService;
+        }),
+      });
       const manager = new AgentManager(pool, noopLogger, testConfig, {
         runtime,
         remote,
       });
-      const cwd = "runner://runner-test/@session";
-      const url = "https://example.test/r.git";
+      const cwd = "";
       const launched = async (input: Record<string, unknown>) => {
         const agent = await manager.createAgent({
           cwd,
+          placement: runnerPlacement,
+          projectId: "web-topic",
           name: "Web Topic",
           ...input,
         });
-        const call = runtime.launch.mock.calls.at(-1)?.[0];
-        expect(call?.agentId).toBe(agent.id);
-        return { agent, repository: call?.repository };
+        const sent = call.mock.calls.find(
+          ([, op, request]) =>
+            op === "workspace.prepare" && request.session === agent.id
+        );
+        const source = sent?.[2].source;
+        expect(source).toBeDefined();
+        return {
+          agent,
+          repository: { url: source.repository, checkout: source.checkout },
+        };
       };
       for (const [raw, intent, checkout] of [
         [
@@ -1565,32 +1488,31 @@ describe("AgentManager", () => {
         url,
         checkout: { kind: "new", branch: `${auto.agent.id}/web-topic` },
       });
+      // Project launches carry the base chosen in the launch form.
       const known = await launched({
-        repository: { url: "https://github.com/owner/repo.git" },
+        projectId: "web-gh",
+        baseBranch: "trunk",
       });
       expect(known.agent.baseBranch).toBe("trunk");
-      expect(known.repository?.checkout).toMatchObject({
+      expect(known.repository.checkout).toMatchObject({
         kind: "new",
         base: "trunk",
       });
-      expect(remote.listGitHubBranches).toHaveBeenCalledWith(
-        "runner-test",
-        "owner",
-        "repo"
-      );
       await expect(
         manager.comparisonBase(known.agent, "changes")
       ).resolves.toBe("trunk");
-      await expect(manager.comparisonBase(known.agent, "review")).resolves.toBe(
-        "trunk"
-      );
-
-      await expect(
-        manager.createAgent({ cwd, repository: {}, useWorktree: true })
-      ).rejects.toThrow("Enter a repository URL");
       await expect(
         manager.createAgent({
           cwd,
+          placement: runnerPlacement,
+          repository: {},
+          useWorktree: true,
+        })
+      ).rejects.toThrow("Choose a project");
+      await expect(
+        manager.createAgent({
+          cwd,
+          placement: runnerPlacement,
           repository: { url },
           createNewBranch: true,
           worktreeBranch: "bad..name",
@@ -1598,127 +1520,112 @@ describe("AgentManager", () => {
       ).rejects.toThrow();
     });
 
-    it.each([false, true])(
-      "places project templates and scheduled jobs on their saved runner (prepared=%s)",
-      async (prepared) => {
-        const cwd = "runner://runner-test/@session";
-        const projectId = `repository-only-runner-project-${prepared}`;
-        const repository = `https://example.test/owner/repo-${prepared}`;
-        await pool.query(
-          "INSERT INTO projects (id, name, repository) VALUES ($1, 'Runner', $2)",
-          [projectId, repository]
-        );
-        const requestSession = vi.fn(async () => ({
-          value: JSON.stringify({
-            data: { path: "/runner/project", moved: false, origin: repository },
-          }),
-        }));
-        const remote = {
-          available: () => true,
-          isManagedWorkspace: () => true,
-          originFor: () => "https://example.test",
-          supportsPreparedLaunch: () => prepared,
-          requestSession,
-        } as unknown as RemoteRunnerService;
-        const manager = new AgentManager(pool, noopLogger, testConfig, {
-          runtime,
-          remote,
-        });
-        const templates = new TemplateService(pool, manager, noopLogger);
-        const template = await templates.addTemplate({
-          name: `Run remote template (prepared=${prepared})`,
+    it("places project templates and scheduled jobs on their saved runner", async () => {
+      const cwd = "/runner/project";
+      const projectId = `repository-only-runner-project-typed`;
+      const repository = `https://example.test/owner/repo-typed`;
+      await pool.query(
+        "INSERT INTO projects (id, name, repository) VALUES ($1, 'Runner', $2)",
+        [projectId, repository]
+      );
+      const { call, remote } = enrolledFixture({
+        "workspace.prepare": () => ({
+          path: cwd,
+          moved: false,
+          origin: repository,
+          worktree: null,
+        }),
+      });
+      const manager = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      const templates = new TemplateService(pool, manager, noopLogger);
+      const template = await templates.addTemplate({
+        name: `Run remote template (prepared=typed)`,
+        projectId,
+        directory: "",
+        runner: testRunner,
+        prompt: "Work",
+        useWorktree: false,
+      });
+      const { agent } = await templates.launchTemplate({
+        templateId: template.id,
+      });
+      expect(agent).toMatchObject({
+        cwd,
+        projectId,
+        templateId: template.id,
+      });
+      const jobs = new JobService(pool, manager, noopLogger, testConfig);
+      try {
+        const job = await jobs.addJob({
+          name: `Run remote job (prepared=typed)`,
           projectId,
-          directory: cwd,
-          prompt: "Work",
+          directory: "",
+          runner: testRunner,
+          prompt: "Work on the schedule",
+          schedule: "0 * * * *",
+          enabled: true,
           useWorktree: false,
         });
-        const { agent } = await templates.launchTemplate({
-          templateId: template.id,
+        const run = await jobs.runJob({
+          jobId: job.id,
+          triggerSource: "scheduled",
+          wait: false,
         });
-        expect(agent).toMatchObject({
+        expect(await manager.getAgent(run.agentId!)).toMatchObject({
           cwd,
           projectId,
-          templateId: template.id,
         });
-        const jobs = new JobService(pool, manager, noopLogger, testConfig);
-        try {
-          const job = await jobs.addJob({
-            name: `Run remote job (prepared=${prepared})`,
-            projectId,
-            directory: cwd,
-            prompt: "Work on the schedule",
-            schedule: "0 * * * *",
-            enabled: true,
-            useWorktree: false,
-          });
-          const run = await jobs.runJob({
-            jobId: job.id,
-            triggerSource: "scheduled",
-            wait: false,
-          });
-          expect(await manager.getAgent(run.agentId!)).toMatchObject({
-            cwd,
-            projectId,
-          });
-          if (prepared)
-            for (const agentId of [agent.id, run.agentId])
-              expect(requestSession).toHaveBeenCalledWith(
-                expect.anything(),
-                expect.objectContaining({
-                  agentId,
-                  kind: "workspacePrepare",
-                  operation: expect.objectContaining({
-                    source: { repository, checkout: { kind: "default" } },
-                  }),
-                }),
-                expect.any(Function),
-                undefined
-              );
-          expect(runtime.launch).toHaveBeenLastCalledWith(
+        for (const session of [agent.id, run.agentId])
+          expect(
+            call.mock.calls.map((args) => args.slice(0, 3))
+          ).toContainEqual([
+            testRunner,
+            "workspace.prepare",
             expect.objectContaining({
-              agentId: run.agentId,
-              placement: { runner: "runner-test", workspace: "@session" },
-              mcp: expect.objectContaining({
-                url: `https://example.test/api/mcp/jobs/${run.runId}/${run.agentId}`,
-              }),
-            })
-          );
-        } finally {
-          await jobs.shutdown();
-        }
+              session,
+              source: { repository, checkout: { kind: "default" } },
+            }),
+          ]);
+        expect(runtime.launch).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            agentId: run.agentId,
+            placement: testRunner,
+            mcp: expect.objectContaining({
+              url: `https://example.test/api/mcp/jobs/${run.runId}/${run.agentId}`,
+            }),
+          })
+        );
+      } finally {
+        await jobs.shutdown();
       }
-    );
+    });
 
     it("persists the actual reviewer checkout owner on the same runner and reuses it on restart", async () => {
-      const supportsSharedWorktree = vi.fn(() => true);
-      const requestSession = vi.fn(async () => ({
-        value: JSON.stringify({
+      const { remote, call } = enrolledFixture({
+        "checkout.changes": () => ({
           kind: "changes",
           head: "a".repeat(40),
           baseRef: "origin/develop",
           stateId: "b".repeat(64),
           files: ["src/test.ts"],
         }),
-      }));
-      const remote = {
-        available: () => true,
-        isManagedWorkspace: () => true,
-        supportsSharedWorktree,
-        requestSession,
-        originFor: () => "https://example.test",
-      } as unknown as RemoteRunnerService;
+        "checkout.stats": () => null,
+      });
       const first = new AgentManager(pool, noopLogger, testConfig, {
         runtime,
         remote,
       });
-      const cwd = "runner://runner-test/@session";
       const parent = await first.createAgent({
-        cwd,
+        ...target,
         repository: {
           url: "https://example.test/r.git",
           checkout: { kind: "new", branch: "topic", base: "develop" },
         },
       });
+      const cwd = parent.cwd;
       const launch = {
         cwd,
         role: "review" as const,
@@ -1729,7 +1636,7 @@ describe("AgentManager", () => {
       };
       await expect(
         first.createAgent(
-          { ...launch, cwd: "runner://unrelated/@session" },
+          { ...launch, placement: placementForRunner("unrelated") },
           { useWorktreeOf: parent.id }
         )
       ).rejects.toThrow("Invalid shared checkout binding");
@@ -1744,17 +1651,12 @@ describe("AgentManager", () => {
           { useWorktreeOf: parent.id }
         )
       ).rejects.toThrow("Invalid child checkout binding");
-      supportsSharedWorktree.mockReturnValueOnce(false);
-      await expect(
-        first.createAgent(launch, { useWorktreeOf: parent.id })
-      ).rejects.toThrow("Update the runner");
       const child = await first.createAgent(launch, {
         useWorktreeOf: parent.id,
       });
       const expected = expect.objectContaining({
         agentId: child.id,
-        useWorktreeOf: parent.id,
-        placement: { runner: "runner-test", workspace: "@session" },
+        placement: testRunner,
       });
       expect(runtime.launch).toHaveBeenLastCalledWith(expected);
       await first.stopAgent(child.id);
@@ -1768,15 +1670,14 @@ describe("AgentManager", () => {
         kind: "changes",
         baseBranch: null,
       });
-      expect(requestSession).toHaveBeenCalledWith(
-        { runner: "runner-test", workspace: "@session" },
-        {
-          kind: "inspectCheckout",
-          agentId: child.id,
-          query: { kind: "changes", baseBranch: "develop" },
-        }
-      );
-      // Changes and stats use the same launch base as review (old runner).
+      expect(call.mock.calls.map((args) => args.slice(0, 3))).toContainEqual([
+        testRunner,
+        "checkout.changes",
+        expect.objectContaining({
+          target: expect.objectContaining({ session: child.id }),
+          base: "develop",
+        }),
+      ]);
       await resumed
         .viewCheckout(child, {
           kind: "stats",
@@ -1784,65 +1685,57 @@ describe("AgentManager", () => {
           includeUncommitted: true,
         })
         .catch(() => null);
-      expect(requestSession).toHaveBeenLastCalledWith(
-        { runner: "runner-test", workspace: "@session" },
-        {
-          kind: "viewCheckout",
-          agentId: child.id,
-          query: {
-            kind: "stats",
-            baseBranch: "develop",
-            includeUncommitted: true,
-          },
-        }
-      );
+      expect(call.mock.calls.map((args) => args.slice(0, 3))).toContainEqual([
+        testRunner,
+        "checkout.stats",
+        expect.objectContaining({
+          target: expect.objectContaining({ session: child.id }),
+          base: "develop",
+          uncommitted: true,
+        }),
+      ]);
     });
 
     it("binds a child:false launch without a worktree to its launcher's runner checkout", async () => {
-      const supportsSharedWorktree = vi.fn(() => true);
-      const remote = {
-        available: () => true,
-        isManagedWorkspace: () => true,
-        supportsSharedWorktree,
-        requestSession: vi.fn(),
-        originFor: () => "https://example.test",
-      } as unknown as RemoteRunnerService;
+      const { remote, call } = enrolledFixture({
+        "checkout.changes": () => ({
+          kind: "changes",
+          head: "a".repeat(40),
+          baseRef: "origin/develop",
+          stateId: "b".repeat(64),
+          files: ["src/test.ts"],
+        }),
+        "checkout.stats": () => null,
+      });
       const first = new AgentManager(pool, noopLogger, testConfig, {
         runtime,
         remote,
       });
-      const cwd = "runner://runner-test/@session";
       const launcher = await first.createAgent({
-        cwd,
+        ...target,
         repository: {
           url: "https://example.test/r.git",
           checkout: { kind: "new", branch: "topic", base: "develop" },
         },
       });
       // What MCP launch_agent sends for child:false with no worktree.
+      const cwd = launcher.cwd;
       const launch = {
         cwd,
         launchedByAgentId: launcher.id,
         useWorktree: false,
       };
-      supportsSharedWorktree.mockReturnValueOnce(false);
-      await expect(
-        first.createAgent(launch, { useWorktreeOf: launcher.id })
-      ).rejects.toThrow(
-        "Update the runner to launch an agent in an existing checkout."
-      );
       const independent = await first.createAgent(launch, {
         useWorktreeOf: launcher.id,
       });
       expect(independent).toMatchObject({
-        cwd,
+        placement: runnerPlacement,
         parentAgentId: null,
         launchedByAgentId: launcher.id,
       });
       const expected = expect.objectContaining({
         agentId: independent.id,
-        useWorktreeOf: launcher.id,
-        placement: { runner: "runner-test", workspace: "@session" },
+        placement: testRunner,
       });
       expect(runtime.launch).toHaveBeenLastCalledWith(expected);
       expect(runtime.launch.mock.calls.at(-1)?.[0].repository).toBeUndefined();
@@ -5210,36 +5103,34 @@ describe("AgentManager", () => {
           uncommittedFiles: ["?? dirty.txt"],
         });
 
-        const runnerCwd = "runner://runner-test/@session";
+        const runnerCwd = "/runner/checkout";
         const checkout = await observeGitCheckout(checkoutPath);
-        const requestSession = vi.fn(async () => ({
-          value: JSON.stringify({
-            ownership: "borrowed",
-            owner: owner.id,
-            borrowers: [child.id],
-            checkout,
-          }),
+        const call = vi.fn(async () => ({
+          ownership: "borrowed",
+          owner: owner.id,
+          borrowers: [child.id],
+          checkout,
         }));
         const runnerManager = new AgentManager(pool, noopLogger, testConfig, {
           runtime,
-          remote: { requestSession } as unknown as RemoteRunnerService,
+          remote: {
+            call,
+            connectionEpoch: () => 1,
+          } as unknown as RemoteRunnerService,
         });
         const localStatus = await manager.checkWorktreeStatus(child.id);
-        // The runner the locator names, as every launch records it (0065).
+        // Keep the native path and switch the persisted placement.
         await pool.query(
           "UPDATE agents SET cwd = $2, runner_id = 'runner-test' WHERE id = $1",
           [child.id, runnerCwd]
         );
         const runnerStatus = await runnerManager.checkWorktreeStatus(child.id);
-        expect(requestSession).toHaveBeenCalledWith(
-          { runner: "runner-test", workspace: "@session" },
-          {
-            kind: "checkoutRelease",
-            agentId: child.id,
-            operation: { kind: "observe", policy: "changes" },
-          },
+        expect(call).toHaveBeenCalledWith(
+          testRunner,
+          "workspace.observe",
+          { session: child.id },
           undefined,
-          undefined
+          1
         );
         // A borrower answers what main answers for a row without a worktree
         // of its own, on every runner (347eb0c3's owner's checkout reverted).
@@ -5373,14 +5264,12 @@ describe("AgentManager", () => {
     });
 
     describe("a runner agent whose owned checkout is gone", () => {
-      const runnerCwd = "runner://runner-test/@session";
+      const runnerCwd = "/runner/checkout";
       const owned = {
-        value: JSON.stringify({
-          ownership: "owned",
-          owner: "self",
-          borrowers: [],
-          checkout: null,
-        }),
+        ownership: "owned",
+        owner: "self",
+        borrowers: [],
+        checkout: null,
       };
       async function runnerAgent(worktreePath: string | null) {
         const agent = await manager.createAgent({
@@ -5393,10 +5282,13 @@ describe("AgentManager", () => {
         );
         return agent;
       }
-      function runnerManager(requestSession: ReturnType<typeof vi.fn>) {
+      function runnerManager(call: ReturnType<typeof vi.fn>) {
         return new AgentManager(pool, noopLogger, testConfig, {
           runtime,
-          remote: { requestSession } as unknown as RemoteRunnerService,
+          remote: {
+            call,
+            connectionEpoch: () => 1,
+          } as unknown as RemoteRunnerService,
         });
       }
 
@@ -5467,7 +5359,7 @@ describe("AgentManager", () => {
     });
 
     describe("the status read on a runner that releases bound checkouts", () => {
-      const runnerCwd = "runner://runner-test/@session";
+      const runnerCwd = "/runner/checkout";
       const replies = {
         owned: {
           ownership: "owned",
@@ -5512,11 +5404,11 @@ describe("AgentManager", () => {
         );
         return agent;
       }
-      function managerFor(requestSession: ReturnType<typeof vi.fn>) {
+      function managerFor(call: ReturnType<typeof vi.fn>) {
         return new AgentManager(pool, noopLogger, testConfig, {
           runtime,
           remote: {
-            requestSession,
+            call,
             connectionEpoch: () => 3,
           } as unknown as RemoteRunnerService,
         });
@@ -5535,9 +5427,7 @@ describe("AgentManager", () => {
           message: "Checkout status is unavailable on the owning runner.",
         },
       };
-      const json = (reply: unknown) => async () => ({
-        value: JSON.stringify(reply),
-      });
+      const json = (reply: unknown) => async () => reply;
       // Each reply's own expected outcome, asserted on both paths before
       // they are compared: a shared wrong answer cannot pass.
       it.each([
@@ -5614,17 +5504,17 @@ describe("AgentManager", () => {
         "%s: the expected status (or 503 body)",
         async (_name, reply, expected) => {
           const agent = await runnerAgent();
-          const requestSession = vi.fn(reply);
+          const call = vi.fn(reply);
           const result = await outcome(
-            managerFor(requestSession).checkWorktreeStatus(agent.id)
+            managerFor(call).checkWorktreeStatus(agent.id)
           );
           expect(result).toEqual(expected);
-          expect(requestSession).toHaveBeenCalledOnce();
-          expect(requestSession.mock.calls[0]![1]).toEqual({
-            kind: "checkoutRelease",
-            agentId: agent.id,
-            operation: { kind: "observe", policy: "changes" },
-          });
+          expect(call).toHaveBeenCalledOnce();
+          expect(call.mock.calls[0]!.slice(0, 3)).toEqual([
+            testRunner,
+            "workspace.observe",
+            { session: agent.id },
+          ]);
         }
       );
 
@@ -5654,12 +5544,8 @@ describe("AgentManager", () => {
               ...owner,
             },
           };
-          const requestSession = vi.fn(async () => ({
-            value: JSON.stringify(reply),
-          }));
-          const status = await managerFor(requestSession).checkWorktreeStatus(
-            agent.id
-          );
+          const call = vi.fn(async () => reply);
+          const status = await managerFor(call).checkWorktreeStatus(agent.id);
           expect(status).toEqual({
             ownership: "borrowed",
             borrowers: ["agt_other"],
@@ -5672,17 +5558,15 @@ describe("AgentManager", () => {
             changedFiles: [],
             uncommittedFiles: [],
           });
-          const preview = await managerFor(requestSession).checkArchivePreview(
-            agent.id
-          );
+          const preview = await managerFor(call).checkArchivePreview(agent.id);
           expect(preview.worktreeStatus?.hasWorktree ?? false).toBe(false);
           expect(preview.cleanupDescriptions).toEqual([]);
           // What the runner is asked is unchanged.
-          expect(requestSession.mock.calls[0]![1]).toEqual({
-            kind: "checkoutRelease",
-            agentId: agent.id,
-            operation: { kind: "observe", policy: "changes" },
-          });
+          expect(call.mock.calls[0]!.slice(0, 3)).toEqual([
+            testRunner,
+            "workspace.observe",
+            { session: agent.id },
+          ]);
         }
       );
 

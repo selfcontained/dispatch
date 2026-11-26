@@ -137,7 +137,6 @@ import { inspectAgentCheckout, reviewerWorkspace } from "./checkout-runner.js";
 import {
   resolveCheckoutIntent,
   CheckoutIntentError,
-  runnerDefaultBranch,
   pullRequestTarget,
   toLocalWorktreeRequest,
   toRunnerCheckout,
@@ -2317,7 +2316,11 @@ export class AgentManager {
       const decision = admitLaunch({
         phase: "sharedBinding",
         input,
-        owner: candidate,
+        owner:
+          candidate &&
+          (!input.placement || sameRunner(input.placement, candidate.placement))
+            ? candidate
+            : null,
         ownerWorkdir,
         hasPersonaBody,
       });
@@ -2655,7 +2658,6 @@ export class AgentManager {
       input.useWorktree === undefined
     )
       input.useWorktree = false;
-    const remote = this.remote;
     const sourceCheckout =
       checkoutOwner &&
       location &&
@@ -3550,8 +3552,6 @@ export class AgentManager {
             beforeLaunchReconcile: () => this.assertLifecycleCurrent(agent),
             ...(opts.recycle?.drain && { requireResume: true }),
           }),
-        ...(onWorkspaceProgress &&
-          !binding?.runner_preparation && { onWorkspaceProgress }),
       });
     } finally {
       await steps.settled();

@@ -541,12 +541,11 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     placement: string | null | undefined,
     operation: Extract<SessionLifecycleOperation, { kind: "launch" }>,
     request: Req<"session.launch">,
-    onProgress?: RuntimeLaunch["onWorkspaceProgress"],
     beforeReconcile?: RuntimeLaunch["beforeLaunchReconcile"]
   ): Promise<SessionResult> {
     for (let attempt = 1; ; attempt++) {
       try {
-        return await requestSession(placement, operation, request, onProgress);
+        return await requestSession(placement, operation, request);
       } catch (error) {
         const hold = deps.holds?.current(runnerIdAt(placement));
         if (
@@ -578,8 +577,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
   async function requestSession(
     placement: string | null | undefined,
     operation: SessionLifecycleOperation,
-    request?: Req<"session.launch">,
-    onProgress?: RuntimeLaunch["onWorkspaceProgress"]
+    request?: Req<"session.launch">
   ): Promise<SessionResult> {
     if (!placement) return requestLocalSession(operation, request);
     const runner = runnerIdAt(placement);
@@ -1829,7 +1827,6 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         bins,
         env,
         pathPrefix,
-        onWorkspaceProgress,
         beforeLaunchReconcile,
         requireResume,
         ...launch
@@ -1866,7 +1863,6 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           },
         },
         request,
-        onWorkspaceProgress,
         beforeLaunchReconcile
       ).catch(async (error: unknown) => {
         if (!placement || error instanceof RunnerHostGone)

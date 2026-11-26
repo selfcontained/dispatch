@@ -33,17 +33,9 @@ export type RemoteLaunch = {
   personaContext?: string | null;
   mcp?: ServiceMcp;
   resumeSessionId: string | null;
-  repository?: RunnerRepository;
-  useWorktreeOf?: string;
-  /** Opt in to workspace preparation and request-scoped progress. */
-  prepareWorkspace?: true;
-  /**
-   * Durable identity of this launch attempt, chosen by Dispatch. A runner
-   * that advertises `launchReconcile` saves it before any process starts and
-   * answers a repeat of the same ID from that record. Older runners ignore it.
-   */
+  /** Durable identity used to reconcile the same launch after an update. */
   launchId?: string;
-  /** Controller that owns this launch, sent to peers with sessionObservation. */
+  /** Controller that owns this launch. */
   owner?: string;
 };
 

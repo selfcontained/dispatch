@@ -6,10 +6,7 @@ import type { AgentPermissionsResponse } from "@dispatch/shared";
 import type { PromptSource, PromptOptions } from "./acp/prompt-source.js";
 import type { FastifyBaseLogger } from "fastify";
 
-import type {
-  LaunchProgress,
-  RunnerRepository,
-} from "@dispatch/runner-protocol";
+import type {} from "@dispatch/runner-protocol";
 import type { BuildIdentity } from "./build-identity.js";
 import type {
   HostLaunch,
@@ -34,8 +31,6 @@ export type RuntimeLaunch = Omit<HostLaunch, "bins" | "env" | "pathPrefix"> & {
   env?: HostLaunch["env"];
   pathPrefix?: HostLaunch["pathPrefix"];
   placement?: string;
-  repository?: RunnerRepository;
-  onWorkspaceProgress?: (progress: LaunchProgress) => void;
   /** Recheck ownership after waiting for a runner whose launch reply was lost. */
   beforeLaunchReconcile?: () => Promise<void>;
   requireResume?: true;
