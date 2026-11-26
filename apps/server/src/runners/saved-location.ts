@@ -1,6 +1,10 @@
 import { isOpaqueId } from "@dispatch/runner-protocol";
 import { sameRunner, type Placement } from "@dispatch/runner-protocol/contract";
-import { resolveLaunchLocation } from "../agents/workspace-target.js";
+import {
+  recordedCheckoutDirectory,
+  resolveLaunchLocation,
+  type WorkspaceTargetAgent,
+} from "../agents/workspace-target.js";
 import {
   controllerPlacement,
   placementForRunner,
@@ -21,6 +25,33 @@ export type SavedTarget = {
   projectId?: string | null;
   [storedLocation]?: StoredLocation;
 };
+
+/** A named folder and a project have distinct persisted location shapes. */
+export function sessionFolderLocation(
+  agent: { placement?: Placement; projectId?: string | null },
+  path: string
+): Location {
+  const placement = agent.placement ?? controllerPlacement;
+  const runner = runnerIdForPlacement(placement);
+  return sameRunner(placement, controllerPlacement)
+    ? { runner, path }
+    : { runner, projectId: agent.projectId ?? null };
+}
+
+/** A caller inherits a recorded folder or a project on its runner. The
+ * prepared cwd stays available when a project has no recorded local path. */
+export function sessionLaunchTarget(
+  agent: WorkspaceTargetAgent & { cwd: string; projectId?: string | null }
+) {
+  const location = sessionFolderLocation(
+    agent,
+    recordedCheckoutDirectory(agent) ?? agent.cwd
+  );
+  return {
+    directory: "path" in location ? location.path : agent.cwd,
+    location,
+  };
+}
 
 export function targetPlacement(target: SavedTarget): Placement {
   const runner = target[storedLocation]?.runner;

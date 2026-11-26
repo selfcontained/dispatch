@@ -28,6 +28,19 @@ export type WorkspaceTargetAgent = {
   } | null;
 };
 
+export function recordedCheckoutDirectory(agent: WorkspaceTargetAgent) {
+  return agent.workspacePath ?? agent.worktreePath ?? agent.cwd;
+}
+
+export function recordedDiffDirectory(agent: WorkspaceTargetAgent) {
+  return (
+    agent.workspacePath ??
+    agent.worktreePath ??
+    (agent.gitContext?.isWorktree ? agent.gitContext.worktreePath : null) ??
+    agent.cwd
+  );
+}
+
 /** Resolve a directory on the controller. */
 export function resolveLaunchLocation(directory: string): string {
   return path.resolve(directory);
@@ -35,7 +48,7 @@ export function resolveLaunchLocation(directory: string): string {
 
 export function agentWorkspaceDir(agent: WorkspaceTargetAgent): string | null {
   if (enrolledRunnerId(agent.placement ?? controllerPlacement)) return null;
-  return agent.workspacePath ?? agent.worktreePath ?? agent.cwd ?? null;
+  return recordedCheckoutDirectory(agent);
 }
 
 /** Path used to make tool locations relative to the session's checkout. */
@@ -48,12 +61,7 @@ export function agentStreamDirectory(
 /** Local path used by Changes, including a worktree discovered on older rows. */
 export function agentDiffPath(agent: WorkspaceTargetAgent): string | null {
   if (enrolledRunnerId(agent.placement ?? controllerPlacement)) return null;
-  return (
-    agent.workspacePath ??
-    agent.worktreePath ??
-    (agent.gitContext?.isWorktree ? agent.gitContext.worktreePath : null) ??
-    agent.cwd
-  );
+  return recordedDiffDirectory(agent);
 }
 
 /** What a workspace move needs from the machine the agent runs on. */

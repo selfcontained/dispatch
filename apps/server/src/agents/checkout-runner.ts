@@ -22,7 +22,7 @@ import {
   agentComparisonBase,
   type ComparisonBaseAgent,
 } from "./effective-base.js";
-import { agentWorkspaceDir } from "./workspace-target.js";
+import { sessionLaunchTarget } from "../runners/saved-location.js";
 import {
   checkoutRunners,
   type CheckoutCommandRunners,
@@ -210,7 +210,7 @@ export async function inspectAgentCheckout(
 }
 /** Resolve the launch placement from the requester, never the display parent. */
 export function reviewerWorkspace(owner: AgentRecord) {
-  return agentWorkspaceDir(owner) ?? owner.cwd;
+  return sessionLaunchTarget(owner).directory;
 }
 
 /**

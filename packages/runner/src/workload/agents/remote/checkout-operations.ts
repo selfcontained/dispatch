@@ -1,8 +1,8 @@
+import { checkoutCommandTimeoutMs } from "./checkout-timeout.js";
 import { Readable } from "node:stream";
 import {
   isCheckoutExecutionOptions,
   scheduleDeadline,
-  checkoutCommandTimeoutMs,
   isCheckoutCommand,
   isCheckoutCommandArgv,
   isCheckoutCommandFile,

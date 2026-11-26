@@ -93,7 +93,7 @@ jobs:
       - name: Test CI event policy
         run: node --test scripts/ci-event-policy.test.mjs
 
-      - name: Check runner boundary baseline history
+      - name: Check sealed runner boundary baseline and history
         run: node scripts/check-runner-boundary.mjs --history "$PR_BASE_SHA" "$PR_HEAD_SHA"
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}

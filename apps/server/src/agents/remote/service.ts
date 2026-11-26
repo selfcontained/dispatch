@@ -30,7 +30,8 @@ import { X509Certificate } from "node:crypto";
 import http from "node:http";
 import https from "node:https";
 import { connect as connectTcp, isIP, type Socket } from "node:net";
-import os from "node:os";
+import { advertisedHost } from "./advertised-host.js";
+export { advertisedHost } from "./advertised-host.js";
 import { Writable } from "node:stream";
 import { createServer, type Server, type TLSSocket } from "node:tls";
 import { receiveEnrollmentRequest } from "../../runners/enrolled/enrollment.js";
@@ -200,47 +201,6 @@ function anyOrigin(value: string | undefined, label: string) {
   if (url.pathname !== "/" || url.search || url.hash)
     throw new Error(`${label} must be a bare origin, without a path`);
   return value.replace(/\/$/, "");
-}
-
-function isLoopbackHost(host: string) {
-  const bare = host.replace(/^\[|\]$/g, "").toLowerCase();
-  return (
-    bare === "localhost" ||
-    bare.endsWith(".localhost") ||
-    bare === "::1" ||
-    bare === "0.0.0.0" ||
-    bare === "::" ||
-    /^127\./.test(bare) ||
-    /^::ffff:127\./.test(bare)
-  );
-}
-
-/**
- * The host written into pairing commands. A browser on the Dispatch machine
- * itself reaches it via loopback, which a remote runner cannot use, so fall
- * back to this machine's LAN address (private IPv4 first), then its hostname.
- */
-export function advertisedHost(
-  hint: string | undefined,
-  interfaces: ReturnType<typeof os.networkInterfaces> = os.networkInterfaces(),
-  hostname = os.hostname()
-) {
-  if (hint && !isLoopbackHost(hint)) return hint.replace(/^\[|\]$/g, "");
-  const addresses = Object.values(interfaces)
-    .flat()
-    .filter(
-      (entry): entry is os.NetworkInterfaceInfo =>
-        Boolean(entry) && !entry!.internal && entry!.family === "IPv4"
-    )
-    .map((entry) => entry.address)
-    .filter((address) => !address.startsWith("169.254."));
-  const isPrivate = (address: string) =>
-    /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(address);
-  return (
-    addresses.find(isPrivate) ??
-    addresses[0] ??
-    (isLoopbackHost(hostname) ? "localhost" : hostname)
-  );
 }
 
 export function configuredRunner(input?: {

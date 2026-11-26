@@ -1,4 +1,4 @@
-import { checkoutCommandTimeoutMs } from "@dispatch/runner-protocol";
+import { checkoutCommandTimeoutMs } from "./checkout-timeout.js";
 import { operations, type OpName } from "@dispatch/runner-protocol/contract";
 import {
   UPDATE_FENCED_MESSAGE,

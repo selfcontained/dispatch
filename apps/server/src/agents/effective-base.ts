@@ -9,7 +9,7 @@ import {
 } from "../runners/directory.js";
 import { controllerPlacement, enrolledRunnerId } from "../runners/placement.js";
 import {
-  agentDiffPath,
+  recordedDiffDirectory,
   type WorkspaceTargetAgent,
 } from "./workspace-target.js";
 
@@ -68,7 +68,7 @@ export async function agentComparisonBase(
       : Boolean(agent.worktreePath || agent.gitContext?.isWorktree);
   // New runner launches have a known default in launch.base when available.
   // For older or unresolved launches the runner has the checkout's recorded base.
-  const cwd = managed && !isRunner ? agentDiffPath(agent) : null;
+  const cwd = managed && !isRunner ? recordedDiffDirectory(agent) : null;
   if (!cwd) return null;
   // Main's chain: the repository's default, the checkout's current branch,
   // then "main". Main's probes never fail the read, and neither does this.

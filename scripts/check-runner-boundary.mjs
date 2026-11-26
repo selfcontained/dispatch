@@ -8,6 +8,7 @@ import ts from "typescript";
 import {
   archiveReleaseRestriction,
   restrictionHits,
+  misplacedRestrictions,
 } from "./runner-restrictions.mjs";
 
 const tsNodeBuiltins = new Set(builtinModules);
@@ -59,6 +60,92 @@ const machineExports = new Set([
 
 // Capabilities are limited to the resources Dispatch owns in each location.
 export const ownMachineCapabilities = new Map([
+  [
+    server + "files/session-file.ts",
+    new Map([
+      [
+        "import:" + server + "files/session-file-io",
+        "Stage controller-held file bytes for the runner file transfer",
+      ],
+    ]),
+  ],
+  [
+    "apps/server/src/agents/remote/advertised-host.ts",
+    new Map([
+      ["os", "Controller network interfaces advertised during pairing"],
+    ]),
+  ],
+  [
+    "apps/server/src/agents/remote/update-state-file.ts",
+    new Map([["fs/promises", "Private controller update journal"]]),
+  ],
+  [
+    "apps/server/src/files/open-workspace-file.ts",
+    new Map([
+      ["fs", "Controller-held delivery sources"],
+      ["fs/promises", "Controller-held delivery sources"],
+    ]),
+  ],
+  [
+    "apps/server/src/routes/system.ts",
+    new Map([["os", "Controller account home for system settings"]]),
+  ],
+  [
+    "apps/server/src/shared/lib/resolve-tilde.ts",
+    new Map([["os", "Controller configuration paths"]]),
+  ],
+  [
+    "apps/server/src/shared/lib/run-command.ts",
+    new Map([
+      ["child_process", "Controller release and diagnostic commands"],
+      [
+        "import:apps/server/src/shared/process/child-environment",
+        "Controller release and diagnostic commands",
+      ],
+    ]),
+  ],
+  [
+    "apps/server/src/shared/lib/tool-environment.ts",
+    new Map([
+      ["fs", "Controller tool environment"],
+      ["os", "Controller tool environment"],
+      [
+        "import:apps/server/src/shared/process/child-environment",
+        "Controller tool environment",
+      ],
+    ]),
+  ],
+  [
+    "apps/server/src/shared/process/owned-processes.js",
+    new Map([
+      ["child_process", "Controller-owned process supervision"],
+      ["fs", "Controller-owned process supervision"],
+      ["process.kill", "Controller-owned process supervision"],
+      [
+        "import:apps/server/src/shared/process/child-environment",
+        "Controller-owned process supervision",
+      ],
+    ]),
+  ],
+  [
+    "apps/server/src/stream-manager.ts",
+    new Map([
+      [
+        "loopback fetch",
+        "deferred gap T39, owner decision: local CDP discovery",
+      ],
+    ]),
+  ],
+  [
+    "apps/server/src/files/session-directories.ts",
+    new Map([
+      [
+        "fs/promises",
+        "Controller-managed session state and staged delivery files",
+      ],
+    ]),
+  ],
+
   [
     "apps/server/src/agents/engine-update-operations.ts",
     new Map([
@@ -304,6 +391,10 @@ export const ownMachineCapabilities = new Map([
   [
     "apps/server/src/server.ts",
     new Map([
+      [
+        "import:apps/server/src/shared/lib/run-command",
+        "Controller artifact and release command composition",
+      ],
       ["fs", "Dispatch config, sockets and logs"],
       ["os", "Dispatch config, sockets and logs"],
     ]),
@@ -514,7 +605,7 @@ export const ownMachineCapabilities = new Map([
 const legacyRunner =
   /^agents\/(checkout-worker\.ts$|acp\/(host\/|driver\.ts$|engine-spec\.ts$|host-env\.ts$|host-command\.ts$|local-host-entry\.ts$|opencode-instructions\.ts$|permissions\.ts$|background-[^/]+\.ts$)|remote\/(runner|session-(supervisor|storage|processes|files)|engine-(capability-worker|runner-executor)|github-(runner-executor|pull-request-watches)|update-(agent|trial|probe|verify|stage-cli|fence-store)|workload-(identity|tools))\.ts$)|^terminal\/runner-worker\.ts$/;
 const hostModule =
-  /^(shared\/(git\/|github\/pr$|process\/|lib\/run-command$|repo-icon$|plugin-status$)|agents\/(workspace(?:-prep)?$|worktree-local-config$|checkout-(?:view|watch|inspection|observation|command-executor)$|default-branch-files$|engine-(?:availability|login|updates)$|provider-plans$|local-runner(?:-[^/]+)?$|acp\/host-client$)|files\/(?:workspace-[^/]+|session-file)$|projects\/resolve-root$|terminal\/(?:pty|process-session)$)/;
+  /^(shared\/(git\/|github\/pr$|process\/|lib\/run-command$|repo-icon$|plugin-status$)|agents\/(workspace(?:-prep)?$|worktree-local-config$|checkout-(?:view|watch|inspection|observation|command-executor)$|default-branch-files$|engine-(?:availability|login|updates)$|provider-plans$|local-runner(?:-[^/]+)?$|acp\/host-client$)|files\/(?:workspace-[^/]+|session-file-io)$|projects\/resolve-root$|terminal\/(?:pty|process-session)$)/;
 const hostBuiltins = new Map([
   ["fs", "fs"],
   ["fs/promises", "fs"],
@@ -649,6 +740,7 @@ export function scanSource(file, source, declared = new Set()) {
       hit("R1 locator", "runner:// in SQL");
     return hits;
   }
+  hits.push(...misplacedRestrictions(file, source));
   const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
   const relative = file.slice(server.length);
   const inServer = file.startsWith(server);
@@ -793,7 +885,26 @@ export function scanSource(file, source, declared = new Set()) {
         relative === "runners/local.ts" &&
         (target === server + "agents/checkout-worker" ||
           target === server + "runners/in-process");
-      if (inProcessReads)
+      const namedValue = (name) =>
+        ts.isImportDeclaration(node) &&
+        !node.importClause?.name &&
+        node.importClause?.namedBindings &&
+        ts.isNamedImports(node.importClause.namedBindings) &&
+        node.importClause.namedBindings.elements
+          .filter((item) => !item.isTypeOnly)
+          .map((item) => (item.propertyName ?? item.name).text)
+          .join(",") === name;
+      // Same workload ports as the child, used for local recovery.
+      if (
+        (inProcessReads &&
+          !(
+            target === server + "runners/in-process" &&
+            namedValue("inProcessPorts")
+          )) ||
+        (target === server + "runners/in-process" &&
+          relative !== "runners/local.ts" &&
+          !(relative === "main.ts" && form === "import()"))
+      )
         hit(
           "R3 local adapter delegation",
           "checkout reads in process without a current child binding",
@@ -853,7 +964,12 @@ export function scanSource(file, source, declared = new Set()) {
       if (
         inWeb &&
         /^@dispatch\/runner-protocol(?:\/|$)/.test(specifier) &&
-        !typeOnly
+        !typeOnly &&
+        !(
+          file === web + "hooks/use-runner-engines.ts" &&
+          specifier === "@dispatch/runner-protocol/engine-management" &&
+          namedValue("engineScopeKey")
+        )
       )
         hit("R6 protocol value import", specifier);
       // The design names the four operations. Call sites are assigned when T04
@@ -1693,13 +1809,19 @@ function packageDependencies(read, errors) {
 function run(args) {
   const root = fileURLToPath(new URL("../", import.meta.url));
   if (args[0] === "--history" && args.length === 3)
-    return historyErrors(root, args[1], args[2]);
+    return [
+      ...historyErrors(root, args[1], args[2]),
+      ...(atRevision(root, args[2], baselinePath)?.length === 0
+        ? []
+        : ["The sealed boundary requires an empty head baseline."]),
+    ];
   if (
     args.length > 1 ||
-    (args.length === 1 && !["--staged", "--print"].includes(args[0]))
+    (args.length === 1 &&
+      !["--staged", "--print", "--strict"].includes(args[0]))
   )
     throw new Error(
-      "Usage: check-runner-boundary.mjs [--staged | --print | --history BASE HEAD]"
+      "Usage: check-runner-boundary.mjs [--strict | --staged | --print | --history BASE HEAD]"
     );
 
   const staged = args[0] === "--staged";
@@ -1747,7 +1869,9 @@ function run(args) {
     return errors;
   }
   const baseline = JSON.parse(read(baselinePath));
-  errors.push(...compareHits(hits, baseline));
+  if (baseline.length)
+    errors.push("The sealed runner boundary requires an empty baseline.");
+  errors.push(...compareHits(hits, []));
   const rekeys = JSON.parse(read(rekeysPath) ?? "[]");
   errors.push(...rekeyErrors(rekeys, baseline, read));
   if (staged)
@@ -1779,7 +1903,7 @@ function run(args) {
       )
     );
   if (!errors.length) {
-    const counts = {};
+    const counts = { R1: 0, R2: 0, R3: 0, R4: 0, R5: 0, R6: 0, R7: 0 };
     for (const entry of hits) {
       const rule = entry.kind.slice(0, 2);
       counts[rule] = (counts[rule] ?? 0) + entry.count;

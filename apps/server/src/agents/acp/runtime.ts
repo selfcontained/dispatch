@@ -2,8 +2,7 @@ import { AgentError } from "../errors.js";
 import { isPromptImageMimeType } from "./prompt-source.js";
 import type { RuntimeLaunch } from "../runtime.js";
 import { sameConversation, type PromptConversation } from "@dispatch/shared";
-import { rm } from "node:fs/promises";
-import path from "node:path";
+import { removeHostState } from "../../files/session-directories.js";
 import type { Duplex } from "node:stream";
 import type { SessionLifecycleOperation } from "@dispatch/runner-protocol";
 import {
@@ -161,7 +160,7 @@ type Waiting = {
 
 type Live = {
   agentId: string;
-  remote?: boolean;
+  inbox?: Pick<RemoteEventInbox, "receive" | "projected">;
   runnerId: string;
   /** The runner connection the host's newest channel was opened over. */
   channelEpoch?: number;
@@ -480,9 +479,6 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
   const controllerId = runnerIdForPlacement(controllerPlacement);
   const runnerIdAt = (placement?: string | null) => placement ?? controllerId;
 
-  const stateDir = (agentId: string) =>
-    path.join(config.agentStateRoot, agentId);
-
   /** An update holds new work for this host's runner. */
   const held = (entry: Live) =>
     deps.holds?.isHeld(entry.runnerId) === true ||
@@ -756,7 +752,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
 
   function dispatchEntry(agentId: string, entry: Live, journal: JournalEntry) {
     if (journal.seq <= entry.lastSeq) return; // replayed, already applied
-    if (entry.remote && journal.seq !== entry.lastSeq + 1) {
+    if (!entry.client.acceptsJournalSequence(entry.lastSeq, journal.seq)) {
       entry.client.replay();
       return;
     }
@@ -800,8 +796,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
    * child restarting) input waits in the queue, and the host's next ready
    * pumps it.
    */
-  const deliverable = (entry: Live) =>
-    entry.client.isReady() || (!entry.remote && entry.client.isConnected());
+  const deliverable = (entry: Live) => entry.client.canDeliverInput();
 
   /** Submit input one request at a time while allowing steering during a turn. */
   async function pump(agentId: string, entry: Live): Promise<void> {
@@ -1143,8 +1138,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       for (const resolve of waiters) resolve();
     }
     const journalId = entry.journalId;
-    const inbox =
-      entry.remote && seq > 0 && journalId ? deps.remoteInbox : undefined;
+    const inbox = seq > 0 && journalId ? entry.inbox : undefined;
     entry.events = entry.events.then(async () => {
       if (inbox && journalId) {
         await inbox.receive(agentId, { journalId, seq, event });
@@ -1201,7 +1195,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     const cursor = await deps.hostSeq(agentId);
     const entry: Live = {
       agentId,
-      remote: Boolean(placement),
+      inbox: placement ? deps.remoteInbox : undefined,
       runnerId: runnerIdAt(placement),
       client: null as unknown as HostSessionClient,
       commands: [],
@@ -1250,8 +1244,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         return hold ? Date.parse(hold.expiresAt) : undefined;
       },
       logger,
-      fromSeq: () =>
-        entry.remote && deps.remoteInbox ? entry.durableSeq : entry.lastSeq,
+      fromSeq: () => (entry.inbox ? entry.durableSeq : entry.lastSeq),
       journalId: () => entry.journalId,
       onEvent: (journal) => dispatchEntry(agentId, entry, journal),
       onPermissions: (requests) =>
@@ -1923,7 +1916,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         }
       }
       const current = live.get(agentId);
-      if (current) return !current.remote || current.client.isReady();
+      if (current) return current.client.canReuseAttachment();
       const placement = await placementOf(agentId);
       if (placement && !deps.remote?.available(placement)) return false;
       if (recycleHolds.get(agentId)?.restarting) return false;
@@ -1967,7 +1960,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           source,
           opts
         );
-      if (entry && (!entry.remote || !pending))
+      if (entry && entry.client.canQueueDuringAttach(Boolean(pending)))
         return enqueuePrompt(entry, agentId, text, source, opts);
 
       // Dispatch may finish starting while an already running remote host is
@@ -2211,11 +2204,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       const process = { sessionHandle: agentId, processState: state };
       const entry = live.get(agentId);
       const welcome =
-        process.processState === "live" &&
-        entry &&
-        !entry.remote &&
-        entry.client.isConnected()
-          ? entry.client.welcome
+        process.processState === "live"
+          ? (entry?.client.nativeWelcome() ?? null)
           : null;
       return {
         ...process,
@@ -2383,7 +2373,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     readLogTail,
 
     async clearRemoteState(agentId) {
-      await rm(stateDir(agentId), { recursive: true, force: true });
+      await removeHostState(config.agentStateRoot, agentId);
     },
 
     async discard(agentId) {
@@ -2395,8 +2385,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         live.delete(agentId);
         entry.client.close();
       }
-      if (placement)
-        await rm(stateDir(agentId), { recursive: true, force: true });
+      if (placement) await removeHostState(config.agentStateRoot, agentId);
     },
   };
   return runtime;

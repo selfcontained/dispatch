@@ -316,7 +316,13 @@ test("T09 records its in-process read fallback once, beside the adapter delegati
       app + "runners/local.ts",
       'import { inProcessPorts } from "./in-process.js";'
     ).map(({ kind, detail, task }) => [kind, detail, task]),
-    [["R3 local adapter delegation", fallback.detail, "T18"]]
+    []
+  );
+  assert.ok(
+    scanSource(
+      app + "runners/other.ts",
+      'import { inProcessPorts } from "./in-process.js";'
+    ).some((h) => h.kind.startsWith("R3"))
   );
 });
 
@@ -865,5 +871,26 @@ test("history keeps an entry across a byte-identical file rename only", () => {
   );
   assert.ok(
     compareHistory([old], [{ ...moved, task: "T40" }], [], { renames }).length
+  );
+});
+
+test("T39 exceptions stay on the approved owner and capability", () => {
+  const refusal =
+    'throw new Error("Playwright screencasts are unavailable for runner sessions.");';
+  const discovery = 'fetch("http://127.0.0.1:9222/json");';
+  assert.deepEqual(
+    scanSource(app + "routes/agents/streaming-routes.ts", refusal),
+    []
+  );
+  assert.ok(
+    scanSource(app + "other.ts", refusal).some(
+      (h) => h.kind === "R7 restriction"
+    )
+  );
+  assert.deepEqual(scanSource(app + "stream-manager.ts", discovery), []);
+  assert.ok(
+    scanSource(app + "other.ts", discovery).some(
+      (h) => h.detail === "loopback fetch"
+    )
   );
 });

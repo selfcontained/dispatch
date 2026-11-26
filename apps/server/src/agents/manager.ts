@@ -46,7 +46,10 @@ import {
 } from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, realpath, rm, unlink } from "node:fs/promises";
+import {
+  ensureDeliveryDirectory,
+  removeDeliveryDirectory,
+} from "../files/session-directories.js";
 import path from "node:path";
 
 import type { FastifyBaseLogger } from "fastify";
@@ -2093,7 +2096,7 @@ export class AgentManager {
         await this.pool
           .query("DELETE FROM agents WHERE id = $1", [p.id])
           .catch(() => {});
-        await rm(p.filesDir, { recursive: true, force: true }).catch(() => {});
+        await removeDeliveryDirectory(p.filesDir).catch(() => {});
         throw error;
       }
     }
@@ -2768,7 +2771,7 @@ export class AgentManager {
         installDependencies: true,
       };
     }
-    await mkdir(p.filesDir, { recursive: true });
+    await ensureDeliveryDirectory(p.filesDir);
     return {
       p,
       taskPersona,

@@ -168,7 +168,9 @@ import type { RemoteLaunch } from "./execution.js";
  * host takes no arguments beyond the directory. Mode 0600: it carries the
  * MCP token and the system prompt.
  */
-export type HostLaunch = RemoteLaunch & {
+export type HostLaunch = Omit<RemoteLaunch, "firstText"> & {
+  /** Persisted main-era launch.json field. */
+  personaContext?: string | null;
   cwd: string;
   /** A supervised runner samples the lifetime of active turns. */
   reportTurnActivity?: boolean;

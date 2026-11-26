@@ -19,7 +19,6 @@ import { getEnabledAgentTypes } from "../agent-type-settings.js";
 import type { ProviderPlansReporter } from "../agents/provider-plans-reporter.js";
 import type { UsageCallbacks } from "../shared/mcp/usage-tools.js";
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
-import { agentWorkspaceDir } from "../agents/workspace-target.js";
 import { sameRunner } from "@dispatch/runner-protocol/contract";
 import { controllerPlacement, enrolledRunnerId } from "../runners/placement.js";
 import {
@@ -33,6 +32,7 @@ import {
   defaultSavedTarget,
   normalizeSavedDirectory,
   targetPlacement,
+  sessionLaunchTarget,
 } from "../runners/saved-location.js";
 import * as telemetry from "../agents/telemetry.js";
 import type { LoginLinkStore } from "../auth.js";
@@ -88,7 +88,7 @@ async function checkoutContext(
   body: unknown
 ) {
   const placement = enrolledRunnerId(agent.placement ?? controllerPlacement);
-  const workspaceDir = agentWorkspaceDir(agent) ?? agent.cwd;
+  const workspaceDir = sessionLaunchTarget(agent).directory;
   const ownerOnly = isOwnerReviewRequest(body);
   const roots = ownerOnly
     ? null

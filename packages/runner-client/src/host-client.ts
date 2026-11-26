@@ -983,6 +983,26 @@ export class HostClient {
    * reaching the welcome's `journalSeq`. Negotiated per connection from the
    * host's welcome, never from placement.
    */
+  acceptsJournalSequence(previous: number, next: number) {
+    return !this.deps.remote || next === previous + 1;
+  }
+
+  canDeliverInput() {
+    return this.isReady() || (!this.deps.remote && this.isConnected());
+  }
+
+  canReuseAttachment() {
+    return !this.deps.remote || this.isReady();
+  }
+
+  canQueueDuringAttach(pending: boolean) {
+    return !this.deps.remote || !pending;
+  }
+
+  nativeWelcome() {
+    return !this.deps.remote && this.isConnected() ? this.welcome : null;
+  }
+
   isReady(): boolean {
     return (
       this.replayReady && this.isConnected() && !!this.lastWelcome?.running

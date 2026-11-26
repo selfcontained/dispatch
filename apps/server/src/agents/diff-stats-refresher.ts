@@ -5,7 +5,8 @@ import {
   agentComparisonBase,
   type ComparisonBaseAgent,
 } from "./effective-base.js";
-import { agentDiffPath } from "./workspace-target.js";
+import { sessionFolderLocation } from "../runners/saved-location.js";
+import { recordedDiffDirectory } from "./workspace-target.js";
 
 export type DiffStatsAgent = ComparisonBaseAgent;
 
@@ -174,7 +175,11 @@ export class DiffStatsRefresher {
     try {
       const agent = await this.getAgent(agentId);
       // `getDiffStats` returns null when the path isn't inside a repo.
-      const target = agent ? agentDiffPath(agent) : null;
+      const recorded =
+        agent && !this.computeAgentStats ? recordedDiffDirectory(agent) : null;
+      const location =
+        agent && recorded ? sessionFolderLocation(agent, recorded) : null;
+      const target = location && "path" in location ? location.path : null;
       if (agent && (this.computeAgentStats || target)) {
         const base = this.comparisonBase
           ? await this.comparisonBase(agentId, agent)

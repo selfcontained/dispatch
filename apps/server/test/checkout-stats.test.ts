@@ -1,5 +1,5 @@
 import { placementForRunner } from "../src/runners/placement.js";
-import { isCheckoutViewData } from "@dispatch/runner-protocol";
+import { isCheckoutViewData } from "../src/agents/checkout-view-data.js";
 import { afterEach, expect, it, vi } from "vitest";
 import { readAgentStats } from "../src/agents/checkout-runner.js";
 import { readCheckoutView } from "../../../packages/runner/src/workload/agents/checkout-view.js";

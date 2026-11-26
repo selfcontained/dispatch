@@ -3,7 +3,7 @@ import { validateAgentEffort } from "../shared/agent-effort.js";
 import type { Pool } from "pg";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
-import { agentWorkspaceDir } from "../agents/workspace-target.js";
+import { sessionLaunchTarget } from "../runners/saved-location.js";
 import {
   CLI_AGENT_TYPES,
   getEnabledAgentTypes,
@@ -92,7 +92,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     parent: AgentRecord,
     opts: PersonaLaunchOptions
   ): Promise<PreparedPersonaLaunch> {
-    const cwd = agentWorkspaceDir(parent) ?? parent.cwd;
+    const cwd = sessionLaunchTarget(parent).directory;
     const fallbackReviewType = isCliAgentType(parent.reviewAgentType)
       ? parent.reviewAgentType
       : null;

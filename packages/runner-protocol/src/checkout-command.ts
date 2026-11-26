@@ -1,8 +1,6 @@
 import { isCheckoutQuery } from "./checkout.js";
 import { isRecord } from "./validation.js";
 
-const REPO_TOOL_TIMEOUT_MS = 5 * 60_000;
-const LIFECYCLE_HOOK_TIMEOUT_MS = 15_000;
 export const MAX_CHECKOUT_COMMAND_FILE_BYTES = 256 * 1024;
 export const MAX_CHECKOUT_COMMAND_REPLY_BYTES = 4 * 1024 * 1024;
 
@@ -44,15 +42,6 @@ export function isCheckoutExecutionOptions(
         !entry.includes("\0")
     )
   );
-}
-
-export function checkoutCommandTimeoutMs(
-  checkout: CheckoutCommand["checkout"]
-): number {
-  // Repo tools can start or rebuild project services before returning.
-  return checkout === "effective"
-    ? REPO_TOOL_TIMEOUT_MS
-    : LIFECYCLE_HOOK_TIMEOUT_MS;
 }
 
 export type CheckoutCommandFile = { content: string; state: string };

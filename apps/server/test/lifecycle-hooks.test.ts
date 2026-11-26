@@ -25,7 +25,6 @@ import {
   RunnerCallError,
   type Runner,
 } from "@dispatch/runner-protocol/contract";
-import { checkoutCommandTimeoutMs } from "@dispatch/runner-protocol";
 
 import { requestCheckoutCommand } from "../src/agents/checkout-commands.js";
 import { runLifecycleHook } from "../src/agents/lifecycle-hooks.js";
@@ -142,7 +141,7 @@ describe("runLifecycleHook", () => {
       ) =>
         realSetTimeout(
           callback,
-          delay === checkoutCommandTimeoutMs("launch") ? 300 : delay,
+          delay === 15_000 ? 300 : delay,
           ...args
         )) as typeof setTimeout);
     let pid: number | undefined;

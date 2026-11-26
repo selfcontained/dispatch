@@ -150,7 +150,7 @@ describe("vocabulary (E8)", () => {
 
   it("the wire v1 modules hold only the known leaks (R5), and no new ones", () => {
     expect(vocabularyHits(root, `${root}/src`)).toEqual([
-      "src/execution.ts: personaContext",
+      "src/host.ts: personaContext",
     ]);
   });
 

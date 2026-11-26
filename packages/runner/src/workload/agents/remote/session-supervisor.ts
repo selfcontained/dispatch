@@ -931,6 +931,7 @@ export async function createSessionSupervisor(
     const {
       owner: _sessionOwner,
       launchId: _launchId,
+      firstText,
       ...launchOptions
     } = host;
     const hostIdentity: CurrentSessionIdentity = {
@@ -944,6 +945,7 @@ export async function createSessionSupervisor(
       dir,
       {
         ...launchOptions,
+        personaContext: firstText,
         agentId,
         cwd,
         bins: config.resolveBins
@@ -972,10 +974,7 @@ export async function createSessionSupervisor(
         },
       }
     );
-    if (
-      launchOptions.personaContext &&
-      launch.personaContext !== launchOptions.personaContext
-    )
+    if (firstText && launch.personaContext !== firstText)
       await chown(
         hostFile(dir, "personaContext"),
         config.uid,
@@ -1169,7 +1168,7 @@ export async function createSessionSupervisor(
         fullAccess: request.access === "full",
         resumeSessionId: request.resume,
         systemPrompt: request.systemText,
-        personaContext: request.firstText,
+        firstText: request.firstText,
         ...(mcp && {
           mcp: { name: mcp.name, url: mcp.url, token: mcp.token },
         }),

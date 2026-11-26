@@ -252,10 +252,80 @@ const rules = [
 
 const normalize = (source) => source?.replace(/\s+/g, " ").trim();
 
+// Existing enrolled wire budgets are retained by owner decision. These pairs
+// exempt only their original declarations; copies in another file are hits.
+const retained = [
+  [
+    "N13",
+    protocol + "checkout-view.ts",
+    "MAX_CHECKOUT_VIEW_BYTES = 16 * 1024 * 1024",
+    "Enrolled view reply budget",
+  ],
+  [
+    "N13",
+    protocol + "checkout.ts",
+    "value.names.length <= 1024",
+    "Enrolled legacy listing reply budget",
+  ],
+  [
+    "N13",
+    protocol + "checkout.ts",
+    "DEFAULT_BRANCH_REPLY_BYTES = 4 * 1024 * 1024",
+    "Enrolled legacy default-branch reply budget",
+  ],
+  [
+    "N13",
+    protocol + "checkout.ts",
+    "encode(value.content).length <= 256 * 1024",
+    "Enrolled legacy file reply budget",
+  ],
+  [
+    "N14",
+    protocol + "checkout-command.ts",
+    "MAX_CHECKOUT_COMMAND_FILE_BYTES = 256 * 1024",
+    "Enrolled command manifest budget; local discovery is unlimited",
+  ],
+  [
+    "N14",
+    "packages/runner/src/workload/agents/remote/checkout-timeout.ts",
+    "REPO_TOOL_TIMEOUT_MS = 5 * 60_000",
+    "Existing enrolled command deadline",
+  ],
+  [
+    "N26",
+    server + "routes/agents/streaming-routes.ts",
+    "Playwright screencasts are unavailable for runner sessions.",
+    "deferred gap T39, owner decision",
+  ],
+];
+
+export function misplacedRestrictions(file, source) {
+  const text = normalize(source);
+  return retained.flatMap(([id, owner, anchor]) =>
+    file !== owner && text.includes(anchor)
+      ? [
+          {
+            file,
+            kind: "R7 restriction",
+            detail: id + " " + anchor,
+            task: id === "N26" ? "T39" : id === "N13" ? "T09" : "T14",
+          },
+        ]
+      : []
+  );
+}
+
 export function restrictionHits(read) {
   const sources = new Map();
   return rules.flatMap(([id, detail, task, ...anchors]) => {
     const live = anchors.some(([file, anchor]) => {
+      if (
+        retained.some(
+          ([rule, owner, value]) =>
+            rule === id && owner === file && value === anchor
+        )
+      )
+        return false;
       if (!sources.has(file)) sources.set(file, normalize(read(file)));
       return sources.get(file)?.includes(normalize(anchor));
     });

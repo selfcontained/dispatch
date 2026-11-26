@@ -13,7 +13,6 @@ import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import { AgentError } from "../agents/errors.js";
 import { admitLaunch } from "../agents/launch-admission.js";
 import { mcpCheckoutRoots } from "./mcp-checkout.js";
-import { agentWorkspaceDir } from "../agents/workspace-target.js";
 import { detectFileType } from "../files/file-type.js";
 import { fileMetadataFromBuffer } from "../files/metadata.js";
 import { removeImageVariants } from "../files/image-variants.js";
@@ -71,6 +70,7 @@ import { ProjectStore } from "../projects/store.js";
 import {
   savedLaunchTarget,
   targetPlacement,
+  sessionLaunchTarget,
 } from "../runners/saved-location.js";
 import { resolvePersona } from "../personas/resolve.js";
 import type { Placement } from "@dispatch/runner-protocol/contract";
@@ -331,7 +331,7 @@ async function handleSetWorkspace(
 ): Promise<SetWorkspaceResult> {
   const agent = await deps.agentManager.setWorkspace(agentId, input);
   return {
-    workspacePath: agent.workspacePath ?? agentWorkspaceDir(agent) ?? agent.cwd,
+    workspacePath: agent.workspacePath ?? sessionLaunchTarget(agent).directory,
     moved: agent.workspacePath !== null,
     repoRoot: agent.gitContext?.repoRoot ?? null,
     branch: agent.gitContext?.branch ?? null,
@@ -400,8 +400,7 @@ async function handleLaunchAgent(
   if (input.templateId && !template) {
     throw new Error(`Template ${input.templateId} not found.`);
   }
-  const recordedFolder = agentWorkspaceDir(parent);
-  const parentCwd = recordedFolder ?? parent.cwd;
+  const { directory: parentCwd, location } = sessionLaunchTarget(parent);
   const child = input.child !== false;
   let admissionInput = {
     caller: child ? "mcpChild" : "mcpIndependent",
@@ -415,7 +414,7 @@ async function handleLaunchAgent(
     admission.ok &&
     input.cwd !== undefined &&
     admission.cwd !== parentCwd &&
-    recordedFolder === null &&
+    "projectId" in location &&
     !parent.workspacePath
   ) {
     // A session whose row records no folder and has not moved is in its
@@ -468,7 +467,7 @@ async function handleLaunchAgent(
       throw new Error(
         "Review personas cannot be combined with templateId. Launch the template directly or launch the review persona without a template."
       );
-    if (input.cwd && input.cwd !== (agentWorkspaceDir(parent) ?? parent.cwd)) {
+    if (input.cwd && input.cwd !== parentCwd) {
       throw new Error(
         "Review personas run in the parent workspace; omit cwd for a review launch."
       );

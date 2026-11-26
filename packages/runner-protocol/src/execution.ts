@@ -30,7 +30,7 @@ export type RemoteLaunch = {
   model: string | null;
   effort?: string | null;
   systemPrompt: string | null;
-  personaContext?: string | null;
+  firstText?: string | null;
   mcp?: ServiceMcp;
   resumeSessionId: string | null;
   /** Durable identity used to reconcile the same launch after an update. */
