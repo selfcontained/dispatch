@@ -170,6 +170,7 @@ it.each(["checkout.list", "checkout.read"] as const)(
     });
     const native = vi.spyOn(fallback.workload!, "run");
     let deadline: ReturnType<typeof vi.spyOn> | undefined;
+    let stopped: number | undefined;
     try {
       await child.session.call(
         "runner.describe",
@@ -203,6 +204,11 @@ it.each(["checkout.list", "checkout.read"] as const)(
         async () => expect(await readFile(marker, "utf8")).toBe(op + "\n"),
         { timeout: 5000 }
       );
+      // The child stops answering (it would answer `runner.describe` while
+      // merely slow, and a slow read is waited for): at the deadline the read
+      // is missed and falls back here once.
+      stopped = child.current()!.pid;
+      process.kill(stopped, "SIGSTOP");
       await vi.waitFor(() => expect(native).toHaveBeenCalledTimes(1), {
         timeout: 5000,
       });
@@ -224,6 +230,7 @@ it.each(["checkout.list", "checkout.read"] as const)(
         timeoutMs: null,
       });
     } finally {
+      if (stopped) process.kill(stopped, "SIGCONT");
       deadline?.mockRestore();
       await child.stop();
       native.mockRestore();
@@ -287,62 +294,57 @@ it.each(["checkout.list", "checkout.read"] as const)(
   }
 );
 
-// Open difference: local read deadline starts a second reader while the child is
-// still reading a consuming entry. Must close before the seal; adapter owner
-// switches this to a normal pass when responsive children keep their original read.
-it.fails(
-  "preserves a FIFO's bytes when the responsive child passes the read deadline",
-  async () => {
-    const root = await realpath(
-      await mkdtemp(join(tmpdir(), "native-fifo-inflight-"))
+// A responsive child keeps its original read past the deadline: one reader.
+it("preserves a FIFO's bytes when the responsive child passes the read deadline", async () => {
+  const root = await realpath(
+    await mkdtemp(join(tmpdir(), "native-fifo-inflight-"))
+  );
+  await mkdir(join(root, "state"));
+  const file = join(root, "a.md");
+  execFileSync("mkfifo", [file]);
+  const child = startTestLocalRunner(join(root, "state"));
+  const native = vi.spyOn(fallback.workload!, "run");
+  let deadline: ReturnType<typeof vi.spyOn> | undefined;
+  let writer: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    await child.session.call(
+      "runner.describe",
+      {},
+      { signal: AbortSignal.timeout(5000) }
     );
-    await mkdir(join(root, "state"));
-    const file = join(root, "a.md");
-    execFileSync("mkfifo", [file]);
-    const child = startTestLocalRunner(join(root, "state"));
-    const native = vi.spyOn(fallback.workload!, "run");
-    let deadline: ReturnType<typeof vi.spyOn> | undefined;
-    let writer: Awaited<ReturnType<typeof open>> | undefined;
-    try {
-      await child.session.call(
-        "runner.describe",
-        {},
-        { signal: AbortSignal.timeout(5000) }
-      );
-      deadline = vi.spyOn(localReadDeadline, "ms").mockReturnValue(500);
-      const pending = runnerDirectory({ child: () => child.session })
-        .for(controllerPlacement)
-        .call("checkout.read", {
-          target: { path: pathFromWire(root) },
-          path: "a.md",
-          mode: "native",
-          encoding: "utf8",
-          maxBytes: null,
-        });
-      writer = await open(file, "w");
-      const prefix = "p".repeat(256 * 1024);
-      const suffix = "s".repeat(256 * 1024);
-      await writer.writeFile(prefix);
-      // The reader is alive and responsive while awaiting more FIFO input.
-      await child.session.call(
-        "runner.describe",
-        {},
-        { signal: AbortSignal.timeout(1000) }
-      );
-      await new Promise((resolve) => setTimeout(resolve, 750));
-      await writer.writeFile(suffix);
-      await writer.close();
-      writer = undefined;
-      const reply = await pending;
-      expect(reply?.data.length).toBe(prefix.length + suffix.length);
-      expect(reply?.data).toBe(prefix + suffix);
-      expect(native).not.toHaveBeenCalled();
-    } finally {
-      await writer?.close();
-      deadline?.mockRestore();
-      await child.stop();
-      native.mockRestore();
-      await rm(root, { recursive: true, force: true });
-    }
+    deadline = vi.spyOn(localReadDeadline, "ms").mockReturnValue(500);
+    const pending = runnerDirectory({ child: () => child.session })
+      .for(controllerPlacement)
+      .call("checkout.read", {
+        target: { path: pathFromWire(root) },
+        path: "a.md",
+        mode: "native",
+        encoding: "utf8",
+        maxBytes: null,
+      });
+    writer = await open(file, "w");
+    const prefix = "p".repeat(256 * 1024);
+    const suffix = "s".repeat(256 * 1024);
+    await writer.writeFile(prefix);
+    // The reader is alive and responsive while awaiting more FIFO input.
+    await child.session.call(
+      "runner.describe",
+      {},
+      { signal: AbortSignal.timeout(1000) }
+    );
+    await new Promise((resolve) => setTimeout(resolve, 750));
+    await writer.writeFile(suffix);
+    await writer.close();
+    writer = undefined;
+    const reply = await pending;
+    expect(reply?.data.length).toBe(prefix.length + suffix.length);
+    expect(reply?.data).toBe(prefix + suffix);
+    expect(native).not.toHaveBeenCalled();
+  } finally {
+    await writer?.close();
+    deadline?.mockRestore();
+    await child.stop();
+    native.mockRestore();
+    await rm(root, { recursive: true, force: true });
   }
-);
+});

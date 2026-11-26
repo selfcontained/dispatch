@@ -20,6 +20,7 @@ import {
   type CallerChannel,
   type CallOptions,
   type OpenName,
+  type OperationSpec,
   type Req,
   type Res,
   type Runner,
@@ -227,6 +228,8 @@ export const localReadDeadline = {
       operations[op] as Parameters<typeof localDeadlineMs>[0],
       input
     ),
+  /** How long a live child has to answer `runner.describe` at a deadline. */
+  probeMs: 1_000,
 };
 
 /**
@@ -259,6 +262,73 @@ async function fromChild<T>(
     if (!missed(error)) throw error;
     signal?.throwIfAborted();
     return null;
+  }
+}
+
+/**
+ * A read at the child under the local transport's deadline, kept by the
+ * adapter (the attempt itself carries none). At each deadline the child is
+ * asked whether it still answers (`runner.describe`, briefly): if it does,
+ * the read is slow, not lost, and is waited for as main's read keeps going,
+ * so nothing is ever read twice; if it does not, the read is given up and
+ * rejects with `unknown_outcome`. A connection lost mid-read rejects at once.
+ */
+async function readWithinDeadline<T>(
+  runner: Runner,
+  op: CallName,
+  input: unknown,
+  send: (options: {
+    signal: AbortSignal;
+    timeoutMs: null;
+    wait: false;
+  }) => Promise<T>,
+  signal?: AbortSignal
+): Promise<T> {
+  const ms = localReadDeadline.ms(op, input);
+  // Aborted only when the child stopped answering: the read is given up.
+  const lost = new AbortController();
+  const pending = send({
+    signal: signal ? AbortSignal.any([signal, lost.signal]) : lost.signal,
+    timeoutMs: null,
+    wait: false,
+  });
+  const settled = pending.then(
+    () => false,
+    () => false
+  );
+  if (ms !== null)
+    for (;;) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const passed = await Promise.race([
+        settled,
+        new Promise<true>((resolve) => {
+          timer = setTimeout(() => resolve(true), ms);
+        }),
+      ]).finally(() => clearTimeout(timer));
+      if (!passed || signal?.aborted) break;
+      if (await answering(runner, signal)) continue;
+      // Given up: its late answer, if any, is dropped.
+      lost.abort();
+      pending.catch(() => {});
+      throw new RunnerCallError({
+        code: "unknown_outcome",
+        message: "The local runner stopped answering",
+      });
+    }
+  return pending;
+}
+
+/** Whether the child still answers: the cheapest call, briefly. */
+async function answering(runner: Runner, signal?: AbortSignal) {
+  try {
+    await runner.call("runner.describe", {}, {
+      signal,
+      timeoutMs: localReadDeadline.probeMs,
+      wait: false,
+    } as never);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -295,9 +365,9 @@ export function createLocalCheckoutRunner(
     return fromChild(() => run(runner), missed, signal);
   }
   /**
-   * One read at the child under the transport's deadline, kept here: when
-   * it passes, the read is missed and the port here answers, as main's read
-   * just keeps going. The attempt carries no transport deadline of its own.
+   * One read at the child under the transport's deadline, kept here
+   * (`readWithinDeadline`): a read the child stopped answering is missed,
+   * and the port here answers once.
    */
   function readAttempt<T>(
     op: CallName,
@@ -307,23 +377,16 @@ export function createLocalCheckoutRunner(
     run: (child: Runner, options: never) => Promise<T>,
     options?: { signal?: AbortSignal }
   ): Promise<{ value: T } | null> {
-    const ms = localReadDeadline.ms(op, input);
-    const deadline = ms === null ? undefined : AbortSignal.timeout(ms);
-    const signal =
-      deadline && options?.signal
-        ? AbortSignal.any([options.signal, deadline])
-        : (deadline ?? options?.signal);
-    const read = {
-      ...options,
-      signal,
-      timeoutMs: null,
-      wait: false as const,
-    };
     return attempt(
-      (child) => run(child, read as never),
-      (error) =>
-        readMissed(error) ||
-        (deadline?.aborted === true && !options?.signal?.aborted),
+      (runner) =>
+        readWithinDeadline(
+          runner,
+          op,
+          input,
+          (read) => run(runner, { ...options, ...read } as never),
+          options?.signal
+        ),
+      readMissed,
       options?.signal
     );
   }
@@ -540,6 +603,40 @@ export function createLocalCheckoutRunner(
   }
 
   /**
+   * Whether the child's binding for the session names the worktree the row
+   * records (`workspace.describe` alone); false when it holds none, holds
+   * another, cannot answer, or fails to say: main's rule then removes the
+   * row's worktree here. One attempt: it is a read.
+   */
+  async function childNames(
+    session: Req<"workspace.describe">["session"],
+    worktree: string,
+    options?: { signal?: AbortSignal }
+  ): Promise<boolean> {
+    const asked = await readAttempt(
+      "workspace.describe",
+      { session },
+      async (child, read) => {
+        const described = await child.call(
+          "workspace.describe",
+          { session },
+          read
+        );
+        return Boolean(
+          described?.checkoutRoot &&
+          displayPath(described.checkoutRoot) === worktree
+        );
+      },
+      options
+    ).catch(() => {
+      // Only the caller's own cancellation stops the release.
+      options?.signal?.throwIfAborted();
+      return null;
+    });
+    return asked?.value ?? false;
+  }
+
+  /**
    * The child's observation when its binding for the session is the
    * worktree the row records and its own to remove; null when it holds
    * none, holds another, or cannot answer (not running, restarting, died
@@ -609,7 +706,8 @@ export function createLocalCheckoutRunner(
 
   /**
    * Archive's removal of the worktree the row records, by the same rule:
-   * in the child when its binding agrees, once; else the same port here
+   * in the child when its binding names that worktree (describe alone), once;
+   * else the same port here
    * with the row's facts, which only a release the child never received may
    * reach. A release whose reply was lost is never sent again: a read-only
    * look at the worktree says whether it went (`removed`), else the caller
@@ -623,9 +721,21 @@ export function createLocalCheckoutRunner(
     const session = boundSession(input);
     const worktree = session.worktreePath;
     if (!worktree) return { removed: false };
-    if (child && (await childOwned(input.session, worktree, options)))
+    if (child && (await childNames(input.session, worktree, options)))
       try {
-        return await child.call("workspace.release", input, once(options));
+        const released = await child.call(
+          "workspace.release",
+          input,
+          once(options)
+        );
+        // Not removed: the child's own checkout it would not remove keeps
+        // that answer; a binding that is not its own (external, borrowed,
+        // gone, or unanswered) is removed here by main's rule, as before.
+        if (
+          released.removed ||
+          (await childOwned(input.session, worktree, options))
+        )
+          return released;
       } catch (error) {
         if (
           error instanceof RunnerCallError &&
@@ -1514,8 +1624,21 @@ export function localEngineCalls(
         op === "engine.login.start" ||
         op === "engine.login.submit" ||
         op === "engine.login.cancel";
+      // A read (the contract's retry rule) runs under the adapter's deadline,
+      // as checkout reads do: a live child is waited for, a lost one is not.
+      const read =
+        !signIn && (operations[op] as OperationSpec).retry.kind === "read";
       if (runner?.connection.state === "ready")
         try {
+          if (read)
+            return await readWithinDeadline(
+              runner,
+              op,
+              input,
+              (attempt) =>
+                runner.call(op, input, { ...options, ...attempt } as never),
+              options?.signal
+            );
           const attempt = signIn ? options : { ...options, wait: false };
           return await runner.call(op, input, attempt);
         } catch (error) {

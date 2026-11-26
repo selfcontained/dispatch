@@ -42,9 +42,14 @@ const agent = () => ({
   placement: controllerPlacement,
 });
 
-/** A child that owns the worktree; `slow` never answers. */
+/**
+ * A live child that owns the worktree; `slow` never answers. It still
+ * answers `runner.describe`, so the adapter waits on its slow read as main
+ * waits on its own, until the budget.
+ */
 function owningChild(slow?: string) {
   const call = vi.fn(async (op: string, input: { path?: string }) => {
+    if (op === "runner.describe") return {};
     if (op === slow) return new Promise(() => {});
     if (op === "path.resolve")
       return workspaceWorkload.resolvePath(input.path!, input);
@@ -97,13 +102,10 @@ it("force reads no checkout state before removing, as main", async () => {
   const { outcome } = archive(child);
   expect(await outcome).toEqual({ kind: "released" });
   // The archive's own calls: the co-owner spelling, then the removal. The
-  // adapter checks the child owns the worktree before removing it.
-  expect(call.mock.calls.map(([op]) => op)).toEqual([
-    "path.resolve",
-    "workspace.describe",
-    "workspace.observe",
-    "workspace.release",
-  ]);
+  // adapter checks the child's binding names the worktree before removing it.
+  expect(
+    call.mock.calls.map(([op]) => op).filter((op) => op !== "runner.describe")
+  ).toEqual(["path.resolve", "workspace.describe", "workspace.release"]);
 });
 
 it.each([
