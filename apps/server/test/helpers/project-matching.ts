@@ -1,7 +1,7 @@
 // Compatibility wiring for the former local test convenience wrapper.
 import { realpath } from "node:fs/promises";
 import { resolveTilde } from "../../src/shared/lib/resolve-tilde.js";
-import { resolveProjectRoot } from "../../src/projects/resolve-root.js";
+import { resolveProjectRoot } from "../../../../packages/runner/src/workload/projects/resolve-root.js";
 import { matchProjectIdentity } from "../../src/projects/matching.js";
 
 type Project = {

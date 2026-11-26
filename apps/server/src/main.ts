@@ -1,15 +1,19 @@
 import { captureStartupAcpAdapter } from "./startup/acp-adapter.js";
 import { restoreLegacyMacLaunchAgentEnvironment } from "./startup/shell-environment.js";
 
-const loadCheckoutWorker = () => import("./agents/checkout-worker.js");
+const loadRunnerComposition = () => import("@dispatch/runner/composition");
+const loadCheckoutWorker = () =>
+  loadRunnerComposition().then((entry) => entry.loadCheckoutWorker());
 async function loadLaunchProbes() {
-  const { createLaunchFolderProbes } =
-    await import("./agents/local-workspace-probes.js");
+  const { createLaunchFolderProbes } = await loadRunnerComposition().then(
+    (entry) => entry.loadLocalWorkspaceProbes()
+  );
   const { shouldSkipAutomaticMacPathProbe } =
     await import("./shared/mac-path-privacy.js");
   return createLaunchFolderProbes(shouldSkipAutomaticMacPathProbe);
 }
-const loadTerminalWorker = () => import("./terminal/runner-worker.js");
+const loadTerminalWorker = () =>
+  loadRunnerComposition().then((entry) => entry.loadRunnerWorker());
 
 // Modes of this binary, checked before anything else so none of them
 // touches the server's environment restoration, database, or config:
@@ -49,10 +53,14 @@ if (process.argv[2]?.startsWith("recovery-")) {
     ]
   );
 } else if (process.argv[2] === "remote-runner-pair") {
-  const { runRunnerPairing } = await import("./agents/remote/enrollment.js");
+  const { runRunnerPairing } = await loadRunnerComposition().then((entry) =>
+    entry.loadEnrollment()
+  );
   await runRunnerPairing(process.argv.slice(3));
 } else if (process.argv[2] === "connect") {
-  const { runRunnerConnect } = await import("./agents/remote/enrollment.js");
+  const { runRunnerConnect } = await loadRunnerComposition().then((entry) =>
+    entry.loadEnrollment()
+  );
   await runRunnerConnect(process.argv.slice(3));
 } else if (process.argv[2] === "runner-terminal") {
   const { runTerminalWorker, runTypedTerminalWorker } =
@@ -72,7 +80,7 @@ if (process.argv[2]?.startsWith("recovery-")) {
   // One worker entry for checkout operations as the workload account; the
   // older names stay for a runner started on an earlier build.
   const { runCheckoutWorker, WORKER_ALIASES } =
-    await import("./agents/checkout-worker.js");
+    await loadRunnerComposition().then((entry) => entry.loadCheckoutWorker());
   const { toPersonaDefinition } = await import("./personas/loader.js");
   const [mode, ...rest] = process.argv.slice(2);
   await runCheckoutWorker(
@@ -83,20 +91,23 @@ if (process.argv[2]?.startsWith("recovery-")) {
     }
   );
 } else if (process.argv[2] === "runner-prepare-dependencies") {
-  const { installWorkspaceDependencies } =
-    await import("./agents/workspace-prep.js");
+  const { installWorkspaceDependencies } = await loadRunnerComposition().then(
+    (entry) => entry.loadWorkspacePrep()
+  );
   const installed = await installWorkspaceDependencies(process.argv[3]!, {
     info() {},
     warn() {},
   });
   if (!installed) process.exitCode = 1;
 } else if (process.argv[2] === "runner-session-file") {
-  const { runSessionFileCli } =
-    await import("./agents/remote/session-files.js");
+  const { runSessionFileCli } = await loadRunnerComposition().then((entry) =>
+    entry.loadSessionFiles()
+  );
   await runSessionFileCli(process.argv[3]!, process.argv[4]!, process.argv[5]!);
 } else if (process.argv[2] === "runner-checkout-command") {
-  const { runCheckoutCommandCli } =
-    await import("./agents/remote/checkout-command.js");
+  const { runCheckoutCommandCli } = await loadRunnerComposition().then(
+    (entry) => entry.loadCheckoutCommand()
+  );
   await runCheckoutCommandCli(
     process.argv[3]!,
     process.argv[4]!,
@@ -108,12 +119,16 @@ if (process.argv[2]?.startsWith("recovery-")) {
   process.argv[2] === "runner-engine-host"
 ) {
   const { runEngineCapabilityWorker, runEngineHostWorker } =
-    await import("./agents/remote/engine-capability-worker.js");
+    await loadRunnerComposition().then((entry) =>
+      entry.loadEngineCapabilityWorker()
+    );
   if (process.argv[2] === "runner-engine-host") await runEngineHostWorker();
   else await runEngineCapabilityWorker();
 } else if (process.argv[2] === "runner-update-compatibility") {
   const { embeddedBuild } = await import("./agents/build-identity.js");
-  const { runnerHandoff } = await import("./agents/remote/update-handoff.js");
+  const { runnerHandoff } = await loadRunnerComposition().then((entry) =>
+    entry.loadUpdateHandoff()
+  );
   if (process.argv.length !== 3 || !embeddedBuild.revision)
     process.exitCode = 2;
   else
@@ -121,20 +136,24 @@ if (process.argv[2]?.startsWith("recovery-")) {
       JSON.stringify({ ...embeddedBuild, handoff: runnerHandoff }) + "\n"
     );
 } else if (process.argv[2] === "runner-update-trial") {
-  const { runRunnerUpdateTrial } =
-    await import("./agents/remote/update-trial.js");
+  const { runRunnerUpdateTrial } = await loadRunnerComposition().then((entry) =>
+    entry.loadUpdateTrial()
+  );
   const { embeddedBuild } = await import("./agents/build-identity.js");
   await runRunnerUpdateTrial(process.argv.slice(3), { build: embeddedBuild });
 } else if (process.argv[2] === "runner-update-stage") {
-  const { runRunnerUpdateStage } =
-    await import("./agents/remote/update-stage-cli.js");
+  const { runRunnerUpdateStage } = await loadRunnerComposition().then((entry) =>
+    entry.loadUpdateStageCli()
+  );
   const { packageVersion } = await import("./generated/runtime-assets.js");
   await runRunnerUpdateStage(process.argv.slice(3), { packageVersion });
 } else if (process.argv[2] === "remote-runner") {
   const { streamHelper, packageVersion, gitSha } =
     await import("./generated/runtime-assets.js");
   const { embeddedBuild } = await import("./agents/build-identity.js");
-  const { runRemoteRunner } = await import("./agents/remote/runner.js");
+  const { runRemoteRunner } = await loadRunnerComposition().then((entry) =>
+    entry.loadRunner()
+  );
   const { createRemoteWorkspacePreparation, createSessionCore } =
     await import("@dispatch/runner/cli");
   await runRemoteRunner(process.argv[3]!, {
@@ -184,8 +203,12 @@ if (process.argv[2]?.startsWith("recovery-")) {
   // The host is generic; Dispatch names the build it runs and its search path.
   const { runAgentHost } = await import("@dispatch/runner/cli");
   const { embeddedBuild } = await import("./agents/build-identity.js");
-  const { hostSearchPath } = await import("./agents/acp/host-search-path.js");
-  const { engineVersion } = await import("./agents/engine-availability.js");
+  const { hostSearchPath } = await loadRunnerComposition().then((entry) =>
+    entry.loadHostSearchPath()
+  );
+  const { engineVersion } = await loadRunnerComposition().then((entry) =>
+    entry.loadEngineAvailability()
+  );
   await runAgentHost(process.argv.slice(2), {
     engineVersion,
     build: embeddedBuild,
@@ -206,8 +229,9 @@ async function serve(): Promise<void> {
   const shellEnvironment = await restoreLegacyMacLaunchAgentEnvironment();
 
   const { loadInProcessPorts } = await import("./runners/in-process.js");
-  const { parseEngineCapabilityResult } =
-    await import("./agents/remote/engine-capability-result.js");
+  const { parseEngineCapabilityResult } = await loadRunnerComposition().then(
+    (entry) => entry.loadEngineCapabilityResult()
+  );
   await loadInProcessPorts(
     loadCheckoutWorker,
     parseEngineCapabilityResult,

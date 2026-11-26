@@ -19,7 +19,7 @@ import {
   MAX_CHECKOUT_WRITE_BYTES,
   textDigest,
   writeCheckoutFile,
-} from "../src/agents/checkout-worker.js";
+} from "../../../packages/runner/src/workload/agents/checkout-worker.js";
 
 let root: string;
 const file = ".agents/personas/x.md";

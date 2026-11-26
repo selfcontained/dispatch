@@ -3,8 +3,8 @@ import {
   assertSafeRefName,
   normalizeBaseBranch,
   GitWorktreeError,
-} from "../src/shared/git/worktree.js";
-import { shouldExcludePath } from "../src/shared/git/diff-file-rules.js";
+} from "../../../packages/runner/src/workload/shared/git/worktree.js";
+import { shouldExcludePath } from "../../../packages/runner/src/workload/shared/git/diff-file-rules.js";
 import { isTestFile } from "../src/shared/git/test-files.js";
 import { toToolError } from "../src/shared/mcp/tool-error.js";
 

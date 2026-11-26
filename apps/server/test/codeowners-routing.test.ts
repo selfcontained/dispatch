@@ -98,7 +98,10 @@ const cases: [string, string[]][] = [
     "apps/web/src/components/app/login-page.tsx",
     ["auth-trust-owner", "frontend-react-review"],
   ],
-  ["apps/server/src/files/workspace-directory.ts", ["workspace-files-owner"]],
+  [
+    "packages/runner/src/workload/files/workspace-directory.ts",
+    ["agent-runtime-owner", "workspace-files-owner"],
+  ],
   [
     "apps/web/src/components/app/file-lightbox.tsx",
     ["workspace-files-owner", "frontend-react-review"],

@@ -4,7 +4,7 @@
  */
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { sessionFilesWorkload } from "../src/agents/checkout-worker.js";
+import { sessionFilesWorkload } from "../../../packages/runner/src/workload/agents/checkout-worker.js";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";

@@ -12,7 +12,7 @@ import {
   parseClaudeCache,
   parseClaudeUtilization,
   parseCodexRollout,
-} from "../src/agents/provider-plans.js";
+} from "../../../packages/runner/src/workload/agents/provider-plans.js";
 
 const NOW = new Date("2026-09-24T12:00:00Z");
 

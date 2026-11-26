@@ -748,6 +748,10 @@ export function scanSource(file, source, declared = new Set()) {
         file === "packages/runner-protocol/src/host.ts" &&
         typeOnly &&
         specifier === "@agentclientprotocol/sdk";
+      const bunFfi = specifier === "bun:ffi" && (
+        file === "packages/runner/src/workload/agents/remote/session-processes.ts" ||
+        file === "packages/runner/src/workload/terminal/process-session.ts"
+      );
       const forbidden =
         name === "pg" ||
         name === "fastify" ||
@@ -767,7 +771,7 @@ export function scanSource(file, source, declared = new Set()) {
         forbidden ||
         (isRelative
           ? !target.startsWith(packageRoot + "/")
-          : !builtin &&
+          : !builtin && !bunFfi &&
             !declared.has(name) &&
             name !== `@dispatch/${packageName}`)
       )
@@ -837,7 +841,9 @@ export function scanSource(file, source, declared = new Set()) {
               )
             );
           });
-        if (!inSubcommand) hit("R5 Dispatch to runner", specifier);
+        const inComposition = file === server + "main.ts" &&
+          specifier === "@dispatch/runner/composition" && form === "import()";
+        if (!inSubcommand && !inComposition) hit("R5 Dispatch to runner", specifier);
       }
       if (
         /^@dispatch\/runner-client(?:\/|$)/.test(specifier) &&

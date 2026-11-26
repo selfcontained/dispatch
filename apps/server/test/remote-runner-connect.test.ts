@@ -17,10 +17,10 @@ import {
   it,
   vi,
 } from "vitest";
-import { runRunnerConnect } from "../src/agents/remote/enrollment.js";
+import { runRunnerConnect } from "../../../packages/runner/src/workload/agents/remote/enrollment.js";
 import { RunnerRegistry } from "../src/agents/remote/registry.js";
 import { RemoteRunnerService } from "../src/agents/remote/service.js";
-import { generateRunnerKey } from "../src/agents/remote/x509.js";
+import { generateRunnerKey } from "../../../packages/runner/src/workload/agents/remote/x509.js";
 import {
   issueAuthority,
   issueServer,
@@ -30,7 +30,7 @@ import {
   type Frame,
   type EnrollmentRequest,
   type EnrollmentReply,
-} from "../src/agents/remote/protocol.js";
+} from "../../../packages/runner/src/workload/agents/remote/protocol.js";
 import { wireFrames } from "../src/runners/enrolled/v1-framing.js";
 import type { StreamFrame } from "../src/runners/enrolled/v1-framing.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";

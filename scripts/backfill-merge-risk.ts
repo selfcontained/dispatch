@@ -29,7 +29,7 @@ import {
   githubPullRequestTarget,
   mapPullRequestChecks,
 } from "../apps/server/src/agents/pull-request-reader.js";
-import { readPullRequestDetails } from "../apps/server/src/agents/remote/github-runner-executor.js";
+import { readPullRequestDetails } from "../packages/runner/src/workload/agents/remote/github-runner-executor.js";
 import {
   loadCodeownersFromFiles,
   type CodeownersConfig,

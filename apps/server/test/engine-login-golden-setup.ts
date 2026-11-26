@@ -15,7 +15,7 @@ import { serveSocket } from "../../../packages/runner/src/local/socket-server.js
 import { engineHandlers } from "../../../packages/runner/src/core/engines.js";
 import type { Platform } from "../../../packages/runner/src/platform/types.js";
 
-import { localEngineWorkload } from "../src/agents/remote/engine-runner-executor.js";
+import { localEngineWorkload } from "../../../packages/runner/src/workload/agents/remote/engine-runner-executor.js";
 import { EngineManager as ActualEngineManager } from "../src/agents/remote/engine-manager.js";
 
 // T29 actions are supplied separately from legacy inventory/sign-in fixture transport.

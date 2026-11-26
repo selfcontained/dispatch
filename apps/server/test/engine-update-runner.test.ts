@@ -6,7 +6,7 @@ vi.mock("node:child_process", async (original) => ({
   ...(await original<typeof import("node:child_process")>()),
   spawn: mock.spawn,
 }));
-import { observedUpdateRunner } from "../src/agents/engine-updates.js";
+import { observedUpdateRunner } from "../../../packages/runner/src/workload/agents/engine-updates.js";
 function child() {
   const value = Object.assign(new EventEmitter(), {
     pid: 88888,

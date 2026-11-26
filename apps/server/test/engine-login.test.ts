@@ -22,7 +22,7 @@ import {
   EngineLogins,
   loginScript,
   parseLoginOutput,
-} from "../src/agents/engine-login.js";
+} from "../../../packages/runner/src/workload/agents/engine-login.js";
 import { registerEngineLoginRoutes } from "../src/routes/engine-login.js";
 import { EngineManager as ActualEngineManager } from "../src/agents/remote/engine-manager.js";
 
@@ -40,7 +40,7 @@ class EngineManager extends ActualEngineManager {
     });
   }
 }
-import { localEngineWorkload } from "../src/agents/remote/engine-runner-executor.js";
+import { localEngineWorkload } from "../../../packages/runner/src/workload/agents/remote/engine-runner-executor.js";
 import { localEngineCalls } from "../src/runners/local.js";
 
 const CLAUDE_OUTPUT = `Opening browser to sign in…

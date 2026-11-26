@@ -3,23 +3,32 @@ import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, it, vi } from "vitest";
-import { runRunnerUpdateStage as runWorkloadUpdateStage } from "../src/agents/remote/update-stage-cli.js";
-import { probeStagedRunner } from "../src/agents/remote/update-probe.js";
+import { runRunnerUpdateStage as runWorkloadUpdateStage } from "../../../packages/runner/src/workload/agents/remote/update-stage-cli.js";
+import { probeStagedRunner } from "../../../packages/runner/src/workload/agents/remote/update-probe.js";
 import {
   parseRunnerUpdateInstance,
   RUNNER_UPDATE_LAYOUT,
   RunnerUpdateRefused,
   stageRunnerUpdate,
-} from "../src/agents/remote/update-verify.js";
+} from "../../../packages/runner/src/workload/agents/remote/update-verify.js";
 
-vi.mock("../src/agents/remote/update-keys.js", () => ({
-  compiledRunnerDevKey: () => "fixture",
-  compiledRunnerUpdateKeys: () => new Map(),
-}));
-vi.mock("../src/agents/remote/update-probe.js", () => ({
-  probeStagedRunner: vi.fn(),
-}));
-vi.mock("../src/agents/remote/update-verify.js", { spy: true });
+vi.mock(
+  "../../../packages/runner/src/workload/agents/remote/update-keys.js",
+  () => ({
+    compiledRunnerDevKey: () => "fixture",
+    compiledRunnerUpdateKeys: () => new Map(),
+  })
+);
+vi.mock(
+  "../../../packages/runner/src/workload/agents/remote/update-probe.js",
+  () => ({
+    probeStagedRunner: vi.fn(),
+  })
+);
+vi.mock(
+  "../../../packages/runner/src/workload/agents/remote/update-verify.js",
+  { spy: true }
+);
 
 it("records and logs a probe failure without refusing the staged candidate", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "runner-stage-cli-"));

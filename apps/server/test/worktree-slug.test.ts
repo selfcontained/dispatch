@@ -4,7 +4,7 @@ import {
   worktreePathSlug,
   assertSafeRefName,
   GitWorktreeError,
-} from "../src/shared/git/worktree.js";
+} from "../../../packages/runner/src/workload/shared/git/worktree.js";
 
 describe("worktreePathSlug", () => {
   it("slugifies branch name for new branches", () => {

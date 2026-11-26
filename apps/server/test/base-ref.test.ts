@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   refreshRemoteBaseRef,
   resolveBaseRef,
-} from "../src/shared/git/base-ref.js";
+} from "../../../packages/runner/src/workload/shared/git/base-ref.js";
 
 function ok(stdout = "") {
   return { exitCode: 0, stdout, stderr: "" };

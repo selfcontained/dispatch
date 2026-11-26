@@ -5,12 +5,12 @@ import path from "node:path";
 import Fastify from "fastify";
 import type { Pool } from "pg";
 import { afterEach, expect, it, vi } from "vitest";
-import { resolveProjectRoot as nativeProjectRoot } from "../src/projects/resolve-root.js";
+import { resolveProjectRoot as nativeProjectRoot } from "../../../packages/runner/src/workload/projects/resolve-root.js";
 import {
   registerProjectRoutes,
   resolveProjectRoot,
 } from "../src/routes/projects.js";
-import { workspaceWorkload } from "../src/agents/checkout-worker.js";
+import { workspaceWorkload } from "../../../packages/runner/src/workload/agents/checkout-worker.js";
 import { launchDirectory } from "../src/agents/workspace-launch.js";
 
 const roots: string[] = [];

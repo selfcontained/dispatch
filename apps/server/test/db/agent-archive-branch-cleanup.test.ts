@@ -37,16 +37,19 @@ vi.mock("../../src/shared/lib/run-command.js", () => ({
   })),
 }));
 
-vi.mock("../../src/agents/checkout-inspection.js", () => ({
-  observeGitCheckout: vi.fn(async (path: string) => ({
-    path,
-    branch: null,
-    stateId: "a".repeat(64),
-    unmerged: false,
-    changedFiles: [],
-    uncommittedFiles: [],
-  })),
-}));
+vi.mock(
+  "../../../../packages/runner/src/workload/agents/checkout-inspection.js",
+  () => ({
+    observeGitCheckout: vi.fn(async (path: string) => ({
+      path,
+      branch: null,
+      stateId: "a".repeat(64),
+      unmerged: false,
+      changedFiles: [],
+      uncommittedFiles: [],
+    })),
+  })
+);
 
 // Stub the worktree helpers so we can (a) skip real git work during archive
 // and (b) observe what AgentManager asks us to do.
@@ -62,27 +65,30 @@ const cleanupGitWorktreeSpy = vi.fn(async () => ({
   deletedBranch: false,
 }));
 
-vi.mock("../../src/shared/git/worktree.js", async () => {
-  const actual = await vi.importActual<
-    typeof import("../../src/shared/git/worktree.js")
-  >("../../src/shared/git/worktree.js");
-  return {
-    ...actual,
-    cleanupGitWorktree: cleanupGitWorktreeSpy,
-    createGitWorktree: vi.fn(async (input) => ({
-      repoRoot: "/tmp/repo",
-      worktreePath: await mkdtemp(path.join(fixtureRoot, "worktree-")),
-      worktreeName: "repo-wt",
-      branchName:
-        input.createNewBranch === false
-          ? (input.baseBranch ?? "main")
-          : (input.branchName ?? "work"),
-      baseBranch: input.baseBranch ?? "main",
-      baseRef: `origin/${input.baseBranch ?? "main"}`,
-      baseSha: "deadbeef",
-    })),
-  };
-});
+vi.mock(
+  "../../../../packages/runner/src/workload/shared/git/worktree.js",
+  async () => {
+    const actual = await vi.importActual<
+      typeof import("../../../../packages/runner/src/workload/shared/git/worktree.js")
+    >("../../../../packages/runner/src/workload/shared/git/worktree.js");
+    return {
+      ...actual,
+      cleanupGitWorktree: cleanupGitWorktreeSpy,
+      createGitWorktree: vi.fn(async (input) => ({
+        repoRoot: "/tmp/repo",
+        worktreePath: await mkdtemp(path.join(fixtureRoot, "worktree-")),
+        worktreeName: "repo-wt",
+        branchName:
+          input.createNewBranch === false
+            ? (input.baseBranch ?? "main")
+            : (input.branchName ?? "work"),
+        baseBranch: input.baseBranch ?? "main",
+        baseRef: `origin/${input.baseBranch ?? "main"}`,
+        baseSha: "deadbeef",
+      })),
+    };
+  }
+);
 
 const { AgentManager: HostAgentManager, AgentError } =
   await import("../../src/agents/manager.js");
@@ -299,7 +305,8 @@ describe("archive branch cleanup", () => {
   });
 
   it("fails the agent with a clear last_error when worktree creation fails on the inert path (review #1160)", async () => {
-    const worktreeMod = await import("../../src/shared/git/worktree.js");
+    const worktreeMod =
+      await import("../../../../packages/runner/src/workload/shared/git/worktree.js");
     vi.mocked(worktreeMod.createGitWorktree).mockRejectedValueOnce(
       new worktreeMod.GitWorktreeError(
         "branch 'feature/x' is already checked out at /tmp/other",

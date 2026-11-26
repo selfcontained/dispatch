@@ -18,8 +18,8 @@ import { expect, it, vi } from "vitest";
 import {
   GitHubRunnerExecutor,
   githubCredentialInclude,
-} from "../src/agents/remote/github-runner-executor.js";
-import { runnerGitArgs } from "../src/agents/remote/runner.js";
+} from "../../../packages/runner/src/workload/agents/remote/github-runner-executor.js";
+import { runnerGitArgs } from "../../../packages/runner/src/workload/agents/remote/runner.js";
 
 /** The running sign-in printed its code, or ended without one. */
 async function codeShown(executor: GitHubRunnerExecutor) {

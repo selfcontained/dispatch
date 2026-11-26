@@ -16,7 +16,7 @@ import {
   RunnerCallError,
   type Req,
 } from "@dispatch/runner-protocol/contract";
-import { wireFrames } from "../runners/enrolled/v1-framing.js";
+import { wireFrames } from "@dispatch/runner-client/v1/node";
 import { spawnTerminal, type PtyProcess } from "./pty.js";
 
 type TerminalWorkerEvent =

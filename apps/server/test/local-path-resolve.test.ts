@@ -24,8 +24,8 @@ import {
 import { runnerDirectory } from "../src/runners/directory.js";
 import { controllerPlacement } from "../src/runners/placement.js";
 import { launchDirectory } from "../src/agents/workspace-launch.js";
-import { workspaceWorkload } from "../src/agents/checkout-worker.js";
-import { resolveProjectRoot } from "../src/projects/resolve-root.js";
+import { workspaceWorkload } from "../../../packages/runner/src/workload/agents/checkout-worker.js";
+import { resolveProjectRoot } from "../../../packages/runner/src/workload/projects/resolve-root.js";
 
 const plain = realpathSync(
   mkdtempSync(path.join(os.tmpdir(), "path-resolve-"))

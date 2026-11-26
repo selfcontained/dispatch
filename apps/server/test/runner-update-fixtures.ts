@@ -3,12 +3,12 @@ import { vi } from "vitest";
 import type {
   FenceRecord,
   FenceStore,
-} from "../src/agents/remote/update-admission.js";
+} from "../../../packages/runner/src/workload/agents/remote/update-admission.js";
 import type {
   RunnerUpdater,
   StageReport,
   UpdateIdentity,
-} from "../src/agents/remote/update-agent.js";
+} from "../../../packages/runner/src/workload/agents/remote/update-agent.js";
 
 export const fenceRecord: FenceRecord = {
   format: 1,

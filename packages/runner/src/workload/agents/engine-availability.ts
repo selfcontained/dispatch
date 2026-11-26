@@ -15,7 +15,7 @@ import {
   ACP_ENGINE_IDS,
   type AcpEngineId,
 } from "@dispatch/runner-protocol/host";
-import { isPackageBinDir } from "./acp/package-bin-dir.js";
+import { isPackageBinDir } from "../../host/package-bin-dir.js";
 
 /**
  * An engine Dispatch can drive, and whether this machine has it. The ACP

@@ -12,7 +12,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { launchListenerEnv } from "../src/agents/acp/launch-env.js";
 import { buildHostEnv, buildLaunchEnv } from "@dispatch/runner/host/host-env";
-import { hostSearchPath } from "../src/agents/acp/host-search-path.js";
+import { hostSearchPath } from "../../../packages/runner/src/host/host-search-path.js";
 import {
   pathFromWire,
   sessionFromWire,
@@ -20,7 +20,7 @@ import {
 import {
   localHostEntry,
   writeLocalHostLaunch,
-} from "../src/agents/acp/local-host-entry.js";
+} from "../../../packages/runner/src/host/local-host-entry.js";
 import type { HostLaunch } from "@dispatch/runner-protocol/host";
 import { loginShellCommand } from "@dispatch/runner/host/host-command";
 

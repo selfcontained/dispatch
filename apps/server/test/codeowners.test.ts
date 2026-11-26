@@ -1,4 +1,4 @@
-import { collectCheckoutFiles } from "../src/shared/git/owner-review-files.js";
+import { collectCheckoutFiles } from "../../../packages/runner/src/workload/shared/git/checkout-change-files.js";
 import {
   mkdtemp,
   mkdir,

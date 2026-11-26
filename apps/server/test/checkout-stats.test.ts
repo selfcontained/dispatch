@@ -1,7 +1,7 @@
 import { isCheckoutViewData } from "@dispatch/runner-protocol";
 import { afterEach, expect, it, vi } from "vitest";
 import { readAgentStats } from "../src/agents/checkout-runner.js";
-import { readCheckoutView } from "../src/agents/checkout-view.js";
+import { readCheckoutView } from "../../../packages/runner/src/workload/agents/checkout-view.js";
 import type { RemoteRunnerService } from "../src/agents/remote/service.js";
 import { runCommand } from "../src/shared/lib/run-command.js";
 

@@ -13,7 +13,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fileFenceStore } from "../src/agents/remote/update-fence-store.js";
+import { fileFenceStore } from "../../../packages/runner/src/workload/agents/remote/update-fence-store.js";
 import {
   clearUnreadableFence,
   isSuppressed,
@@ -23,8 +23,8 @@ import {
   sendTrialSignal,
   systemdSupervisor,
   TRIAL_HELPER,
-} from "../src/agents/remote/update-trial.js";
-import { sha256File } from "../src/agents/remote/update-verify.js";
+} from "../../../packages/runner/src/workload/agents/remote/update-trial.js";
+import { sha256File } from "../../../packages/runner/src/workload/agents/remote/update-verify.js";
 import { fenceRecord, identity } from "./runner-update-fixtures.js";
 
 async function fixture() {

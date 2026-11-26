@@ -14,9 +14,9 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { GitHubRunnerExecutor } from "../src/agents/remote/github-runner-executor.js";
-import { executeStreamedCheckoutCommand } from "../src/agents/checkout-command-executor.js";
-import { runnerGitArgsFor } from "../src/agents/remote/runner.js";
+import { GitHubRunnerExecutor } from "../../../packages/runner/src/workload/agents/remote/github-runner-executor.js";
+import { executeStreamedCheckoutCommand } from "../../../packages/runner/src/workload/agents/checkout-command-executor.js";
+import { runnerGitArgsFor } from "../../../packages/runner/src/workload/agents/remote/runner.js";
 import {
   WorkloadTools,
   cacheWorkloadPath,
@@ -25,7 +25,7 @@ import {
   workloadLoginCommand,
   parseWorkloadTools,
   workloadToolLookup,
-} from "../src/agents/remote/workload-tools.js";
+} from "../../../packages/runner/src/workload/agents/remote/workload-tools.js";
 
 const execute = promisify(execFile);
 let root: string;

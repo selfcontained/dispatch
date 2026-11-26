@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import type { Pool } from "pg";
 import { HumanTerminalManager, REPLAY_BYTES } from "../src/terminal/manager.js";
-import { terminalEnvironment } from "../src/terminal/pty.js";
+import { terminalEnvironment } from "../../../packages/runner/src/workload/terminal/pty.js";
 import {
   registerHumanTerminalRoutes,
   terminalOriginAllowed,

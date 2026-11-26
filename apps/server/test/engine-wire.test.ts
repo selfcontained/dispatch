@@ -1,21 +1,21 @@
-import { parseEngineCapabilityResult } from "../src/agents/remote/engine-capability-result.js";
+import { parseEngineCapabilityResult } from "../../../packages/runner/src/workload/agents/remote/engine-capability-result.js";
 import type { AddressInfo } from "node:net";
 import { connect, type TLSSocket } from "node:tls";
 import type { Pool } from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import { exchangeCode } from "../src/agents/remote/enrollment.js";
+import { exchangeCode } from "../../../packages/runner/src/workload/agents/remote/enrollment.js";
 import { remoteEngineTransport } from "../src/agents/remote/engine-transport.js";
 import {
   MANAGED_WORKSPACE,
   type EngineOperationEvent,
   type Frame,
   type GitHubOperation,
-} from "../src/agents/remote/protocol.js";
+} from "../../../packages/runner/src/workload/agents/remote/protocol.js";
 import { wireFrames } from "../src/runners/enrolled/v1-framing.js";
 import { RunnerRegistry } from "../src/agents/remote/registry.js";
 import { RemoteRunnerService } from "../src/agents/remote/service.js";
-import { generateRunnerKey } from "../src/agents/remote/x509.js";
+import { generateRunnerKey } from "../../../packages/runner/src/workload/agents/remote/x509.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 const HOST = "127.0.0.1";

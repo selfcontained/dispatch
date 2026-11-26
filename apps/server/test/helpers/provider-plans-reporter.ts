@@ -2,7 +2,7 @@ import { createProviderPlansReporter as createReporter } from "../../src/agents/
 import {
   loadProviderPlans,
   type ProviderPlanOptions,
-} from "../../src/agents/provider-plans.js";
+} from "../../../../packages/runner/src/workload/agents/provider-plans.js";
 
 export function createProviderPlansReporter(
   options: Omit<ProviderPlanOptions, "now"> & {

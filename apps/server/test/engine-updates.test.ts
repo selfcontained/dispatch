@@ -16,11 +16,11 @@ import {
   inspectInstallation,
   LatestVersions,
   updateEngine,
-} from "../src/agents/engine-updates.js";
+} from "../../../packages/runner/src/workload/agents/engine-updates.js";
 import {
   engineVersion,
   type EngineStatus,
-} from "../src/agents/engine-availability.js";
+} from "../../../packages/runner/src/workload/agents/engine-availability.js";
 const dirs: string[] = [];
 afterEach(async () => {
   await Promise.all(

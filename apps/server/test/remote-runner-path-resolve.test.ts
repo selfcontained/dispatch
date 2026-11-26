@@ -73,43 +73,49 @@ vi.mock("node:tls", async (original) => ({
   ...(await original<typeof import("node:tls")>()),
   connect: dial,
 }));
-vi.mock("../src/agents/remote/session-processes.js", async (original) => ({
-  ...(await original<
-    typeof import("../src/agents/remote/session-processes.js")
-  >()),
-  createSessionProcesses: () => ({ acquire: () => () => {} }),
-}));
+vi.mock(
+  "../../../packages/runner/src/workload/agents/remote/session-processes.js",
+  async (original) => ({
+    ...(await original<
+      typeof import("../../../packages/runner/src/workload/agents/remote/session-processes.js")
+    >()),
+    createSessionProcesses: () => ({ acquire: () => () => {} }),
+  })
+);
 // The supervisor's own binding resolution, standing in for its files.
-vi.mock("../src/agents/remote/session-supervisor.js", async (original) => {
-  const real =
-    await original<
-      typeof import("../src/agents/remote/session-supervisor.js")
-    >();
-  return {
-    ...real,
-    createSessionSupervisor: async (
-      config: Parameters<typeof real.createSessionSupervisor>[0]
-    ) => {
-      const supervisor = await real.createSessionSupervisor(config);
-      return Object.assign(supervisor, {
-        async withCommandCheckout<T>(
-          _agentId: string,
-          _workspace: string,
-          _checkout: string,
-          _configured: string | undefined,
-          _signal: AbortSignal,
-          run: (cwd: string) => Promise<T>
-        ) {
-          bound.calls += 1;
-          return run(bound.cwd);
-        },
-      });
-    },
-  };
-});
+vi.mock(
+  "../../../packages/runner/src/workload/agents/remote/session-supervisor.js",
+  async (original) => {
+    const real =
+      await original<
+        typeof import("../../../packages/runner/src/workload/agents/remote/session-supervisor.js")
+      >();
+    return {
+      ...real,
+      createSessionSupervisor: async (
+        config: Parameters<typeof real.createSessionSupervisor>[0]
+      ) => {
+        const supervisor = await real.createSessionSupervisor(config);
+        return Object.assign(supervisor, {
+          async withCommandCheckout<T>(
+            _agentId: string,
+            _workspace: string,
+            _checkout: string,
+            _configured: string | undefined,
+            _signal: AbortSignal,
+            run: (cwd: string) => Promise<T>
+          ) {
+            bound.calls += 1;
+            return run(bound.cwd);
+          },
+        });
+      },
+    };
+  }
+);
 
 import { createSessionCore } from "@dispatch/runner/cli";
-import { runRemoteRunner } from "../src/agents/remote/runner.js";
+import { runRemoteRunner } from "../../../packages/runner/src/workload/agents/remote/runner.js";
 
 const unprivilegedStatus = [
   "Uid:\t1000\t1000\t1000\t1000",

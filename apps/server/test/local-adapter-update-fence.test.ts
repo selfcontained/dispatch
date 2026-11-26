@@ -22,7 +22,7 @@ import { embeddedBuild } from "../src/agents/build-identity.js";
 import {
   sessionFilesWorkload,
   workspaceWorkload,
-} from "../src/agents/checkout-worker.js";
+} from "../../../packages/runner/src/workload/agents/checkout-worker.js";
 import { putSessionFile } from "../src/files/session-file.js";
 import { runnerDirectory } from "../src/runners/directory.js";
 import {

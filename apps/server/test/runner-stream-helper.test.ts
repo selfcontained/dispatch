@@ -2,7 +2,10 @@ import { readFileSync } from "node:fs";
 import { expect, it, vi } from "vitest";
 
 const { runRemoteRunner } = vi.hoisted(() => ({ runRemoteRunner: vi.fn() }));
-vi.mock("../src/agents/remote/runner.js", () => ({ runRemoteRunner }));
+vi.mock(
+  "../../../packages/runner/src/workload/agents/remote/runner.js",
+  () => ({ runRemoteRunner })
+);
 
 it("passes the embedded repository helper to the enrolled runner entry", async () => {
   const argv = process.argv;

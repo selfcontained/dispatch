@@ -40,7 +40,7 @@ import {
 import {
   collectCheckoutChanges,
   checkoutChangedPaths,
-} from "../shared/git/owner-review-files.js";
+} from "../shared/git/checkout-change-files.js";
 import { getPrStatus } from "../shared/github/pr.js";
 import type { CommandRunner } from "../shared/lib/run-command.js";
 import { childProcessEnv } from "../shared/process/child-environment.js";

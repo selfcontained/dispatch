@@ -1,4 +1,4 @@
-import { inferRepositoryUrl } from "../src/agents/checkout-worker.js";
+import { inferRepositoryUrl } from "../../../packages/runner/src/workload/agents/checkout-worker.js";
 import { runnerDirectory } from "../src/runners/directory.js";
 import { controllerPlacement } from "../src/runners/placement.js";
 import { projectRepositoryUrl } from "@dispatch/runner-protocol";

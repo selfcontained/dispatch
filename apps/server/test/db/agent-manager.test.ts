@@ -2,10 +2,10 @@ import { sessionFromWire } from "@dispatch/runner-protocol/contract";
 import { withTestWorkspaceRunner } from "../helpers/test-workspace-runner.js";
 import * as checkoutIntent from "../../src/agents/checkout-intent.js";
 import { createMcpHandlers } from "../../src/server/mcp-handlers.js";
-import { sessionFilesWorkload } from "../../src/agents/checkout-worker.js";
+import { sessionFilesWorkload } from "../../../../packages/runner/src/workload/agents/checkout-worker.js";
 import { TemplateService } from "../../src/templates/service.js";
 import { personaCatalog } from "../../src/personas/catalog.js";
-import * as gitContext from "../../src/shared/git/git-context.js";
+import * as gitContext from "../../../../packages/runner/src/workload/shared/git/git-context.js";
 import { upsertPersona } from "../helpers/native-persona-authoring.js";
 import { execFileSync } from "node:child_process";
 import {
@@ -17,7 +17,7 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
-import { observeGitCheckout } from "../../src/agents/checkout-inspection.js";
+import { observeGitCheckout } from "../../../../packages/runner/src/workload/agents/checkout-inspection.js";
 import os from "node:os";
 import path from "node:path";
 
@@ -47,16 +47,22 @@ vi.mock("../../src/shared/lib/run-command.js", () => ({
 }));
 
 // Worktree creation is mocked per test; the rest of the module is real.
-vi.mock("../../src/shared/git/worktree.js", async () => {
-  const actual = await vi.importActual<
-    typeof import("../../src/shared/git/worktree.js")
-  >("../../src/shared/git/worktree.js");
-  return { ...actual, createGitWorktree: vi.fn() };
-});
+vi.mock(
+  "../../../../packages/runner/src/workload/shared/git/worktree.js",
+  async () => {
+    const actual = await vi.importActual<
+      typeof import("../../../../packages/runner/src/workload/shared/git/worktree.js")
+    >("../../../../packages/runner/src/workload/shared/git/worktree.js");
+    return { ...actual, createGitWorktree: vi.fn() };
+  }
+);
 
-vi.mock("../../src/agents/workspace-prep.js", () => ({
-  installWorkspaceDependencies: vi.fn(async () => {}),
-}));
+vi.mock(
+  "../../../../packages/runner/src/workload/agents/workspace-prep.js",
+  () => ({
+    installWorkspaceDependencies: vi.fn(async () => {}),
+  })
+);
 
 // We need to dynamically import AgentManager AFTER the mocks are in place
 const {
@@ -76,7 +82,7 @@ const { createInertRuntime } = await import("../../src/agents/runtime.js");
 const { forgetLearnedAgentModels } =
   await import("../../src/shared/agent-models.js");
 const { createGitWorktree, GitWorktreeError } =
-  await import("../../src/shared/git/worktree.js");
+  await import("../../../../packages/runner/src/workload/shared/git/worktree.js");
 
 let pool: Pool;
 

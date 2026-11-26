@@ -17,7 +17,7 @@ import { createSessionCore, localSessionHandlers } from "@dispatch/runner/cli";
 import { embeddedBuild } from "../../src/agents/build-identity.js";
 import { hostCommand } from "@dispatch/runner/host/host-command";
 import { localLaunchSettings } from "../../src/agents/acp/launch-env.js";
-import { localHostEntry } from "../../src/agents/acp/local-host-entry.js";
+import { localHostEntry } from "../../../../packages/runner/src/host/local-host-entry.js";
 import type { LocalSessionRunner } from "../../src/runners/local.js";
 
 const entry = fileURLToPath(

@@ -9,7 +9,7 @@ vi.mock("../src/shared/lib/run-command.js", () => ({
 }));
 
 const { createGitWorktree, cleanupGitWorktree, GitWorktreeError } =
-  await import("../src/shared/git/worktree.js");
+  await import("../../../packages/runner/src/workload/shared/git/worktree.js");
 const { runCommand } = await import("../src/shared/lib/run-command.js");
 
 describe("git worktree services", () => {

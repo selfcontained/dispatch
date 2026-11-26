@@ -17,7 +17,7 @@ import {
   WORKTREE_LOCAL_CONFIG_FILES,
   assertTopLevelFileName,
 } from "../src/agents/worktree-local-config-files.js";
-import { copyLocalConfigFiles as copyWorkloadConfigFiles } from "../src/agents/worktree-local-config.js";
+import { copyLocalConfigFiles as copyWorkloadConfigFiles } from "../../../packages/runner/src/workload/agents/worktree-local-config.js";
 
 let tempRoot: string;
 let sourceRoot: string;

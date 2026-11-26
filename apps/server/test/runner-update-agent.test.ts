@@ -6,7 +6,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { UpdateAdmission } from "../src/agents/remote/update-admission.js";
+import { UpdateAdmission } from "../../../packages/runner/src/workload/agents/remote/update-admission.js";
 import {
   createRunnerUpdateAgent,
   PRE_ACTIVATION_FENCE_TTL_MS,
@@ -16,9 +16,9 @@ import {
   stageResult,
   type HandoffInventory,
   type StageReport,
-} from "../src/agents/remote/update-agent.js";
-import type { TrialRecord } from "../src/agents/remote/update-trial.js";
-import { RUNNER_UPDATE_LAYOUT } from "../src/agents/remote/update-verify.js";
+} from "../../../packages/runner/src/workload/agents/remote/update-agent.js";
+import type { TrialRecord } from "../../../packages/runner/src/workload/agents/remote/update-trial.js";
+import { RUNNER_UPDATE_LAYOUT } from "../../../packages/runner/src/workload/agents/remote/update-verify.js";
 import {
   attemptId,
   fenceRecord,

@@ -1,4 +1,4 @@
-import { withToolSearchPath } from "../../shared/lib/tool-environment.js";
+import { withToolSearchPath } from "../workload/shared/lib/tool-environment.js";
 import { withEngineBinDir } from "@dispatch/runner/host/engine-bin-dir";
 import { isPackageBinDir } from "./package-bin-dir.js";
 

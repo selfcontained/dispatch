@@ -27,25 +27,28 @@ vi.mock("../src/agents/merge-risk/sources.js", async (original) => ({
   loadReviewEvidence: async () => [],
   loadBriefing: async () => "fixture briefing",
 }));
-vi.mock("../src/agents/remote/github-runner-executor.js", async (original) => ({
-  ...(await original<
-    typeof import("../src/agents/remote/github-runner-executor.js")
-  >()),
-  readPullRequestDetails: async () => ({
-    number: 1,
-    title: "Fixture PR",
-    body: "Fixture body",
-    baseRefName: "main",
-    headRefName: "topic",
-    headRefOid: "a".repeat(40),
-    additions: 1,
-    deletions: 0,
-    state: "OPEN",
-    mergedAt: null,
-    statusCheckRollup: [],
-    files: [{ path: "src/service.ts", additions: 1, deletions: 0 }],
-  }),
-}));
+vi.mock(
+  "../../../packages/runner/src/workload/agents/remote/github-runner-executor.js",
+  async (original) => ({
+    ...(await original<
+      typeof import("../../../packages/runner/src/workload/agents/remote/github-runner-executor.js")
+    >()),
+    readPullRequestDetails: async () => ({
+      number: 1,
+      title: "Fixture PR",
+      body: "Fixture body",
+      baseRefName: "main",
+      headRefName: "topic",
+      headRefOid: "a".repeat(40),
+      additions: 1,
+      deletions: 0,
+      state: "OPEN",
+      mergedAt: null,
+      statusCheckRollup: [],
+      files: [{ path: "src/service.ts", additions: 1, deletions: 0 }],
+    }),
+  })
+);
 it("pins maintenance output with an explicit own-machine ownership fixture", async () => {
   const root = await mkdtemp("/tmp/backfill-owners-");
   const out = path.join(root, "output.json");

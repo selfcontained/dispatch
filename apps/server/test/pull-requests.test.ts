@@ -8,7 +8,7 @@ import {
   mapPullRequestChecks,
   projectPullRequest,
 } from "../src/agents/pull-request-reader.js";
-import { localPullRequestStatus } from "../src/agents/remote/github-runner-executor.js";
+import { localPullRequestStatus } from "../../../packages/runner/src/workload/agents/remote/github-runner-executor.js";
 import type { CommandRunner } from "../src/shared/lib/run-command.js";
 import type { AgentRouteDeps } from "../src/routes/agents/shared.js";
 

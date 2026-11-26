@@ -1,6 +1,6 @@
-import { inferRepositoryUrl } from "../src/agents/checkout-worker.js";
+import { inferRepositoryUrl } from "../../../packages/runner/src/workload/agents/checkout-worker.js";
 import { spawn } from "node:child_process";
-import { runnerGitArgs } from "../src/agents/remote/runner.js";
+import { runnerGitArgs } from "../../../packages/runner/src/workload/agents/remote/runner.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
@@ -17,13 +17,13 @@ import { expect, it } from "vitest";
 import {
   RunnerRepositories,
   prepareScratchSession,
-} from "../src/agents/remote/session-storage.js";
+} from "../../../packages/runner/src/workload/agents/remote/session-storage.js";
 import {
   MANAGED_WORKSPACE,
   remotePlacement,
   workspaceLocator,
   type RepositoryCheckout,
-} from "../src/agents/remote/protocol.js";
+} from "../../../packages/runner/src/workload/agents/remote/protocol.js";
 
 import {
   parseRepository,

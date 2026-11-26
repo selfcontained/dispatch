@@ -19,7 +19,8 @@
     "./host/permissions": "./src/host/permissions.ts",
     "./host/engine-bin-dir": "./src/host/engine-bin-dir.ts",
     "./host/background-ingress": "./src/host/background-ingress.ts",
-    "./host/background-work": "./src/host/background-work.ts"
+    "./host/background-work": "./src/host/background-work.ts",
+    "./composition": "./src/composition.ts"
   },
   "files": [
     "src"
@@ -34,5 +35,8 @@
   "scripts": {
     "check": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
     "test": "vitest run --root ."
+  },
+  "engines": {
+    "bun": ">=1.3.13"
   }
 }

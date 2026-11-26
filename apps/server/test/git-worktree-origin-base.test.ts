@@ -9,7 +9,7 @@ import {
   cleanupGitWorktree,
   createGitWorktree,
   normalizeBaseBranch,
-} from "../src/shared/git/worktree.js";
+} from "../../../packages/runner/src/workload/shared/git/worktree.js";
 
 // Real local repositories: no network, production checkout, or host git config.
 describe("origin-qualified worktree bases", () => {

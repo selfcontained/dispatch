@@ -25,7 +25,7 @@ import * as keys from "@dispatch/runner-protocol/update-format";
 import {
   canonicalRunnerManifest,
   runnerManifestName,
-} from "../src/agents/remote/update-manifest.js";
+} from "../../../packages/runner/src/workload/agents/remote/update-manifest.js";
 import * as devKeys from "../src/server/runner-dev-key.js";
 import * as cache from "../src/release-tarball-cache.js";
 import { registerRunnerArtifacts } from "../src/routes/runner-artifacts.js";

@@ -13,7 +13,7 @@ import {
   runCommand,
   type CommandRunner,
 } from "../src/shared/lib/run-command.js";
-import { detectDefaultBranch } from "../src/shared/git/default-branch.js";
+import { detectDefaultBranch } from "../../../packages/runner/src/workload/shared/git/default-branch.js";
 import { runnerDirectory } from "../src/runners/directory.js";
 import { controllerPlacement } from "../src/runners/placement.js";
 

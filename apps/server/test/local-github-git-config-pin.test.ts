@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { expect, it, vi } from "vitest";
 import { pathFromWire } from "@dispatch/runner-protocol/contract";
-import { githubWorkload } from "../src/agents/checkout-worker.js";
+import { githubWorkload } from "../../../packages/runner/src/workload/agents/checkout-worker.js";
 import { runnerDirectory } from "../src/runners/directory.js";
 import { controllerPlacement } from "../src/runners/placement.js";
 import { startTestLocalRunner } from "./helpers/local-runner-child.js";
@@ -18,7 +18,7 @@ import type { Platform } from "../../../packages/runner/src/platform/types.js";
 import {
   localPullRequestEvidence,
   localPullRequestStatus,
-} from "../src/agents/remote/github-runner-executor.js";
+} from "../../../packages/runner/src/workload/agents/remote/github-runner-executor.js";
 import type { CommandRunner } from "../src/shared/lib/run-command.js";
 
 it("the local runner serves only GitHub reads, with no account operations", () => {

@@ -30,8 +30,8 @@ import {
 import { archiveRunner } from "../src/agents/archive-checkout.js";
 import { archiveExecutor } from "../src/agents/archive-policy.js";
 import { enrolledArchivePolicy } from "../src/runners/directory.js";
-import { workspaceWorkload } from "../src/agents/checkout-worker.js";
-import { observeGitCheckout } from "../src/agents/checkout-inspection.js";
+import { workspaceWorkload } from "../../../packages/runner/src/workload/agents/checkout-worker.js";
+import { observeGitCheckout } from "../../../packages/runner/src/workload/agents/checkout-inspection.js";
 import {
   controllerPlacement,
   placementForRunner,

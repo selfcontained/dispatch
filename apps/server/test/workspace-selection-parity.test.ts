@@ -9,8 +9,8 @@ import {
 } from "@dispatch/runner-protocol/contract";
 import { runnerDirectory } from "../src/runners/directory.js";
 import { controllerPlacement } from "../src/runners/placement.js";
-import * as gitContext from "../src/shared/git/git-context.js";
-import { inferRepositoryUrl } from "../src/agents/checkout-worker.js";
+import * as gitContext from "../../../packages/runner/src/workload/shared/git/git-context.js";
+import { inferRepositoryUrl } from "../../../packages/runner/src/workload/agents/checkout-worker.js";
 
 it("selects a workspace in process with main's directory, Git, and error semantics", async () => {
   const root = await realpath(

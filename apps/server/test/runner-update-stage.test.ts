@@ -16,8 +16,8 @@ import os from "node:os";
 import path from "node:path";
 import { gzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { RUNNER_UPDATE_DEV_KEY_ID } from "../src/agents/remote/update-keys.js";
-import { canonicalRunnerManifest } from "../src/agents/remote/update-manifest.js";
+import { RUNNER_UPDATE_DEV_KEY_ID } from "../../../packages/runner/src/workload/agents/remote/update-keys.js";
+import { canonicalRunnerManifest } from "../../../packages/runner/src/workload/agents/remote/update-manifest.js";
 import {
   compareRunnerVersions,
   parseRunnerUpdateInstance,
@@ -26,7 +26,7 @@ import {
   stageRunnerUpdate,
   type RunnerUpdateLayout,
   type StageRunnerUpdateOptions,
-} from "../src/agents/remote/update-verify.js";
+} from "../../../packages/runner/src/workload/agents/remote/update-verify.js";
 import {
   issueAuthority,
   issueServer,

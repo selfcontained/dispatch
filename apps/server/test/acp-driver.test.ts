@@ -20,7 +20,7 @@ import {
   resolveExecutable,
   unstableSessionCapabilities,
 } from "@dispatch/runner/host/driver";
-import { isPackageBinDir } from "../src/agents/acp/package-bin-dir.js";
+import { isPackageBinDir } from "../../../packages/runner/src/host/package-bin-dir.js";
 import { selfCommand } from "@dispatch/runner/host/host-command";
 import { createFakeAcpAgent } from "./helpers/fake-acp-agent.js";
 

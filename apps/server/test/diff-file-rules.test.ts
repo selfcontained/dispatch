@@ -9,7 +9,7 @@ import {
   looksBinary,
   countLines,
   readUntrackedFile,
-} from "../src/shared/git/diff-file-rules.js";
+} from "../../../packages/runner/src/workload/shared/git/diff-file-rules.js";
 
 describe("shouldExcludePath", () => {
   it.each([

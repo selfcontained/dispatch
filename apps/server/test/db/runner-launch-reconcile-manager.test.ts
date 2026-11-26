@@ -35,21 +35,27 @@ vi.mock("../../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
 }));
 // Local agents create a worktree; keep git off the host.
-vi.mock("../../src/shared/git/worktree.js", async () => {
-  const actual = await vi.importActual<
-    typeof import("../../src/shared/git/worktree.js")
-  >("../../src/shared/git/worktree.js");
-  return {
-    ...actual,
-    createGitWorktree: vi.fn(async () => ({
-      worktreePath: "/tmp",
-      branchName: "main",
-    })),
-  };
-});
-vi.mock("../../src/agents/workspace-prep.js", () => ({
-  installWorkspaceDependencies: vi.fn(async () => {}),
-}));
+vi.mock(
+  "../../../../packages/runner/src/workload/shared/git/worktree.js",
+  async () => {
+    const actual = await vi.importActual<
+      typeof import("../../../../packages/runner/src/workload/shared/git/worktree.js")
+    >("../../../../packages/runner/src/workload/shared/git/worktree.js");
+    return {
+      ...actual,
+      createGitWorktree: vi.fn(async () => ({
+        worktreePath: "/tmp",
+        branchName: "main",
+      })),
+    };
+  }
+);
+vi.mock(
+  "../../../../packages/runner/src/workload/agents/workspace-prep.js",
+  () => ({
+    installWorkspaceDependencies: vi.fn(async () => {}),
+  })
+);
 
 const { AgentManager: HostAgentManager } =
   await import("../../src/agents/manager.js");

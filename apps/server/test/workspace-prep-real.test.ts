@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import type { FastifyBaseLogger } from "fastify";
 import { expect, it, vi } from "vitest";
-import { setupAgentWorkspace as setupWorkloadWorkspace } from "../src/agents/workspace-prep.js";
+import { setupAgentWorkspace as setupWorkloadWorkspace } from "../../../packages/runner/src/workload/agents/workspace-prep.js";
 import { runCommand } from "../src/shared/lib/run-command.js";
 import { withToolSearchPath } from "../src/shared/lib/tool-environment.js";
 

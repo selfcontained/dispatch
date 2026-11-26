@@ -9,7 +9,8 @@ const {
   getUncommittedChanges,
   getUnmergedChanges,
   hasOutstandingChanges,
-} = await import("../src/shared/git/worktree-status.js");
+} =
+  await import("../../../packages/runner/src/workload/shared/git/worktree-status.js");
 const { runCommand } = await import("../src/shared/lib/run-command.js");
 
 const ok = (stdout = "") => ({ exitCode: 0, stdout, stderr: "" });

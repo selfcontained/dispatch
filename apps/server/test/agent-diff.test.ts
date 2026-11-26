@@ -8,7 +8,7 @@ import type { RunCommandResult } from "../src/shared/lib/run-command.js";
 import {
   getAgentDiff,
   getAgentFileDiff,
-} from "../src/shared/git/agent-diff.js";
+} from "../../../packages/runner/src/workload/shared/git/agent-diff.js";
 
 const WORKTREE = "/fake/worktree";
 const BASE_REF = "main";

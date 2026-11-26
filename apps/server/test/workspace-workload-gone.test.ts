@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { workspaceWorkload } from "../src/agents/checkout-worker.js";
+import { workspaceWorkload } from "../../../packages/runner/src/workload/agents/checkout-worker.js";
 
 let root: string;
 beforeEach(async () => {

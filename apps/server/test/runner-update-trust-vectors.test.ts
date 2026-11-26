@@ -1,6 +1,6 @@
 import { generateKeyPairSync, sign } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { verifyRunnerUpdateEnvelope as runner } from "../src/agents/remote/update-manifest.js";
+import { verifyRunnerUpdateEnvelope as runner } from "../../../packages/runner/src/workload/agents/remote/update-manifest.js";
 
 import { verifyRunnerUpdateEnvelope as controller } from "../src/server/update-trust.js";
 

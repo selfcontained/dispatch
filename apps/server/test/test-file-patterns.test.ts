@@ -7,7 +7,7 @@ import {
   isTestFile,
   TEST_FILE_PATTERNS,
 } from "../src/shared/lib/test-file-rule.js";
-import { excludeMatcher } from "../src/agents/checkout-worker.js";
+import { excludeMatcher } from "../../../packages/runner/src/workload/agents/checkout-worker.js";
 
 const dirs = [
   "",

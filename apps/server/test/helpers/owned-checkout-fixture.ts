@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Req, Res } from "@dispatch/runner-protocol/contract";
-import type { createCheckoutWorkload } from "../../src/agents/checkout-worker.js";
+import type { createCheckoutWorkload } from "../../../../packages/runner/src/workload/agents/checkout-worker.js";
 import { buildMergeRiskEvidence } from "../../src/agents/merge-risk/evidence.js";
 import {
   loadCodeowners,
@@ -21,8 +21,8 @@ import {
 import {
   createSessionSupervisor,
   runnerStorageKey,
-} from "../../src/agents/remote/session-supervisor.js";
-import type { SessionProcesses } from "../../src/agents/remote/session-processes.js";
+} from "../../../../packages/runner/src/workload/agents/remote/session-supervisor.js";
+import type { SessionProcesses } from "../../../../packages/runner/src/workload/agents/remote/session-processes.js";
 import { streamHelper } from "./stream-helper.js";
 
 export function ownerEvidence(owners: CodeownersConfig | null) {

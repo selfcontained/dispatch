@@ -53,7 +53,7 @@ import {
 } from "../src/shared/agent-models.js";
 import { agentTaskProject, taskScopeInput } from "./helpers/task-scope.js";
 import { chatUrlSchema } from "../src/chat/validation.js";
-import { resolveRepoRoot } from "../src/shared/git/git-context.js";
+import { resolveRepoRoot } from "../../../packages/runner/src/workload/shared/git/git-context.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 let pool: Pool;

@@ -19,8 +19,8 @@ import {
 import {
   loadProviderPlans,
   consumeCodexLimitReset,
-} from "../src/agents/provider-plans.js";
-import { createPluginStatusChecker } from "../src/shared/plugin-status.js";
+} from "../../../packages/runner/src/workload/agents/provider-plans.js";
+import { createPluginStatusChecker } from "../../../packages/runner/src/workload/shared/plugin-status.js";
 import { registerPluginRoutes } from "../src/routes/plugin.js";
 import { registerSystemRoutes } from "../src/routes/system.js";
 import { createCodexResetCoordinator } from "../src/agents/codex-reset.js";

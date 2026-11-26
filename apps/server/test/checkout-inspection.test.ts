@@ -24,7 +24,7 @@ import {
 } from "vitest";
 
 import { inspectCheckout } from "./helpers/checkout-inspection.js";
-import * as baseRefHelpers from "../src/shared/git/base-ref.js";
+import * as baseRefHelpers from "../../../packages/runner/src/workload/shared/git/base-ref.js";
 import {
   inspectAgentCheckout,
   readAgentStats,
@@ -104,7 +104,10 @@ beforeAll(() => {
   cli = path.join(scratch, "inspect.mjs");
   const entry = path.join(scratch, "entry.ts");
   const implementation = fileURLToPath(
-    new URL("../src/agents/checkout-inspection.ts", import.meta.url)
+    new URL(
+      "../../../packages/runner/src/workload/agents/checkout-inspection.ts",
+      import.meta.url
+    )
   );
   writeFileSync(
     entry,

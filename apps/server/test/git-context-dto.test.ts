@@ -2,7 +2,7 @@ import type { GitContext } from "@dispatch/runner-protocol/git-context";
 import { expect, expectTypeOf, it } from "vitest";
 import type { AgentGitContext as SharedContext } from "@dispatch/shared";
 import type { AgentGitContext as AppContext } from "../src/agents/types.js";
-import { gitContextFrom } from "../src/agents/git-context-value.js";
+import { gitContextFrom } from "../../../packages/runner/src/workload/agents/git-context-value.js";
 
 it("preserves checkout context fields and basename behavior", () => {
   for (const [worktreePath, worktreeName, isWorktree] of [

@@ -34,7 +34,7 @@ import {
   sessionRunner,
   target,
 } from "../src/agents/checkout-runner.js";
-import { readCheckoutView } from "../src/agents/checkout-view.js";
+import { readCheckoutView } from "../../../packages/runner/src/workload/agents/checkout-view.js";
 import { inspectCheckout } from "./helpers/checkout-inspection.js";
 import { controllerPlacement } from "../src/runners/placement.js";
 import { runnerDirectory } from "../src/runners/directory.js";

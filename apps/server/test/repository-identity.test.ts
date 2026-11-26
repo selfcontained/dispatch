@@ -16,7 +16,7 @@ import {
 } from "../src/agents/remote/repository.js";
 import { iconCacheKey } from "../src/agents/checkout-icon.js";
 import { JobService } from "../src/jobs/service.js";
-import { resolveProjectRoot } from "../src/projects/resolve-root.js";
+import { resolveProjectRoot } from "../../../packages/runner/src/workload/projects/resolve-root.js";
 import {
   controllerPlacement,
   placementForRunner,
@@ -28,7 +28,7 @@ import {
   repositoryKey,
   SESSION_REPOSITORY_SQL,
 } from "../src/runners/repository-identity.js";
-import { resolveRepoRoot } from "../src/shared/git/git-context.js";
+import { resolveRepoRoot } from "../../../packages/runner/src/workload/shared/git/git-context.js";
 
 const runner = placementForRunner("rnr_identity");
 

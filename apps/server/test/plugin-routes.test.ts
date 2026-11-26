@@ -4,8 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createPluginStatusChecker,
   type PluginStatusLogger,
-} from "../src/shared/plugin-status.js";
-import { findEngineBin } from "../src/agents/engine-availability.js";
+} from "../../../packages/runner/src/workload/shared/plugin-status.js";
+import { findEngineBin } from "../../../packages/runner/src/workload/agents/engine-availability.js";
 import { registerPluginRoutes } from "../src/routes/plugin.js";
 
 const mocks = vi.hoisted(() => ({
@@ -18,23 +18,31 @@ const mocks = vi.hoisted(() => ({
     binFor: (agentType: "claude" | "codex") => string | Promise<string>;
   },
 }));
-vi.mock("../src/agents/engine-availability.js", () => ({
-  findEngineBin: mocks.findEngineBin,
-}));
+vi.mock(
+  "../../../packages/runner/src/workload/agents/engine-availability.js",
+  () => ({
+    findEngineBin: mocks.findEngineBin,
+  })
+);
 vi.mock("../src/agent-type-settings.js", () => ({
   getEnabledAgentTypes: mocks.enabled,
 }));
-vi.mock("../src/shared/plugin-status.js", async (original) => ({
-  ...(await original<typeof import("../src/shared/plugin-status.js")>()),
-  createPluginStatusChecker: (deps: typeof mocks.checkerDeps) => {
-    mocks.checkerDeps = deps;
-    return {
-      install: mocks.install,
-      update: mocks.update,
-      getStatus: mocks.getStatus,
-    };
-  },
-}));
+vi.mock(
+  "../../../packages/runner/src/workload/shared/plugin-status.js",
+  async (original) => ({
+    ...(await original<
+      typeof import("../../../packages/runner/src/workload/shared/plugin-status.js")
+    >()),
+    createPluginStatusChecker: (deps: typeof mocks.checkerDeps) => {
+      mocks.checkerDeps = deps;
+      return {
+        install: mocks.install,
+        update: mocks.update,
+        getStatus: mocks.getStatus,
+      };
+    },
+  })
+);
 afterEach(() => vi.resetAllMocks());
 // The route pins depend on the checker interface, not the removed local side channel.
 function pluginsForTest(options: {

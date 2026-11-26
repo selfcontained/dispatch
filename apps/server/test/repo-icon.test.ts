@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { detectRepoIcon } from "../src/shared/repo-icon.js";
+import { detectRepoIcon } from "../../../packages/runner/src/workload/shared/repo-icon.js";
 
 let tmpDir: string;
 

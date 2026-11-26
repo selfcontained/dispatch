@@ -1,4 +1,4 @@
-import { parseEngineCapabilityResult } from "../src/agents/remote/engine-capability-result.js";
+import { parseEngineCapabilityResult } from "../../../packages/runner/src/workload/agents/remote/engine-capability-result.js";
 import { scopedEngineCalls } from "../src/runners/local.js";
 import { Duplex } from "node:stream";
 import type { EngineInventoryEntry } from "@dispatch/runner-protocol/engine-management";

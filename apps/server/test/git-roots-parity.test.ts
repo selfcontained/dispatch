@@ -7,7 +7,7 @@ import { mkdtemp, mkdir, rm, writeFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { inspectCheckout } from "../src/agents/checkout-inspection.js";
+import { inspectCheckout } from "../../../packages/runner/src/workload/agents/checkout-inspection.js";
 
 const roots: string[] = [];
 const git = (cwd: string, ...args: string[]) =>

@@ -37,10 +37,13 @@ vi.mock("../src/personas/codeowners.js", () => ({
   hasCodeowners: vi.fn(async () => false),
 }));
 
-vi.mock("../src/shared/git/git-context.js", () => ({
-  resolveRepoRoot: vi.fn(async (cwd: string) => cwd),
-  resolveWorktreeRoot: vi.fn(async (cwd: string) => cwd),
-}));
+vi.mock(
+  "../../../packages/runner/src/workload/shared/git/git-context.js",
+  () => ({
+    resolveRepoRoot: vi.fn(async (cwd: string) => cwd),
+    resolveWorktreeRoot: vi.fn(async (cwd: string) => cwd),
+  })
+);
 
 function createMockDeps() {
   return {

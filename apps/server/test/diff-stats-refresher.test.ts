@@ -8,7 +8,7 @@ import {
 import {
   getDiffStatsComputation,
   type DiffStats,
-} from "../src/shared/git/diff-stats.js";
+} from "../../../packages/runner/src/workload/shared/git/diff-stats.js";
 import type { RunCommandResult } from "../src/shared/lib/run-command.js";
 import { SubsystemTracker } from "../src/observability/subsystem-tracker.js";
 

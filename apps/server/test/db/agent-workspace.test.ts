@@ -32,36 +32,42 @@ const cleanupGitWorktreeSpy = vi.fn(async () => ({
   deletedBranch: false,
 }));
 
-vi.mock("../../src/shared/git/worktree.js", async () => {
-  const actual = await vi.importActual<
-    typeof import("../../src/shared/git/worktree.js")
-  >("../../src/shared/git/worktree.js");
-  return { ...actual, cleanupGitWorktree: cleanupGitWorktreeSpy };
-});
+vi.mock(
+  "../../../../packages/runner/src/workload/shared/git/worktree.js",
+  async () => {
+    const actual = await vi.importActual<
+      typeof import("../../../../packages/runner/src/workload/shared/git/worktree.js")
+    >("../../../../packages/runner/src/workload/shared/git/worktree.js");
+    return { ...actual, cleanupGitWorktree: cleanupGitWorktreeSpy };
+  }
+);
 
 // Lets a test hold one directory's git probe open to reorder it against a
 // workspace change.
 const probeGates = new Map<string, Promise<void>>();
-vi.mock("../../src/shared/git/git-context.js", async () => {
-  const actual = await vi.importActual<
-    typeof import("../../src/shared/git/git-context.js")
-  >("../../src/shared/git/git-context.js");
-  return {
-    ...actual,
-    probeGitContext: async (
-      cwd: string,
-      opts?: Parameters<typeof actual.probeGitContext>[1]
-    ) => {
-      const result = await actual.probeGitContext(cwd, opts);
-      const gate = probeGates.get(cwd);
-      if (gate) {
-        probeGates.delete(cwd);
-        await gate;
-      }
-      return result;
-    },
-  };
-});
+vi.mock(
+  "../../../../packages/runner/src/workload/shared/git/git-context.js",
+  async () => {
+    const actual = await vi.importActual<
+      typeof import("../../../../packages/runner/src/workload/shared/git/git-context.js")
+    >("../../../../packages/runner/src/workload/shared/git/git-context.js");
+    return {
+      ...actual,
+      probeGitContext: async (
+        cwd: string,
+        opts?: Parameters<typeof actual.probeGitContext>[1]
+      ) => {
+        const result = await actual.probeGitContext(cwd, opts);
+        const gate = probeGates.get(cwd);
+        if (gate) {
+          probeGates.delete(cwd);
+          await gate;
+        }
+        return result;
+      },
+    };
+  }
+);
 
 const { AgentManager } = await import("../../src/agents/manager.js");
 const { createMcpHandlers } = await import("../../src/server/mcp-handlers.js");

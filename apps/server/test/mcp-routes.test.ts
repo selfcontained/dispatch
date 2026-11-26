@@ -17,7 +17,7 @@ import { handleMcpRequest } from "../src/shared/mcp/server.js";
 import {
   resolveRepoRoot,
   resolveWorktreeRoot,
-} from "../src/shared/git/git-context.js";
+} from "../../../packages/runner/src/workload/shared/git/git-context.js";
 
 // The routes hijack the reply and hand the raw socket to the MCP transport,
 // so the stub has to end the response itself or `inject` never settles.
@@ -29,10 +29,13 @@ vi.mock("../src/shared/mcp/server.js", () => ({
   ),
 }));
 
-vi.mock("../src/shared/git/git-context.js", () => ({
-  resolveRepoRoot: vi.fn(async () => "/repo"),
-  resolveWorktreeRoot: vi.fn(async () => "/repo"),
-}));
+vi.mock(
+  "../../../packages/runner/src/workload/shared/git/git-context.js",
+  () => ({
+    resolveRepoRoot: vi.fn(async () => "/repo"),
+    resolveWorktreeRoot: vi.fn(async () => "/repo"),
+  })
+);
 
 vi.mock("../src/agents/telemetry.js", () => ({
   getFeedbackSummary: vi.fn(async () => ({})),

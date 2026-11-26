@@ -3,13 +3,13 @@ import { EngineUpdateOperations as Coordinator } from "../../src/agents/engine-u
 import {
   inspectInstallation,
   observedUpdateRunner,
-} from "../../src/agents/engine-updates.js";
+} from "../../../../packages/runner/src/workload/agents/engine-updates.js";
 import {
   engineStatuses,
   engineVersion,
   clearEngineVersionCache,
-} from "../../src/agents/engine-availability.js";
-export * from "../../src/agents/engine-updates.js";
+} from "../../../../packages/runner/src/workload/agents/engine-availability.js";
+export * from "../../../../packages/runner/src/workload/agents/engine-updates.js";
 export * from "../../src/agents/engine-update-operations.js";
 export class EngineUpdateOperations extends Coordinator {
   constructor(

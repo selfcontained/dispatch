@@ -13,7 +13,7 @@ import { workspaceHandlers } from "../../../../packages/runner/src/core/workspac
 import { BindingStore } from "../../../../packages/runner/src/local/bindings.js";
 import type { AgentManager } from "../../src/agents/manager.js";
 import { checkoutWorkload } from "./checkout-workload.js";
-import { workspaceWorkload } from "../../src/agents/checkout-worker.js";
+import { workspaceWorkload } from "../../../../packages/runner/src/workload/agents/checkout-worker.js";
 import { localLaunchSettings } from "../../src/agents/acp/launch-env.js";
 import { localRunnerIn } from "./local-runner-child.js";
 

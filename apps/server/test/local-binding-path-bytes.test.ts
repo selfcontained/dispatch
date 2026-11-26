@@ -20,11 +20,11 @@ import { checkoutHandlers } from "../../../packages/runner/src/core/checkout.js"
 import { workspaceHandlers } from "../../../packages/runner/src/core/workspace.js";
 import { localSessionHandlers } from "../../../packages/runner/src/local/sessions.js";
 import { bindingFromRow } from "../src/runners/local-bindings.js";
-import { resolvePath } from "../src/agents/workspace.js";
+import { resolvePath } from "../../../packages/runner/src/workload/agents/workspace.js";
 import {
   createGitWorktree,
   cleanupGitWorktree,
-} from "../src/shared/git/worktree.js";
+} from "../../../packages/runner/src/workload/shared/git/worktree.js";
 import {
   checkoutWorkload,
   workspaceWorkload,

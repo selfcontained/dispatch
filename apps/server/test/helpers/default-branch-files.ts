@@ -1,7 +1,7 @@
 import {
   DefaultBranchFiles as Files,
   type DefinitionParser,
-} from "../../src/agents/default-branch-files.js";
+} from "../../../../packages/runner/src/workload/agents/default-branch-files.js";
 import { toPersonaDefinition } from "../../src/personas/loader.js";
 export class DefaultBranchFiles extends Files {
   override get(

@@ -27,7 +27,7 @@ import { promisify } from "node:util";
 import Fastify from "fastify";
 import { createSessionCore } from "@dispatch/runner/cli";
 import { buildHostEnv } from "@dispatch/runner/host/host-env";
-import { hostSearchPath } from "../src/agents/acp/host-search-path.js";
+import { hostSearchPath } from "../../../packages/runner/src/host/host-search-path.js";
 import {
   HOST_FILES,
   type HostLaunch,
@@ -43,7 +43,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MANAGED_WORKSPACE,
   MAX_SESSION_FILE_BYTES,
-} from "../src/agents/remote/protocol.js";
+} from "../../../packages/runner/src/workload/agents/remote/protocol.js";
 import {
   classifySessionIdentity,
   parseProcessStat,
@@ -52,26 +52,26 @@ import {
   socketInUse,
   type SessionIdentity,
   type SessionProcesses,
-} from "../src/agents/remote/session-processes.js";
+} from "../../../packages/runner/src/workload/agents/remote/session-processes.js";
 import { readSessionFile } from "../src/files/session-file-io.js";
-import { enterDirectory } from "../src/agents/remote/workload-tools.js";
-import { sessionFileCommand } from "../src/agents/remote/session-files.js";
+import { enterDirectory } from "../../../packages/runner/src/workload/agents/remote/workload-tools.js";
+import { sessionFileCommand } from "../../../packages/runner/src/workload/agents/remote/session-files.js";
 import {
   createSessionSupervisor,
   runnerStorageKey,
-} from "../src/agents/remote/session-supervisor.js";
+} from "../../../packages/runner/src/workload/agents/remote/session-supervisor.js";
 import { createLinuxPrivsep } from "../../../packages/runner/src/platform/linux-privsep/index.js";
 import { storageKey } from "../../../packages/runner/src/platform/linux-privsep/layout.js";
 import {
   startTerminalWorker,
   streamCheckoutWorker,
-} from "../src/agents/remote/runner.js";
+} from "../../../packages/runner/src/workload/agents/remote/runner.js";
 import { FlowStreams } from "../src/runners/enrolled/v1-framing.js";
 
 import {
   observeGitCheckout,
   observeScratchCheckout,
-} from "../src/agents/checkout-inspection.js";
+} from "../../../packages/runner/src/workload/agents/checkout-inspection.js";
 
 // An unprivileged test cannot chown to another account. When set, record the
 // changes of ownership instead of making them.
@@ -139,7 +139,10 @@ it.skipIf(process.platform !== "linux")(
   async () => {
     const dir = await mkdtemp("/tmp/runner-peer-");
     const module = fileURLToPath(
-      new URL("../src/agents/remote/session-processes.ts", import.meta.url)
+      new URL(
+        "../../../packages/runner/src/workload/agents/remote/session-processes.ts",
+        import.meta.url
+      )
     );
     try {
       const { stdout } = await promisify(execFile)(

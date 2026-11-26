@@ -7,11 +7,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { describe, expect, it, vi } from "vitest";
-import { requiresQuiescence } from "../src/agents/remote/update-handoff.js";
+import { requiresQuiescence } from "../../../packages/runner/src/workload/agents/remote/update-handoff.js";
 import {
   probeStagedRunner,
   readRunnerCompatibility,
-} from "../src/agents/remote/update-probe.js";
+} from "../../../packages/runner/src/workload/agents/remote/update-probe.js";
 
 vi.mock("node:child_process", { spy: true });
 vi.mock("node:fs/promises", { spy: true });

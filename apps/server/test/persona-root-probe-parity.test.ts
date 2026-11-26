@@ -9,7 +9,7 @@ import { expect, it } from "vitest";
 import {
   resolveWorktreeRoot,
   resolveRepoRoot,
-} from "../src/shared/git/git-context.js";
+} from "../../../packages/runner/src/workload/shared/git/git-context.js";
 import { runnerDirectory } from "../src/runners/directory.js";
 import { controllerPlacement } from "../src/runners/placement.js";
 import { pathFromWire } from "@dispatch/runner-protocol/contract";

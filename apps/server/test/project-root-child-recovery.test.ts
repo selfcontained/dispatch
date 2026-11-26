@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { runnerDirectory } from "../src/runners/directory.js";
 import { controllerPlacement } from "../src/runners/placement.js";
-import { workspaceWorkload } from "../src/agents/checkout-worker.js";
+import { workspaceWorkload } from "../../../packages/runner/src/workload/agents/checkout-worker.js";
 import { startTestLocalRunner } from "./helpers/local-runner-child.js";
 
 it("path.resolve reads identically when a real child dies during its Git command", async () => {

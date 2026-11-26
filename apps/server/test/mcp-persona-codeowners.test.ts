@@ -18,7 +18,7 @@ import { createPersonaHandlers } from "../src/server/mcp-persona-handlers.js";
 import {
   resolveRepoRoot,
   resolveWorktreeRoot,
-} from "../src/shared/git/git-context.js";
+} from "../../../packages/runner/src/workload/shared/git/git-context.js";
 import { getBuiltInPersona } from "../src/personas/built-in.js";
 import { agentComparisonBase } from "../src/agents/effective-base.js";
 import { runCommand } from "../src/shared/lib/run-command.js";
@@ -35,16 +35,22 @@ vi.mock("node:fs/promises", async (importOriginal) => ({
     throw new Error("Unexpected checkout filesystem listing");
   }),
 }));
-vi.mock("../src/shared/git/git-context.js", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("../src/shared/git/git-context.js")
-  >()),
-  resolveRepoRoot: vi.fn(async () => "/main-checkout"),
-  resolveWorktreeRoot: vi.fn(async () => "/worktree"),
-}));
-vi.mock("../src/shared/git/default-branch.js", () => ({
-  localDefaultBranch: vi.fn(async () => "main"),
-}));
+vi.mock(
+  "../../../packages/runner/src/workload/shared/git/git-context.js",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../../../packages/runner/src/workload/shared/git/git-context.js")
+    >()),
+    resolveRepoRoot: vi.fn(async () => "/main-checkout"),
+    resolveWorktreeRoot: vi.fn(async () => "/worktree"),
+  })
+);
+vi.mock(
+  "../../../packages/runner/src/workload/shared/git/default-branch.js",
+  () => ({
+    localDefaultBranch: vi.fn(async () => "main"),
+  })
+);
 vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(() => {
     throw new Error("Unexpected local process");

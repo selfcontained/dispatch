@@ -11,7 +11,7 @@ import {
   agentStreamDirectory,
   agentWorkspaceDir,
 } from "../src/agents/workspace-target.js";
-import { detectDefaultBranch } from "../src/shared/git/default-branch.js";
+import { detectDefaultBranch } from "../../../packages/runner/src/workload/shared/git/default-branch.js";
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], {

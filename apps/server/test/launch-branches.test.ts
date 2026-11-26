@@ -15,7 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { registerSystemRoutes } from "../src/routes/system.js";
-import { listLocalRemoteBranches } from "../src/agents/local-workspace-probes.js";
+import { listLocalRemoteBranches } from "../../../packages/runner/src/workload/agents/local-workspace-probes.js";
 import * as commands from "../src/shared/lib/run-command.js";
 
 const roots: string[] = [];

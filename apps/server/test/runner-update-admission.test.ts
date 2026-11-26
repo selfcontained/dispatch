@@ -14,8 +14,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   FENCE_FLUSH_MARGIN_MS,
   UpdateAdmission,
-} from "../src/agents/remote/update-admission.js";
-import { fileFenceStore } from "../src/agents/remote/update-fence-store.js";
+} from "../../../packages/runner/src/workload/agents/remote/update-admission.js";
+import { fileFenceStore } from "../../../packages/runner/src/workload/agents/remote/update-fence-store.js";
 import { fenceRecord, memoryStore } from "./runner-update-fixtures.js";
 
 describe("update admission gate", () => {

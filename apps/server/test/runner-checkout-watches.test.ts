@@ -4,7 +4,7 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import { expect, it, vi } from "vitest";
 import { CheckoutObservers } from "../src/agents/checkout-observers.js";
-import { SharedCheckoutWatches } from "../src/agents/checkout-watch.js";
+import { SharedCheckoutWatches } from "../../../packages/runner/src/workload/agents/checkout-watch.js";
 
 it("shares one watch between readers and reopens after an OS watch fails", () => {
   const close = vi.fn();

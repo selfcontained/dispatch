@@ -8,21 +8,24 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildStartupTurn } from "../src/agents/launch-guidance.js";
 
-vi.mock("../src/shared/git/worktree.js", () => ({
+vi.mock("../../../packages/runner/src/workload/shared/git/worktree.js", () => ({
   resolveHeadSha: vi.fn(async () => "abc123def456"),
 }));
 
-vi.mock("../src/shared/git/git-context.js", () => ({
-  resolveRepoRoot: vi.fn(async () => "/repo"),
-  resolveWorktreeRoot: vi.fn(async () => "/repo"),
-}));
+vi.mock(
+  "../../../packages/runner/src/workload/shared/git/git-context.js",
+  () => ({
+    resolveRepoRoot: vi.fn(async () => "/repo"),
+    resolveWorktreeRoot: vi.fn(async () => "/repo"),
+  })
+);
 
-vi.mock("../src/shared/git/base-ref.js", () => ({
+vi.mock("../../../packages/runner/src/workload/shared/git/base-ref.js", () => ({
   refreshRemoteBaseRef: vi.fn(async () => {}),
   resolveBaseRef: vi.fn(async () => "origin/main"),
 }));
 
-vi.mock("../src/shared/github/pr.js", () => ({
+vi.mock("../../../packages/runner/src/workload/shared/github/pr.js", () => ({
   getPrStatus: vi.fn(async () => ({ baseRefName: null })),
 }));
 
@@ -91,7 +94,7 @@ import {
   createMcpHandlers,
   mcpMethodNotAllowed,
 } from "../src/server/mcp-handlers.js";
-import { resolveRepoRoot } from "../src/shared/git/git-context.js";
+import { resolveRepoRoot } from "../../../packages/runner/src/workload/shared/git/git-context.js";
 import {
   assemblePersonaPrompt,
   loadPersonaBySlug,
@@ -980,7 +983,7 @@ describe("createMcpHandlers", () => {
 
     it("does not resolve a diff base for ordinary persona reviews", async () => {
       const { resolveBaseRef, refreshRemoteBaseRef } =
-        await import("../src/shared/git/base-ref.js");
+        await import("../../../packages/runner/src/workload/shared/git/base-ref.js");
       await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
         context: "Review the supplied document",
@@ -1479,7 +1482,7 @@ describe("createMcpHandlers", () => {
 
     it("resolves a template task persona from the workspace where the helper will run", async () => {
       const { resolveWorktreeRoot } =
-        await import("../src/shared/git/git-context.js");
+        await import("../../../packages/runner/src/workload/shared/git/git-context.js");
       vi.mocked(resolveWorktreeRoot).mockResolvedValueOnce("/template-repo");
       vi.mocked(loadPersonaBySlug).mockResolvedValueOnce({
         slug: "builder",

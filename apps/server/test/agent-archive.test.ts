@@ -32,45 +32,54 @@ vi.mock("../src/agents/lifecycle-hooks.js", () => ({
   runLifecycleHook: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("../src/shared/git/worktree.js", () => ({
+vi.mock("../../../packages/runner/src/workload/shared/git/worktree.js", () => ({
   cleanupGitWorktree: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("../src/agents/checkout-inspection.js", () => ({
-  observeGitCheckout: vi.fn(),
-}));
+vi.mock(
+  "../../../packages/runner/src/workload/agents/checkout-inspection.js",
+  () => ({
+    observeGitCheckout: vi.fn(),
+  })
+);
 
 // The local runner's removal port, over the mocked Git cleanup above: these
 // tests are about the archive's sequence. archive-policy.test.ts removes
 // real worktrees through the real port.
-vi.mock("../src/agents/checkout-worker.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../src/agents/checkout-worker.js")>();
-  const { lstat } = await import("node:fs/promises");
-  const { cleanupGitWorktree } = await import("../src/shared/git/worktree.js");
-  return {
-    ...actual,
-    workspaceWorkload: {
-      ...actual.workspaceWorkload,
-      async release(
-        _session: string,
-        checkout: { path: string },
-        request: { deleteBranch: boolean; originalBranch: string | null }
-      ) {
-        if (!(await lstat(checkout.path).catch(() => null))) return true;
-        await cleanupGitWorktree(
-          { cwd: checkout.path, force: true, ...request },
-          async () => ({ exitCode: 0, stdout: "", stderr: "" })
-        );
-        return true;
+vi.mock(
+  "../../../packages/runner/src/workload/agents/checkout-worker.js",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("../../../packages/runner/src/workload/agents/checkout-worker.js")
+      >();
+    const { lstat } = await import("node:fs/promises");
+    const { cleanupGitWorktree } =
+      await import("../../../packages/runner/src/workload/shared/git/worktree.js");
+    return {
+      ...actual,
+      workspaceWorkload: {
+        ...actual.workspaceWorkload,
+        async release(
+          _session: string,
+          checkout: { path: string },
+          request: { deleteBranch: boolean; originalBranch: string | null }
+        ) {
+          if (!(await lstat(checkout.path).catch(() => null))) return true;
+          await cleanupGitWorktree(
+            { cwd: checkout.path, force: true, ...request },
+            async () => ({ exitCode: 0, stdout: "", stderr: "" })
+          );
+          return true;
+        },
       },
-    },
-  };
-});
+    };
+  }
+);
 
 import { runLifecycleHook } from "../src/agents/lifecycle-hooks.js";
-import { cleanupGitWorktree } from "../src/shared/git/worktree.js";
-import { observeGitCheckout } from "../src/agents/checkout-inspection.js";
+import { cleanupGitWorktree } from "../../../packages/runner/src/workload/shared/git/worktree.js";
+import { observeGitCheckout } from "../../../packages/runner/src/workload/agents/checkout-inspection.js";
 import { remotePlacement } from "@dispatch/runner-protocol";
 import {
   controllerPlacement,

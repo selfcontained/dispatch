@@ -23,13 +23,13 @@ import {
   RemoteRunnerService,
   RunnerUnavailable,
 } from "../src/agents/remote/service.js";
-import { UpdateAdmission } from "../src/agents/remote/update-admission.js";
+import { UpdateAdmission } from "../../../packages/runner/src/workload/agents/remote/update-admission.js";
 import {
   createRunnerUpdateAgent,
   type HandoffInventory,
   type RunnerUpdater,
   type StageReport,
-} from "../src/agents/remote/update-agent.js";
+} from "../../../packages/runner/src/workload/agents/remote/update-agent.js";
 import {
   RunnerUpdateCoordinator,
   type RunnerUpdateRecord,
@@ -39,7 +39,7 @@ import {
   type RunnerHoldState,
 } from "../src/agents/remote/update-hold.js";
 import { placementForRunner } from "../src/runners/placement.js";
-import type { TrialRecord } from "../src/agents/remote/update-trial.js";
+import type { TrialRecord } from "../../../packages/runner/src/workload/agents/remote/update-trial.js";
 import { identity, memoryStore, target } from "./runner-update-fixtures.js";
 import { localRunnerIn } from "./helpers/local-runner-child.js";
 

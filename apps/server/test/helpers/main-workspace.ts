@@ -6,7 +6,7 @@ import {
   normalizePath,
   probeGitContext,
   resolveRepoRoot,
-} from "../../src/shared/git/git-context.js";
+} from "../../../../packages/runner/src/workload/shared/git/git-context.js";
 import {
   runCommand,
   type CommandRunner,

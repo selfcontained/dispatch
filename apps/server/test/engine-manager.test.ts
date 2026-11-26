@@ -29,72 +29,78 @@ class EngineManager extends ActualEngineManager {
     });
   }
 }
-import { localEngineWorkload } from "../src/agents/remote/engine-runner-executor.js";
+import { localEngineWorkload } from "../../../packages/runner/src/workload/agents/remote/engine-runner-executor.js";
 import type { EngineUpdateOperations } from "./helpers/native-engine-updates.js";
 import { localEngineCalls, type EngineCalls } from "../src/runners/local.js";
 
-vi.mock("../src/agents/engine-availability.js", async () => {
-  const actual = await vi.importActual<
-    typeof import("../src/agents/engine-availability.js")
-  >("../src/agents/engine-availability.js");
-  return {
-    ...actual,
-    engineStatuses: vi.fn(async () => [
-      {
-        id: "claude",
-        label: "Claude Code",
-        installed: true,
-        path: "/bin/claude",
-        version: null,
-        install: "",
-      },
-      {
-        id: "codex",
-        label: "Codex",
-        installed: false,
-        path: null,
-        version: null,
-        install: "",
-      },
-      {
-        id: "opencode",
-        label: "OpenCode",
-        installed: false,
-        path: null,
-        version: null,
-        install: "",
-      },
-    ]),
-    withEngineVersions: vi.fn(async (statuses) =>
-      statuses.map((s: any) => ({
-        ...s,
-        version: s.installed ? "1.2.3" : null,
-      }))
-    ),
-  };
-});
-
-vi.mock("../src/agents/engine-updates.js", async () => {
-  const actual = await vi.importActual<
-    typeof import("../src/agents/engine-updates.js")
-  >("../src/agents/engine-updates.js");
-  return {
-    ...actual,
-    withEngineUpdates: vi.fn(async (statuses) =>
-      statuses.map((s: any) => ({
-        ...s,
-        update: {
-          canUpdate: s.installed,
-          available: false,
-          reason: "",
-          command: "",
-          latestVersion: null,
-          latestPending: false,
+vi.mock(
+  "../../../packages/runner/src/workload/agents/engine-availability.js",
+  async () => {
+    const actual = await vi.importActual<
+      typeof import("../../../packages/runner/src/workload/agents/engine-availability.js")
+    >("../../../packages/runner/src/workload/agents/engine-availability.js");
+    return {
+      ...actual,
+      engineStatuses: vi.fn(async () => [
+        {
+          id: "claude",
+          label: "Claude Code",
+          installed: true,
+          path: "/bin/claude",
+          version: null,
+          install: "",
         },
-      }))
-    ),
-  };
-});
+        {
+          id: "codex",
+          label: "Codex",
+          installed: false,
+          path: null,
+          version: null,
+          install: "",
+        },
+        {
+          id: "opencode",
+          label: "OpenCode",
+          installed: false,
+          path: null,
+          version: null,
+          install: "",
+        },
+      ]),
+      withEngineVersions: vi.fn(async (statuses) =>
+        statuses.map((s: any) => ({
+          ...s,
+          version: s.installed ? "1.2.3" : null,
+        }))
+      ),
+    };
+  }
+);
+
+vi.mock(
+  "../../../packages/runner/src/workload/agents/engine-updates.js",
+  async () => {
+    const actual = await vi.importActual<
+      typeof import("../../../packages/runner/src/workload/agents/engine-updates.js")
+    >("../../../packages/runner/src/workload/agents/engine-updates.js");
+    return {
+      ...actual,
+      withEngineUpdates: vi.fn(async (statuses) =>
+        statuses.map((s: any) => ({
+          ...s,
+          update: {
+            canUpdate: s.installed,
+            available: false,
+            reason: "",
+            command: "",
+            latestVersion: null,
+            latestPending: false,
+          },
+        }))
+      ),
+    };
+  }
+);
 
 const waiting: EngineLogin = {
   id: "login-1",

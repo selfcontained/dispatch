@@ -17,7 +17,7 @@ import {
   type EngineOperationStore,
 } from "./helpers/native-engine-updates.js";
 import type { EngineCalls } from "../src/runners/local.js";
-import { EngineRunnerExecutor } from "../src/agents/remote/engine-runner-executor.js";
+import { EngineRunnerExecutor } from "../../../packages/runner/src/workload/agents/remote/engine-runner-executor.js";
 
 describe("persistent workload engine port", () => {
   it("relays the request-id safety alarm to the supervisor log without forwarding private stderr", async () => {

@@ -15,7 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { workspaceWorkload } from "../src/agents/checkout-worker.js";
+import { workspaceWorkload } from "../../../packages/runner/src/workload/agents/checkout-worker.js";
 
 const repositoryCache = workspaceWorkload.repository;
 

@@ -1,10 +1,10 @@
 // Test wiring for standalone workload functions; production supplies these ports.
-import { inferRepositoryUrl } from "../../src/agents/checkout-worker.js";
+import { inferRepositoryUrl } from "../../../../packages/runner/src/workload/agents/checkout-worker.js";
 import { launchDirectory } from "../../src/agents/workspace-launch.js";
 import {
   resolvePath as readPath,
   resolveLaunchDirectory as launchPath,
-} from "../../src/agents/workspace.js";
+} from "../../../../packages/runner/src/workload/agents/workspace.js";
 export const resolvePath = (
   raw: string,
   options?: Parameters<typeof readPath>[2]

@@ -12,7 +12,7 @@ import type { Pool } from "pg";
 import type { Runner } from "@dispatch/runner-protocol/contract";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { archiveCheckout } from "../src/agents/archive.js";
-import { workspaceWorkload } from "../src/agents/checkout-worker.js";
+import { workspaceWorkload } from "../../../packages/runner/src/workload/agents/checkout-worker.js";
 import { runnerDirectory } from "../src/runners/directory.js";
 import {
   controllerPlacement,

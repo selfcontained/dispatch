@@ -25,7 +25,7 @@ import {
 } from "../src/agents/checkout-icon.js";
 import { sessionRunner } from "../src/agents/checkout-runner.js";
 import { controllerPlacement } from "../src/runners/placement.js";
-import { detectRepoIcon } from "../src/shared/repo-icon.js";
+import { detectRepoIcon } from "../../../packages/runner/src/workload/shared/repo-icon.js";
 
 let dir: string;
 beforeEach(async () => {

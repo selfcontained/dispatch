@@ -36,7 +36,7 @@ import {
 import {
   runnerReplyTimeoutMs,
   scheduleDeadline,
-} from "../../runners/enrolled/v1-framing.js";
+} from "@dispatch/runner-client/v1/connection";
 import {
   TERMINAL_UPDATE_MESSAGE,
   UPDATE_FENCED_MESSAGE,
@@ -87,7 +87,7 @@ import {
   FlowStreams,
   acceptsStreams,
   type StreamFrame,
-} from "../../runners/enrolled/v1-framing.js";
+} from "@dispatch/runner-client/v1/node";
 import { GitHubRunnerExecutor } from "./github-runner-executor.js";
 import {
   WorkloadTools,

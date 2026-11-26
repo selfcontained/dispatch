@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { getPrStatus, GitHubPrError } from "../src/shared/github/pr.js";
+import {
+  getPrStatus,
+  GitHubPrError,
+} from "../../../packages/runner/src/workload/shared/github/pr.js";
 
 describe("github pr services", () => {
   it("rejects with a 404 GitHubPrError outside a git repository", async () => {

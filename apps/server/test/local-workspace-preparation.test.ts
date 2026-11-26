@@ -1,4 +1,4 @@
-import { inferRepositoryUrl } from "../src/agents/checkout-worker.js";
+import { inferRepositoryUrl } from "../../../packages/runner/src/workload/agents/checkout-worker.js";
 import { launchDirectory } from "../src/agents/workspace-launch.js";
 /*
  * Local launch preparation through the real local runner child (T18): the
@@ -28,7 +28,7 @@ import {
   type LaunchedRunner,
 } from "@dispatch/runner-client/launcher";
 import { LocalRunnerSession } from "@dispatch/runner-client/session";
-import { resolveLaunchDirectory as resolveWorkloadDirectory } from "../src/agents/workspace.js";
+import { resolveLaunchDirectory as resolveWorkloadDirectory } from "../../../packages/runner/src/workload/agents/workspace.js";
 import {
   prepareLocalWorkspace,
   resumeLocalWorkspace,

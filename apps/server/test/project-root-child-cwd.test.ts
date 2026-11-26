@@ -50,8 +50,10 @@ it("anchors a relative controller folder before a child with a different cwd rea
     const missing = path.relative(process.cwd(), path.join(root, "missing"));
     // Compare with main's unchanged helper in the same Bun runtime as the real
     // app/child. Node and Bun label a failed realpath differently.
-    const native = new URL("../src/projects/resolve-root.ts", import.meta.url)
-      .href;
+    const native = new URL(
+      "../../../packages/runner/src/workload/projects/resolve-root.ts",
+      import.meta.url
+    ).href;
     const code = `import { resolveProjectRoot } from ${JSON.stringify(native)}; try { await resolveProjectRoot(${JSON.stringify(missing)}); } catch (error) { console.log(JSON.stringify(error.message)); }`;
     const expected = JSON.parse(
       execFileSync("bun", ["--no-env-file", "-e", code], {

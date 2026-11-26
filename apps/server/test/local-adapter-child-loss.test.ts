@@ -30,7 +30,7 @@ import {
   type Req,
 } from "@dispatch/runner-protocol/contract";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { workspaceWorkload } from "../src/agents/checkout-worker.js";
+import { workspaceWorkload } from "../../../packages/runner/src/workload/agents/checkout-worker.js";
 import { runnerDirectory } from "../src/runners/directory.js";
 import { controllerPlacement } from "../src/runners/placement.js";
 import {
@@ -405,7 +405,9 @@ describe("a mutation whose child dies mid-call", () => {
       maxBytes: null,
     });
     const put = vi.spyOn(
-      (await import("../src/agents/checkout-worker.js")).sessionFilesWorkload,
+      (
+        await import("../../../packages/runner/src/workload/agents/checkout-worker.js")
+      ).sessionFilesWorkload,
       "put"
     );
     try {

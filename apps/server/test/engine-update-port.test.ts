@@ -1,16 +1,21 @@
 // Provider acts stay fixtures even if a fence regression reaches the host.
-vi.mock("../src/agents/provider-plans.js", async (original) => ({
-  ...(await original<typeof import("../src/agents/provider-plans.js")>()),
-  loadProviderPlans: vi.fn(async () => ({
-    checkedAt: "2026-11-24T12:00:00Z",
-    providers: [],
-  })),
-  consumeCodexLimitReset: vi.fn(async () => ({
-    code: "ok",
-    windowsReset: 1,
-    credit: null,
-  })),
-}));
+vi.mock(
+  "../../../packages/runner/src/workload/agents/provider-plans.js",
+  async (original) => ({
+    ...(await original<
+      typeof import("../../../packages/runner/src/workload/agents/provider-plans.js")
+    >()),
+    loadProviderPlans: vi.fn(async () => ({
+      checkedAt: "2026-11-24T12:00:00Z",
+      providers: [],
+    })),
+    consumeCodexLimitReset: vi.fn(async () => ({
+      code: "ok",
+      windowsReset: 1,
+      credit: null,
+    })),
+  })
+);
 import { createRunnerUsage } from "../src/agents/codex-reset.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {

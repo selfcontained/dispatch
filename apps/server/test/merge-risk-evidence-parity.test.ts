@@ -63,7 +63,7 @@ import {
 } from "../src/agents/merge-risk/github-source.js";
 import { reviewFingerprint } from "../src/agents/merge-risk/sources.js";
 import { projectPullRequest } from "../src/agents/pull-request-reader.js";
-import { githubWorkload } from "../src/agents/checkout-worker.js";
+import { githubWorkload } from "../../../packages/runner/src/workload/agents/checkout-worker.js";
 import { githubHandlers } from "../../../packages/runner/src/core/github.js";
 import { createLocalCheckoutRunner } from "../src/runners/local.js";
 import { RoutingSettings } from "../src/chat/routing-settings.js";

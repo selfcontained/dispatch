@@ -94,7 +94,7 @@ import {
   localPullRequestStatus,
 } from "./remote/github-runner-executor.js";
 import { localEngineWorkload } from "./remote/engine-runner-executor.js";
-import { configuredLaunchEnvironment } from "./acp/local-host-entry.js";
+import { configuredLaunchEnvironment } from "../../host/local-host-entry.js";
 import { copyLocalConfigFiles } from "./worktree-local-config.js";
 
 import {
@@ -1492,7 +1492,7 @@ const workspaceSteps = {
 };
 
 /** The `posix-user` host entry the local runner child starts hosts with. */
-export { localHostEntry } from "./acp/local-host-entry.js";
+export { localHostEntry } from "../../host/local-host-entry.js";
 
 /**
  * A regular file's raw bytes, base64 encoded. A link is followed only to a

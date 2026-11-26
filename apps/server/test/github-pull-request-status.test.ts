@@ -17,15 +17,20 @@ import type { Pool } from "pg";
 const childFallback = vi.hoisted(() => ({
   pullRequestStatus: vi.fn(),
 }));
-vi.mock("../src/agents/checkout-worker.js", async (original) => ({
-  ...(await original<typeof import("../src/agents/checkout-worker.js")>()),
-  githubWorkload: childFallback,
-}));
+vi.mock(
+  "../../../packages/runner/src/workload/agents/checkout-worker.js",
+  async (original) => ({
+    ...(await original<
+      typeof import("../../../packages/runner/src/workload/agents/checkout-worker.js")
+    >()),
+    githubWorkload: childFallback,
+  })
+);
 
 import {
   GitHubPullRequestStatus,
   localPullRequestStatus,
-} from "../src/agents/remote/github-runner-executor.js";
+} from "../../../packages/runner/src/workload/agents/remote/github-runner-executor.js";
 import {
   createRunnerPullRequestReader,
   pullRequestQueryArgs,

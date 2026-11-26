@@ -1,4 +1,4 @@
-import { parseEngineCapabilityResult } from "../src/agents/remote/engine-capability-result.js";
+import { parseEngineCapabilityResult } from "../../../packages/runner/src/workload/agents/remote/engine-capability-result.js";
 import { X509Certificate } from "node:crypto";
 import { once } from "node:events";
 import http from "node:http";
@@ -16,12 +16,12 @@ import {
   it,
   vi,
 } from "vitest";
-import { exchangeCode } from "../src/agents/remote/enrollment.js";
+import { exchangeCode } from "../../../packages/runner/src/workload/agents/remote/enrollment.js";
 import {
   type Frame,
   type EnrollmentRequest,
   type EnrollmentReply,
-} from "../src/agents/remote/protocol.js";
+} from "../../../packages/runner/src/workload/agents/remote/protocol.js";
 import { wireFrames } from "../src/runners/enrolled/v1-framing.js";
 import { remoteEngineTransport } from "../src/agents/remote/engine-transport.js";
 import { RunnerRegistry } from "../src/agents/remote/registry.js";
@@ -33,7 +33,7 @@ import {
   RunnerAcknowledgementLost,
   RunnerRevoked,
 } from "../src/agents/remote/service.js";
-import { generateRunnerKey } from "../src/agents/remote/x509.js";
+import { generateRunnerKey } from "../../../packages/runner/src/workload/agents/remote/x509.js";
 import {
   issueAuthority,
   issueClient,

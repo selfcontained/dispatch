@@ -20,28 +20,33 @@ import { startTestLocalRunner } from "./helpers/local-runner-child.js";
 const native = vi.hoisted(() => ({
   workload: undefined as
     | ReturnType<
-        (typeof import("../src/agents/checkout-worker.js"))["createCheckoutWorkload"]
+        (typeof import("../../../packages/runner/src/workload/agents/checkout-worker.js"))["createCheckoutWorkload"]
       >
     | undefined,
   factory: undefined as
-    | (typeof import("../src/agents/checkout-worker.js"))["createCheckoutWorkload"]
+    | (typeof import("../../../packages/runner/src/workload/agents/checkout-worker.js"))["createCheckoutWorkload"]
     | undefined,
 }));
-vi.mock("../src/agents/checkout-worker.js", async (original) => {
-  const actual =
-    await original<typeof import("../src/agents/checkout-worker.js")>();
-  native.factory = actual.createCheckoutWorkload;
-  return {
-    ...actual,
-    createCheckoutWorkload: (
-      inputs: Parameters<typeof actual.createCheckoutWorkload>[0]
-    ) => {
-      const result = actual.createCheckoutWorkload(inputs);
-      native.workload = result;
-      return result;
-    },
-  };
-});
+vi.mock(
+  "../../../packages/runner/src/workload/agents/checkout-worker.js",
+  async (original) => {
+    const actual =
+      await original<
+        typeof import("../../../packages/runner/src/workload/agents/checkout-worker.js")
+      >();
+    native.factory = actual.createCheckoutWorkload;
+    return {
+      ...actual,
+      createCheckoutWorkload: (
+        inputs: Parameters<typeof actual.createCheckoutWorkload>[0]
+      ) => {
+        const result = actual.createCheckoutWorkload(inputs);
+        native.workload = result;
+        return result;
+      },
+    };
+  }
+);
 let fixture: Awaited<ReturnType<typeof ownedCheckoutFixture>>,
   child: ReturnType<typeof startTestLocalRunner>,
   state: string;

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { parseRepository } from "../src/agents/remote/repository.js";
-import { getPullRequestHead } from "../src/shared/github/pr.js";
+import { getPullRequestHead } from "../../../packages/runner/src/workload/shared/github/pr.js";
 import {
   resolveCheckoutIntent,
   runnerDefaultBranch,
@@ -15,12 +15,12 @@ import {
   type CheckoutIntent,
 } from "../src/agents/checkout-intent.js";
 import { AgentManager } from "../src/agents/manager.js";
-import { localDefaultBranch } from "../src/shared/git/default-branch.js";
+import { localDefaultBranch } from "../../../packages/runner/src/workload/shared/git/default-branch.js";
 import { agentComparisonBase } from "../src/agents/effective-base.js";
 import { readAgentView } from "../src/agents/checkout-runner.js";
 import { inspectCheckout } from "./helpers/checkout-inspection.js";
-import { listLocalRemoteBranches } from "../src/agents/local-workspace-probes.js";
-import { createGitWorktree } from "../src/shared/git/worktree.js";
+import { listLocalRemoteBranches } from "../../../packages/runner/src/workload/agents/local-workspace-probes.js";
+import { createGitWorktree } from "../../../packages/runner/src/workload/shared/git/worktree.js";
 import { runnerWorktree } from "../src/agents/workspace-launch.js";
 
 /**

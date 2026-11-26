@@ -10,7 +10,7 @@ import {
   bindingFromRow,
   type LocalBindingRow,
 } from "../src/runners/local-bindings.js";
-import { resolvePath } from "../src/agents/workspace.js";
+import { resolvePath } from "../../../packages/runner/src/workload/agents/workspace.js";
 import {
   loadCodeowners,
   parseCodeowners,

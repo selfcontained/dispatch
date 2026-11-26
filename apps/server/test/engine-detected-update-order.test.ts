@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { EngineRunnerExecutor } from "../src/agents/remote/engine-runner-executor.js";
+import { EngineRunnerExecutor } from "../../../packages/runner/src/workload/agents/remote/engine-runner-executor.js";
 
 it("runs each detected update step behind its own request and release gate", async () => {
   const requests: string[] = [];

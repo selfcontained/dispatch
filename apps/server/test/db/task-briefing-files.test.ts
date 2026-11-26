@@ -24,9 +24,12 @@ import type { AgentRuntime } from "../../src/agents/runtime.js";
 vi.mock("../../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
 }));
-vi.mock("../../src/agents/workspace-prep.js", () => ({
-  installWorkspaceDependencies: vi.fn(async () => {}),
-}));
+vi.mock(
+  "../../../../packages/runner/src/workload/agents/workspace-prep.js",
+  () => ({
+    installWorkspaceDependencies: vi.fn(async () => {}),
+  })
+);
 
 const { AgentManager: HostAgentManager } =
   await import("../../src/agents/manager.js");

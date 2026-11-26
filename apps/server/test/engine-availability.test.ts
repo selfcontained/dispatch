@@ -10,7 +10,7 @@ import {
   findEngineBin,
   missingEngineMessage,
   withEngineVersions,
-} from "../src/agents/engine-availability.js";
+} from "../../../packages/runner/src/workload/agents/engine-availability.js";
 
 let dir: string;
 let home: string;

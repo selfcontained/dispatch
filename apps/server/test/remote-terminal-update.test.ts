@@ -6,7 +6,7 @@ import type { WebSocket } from "ws";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RunnerConnection } from "@dispatch/runner-client/v1/connection";
 import type { ServiceFrame } from "@dispatch/runner-protocol";
-import { TERMINAL_UPDATE_MESSAGE } from "../src/agents/remote/update-admission.js";
+import { TERMINAL_UPDATE_MESSAGE } from "../../../packages/runner/src/workload/agents/remote/update-admission.js";
 import { HumanTerminalManager } from "../src/terminal/manager.js";
 import { remoteTerminal } from "../src/terminal/remote.js";
 

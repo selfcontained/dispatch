@@ -7,15 +7,25 @@ const mocks = vi.hoisted(() => ({
   versions: vi.fn(async (rows) => rows),
   updates: vi.fn(async (rows) => rows),
 }));
-vi.mock("../src/agents/engine-availability.js", async (original) => ({
-  ...(await original<typeof import("../src/agents/engine-availability.js")>()),
-  engineStatuses: mocks.statuses,
-  withEngineVersions: mocks.versions,
-}));
-vi.mock("../src/agents/engine-updates.js", async (original) => ({
-  ...(await original<typeof import("../src/agents/engine-updates.js")>()),
-  withEngineUpdates: mocks.updates,
-}));
+vi.mock(
+  "../../../packages/runner/src/workload/agents/engine-availability.js",
+  async (original) => ({
+    ...(await original<
+      typeof import("../../../packages/runner/src/workload/agents/engine-availability.js")
+    >()),
+    engineStatuses: mocks.statuses,
+    withEngineVersions: mocks.versions,
+  })
+);
+vi.mock(
+  "../../../packages/runner/src/workload/agents/engine-updates.js",
+  async (original) => ({
+    ...(await original<
+      typeof import("../../../packages/runner/src/workload/agents/engine-updates.js")
+    >()),
+    withEngineUpdates: mocks.updates,
+  })
+);
 
 // Origin/main 6ab845b2 system.ts:173–219. No database or host CLI runs.
 describe("main engine update HTTP parity", () => {

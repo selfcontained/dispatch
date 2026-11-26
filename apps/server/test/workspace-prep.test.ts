@@ -10,7 +10,7 @@ vi.mock("../src/shared/lib/run-command.js", () => ({
 }));
 
 const { setupAgentWorkspace: setupWorkloadWorkspace } =
-  await import("../src/agents/workspace-prep.js");
+  await import("../../../packages/runner/src/workload/agents/workspace-prep.js");
 const { withToolSearchPath } =
   await import("../src/shared/lib/tool-environment.js");
 const { runCommand } = await import("../src/shared/lib/run-command.js");

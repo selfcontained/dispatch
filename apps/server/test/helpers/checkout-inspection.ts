@@ -1,6 +1,6 @@
-import { inspectCheckout as inspect } from "../../src/agents/checkout-inspection.js";
+import { inspectCheckout as inspect } from "../../../../packages/runner/src/workload/agents/checkout-inspection.js";
 import { toPersonaDefinition } from "../../src/personas/loader.js";
-export * from "../../src/agents/checkout-inspection.js";
+export * from "../../../../packages/runner/src/workload/agents/checkout-inspection.js";
 export function inspectCheckout(
   cwd: string,
   query: Parameters<typeof inspect>[1],

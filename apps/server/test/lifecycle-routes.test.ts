@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BLOCK_TEXT_MAX_CHARS } from "@dispatch/shared";
 import { AgentManager } from "../src/agents/manager.js";
 import { StreamService } from "../src/chat/service.js";
-import { WorkspaceError } from "../src/files/workspace-view.js";
+import { WorkspaceError } from "../../../packages/runner/src/workload/files/workspace-view.js";
 
 import { useInjectApp } from "./helpers/inject-app.js";
 

@@ -10,7 +10,7 @@ import path from "node:path";
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import { EngineRunnerExecutor as ActualEngineRunnerExecutor } from "../src/agents/remote/engine-runner-executor.js";
+import { EngineRunnerExecutor as ActualEngineRunnerExecutor } from "../../../packages/runner/src/workload/agents/remote/engine-runner-executor.js";
 
 // Existing legacy tests inject a manual/detected plan; the persistent workload
 // process is exercised separately without a real privilege drop or engine.

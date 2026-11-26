@@ -5,10 +5,15 @@ import {
 } from "../src/runners/placement.js";
 import { agentTaskProject } from "../src/tasks/agent-scope.js";
 const rootRead = vi.hoisted(() => vi.fn());
-vi.mock("../src/shared/git/git-context.js", async (original) => ({
-  ...(await original<typeof import("../src/shared/git/git-context.js")>()),
-  resolveRepoRoot: rootRead,
-}));
+vi.mock(
+  "../../../packages/runner/src/workload/shared/git/git-context.js",
+  async (original) => ({
+    ...(await original<
+      typeof import("../../../packages/runner/src/workload/shared/git/git-context.js")
+    >()),
+    resolveRepoRoot: rootRead,
+  })
+);
 const agent = (cwd: string) => ({
   id: "scope-order",
   cwd,

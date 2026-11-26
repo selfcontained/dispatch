@@ -77,28 +77,34 @@ vi.mock("node:tls", async (original) => ({
   connect: dial,
 }));
 
-vi.mock("../src/agents/remote/session-processes.js", async (original) => ({
-  ...(await original<
-    typeof import("../src/agents/remote/session-processes.js")
-  >()),
-  createSessionProcesses: () => ({ acquire: () => () => {} }),
-}));
+vi.mock(
+  "../../../packages/runner/src/workload/agents/remote/session-processes.js",
+  async (original) => ({
+    ...(await original<
+      typeof import("../../../packages/runner/src/workload/agents/remote/session-processes.js")
+    >()),
+    createSessionProcesses: () => ({ acquire: () => () => {} }),
+  })
+);
 
-vi.mock("../src/agents/remote/session-supervisor.js", async (original) => {
-  const real =
-    await original<
-      typeof import("../src/agents/remote/session-supervisor.js")
-    >();
-  return {
-    ...real,
-    createSessionSupervisor: (
-      config: Parameters<typeof real.createSessionSupervisor>[0]
-    ) => {
-      supervisorConfig(config);
-      return real.createSessionSupervisor(config);
-    },
-  };
-});
+vi.mock(
+  "../../../packages/runner/src/workload/agents/remote/session-supervisor.js",
+  async (original) => {
+    const real =
+      await original<
+        typeof import("../../../packages/runner/src/workload/agents/remote/session-supervisor.js")
+      >();
+    return {
+      ...real,
+      createSessionSupervisor: (
+        config: Parameters<typeof real.createSessionSupervisor>[0]
+      ) => {
+        supervisorConfig(config);
+        return real.createSessionSupervisor(config);
+      },
+    };
+  }
+);
 
 import { createSessionCore } from "@dispatch/runner/cli";
 import {
@@ -106,8 +112,8 @@ import {
   runRemoteRunner,
   runnerReconnectDelay,
   type RunnerUpdateOptions,
-} from "../src/agents/remote/runner.js";
-import { enterDirectory } from "../src/agents/remote/workload-tools.js";
+} from "../../../packages/runner/src/workload/agents/remote/runner.js";
+import { enterDirectory } from "../../../packages/runner/src/workload/agents/remote/workload-tools.js";
 
 it("preserves prototype storage while keeping opaque wire IDs out of paths", () => {
   expect(runnerStorageKey("agt_123456")).toBe("agt_123456");

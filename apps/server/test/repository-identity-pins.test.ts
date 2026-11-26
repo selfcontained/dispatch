@@ -21,7 +21,7 @@ import type { AgentRecord } from "../src/agents/manager.js";
 import { inspectAgentCheckout } from "../src/agents/checkout-runner.js";
 import { JobService } from "../src/jobs/service.js";
 import { controllerPlacement } from "../src/runners/placement.js";
-import { resolveRepoRoot } from "../src/shared/git/git-context.js";
+import { resolveRepoRoot } from "../../../packages/runner/src/workload/shared/git/git-context.js";
 import { agentTaskProject } from "./helpers/task-scope.js";
 
 let tmp: string;

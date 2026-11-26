@@ -14,7 +14,7 @@ import { promisify } from "node:util";
 import {
   buildWorkspaceFileIndex,
   createWorkspaceFileIndexer,
-} from "../src/files/workspace-file-index.js";
+} from "../../../packages/runner/src/workload/files/workspace-file-index.js";
 
 const roots: string[] = [];
 async function fixture() {

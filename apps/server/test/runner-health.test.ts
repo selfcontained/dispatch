@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cpuPercentage,
   runnerHealthSampler,
-} from "../src/agents/remote/health.js";
+} from "../../../packages/runner/src/workload/agents/remote/health.js";
 import { RemoteRunnerService } from "../src/agents/remote/service.js";
 import { parseRunnerHealth } from "@dispatch/runner-protocol";
 

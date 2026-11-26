@@ -18,7 +18,7 @@ import {
   type ComparisonUse,
 } from "../src/agents/effective-base.js";
 import { agentDiffPath } from "../src/agents/workspace-target.js";
-import { localDefaultBranch } from "../src/shared/git/default-branch.js";
+import { localDefaultBranch } from "../../../packages/runner/src/workload/shared/git/default-branch.js";
 
 let root: string;
 const git = (cwd: string, ...args: string[]) =>

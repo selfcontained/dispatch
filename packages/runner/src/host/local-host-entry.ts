@@ -3,12 +3,12 @@
  * launch file written from the launch request, and its ownership marker.
  * Kept apart from `host-command.ts`, which the host itself imports.
  */
-import { childProcessEnv } from "../../shared/process/child-environment.js";
+import { childProcessEnv } from "../workload/shared/process/child-environment.js";
 import {
   killOwnedProcesses,
   ownedEnvironment,
   ownedProcessPids,
-} from "../../shared/process/owned-processes.js";
+} from "../workload/shared/process/owned-processes.js";
 import {
   hostCommand,
   loginShellCommand,
@@ -25,7 +25,7 @@ import {
   engineStatuses,
   engineVersion,
   missingEngineMessage,
-} from "../engine-availability.js";
+} from "../workload/agents/engine-availability.js";
 import {
   isAcpEngine,
   type AcpEngineId,

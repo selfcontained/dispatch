@@ -43,12 +43,15 @@ const cleanupGitWorktreeSpy = vi.fn(async () => ({
   deletedBranch: false,
 }));
 
-vi.mock("../../src/shared/git/worktree.js", async () => {
-  const actual = await vi.importActual<
-    typeof import("../../src/shared/git/worktree.js")
-  >("../../src/shared/git/worktree.js");
-  return { ...actual, cleanupGitWorktree: cleanupGitWorktreeSpy };
-});
+vi.mock(
+  "../../../../packages/runner/src/workload/shared/git/worktree.js",
+  async () => {
+    const actual = await vi.importActual<
+      typeof import("../../../../packages/runner/src/workload/shared/git/worktree.js")
+    >("../../../../packages/runner/src/workload/shared/git/worktree.js");
+    return { ...actual, cleanupGitWorktree: cleanupGitWorktreeSpy };
+  }
+);
 
 const { AgentManager } = await import("../../src/agents/manager.js");
 const { resolveWorkspace } = await import("../helpers/main-workspace.js");

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Runner } from "@dispatch/runner-protocol/contract";
 import { RunnerCallError } from "@dispatch/runner-protocol/contract";
-import { EngineWorkload } from "../src/agents/remote/engine-runner-executor.js";
+import { EngineWorkload } from "../../../packages/runner/src/workload/agents/remote/engine-runner-executor.js";
 import { localEngineCalls } from "../src/runners/local.js";
 import { runnerPluginChecker } from "../src/routes/plugin.js";
 

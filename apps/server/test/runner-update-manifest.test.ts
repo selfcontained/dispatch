@@ -14,11 +14,11 @@ import { describe, expect, it } from "vitest";
 import {
   compiledRunnerUpdateKeys,
   RUNNER_UPDATE_DEV_KEY_ID,
-} from "../src/agents/remote/update-keys.js";
+} from "../../../packages/runner/src/workload/agents/remote/update-keys.js";
 import {
   canonicalRunnerManifest,
   verifyRunnerUpdateEnvelope,
-} from "../src/agents/remote/update-manifest.js";
+} from "../../../packages/runner/src/workload/agents/remote/update-manifest.js";
 
 const { privateKey, publicKey } = generateKeyPairSync("ed25519");
 const standby = generateKeyPairSync("ed25519");

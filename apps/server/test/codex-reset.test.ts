@@ -1,4 +1,4 @@
-import { localEngineWorkload } from "../src/agents/remote/engine-runner-executor.js";
+import { localEngineWorkload } from "../../../packages/runner/src/workload/agents/remote/engine-runner-executor.js";
 import {
   scopedEngineCalls,
   localEngineCalls,
@@ -10,7 +10,7 @@ import {
   createRunnerUsage,
   createCodexResetCoordinator,
 } from "../src/agents/codex-reset.js";
-import { CodexResetError } from "../src/agents/provider-plans.js";
+import { CodexResetError } from "../../../packages/runner/src/workload/agents/provider-plans.js";
 
 const key = "a8b3cda6-7890-4a17-a031-9affc78a1eba";
 const otherKey = "bbf3cda6-7890-4a17-a031-9affc78a1eba";

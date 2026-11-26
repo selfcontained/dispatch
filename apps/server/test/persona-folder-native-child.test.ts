@@ -24,24 +24,29 @@ import { startTestLocalRunner } from "./helpers/local-runner-child.js";
 const fallback = vi.hoisted(() => ({
   workload: undefined as
     | ReturnType<
-        (typeof import("../src/agents/checkout-worker.js"))["createCheckoutWorkload"]
+        (typeof import("../../../packages/runner/src/workload/agents/checkout-worker.js"))["createCheckoutWorkload"]
       >
     | undefined,
 }));
-vi.mock("../src/agents/checkout-worker.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../src/agents/checkout-worker.js")>();
-  return {
-    ...actual,
-    createCheckoutWorkload: (
-      inputs: Parameters<typeof actual.createCheckoutWorkload>[0]
-    ) => {
-      const workload = actual.createCheckoutWorkload(inputs);
-      fallback.workload = workload;
-      return workload;
-    },
-  };
-});
+vi.mock(
+  "../../../packages/runner/src/workload/agents/checkout-worker.js",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("../../../packages/runner/src/workload/agents/checkout-worker.js")
+      >();
+    return {
+      ...actual,
+      createCheckoutWorkload: (
+        inputs: Parameters<typeof actual.createCheckoutWorkload>[0]
+      ) => {
+        const workload = actual.createCheckoutWorkload(inputs);
+        fallback.workload = workload;
+        return workload;
+      },
+    };
+  }
+);
 
 it.each(["checkout.list", "checkout.read"] as const)(
   "native %s makes one child attempt and recovers through its own port",

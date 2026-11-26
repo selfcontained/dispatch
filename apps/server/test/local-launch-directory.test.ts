@@ -1,4 +1,4 @@
-import { inferRepositoryUrl } from "../src/agents/checkout-worker.js";
+import { inferRepositoryUrl } from "../../../packages/runner/src/workload/agents/checkout-worker.js";
 import { launchDirectory } from "../src/agents/workspace-launch.js";
 /*
  * Where a local launch starts (`resolveLaunchDirectory`), pinned before it
@@ -18,7 +18,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { resolveLaunchDirectory as resolveWorkloadDirectory } from "../src/agents/workspace.js";
+import { resolveLaunchDirectory as resolveWorkloadDirectory } from "../../../packages/runner/src/workload/agents/workspace.js";
 
 const root = realpathSync(mkdtempSync(path.join(tmpdir(), "launch-dir-")));
 const repo = path.join(root, "repo");

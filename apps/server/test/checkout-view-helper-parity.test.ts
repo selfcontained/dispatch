@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { imageMimeType, isImageFile } from "../src/shared/git/diff-image.js";
+import {
+  imageMimeType,
+  isImageFile,
+} from "../../../packages/runner/src/workload/shared/git/diff-image.js";
 import {
   WorkspaceError,
   workspaceViewError,
-} from "../src/files/workspace-view.js";
+} from "../../../packages/runner/src/workload/files/workspace-view.js";
 import { observeBoundCheckout } from "../src/agents/checkout-observation.js";
 import { HumanTerminalManager } from "../src/terminal/manager.js";
 

@@ -16,12 +16,12 @@ import { createSessionCore } from "@dispatch/runner/cli";
 import {
   createSessionSupervisor,
   runnerStorageKey,
-} from "../src/agents/remote/session-supervisor.js";
+} from "../../../packages/runner/src/workload/agents/remote/session-supervisor.js";
 import { inspectCheckout } from "./helpers/checkout-inspection.js";
 import {
   workspaceWorkload,
   writeCheckoutFile,
-} from "../src/agents/checkout-worker.js";
+} from "../../../packages/runner/src/workload/agents/checkout-worker.js";
 import type { RunnerCallError } from "@dispatch/runner-protocol/contract";
 import { REPO_TOOL_MANIFEST_PATH } from "../src/shared/mcp/repo-tools.js";
 import baseline from "./fixtures/mcp-caller-parity-baseline.json";

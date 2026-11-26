@@ -14,7 +14,7 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import { readAgentView } from "../src/agents/checkout-runner.js";
 import { registerAgentWorkspaceRoutes } from "../src/routes/agents/workspace-routes.js";
-import { buildWorkspaceFileIndex } from "../src/files/workspace-file-index.js";
+import { buildWorkspaceFileIndex } from "../../../packages/runner/src/workload/files/workspace-file-index.js";
 import type { AgentRouteDeps } from "../src/routes/agents/shared.js";
 
 vi.mock("node:fs/promises", async (importOriginal) => {

@@ -92,21 +92,24 @@ vi.mock("node:tls", async (original) => ({
   ...(await original<typeof import("node:tls")>()),
   connect: dial,
 }));
-vi.mock("../src/agents/remote/session-supervisor.js", async (original) => ({
-  ...(await original<
-    typeof import("../src/agents/remote/session-supervisor.js")
-  >()),
-  createSessionSupervisor: async (config: unknown) => {
-    supervisorConfig(config);
-    return supervisor;
-  },
-}));
+vi.mock(
+  "../../../packages/runner/src/workload/agents/remote/session-supervisor.js",
+  async (original) => ({
+    ...(await original<
+      typeof import("../../../packages/runner/src/workload/agents/remote/session-supervisor.js")
+    >()),
+    createSessionSupervisor: async (config: unknown) => {
+      supervisorConfig(config);
+      return supervisor;
+    },
+  })
+);
 
 import {
   runRemoteRunner,
   type RunnerUpdateOptions,
-} from "../src/agents/remote/runner.js";
-import { fileFenceStore } from "../src/agents/remote/update-fence-store.js";
+} from "../../../packages/runner/src/workload/agents/remote/runner.js";
+import { fileFenceStore } from "../../../packages/runner/src/workload/agents/remote/update-fence-store.js";
 
 const unprivilegedStatus = [
   "Uid:\t1000\t1000\t1000\t1000",

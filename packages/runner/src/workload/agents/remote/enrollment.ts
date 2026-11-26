@@ -12,7 +12,7 @@ import {
   type EnrollmentRequest,
   type EnrollmentReply,
 } from "./protocol.js";
-import { wireFrames } from "../../runners/enrolled/v1-framing.js";
+import { wireFrames } from "@dispatch/runner-client/v1/node";
 import { generateRunnerKey, normalizeFingerprint } from "./x509.js";
 
 /*

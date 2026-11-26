@@ -20,7 +20,7 @@ import {
   sessionFromWire,
 } from "@dispatch/runner-protocol/contract";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { inspectCheckout } from "../src/agents/checkout-inspection.js";
+import { inspectCheckout } from "../../../packages/runner/src/workload/agents/checkout-inspection.js";
 import { inspectAgentCheckout } from "../src/agents/checkout-runner.js";
 import { controllerPlacement } from "../src/runners/placement.js";
 import type { AgentRecord } from "../src/agents/types.js";
