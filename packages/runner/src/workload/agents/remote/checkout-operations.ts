@@ -197,29 +197,9 @@ export function enrolledCheckouts(
         })
       );
     }
-    // Resolve a moved native read from the binding. The read worker receives
-    // that directory directly and has no need to resolve a selector itself.
-    const movedRead =
-      op === "checkout.read" &&
-      manifest.mode === "native" &&
-      target.checkout === "moved";
-    const checkout =
-      target.checkout === "owned"
-        ? "launch"
-        : movedRead
-          ? "current"
-          : (target.checkout ?? "current");
-    const selection = { op, request, checkout };
+    const selection = { op, request, checkout: target.checkout ?? "current" };
     if (!isCheckoutReadRequest(selection, session)) throw invalid();
-    const cwd = movedRead
-      ? await supervisor.withCommandCheckout(
-          session,
-          "moved",
-          signal,
-          async (directory) => directory
-        )
-      : await supervisor.checkoutDirectory(session, selection.checkout);
-    if (cwd === null) throw missing();
+    const cwd = await supervisor.checkoutDirectory(session, selection.checkout);
     signal.throwIfAborted();
     return worker.read(cwd, selection, signal);
   };

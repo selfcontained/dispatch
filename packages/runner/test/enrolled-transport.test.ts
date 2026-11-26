@@ -874,7 +874,7 @@ it("holds the command checkout while credited output is sent and aborts a timed-
 });
 
 it("runs each guard in its bound checkout and refuses stale or fenced commands before spawning", async () => {
-  const { mkdtemp, realpath, rm, stat, writeFile, symlink } =
+  const { mkdir, mkdtemp, realpath, rm, stat, writeFile, symlink } =
     await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
@@ -886,6 +886,7 @@ it("runs each guard in its bound checkout and refuses stale or fenced commands b
   const base = await mkdtemp(join(tmpdir(), "enrolled-guard-"));
   const bound = join(base, "binding");
   const actual = await realpath(base);
+  const moved = join(actual, "moved");
   const manifest = "manifest.json";
   const commandModule = new URL(
     "../src/workload/agents/remote/checkout-command.ts",
@@ -898,8 +899,10 @@ it("runs each guard in its bound checkout and refuses stale or fenced commands b
   const commandEntry = `import {runCheckoutCommandCli} from ${JSON.stringify(commandModule)}; await runCheckoutCommandCli(process.argv[1], process.argv[2]);`;
   const readEntry = `import {runCheckoutWorker} from ${JSON.stringify(readModule)}; await runCheckoutWorker(["read",process.argv[1]], {});`;
   const supervisor: Parameters<typeof enrolledCommand>[0] = {
-    checkoutDirectory: async () => bound,
-    withCommandCheckout: async (_id, _selector, _signal, work) => work(bound),
+    checkoutDirectory: async (_id, selector) =>
+      selector === "launch" || selector === "owned" ? bound : moved,
+    withCommandCheckout: async (_id, selector, _signal, work) =>
+      work(selector === "launch" ? bound : moved),
   };
   const worker = (
     entry: string,
@@ -912,6 +915,8 @@ it("runs each guard in its bound checkout and refuses stale or fenced commands b
     return child.stdout;
   };
   try {
+    await mkdir(moved);
+    await writeFile(join(moved, manifest), "selected");
     await symlink(actual, bound);
     await writeFile(join(actual, manifest), "first");
     const reads = enrolledCheckouts(
@@ -1013,13 +1018,51 @@ it("runs each guard in its bound checkout and refuses stale or fenced commands b
     ).rejects.toMatchObject({
       code: "stale",
     });
+    for (const checkout of ["current", "moved", undefined] as const) {
+      const selected = { session, checkout };
+      const selectedFile = await client.call("checkout.read", {
+        ...read,
+        target: selected,
+        mode: "native",
+        bindRoot: true,
+      });
+      expect(selectedFile).toMatchObject({
+        data: "selected",
+        root: pathFromWire(moved),
+      });
+      const call = { ...baseCall, argv: [...baseCall.argv], target: selected };
+      await expect(
+        client.call("checkout.exec", {
+          ...call,
+          guard: {
+            root: selectedFile!.root!,
+            identity: selectedFile!.rootIdentity!,
+          },
+        })
+      ).resolves.toMatchObject({ stdout: moved });
+      await expect(
+        client.call("checkout.exec", { ...call, guard: root })
+      ).rejects.toMatchObject({ code: "stale" });
+    }
+    const owned = await client.call("checkout.read", {
+      ...read,
+      target: { session, checkout: "owned" },
+      mode: "native",
+      bindRoot: true,
+    });
+    expect(owned).toMatchObject({
+      data: "edited",
+      root: root.root,
+      rootIdentity: root.identity,
+    });
+    expect(await readFile(join(moved, "executions"), "utf8")).toBe("xxx");
     await fence.freeze();
     await expect(
       run({ guard: { ...root, identity: "wrong" } })
     ).rejects.toMatchObject({
       code: "fenced",
     });
-    expect(execute).toHaveBeenCalledTimes(5);
+    expect(execute).toHaveBeenCalledTimes(11);
     expect(await readFile(join(actual, "executions"), "utf8")).toBe("xx");
   } finally {
     await rm(base, { recursive: true, force: true });

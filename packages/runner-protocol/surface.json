@@ -2956,7 +2956,9 @@
                     "opaque": "SessionHandle"
                   },
                   "checkout": {
-                    "literal": ["launch", "moved"]
+                    "optional": {
+                      "literal": ["current", "launch", "moved"]
+                    }
                   }
                 }
               },

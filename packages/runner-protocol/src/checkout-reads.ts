@@ -24,7 +24,7 @@ export type CheckoutReadRequest = {
     op: K;
     request: Omit<Req<K>, "target">;
     /** Omitted on existing frames: read the currently selected checkout. */
-    checkout?: "current" | "launch";
+    checkout?: "current" | "launch" | "moved" | "owned";
   };
 }[CheckoutReadName];
 
@@ -40,12 +40,12 @@ export function isCheckoutReadRequest(
     !isRecord(value) ||
     !isCheckoutReadName(value.op) ||
     !isRecord(value.request) ||
-    (value.checkout !== undefined &&
-      value.checkout !== "current" &&
-      value.checkout !== "launch") ||
     !operations[value.op].request.check({
       ...value.request,
-      target: { session, checkout: value.checkout ?? "current" },
+      target: {
+        session,
+        checkout: value.checkout === undefined ? "current" : value.checkout,
+      },
     })
   )
     return false;
