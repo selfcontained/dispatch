@@ -35,8 +35,9 @@ if (process.env.RUNNER_FIXTURE_NATIVE_PAUSE) {
   const run = checkoutWorkload.run;
   checkoutWorkload.run = async (op, input, options) => {
     if (
-      (op === "checkout.list" || op === "checkout.read") &&
-      (input.request as { mode?: string }).mode === "native"
+      op === "checkout.access" ||
+      ((op === "checkout.list" || op === "checkout.read") &&
+        (input.request as { mode?: string }).mode === "native")
     ) {
       appendFileSync(process.env.RUNNER_FIXTURE_NATIVE_PAUSE!, op + "\n");
       await new Promise<never>(() => {});

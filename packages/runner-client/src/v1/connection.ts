@@ -257,7 +257,9 @@ export async function receiveCheckoutRead<K extends CheckoutReadName>(
   if (
     !("session" in target) ||
     !["current", "launch", "owned"].includes(target.checkout ?? "current") ||
-    (target.checkout === "owned" && op !== "checkout.read")
+    (target.checkout === "owned" &&
+      op !== "checkout.read" &&
+      op !== "checkout.access")
   )
     throw new RunnerCallError({
       code: "invalid",

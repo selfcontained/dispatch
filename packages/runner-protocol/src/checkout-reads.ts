@@ -5,6 +5,7 @@ import { isOpaqueId } from "./placement.js";
 import { isRecord } from "./validation.js";
 
 const checkoutReadNames = [
+  "checkout.access",
   "checkout.list",
   "checkout.preview",
   "checkout.index",

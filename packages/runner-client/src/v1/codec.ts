@@ -1485,6 +1485,11 @@ export function encodeUpdateStatus(
   return { type: "update_status", ...status } as UpdateStatusFrame;
 }
 
+/** Operations carried only by a stream envelope, outside the legacy value codec. */
+export const STREAMED_ON_V1 = {
+  "checkout.access": "checkoutRead stream",
+} as const satisfies Partial<Record<OpName, string>>;
+
 /** Contract operations with no v1 command, frame or result. */
 export const NOT_ON_V1 = {
   "runner.describe": "derived from the v1 ready frame plus registry fields",
