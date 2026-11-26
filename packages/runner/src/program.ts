@@ -1,7 +1,6 @@
 import * as workers from "./composition.js";
 import type { BuildIdentity } from "@dispatch/runner-protocol/build-identity";
 import type { PathProbePolicy } from "./workload/agents/local-workspace-probes.js";
-import type { DefinitionParser } from "./workload/agents/default-branch-files.js";
 
 export type RunnerAssets = {
   build: BuildIdentity;
@@ -12,8 +11,7 @@ export type RunnerAssets = {
 export async function dispatchRunnerMode(
   argv: string[],
   assets: RunnerAssets,
-  skipPathProbe: PathProbePolicy,
-  parseDefinition: DefinitionParser
+  skipPathProbe: PathProbePolicy
 ): Promise<boolean> {
   if (argv[0] === "remote-runner-pair") {
     const { runRunnerPairing } = await workers.loadEnrollment();
@@ -45,7 +43,6 @@ export async function dispatchRunnerMode(
     await runCheckoutWorker(
       mode === "runner-worker" ? rest : [WORKER_ALIASES[mode!]!, ...rest],
       {
-        parseDefinition,
         launchProbes: (
           await workers.loadLocalWorkspaceProbes()
         ).createLaunchFolderProbes(skipPathProbe),
@@ -129,9 +126,7 @@ export async function dispatchRunnerMode(
         ...(embeddedBuild.revision && { revision: embeddedBuild.revision }),
       },
       platform: {
-        workload: createCheckoutWorkload({
-          parseDefinition,
-        }),
+        workload: createCheckoutWorkload(),
         workspace: {
           ...workspaceWorkload,
           launchProbes: (

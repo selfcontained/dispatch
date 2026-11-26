@@ -58,13 +58,11 @@ if (process.argv[2]?.startsWith("recovery-")) {
   const { embeddedBuild } = await import("./agents/build-identity.js");
   const { shouldSkipAutomaticMacPathProbe } =
     await import("./shared/mac-path-privacy.js");
-  const { toPersonaDefinition } = await import("./personas/definition.js");
   if (
     !(await dispatchRunnerMode(
       process.argv.slice(2),
       { ...assets, build: embeddedBuild },
-      shouldSkipAutomaticMacPathProbe,
-      toPersonaDefinition
+      shouldSkipAutomaticMacPathProbe
     ))
   )
     await serve();

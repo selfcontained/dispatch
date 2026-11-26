@@ -177,26 +177,6 @@ export const workloadVocabularyCompatibility = [
   },
   {
     file: "packages/runner/src/workload/agents/default-branch-files.ts",
-    token:
-      "Could not refresh personas from origin. Using cached definitions; retry is delayed automatically.",
-    reason: "Preserve the diagnostic shown to the user.",
-    temporary: true,
-  },
-  {
-    file: "packages/runner/src/workload/agents/default-branch-files.ts",
-    token:
-      "Could not store the persona catalog. Check repository cache permissions.",
-    reason: "Preserve the diagnostic shown to the user.",
-    temporary: true,
-  },
-  {
-    file: "packages/runner/src/workload/agents/default-branch-files.ts",
-    token: "Persona catalog exceeds the 100-file or 4 MiB limit.",
-    reason: "Preserve the diagnostic shown to the user.",
-    temporary: true,
-  },
-  {
-    file: "packages/runner/src/workload/agents/default-branch-files.ts",
     token: "persona-catalog",
     reason:
       "Main stores the fetched commit and refresh cooldown here. Its private Git ref keeps the cached commit reachable during offline reads.",

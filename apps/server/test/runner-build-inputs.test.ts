@@ -15,8 +15,7 @@ it("supplies build inputs at every embedding entry that consumes them", async ()
   );
   const required = new Map([
     ["runRunnerUpdateTrial", ["build"]],
-    ["runCheckoutWorker", ["parseDefinition"]],
-    ["createCheckoutWorkload", ["parseDefinition"]],
+    ["runCheckoutWorker", ["launchProbes"]],
     ["runRunnerUpdateStage", ["packageVersion"]],
     ["runRemoteRunner", ["build", "healthBuild"]],
     ["runCli", ["build"]],

@@ -18,8 +18,7 @@ if (
   !(await dispatchRunnerMode(
     process.argv.slice(2),
     assets,
-    shouldSkipAutomaticMacPathProbe,
-    () => {}
+    shouldSkipAutomaticMacPathProbe
   ))
 ) {
   process.stderr.write(`Unknown runner mode: ${process.argv[2] ?? "(none)"}\n`);

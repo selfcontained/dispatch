@@ -1,5 +1,4 @@
 import type { InProcessPorts } from "@dispatch/runner-protocol/in-process";
-import { toPersonaDefinition } from "../personas/definition.js";
 
 type Ports = InProcessPorts<Buffer>;
 
@@ -7,9 +6,7 @@ type WorkloadExports = Omit<
   Ports,
   "checkoutWorkload" | "parseEngineCapabilityResult" | "launchProbes"
 > & {
-  createCheckoutWorkload(inputs: {
-    parseDefinition: typeof toPersonaDefinition;
-  }): Ports["checkoutWorkload"];
+  createCheckoutWorkload(): Ports["checkoutWorkload"];
 };
 
 /** Constructed once for the server process after its shell environment is restored. */
@@ -29,9 +26,7 @@ export function composeInProcessPorts(
   } = workload;
   return {
     launchProbes,
-    checkoutWorkload: createCheckoutWorkload({
-      parseDefinition: toPersonaDefinition,
-    }),
+    checkoutWorkload: createCheckoutWorkload(),
     githubWorkload,
     workspaceWorkload,
     sessionFilesWorkload,

@@ -35,10 +35,8 @@ vi.mock(
       >();
     return {
       ...actual,
-      createCheckoutWorkload: (
-        inputs: Parameters<typeof actual.createCheckoutWorkload>[0]
-      ) => {
-        const workload = actual.createCheckoutWorkload(inputs);
+      createCheckoutWorkload: () => {
+        const workload = actual.createCheckoutWorkload();
         fallback.workload = workload;
         return workload;
       },

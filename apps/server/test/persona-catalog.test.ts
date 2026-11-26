@@ -512,7 +512,7 @@ describe("shared remote persona catalog", () => {
   });
 });
 
-it("keeps invalid-before-unsupported warnings ordered and invalid content off the wire", async () => {
+it("returns definition text and the position of each file diagnostic", async () => {
   await publish("valid", "c-valid");
   await writeFile(
     path.join(author, ".agents/personas/a-invalid.md"),
@@ -528,15 +528,15 @@ it("keeps invalid-before-unsupported warnings ordered and invalid content off th
     true
   );
   expect(reply.files.map((file) => file.path)).toEqual([
+    ".agents/personas/a-invalid.md",
     ".agents/personas/c-valid.md",
   ]);
-  expect(reply.warnings).toEqual([
-    "Could not load persona .agents/personas/a-invalid.md: invalid persona definition.",
-    "Could not load persona .agents/personas/b-link.md: unsupported file or larger than 256 KiB.",
+  expect(reply.diagnostics).toEqual([
+    { code: "unsupported", path: ".agents/personas/b-link.md", fileIndex: 1 },
   ]);
 });
 
-it("the enrolled runner's self-exec worker receives the exact definition parser", async () => {
+it("the enrolled worker reads definitions and reports a symlink in listing order", async () => {
   await publish("valid", "c-valid");
   await writeFile(
     path.join(author, ".agents/personas/a-invalid.md"),
@@ -547,7 +547,7 @@ it("the enrolled runner's self-exec worker receives the exact definition parser"
   await git(author, "commit", "-m", "worker parser fixtures");
   await git(author, "push");
   const reply = await new Promise<{
-    data: { files: Array<{ path: string }>; warnings: string[] };
+    data: { files: Array<{ path: string }>; diagnostics: unknown[] };
   }>((resolve, reject) => {
     const worker = execFile(
       "bun",
@@ -578,11 +578,11 @@ it("the enrolled runner's self-exec worker receives the exact definition parser"
     );
   });
   expect(reply.data.files.map((file) => file.path)).toEqual([
+    ".agents/personas/a-invalid.md",
     ".agents/personas/c-valid.md",
   ]);
-  expect(reply.data.warnings).toEqual([
-    "Could not load persona .agents/personas/a-invalid.md: invalid persona definition.",
-    "Could not load persona .agents/personas/b-link.md: unsupported file or larger than 256 KiB.",
+  expect(reply.data.diagnostics).toEqual([
+    { code: "unsupported", path: ".agents/personas/b-link.md", fileIndex: 1 },
   ]);
 });
 
