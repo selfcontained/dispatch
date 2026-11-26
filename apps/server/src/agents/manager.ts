@@ -2021,7 +2021,7 @@ export class AgentManager {
       );
       launch = rows[0]?.runner_repository?.checkout ?? null;
     }
-    return agentComparisonBase(agent, use, launch);
+    return agentComparisonBase(agent, use, launch, this.checkoutReadRunners());
   }
 
   viewCheckout(

@@ -68,6 +68,7 @@
         "apps/server/test/archive-seam-policy.test.ts",
         "apps/server/test/db/archive-co-owner-parity.test.ts",
         "apps/server/test/effective-base.test.ts",
+        "apps/server/test/comparison-base-parity.test.ts",
         "apps/server/test/launch-admission.test.ts",
         "apps/server/test/launch-model-scope.test.ts",
         "apps/server/test/local-bindings.test.ts",
