@@ -1499,17 +1499,16 @@ export async function runRemoteRunner(
             break;
           }
           case "checkoutRelease": {
-            const observation = await supervisor.checkoutRelease(
-              agentId,
-              workspace,
-              command.operation
-            );
-            if (observation === "released" || observation === "retained")
-              closeSessionTerminals(agentId, workspace);
+            if (command.operation.kind !== "observe")
+              throw new Error("Invalid runner command.");
             result(
-              typeof observation === "string"
-                ? observation
-                : JSON.stringify(observation)
+              JSON.stringify(
+                await supervisor.observeWorkspace(
+                  agentId,
+                  workspace,
+                  command.operation.policy
+                )
+              )
             );
             break;
           }

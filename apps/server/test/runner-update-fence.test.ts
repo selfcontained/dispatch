@@ -57,7 +57,7 @@ const { reportIdentity, dial, spawnChild, supervisorConfig, supervisor } =
       supervisor: {
         launch: fn(),
         sessionFile: fn(),
-        checkoutRelease: fn(),
+        observeWorkspace: fn(),
         withCommandCheckout: fn(),
         checkoutDirectory: fn(),
         sessionCheckout: fn(),

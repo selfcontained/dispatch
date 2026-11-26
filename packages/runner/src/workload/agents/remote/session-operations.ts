@@ -65,6 +65,21 @@ export function enrolledSessions(
         closeTerminals(id);
         return {};
       },
+      "workspace.observe": async ({ session, policy }) => {
+        const observation = await supervisor.observeWorkspace(
+          sessionToWire(session),
+          workspace,
+          policy ?? "changes"
+        );
+        const checkout = observation.checkout;
+        return {
+          ...observation,
+          checkout: checkout && {
+            ...checkout,
+            path: pathFromWire(checkout.path),
+          },
+        };
+      },
       "workspace.describe": async ({ session }) => {
         const id = sessionToWire(session);
         if (!(await supervisor.isBound(id, workspace)))

@@ -804,6 +804,12 @@ describe("runner session supervision", () => {
     await expect(
       calls["workspace.select"]({ session, path: null })
     ).rejects.toMatchObject({ code: "not_found" });
+    await expect(calls["workspace.observe"]({ session })).resolves.toEqual({
+      ownership: "none",
+      owner: null,
+      borrowers: [],
+      checkout: null,
+    });
     await expect(calls["session.list"]({ owner: null })).resolves.toEqual({
       sessions: [],
     });
@@ -956,93 +962,83 @@ describe("runner session supervision", () => {
     expect(stdout).toContain("dispatch-stream start --playwright");
   });
 
-  it.each(["discard", "archive"] as const)(
-    "keeps shared files through stop/start, restart, update resume and reconciliation until %s",
-    async (cleanup) => {
-      const workspace = "configured";
-      const command = launch(workspace);
-      let runner = await start([workspace]);
-      await runner.launch(command, root);
-      const hostDir = path.join(state, "hosts", agentId);
-      const files = path.join(hostDir, "files");
-      const report = path.join(files, "nested", "report.md");
-      await mkdir(path.dirname(report));
-      await writeFile(report, "agent report");
+  it("keeps shared files through stop/start, restart, update resume and reconciliation until discard", async () => {
+    const workspace = "configured";
+    const command = launch(workspace);
+    let runner = await start([workspace]);
+    await runner.launch(command, root);
+    const hostDir = path.join(state, "hosts", agentId);
+    const files = path.join(hostDir, "files");
+    const report = path.join(files, "nested", "report.md");
+    await mkdir(path.dirname(report));
+    await writeFile(report, "agent report");
 
-      const journal = path.join(hostDir, HOST_FILES.journal);
-      const journalId = path.join(hostDir, HOST_FILES.journalId);
-      const receipts = path.join(hostDir, HOST_FILES.receipts);
-      const retained = [
-        [journal, "journal event"],
-        [journalId, "journal id"],
-        [receipts, "prompt receipt"],
-      ] as const;
-      for (const [file, contents] of retained) await writeFile(file, contents);
-      await runner.stop(agentId, workspace, false);
-      expect(await readFile(report, "utf8")).toBe("agent report");
-      await runner.launch(command, root);
-      expect(await readFile(report, "utf8")).toBe("agent report");
-      for (const [file, contents] of retained)
-        expect(await readFile(file, "utf8")).toBe(contents);
+    const journal = path.join(hostDir, HOST_FILES.journal);
+    const journalId = path.join(hostDir, HOST_FILES.journalId);
+    const receipts = path.join(hostDir, HOST_FILES.receipts);
+    const retained = [
+      [journal, "journal event"],
+      [journalId, "journal id"],
+      [receipts, "prompt receipt"],
+    ] as const;
+    for (const [file, contents] of retained) await writeFile(file, contents);
+    await runner.stop(agentId, workspace, false);
+    expect(await readFile(report, "utf8")).toBe("agent report");
+    await runner.launch(command, root);
+    expect(await readFile(report, "utf8")).toBe("agent report");
+    for (const [file, contents] of retained)
+      expect(await readFile(file, "utf8")).toBe(contents);
 
-      const sentinel = path.join(root, "outside");
-      await writeFile(sentinel, "untouched");
-      await rm(journal);
-      await symlink(sentinel, journal);
-      const staleFiles = Object.values(HOST_FILES).filter(
-        (name) => name !== HOST_FILES.launch && name !== HOST_FILES.journal
-      );
-      for (const name of staleFiles)
-        await writeFile(path.join(hostDir, name), "stale host state");
-      await runner.stop(agentId, workspace, true);
-      await runner.launch(command, root);
-      expect(await readFile(report, "utf8")).toBe("agent report");
-      for (const name of [...staleFiles, "journal.jsonl"])
-        await expect(stat(path.join(hostDir, name))).rejects.toMatchObject({
-          code: "ENOENT",
-        });
-      expect(await readFile(sentinel, "utf8")).toBe("untouched");
-      expect((await readdir(hostDir)).sort()).toEqual(["files", "launch.json"]);
-
-      runner.close();
-      runner = await start([workspace], undefined, undefined, {
-        build: { version: "1.7.29", revision: "b".repeat(40) },
+    const sentinel = path.join(root, "outside");
+    await writeFile(sentinel, "untouched");
+    await rm(journal);
+    await symlink(sentinel, journal);
+    const staleFiles = Object.values(HOST_FILES).filter(
+      (name) => name !== HOST_FILES.launch && name !== HOST_FILES.journal
+    );
+    for (const name of staleFiles)
+      await writeFile(path.join(hostDir, name), "stale host state");
+    await runner.stop(agentId, workspace, true);
+    await runner.launch(command, root);
+    expect(await readFile(report, "utf8")).toBe("agent report");
+    for (const name of [...staleFiles, "journal.jsonl"])
+      await expect(stat(path.join(hostDir, name))).rejects.toMatchObject({
+        code: "ENOENT",
       });
-      expect(await runner.alive(agentId, workspace)).toBe(true);
-      expect(await readFile(report, "utf8")).toBe("agent report");
-      await runner.stop(agentId, workspace, true);
-      const resume = {
-        ...command,
-        launch: {
-          ...command.launch,
-          resumeSessionId: "engine-session",
-          launchId: "f95d6e6d-9c31-4d95-a3c0-4db17c260790",
-        },
-      };
-      await runner.launch(resume, root);
-      expect(JSON.parse(await readFile(record, "utf8")).hostBuild.version).toBe(
-        "1.7.29"
-      );
-      expect(await readFile(report, "utf8")).toBe("agent report");
-      await runner.launch(resume, root);
-      expect(processes.spawn).toHaveBeenCalledTimes(4);
-      await runner.stop(agentId, workspace, true);
-      await runner.launch(resume, root);
-      expect(processes.spawn).toHaveBeenCalledTimes(5);
-      expect(await readFile(report, "utf8")).toBe("agent report");
+    expect(await readFile(sentinel, "utf8")).toBe("untouched");
+    expect((await readdir(hostDir)).sort()).toEqual(["files", "launch.json"]);
 
-      await runner.stop(agentId, workspace, true);
-      if (cleanup === "discard") await runner.discard(agentId, workspace);
-      else
-        expect(
-          await runner.checkoutRelease(agentId, workspace, {
-            kind: "release",
-            expectedState: null,
-          })
-        ).toBe("released");
-      await expect(stat(files)).rejects.toMatchObject({ code: "ENOENT" });
-    }
-  );
+    runner.close();
+    runner = await start([workspace], undefined, undefined, {
+      build: { version: "1.7.29", revision: "b".repeat(40) },
+    });
+    expect(await runner.alive(agentId, workspace)).toBe(true);
+    expect(await readFile(report, "utf8")).toBe("agent report");
+    await runner.stop(agentId, workspace, true);
+    const resume = {
+      ...command,
+      launch: {
+        ...command.launch,
+        resumeSessionId: "engine-session",
+        launchId: "f95d6e6d-9c31-4d95-a3c0-4db17c260790",
+      },
+    };
+    await runner.launch(resume, root);
+    expect(JSON.parse(await readFile(record, "utf8")).hostBuild.version).toBe(
+      "1.7.29"
+    );
+    expect(await readFile(report, "utf8")).toBe("agent report");
+    await runner.launch(resume, root);
+    expect(processes.spawn).toHaveBeenCalledTimes(4);
+    await runner.stop(agentId, workspace, true);
+    await runner.launch(resume, root);
+    expect(processes.spawn).toHaveBeenCalledTimes(5);
+    expect(await readFile(report, "utf8")).toBe("agent report");
+
+    await runner.stop(agentId, workspace, true);
+    await runner.discard(agentId, workspace);
+    await expect(stat(files)).rejects.toMatchObject({ code: "ENOENT" });
+  });
 
   it.each(["uid", "gid"] as const)(
     "hands only the files directory to a changed workload %s",
@@ -1769,11 +1765,10 @@ describe("runner session supervision", () => {
     const running = await start([], vi.fn(), undefined, { observeCheckout });
     await running.launch(launch(workspace), undefined);
     await running.stop(agentId, workspace, true);
+    const { calls } = enrolledSessions(running, vi.fn());
+    const session = sessionFromWire(agentId);
     expect(
-      await running.checkoutRelease(agentId, workspace, {
-        kind: "observe",
-        policy: "ownership",
-      })
+      await calls["workspace.observe"]({ session, policy: "ownership" })
     ).toEqual({
       ownership: "owned",
       owner: agentId,
@@ -1782,83 +1777,9 @@ describe("runner session supervision", () => {
     });
     expect(observeCheckout).not.toHaveBeenCalled();
     // The caller's decision needs the state: it is read.
-    await running.checkoutRelease(agentId, workspace, {
-      kind: "observe",
-      policy: "changes",
-    });
+    await calls["workspace.observe"]({ session });
     expect(observeCheckout).toHaveBeenCalledOnce();
   });
-
-  it.each(["owner-first", "borrower-first", "changed-after-observation"])(
-    "conditionally releases a scratch checkout: %s",
-    async (order) => {
-      const workspace = MANAGED_WORKSPACE;
-      const running = await start([]);
-      await running.launch(launch(workspace), undefined);
-      processes.spawn.mockResolvedValueOnce();
-      await running.launch(sharedLaunch(), undefined);
-      await running.stop(agentId, workspace, true);
-      const observation = await running.checkoutRelease(agentId, workspace, {
-        kind: "observe",
-      });
-      expect(observation).toMatchObject({
-        ownership: "owned",
-        owner: agentId,
-        borrowers: [reviewerId],
-      });
-      expect(
-        await running.checkoutRelease(reviewerId, workspace, {
-          kind: "observe",
-        })
-      ).toMatchObject({ ownership: "borrowed", owner: agentId });
-      if (typeof observation === "string" || !observation.checkout)
-        throw new Error("Missing fixture checkout observation");
-      const ownerRelease = {
-        kind: "release",
-        expectedState: observation.checkout.stateId,
-      } as const;
-      const borrowerRelease = { kind: "release", expectedState: null } as const;
-      if (order !== "borrower-first") {
-        expect(
-          await running.checkoutRelease(agentId, workspace, ownerRelease)
-        ).toBe("inUse");
-        expect(await stat(observation.checkout.path)).toBeDefined();
-      }
-      expect(
-        await running.checkoutRelease(reviewerId, workspace, borrowerRelease)
-      ).toBe("released");
-      if (order === "changed-after-observation")
-        await writeFile(
-          path.join(observation.checkout.path, "new.txt"),
-          "work"
-        );
-      running.close();
-      const recovered = await start([]);
-      const expected =
-        order === "changed-after-observation" ? "retained" : "released";
-      expect(
-        await recovered.checkoutRelease(agentId, workspace, ownerRelease)
-      ).toBe(expected);
-      expect(
-        await recovered.checkoutRelease(agentId, workspace, ownerRelease)
-      ).toBe(expected);
-      if (expected === "retained") {
-        await expect(recovered.discard(agentId, workspace)).rejects.toThrow(
-          "retained"
-        );
-        expect(
-          await readFile(
-            path.join(observation.checkout.path, "new.txt"),
-            "utf8"
-          )
-        ).toBe("work");
-      } else {
-        await expect(stat(observation.checkout.path)).rejects.toMatchObject({
-          code: "ENOENT",
-        });
-      }
-    }
-  );
 
   it("holds the owner checkout through a concurrent borrower launch", async () => {
     const workspace = MANAGED_WORKSPACE;
@@ -2284,9 +2205,7 @@ describe("runner session supervision", () => {
       await runner.launch(sharedLaunch(), undefined);
       const before = await bytes(folder);
       for (const id of [reviewerId, agentId])
-        expect(
-          await runner.checkoutRelease(id, workspace, { kind: "observe" })
-        ).toEqual({
+        expect(await runner.observeWorkspace(id, workspace)).toEqual({
           ownership: "external",
           owner: null,
           borrowers: [],
@@ -2294,12 +2213,7 @@ describe("runner session supervision", () => {
         });
       // Either archives first; neither removes the folder or waits on the other.
       await runner.stop(agentId, workspace, true);
-      expect(
-        await runner.checkoutRelease(agentId, workspace, {
-          kind: "release",
-          expectedState: null,
-        })
-      ).toBe("released");
+      await runner.discard(agentId, workspace);
       await runner.stop(reviewerId, workspace, true);
       await expect(
         runner.releaseWorkspace(reviewerId, workspace, async () => true)
@@ -2353,9 +2267,7 @@ describe("runner session supervision", () => {
       await bindFolder(folder);
       await runner.launch(launch(workspace), undefined);
       const before = await bytes(folder);
-      expect(
-        await runner.checkoutRelease(agentId, workspace, { kind: "observe" })
-      ).toEqual({
+      expect(await runner.observeWorkspace(agentId, workspace)).toEqual({
         ownership: "external",
         owner: null,
         borrowers: [],
@@ -2366,12 +2278,7 @@ describe("runner session supervision", () => {
         runner.releaseWorkspace(agentId, workspace, async () => true)
       ).resolves.toBe(false);
       expect(await bytes(folder)).toEqual(before);
-      expect(
-        await runner.checkoutRelease(agentId, workspace, {
-          kind: "release",
-          expectedState: null,
-        })
-      ).toBe("released");
+      await runner.discard(agentId, workspace);
       expect(await bytes(folder)).toEqual(before);
     });
 
@@ -2572,9 +2479,7 @@ describe("runner session supervision", () => {
     expect(workload).not.toHaveBeenCalled();
     const legacyHead = git("-C", checkout, "rev-parse", "HEAD").trim();
     git(`--git-dir=${cache}`, "update-ref", "refs/heads/main", legacyHead);
-    expect(
-      await running.checkoutRelease(agentId, workspace, { kind: "observe" })
-    ).toMatchObject({
+    expect(await running.observeWorkspace(agentId, workspace)).toMatchObject({
       ownership: "owned",
       borrowers: [reviewerId],
       checkout: { unmerged: false, uncommittedFiles: ["?? uncommitted.txt"] },
