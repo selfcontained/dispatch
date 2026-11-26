@@ -1,9 +1,5 @@
 [
   {
-    "field": "runnerManaged",
-    "decision": "Owner 2026-11-22: placement on agent records is intended"
-  },
-  {
     "field": "placement",
     "decision": "Owner 2026-11-22: placement on agent records is intended"
   },
