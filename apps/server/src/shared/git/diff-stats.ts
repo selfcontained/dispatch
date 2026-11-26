@@ -9,7 +9,7 @@ import {
   resolveRenamePath,
   shouldExcludePath,
 } from "./diff-file-rules.js";
-import { isTestFile } from "./test-files.js";
+import { isTestFile } from "@dispatch/runner-protocol";
 import { runCommand, type CommandRunner } from "../lib/run-command.js";
 
 // The diff stats shape is a contract with the web client, so it lives in
