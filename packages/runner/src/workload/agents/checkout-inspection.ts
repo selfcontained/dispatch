@@ -399,17 +399,21 @@ export async function observeGitCheckout(
 ): Promise<CheckoutState> {
   const root = await realpath(dir);
   const cwd = { cwd: root, trimOutput: false };
-  const [branch, status, { baseRef, changedFiles }] = await Promise.all([
-    run("git", ["symbolic-ref", "--short", "--quiet", "HEAD"], {
+  // Fetch writes FETCH_HEAD. Start it only after the local Git reads succeed,
+  // so a failed observation cannot leave it writing into the checkout.
+  const status = await run("git", ["status", "--porcelain"], {
+    cwd: root,
+    timeoutMs: 10_000,
+  });
+  const branch = await run(
+    "git",
+    ["symbolic-ref", "--short", "--quiet", "HEAD"],
+    {
       cwd: root,
       allowedExitCodes: [0, 1],
-    }),
-    run("git", ["status", "--porcelain"], {
-      cwd: root,
-      timeoutMs: 10_000,
-    }),
-    readArchiveChanges(root),
-  ]);
+    }
+  );
+  const { baseRef, changedFiles } = await readArchiveChanges(root);
 
   const stateId = fingerprint
     ? await (async () => {
