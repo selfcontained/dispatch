@@ -2,7 +2,7 @@ import { once } from "node:events";
 import { CONNECTION_WINDOW } from "@dispatch/runner-client/v1/node";
 import type { UpdateStatusFrame } from "@dispatch/runner-protocol";
 import { connect, createServer, type Socket } from "node:net";
-import { PassThrough, Readable, Writable } from "node:stream";
+import { Duplex, PassThrough, Readable, Writable } from "node:stream";
 import { afterEach, expect, it, vi } from "vitest";
 import { LocalSocketConnection } from "@dispatch/runner-client/transport/local-socket";
 import {
@@ -121,6 +121,56 @@ it("refuses a fenced mutation before the handler", async () => {
   ).rejects.toMatchObject({ code: "fenced" });
   expect(stop).not.toHaveBeenCalled();
 });
+
+it.each(["flush", "disconnect"] as const)(
+  "holds an admitted write through its reply or %s",
+  async (finish) => {
+    let flush!: () => void;
+    const socket = new Duplex({
+      read() {},
+      write(_data, _encoding, done) {
+        flush = done;
+        this.emit("replyPending");
+      },
+    });
+    cleanup.push(() => socket.destroy());
+    const fence = new WriteFence();
+    cleanup.push(() => fence.thaw());
+    let settle!: () => void;
+    const pending = new Promise<void>((done) => {
+      settle = done;
+    });
+    const started = vi.fn(async () => {
+      await pending;
+      return {};
+    });
+    serveOperationSocket(
+      socket,
+      { kind: "enrolled" },
+      { "session.stop": started },
+      fence
+    );
+    socket.push(
+      JSON.stringify({
+        id: 1,
+        op: "session.stop",
+        input: { session, force: true },
+      }) + "\n"
+    );
+    await vi.waitFor(() => expect(started).toHaveBeenCalledOnce());
+    const drained = vi.fn();
+    const draining = fence.freeze().then(drained);
+    const replyPending = once(socket, "replyPending");
+    settle();
+    await replyPending;
+    await Promise.resolve();
+    expect(drained).not.toHaveBeenCalled();
+    if (finish === "flush") flush();
+    else socket.destroy();
+    await draining;
+    expect(drained).toHaveBeenCalledOnce();
+  }
+);
 
 it("never replays an admitted mutation or an interrupted read on the next connection", async () => {
   let drop!: () => void;

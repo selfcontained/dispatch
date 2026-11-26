@@ -114,7 +114,7 @@ export function serveOperationSocket(
   socket: Duplex,
   endpoint: { kind: "local"; nonce: string } | { kind: "enrolled" },
   handlers: CallHandlers | Handlers,
-  fence?: WriteFence
+  fence?: Pick<WriteFence, "enter">
 ) {
   const { calls, opens = {} } =
     "calls" in handlers ? (handlers as Handlers) : { calls: handlers };
@@ -123,12 +123,25 @@ export function serveOperationSocket(
   const send = frameWriter<
     StreamFrame | SocketReply | SocketEvent | BlobPathReply
   >(socket);
-  const write = (frame: SocketReply | SocketEvent | BlobPathReply) => {
-    if (socket.destroyed) return;
+  const pendingFlushes = new Set<() => void>();
+  socket.once("close", () => {
+    for (const flushed of pendingFlushes) flushed();
+  });
+  const write = (
+    frame: SocketReply | SocketEvent | BlobPathReply,
+    release?: () => void
+  ) => {
+    // A protected update can take over once admitted work has settled and
+    // its first reply reached the socket (or the connection was lost).
+    if (socket.destroyed) return release?.();
+    function flushed() {
+      if (pendingFlushes.delete(flushed)) release?.();
+    }
+    if (release) pendingFlushes.add(flushed);
     try {
-      send(frame);
+      send(frame, release ? flushed : undefined);
     } catch {
-      // The connection is closing.
+      flushed();
     }
   };
   const streams = new FlowStreams(
@@ -269,19 +282,26 @@ export function serveOperationSocket(
     if (!socketRequest.check(message)) return socket.destroy();
     const { id, op, input } = message;
     const spec = (operations as Record<string, OperationSpec>)[op];
-    const reply = (result: { value: Json } | { error: RunnerError }) => {
+    const reply = (
+      result: { value: Json } | { error: RunnerError },
+      release?: () => void
+    ) => {
+      if (endpoint.kind === "local") {
+        release?.();
+        release = undefined;
+      }
       if ("error" in result)
-        return write({ id, ok: false, error: result.error });
+        return write({ id, ok: false, error: result.error }, release);
       const text = JSON.stringify(result.value);
       if (text.length <= INLINE_REPLY_BYTES / 3)
-        return write({ id, ok: true, value: result.value });
+        return write({ id, ok: true, value: result.value }, release);
       const bytes = Buffer.from(text, "utf8");
       if (bytes.length <= INLINE_REPLY_BYTES)
-        return write({ id, ok: true, value: result.value });
+        return write({ id, ok: true, value: result.value }, release);
       // Too long for one line: the caller registers the stream on this
       // answer, before it reads the stream's first frame.
       const stream = replyStream(id);
-      write({ id, ok: true, stream });
+      write({ id, ok: true, stream }, release);
       const chunks = (function* () {
         for (let at = 0; at < bytes.length; at += 64 * 1024)
           yield bytes.subarray(at, at + 64 * 1024);
@@ -295,15 +315,14 @@ export function serveOperationSocket(
         ...context,
         emit: () => {},
       }).then((result) => {
-        release();
-        if ("error" in result) return reply(result);
+        if ("error" in result) return reply(result, release);
         const ids = channelStreams(id);
         const { channel } = result;
         // Register before replying: the caller starts sending after it.
         void streams
           .receive(ids.in, channel, undefined, { stall: false })
           .catch(() => channel.destroy());
-        reply({ value: result.info });
+        reply({ value: result.info }, release);
         void streams
           .send(ids.out, channel, undefined, { stall: false })
           .catch(() => channel.destroy());
@@ -318,8 +337,7 @@ export function serveOperationSocket(
     };
     void call(op, spec, input, calls, callContext).then((result) => {
       answered = true;
-      release();
-      reply(result);
+      reply(result, release);
     });
   });
 }
