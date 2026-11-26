@@ -1,3 +1,4 @@
+import { commandOutput } from "../transport/command-output.js";
 import {
   operations,
   runnerError,
@@ -191,18 +192,7 @@ export async function receiveCheckoutExec(
         active,
         { stall: false }
       )
-      .then(() => {
-        const text = Buffer.concat(chunks).toString("utf8").trim();
-        const limit = options.maxOutput;
-        if (limit === null || Buffer.byteLength(text) <= limit)
-          return { text, truncated: false };
-        return {
-          text: new TextDecoder().decode(Buffer.from(text).subarray(0, limit), {
-            stream: true,
-          }),
-          truncated: true,
-        };
-      });
+      .then(() => commandOutput(chunks, options.maxOutput));
   };
   try {
     const [out, err, { value }] = await Promise.all([

@@ -30,8 +30,9 @@
  * A failure before the request is written is `unavailable` (not sent); a
  * connection lost after it is `unknown_outcome`.
  */
+import { commandOutput } from "./command-output.js";
 import { connect } from "node:net";
-import { Duplex, PassThrough, Readable, type Writable } from "node:stream";
+import { Duplex, PassThrough, Readable, Writable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import {
   operations,
@@ -118,6 +119,10 @@ export const INLINE_REPLY_BYTES = 256 * 1024;
 /** The credited file contents for a files.get request on an enrolled peer. */
 export function downloadStream(id: number) {
   return `download:${id}`;
+}
+
+export function commandOutputStream(id: number, output: "stdout" | "stderr") {
+  return `exec:${id}:${output}`;
 }
 
 /** The two stream IDs that carry channel `id`. */
@@ -560,6 +565,13 @@ export class LocalSocketConnection {
     } = {}
   ): Promise<Res<K>> {
     const spec = operations[op] as OperationSpec;
+    if (this.enrolled && op === "checkout.exec") {
+      return this.exec(
+        input as Req<"checkout.exec">,
+        opts.signal,
+        opts.timeoutMs
+      ) as Promise<Res<K>>;
+    }
     return this.request(
       op,
       input,
@@ -570,6 +582,70 @@ export class LocalSocketConnection {
       undefined,
       opts.onEvent
     ).reply as Promise<Res<K>>;
+  }
+
+  private async exec(
+    input: Req<"checkout.exec">,
+    signal: AbortSignal | undefined,
+    timeoutMs?: number | null
+  ): Promise<Res<"checkout.exec">> {
+    const cleanup = new AbortController();
+    const active = signal
+      ? AbortSignal.any([signal, cleanup.signal])
+      : cleanup.signal;
+    const bytes = { stdout: [] as Buffer[], stderr: [] as Buffer[] };
+    let transfers: Promise<void[]> | undefined;
+    const { reply } = this.request(
+      "checkout.exec",
+      input,
+      active,
+      timeoutMs === undefined
+        ? localDeadlineMs(operations["checkout.exec"], input)
+        : timeoutMs,
+      (id) => {
+        transfers = Promise.all(
+          (["stdout", "stderr"] as const).map((name) =>
+            this.streams.receive(
+              commandOutputStream(id, name),
+              new Writable({
+                write(chunk: Buffer, _, done) {
+                  bytes[name].push(chunk);
+                  done();
+                },
+              }),
+              active,
+              { stall: false }
+            )
+          )
+        );
+        // The reply distinguishes a refused command from lost acknowledgement.
+        void transfers.catch(() => {});
+      }
+    );
+    try {
+      const result = await reply;
+      if (!operations["checkout.exec"].response.check(result))
+        throw fail("invalid", "Invalid checkout command status.");
+      // A handler that returned the strings directly uses the ordinary reply.
+      // Streamed output is complete before the runner acknowledges its status.
+      if (!transfers || (!bytes.stdout.length && !bytes.stderr.length))
+        return result;
+      await transfers;
+      const out = commandOutput(bytes.stdout, input.maxOutput);
+      const err = commandOutput(bytes.stderr, input.maxOutput);
+      return {
+        ...result,
+        stdout: out.text,
+        stderr: err.text,
+        ...(input.maxOutput !== null && {
+          truncated: Boolean(
+            result.truncated || out.truncated || err.truncated
+          ),
+        }),
+      };
+    } finally {
+      cleanup.abort();
+    }
   }
 
   /** Register the download sink before the runner can send any file bytes. */

@@ -19,6 +19,7 @@ import {
 import {
   blobPathFrame,
   channelStreams,
+  commandOutputStream,
   downloadStream,
   INLINE_REPLY_BYTES,
   jsonLines,
@@ -165,6 +166,7 @@ export function serveOperationSocket(
   });
   const context: Omit<ConnectionContext, "emit"> = {
     receiveBlob(id, sink) {
+      if (endpoint.kind === "enrolled") return streams.receive(id, sink);
       return new Promise((resolve, reject) => {
         if (expected.has(id) || streams.has(id))
           return reject(new Error("Blob ID already in use"));
@@ -348,7 +350,18 @@ export function serveOperationSocket(
     let answered = false;
     const callContext: ConnectionContext = {
       ...context,
-      ...(command && { signal: command.signal }),
+      ...(command && {
+        signal: command.signal,
+        sendOutput(
+          name: "stdout" | "stderr",
+          source: Readable,
+          signal: AbortSignal
+        ) {
+          return streams.send(commandOutputStream(id, name), source, signal, {
+            stall: "blocked",
+          });
+        },
+      }),
       ...(endpoint.kind === "enrolled" &&
         op === "files.get" && {
           async sendFile(source: Readable) {

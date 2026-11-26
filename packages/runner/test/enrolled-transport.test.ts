@@ -260,6 +260,39 @@ it.each(["flush", "disconnect"] as const)(
   }
 );
 
+it("reassembles separately credited command outputs across frame boundaries", async () => {
+  const text = "a".repeat(2 * CONNECTION_WINDOW);
+  const { client } = await pair({
+    calls: {
+      "checkout.exec": async (_, context) => {
+        await Promise.all([
+          context.sendOutput!(
+            "stdout",
+            Readable.from([Buffer.from(text), Buffer.from("\n")]),
+            context.signal!
+          ),
+          context.sendOutput!(
+            "stderr",
+            Readable.from([Buffer.from(" diagnostic \n")]),
+            context.signal!
+          ),
+        ]);
+        return { exitCode: 3, stdout: "", stderr: "" };
+      },
+    },
+  });
+  const result = await client.call("checkout.exec", {
+    target: { session },
+    guard: { path: "dispatch.json", digest: "fixture" },
+    argv: ["fixture"],
+    env: {},
+    timeoutMs: null,
+    maxOutput: null,
+    shell: "direct",
+  });
+  expect(result).toEqual({ exitCode: 3, stdout: text, stderr: "diagnostic" });
+});
+
 it("cancels only the caller's outstanding checkout command", async () => {
   const started = vi.fn();
   const aborted = vi.fn();

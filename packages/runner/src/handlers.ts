@@ -10,6 +10,12 @@ import type {
 export type ConnectionContext = {
   /** An enrolled caller cancelled its command, or its authenticated connection closed. */
   signal?: AbortSignal;
+  /** Forward a checkout process stream on the enrolled command's connection. */
+  sendOutput?(
+    name: "stdout" | "stderr",
+    source: Readable,
+    signal: AbortSignal
+  ): Promise<void>;
   /** Stream the contents of this enrolled files.get response under its call-scoped blob ID. */
   sendFile?(source: Readable): Promise<string>;
   /**
