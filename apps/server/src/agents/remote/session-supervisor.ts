@@ -1667,7 +1667,7 @@ export async function createSessionSupervisor(
             const agentId =
               classified.kind === "current"
                 ? classified.record.sessionId
-                : (identity.sessionId ?? (key.startsWith("agt_") ? key : null));
+                : identity.sessionId;
             if (!agentId || runnerStorageKey(agentId) !== key) return null;
             const launch = await core.readLaunch(key);
             if (owner !== null && launch?.owner !== owner) return null;

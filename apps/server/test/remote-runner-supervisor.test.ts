@@ -2622,6 +2622,31 @@ describe("runner session supervision", () => {
       expect(mode).toBe(0o600);
     });
 
+    it.each(["agt_fixture", "opaque/session"])(
+      "lists the identity stored for current session %s",
+      async (id) => {
+        const runner = await start(["main"]);
+        const key = runnerStorageKey(id);
+        const binding = path.join(state, "bindings", key);
+        await writeFile(binding, "main");
+        await writeFile(
+          binding + ".host",
+          JSON.stringify({ ...currentIdentity, sessionId: id })
+        );
+        expect(
+          (await runner.listSessions("main")).sessions.map((row) => row.session)
+        ).toEqual([id]);
+      }
+    );
+
+    it("omits a tracked host without a session ID even when its directory resembles an agent ID", async () => {
+      const runner = await start(["main"]);
+      const binding = path.join(state, "bindings", agentId);
+      await writeFile(binding, "main");
+      await writeFile(binding + ".host", JSON.stringify(identity));
+      expect(await runner.listSessions("main")).toEqual({ sessions: [] });
+    });
+
     it("lists a bound launch and samples nonzero CPU for its busy host", async () => {
       const runner = await start(["main", "another-owner"]);
       const child = spawn(
