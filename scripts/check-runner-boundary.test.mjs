@@ -151,9 +151,14 @@ for (const [file, source, kind] of violations) {
 
 test("limits the Bun FFI runtime import to its two workload process owners", () => {
   const permits = (file, specifier) =>
-    !scanSource("packages/runner/src/" + file, `await import("${specifier}")`)
-      .some(({kind}) => kind === "R5 package import");
-  for (const file of ["workload/agents/remote/session-processes.ts", "workload/terminal/process-session.ts"]) {
+    !scanSource(
+      "packages/runner/src/" + file,
+      `await import("${specifier}")`
+    ).some(({ kind }) => kind === "R5 package import");
+  for (const file of [
+    "workload/agents/remote/session-processes.ts",
+    "workload/terminal/process-session.ts",
+  ]) {
     assert.equal(permits(file, "bun:ffi"), true);
     assert.equal(permits(file, "bun:test"), false);
   }
@@ -161,11 +166,16 @@ test("limits the Bun FFI runtime import to its two workload process owners", () 
 });
 
 test("only the executable entry can dynamically load runner composition", () => {
-  const forbidden = (file, source) => scanSource(app + file, source)
-    .some(({kind}) => kind === "R5 Dispatch to runner");
+  const forbidden = (file, source) =>
+    scanSource(app + file, source).some(
+      ({ kind }) => kind === "R5 Dispatch to runner"
+    );
   const load = 'await import("@dispatch/runner/composition")';
   assert.equal(forbidden("main.ts", load), false);
-  assert.equal(forbidden("main.ts", 'import "@dispatch/runner/composition"'), true);
+  assert.equal(
+    forbidden("main.ts", 'import "@dispatch/runner/composition"'),
+    true
+  );
   assert.equal(forbidden("server.ts", load), true);
   assert.equal(forbidden("runners/local.ts", load), true);
 });
