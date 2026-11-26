@@ -33,6 +33,7 @@ import { constants, existsSync } from "node:fs";
 import {
   RunnerCallError,
   pathFromWire,
+  displayPath,
   operations,
   type DeclarableError,
   type ErrorCode,
@@ -40,6 +41,7 @@ import {
   type Res,
 } from "@dispatch/runner-protocol/contract";
 import { readWorkspaceView, WorkspaceError } from "../files/workspace-view.js";
+import { getPullRequestHead } from "../shared/github/pr.js";
 import { getAgentDiff, getAgentFileDiff } from "../shared/git/agent-diff.js";
 import { getDiffStatsComputation } from "../shared/git/diff-stats.js";
 import { getAgentDiffImage } from "../shared/git/diff-image.js";
@@ -680,6 +682,12 @@ const evidence = localPullRequestEvidence();
 
 /** The `posix-user` platform's GitHub port: the user's own `gh`. */
 export const githubWorkload = {
+  pullRequestHead({ cwd, ...target }: Req<"github.pr.head">) {
+    return getPullRequestHead({
+      ...target,
+      cwd: cwd === undefined ? undefined : displayPath(cwd),
+    });
+  },
   pullRequestStatus(
     { owner, repo, number }: Req<"github.pr.status">,
     options: { signal?: AbortSignal }

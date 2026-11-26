@@ -56,6 +56,7 @@ export type GitHubOperation =
   | { type: "repositoryBranches"; owner: string; repo: string }
   | (GitHubPullRequestTarget &
       (
+        | { type: "pullRequestHeadAtPath"; cwd: string }
         | { type: "pullRequestHead" | "pullRequestDetails" }
         | {
             type: "pullRequestStatus";
@@ -275,6 +276,8 @@ export function isGitHubOperation(value: unknown): value is GitHubOperation {
       );
     case "repositorySearch":
       return validRepositorySearch(value.query);
+    case "pullRequestHeadAtPath":
+      return typeof value.cwd === "string" && isGitHubPullRequestTarget(value);
     case "pullRequestStatus":
     case "pullRequestHead":
     case "pullRequestDetails":

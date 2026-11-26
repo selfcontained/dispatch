@@ -4,6 +4,7 @@ import {
   mkdir,
   mkdtemp,
   readdir,
+  realpath,
   readFile,
   rm,
   stat,
@@ -260,6 +261,59 @@ it("offers sign-in for an empty legacy gh account and preserves network failures
       status: "unavailable",
       message: "The runner could not connect to github.com.",
     });
+  });
+});
+
+it("enters the selected checkout inside the workload wrapper for a PR head read", async () => {
+  await fixture(async ({ root, gh, env }) => {
+    const cwd = path.join(root, "selected checkout '$");
+    await mkdir(cwd);
+    await writeFile(
+      gh,
+      `#!/bin/sh
+set -eu
+pwd -P > "$HOME/selected"
+printf '%s\\n' "$@" > "$HOME/arguments"
+cat "$HOME/response"
+`
+    );
+    const wrap = vi.fn((bin: string, args: string[]) => ({ bin, args }));
+    const executor = new GitHubRunnerExecutor(env, wrap, undefined, {
+      resolve: async () => gh,
+      invalidate() {},
+    });
+    const operation = {
+      type: "pullRequestHeadAtPath" as const,
+      owner: "org",
+      repo: "repo",
+      number: 3,
+      cwd,
+    };
+    const expected = {
+      url: "https://github.com/fork/repo.git",
+      branch: "topic",
+    };
+    await writeFile(path.join(root, "response"), JSON.stringify(expected));
+    const signal = new AbortController().signal;
+    expect(await executor.handle(operation, signal)).toEqual(expected);
+    expect(wrap.mock.calls[0]?.[1]).toContain(cwd);
+    expect((await readFile(path.join(root, "selected"), "utf8")).trim()).toBe(
+      await realpath(cwd)
+    );
+    expect(
+      (await readFile(path.join(root, "arguments"), "utf8")).trim().split("\n")
+    ).toEqual([
+      "api",
+      "--hostname",
+      "github.com",
+      "repos/org/repo/pulls/3",
+      "--jq",
+      "{url:.head.repo.clone_url,branch:.head.ref}",
+    ]);
+    await writeFile(path.join(root, "response"), "{}");
+    await expect(executor.handle(operation, signal)).rejects.toThrow(
+      "GitHub pull request source branch is unavailable."
+    );
   });
 });
 

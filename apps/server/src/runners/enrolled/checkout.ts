@@ -20,6 +20,7 @@ import {
   sessionToWire,
   sessionFromWire,
   pathFromWire,
+  displayPath,
   type CallName,
   type CallerChannel,
   type CallOptions,
@@ -432,6 +433,18 @@ export function createEnrolledCheckoutRunner(
           options?.signal,
           legacyView
         ) as Promise<Res<K>>;
+      if (op === "github.pr.head") {
+        if (!service) throw new Error("The session runner is unavailable.");
+        options?.signal?.throwIfAborted();
+        const { owner, repo, number, cwd } = input as Req<"github.pr.head">;
+        return service.lookupGitHubPullRequestHead(
+          runnerId,
+          owner,
+          repo,
+          number,
+          cwd === undefined ? undefined : displayPath(cwd)
+        ) as Promise<Res<K>>;
+      }
       if (op === "github.pr.status") {
         if (!service) throw new Error("The session runner is unavailable.");
         options?.signal?.throwIfAborted();

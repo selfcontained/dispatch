@@ -148,6 +148,9 @@ export interface EnginePort {
  * write nothing, so a frozen runner serves them.
  */
 export interface GitHubPort {
+  pullRequestHead(
+    request: Req<"github.pr.head">
+  ): Promise<Res<"github.pr.head">>;
   /** A pull request's state and current checks (`github.pr.status`). */
   pullRequestStatus(
     request: Req<"github.pr.status">,

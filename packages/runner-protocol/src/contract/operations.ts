@@ -734,7 +734,7 @@ export const operations = {
   "github.pr.head": op({
     scope: "runner",
     kind: "call",
-    request: object(pullRequest),
+    request: object({ ...pullRequest, cwd: optional(runnerPath) }),
     response: object({ url: string, branch: string }),
     errors: ["unauthenticated", "not_found"],
     retry: read,
