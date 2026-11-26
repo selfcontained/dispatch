@@ -1,3 +1,4 @@
+import { streamHelper } from "./helpers/stream-helper.js";
 import { embeddedBuild } from "../src/agents/build-identity.js";
 import { gitSha, packageVersion } from "../src/generated/runtime-assets.js";
 import { checkoutCommandTimeoutMs } from "@dispatch/runner-protocol";
@@ -146,6 +147,7 @@ describe("remote runner startup", () => {
     updateOptions = {
       build: embeddedBuild,
       healthBuild: { version: packageVersion, revision: gitSha },
+      streamHelper,
       updateLayout: {
         config,
         installed: path.join(root, "dispatch"),

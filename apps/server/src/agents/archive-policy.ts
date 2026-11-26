@@ -18,11 +18,11 @@ import {
   parseRemoteArchiveObservation,
   rememberArchiveCheckoutState,
   type ArchiveCheckoutAgent,
-  type LocalArchiveRunner,
 } from "./archive-checkout.js";
 import { enrolledArchiveCheckout } from "../runners/enrolled/checkout.js";
 import type { RemoteRunnerService } from "./remote/service.js";
 import type { WorktreeCleanupMode } from "./types.js";
+import type { ArchivePolicy, RunnerComposition } from "../runners/directory.js";
 
 /**
  * What archiving did with an agent's checkout. `pending` is the only outcome
@@ -38,8 +38,6 @@ export type ArchiveOutcome =
     }
   | { kind: "pending"; reason: "unavailable" | "borrowed" };
 
-export type ArchivePlacement = "local" | "runner";
-
 /** A parent's archive authorizes cleanup of all of its children's checkouts. */
 export function cascadeMode(): WorktreeCleanupMode {
   return "force";
@@ -47,7 +45,6 @@ export function cascadeMode(): WorktreeCleanupMode {
 
 /** Placement-specific steps of the one archive sequence. */
 export type ArchiveExecutor = {
-  placement: ArchivePlacement;
   /** False while the executor cannot act; the release stays pending. */
   ready: boolean;
   observe(
@@ -176,7 +173,8 @@ export async function finishArchiveCheckout(
   }
 }
 
-async function localCoOwner(
+/** Main's co-owner rule for a row that records its worktree (exported for its pin). */
+export async function localCoOwner(
   pool: Pool,
   agent: ArchiveCheckoutAgent,
   runner: Runner
@@ -209,23 +207,68 @@ async function localCoOwner(
   return rows[0]?.id ?? null;
 }
 
-/**
- * Local archive through the agent's runner, which applies main's rule: the
- * worktree the row records is the agent's own.
- */
-export function localArchiveExecutor(
+/** N35's co-owner rule: the runner's borrowers, or a row on the same runner checkout. */
+export async function observedCoOwner(
   pool: Pool,
   agent: ArchiveCheckoutAgent,
-  localRunner: LocalArchiveRunner,
-  runner: Runner
+  observation: CheckoutObservation
+) {
+  const { rows } = await pool.query<{ id: string }>(
+    `SELECT id FROM agents WHERE deleted_at IS NULL AND id <> $1
+      AND ((role = 'review' AND id = ANY($2::text[])) OR (cwd = $3 AND
+        (worktree_path = $4 OR workspace_path = $4 OR worktree_branch = $5)))
+      LIMIT 1`,
+    [
+      agent.id,
+      observation.borrowers,
+      agent.cwd,
+      // Shown on the row only: this legacy rule (N35) is decided at T40.
+      null,
+      agent.worktreeBranch,
+    ]
+  );
+  return rows[0]?.id ?? null;
+}
+
+/** What an error anywhere in the cleanup means, by the runner's policy. */
+export function archiveFailure(
+  policy: ArchivePolicy
+): ArchiveExecutor["onError"] {
+  return policy.failure === "kept"
+    ? {
+        outcome: { kind: "kept", reason: "failed" },
+        message: "Worktree cleanup failed; leaving on disk.",
+      }
+    : {
+        outcome: { kind: "pending", reason: "unavailable" },
+        message: "Runner checkout release remains pending.",
+      };
+}
+
+/**
+ * The archive's steps on the agent's runner, by the archive policy the
+ * composition gives that runner. It never reads the placement to choose.
+ */
+export function archiveExecutor(
+  pool: Pool,
+  agent: ArchiveCheckoutAgent,
+  runner: Runner & Pick<RunnerComposition, "archive">,
+  /** The agent's host stopped. */
+  stopped: boolean
 ): ArchiveExecutor {
+  const policy = runner.archive;
   const session = sessionFromWire(agent.id);
-  return {
-    placement: "local",
-    ready: true,
+  const decision = {
+    deleteBranch: Boolean(
+      agent.worktreeBranch && agent.worktreeBranch !== agent.baseBranch
+    ),
+    originalBranch: agent.worktreeBranch,
+  };
+  const executor: ArchiveExecutor = {
+    ready: stopped || !policy.awaitsStoppedHost,
     async observe(mode) {
-      // Force needs no Git status or fetch to authorize local removal.
-      if (mode === "force")
+      // Force needs no Git status or fetch to authorize removal.
+      if (mode === "force" && policy.forceSkipsObserve)
         return {
           ownership: "owned",
           owner: agent.id,
@@ -237,31 +280,37 @@ export function localArchiveExecutor(
       );
     },
     borrowers: () => [],
-    coOwner: () => localCoOwner(pool, agent, runner),
     async release(expectedState) {
       if (expectedState === null) return "retained";
       const { removed } = await runner.call("workspace.release", {
         session,
-        deleteBranch: Boolean(
-          agent.worktreeBranch && agent.worktreeBranch !== agent.baseBranch
-        ),
-        originalBranch: agent.worktreeBranch,
+        ...decision,
       });
       return removed ? "released" : "retained";
     },
-    onError: {
-      outcome: { kind: "kept", reason: "failed" },
-      message: "Worktree cleanup failed; leaving on disk.",
-    },
+    onError: archiveFailure(policy),
+  };
+  if (policy.coOwner === "recorded")
+    return { ...executor, coOwner: () => localCoOwner(pool, agent, runner) };
+  return {
+    ...executor,
+    releaseBound: async () =>
+      (await runner.call("workspace.release", { session, ...decision }))
+        .removed,
+    observedCoOwner: (observation) => observedCoOwner(pool, agent, observation),
   };
 }
 
+/**
+ * The snapshot release on a runner that does not serve bound release
+ * (`checkoutRelease`'s expected state), as before the archive seam.
+ */
 export function runnerArchiveExecutor(
   agent: ArchiveCheckoutAgent,
   remote: RemoteRunnerService | undefined,
   /** The guest host stopped; the runner refuses to release a live host. */
   stopped: boolean,
-  pool: Pool
+  policy: ArchivePolicy
 ): ArchiveExecutor {
   const placement = remotePlacement(agent.cwd);
   const transport =
@@ -269,7 +318,6 @@ export function runnerArchiveExecutor(
       ? enrolledArchiveCheckout(remote, placement, agent.id)
       : undefined;
   return {
-    placement: "runner",
     ready: Boolean(stopped && remote),
     async observe(mode) {
       if (!transport) throw new Error("Missing remote runner placement.");
@@ -283,35 +331,6 @@ export function runnerArchiveExecutor(
       if (!transport) throw new Error("Missing remote runner placement.");
       return transport.release(expectedState);
     },
-    ...(transport?.capable && {
-      releaseBound: () =>
-        transport.releaseBound({
-          deleteBranch: Boolean(
-            agent.worktreeBranch && agent.worktreeBranch !== agent.baseBranch
-          ),
-          originalBranch: agent.worktreeBranch,
-        }),
-      async observedCoOwner(observation: CheckoutObservation) {
-        const { rows } = await pool.query<{ id: string }>(
-          `SELECT id FROM agents WHERE deleted_at IS NULL AND id <> $1
-            AND ((role = 'review' AND id = ANY($2::text[])) OR (cwd = $3 AND
-              (worktree_path = $4 OR workspace_path = $4 OR worktree_branch = $5)))
-            LIMIT 1`,
-          [
-            agent.id,
-            observation.borrowers,
-            agent.cwd,
-            // Shown on the row only: this legacy rule (N35) is decided at T40.
-            null,
-            agent.worktreeBranch,
-          ]
-        );
-        return rows[0]?.id ?? null;
-      },
-    }),
-    onError: {
-      outcome: { kind: "pending", reason: "unavailable" },
-      message: "Runner checkout release remains pending.",
-    },
+    onError: archiveFailure(policy),
   };
 }

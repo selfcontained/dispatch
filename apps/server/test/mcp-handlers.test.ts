@@ -1500,7 +1500,8 @@ describe("createMcpHandlers", () => {
       expect(resolveWorktreeRoot).toHaveBeenLastCalledWith("/template-repo");
       expect(loadPersonaBySlug).toHaveBeenLastCalledWith(
         "/template-repo",
-        "builder"
+        "builder",
+        {}
       );
       expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
         expect.objectContaining({ cwd: "/template-repo", persona: "builder" })

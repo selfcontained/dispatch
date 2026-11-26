@@ -17,8 +17,8 @@ import {
   loadPersonasFromRoots,
   mergePersonasWithWorktreePrecedence,
   parseFrontmatter,
-} from "../src/personas/loader.js";
-import type { PersonaDefinition } from "../src/personas/loader.js";
+} from "./helpers/persona-loader.js";
+import type { PersonaDefinition } from "./helpers/persona-loader.js";
 // ── parseFrontmatter ────────────────────────────────────────────────
 
 describe("parseFrontmatter", () => {

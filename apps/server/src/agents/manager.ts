@@ -65,18 +65,16 @@ import { agentIconPath, folderIconPath } from "./checkout-icon.js";
 import { getActivePersonality } from "../db/personalities.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import {
+  archiveCheckout,
   beginArchive as beginArchiveImpl,
-  cleanupAgentWorktree,
   executeArchive as executeArchiveImpl,
   type ArchiveDeps,
 } from "./archive.js";
 import {
   archiveRunner,
   observeArchiveCheckout,
-  releaseRemoteCheckout,
   type ArchiveCheckoutAgent,
 } from "./archive-checkout.js";
-import type { ArchiveOutcome } from "./archive-policy.js";
 import { AgentError, LifecycleSuperseded } from "./errors.js";
 import { admitLaunch } from "./launch-admission.js";
 import { type AgentEventBus, createAgentEventBus } from "./events.js";
@@ -4706,35 +4704,26 @@ export class AgentManager {
       for (const agent of rows) {
         const { id, cwd, mode } = agent;
         try {
-          let outcome: ArchiveOutcome;
           if (remotePlacement(cwd)) {
             if (!this.remote) continue;
             await this.runtime.stop(id, true);
             await this.streamRecorder.settleStopped(id);
             await this.runtime.clearRemoteState?.(id);
-            outcome = await releaseRemoteCheckout(
-              this.pool,
-              this.logger,
-              agent,
-              mode ?? "auto",
-              this.remote,
-              true
-            );
-          } else {
-            outcome = await cleanupAgentWorktree(
-              this.pool,
-              this.logger,
-              this.localRunner,
-              agent,
-              mode ?? "auto",
-              undefined,
-              archiveRunner(
-                this.localRunnerChild,
-                agent,
-                placementFromRow(agent)
-              )
-            );
           }
+          const outcome = await archiveCheckout(
+            this.pool,
+            this.logger,
+            agent,
+            mode ?? "auto",
+            true,
+            undefined,
+            archiveRunner(
+              { child: this.localRunnerChild, remote: this.remote },
+              agent,
+              placementFromRow(agent)
+            ),
+            this.remote
+          );
           if (outcome.kind === "pending") continue;
           await this.pool.query(
             "UPDATE agents SET runner_cleanup_pending = false, archive_cleanup_mode = NULL, archive_checkout_state = NULL WHERE id = $1",

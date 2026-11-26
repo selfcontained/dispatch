@@ -1,3 +1,4 @@
+import { streamHelper } from "./helpers/stream-helper.js";
 import { isDeepStrictEqual } from "node:util";
 import { execFileSync } from "node:child_process";
 import {
@@ -48,6 +49,7 @@ const unexpected: string[] = [];
 // Use the same persisted managed checkout shape as the runner supervisor tests.
 const supervisor = await createSessionSupervisor(
   {
+    streamHelper,
     state: runnerState,
     build: { version: "1.0.0", revision: state },
     uid: process.getuid!(),

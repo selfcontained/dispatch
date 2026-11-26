@@ -64,6 +64,21 @@ export function withTestWorkspaceRunner(Manager: typeof AgentManager) {
         ): Promise<Res<K>> {
           if (op.startsWith("session."))
             return sessions().call(op, request, opts);
+          // Persona fixture files use the same native workload as production.
+          if (op === "checkout.list" || op === "checkout.read") {
+            const read = request as Req<"checkout.list"> | Req<"checkout.read">;
+            if (read.mode === "native" && "path" in read.target) {
+              const { target, ...input } = read;
+              return (await checkoutWorkload.run(
+                op,
+                {
+                  directory: displayPath(target.path),
+                  request: input,
+                } as never,
+                { signal: opts?.signal }
+              )) as Res<K>;
+            }
+          }
           // Fixture Git mocks stay in process; production calls the runner port.
           if (op === "git.roots" || op === "checkout.defaultFiles") {
             const read = request as

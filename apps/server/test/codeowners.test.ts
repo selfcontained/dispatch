@@ -1,4 +1,4 @@
-import { collectOwnerReviewFiles } from "../src/shared/git/owner-review-files.js";
+import { collectCheckoutFiles } from "../src/shared/git/owner-review-files.js";
 import {
   mkdtemp,
   mkdir,
@@ -19,7 +19,7 @@ import {
   type CodeownersConfig,
 } from "../src/personas/codeowners.js";
 import { runCommand } from "../src/shared/lib/run-command.js";
-import { loadPersonas } from "../src/personas/loader.js";
+import { loadPersonas } from "./helpers/persona-loader.js";
 
 const temporary: string[] = [];
 async function workspace() {
@@ -191,7 +191,7 @@ describe("code owner routing", () => {
     await writeFile(path.join(root, " leading space.ts"), "new");
     await git(["add", " leading space.ts"]);
     await writeFile(path.join(root, "line\nbreak.ts"), "new");
-    expect(await collectOwnerReviewFiles(root, "HEAD~1", runCommand)).toEqual([
+    expect(await collectCheckoutFiles(root, "HEAD~1", runCommand)).toEqual([
       " leading space.ts",
       "deleted.ts",
       "line\nbreak.ts",
@@ -201,7 +201,7 @@ describe("code owner routing", () => {
       "unstaged.ts",
     ]);
     await expect(
-      collectOwnerReviewFiles(root, "missing-base", runCommand)
+      collectCheckoutFiles(root, "missing-base", runCommand)
     ).rejects.toThrow("Command failed");
   });
   it("includes opposing index edits and tracked whitespace-prefixed working edits", async () => {
@@ -218,7 +218,7 @@ describe("code owner routing", () => {
     await git(["add", "staged.ts"]);
     await writeFile(path.join(root, "staged.ts"), "base");
     await writeFile(path.join(root, " leading.ts"), "working change");
-    const files = await collectOwnerReviewFiles(root, "HEAD", runCommand);
+    const files = await collectCheckoutFiles(root, "HEAD", runCommand);
     expect(files).toEqual([" leading.ts", "staged.ts"]);
     expect(
       resolveCodeowners(

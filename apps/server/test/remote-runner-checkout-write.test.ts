@@ -1,3 +1,4 @@
+import { streamHelper } from "./helpers/stream-helper.js";
 import { embeddedBuild } from "../src/agents/build-identity.js";
 import { gitSha, packageVersion } from "../src/generated/runtime-assets.js";
 /*
@@ -210,6 +211,7 @@ it("writes as the workload, in the directory its own binding names", async () =>
   const running = runRemoteRunner(config, {
     build: embeddedBuild,
     healthBuild: { version: packageVersion, revision: gitSha },
+    streamHelper,
     updateLayout: {
       config,
       installed: path.join(root, "dispatch"),

@@ -23,19 +23,20 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  cleanupAgentWorktree,
+  archiveCheckout,
   finishCheckout,
   type ArchiveDeps,
 } from "../src/agents/archive.js";
-import {
-  archiveRunner,
-  releaseRemoteCheckout,
-} from "../src/agents/archive-checkout.js";
-import { runnerArchiveExecutor } from "../src/agents/archive-policy.js";
+import { archiveRunner } from "../src/agents/archive-checkout.js";
+import { archiveExecutor } from "../src/agents/archive-policy.js";
+import { enrolledArchivePolicy } from "../src/runners/directory.js";
 import { workspaceWorkload } from "../src/agents/checkout-worker.js";
 import { observeGitCheckout } from "../src/agents/checkout-inspection.js";
 import { createLocalRunner } from "../src/agents/local-runner.js";
-import { controllerPlacement } from "../src/runners/placement.js";
+import {
+  controllerPlacement,
+  placementForRunner,
+} from "../src/runners/placement.js";
 import type { RemoteRunnerService } from "../src/agents/remote/service.js";
 import type { AgentRecord, WorktreeCleanupMode } from "../src/agents/types.js";
 
@@ -223,7 +224,10 @@ function harness(
     }),
     ...(options.rowWorktree && { worktreePath: options.rowWorktree }),
     cwd: row.placement === "runner" ? "runner://test/@session" : repo,
-    placement: controllerPlacement,
+    placement:
+      row.placement === "runner"
+        ? placementForRunner("test")
+        : controllerPlacement,
     runnerManaged: row.placement === "runner",
   } as unknown as AgentRecord;
   const deps = {
@@ -565,25 +569,23 @@ describe("main's local automatic cleanup", () => {
   );
 });
 
-/** The call `retryRunnerCleanup` makes for a pending row. */
+/** The call `retryRunnerCleanup` makes for a pending row, either kind. */
 function retry(h: Harness, row: Row) {
   const mode = (h.db.cleanupMode ?? row.mode) as WorktreeCleanupMode;
-  return row.placement === "runner"
-    ? releaseRemoteCheckout(
-        h.deps.pool,
-        h.deps.logger,
-        h.agent,
-        mode,
-        h.deps.remote,
-        true
-      )
-    : cleanupAgentWorktree(
-        h.deps.pool,
-        h.deps.logger,
-        h.deps.localRunner,
-        h.agent,
-        mode
-      );
+  return archiveCheckout(
+    h.deps.pool,
+    h.deps.logger,
+    h.agent,
+    mode,
+    true,
+    undefined,
+    archiveRunner(
+      { child: h.deps.localRunnerChild, remote: h.deps.remote },
+      h.agent,
+      h.agent.placement
+    ),
+    h.deps.remote
+  );
 }
 
 describe("restored worktree_branch co-owner guard", () => {
@@ -597,17 +599,7 @@ describe("restored worktree_branch co-owner guard", () => {
         borrowed: false,
       } as const;
       const h = harness(row, { branchCoOwner: true });
-      expect(
-        await cleanupAgentWorktree(
-          h.deps.pool,
-          h.deps.logger,
-          h.deps.localRunner,
-          h.agent,
-          mode,
-          undefined,
-          archiveRunner(undefined, h.agent, controllerPlacement)
-        )
-      ).toEqual({ kind: "kept", reason: "coOwner" });
+      expect(await retry(h, row)).toEqual({ kind: "kept", reason: "coOwner" });
       expect(existsSync(checkout)).toBe(true);
       expect(git(repo, "branch", "--list", "feature")).toContain("feature");
     }
@@ -621,17 +613,7 @@ describe("restored worktree_branch co-owner guard", () => {
       borrowed: true,
     } as const;
     const h = harness(row, { branchCoOwner: true });
-    expect(
-      await cleanupAgentWorktree(
-        h.deps.pool,
-        h.deps.logger,
-        h.deps.localRunner,
-        h.agent,
-        "force",
-        undefined,
-        archiveRunner(undefined, h.agent, controllerPlacement)
-      )
-    ).toEqual({ kind: "kept", reason: "coOwner" });
+    expect(await retry(h, row)).toEqual({ kind: "kept", reason: "coOwner" });
   });
 });
 
@@ -666,9 +648,11 @@ describe("negotiated archive release", () => {
       writeFileSync(path.join(checkout, "late.txt"), "written while offline");
       const requestSession = vi.fn(async (_placement, request) => {
         if (request.kind === "checkoutRelease") {
+          // Through the adapter a forced archive observes with changes too
+          // (one Git status; the runner keeps an unreadable status as null).
           expect(request.operation).toEqual({
             kind: "observe",
-            policy: mode === "force" ? "ownership" : "changes",
+            policy: "changes",
           });
           return {
             value: JSON.stringify({
@@ -1044,11 +1028,8 @@ describe("runner archive co-owner, whatever the row's worktree path", () => {
             ? { rows: [{ id: "moved-in" }], rowCount: 1 }
             : { rows: [], rowCount: 0 },
       } as unknown as Pool;
-      const remote = {
-        supportsWorkspaceRelease: () => true,
-        requestSession: async () => ({ value: "released" }),
-      } as unknown as RemoteRunnerService;
-      const executor = runnerArchiveExecutor(
+      const executor = archiveExecutor(
+        pool,
         {
           id: "runner-agent",
           cwd: "runner://test/@session",
@@ -1056,9 +1037,8 @@ describe("runner archive co-owner, whatever the row's worktree path", () => {
           worktreeBranch: null,
           baseBranch: null,
         },
-        remote,
-        true,
-        pool
+        { call: vi.fn(), archive: enrolledArchivePolicy } as never,
+        true
       );
       return executor.observedCoOwner!({
         ownership: "owned",

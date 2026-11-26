@@ -38,15 +38,18 @@ import {
   archiveObservation,
   archiveRunner,
 } from "../src/agents/archive-checkout.js";
-import { controllerPlacement } from "../src/runners/placement.js";
+import {
+  controllerPlacement,
+  placementForRunner,
+} from "../src/runners/placement.js";
 import {
   sessionFromWire,
   type Runner,
 } from "@dispatch/runner-protocol/contract";
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
-import { releaseRemoteCheckout } from "../src/agents/archive-checkout.js";
-import { cleanupAgentWorktree } from "../src/agents/archive.js";
+import { archiveRunner } from "../src/agents/archive-checkout.js";
+import { archiveCheckout } from "../src/agents/archive.js";
 import type { RemoteRunnerService } from "../src/agents/remote/service.js";
 
 let scratch: string;
@@ -646,7 +649,7 @@ function localSession(row: {
   worktreeBranch: string;
   baseBranch: string;
 }) {
-  return archiveRunner(undefined, { ...row, cwd: repo }, controllerPlacement);
+  return archiveRunner({}, { ...row, cwd: repo }, controllerPlacement);
 }
 
 async function observeThrough(runner: Runner, id: string) {
@@ -791,15 +794,7 @@ describe("archive checkout parity", () => {
       const shouldRelease =
         mode === "force" || (mode === "auto" && state === "clean");
       if (placement === "local") {
-        await cleanupAgentWorktree(
-          pool,
-          logger,
-          local,
-          agent,
-          mode,
-          {},
-          runner
-        );
+        await archiveCheckout(pool, logger, agent, mode, true, {}, runner);
       } else {
         const remote = {
           requestSession: async (
@@ -820,13 +815,19 @@ describe("archive checkout parity", () => {
         } as unknown as RemoteRunnerService;
         expect(
           (
-            await releaseRemoteCheckout(
+            await archiveCheckout(
               pool,
               logger,
               { ...agent, cwd: "runner://test/@session" },
               mode,
-              remote,
-              true
+              true,
+              {},
+              archiveRunner(
+                { remote },
+                { ...agent, cwd: "runner://test/@session" },
+                placementForRunner("test")
+              ),
+              remote
             )
           ).kind
         ).toBe(shouldRelease ? "released" : "kept");

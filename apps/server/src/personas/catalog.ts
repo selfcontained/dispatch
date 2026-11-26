@@ -75,7 +75,7 @@ export class PersonaCatalogCache {
       )
       .catch(() => cwd);
     return {
-      personas: await loadPersonas(root, warnings),
+      personas: await loadPersonas(root, warnings, runners),
       warnings,
       refreshing: false,
       updatedAt: null,
