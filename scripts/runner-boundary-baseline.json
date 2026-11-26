@@ -67,14 +67,7 @@
     "kind": "R1 placement call",
     "detail": "remotePlacement(agent.cwd)",
     "task": "T07",
-    "count": 4
-  },
-  {
-    "file": "apps/server/src/agents/manager.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(row.cwd)",
-    "task": "T07",
-    "count": 1
+    "count": 3
   },
   {
     "file": "apps/server/src/agents/manager.ts",
@@ -176,30 +169,9 @@
   },
   {
     "file": "apps/server/src/routes/agents/streaming-routes.ts",
-    "kind": "R1 locator",
-    "detail": "runner://",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/agents/streaming-routes.ts",
     "kind": "R7 restriction",
     "detail": "N26 Runner screencast returns 409",
     "task": "T39",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/agents/workspace-routes.ts",
-    "kind": "R1 placement call",
-    "detail": "agentWorkspaceDir(agent)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/agents/workspace-routes.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(agent.cwd)",
-    "task": "T07",
     "count": 1
   },
   {

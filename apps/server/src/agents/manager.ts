@@ -1492,8 +1492,9 @@ export class AgentManager {
       worktreePath: string | null;
       gitContext: AgentRecord["gitContext"];
       preparationPending: boolean | null;
+      runner_id: string;
     }>(
-      `SELECT id, cwd, workspace_path AS "workspacePath",
+      `SELECT id, cwd, runner_id, workspace_path AS "workspacePath",
               worktree_path AS "worktreePath", git_context AS "gitContext",
               (status = 'creating' AND runner_preparation->'pending' = 'true'::jsonb) AS "preparationPending" FROM agents
         WHERE status IN ('running', 'creating') AND deleted_at IS NULL
@@ -1525,7 +1526,10 @@ export class AgentManager {
         pending.push(row.id);
         continue;
       }
-      if (!remotePlacement(row.cwd) && this.runtime.inspectNativeHost) {
+      if (
+        !enrolledRunnerId(placementFromRow(row)) &&
+        this.runtime.inspectNativeHost
+      ) {
         try {
           const host = await this.runtime.inspectNativeHost(row.id);
           this.logger.info({ host }, "Observed native host during recovery");
@@ -3807,7 +3811,7 @@ export class AgentManager {
     try {
       // A stopped host must never be adopted as the result of Start.
       await this.retryPendingStop(id);
-      if (!remotePlacement(agent.cwd) && !agent.worktreePath) {
+      if (!enrolledRunnerId(agent.placement) && !agent.worktreePath) {
         // A worktree launch a restart interrupted: the local runner finishes
         // it from its receipt or from the request the row recorded.
         const recorded = await this.localPreparation(id);

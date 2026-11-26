@@ -271,7 +271,7 @@ describe("workspace request identity", () => {
       worktreePath: checkout,
       workspacePath: null,
       requested: locator,
-      status: 200,
+      status: 409,
     },
     {
       name: "runner selected workspace",
@@ -287,7 +287,7 @@ describe("workspace request identity", () => {
       worktreePath: checkout,
       workspacePath: "/selected",
       requested: locator,
-      status: 200,
+      status: 409,
     },
     {
       name: "runner stale worktree after selection",
