@@ -8,7 +8,11 @@ import {
   sessionFromWire,
 } from "@dispatch/runner-protocol/contract";
 import { runnerDirectory } from "../src/runners/directory.js";
-import { controllerPlacement } from "../src/runners/placement.js";
+import type { RemoteRunnerService } from "../src/agents/remote/service.js";
+import {
+  placementForRunner,
+  controllerPlacement,
+} from "../src/runners/placement.js";
 import * as gitContext from "../../../packages/runner/src/workload/shared/git/git-context.js";
 import { inferRepositoryUrl } from "../../../packages/runner/src/workload/agents/checkout-worker.js";
 
@@ -81,4 +85,39 @@ it("selects a workspace in process with main's directory, Git, and error semanti
     vi.restoreAllMocks();
     await rm(root, { recursive: true, force: true });
   }
+});
+
+it("describes the bound enrolled checkout before a launch borrows it", async () => {
+  const placement = placementForRunner("fixture");
+  const agent = {
+    id: "agt_owner",
+    placement,
+    cwd: "runner://fixture/@session",
+    worktreePath: null,
+    workspacePath: null,
+  };
+  const binding = {
+    path: "/work/current",
+    moved: true,
+    origin: "https://github.com/example/repo",
+  };
+  const requestSession = vi
+    .fn()
+    .mockResolvedValue({ value: JSON.stringify(binding) });
+  const runner = runnerDirectory(
+    { remote: { requestSession } as unknown as RemoteRunnerService },
+    agent
+  ).for(placement);
+  await expect(
+    runner.call("workspace.describe", { session: sessionFromWire(agent.id) })
+  ).resolves.toEqual(binding);
+  expect(requestSession).toHaveBeenCalledTimes(1);
+  await expect(
+    runner.call("workspace.describe", { session: sessionFromWire("agt_other") })
+  ).rejects.toMatchObject({ code: "invalid" });
+  expect(requestSession).toHaveBeenCalledTimes(1);
+  requestSession.mockResolvedValue({ value: "malformed" });
+  await expect(
+    runner.call("workspace.describe", { session: sessionFromWire(agent.id) })
+  ).rejects.toMatchObject({ details: { status: 502 } });
 });

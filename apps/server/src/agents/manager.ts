@@ -149,7 +149,6 @@ import {
 import { RemoteEventInbox } from "./remote/event-inbox.js";
 import {
   MANAGED_WORKSPACE,
-  isSessionCheckout,
   remotePlacement,
   type Placement as SessionLocation,
   type RunnerRepository,
@@ -1993,37 +1992,6 @@ export class AgentManager {
     };
   }
 
-  private async runnerCheckout(
-    agent: AgentRecord,
-    operation: { kind: "describe" }
-  ) {
-    const placement = remotePlacement(agent.cwd);
-    if (!placement || !this.remote)
-      throw new AgentError("The session runner is unavailable.", 409);
-    let value: unknown;
-    try {
-      ({ value } = await this.remote.requestSession(placement, {
-        agentId: agent.id,
-        kind: "sessionCheckout",
-        operation,
-      }));
-    } catch (error) {
-      throw new AgentError(
-        errorMessage(error),
-        error instanceof RunnerRevoked ? 403 : 409
-      );
-    }
-    let result: unknown;
-    try {
-      if (typeof value === "string") result = JSON.parse(value);
-    } catch {
-      // Treat malformed acknowledgements like missing results.
-    }
-    if (!isSessionCheckout(result))
-      throw new AgentError("Invalid runner checkout response.", 502);
-    return result;
-  }
-
   /**
    * The agent's effective comparison base (see `agentComparisonBase`), sent
    * explicitly to the local and runner executors. Runner sessions read their
@@ -2746,7 +2714,14 @@ export class AgentManager {
       location &&
       input.useWorktree !== false &&
       (!sessionSource || input.pullRequest)
-        ? await this.runnerCheckout(checkoutOwner, { kind: "describe" })
+        ? await runnerDirectory(this.checkoutReadRunners(), checkoutOwner)
+            .for(checkoutOwner.placement)
+            .call("workspace.describe", {
+              session: sessionFromWire(checkoutOwner.id),
+            })
+            .catch((error: unknown) => {
+              throw selectionError(error);
+            })
         : undefined;
     const origin =
       sourceCheckout?.origin ??

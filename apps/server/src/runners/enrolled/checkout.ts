@@ -461,6 +461,7 @@ export function createEnrolledCheckoutRunner(
         op !== "git.branches" &&
         op !== "git.defaultBranch" &&
         op !== "git.base" &&
+        op !== "workspace.describe" &&
         op !== "workspace.select" &&
         op !== "workspace.prepare" &&
         op !== "workspace.resume"
@@ -550,14 +551,14 @@ export function createEnrolledCheckoutRunner(
         }
       }
 
-      if (op === "workspace.select") {
-        const request = input as Req<"workspace.select">;
+      if (op === "workspace.describe" || op === "workspace.select") {
+        const request = input as Req<"workspace.select" | "workspace.describe">;
         if (sessionToWire(request.session) !== agent.id)
           throw new RunnerCallError({
             code: "invalid",
             message: "Invalid checkout command binding.",
           });
-        const frame: Decoded<"workspace.select"> = {
+        const frame: Decoded<"workspace.select" | "workspace.describe"> = {
           op,
           request,
           extras: { workspace: placement.workspace, agentId: agent.id },
@@ -565,21 +566,24 @@ export function createEnrolledCheckoutRunner(
         };
         const command = encodeCommand(frame);
         if (command.kind !== "sessionCheckout")
-          throw new Error("Invalid v1 workspace selection command.");
+          throw new Error("Invalid workspace command.");
         const { value } = await service.requestSession(
           placement,
           command,
           undefined,
           options?.signal
         );
-        const selected = decodeResult(frame, value);
-        if (!operations["workspace.select"].response.check(selected))
-          throw new RunnerCallError({
-            code: "failed",
-            message: "Invalid runner checkout response.",
-            details: { status: 502 },
-          });
-        return selected as Res<K>;
+        try {
+          const binding = decodeResult(frame, value);
+          if (operations[op].response.check(binding)) return binding as Res<K>;
+        } catch {
+          // A malformed JSON response is also an invalid checkout response.
+        }
+        throw new RunnerCallError({
+          code: "failed",
+          message: "Invalid runner checkout response.",
+          details: { status: 502 },
+        });
       }
 
       const request = input as Req<"checkout.exec" | "git.context">;
