@@ -699,3 +699,92 @@ it.each([
     client.close();
   }
 });
+
+it("resolves enrolled checkout operations from the session binding and workload workers", async () => {
+  const { enrolledCheckouts } =
+    await import("../src/workload/agents/remote/checkout-operations.js");
+  const run = vi.fn(async (op: string) =>
+    JSON.stringify({
+      data:
+        op === "write"
+          ? { digest: "written" }
+          : { repositoryRoot: "/held", checkoutRoot: "/held" },
+    })
+  );
+  const read = vi.fn(() =>
+    Readable.from([Buffer.from(JSON.stringify({ data: true }))])
+  );
+  const manifest = vi.fn(async () =>
+    JSON.stringify({ content: "tools", state: "f".repeat(64) })
+  );
+  const absent = sessionFromWire("absent");
+  const checked = async (id: string) => {
+    if (id === sessionToWire(absent))
+      throw new RunnerCallError({
+        code: "not_found",
+        message: "Missing session.",
+      });
+    expect(id).toBe(session);
+    return "/held";
+  };
+  const { client } = await pair(
+    enrolledCheckouts(
+      {
+        checkoutDirectory: checked,
+        withCommandCheckout: async (
+          id,
+          _workspace,
+          _checkout,
+          _configured,
+          _signal,
+          work
+        ) => work(await checked(id)),
+      },
+      { run, read, manifest },
+      new AbortController().signal
+    )
+  );
+  const target = { session };
+  await expect(client.call("git.roots", { target })).resolves.toEqual({
+    repositoryRoot: "/held",
+    checkoutRoot: "/held",
+  });
+  await expect(
+    client.call("checkout.write", {
+      target,
+      path: "f",
+      data: "new",
+      expectedDigest: null,
+    })
+  ).resolves.toEqual({ digest: "written" });
+  expect(run.mock.calls.map((args) => args.slice(0, 2))).toEqual([
+    ["git.roots", "/held"],
+    ["write", "/held"],
+  ]);
+  await expect(
+    client.call("checkout.access", { target, path: "f" })
+  ).resolves.toBe(true);
+  expect(read).toHaveBeenCalledWith(
+    "/held",
+    { op: "checkout.access", checkout: "current", request: { path: "f" } },
+    expect.any(AbortSignal)
+  );
+  const input = {
+    target,
+    path: "f",
+    mode: "command-manifest",
+    encoding: "utf8",
+    maxBytes: null,
+  } as const;
+  await expect(client.call("checkout.read", input)).resolves.toEqual({
+    data: "tools",
+    digest: "f".repeat(64),
+  });
+  await expect(
+    client.call("checkout.read", { ...input, maxBytes: 4 })
+  ).rejects.toMatchObject({ code: "too_large" });
+  await expect(
+    client.call("checkout.read", { ...input, target: { session: absent } })
+  ).rejects.toMatchObject({ code: "not_found" });
+  expect(manifest).toHaveBeenCalledTimes(2);
+});
