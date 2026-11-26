@@ -1791,7 +1791,8 @@ export async function createSessionSupervisor(
       workspace: string,
       force: boolean,
       expectedLaunchId?: string,
-      expectedOwner?: string
+      expectedOwner?: string,
+      idleOnly?: boolean
     ) {
       const key = runnerStorageKey(agentId);
       return serialize(key, async () => {
@@ -1817,6 +1818,19 @@ export async function createSessionSupervisor(
           if (managedTarget(workspace) && (await readBinding(key)) === null)
             return;
           throw new Error("Agent is not bound to this workspace");
+        }
+        if (idleOnly) {
+          // The controller has already asked the idle host to exit. Never
+          // send a signal on this path, even if a turn began in the meantime.
+          const deadline = performance.now() + 8_000;
+          while (await core.alive(key)) {
+            if (performance.now() >= deadline)
+              throw new RunnerCallError({
+                code: "busy",
+                message: "The host is still running",
+              });
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          }
         }
         await core.stop(key, force);
       });

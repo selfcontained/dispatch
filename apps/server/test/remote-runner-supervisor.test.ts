@@ -1,3 +1,4 @@
+import { enrolledSessions } from "../../../packages/runner/src/workload/agents/remote/session-operations.js";
 import { streamHelper } from "./helpers/stream-helper.js";
 import { placementForRunner } from "../src/runners/placement.js";
 import { sessionFromWire, type Req } from "@dispatch/runner-protocol/contract";
@@ -779,6 +780,38 @@ describe("runner session supervision", () => {
       await readFile(payload.env.DISPATCH_LOCAL_CA_CERTIFICATE!, "utf8")
     ).toBe("enrolled CA");
     expect(processes.spawn).toHaveBeenCalledOnce();
+  });
+
+  it("answers operations for a missing session from this runner's records", async () => {
+    const runner = await start([]);
+    const terminalClosed = vi.fn();
+    const { calls, opens } = enrolledSessions(runner, terminalClosed);
+    const session = sessionFromWire(agentId);
+    const bindings = path.join(state, "bindings");
+    const before = await readdir(bindings);
+    await expect(opens["session.attach"]({ session })).rejects.toMatchObject({
+      code: "host_gone",
+    });
+    await expect(calls["session.alive"]({ session })).resolves.toEqual({
+      state: "gone",
+    });
+    await expect(
+      calls["session.logs"]({ session, lines: 20 })
+    ).rejects.toMatchObject({ code: "not_found" });
+    await expect(
+      calls["workspace.describe"]({ session })
+    ).rejects.toMatchObject({ code: "not_found" });
+    await expect(
+      calls["workspace.select"]({ session, path: null })
+    ).rejects.toMatchObject({ code: "not_found" });
+    await expect(calls["session.list"]({ owner: null })).resolves.toEqual({
+      sessions: [],
+    });
+    await expect(
+      calls["session.sample"]({ sessions: [session] })
+    ).resolves.toEqual({ samples: [] });
+    expect(await readdir(bindings)).toEqual(before);
+    expect(processes.spawn).not.toHaveBeenCalled();
   });
 
   it.each(["release", "discard"] as const)(
