@@ -1,3 +1,4 @@
+import type { CheckoutReadName } from "@dispatch/runner-protocol";
 import type { Writable, Readable, Duplex } from "node:stream";
 import type {
   CallName,
@@ -54,7 +55,16 @@ export type OpenHandlers = Partial<{
   ) => Promise<{ info: Res<K>; channel: Duplex }>;
 }>;
 
-export type Handlers = { calls: CallHandlers; opens?: OpenHandlers };
+export type Handlers = {
+  calls: CallHandlers;
+  opens?: OpenHandlers;
+  /** The unprivileged worker serializes {data} or {error} directly to the connection. */
+  checkoutRead?(
+    op: CheckoutReadName,
+    input: Req<CheckoutReadName>,
+    signal: AbortSignal
+  ): Promise<Readable>;
+};
 
 /** A file handed over where it is (`receiveBlobPath`). */
 export type InPlaceBlob = { path: string; mustExist: boolean };

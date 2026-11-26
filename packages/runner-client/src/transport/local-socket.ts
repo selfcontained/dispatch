@@ -30,6 +30,7 @@
  * A failure before the request is written is `unavailable` (not sent); a
  * connection lost after it is `unknown_outcome`.
  */
+import { isCheckoutReadName } from "@dispatch/runner-protocol";
 import { commandOutput } from "./command-output.js";
 import { connect } from "node:net";
 import { Duplex, PassThrough, Readable, Writable } from "node:stream";
@@ -76,7 +77,12 @@ export const socketCancel = object({ id: integer, cancel: literal(true) });
 export const socketRequest = object({ id: integer, op: string, input: json });
 export const socketReply = union(
   object({ id: integer, ok: literal(true), value: json }),
-  object({ id: integer, ok: literal(true), stream: string }),
+  object({
+    id: integer,
+    ok: literal(true),
+    stream: string,
+    workerReply: optional(literal(true)),
+  }),
   object({ id: integer, ok: literal(false), error: runnerError })
 );
 /** An event of call `id`, sent before its answer. */
@@ -272,6 +278,7 @@ const enrolledReads: ReadonlySet<OpName> = new Set<OpName>([
 
 type Pending = {
   op: string;
+  signal?: AbortSignal;
   onEvent?: (event: unknown) => void;
   resolve(value: unknown): void;
   reject(error: RunnerCallError): void;
@@ -444,34 +451,45 @@ export class LocalSocketConnection {
       const chunks: Buffer[] = [];
       const sink = new PassThrough();
       sink.on("data", (chunk: Buffer) => chunks.push(chunk));
-      this.streams.receive(frame.stream, sink).then(
-        () => {
-          let value: unknown;
-          try {
-            value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-          } catch {
-            return pending.reject(
-              fail("failed", `Invalid ${pending.op} reply`)
-            );
-          }
-          this.settle(pending, value);
-        },
-        (error: unknown) =>
-          pending.reject(
-            this.lostReply(
-              pending,
-              error instanceof RunnerCallError
-                ? new RunnerCallError({
-                    code: "unknown_outcome",
-                    message: `The ${pending.op} reply did not arrive: ${error.message}`,
-                  })
-                : fail(
-                    "unknown_outcome",
-                    `The ${pending.op} reply did not arrive`
-                  )
+      this.streams
+        .receive(frame.stream, sink, this.enrolled ? pending.signal : undefined)
+        .then(
+          () => {
+            let value: unknown;
+            try {
+              value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+            } catch {
+              return pending.reject(
+                fail("failed", `Invalid ${pending.op} reply`)
+              );
+            }
+            if (this.enrolled && frame.workerReply) {
+              if (!value || typeof value !== "object")
+                return pending.reject(
+                  fail("failed", `Invalid ${pending.op} reply`)
+                );
+              if ("error" in value && runnerError.check(value.error))
+                return pending.reject(new RunnerCallError(value.error));
+              value = "data" in value ? value.data : undefined;
+            }
+            this.settle(pending, value);
+          },
+          (error: unknown) =>
+            pending.reject(
+              this.lostReply(
+                pending,
+                error instanceof RunnerCallError
+                  ? new RunnerCallError({
+                      code: "unknown_outcome",
+                      message: `The ${pending.op} reply did not arrive: ${error.message}`,
+                    })
+                  : fail(
+                      "unknown_outcome",
+                      `The ${pending.op} reply did not arrive`
+                    )
+              )
             )
-          )
-      );
+        );
       return;
     }
     this.settle(pending, frame.value);
@@ -504,7 +522,14 @@ export class LocalSocketConnection {
       };
       const cancelRemote = () => {
         const spec = (operations as Record<string, OperationSpec>)[op];
-        if (!this.enrolled || !(spec?.cancellable || spec?.kind === "open"))
+        if (
+          !this.enrolled ||
+          !(
+            spec?.cancellable ||
+            spec?.kind === "open" ||
+            isCheckoutReadName(op)
+          )
+        )
           return;
         try {
           this.send({ id, cancel: true });
@@ -530,6 +555,7 @@ export class LocalSocketConnection {
       signal?.addEventListener("abort", abort, { once: true });
       this.pending.set(id, {
         op,
+        signal,
         onEvent,
         resolve: (value) => {
           done();

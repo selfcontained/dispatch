@@ -114,6 +114,63 @@ it("carries calls, terminal bytes in both directions and credited blob bytes", a
   expect(Buffer.concat(bytes).equals(content)).toBe(true);
 });
 
+it("streams a workload checkout reply and preserves its typed failure", async () => {
+  const data = "x".repeat(CONNECTION_WINDOW * 2);
+  const { client } = await pair({
+    calls: {},
+    checkoutRead: async (_op, input) => {
+      const failed = "path" in input && input.path === "missing";
+      return Readable.from([
+        Buffer.from(
+          JSON.stringify(
+            failed
+              ? { error: { code: "forbidden", message: "Permission denied" } }
+              : { data: { data } }
+          )
+        ),
+      ]);
+    },
+  });
+  const request = {
+    target: { session },
+    path: "large",
+    encoding: "utf8",
+    maxBytes: null,
+  } as const;
+  await expect(client.call("checkout.read", request)).resolves.toEqual({
+    data,
+  });
+  await expect(
+    client.call("checkout.read", { ...request, path: "missing" })
+  ).rejects.toMatchObject({ code: "forbidden" });
+});
+
+it("cancels a waiting enrolled checkout read before its stream opens", async () => {
+  const started = Promise.withResolvers<void>();
+  const stopped = Promise.withResolvers<void>();
+  const { client } = await pair({
+    calls: {},
+    checkoutRead: async (_op, _input, signal) => {
+      started.resolve();
+      await new Promise<void>((resolve) =>
+        signal.addEventListener("abort", () => resolve(), { once: true })
+      );
+      stopped.resolve();
+      throw new Error("Cancelled");
+    },
+  });
+  const abort = new AbortController();
+  const reading = client.call(
+    "checkout.access",
+    { target: { session }, path: "file" },
+    { signal: abort.signal }
+  );
+  await started.promise;
+  abort.abort();
+  await expect(reading).rejects.toMatchObject({ code: "cancelled" });
+  await stopped.promise;
+});
+
 it("transfers an fs.ReadStream as bytes and closes the sink on a rejected download", async () => {
   const fixture = fileURLToPath(import.meta.url);
   const expected = await readFile(fixture);

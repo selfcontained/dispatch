@@ -1,3 +1,4 @@
+import { isCheckoutReadName } from "@dispatch/runner-protocol";
 import { chmodSync, createReadStream, rmSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
@@ -333,6 +334,39 @@ export function serveOperationSocket(
           ? { code: "fenced", message: fence.message }
           : errorOf(fencedError()),
       });
+    if (
+      endpoint.kind === "enrolled" &&
+      "checkoutRead" in handlers &&
+      handlers.checkoutRead &&
+      isCheckoutReadName(op)
+    ) {
+      if (!operations[op].request.check(input))
+        return reply(
+          { error: { code: "invalid", message: `Invalid ${op} request` } },
+          release
+        );
+      const abort = new AbortController();
+      commands.set(id, abort);
+      const read = handlers.checkoutRead;
+      void (async () => {
+        let announced = false;
+        try {
+          const source = await read(op, input, abort.signal);
+          const stream = replyStream(id);
+          write({ id, ok: true, stream, workerReply: true });
+          announced = true;
+          await streams.send(stream, source, abort.signal, {
+            stall: "blocked",
+          });
+        } catch (error) {
+          if (!announced) return reply({ error: errorOf(error) }, release);
+        } finally {
+          commands.delete(id);
+          if (announced) release();
+        }
+      })();
+      return;
+    }
     const command =
       endpoint.kind === "enrolled" &&
       (spec?.cancellable || spec?.kind === "open")
