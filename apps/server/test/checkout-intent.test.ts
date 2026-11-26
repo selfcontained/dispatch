@@ -8,7 +8,6 @@ import { parseRepository } from "../src/agents/remote/repository.js";
 import { getPullRequestHead } from "../../../packages/runner/src/workload/shared/github/pr.js";
 import {
   resolveCheckoutIntent,
-  runnerDefaultBranch,
   toLocalWorktreeRequest,
   toRunnerCheckout,
   type CheckoutIntent,
@@ -116,11 +115,6 @@ describe("checkout intent", () => {
           : { kind: "default" }
       );
     }
-    const oldRunner = vi.fn(async () => ({ branches: ["main"] }));
-    await expect(
-      runnerDefaultBranch("https://github.com/owner/repo.git", oldRunner)
-    ).resolves.toBeUndefined();
-    expect(oldRunner).toHaveBeenCalledWith("owner", "repo");
   });
 
   it("preserves the recorded base without a worktree", async () => {
@@ -194,11 +188,7 @@ it.each([
         {},
         {
           ...context,
-          defaultBranch: () =>
-            runnerDefaultBranch(
-              "https://github.com/owner/repo.git",
-              async () => ({ branches: [branch], defaultBranch: branch })
-            ),
+          defaultBranch: async () => branch,
         }
       );
       expect(local.normalizedBaseBranch).toBe(branch);
