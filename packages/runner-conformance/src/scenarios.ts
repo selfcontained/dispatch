@@ -34,8 +34,6 @@ export type LaneFixture = {
   session: SessionHandle;
   /** Writes a file at a relative path in the session's checkout. */
   seed(path: string, content: string): Promise<void>;
-  /** Older wire command guards also bind the digest to the resolved root. */
-  readGuard?(session: SessionHandle, path: string): Promise<string>;
   workspace?: {
     runner: Runner;
     repository: string;
@@ -96,6 +94,7 @@ async function guarded(
   const file = await fixture.runner.call("checkout.read", {
     target,
     path: GUARD,
+    mode: "command-manifest",
     encoding: "utf8",
     maxBytes: null,
   });
@@ -105,8 +104,7 @@ async function guarded(
     target,
     guard: {
       path: GUARD,
-      digest:
-        (await fixture.readGuard?.(fixture.session, GUARD)) ?? file.digest,
+      digest: file.digest,
     },
     argv,
     env: {},

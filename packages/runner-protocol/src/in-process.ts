@@ -113,10 +113,5 @@ export interface InProcessPorts<Bytes extends Uint8Array> {
     get(source: string): Promise<Bytes>;
   };
   localEnginePort(bins?: EngineBins): InProcessEngines;
-  readCommandGuard(
-    directory: string,
-    selector: Selector,
-    file: string
-  ): Promise<{ root: string; content: string | null; digest: string }>;
   hostCommand(): string[];
 }

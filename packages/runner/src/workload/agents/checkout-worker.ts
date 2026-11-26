@@ -116,6 +116,7 @@ type Selector = "current" | "launch" | "moved";
 type Input<K extends WorkerOp | "checkout.exec" | "checkout.write"> = {
   directory: string;
   request: Omit<Req<K>, "target">;
+  selector?: Selector;
 } & (K extends "checkout.exec" ? { selector: Selector } : unknown) &
   (K extends "git.context" ? { checkoutBranch?: string } : unknown);
 
@@ -233,7 +234,7 @@ function marked<F extends { path: string; isTest?: boolean }>(
 
 async function work<K extends WorkerOp>(
   op: K,
-  { directory, request }: Input<K>,
+  { directory, request, selector }: Input<K>,
   parseDefinition: DefinitionParser
 ): Promise<unknown> {
   switch (op) {
@@ -293,7 +294,34 @@ async function work<K extends WorkerOp>(
       return readWorkspaceView(directory, { kind: "index", generation });
     }
     case "checkout.read": {
-      const native = request as Input<"checkout.read">["request"];
+      const native = request as
+        | Omit<Extract<Req<"checkout.read">, { mode?: "native" }>, "target">
+        | Omit<
+            Extract<Req<"checkout.read">, { mode: "command-manifest" }>,
+            "target"
+          >;
+      if (native.mode === "command-manifest") {
+        if (!selector)
+          throw new RunnerCallError({
+            code: "invalid",
+            message: "Missing command checkout selector.",
+          });
+        const { content, digest } = await readCommandGuard(
+          directory,
+          selector,
+          native.path
+        );
+        if (content === null) return null;
+        if (
+          native.maxBytes !== null &&
+          Buffer.byteLength(content) > native.maxBytes
+        )
+          throw new RunnerCallError({
+            code: "too_large",
+            message: `The file is larger than ${native.maxBytes} bytes`,
+          });
+        return { data: content, digest };
+      }
       if (native.mode === "native") {
         let bytes: Buffer;
         let data: string;
@@ -451,7 +479,7 @@ async function work<K extends WorkerOp>(
  * directory and root, so a command never runs against a file read
  * elsewhere.
  */
-export async function readCommandGuard(
+async function readCommandGuard(
   directory: string,
   selector: Selector,
   file: string

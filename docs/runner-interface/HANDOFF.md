@@ -143,6 +143,8 @@ Enrolled runners retain the existing 300-second read transport deadline for nati
 
 ## Open differences — must close before the seal
 
+- Command-manifest discovery reads the entire file locally, as on main. Enrolled discovery retains its 256 KiB UTF-8 ceiling. Both use the bound guard from `checkout.read` in `command-manifest` mode for the subsequent command.
+
 - **Enrolled launches accept at most one MCP server.** The contract accepts an array. The existing enrolled path rejects a second entry with `v1 carries one MCP server.` and requires HTTPS, a scoped token and the enrollment CA for its server. Preserve the refusal and checks when switching carriers. The owner may revisit multi-server support separately.
 
 - **A read falls back here on connection loss, which does not by itself prove the child stopped running it** (since Part A). The adapter treats a lost or closed connection (`unknown_outcome` mid-read) as "the child went" and reads here once. In normal operation the app closes that connection only after the child exited (the supervisor's `waiting` state), on a restart's new endpoint, or at app shutdown; the transport also drops it on a malformed frame (a defect). A 3 MiB reply crosses the same connection without loss. To close it: fall back only once the child's exit is observed (the supervisor's `exited`), not on the socket close alone.

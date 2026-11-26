@@ -15,7 +15,6 @@ import {
 } from "@dispatch/runner-protocol";
 import {
   sessionFromWire,
-  type SessionHandle,
   type Res,
   type Req,
   type Runner,
@@ -28,14 +27,13 @@ import {
 } from "@dispatch/runner-client/v1/node";
 import { checked } from "./checked.js";
 import { launchRequest, promptSession } from "./session.js";
-import { readV1Guard, v1Runner } from "./v1-runner.js";
+import { v1Runner } from "./v1-runner.js";
 
 export type Credentials = { key: string; cert: string; ca: string };
 
 export type Accepted = {
   runner: Runner;
   ready: ReadyFrame;
-  readGuard(session: SessionHandle, path: string): Promise<string>;
   close(): void;
 };
 
@@ -92,8 +90,6 @@ export function acceptRemoteRunner(
                 displayName: runnerId,
                 workspace: selected,
               }),
-              readGuard: (session, path) =>
-                readV1Guard(connection!, selected, session, path),
               close: () => connection?.close(),
             });
             return;
@@ -143,8 +139,7 @@ export async function walkthrough(
   connection: Runner,
   session: string,
   guard: { path: string; content: string },
-  config: Pick<Req<"session.launch">, "env" | "mcp"> & { prompt: string },
-  readGuard?: Accepted["readGuard"]
+  config: Pick<Req<"session.launch">, "env" | "mcp"> & { prompt: string }
 ): Promise<Walkthrough> {
   const runner = checked(connection);
   const description = runner.describe();
@@ -157,6 +152,7 @@ export async function walkthrough(
     const file = await runner.call("checkout.read", {
       target,
       path: guard.path,
+      mode: "command-manifest",
       encoding: "utf8",
       maxBytes: null,
     });
@@ -166,7 +162,7 @@ export async function walkthrough(
       target,
       guard: {
         path: guard.path,
-        digest: (await readGuard?.(handle, guard.path)) ?? file.digest,
+        digest: file.digest,
       },
       argv: ["cat", guard.path],
       env: {},

@@ -22,6 +22,7 @@ import {
   type OpenName,
   type Req,
   type Res,
+  type Runner,
   type RunnerDescription,
 } from "@dispatch/runner-protocol/contract";
 import {
@@ -36,7 +37,7 @@ import { posix } from "node:path";
 import { sessionFileBlob } from "../../files/session-file-blob.js";
 import type { RemoteRunnerService } from "../../agents/remote/service.js";
 import { callCheckoutRead } from "./reads.js";
-import type { CheckoutRunner, CheckoutSession } from "../directory.js";
+import type { CheckoutSession } from "../directory.js";
 
 function parseResult(value: ResultFrame["value"]) {
   try {
@@ -128,7 +129,7 @@ export function createEnrolledCheckoutRunner(
   agent: CheckoutSession | undefined,
   describe: () => RunnerDescription,
   legacyView?: CheckoutView
-): CheckoutRunner {
+): Runner {
   /**
    * The connection this adapter's first observe or release went to. A
    * release is only sent on it: a runner that reconnected after the
@@ -219,23 +220,6 @@ export function createEnrolledCheckoutRunner(
         );
       },
     },
-    async readManifest(operation, signal) {
-      if (!service) throw new Error("The session runner is unavailable.");
-      if (!placement || !agent)
-        throw new RunnerCallError({
-          code: "invalid",
-          message: "Invalid checkout command binding.",
-        });
-      const { value } = await service.requestSession(
-        placement,
-        { kind: "checkoutCommand", agentId: agent.id, operation },
-        undefined,
-        signal
-      );
-      const result = parseResult(value);
-      if (isCheckoutCommandFile(result)) return result;
-      throw new Error("Invalid runner checkout command response.");
-    },
     // Not part of `Runner`: what the peer advertised in its ready frame.
     ...{
       serves(op: "checkout.write" | "workspace.release") {
@@ -251,6 +235,52 @@ export function createEnrolledCheckoutRunner(
       input: Req<K>,
       options?: CallOptions<K>
     ): Promise<Res<K>> {
+      const read = input as Req<"checkout.read">;
+      if (op === "checkout.read" && read.mode === "command-manifest") {
+        if (!service) throw new Error("The session runner is unavailable.");
+        if (
+          !placement ||
+          !agent ||
+          sessionToWire(read.target.session) !== agent.id
+        )
+          throw new RunnerCallError({
+            code: "invalid",
+            message: "Invalid checkout command binding.",
+          });
+        const { value } = await service.requestSession(
+          placement,
+          {
+            kind: "checkoutCommand",
+            agentId: agent.id,
+            operation: {
+              kind: "read",
+              path: read.path,
+              checkout:
+                !read.target.checkout || read.target.checkout === "current"
+                  ? "effective"
+                  : read.target.checkout,
+            },
+          },
+          undefined,
+          options?.signal
+        );
+        const result = parseResult(value);
+        if (!isCheckoutCommandFile(result))
+          throw new Error("Invalid runner checkout command response.");
+        if (
+          result &&
+          read.maxBytes !== null &&
+          Buffer.byteLength(result.content) > read.maxBytes
+        )
+          throw new RunnerCallError({
+            code: "too_large",
+            message: `The file is larger than ${read.maxBytes} bytes`,
+          });
+        return (result && {
+          data: result.content,
+          digest: result.state,
+        }) as Res<K>;
+      }
       if (op === "runner.describe") return describe() as Res<K>;
       if (
         op === "git.branches" &&

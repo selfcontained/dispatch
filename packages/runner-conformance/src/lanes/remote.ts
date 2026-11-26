@@ -327,9 +327,17 @@ export async function startRemoteLane(): Promise<Lane> {
     if (accepted.ready.checkoutExecStream) {
       const target = { session: SESSION, checkout: "current" } as const;
       const path = ".exec-probe";
+      const manifest = await accepted.runner.call("checkout.read", {
+        target,
+        path,
+        mode: "command-manifest",
+        encoding: "utf8",
+        maxBytes: 256 * 1024,
+      });
+      if (!manifest?.digest) throw new Error("Missing checkout command guard.");
       const exec = {
         target,
-        guard: { path, digest: await accepted.readGuard(SESSION, path) },
+        guard: { path, digest: manifest.digest },
         shell: "direct",
         env: { FIXTURE_VALUE: "literal ; $HOME" },
         timeoutMs: 15_000,
@@ -393,7 +401,6 @@ export async function startRemoteLane(): Promise<Lane> {
     return {
       runner: accepted.runner,
       session: SESSION,
-      readGuard: accepted.readGuard,
       workspace: {
         runner: checked(managed.runner),
         repository: `file://${BARE_REMOTE}`,

@@ -219,7 +219,11 @@ export function checkoutHandlers(
       const requested = "session" in target ? target.checkout : undefined;
       const selector: Selector =
         requested === "owned" ? "launch" : (requested ?? "current");
-      const command = (EXEC_OPS as readonly string[]).includes(op);
+      const command =
+        (EXEC_OPS as readonly string[]).includes(op) ||
+        (op === "checkout.read" &&
+          "mode" in request &&
+          request.mode === "command-manifest");
       try {
         return await platform.workload.run(
           op as WorkloadOp,

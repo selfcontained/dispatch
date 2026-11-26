@@ -119,24 +119,6 @@ function sessionChannel(socket: Duplex): CallerChannel<"session.attach"> {
   };
 }
 
-export async function readV1Guard(
-  connection: RunnerConnection,
-  workspace: string,
-  session: SessionHandle,
-  path: string
-): Promise<string> {
-  const { value } = await connection.request({
-    workspace,
-    agentId: sessionToWire(session),
-    kind: "checkoutCommand",
-    operation: { kind: "read", checkout: "effective", path },
-  });
-  const guard: unknown = typeof value === "string" ? JSON.parse(value) : null;
-  if (guard === null || !isCheckoutCommandFile(guard))
-    throw new Error("Missing checkout command guard.");
-  return guard.state;
-}
-
 export type V1RunnerOptions = {
   connection: RunnerConnection;
   streams?: FlowStreams;
@@ -202,6 +184,37 @@ export function v1Runner({
         target?: { session?: SessionHandle };
       };
       const handle = session.session ?? session.target?.session;
+      const manifest = request as Req<"checkout.read">;
+      if (op === "checkout.read" && manifest.mode === "command-manifest") {
+        const selected = manifest.target.checkout;
+        const { value } = await connection.request(
+          {
+            workspace,
+            agentId: sessionToWire(manifest.target.session),
+            kind: "checkoutCommand",
+            operation: {
+              kind: "read",
+              checkout:
+                selected === "launch" || selected === "moved"
+                  ? selected
+                  : "effective",
+              path: manifest.path,
+            },
+          },
+          { signal: opts?.signal }
+        );
+        const file: unknown =
+          typeof value === "string" ? JSON.parse(value) : undefined;
+        if (!isCheckoutCommandFile(file))
+          throw fail("failed", "Invalid checkout manifest response.");
+        if (
+          file &&
+          manifest.maxBytes !== null &&
+          Buffer.byteLength(file.content) > manifest.maxBytes
+        )
+          throw fail("too_large", "Command manifest is too large.");
+        return (file && { data: file.content, digest: file.state }) as Res<K>;
+      }
       const frame: Decoded<K> = {
         op,
         request,

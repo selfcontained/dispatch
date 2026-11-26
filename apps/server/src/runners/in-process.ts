@@ -20,7 +20,6 @@ export function composeInProcessPorts(
     workspaceWorkload,
     sessionFilesWorkload,
     localEnginePort,
-    readCommandGuard,
     hostCommand,
   } = workload;
   return {
@@ -32,7 +31,6 @@ export function composeInProcessPorts(
     workspaceWorkload,
     sessionFilesWorkload,
     localEnginePort,
-    readCommandGuard,
     hostCommand,
   };
 }

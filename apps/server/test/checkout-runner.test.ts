@@ -1,3 +1,5 @@
+import { requestCheckoutCommand } from "../src/agents/checkout-commands.js";
+import { MAX_CHECKOUT_COMMAND_FILE_BYTES } from "@dispatch/runner-protocol";
 import { checkoutWorkload } from "./helpers/checkout-workload.js";
 import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -57,6 +59,48 @@ const operation: CheckoutCommand = {
 };
 
 describe("checkout.exec", () => {
+  it("reads a large local command manifest and enforces the enrolled UTF-8 ceiling", async () => {
+    const root = await mkdtemp(join(tmpdir(), "manifest-limit-"));
+    const read = {
+      kind: "read",
+      checkout: "effective",
+      path: "manifest",
+    } as const;
+    const text = "é".repeat(MAX_CHECKOUT_COMMAND_FILE_BYTES / 2);
+    try {
+      await writeFile(join(root, read.path), text + "é");
+      await expect(
+        requestCheckoutCommand({}, { ...agent, cwd: root }, read)
+      ).resolves.toMatchObject({ content: text + "é" });
+      const enrolled = {
+        ...agent,
+        cwd: "runner://enrolled/session-workspace",
+        placement: placementForRunner("enrolled"),
+      };
+      const requestSession = vi
+        .fn()
+        .mockResolvedValueOnce({
+          value: JSON.stringify({ content: text, state }),
+        })
+        .mockResolvedValueOnce({
+          value: JSON.stringify({ content: text + "é", state }),
+        });
+      const remote = { requestSession } as unknown as RemoteRunnerService;
+      const bound = checkoutRunners({ remote }, enrolled);
+      expect(bound.directory.for(bound.placement).manifestMaxBytes).toBe(
+        MAX_CHECKOUT_COMMAND_FILE_BYTES
+      );
+      await expect(
+        requestCheckoutCommand({ remote }, enrolled, read)
+      ).resolves.toEqual({ content: text, state });
+      await expect(
+        requestCheckoutCommand({ remote }, enrolled, read)
+      ).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("runs a local call in the workload, on the request's terms", async () => {
     const root = await mkdtemp(join(tmpdir(), "checkout-runner-"));
     try {
@@ -65,12 +109,14 @@ describe("checkout.exec", () => {
       const local = { ...agent, cwd: root };
       const { directory, placement } = checkoutRunners({}, local);
       const runner = directory.for(placement);
-      const file = await runner.readManifest({
-        checkout: "effective",
+      const file = await runner.call("checkout.read", {
+        target: req.target,
+        mode: "command-manifest",
+        encoding: "utf8",
+        maxBytes: null,
         path,
-        kind: "read",
       });
-      expect(file?.content).toBe("{}");
+      expect(file?.data).toBe("{}");
       const call = (
         patch: Partial<
           Extract<Req<"checkout.exec">, { guard: { digest: string } }>
@@ -78,7 +124,7 @@ describe("checkout.exec", () => {
       ) =>
         runner.call("checkout.exec", {
           ...req,
-          guard: { path, digest: file!.state },
+          guard: { path, digest: file!.digest! },
           argv: [
             "sh",
             "-c",

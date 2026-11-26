@@ -419,17 +419,29 @@ export const operations = {
   "checkout.read": op({
     scope: "session",
     kind: "call",
-    request: object({
-      target: checkoutReadTarget,
-      path: string,
-      /** Folder/project definition readers and assessor configuration reads: native file/error semantics. */
-      mode: optional(literal("native")),
-      /** Include the directory identity for a command resolved from this read. */
-      bindRoot: optional(literal(true)),
-      /** `base64` returns the file's raw bytes, base64 encoded, inside the checkout. */
-      encoding: literal("utf8", "base64"),
-      maxBytes: nullable(integer),
-    }),
+    request: union(
+      object({
+        target: checkoutReadTarget,
+        path: string,
+        /** Folder/project definition readers and assessor configuration reads: native file/error semantics. */
+        mode: optional(literal("native")),
+        /** Include the directory identity for a command resolved from this read. */
+        bindRoot: optional(literal(true)),
+        /** `base64` returns the file's raw bytes, base64 encoded, inside the checkout. */
+        encoding: literal("utf8", "base64"),
+        maxBytes: nullable(integer),
+      }),
+      object({
+        target: object({
+          session: sessionHandle,
+          checkout: optional(literal("current", "launch", "moved")),
+        }),
+        mode: literal("command-manifest"),
+        path: string,
+        encoding: literal("utf8"),
+        maxBytes: nullable(integer),
+      })
+    ),
     response: nullable(
       object({
         data: string,

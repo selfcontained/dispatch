@@ -5,8 +5,7 @@ import {
 } from "./settings-namespace.js";
 import {
   RUNNER_WIRE_VERSION,
-  type CheckoutCommand,
-  type CheckoutCommandFile,
+  MAX_CHECKOUT_COMMAND_FILE_BYTES,
   type CheckoutView,
 } from "@dispatch/runner-protocol";
 import {
@@ -56,17 +55,10 @@ export type CheckoutCommandRunners = {
   child?: () => Runner | undefined;
 };
 
-export interface CheckoutRunner extends Runner {
-  /** A command guard read: v1's checkout-command family, or the local workload. */
-  readManifest(
-    operation: Extract<CheckoutCommand, { kind: "read" }>,
-    signal?: AbortSignal
-  ): Promise<CheckoutCommandFile | null>;
-}
-
 /** What the composition supplies with each runner, by its own rules. */
 export type RunnerComposition = {
   settings: RunnerSettings;
+  manifestMaxBytes: number | null;
   /**
    * Main's budget for an archive's checkout cleanup, where the runner is
    * this machine (main's 60 s); none where the runner's own transport
@@ -131,7 +123,7 @@ export const enrolledArchivePolicy: ArchivePolicy = {
 };
 
 interface CheckoutDirectory extends Runners {
-  for(placement: Placement): CheckoutRunner & RunnerComposition;
+  for(placement: Placement): Runner & RunnerComposition;
 }
 
 const localDescription: RunnerDescription = {
@@ -168,7 +160,7 @@ export function runnerDirectory(
 ): CheckoutDirectory {
   const location = agent ? legacySessionLocation(agent) : null;
   return {
-    for(selected: Placement): CheckoutRunner & RunnerComposition {
+    for(selected: Placement): Runner & RunnerComposition {
       const boundAgent =
         agent && samePlacement(selected, agent.placement) ? agent : undefined;
       if (samePlacement(selected, controllerPlacement))
@@ -176,6 +168,7 @@ export function runnerDirectory(
           createLocalCheckoutRunner(boundAgent, localDescription, child?.()),
           {
             settings: localRunnerSettings,
+            manifestMaxBytes: null,
             cleanupBudgetMs: 60_000,
             archive: localArchivePolicy,
           }
@@ -206,6 +199,7 @@ export function runnerDirectory(
         ),
         {
           settings: enrolledRunnerSettings(runnerIdToWire(id)),
+          manifestMaxBytes: MAX_CHECKOUT_COMMAND_FILE_BYTES,
           archive: enrolledArchivePolicy,
         }
       );
