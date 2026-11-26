@@ -167,8 +167,8 @@ export const workloadVocabularyCompatibility = [
   {
     file: "packages/runner/src/host/local-host-entry.ts",
     token: "personaContext",
-    reason: "Existing records or wire frames carry this field.",
-    temporary: true,
+    reason:
+      "The local child writes the main-era launch.json field read by retained hosts. The generic session request supplies firstText.",
   },
   {
     file: "packages/runner/src/workload/agents/checkout-command-executor.ts",
@@ -210,8 +210,8 @@ export const workloadVocabularyCompatibility = [
   {
     file: "packages/runner/src/workload/agents/default-branch-files.ts",
     token: "persona-catalog",
-    reason: "The host reproduces this environment, build or on-disk name.",
-    temporary: true,
+    reason:
+      "Main stores the fetched commit and refresh cooldown here. Its private Git ref keeps the cached commit reachable during offline reads.",
   },
   {
     file: "packages/runner/src/workload/agents/engine-login.ts",
@@ -311,15 +311,9 @@ export const workloadVocabularyCompatibility = [
   },
   {
     file: "packages/runner/src/workload/agents/remote/session-supervisor.ts",
-    token: "agt_",
-    reason: "Current session directories preserve this on-disk prefix.",
-    temporary: true,
-  },
-  {
-    file: "packages/runner/src/workload/agents/remote/session-supervisor.ts",
     token: "personaContext",
-    reason: "Existing records or wire frames carry this field.",
-    temporary: true,
+    reason:
+      "The supervisor chowns the materialized first-prompt file for its separate workload account. Both the host launch record and the filename are persisted.",
   },
   {
     file: "packages/runner/src/workload/agents/remote/update-keys.ts",

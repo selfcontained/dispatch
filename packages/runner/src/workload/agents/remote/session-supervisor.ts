@@ -1,5 +1,5 @@
 import type { CheckoutCommand } from "@dispatch/runner-protocol";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { closeSync, constants, type Stats } from "node:fs";
 import {
   chmod,
@@ -89,13 +89,11 @@ import {
   type RetainedHost,
 } from "./update-handoff.js";
 
-// Use the old storage name for existing prototype bindings. Other wire IDs
-// never enter a filesystem path, even when they look like a relative path.
-export function runnerStorageKey(agentId: string): string {
-  return /^agt_[a-z0-9]+$/.test(agentId)
-    ? agentId
-    : `opaque-${createHash("sha256").update(agentId).digest("base64url")}`;
-}
+import {
+  storageKey as runnerStorageKey,
+  storageKeyPattern,
+} from "../../../platform/linux-privsep/layout.js";
+export { runnerStorageKey };
 
 const retainedHostFiles = new Set<string>([
   HOST_FILES.journal,
@@ -261,7 +259,7 @@ const sharedBindingPrefix = managedBinding + ":";
  * `.cwd` holds the path the workload resolved. Never the runner's to remove.
  */
 const folderBinding = "\0folder";
-const storageKeyPattern = /^(agt_[a-z0-9]+|opaque-[A-Za-z0-9_-]{43})$/;
+
 const readOptional = (file: string) =>
   readFile(file, "utf8").catch(missingPath);
 
@@ -1223,8 +1221,9 @@ export async function createSessionSupervisor(
 
   async function trackedKeys() {
     return (await readdir(bindings))
-      .filter((file) =>
-        /^(agt_[a-z0-9]+|opaque-[A-Za-z0-9_-]{43})\.host$/.test(file)
+      .filter(
+        (file) =>
+          file.endsWith(".host") && storageKeyPattern.test(file.slice(0, -5))
       )
       .map((file) => file.slice(0, -5));
   }

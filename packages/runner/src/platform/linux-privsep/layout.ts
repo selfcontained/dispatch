@@ -57,6 +57,8 @@ export function layout(state: string): Layout {
  * other handle hashed so it never becomes a path. The supervisor's own
  * name for the same thing, so a session keeps its files across builds.
  */
+export const storageKeyPattern = /^(agt_[a-z0-9]+|opaque-[A-Za-z0-9_-]{43})$/;
+
 export function storageKey(session: string): string {
   return /^agt_[a-z0-9]+$/.test(session)
     ? session

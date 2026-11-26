@@ -48,6 +48,7 @@ import {
   isPrivate,
   ownedDirectory,
   storageKey,
+  storageKeyPattern,
   type Ids,
   type Layout,
 } from "./layout.js";
@@ -59,7 +60,6 @@ export const MANAGED_BINDING = "\0managed";
  * path the workload resolved. External: the runner never removes it.
  */
 export const FOLDER_BINDING = "\0folder";
-const KEY = /^(agt_[a-z0-9]+|opaque-[A-Za-z0-9_-]{43})$/;
 /** Today's files a session's binding is read from. */
 const LEGACY = [
   "",
@@ -173,7 +173,7 @@ export class PrivsepBindings extends BindingStore {
     if (binding === MANAGED_BINDING) return null;
     if (!binding?.startsWith(MANAGED_BINDING + ":")) return null;
     const owner = binding.slice(MANAGED_BINDING.length + 1);
-    return KEY.test(owner) ? owner : null;
+    return storageKeyPattern.test(owner) ? owner : null;
   }
 
   private static digest(files: LegacyFiles): string {
