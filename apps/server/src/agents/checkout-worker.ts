@@ -222,6 +222,19 @@ async function work<K extends WorkerOp>(
   parseDefinition: DefinitionParser
 ): Promise<unknown> {
   switch (op) {
+    case "checkout.access": {
+      const file = nativeEntry(
+        directory,
+        (request as Input<"checkout.access">["request"]).path
+      );
+      try {
+        await access(file);
+        return true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+        nativeFailure(error);
+      }
+    }
     case "checkout.list": {
       const native = request as Input<"checkout.list">["request"];
       if (native.mode === "native") {

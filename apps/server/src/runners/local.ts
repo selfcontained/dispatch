@@ -75,6 +75,7 @@ export const localCheckoutWorkload = checkoutWorkload;
 
 /** Checkout reads the local runner child serves (T09). */
 const CHILD_READS = new Set<CallName>([
+  "checkout.access",
   "checkout.list",
   "checkout.preview",
   "checkout.index",
@@ -86,6 +87,7 @@ const CHILD_READS = new Set<CallName>([
   "checkout.defaultFiles",
 ]);
 type ChildRead =
+  | "checkout.access"
   | "checkout.list"
   | "checkout.preview"
   | "checkout.index"
@@ -417,7 +419,9 @@ export function createLocalCheckoutRunner(
     const row = { baseBranch: null, ...agent };
     // The folder the agent was launched in: where main looks for its icon.
     const launched = target.checkout === "launch";
-    const owned = op === "checkout.read" && target.checkout === "owned";
+    const owned =
+      (op === "checkout.read" || op === "checkout.access") &&
+      target.checkout === "owned";
     const directory = owned
       ? (row.worktreePath ?? row.cwd)
       : launched

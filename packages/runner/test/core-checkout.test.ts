@@ -460,3 +460,42 @@ it("reads the immutable owned checkout while frozen without selecting the moved 
     },
   ]);
 });
+
+it("probes current and owned checkouts through the workload while frozen", async () => {
+  const { connection, calls, fence } = await harness(
+    (_op, input) => (input as { directory: string }).directory === "/launch"
+  );
+  await fence.freeze();
+  cleanups.push(() => fence.thaw());
+  for (const [checkout, expected] of [
+    ["current", false],
+    ["owned", true],
+  ] as const) {
+    expect(
+      await connection.call("checkout.access", {
+        target: { session: sessionFromWire("moved"), checkout },
+        path: "file",
+      })
+    ).toBe(expected);
+  }
+  expect(
+    await connection.call("checkout.access", {
+      target: { path: pathFromWire("/launch") },
+      path: "file",
+    })
+  ).toBe(true);
+  expect(calls).toEqual([
+    {
+      op: "checkout.access",
+      input: { directory: "/moved", request: { path: "file" } },
+    },
+    {
+      op: "checkout.access",
+      input: { directory: "/launch", request: { path: "file" } },
+    },
+    {
+      op: "checkout.access",
+      input: { directory: "/launch", request: { path: "file" } },
+    },
+  ]);
+});

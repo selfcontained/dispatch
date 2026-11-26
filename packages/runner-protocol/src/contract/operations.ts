@@ -397,13 +397,23 @@ export const operations = {
     timeout: "long",
     capability: "baseline",
   }),
+  "checkout.access": op({
+    scope: "session",
+    kind: "call",
+    request: object({ target: checkoutReadTarget, path: string }),
+    response: boolean,
+    errors: [],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
   "checkout.read": op({
     scope: "session",
     kind: "call",
     request: object({
       target: checkoutReadTarget,
       path: string,
-      /** Folder/project definition readers only: native file/error semantics. */
+      /** Folder/project definition readers and assessor configuration reads: native file/error semantics. */
       mode: optional(literal("native")),
       /** `base64` returns the file's raw bytes, base64 encoded, inside the checkout. */
       encoding: literal("utf8", "base64"),
