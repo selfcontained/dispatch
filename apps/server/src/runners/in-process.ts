@@ -3,10 +3,7 @@ import { toPersonaDefinition } from "../personas/definition.js";
 
 type Ports = InProcessPorts<Buffer>;
 
-type WorkloadExports = Omit<
-  Ports,
-  "checkoutWorkload" | "parseEngineCapabilityResult" | "launchProbes"
-> & {
+type WorkloadExports = Omit<Ports, "checkoutWorkload" | "launchProbes"> & {
   createCheckoutWorkload(inputs: {
     parseDefinition: typeof toPersonaDefinition;
   }): Ports["checkoutWorkload"];
@@ -15,7 +12,6 @@ type WorkloadExports = Omit<
 /** Constructed once for the server process after its shell environment is restored. */
 export function composeInProcessPorts(
   workload: WorkloadExports,
-  parseEngineCapabilityResult: Ports["parseEngineCapabilityResult"],
   launchProbes: Ports["launchProbes"]
 ): Ports {
   const {
@@ -38,7 +34,6 @@ export function composeInProcessPorts(
     localEnginePort,
     readCommandGuard,
     hostCommand,
-    parseEngineCapabilityResult,
   };
 }
 
@@ -46,10 +41,9 @@ let ports: Ports | undefined;
 
 export async function loadInProcessPorts(
   load: () => Promise<WorkloadExports>,
-  parse: Ports["parseEngineCapabilityResult"],
   launchProbes: Ports["launchProbes"]
 ) {
-  ports = composeInProcessPorts(await load(), parse, launchProbes);
+  ports = composeInProcessPorts(await load(), launchProbes);
 }
 
 export function inProcessPorts(): Ports {

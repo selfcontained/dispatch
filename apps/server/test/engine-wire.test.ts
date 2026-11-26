@@ -1,11 +1,9 @@
-import { parseEngineCapabilityResult } from "../../../packages/runner/src/workload/agents/remote/engine-capability-result.js";
 import type { AddressInfo } from "node:net";
 import { connect, type TLSSocket } from "node:tls";
 import type { Pool } from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { exchangeCode } from "../../../packages/runner/src/workload/agents/remote/enrollment.js";
-import { remoteEngineTransport } from "../src/agents/remote/engine-transport.js";
 import {
   MANAGED_WORKSPACE,
   type EngineOperationEvent,
@@ -142,132 +140,6 @@ describe("engine wire integration", () => {
 
   afterAll(async () => {
     await teardownTestDb();
-  });
-
-  it("round-trips an engine operation with streamed progress and a final ack", async () => {
-    const service = makeService();
-    const alpha = await enroll(service, "alpha");
-    const { socket } = await dialEngineRunner({
-      endpoint: alpha.endpoint,
-      ca: alpha.ca,
-      cert: alpha.cert,
-      key: alpha.key,
-      workspaces: [MANAGED_WORKSPACE],
-      onEngine: (id, reply, operation) => {
-        expect(operation).toEqual({ type: "update", engine: "claude" });
-        const event: EngineOperationEvent = {
-          type: "operation_progress",
-          operationId: "op-1",
-          engine: "claude",
-          phase: "update",
-          message: "Updating…",
-        };
-        reply({
-          type: "data",
-          id,
-          data: Buffer.from(JSON.stringify(event) + "\n", "utf8").toString(
-            "base64"
-          ),
-        });
-        reply({
-          type: "result",
-          id,
-          value: JSON.stringify({ ok: true, operationId: "op-1" }),
-        });
-      },
-    });
-    sockets.push(socket);
-    await waitFor(() =>
-      service.available({
-        runner: alpha.created.id,
-        workspace: MANAGED_WORKSPACE,
-      })
-    );
-
-    const transport = remoteEngineTransport(
-      service,
-      parseEngineCapabilityResult
-    );
-    const events: EngineOperationEvent[] = [];
-    const ack = await transport.send(
-      alpha.created.id,
-      { type: "update", engine: "claude" },
-      (event) => events.push(event)
-    );
-    expect(ack).toEqual({ ok: true, operationId: "op-1" });
-    expect(events).toEqual([
-      {
-        type: "operation_progress",
-        operationId: "op-1",
-        engine: "claude",
-        phase: "update",
-        message: "Updating…",
-      },
-    ]);
-  });
-
-  it("routes engine commands over a configured-folder workspace when @session isn't advertised", async () => {
-    const service = makeService();
-    const alpha = await enroll(service, "alpha");
-    const { socket } = await dialEngineRunner({
-      endpoint: alpha.endpoint,
-      ca: alpha.ca,
-      cert: alpha.cert,
-      key: alpha.key,
-      // No MANAGED_WORKSPACE at all — a runner with only named folders
-      // and no managed-session support, per the real runner.ts shape.
-      workspaces: ["proof"],
-      onEngine: (id, reply, operation) => {
-        expect(operation).toEqual({ type: "status" });
-        reply({ type: "result", id, value: JSON.stringify({ ok: true }) });
-      },
-    });
-    sockets.push(socket);
-    await waitFor(() =>
-      service.available({ runner: alpha.created.id, workspace: "proof" })
-    );
-
-    const transport = remoteEngineTransport(
-      service,
-      parseEngineCapabilityResult
-    );
-    const ack = await transport.send(alpha.created.id, { type: "status" });
-    expect(ack).toEqual({ ok: true });
-  });
-
-  it("distinguishes a disconnected peer from a connected peer lacking engine management", async () => {
-    const service = makeService();
-    const alpha = await enroll(service, "alpha");
-    const transport = remoteEngineTransport(
-      service,
-      parseEngineCapabilityResult
-    );
-    const ack = await transport.send(alpha.created.id, { type: "status" });
-    expect(ack).toMatchObject({
-      ok: false,
-      error: expect.stringContaining("disconnected"),
-    });
-    expect(ack).not.toHaveProperty("unsupported");
-    let received = 0;
-    const { socket } = await dialEngineRunner({
-      ...alpha,
-      workspaces: ["proof"],
-      engineManagement: false,
-      onEngine: () => {
-        received++;
-      },
-    });
-    sockets.push(socket);
-    await waitFor(() =>
-      service.available({ runner: alpha.created.id, workspace: "proof" })
-    );
-    expect(
-      await transport.send(alpha.created.id, { type: "status" })
-    ).toMatchObject({
-      ok: false,
-      unsupported: true,
-    });
-    expect(received).toBe(0);
   });
 
   it("routes GitHub operations to the chosen capable runner and drops access on revoke", async () => {

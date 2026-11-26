@@ -3,7 +3,6 @@ import {
   readStoredModelCatalog,
   selectableAgentModels,
 } from "../shared/agent-models.js";
-import type { RunnerEngineTransport } from "../agents/remote/engine-manager.js";
 import { createRiskReader } from "../shared/mcp/pull-request-risk-tools.js";
 import type { PullRequestRefresher } from "../agents/pull-request-refresher.js";
 import { inProcessEngines, localEngineCalls } from "../runners/local.js";
@@ -161,7 +160,6 @@ type McpRouteDeps = {
   redeemCodexReset?: RedeemCodexReset;
   usageWatches?: UsageCallbacks["usageWatches"];
   providerPlans?: ProviderPlansReporter;
-  runnerEngines?: RunnerEngineTransport;
   config: {
     authToken: string;
   };

@@ -1,4 +1,3 @@
-import { inProcessPorts } from "./runners/in-process.js";
 import {
   sameRunner,
   sessionFromWire,
@@ -198,7 +197,6 @@ import {
   observeModelUpdates,
 } from "./agents/engine-update-operations.js";
 import { EngineManager } from "./agents/remote/engine-manager.js";
-import { remoteEngineTransport } from "./agents/remote/engine-transport.js";
 import {
   onStoredModelCatalogRead,
   onModelCatalogValidation,
@@ -288,13 +286,6 @@ const remoteRunner = configuredRunner({
   validJobToken: (token, runId, agentId) =>
     validateJobMcpToken(config.authToken, token, runId, agentId),
 });
-const runnerEngines = remoteRunner
-  ? remoteEngineTransport(
-      remoteRunner,
-      inProcessPorts().parseEngineCapabilityResult,
-      app.log
-    )
-  : undefined;
 // Runner update holds: nothing is held until an update coordinator begins one.
 const runnerHolds = remoteRunner
   ? new RunnerUpdateHolds({
@@ -1186,14 +1177,15 @@ async function registerRoutes() {
       updateRecoveryRuntime.localRunnerStartsFrozen()
   );
   app.addHook("onClose", async () => localEnginesInProcess.close());
-  const engineCalls = (scope: EngineScope) =>
+  const engineCalls = (scope: EngineScope, liveInventory = false) =>
     scopedEngineCalls(
       localEngineCalls(
         () => localRunnerOf(localRunnerProcess),
         localEnginesInProcess
       ),
       remoteRunner,
-      scope
+      scope,
+      liveInventory
     );
   const catalogRefresh = new ModelCatalogRefresh({
     pool,
@@ -1286,7 +1278,6 @@ async function registerRoutes() {
     usageWatches.dispose();
   });
   await registerMcpRoutes(app, {
-    runnerEngines,
     usageForAgent,
     usageWatches,
     providerPlans,
@@ -1448,13 +1439,6 @@ async function registerRoutes() {
         codex: config.codexBin,
         opencode: config.opencodeBin,
       },
-    },
-    remote: runnerEngines ?? {
-      send: async () => ({
-        ok: false,
-        error: "Runner enrollment is disabled.",
-        unsupported: true,
-      }),
     },
   });
   await registerEngineLoginRoutes(app, engineManager);

@@ -25,5 +25,3 @@ export const loadRunner = () => import("./workload/agents/remote/runner.js");
 export const loadHostSearchPath = () => import("./host/host-search-path.js");
 export const loadEngineAvailability = () =>
   import("./workload/agents/engine-availability.js");
-export const loadEngineCapabilityResult = () =>
-  import("./workload/agents/remote/engine-capability-result.js");

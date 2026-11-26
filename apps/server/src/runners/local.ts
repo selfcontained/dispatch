@@ -1957,7 +1957,8 @@ export function scopedEngineCalls(
         ): Res<"engine.list">["entries"] | undefined;
       }
     | undefined,
-  scope: EngineScope
+  scope: EngineScope,
+  liveInventory = false
 ): RunnerEngineCalls {
   if (scope.kind === "local") return local;
   const runnerId = scope.runnerId;
@@ -1977,6 +1978,7 @@ export function scopedEngineCalls(
         return await remote.callEngine(runnerId, op, request);
       } catch (error) {
         if (
+          liveInventory ||
           op !== "engine.list" ||
           !(error instanceof RunnerCallError) ||
           !["unavailable", "unknown_outcome", "fenced"].includes(error.code)

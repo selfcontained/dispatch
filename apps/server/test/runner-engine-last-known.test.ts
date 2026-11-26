@@ -1,4 +1,3 @@
-import { parseEngineCapabilityResult } from "../../../packages/runner/src/workload/agents/remote/engine-capability-result.js";
 import { scopedEngineCalls } from "../src/runners/local.js";
 import { Duplex } from "node:stream";
 import type { EngineInventoryEntry } from "@dispatch/runner-protocol/engine-management";
@@ -6,7 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { EngineManager } from "../src/agents/remote/engine-manager.js";
 
-import { remoteEngineTransport } from "../src/agents/remote/engine-transport.js";
 import { RemoteRunnerService } from "../src/agents/remote/service.js";
 
 const scope = { kind: "runner", runnerId: "rnr_one" } as const;
@@ -107,7 +105,6 @@ function world() {
       updates: () => ({}) as never,
     },
     local: { engines: {} as never, updates: {} as never },
-    remote: remoteEngineTransport(service, parseEngineCapabilityResult),
   });
   const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
   const read = async () => {

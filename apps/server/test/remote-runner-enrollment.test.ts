@@ -1,4 +1,3 @@
-import { parseEngineCapabilityResult } from "../../../packages/runner/src/workload/agents/remote/engine-capability-result.js";
 import { X509Certificate } from "node:crypto";
 import { once } from "node:events";
 import http from "node:http";
@@ -23,7 +22,6 @@ import {
   type EnrollmentReply,
 } from "../../../packages/runner/src/workload/agents/remote/protocol.js";
 import { wireFrames } from "../src/runners/enrolled/v1-framing.js";
-import { remoteEngineTransport } from "../src/agents/remote/engine-transport.js";
 import { RunnerRegistry } from "../src/agents/remote/registry.js";
 import {
   advertisedHost,
@@ -282,81 +280,6 @@ describe("runner enrollment service", () => {
     expect(
       peer.requests.filter((frame) => frame.type === "request")
     ).toHaveLength(1);
-  });
-
-  it("negotiates workload capabilities per enrolled peer and fails closed offline", async () => {
-    const service = makeService();
-    const current = await enroll(service, "current-engine");
-    const older = await enroll(service, "older-engine");
-    const currentPeer = await dialRunner({
-      ...current,
-      workspaces: ["work"],
-      engineManagement: true,
-      engineCapabilities: true,
-      label: JSON.stringify({
-        ok: true,
-        capability: {
-          type: "model_catalog",
-          catalog: {
-            defaultModel: "runner/model",
-            models: [
-              {
-                id: "runner/model",
-                label: "Runner model",
-                hostPath: "/private/home",
-              },
-            ],
-          },
-        },
-      }),
-    });
-    const olderPeer = await dialRunner({
-      ...older,
-      workspaces: ["work"],
-      engineManagement: true,
-      label: JSON.stringify({ ok: true }),
-    });
-    runners.push(currentPeer, olderPeer);
-    const currentId = current.created.id;
-    const olderId = older.created.id;
-    await waitFor(() =>
-      [currentId, olderId].every((runner) =>
-        service.available({ runner, workspace: "work" })
-      )
-    );
-    const transport = remoteEngineTransport(
-      service,
-      parseEngineCapabilityResult
-    );
-    const operation = { type: "model_catalog", engine: "codex" } as const;
-    await expect(transport.send(currentId, operation)).resolves.toEqual({
-      ok: true,
-      capability: {
-        type: "model_catalog",
-        catalog: {
-          defaultModel: "runner/model",
-          models: [{ id: "runner/model", label: "Runner model" }],
-        },
-      },
-    });
-    await expect(transport.send(olderId, operation)).resolves.toMatchObject({
-      ok: false,
-      unsupported: true,
-    });
-    expect(
-      olderPeer.requests.filter((frame) => frame.type === "request")
-    ).toHaveLength(0);
-    await expect(transport.send(olderId, { type: "status" })).resolves.toEqual({
-      ok: true,
-    });
-
-    currentPeer.socket.destroy();
-    await waitFor(
-      () => !service.available({ runner: currentId, workspace: "work" })
-    );
-    await expect(transport.send(currentId, operation)).resolves.toMatchObject({
-      ok: false,
-    });
   });
 
   it("negotiates supervisor update frames only with an advertising peer", async () => {
