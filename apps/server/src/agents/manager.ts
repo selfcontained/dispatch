@@ -65,6 +65,7 @@ import { getActivePersonality } from "../db/personalities.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import {
   archiveCheckout,
+  retainUnflaggedCheckout,
   beginArchive as beginArchiveImpl,
   executeArchive as executeArchiveImpl,
   type ArchiveDeps,
@@ -4675,36 +4676,39 @@ export class AgentManager {
         ArchiveCheckoutAgent & {
           mode: WorktreeCleanupMode | null;
           runner_id: string;
+          runnerManaged: boolean;
         }
       >(
         `SELECT id, cwd, worktree_path AS "worktreePath", base_branch AS "baseBranch",
-                worktree_branch AS "worktreeBranch", archive_cleanup_mode AS mode, runner_id
+                worktree_branch AS "worktreeBranch", archive_cleanup_mode AS mode, runner_id, runner_managed AS "runnerManaged"
          FROM agents WHERE runner_cleanup_pending AND deleted_at IS NOT NULL ORDER BY id`
       );
       for (const agent of rows) {
         const { id, cwd, mode } = agent;
         try {
-          if (remotePlacement(cwd)) {
-            if (!this.remote) continue;
-            await this.runtime.stop(id, true);
-            await this.streamRecorder.settleStopped(id);
-            await this.runtime.clearRemoteState?.(id);
-          }
-          const outcome = await archiveCheckout(
-            this.pool,
-            this.logger,
-            agent,
-            mode ?? "auto",
-            true,
-            undefined,
-            archiveRunner(
-              { child: this.localRunnerChild, remote: this.remote },
+          if (!retainUnflaggedCheckout(agent)) {
+            if (remotePlacement(cwd)) {
+              if (!this.remote) continue;
+              await this.runtime.stop(id, true);
+              await this.streamRecorder.settleStopped(id);
+              await this.runtime.clearRemoteState?.(id);
+            }
+            const outcome = await archiveCheckout(
+              this.pool,
+              this.logger,
               agent,
-              placementFromRow(agent)
-            ),
-            this.remote
-          );
-          if (outcome.kind === "pending") continue;
+              mode ?? "auto",
+              true,
+              undefined,
+              archiveRunner(
+                { child: this.localRunnerChild, remote: this.remote },
+                agent,
+                placementFromRow(agent)
+              ),
+              this.remote
+            );
+            if (outcome.kind === "pending") continue;
+          }
           await this.pool.query(
             "UPDATE agents SET runner_cleanup_pending = false, archive_cleanup_mode = NULL, archive_checkout_state = NULL WHERE id = $1",
             [id]

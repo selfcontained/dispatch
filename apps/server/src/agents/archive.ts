@@ -146,9 +146,12 @@ export async function archiveCheckout(
   }
 }
 
-function managedCheckout(agent: Pick<AgentRecord, "runnerManaged" | "cwd">) {
+/** An unreleased controller could write a managed locator without recording ownership. */
+export function retainUnflaggedCheckout(
+  agent: Pick<AgentRecord, "runnerManaged" | "cwd">
+) {
   return (
-    Boolean(agent.runnerManaged) ||
+    !agent.runnerManaged &&
     remotePlacement(agent.cwd)?.workspace === MANAGED_WORKSPACE
   );
 }
@@ -162,6 +165,7 @@ export async function finishCheckout(
   durations: Record<string, number>,
   onCleanupStart?: () => Promise<void>
 ): Promise<boolean> {
+  if (retainUnflaggedCheckout(agent)) return false;
   const hooks = { durations, onCleanupStart };
   // Every runner placement, managed or a configured workspace, finishes on
   // its runner: offline, the release stays pending and is retried.
@@ -266,8 +270,8 @@ export async function executeArchive(
       await deps.settleStream(id);
       // The state directory holds the launch file with the MCP token; the
       // stream is already in the database.
-      if (managedCheckout(agent)) await runtime.clearRemoteState?.(id);
-      else await runtime.discard(id);
+      if (agent.runnerManaged) await runtime.clearRemoteState?.(id);
+      else if (!retainUnflaggedCheckout(agent)) await runtime.discard(id);
       stopped = true;
     } catch (err) {
       if (err instanceof LifecycleSuperseded) return;
@@ -395,7 +399,7 @@ export async function deleteAgentDirect(
   }
 
   let stopped = false;
-  if (agent.status !== "stopped" || managedCheckout(agent)) {
+  if (agent.status !== "stopped" || agent.runnerManaged) {
     const t = Date.now();
     // Not stopAgent: it writes `stopping`/`stopped`, releasing the claim above
     // and letting a fresh archive take this agent mid-teardown.
@@ -424,8 +428,8 @@ export async function deleteAgentDirect(
       await deps.settleStream(id);
       // The state directory holds the launch file with the MCP token; the
       // stream is already in the database.
-      if (managedCheckout(agent)) await runtime.clearRemoteState?.(id);
-      else await runtime.discard(id);
+      if (agent.runnerManaged) await runtime.clearRemoteState?.(id);
+      else if (!retainUnflaggedCheckout(agent)) await runtime.discard(id);
       stopped = true;
     } catch (err) {
       if (err instanceof LifecycleSuperseded) return [];
