@@ -4,7 +4,7 @@ import { expect, it } from "vitest";
 
 it("supplies build inputs at every embedding entry that consumes them", async () => {
   const source = await readFile(
-    new URL("../src/main.ts", import.meta.url),
+    new URL("../../../packages/runner/src/program.ts", import.meta.url),
     "utf8"
   );
   const tree = ts.createSourceFile(

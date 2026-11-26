@@ -409,6 +409,12 @@ importers:
 
   packages/runner:
     dependencies:
+      '@agentclientprotocol/claude-agent-acp':
+        specifier: 0.108.0
+        version: 0.108.0(patch_hash=dbyab7vaqn7533qmedctqb5mwe)(@anthropic-ai/sdk@0.127.0(zod@4.3.6))(@modelcontextprotocol/sdk@1.31.0(zod@4.3.6))
+      '@agentclientprotocol/codex-acp':
+        specifier: 2.7.0
+        version: 2.7.0(patch_hash=t4l3f3t4hwhyn7x6gmf6seedcq)
       '@agentclientprotocol/sdk':
         specifier: 1.8.0
         version: 1.8.0(zod@4.3.6)

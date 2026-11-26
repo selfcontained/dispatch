@@ -27,3 +27,4 @@ export const loadEngineAvailability = () =>
   import("./workload/agents/engine-availability.js");
 export const loadEngineCapabilityResult = () =>
   import("./workload/agents/remote/engine-capability-result.js");
+export { dispatchRunnerMode } from "./program.js";
