@@ -1,4 +1,5 @@
-import { remotePlacement, workspaceLocator } from "@dispatch/runner-protocol";
+import { controllerPlacement, enrolledRunnerId } from "../runners/placement.js";
+import type { Placement } from "@dispatch/runner-protocol/contract";
 import path from "node:path";
 
 import { AgentError } from "./errors.js";
@@ -11,11 +12,12 @@ import { AgentError } from "./errors.js";
  *
  * Deliberately separate from `cwd` (the engine spawns and resumes there) and
  * `worktreePath` (the worktree Dispatch created and archive may delete).
- * For remote sessions, `cwd` is the machine binding and `workspacePath`
+ * For enrolled sessions, `cwd` is the prepared path and `workspacePath`
  * is runner-confirmed display metadata. Checkout operations go to the runner.
  */
 export type WorkspaceTargetAgent = {
   cwd: string | null;
+  placement?: Placement;
   worktreePath: string | null;
   baseBranch: string | null;
   workspacePath?: string | null;
@@ -26,17 +28,13 @@ export type WorkspaceTargetAgent = {
   } | null;
 };
 
-/** Persist a native directory or a runner locator without treating the latter as a path. */
+/** Resolve a directory on the controller. */
 export function resolveLaunchLocation(directory: string): string {
-  const placement = remotePlacement(directory);
-  if (placement) return workspaceLocator(placement);
-  if (directory.startsWith("runner://"))
-    throw new AgentError("Invalid runner workspace locator.", 400);
   return path.resolve(directory);
 }
 
 export function agentWorkspaceDir(agent: WorkspaceTargetAgent): string | null {
-  if (agent.cwd && remotePlacement(agent.cwd)) return null;
+  if (enrolledRunnerId(agent.placement ?? controllerPlacement)) return null;
   return agent.workspacePath ?? agent.worktreePath ?? agent.cwd ?? null;
 }
 
@@ -59,7 +57,7 @@ export function agentStreamDirectory(
 
 /** Local path used by Changes, including a worktree discovered on older rows. */
 export function agentDiffPath(agent: WorkspaceTargetAgent): string | null {
-  if (agent.cwd && remotePlacement(agent.cwd)) return null;
+  if (enrolledRunnerId(agent.placement ?? controllerPlacement)) return null;
   return (
     agent.workspacePath ??
     agent.worktreePath ??

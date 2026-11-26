@@ -28,7 +28,7 @@ import {
   type CheckoutCommandRunners,
   type CheckoutSession,
 } from "../runners/directory.js";
-import { checkoutReadPlacement } from "../runners/placement.js";
+import { controllerPlacement } from "../runners/placement.js";
 import { TEST_FILE_PATTERNS } from "@dispatch/runner-protocol";
 import { WorkspaceError } from "@dispatch/runner-protocol";
 
@@ -57,7 +57,7 @@ export function sessionRunner(
   const session = {
     ...agent,
     id: agent.id ?? "",
-    placement: agent.placement ?? checkoutReadPlacement(agent.cwd),
+    placement: agent.placement ?? controllerPlacement,
   } as CheckoutSession;
   const { directory, placement } = checkoutRunners(
     readRunners(runners),

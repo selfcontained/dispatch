@@ -8,7 +8,6 @@ import type { FastifyBaseLogger } from "fastify";
 
 import type {
   LaunchProgress,
-  Placement,
   RunnerRepository,
 } from "@dispatch/runner-protocol";
 import type { BuildIdentity } from "./build-identity.js";
@@ -34,7 +33,7 @@ export type RuntimeLaunch = Omit<HostLaunch, "bins" | "env" | "pathPrefix"> & {
   bins?: Omit<HostLaunch["bins"], "adapter">;
   env?: HostLaunch["env"];
   pathPrefix?: HostLaunch["pathPrefix"];
-  placement?: Placement;
+  placement?: string;
   repository?: RunnerRepository;
   onWorkspaceProgress?: (progress: LaunchProgress) => void;
   /** Recheck ownership after waiting for a runner whose launch reply was lost. */
@@ -198,7 +197,7 @@ export type AgentRuntime = {
   retryStop?(
     agentId: string,
     force: boolean,
-    placement: Placement | null,
+    placement: string | null,
     expectedLaunchId?: string,
     ownerOnly?: boolean
   ): Promise<void>;
@@ -220,14 +219,14 @@ export type AgentRuntime = {
   /** Agents with a live host, for the reconciler. */
   listHosted(): Promise<string[]>;
   listSessions?(
-    placement: Placement | null,
+    placement: string | null,
     ownerOnly?: boolean
   ): Promise<Res<"session.list"> | undefined>;
   listRunnerSessions?(
     runnerId: string
   ): Promise<Res<"session.list"> | undefined>;
   sampleSessions?(
-    placement: Placement | null,
+    placement: string | null,
     agentIds: string[]
   ): Promise<Res<"session.sample">["samples"]>;
   inventoryLiveness?(): (agentId: string) => Promise<boolean>;

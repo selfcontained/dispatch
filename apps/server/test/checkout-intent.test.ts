@@ -1,5 +1,5 @@
 import { placementForRunner } from "../src/runners/placement.js";
-import { checkoutReadPlacement } from "../src/runners/placement.js";
+import { placementForRunner } from "../src/runners/placement.js";
 import type { RepositoryCheckout } from "@dispatch/runner-protocol";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -347,7 +347,7 @@ describe("pull request intent", () => {
           {},
           {},
           {
-            placement: checkoutReadPlacement("runner://test/workspace"),
+            placement: placementForRunner("test"),
             location: { runner: "test", workspace: "workspace" },
             directory: null,
             ...(hasFolder && {

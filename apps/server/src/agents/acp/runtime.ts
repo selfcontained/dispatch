@@ -60,7 +60,6 @@ import {
   type RemoteRunnerService,
 } from "../remote/service.js";
 import type { RunnerUpdateHolds } from "../remote/update-hold.js";
-import type { Placement } from "@dispatch/runner-protocol";
 import type { RemoteEventInbox } from "../remote/event-inbox.js";
 import {
   createHostSessionClient,
@@ -414,16 +413,7 @@ export type AcpRuntimeDeps = {
     text: string
   ) => Promise<{ images: PromptImage[]; text: string }>;
   remote?: Pick<RemoteRunnerService, "available" | "call" | "openStream"> &
-    Partial<
-      Pick<
-        RemoteRunnerService,
-        | "connectionEpoch"
-        | "reconcilesLaunches"
-        | "supportsScopedStop"
-        | "observeSessions"
-        | "sessionObservationTargets"
-      >
-    >;
+    Partial<Pick<RemoteRunnerService, "connectionEpoch">>;
   /**
    * The app's local runner child, once started: local hosts are attached,
    * checked and read through it.
@@ -438,7 +428,7 @@ export type AcpRuntimeDeps = {
   >;
   remoteInbox?: Pick<RemoteEventInbox, "receive" | "projected">;
   recoverRemoteEvent?: (agentId: string) => Promise<void>;
-  placement?: (agentId: string) => Promise<Placement | null>;
+  placement?: (agentId: string) => Promise<string | null>;
   recordLaunch?: (agentId: string, launchId: string | null) => Promise<void>;
   sessionOwner?: () => Promise<string>;
   classifySteering?: ClassifySteering;
@@ -488,8 +478,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
   };
 
   const controllerId = runnerIdForPlacement(controllerPlacement);
-  const runnerIdAt = (placement?: Placement | null) =>
-    placement?.runner ?? controllerId;
+  const runnerIdAt = (placement?: string | null) => placement ?? controllerId;
 
   const stateDir = (agentId: string) =>
     path.join(config.agentStateRoot, agentId);
@@ -514,7 +503,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
    * request never started while the hold is still on.
    */
   async function heldSessionRequest(
-    placement: Placement | null | undefined,
+    placement: string | null | undefined,
     operation: SessionLifecycleOperation,
     beforeRequest?: () => void
   ): Promise<SessionResult> {
@@ -549,7 +538,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
    * Anything else keeps the original uncertain outcome.
    */
   async function requestLaunch(
-    placement: Placement | null | undefined,
+    placement: string | null | undefined,
     operation: Extract<SessionLifecycleOperation, { kind: "launch" }>,
     request: Req<"session.launch">,
     onProgress?: RuntimeLaunch["onWorkspaceProgress"],
@@ -573,11 +562,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         while (!deps.remote?.available(placement) && Date.now() < deadline)
           await new Promise((resolve) => setTimeout(resolve, pollMs));
         await beforeReconcile?.();
-        if (
-          !deps.remote?.available(placement) ||
-          !deps.remote.reconcilesLaunches?.(placement)
-        )
-          throw error;
+        if (!deps.remote?.available(placement)) throw error;
         logger.info(
           {
             agentId: operation.agentId,
@@ -591,7 +576,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
   }
 
   async function requestSession(
-    placement: Placement | null | undefined,
+    placement: string | null | undefined,
     operation: SessionLifecycleOperation,
     request?: Req<"session.launch">,
     onProgress?: RuntimeLaunch["onWorkspaceProgress"]
@@ -1869,14 +1854,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           bins && binsToPrograms({ ...bins, adapter: config.acpAdapter }),
       });
       request.owner = (await deps.sessionOwner?.()) ?? null;
-      await deps.recordLaunch?.(
-        input.agentId,
-        !placement
-          ? request.launchId
-          : deps.remote?.supportsScopedStop?.(placement)
-            ? (launch.launchId ?? null)
-            : null
-      );
+      await deps.recordLaunch?.(input.agentId, request.launchId);
       const launched = await requestLaunch(
         placement,
         {
@@ -2006,7 +1984,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
             "The agent is not running; the prompt cannot be delivered."
           );
         // Across a held update the runner may be between supervisors.
-        if (!pending) await deps.holds?.wait(placement.runner);
+        if (!pending) await deps.holds?.wait(placement);
         const host = await (pending ?? connect(agentId, ATTACH_TIMEOUT_MS));
         if (live.get(agentId) !== host)
           throw new Error(
@@ -2331,9 +2309,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       if (owner === undefined) return undefined;
       if (!placement)
         return readLocalSession(localChild(), "session.list", { owner });
-      const result = await deps.remote?.observeSessions?.(placement, {
-        op: "session.list",
-        request: { owner },
+      const result = await deps.remote?.call(placement, "session.list", {
+        owner,
       });
       if (result === undefined) return undefined;
       if (!operations["session.list"].response.check(result))
@@ -2342,16 +2319,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     },
 
     async listRunnerSessions(runnerId) {
-      const targets = deps.remote?.sessionObservationTargets?.(runnerId);
-      if (!targets) return undefined;
-      const lists = await Promise.all(
-        targets.map((target) => runtime.listSessions!(target))
-      );
-      if (lists.some((list) => list === undefined))
-        throw new RunnerUnavailable(
-          "Runner session inventory became unavailable."
-        );
-      return { sessions: lists.flatMap((list) => list?.sessions ?? []) };
+      if (!deps.remote?.available(runnerId)) return undefined;
+      return runtime.listSessions!(runnerId);
     },
 
     inventoryLiveness() {
@@ -2401,10 +2370,11 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       if (!placement)
         return (await readLocalSession(localChild(), "session.sample", request))
           .samples;
-      const result = await deps.remote?.observeSessions?.(placement, {
-        op: "session.sample",
-        request,
-      });
+      const result = await deps.remote?.call(
+        placement,
+        "session.sample",
+        request
+      );
       if (result === undefined) return [];
       if (!operations["session.sample"].response.check(result))
         throw new Error("Invalid runner session samples");

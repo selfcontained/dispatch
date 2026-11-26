@@ -19,10 +19,7 @@ import {
   runnerDirectory,
   type CheckoutCommandRunners,
 } from "../runners/directory.js";
-import {
-  checkoutReadPlacement,
-  controllerPlacement,
-} from "../runners/placement.js";
+import { controllerPlacement } from "../runners/placement.js";
 import {
   pathFromWire,
   displayPath,
@@ -124,10 +121,9 @@ async function readProjectIcon(
   const runners = agents?.checkoutReadRunners() ?? {};
   if (project.repoRoot) {
     const folder = resolveTilde(project.repoRoot);
-    return readCheckoutIcon(
-      runnerDirectory(runners).for(checkoutReadPlacement(folder)),
-      { path: pathFromWire(folder) }
-    );
+    return readCheckoutIcon(runnerDirectory(runners).for(controllerPlacement), {
+      path: pathFromWire(folder),
+    });
   }
   if (!agents || !project.id) return null;
   const newest = (

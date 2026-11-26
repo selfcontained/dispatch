@@ -15,20 +15,6 @@
   },
   {
     "file": "apps/server/src/agents/acp/runtime.ts",
-    "kind": "R1 placement read",
-    "detail": "placement.runner",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/acp/runtime.ts",
-    "kind": "R1 placement read",
-    "detail": "placement?.runner",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/acp/runtime.ts",
     "kind": "R2 host access",
     "detail": "fs/promises",
     "task": "T04",
@@ -57,13 +43,6 @@
   },
   {
     "file": "apps/server/src/agents/manager.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(agent.cwd)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/manager.ts",
     "kind": "R2 host access",
     "detail": "fs/promises",
     "task": "T04",
@@ -85,23 +64,9 @@
   },
   {
     "file": "apps/server/src/agents/remote/service.ts",
-    "kind": "R1 placement read",
-    "detail": "placement.runner",
-    "task": "T07",
-    "count": 5
-  },
-  {
-    "file": "apps/server/src/agents/remote/service.ts",
     "kind": "R2 host access",
     "detail": "os",
     "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/remote/service.ts",
-    "kind": "R7 restriction",
-    "detail": "N29 Capability-specific update refusals",
-    "task": "T40",
     "count": 1
   },
   {
@@ -109,34 +74,6 @@
     "kind": "R2 host access",
     "detail": "fs/promises",
     "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/workspace-target.ts",
-    "kind": "R1 locator",
-    "detail": "runner://",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/workspace-target.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(agent.cwd)",
-    "task": "T07",
-    "count": 2
-  },
-  {
-    "file": "apps/server/src/agents/workspace-target.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(directory)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/db/migrations/0055_runner_registrations.sql",
-    "kind": "R1 locator",
-    "detail": "runner:// in SQL",
-    "task": "T07",
     "count": 1
   },
   {
@@ -164,20 +101,6 @@
     "file": "apps/server/src/routes/mcp.ts",
     "kind": "R1 placement call",
     "detail": "agentWorkspaceDir(agent)",
-    "task": "T07",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/routes/mcp.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(agent.cwd)",
-    "task": "T07",
-    "count": 3
-  },
-  {
-    "file": "apps/server/src/routes/personas.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(cwd)",
     "task": "T07",
     "count": 1
   },
@@ -298,48 +221,6 @@
     "kind": "R2 host access",
     "detail": "loopback fetch",
     "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/web/src/components/app/chat/chat-delivery-meta.tsx",
-    "kind": "R6 placement call",
-    "detail": "remotePlacement(agent.cwd)",
-    "task": "T38",
-    "count": 1
-  },
-  {
-    "file": "apps/web/src/components/app/chat/chat-delivery-meta.tsx",
-    "kind": "R6 placement read",
-    "detail": "remotePlacement(agent.cwd)?.runner",
-    "task": "T38",
-    "count": 1
-  },
-  {
-    "file": "apps/web/src/components/app/chat/chat-delivery-meta.tsx",
-    "kind": "R6 protocol value import",
-    "detail": "@dispatch/runner-protocol",
-    "task": "T38",
-    "count": 1
-  },
-  {
-    "file": "apps/web/src/components/app/chat/composer-meta.tsx",
-    "kind": "R6 placement call",
-    "detail": "remotePlacement(agent.cwd)",
-    "task": "T38",
-    "count": 1
-  },
-  {
-    "file": "apps/web/src/components/app/chat/composer-meta.tsx",
-    "kind": "R6 placement read",
-    "detail": "remotePlacement(agent.cwd)?.runner",
-    "task": "T38",
-    "count": 1
-  },
-  {
-    "file": "apps/web/src/components/app/chat/composer-meta.tsx",
-    "kind": "R6 protocol value import",
-    "detail": "@dispatch/runner-protocol",
-    "task": "T38",
     "count": 1
   },
   {

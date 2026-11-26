@@ -19,10 +19,9 @@ import { getEnabledAgentTypes } from "../agent-type-settings.js";
 import type { ProviderPlansReporter } from "../agents/provider-plans-reporter.js";
 import type { UsageCallbacks } from "../shared/mcp/usage-tools.js";
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
-import { remotePlacement } from "@dispatch/runner-protocol";
 import { agentWorkspaceDir } from "../agents/workspace-target.js";
 import { sameRunner } from "@dispatch/runner-protocol/contract";
-import { controllerPlacement } from "../runners/placement.js";
+import { controllerPlacement, enrolledRunnerId } from "../runners/placement.js";
 import {
   identityKey,
   PROJECT_IDENTITY_SQL,
@@ -33,7 +32,6 @@ import {
 import {
   defaultSavedTarget,
   normalizeSavedDirectory,
-  sameSavedCheckout,
   targetPlacement,
 } from "../runners/saved-location.js";
 import * as telemetry from "../agents/telemetry.js";
@@ -89,7 +87,7 @@ async function checkoutContext(
   agent: NonNullable<Awaited<ReturnType<AgentManager["getAgent"]>>>,
   body: unknown
 ) {
-  const placement = remotePlacement(agent.cwd);
+  const placement = enrolledRunnerId(agent.placement ?? controllerPlacement);
   const workspaceDir = agentWorkspaceDir(agent) ?? agent.cwd;
   const ownerOnly = isOwnerReviewRequest(body);
   const roots = ownerOnly
@@ -97,8 +95,7 @@ async function checkoutContext(
     : await mcpCheckoutRoots(deps.agentManager, agent);
   const hasCheckout =
     !roots || Boolean(roots.checkoutRoot || roots.repositoryRoot);
-  const callerPlacement =
-    agent.placement ?? targetPlacement({ directory: agent.cwd });
+  const callerPlacement = agent.placement ?? controllerPlacement;
   // The runner's machine-local paths never become host paths or keys.
   const repoRoot = identityKey(callerPlacement, roots?.repositoryRoot ?? null);
   // Like repoRoot: a runner's machine-local path is never a host path.
@@ -221,24 +218,38 @@ function buildCrudCallbacks(
   agent: AgentRecord
 ): CrudToolCallbacks {
   const callerFullAccess = agent.fullAccess === true;
-  const callerPlacement =
-    agent.placement ?? targetPlacement({ directory: agent.cwd });
+  const callerPlacement = agent.placement ?? controllerPlacement;
   const personaScope: SavedPersonaScope = (target) =>
     !sameRunner(callerPlacement, controllerPlacement) &&
-    sameSavedCheckout({ directory: agent.cwd }, { directory: target.cwd })
+    sameRunner(callerPlacement, target.placement ?? controllerPlacement)
       ? personaScopeFor({ manager: deps.agentManager, agent })
       : savedPersonaScope(deps.agentManager)(target);
 
+  // The default directory names the caller's session. A supplied native folder
+  // uses the controller's directory namespace, as saved launches do.
+  const scopeFor = (directory: string) =>
+    directory === agent.cwd ? callerPlacement : controllerPlacement;
   return {
     listJobs: async (directory) => {
       const jobs = await deps.jobService.listJobs();
       if (!directory) return jobs;
-      const resolved = normalizeSavedDirectory(directory);
-      return jobs.filter((j) => j.directory === resolved);
+      const placement = scopeFor(directory);
+      const resolved = normalizeSavedDirectory(
+        directory,
+        runnerIdForPlacement(placement)
+      );
+      return jobs.filter(
+        (j) =>
+          j.directory === resolved && sameRunner(targetPlacement(j), placement)
+      );
     },
     getJobById: (jobId) => deps.jobService.getJobById(jobId),
     getJobByName: (directory, name) =>
-      deps.jobService.getJobByName(directory, name),
+      deps.jobService.getJobByName(
+        directory,
+        name,
+        runnerIdForPlacement(scopeFor(directory))
+      ),
     createJob: (input, defaultDirectory) =>
       deps.jobService.addJob(
         defaultSavedTarget(input, agent, defaultDirectory) as AddJobInput,
@@ -261,13 +272,24 @@ function buildCrudCallbacks(
     listTemplates: async (directory) => {
       const templates = await deps.templateService.listTemplates();
       if (!directory) return templates;
-      const resolved = normalizeSavedDirectory(directory);
-      return templates.filter((t) => t.directory === resolved);
+      const placement = scopeFor(directory);
+      const resolved = normalizeSavedDirectory(
+        directory,
+        runnerIdForPlacement(placement)
+      );
+      return templates.filter(
+        (t) =>
+          t.directory === resolved && sameRunner(targetPlacement(t), placement)
+      );
     },
     getTemplateById: (templateId) =>
       deps.templateService.getTemplate(templateId),
     getTemplateByName: (directory, name) =>
-      deps.templateService.getTemplateByName(directory, name),
+      deps.templateService.getTemplateByName(
+        directory,
+        name,
+        runnerIdForPlacement(scopeFor(directory))
+      ),
     createTemplate: (input, defaultDirectory) =>
       deps.templateService.addTemplate(
         defaultSavedTarget(input, agent, defaultDirectory) as AddTemplateInput,
@@ -340,7 +362,7 @@ export async function registerMcpRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    const placement = remotePlacement(agent.cwd);
+    const placement = enrolledRunnerId(agent.placement ?? controllerPlacement);
     if (placement && !deps.agentManager.permitsRemoteAgentMcp(placement)) {
       return reply
         .code(403)
@@ -482,7 +504,7 @@ export async function registerMcpRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    const placement = remotePlacement(agent.cwd);
+    const placement = enrolledRunnerId(agent.placement ?? controllerPlacement);
     if (placement && !deps.agentManager.permitsRemoteAgentMcp(placement)) {
       return reply
         .code(403)

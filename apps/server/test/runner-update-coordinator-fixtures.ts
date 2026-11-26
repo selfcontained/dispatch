@@ -265,8 +265,7 @@ export async function updateWorld(
       holds,
       hostSeq: async () => ({ seq: 0, journalId: null }),
       syncJournal: async () => {},
-      placement: async (agentId) =>
-        agentId === AGENT ? { runner: RUNNER, workspace: "work" } : null,
+      placement: async (agentId) => (agentId === AGENT ? RUNNER : null),
       remote: {
         available: () => service.connectionEpoch(RUNNER) !== undefined,
         connectionEpoch: (id) => service.connectionEpoch(id),
@@ -315,7 +314,7 @@ export async function updateWorld(
         id === AGENT
           ? {
               id,
-              cwd: `runner://${RUNNER}/work`,
+              cwd: "/runner/work",
               placement: placementForRunner(RUNNER),
             }
           : null,

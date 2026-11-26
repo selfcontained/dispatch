@@ -1,7 +1,6 @@
 import { pathFromWire } from "@dispatch/runner-protocol/contract";
 import { runnerDirectory } from "../runners/directory.js";
 import { controllerPlacement } from "../runners/placement.js";
-import { remotePlacement } from "@dispatch/runner-protocol";
 import type { Effort } from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import { listPersonas } from "../personas/resolve.js";
@@ -161,10 +160,9 @@ export async function registerPersonaRoutes(
       const project = projectId ? await deps.projects.get(projectId) : null;
       if (projectId && !project)
         return reply.code(404).send({ error: "Project not found." });
-      const worktreeRoot =
-        cwd && !remotePlacement(cwd)
-          ? await resolveOptionalWorktreeRoot(cwd, deps.agentManager)
-          : null;
+      const worktreeRoot = cwd
+        ? await resolveOptionalWorktreeRoot(cwd, deps.agentManager)
+        : null;
       const { personas, warnings, refreshing, updatedAt } = await listPersonas(
         launchPersonaScope(deps.agentManager, {
           placement: targetPlacement({ directory: cwd ?? "" }),
@@ -294,7 +292,7 @@ export async function registerPersonaRoutes(
       const parent = await deps.agentManager.getAgent(agentId);
       if (!parent) return reply.code(404).send({ error: "Agent not found." });
       const agentType = body.agentType as (typeof CLI_AGENT_TYPES)[number];
-      const scope = await modelScopeFor(parent.cwd, agentType, {
+      const scope = await modelScopeFor(parent.placement, agentType, {
         model: body.model,
         effort: body.effort,
       });

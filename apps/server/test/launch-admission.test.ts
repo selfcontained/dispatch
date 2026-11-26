@@ -16,14 +16,16 @@ import { admitLaunch } from "../src/agents/launch-admission.js";
 import { AgentManager } from "../src/agents/manager.js";
 import { resolvePath } from "./helpers/workspace-paths.js";
 import { launchDirectory } from "../src/agents/workspace-launch.js";
-import { checkoutReadPlacement } from "../src/runners/placement.js";
+import {
+  controllerPlacement,
+  placementForRunner,
+} from "../src/runners/placement.js";
 
 type Launch = Parameters<AgentManager["createAgent"]>[0];
 type Options = NonNullable<Parameters<AgentManager["createAgent"]>[1]>;
 
 const folder = "/repo";
-const managed = "runner://test/@session";
-const configured = "runner://test/workspace";
+const managed = "/runner/checkout";
 const ownerId = "owner";
 const projectId = "project";
 const templateId = "template";
@@ -38,14 +40,13 @@ const callers: {
   expected: [
     folder: string | null,
     managed: string | null,
-    configured: string | null,
     borrowed: string | null,
   ];
 }[] = [
   {
     caller: "Create Agent/API",
     input: {},
-    expected: [null, null, null, shared],
+    expected: [null, null, shared],
   },
   {
     caller: "MCP child",
@@ -54,28 +55,28 @@ const callers: {
       launchedByAgentId: ownerId,
       useWorktree: false,
     },
-    expected: [null, null, null, null],
+    expected: [null, null, null],
   },
   {
     caller: "MCP independent",
     input: { launchedByAgentId: ownerId, useWorktree: false },
     // Borrows the launcher's checkout, as it runs in the launcher's folder locally.
-    expected: [null, null, null, null],
+    expected: [null, null, null],
   },
   {
     caller: "task with template",
     input: { templateId, projectId },
-    expected: [null, null, null, shared],
+    expected: [null, null, shared],
   },
   {
     caller: "job",
     input: { jobRunId: "run" },
-    expected: [null, null, null, shared],
+    expected: [null, null, shared],
   },
   {
     caller: "template",
     input: { templateId },
-    expected: [null, null, null, shared],
+    expected: [null, null, shared],
   },
   {
     caller: "persona review",
@@ -86,7 +87,7 @@ const callers: {
       launchedByAgentId: ownerId,
       useWorktree: false,
     },
-    expected: [null, null, null, null],
+    expected: [null, null, null],
   },
 ];
 
@@ -95,8 +96,6 @@ async function checkAdmission(
   options: Options = {},
   flags: {
     available?: boolean;
-    sessionFiles?: boolean;
-    sharedWorktree?: boolean;
     ownerCwd?: string;
   } = {}
 ): Promise<string | null> {
@@ -106,21 +105,25 @@ async function checkAdmission(
   const stop = vi.fn(() => {
     throw admitted;
   });
+  input = {
+    ...input,
+    placement:
+      input.cwd === folder ? controllerPlacement : placementForRunner("test"),
+  };
   const owner = {
     id: ownerId,
     cwd: flags.ownerCwd ?? input.cwd,
-    placement: checkoutReadPlacement(flags.ownerCwd ?? input.cwd),
-    projectId: null,
+    placement:
+      (flags.ownerCwd ?? input.cwd) === folder
+        ? controllerPlacement
+        : placementForRunner("test"),
+    projectId,
     fullAccess: false,
   };
   const manager = Object.assign(Object.create(AgentManager.prototype), {
     getAgent: vi.fn(async (id) => (id === owner.id ? owner : null)),
     remote: {
       available: () => flags.available ?? true,
-      isManagedWorkspace: () =>
-        input.cwd === managed && (flags.available ?? true),
-      supportsSessionFiles: () => flags.sessionFiles ?? true,
-      supportsSharedWorktree: () => flags.sharedWorktree ?? true,
     },
     config: { agentRuntime: "acp" },
     pool: {
@@ -138,7 +141,11 @@ async function checkAdmission(
     prepareCreate: stop,
   }) as AgentManager;
   try {
-    await AgentManager.prototype.createAgent.call(manager, input, options);
+    await AgentManager.prototype.createAgent.call(
+      manager,
+      { projectId, ...input },
+      options
+    );
   } catch (error) {
     if (error === admitted) return null;
     if (error instanceof Error) return error.message;
@@ -151,7 +158,6 @@ describe("launch admission compatibility", () => {
   const targets = [
     { target: "local folder", cwd: folder, borrowed: false },
     { target: "managed runner", cwd: managed, borrowed: false },
-    { target: "configured runner", cwd: configured, borrowed: false },
     { target: "borrowed runner checkout", cwd: managed, borrowed: true },
   ];
   it.each(
@@ -187,7 +193,7 @@ describe("launch admission compatibility", () => {
   it.each([folder, managed])(
     "refuses an offline or unknown template runner for a launcher at %s",
     async (ownerCwd) => {
-      for (const cwd of [managed, "runner://unknown/@session"])
+      for (const cwd of [managed, "/other/checkout"])
         expect(
           await checkAdmission(
             {
@@ -212,35 +218,9 @@ describe("launch admission compatibility", () => {
 
   it.each([
     {
-      cwd: configured,
-      input: { repository: {} },
-      expected:
-        "Enter a repository URL or select a project with a repository origin.",
-    },
-    {
-      cwd: managed,
-      input: { initialFiles: [{}] as Launch["initialFiles"] },
-      flags: { sessionFiles: false },
-      expected: "Update the runner to launch with startup files.",
-    },
-    {
       cwd: managed,
       flags: { available: false },
       expected: "The enrolled runner workspace is unavailable.",
-    },
-    {
-      cwd: managed,
-      input: { parentAgentId: ownerId, launchedByAgentId: ownerId },
-      options: { useWorktreeOf: ownerId },
-      flags: { sharedWorktree: false },
-      expected: "Update the runner to launch an agent in an existing checkout.",
-    },
-    {
-      cwd: managed,
-      input: { launchedByAgentId: ownerId },
-      options: { useWorktreeOf: ownerId },
-      flags: { sharedWorktree: false },
-      expected: "Update the runner to launch an agent in an existing checkout.",
     },
     {
       cwd: managed,
@@ -392,7 +372,7 @@ describe("launch_agent's folder from a runner caller (D7)", () => {
     const launcher = {
       id: ownerId,
       cwd: managed,
-      placement: checkoutReadPlacement(managed),
+      placement: placementForRunner("test"),
       projectId: null,
       fullAccess: false,
     };
@@ -443,9 +423,9 @@ describe("launch_agent's folder from a runner caller (D7)", () => {
     throw new Error("Launch test must stop before creating an agent");
   }
 
-  const runner = JSON.stringify(checkoutReadPlacement(managed));
+  const runner = JSON.stringify(placementForRunner("test"));
 
-  it("resolves the folder on the caller's runner and keeps its locator", async () => {
+  it("resolves the folder on the caller's runner and keeps its placement", async () => {
     for (const raw of [`${root}/app`, `${root}/app/../app`, `${root}/link`]) {
       const result = await launchFrom(raw);
       expect(result, raw).toEqual({

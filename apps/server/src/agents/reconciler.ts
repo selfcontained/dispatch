@@ -4,9 +4,8 @@ import type { Pool } from "pg";
 import type { DiagnosticsRecorder } from "../diagnostics.js";
 
 import { sessionToWire, sameRunner } from "@dispatch/runner-protocol/contract";
-import type { Placement } from "@dispatch/runner-protocol";
 import {
-  legacySessionLocation,
+  sessionLocation,
   placementFromRow,
   controllerPlacement,
 } from "../runners/placement.js";
@@ -251,11 +250,11 @@ async function cleanupOrphanedHosts(
 
   const groups = new Map<
     string,
-    { placement: Placement | null; ended: Map<string, string> }
+    { placement: string | null; ended: Map<string, string> }
   >();
   for (const row of rows) {
     const owner = placementFromRow(row);
-    const placement = legacySessionLocation({ cwd: row.cwd, placement: owner });
+    const placement = sessionLocation(owner);
     if (
       !placement &&
       (scope === "enrolled" || !sameRunner(owner, controllerPlacement))

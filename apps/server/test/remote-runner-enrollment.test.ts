@@ -265,9 +265,7 @@ describe("runner enrollment service", () => {
     const currentId = current.created.id;
     const olderId = older.created.id;
     await waitFor(() =>
-      [currentId, olderId].every((runner) =>
-        service.available({ runner, workspace: "work" })
-      )
+      [currentId, olderId].every((runner) => service.available(runner))
     );
     const attemptId = "6f1c1d1e-2a3b-4c5d-8e9f-0a1b2c3d4e5f";
     const target = {
@@ -439,13 +437,9 @@ describe("runner enrollment service", () => {
         label: "alpha",
       })
     );
-    await waitFor(() =>
-      service.available({ runner: created.id, workspace: "proof" })
-    );
+    await waitFor(() => service.available(created.id));
     // Placements address the opaque registration id, never the name.
-    expect(service.available({ runner: "alpha", workspace: "proof" })).toBe(
-      false
-    );
+    expect(service.available("alpha")).toBe(false);
     expect(await service.list()).toMatchObject([
       {
         id: created.id,
@@ -557,7 +551,9 @@ describe("runner enrollment service", () => {
     const alphaPlace = { runner: a.id, workspace: "proof" };
     const betaPlace = { runner: b.id, workspace: "proof" };
     await waitFor(
-      () => service.available(alphaPlace) && service.available(betaPlace)
+      () =>
+        service.available(alphaPlace.runner) &&
+        service.available(betaPlace.runner)
     );
     const query = (id: string, peer = service) =>
       peer.call(id, "github.repositories", { query: "x" });
@@ -572,7 +568,7 @@ describe("runner enrollment service", () => {
     await service.revoke(a.id);
     await inFlight;
     await alpha.closed;
-    expect(service.available(alphaPlace)).toBe(false);
+    expect(service.available(alphaPlace.runner)).toBe(false);
     expect((await query(b.id)).repositories[0]?.name).toBe("beta");
 
     expect((await service.list()).find((r) => r.id === a.id)?.status).toBe(
@@ -595,7 +591,7 @@ describe("runner enrollment service", () => {
       runners.push(again);
       await again.closed;
     }
-    expect(service.available(alphaPlace)).toBe(false);
+    expect(service.available(alphaPlace.runner)).toBe(false);
     await expect(query(a.id)).rejects.toBeInstanceOf(RunnerRevoked);
     expect((await query(b.id)).repositories[0]?.name).toBe("beta");
     // A fresh service rebuilds the roster from persisted registrations.
@@ -625,22 +621,22 @@ describe("runner enrollment service", () => {
     });
     runners.push(rogue);
     await rogue.closed;
-    expect(service.available({ runner: a.id, workspace: "proof" })).toBe(false);
+    expect(service.available(a.id)).toBe(false);
   });
 
   it("never routes an old placement to a re-paired runner with the same name", async () => {
     const service = makeService();
     const old = await enroll(service, "lima");
     const oldPlace = { runner: old.id, workspace: "proof" };
-    expect(service.permitsAgentMcp(oldPlace)).toBe(true);
+    expect(service.permitsAgentMcp(oldPlace.runner)).toBe(true);
     await service.revoke(old.id);
-    expect(service.permitsAgentMcp(oldPlace)).toBe(false);
+    expect(service.permitsAgentMcp(oldPlace.runner)).toBe(false);
 
     const fresh = await enroll(service, "lima");
     expect(fresh.id).not.toBe(old.id);
     const freshPlace = { runner: fresh.id, workspace: "proof" };
     // Offline but active: the agent's MCP credential stays valid.
-    expect(service.permitsAgentMcp(freshPlace)).toBe(true);
+    expect(service.permitsAgentMcp(freshPlace.runner)).toBe(true);
     const runner = await dialRunner({
       endpoint: fresh.endpoint,
       ca: fresh.ca,
@@ -649,15 +645,13 @@ describe("runner enrollment service", () => {
       label: "fresh",
     });
     runners.push(runner);
-    await waitFor(() => service.available(freshPlace));
-    expect(service.available(oldPlace)).toBe(false);
+    await waitFor(() => service.available(freshPlace.runner));
+    expect(service.available(oldPlace.runner)).toBe(false);
     await expect(
       service.call(oldPlace.runner, "github.repositories", { query: "x" })
     ).rejects.toBeInstanceOf(RunnerRevoked);
     expect(runner.requests.length > 0).toBe(false);
-    expect(
-      service.permitsAgentMcp({ runner: "rnr_unknown", workspace: "proof" })
-    ).toBe(false);
+    expect(service.permitsAgentMcp("rnr_unknown")).toBe(false);
     const listed = await service.list();
     expect(listed.map((r) => [r.name, r.status])).toEqual([
       ["lima", "revoked"],
@@ -677,7 +671,7 @@ describe("runner enrollment service", () => {
       label: "old",
     });
     runners.push(before);
-    await waitFor(() => service.available(place));
+    await waitFor(() => service.available(place.runner));
 
     const renewal = await service.reissueRegistration(a.id);
     expect(renewal.id).toBe(a.id);
@@ -709,7 +703,7 @@ describe("runner enrollment service", () => {
       label: "new",
     });
     runners.push(after);
-    await waitFor(() => service.available(place));
+    await waitFor(() => service.available(place.runner));
     expect(
       (await service.call(a.id, "github.repositories", { query: "x" }))
         .repositories[0]?.name
@@ -730,7 +724,7 @@ describe("runner enrollment service", () => {
 
     const second = makeService();
     await second.startEnrolled();
-    expect(second.originFor(place("proof"))).toBe(`https://127.0.0.1:${port}`);
+    expect(second.originFor(a.id)).toBe(`https://127.0.0.1:${port}`);
     runners.push(
       await dialRunner({
         endpoint: a.endpoint,
@@ -740,7 +734,7 @@ describe("runner enrollment service", () => {
         label: "alpha",
       })
     );
-    await waitFor(() => second.available(place("other")));
+    await waitFor(() => second.available(a.id));
     second.close();
     services.splice(services.indexOf(second), 1);
     // The registration survives while offline.

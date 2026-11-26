@@ -42,14 +42,11 @@ import {
   RUNNER_WIRE_VERSION,
   type ConnectCreated,
   type ConnectPoll,
-  MANAGED_WORKSPACE,
-  type Command,
   type GitHubStatus,
   parseGitHubStatus,
   githubPullRequestHead,
   githubRepositoryResults,
   validBranch,
-  type Placement,
   endsUpdateAttempt,
   parseUpdateServiceFrame,
   type RunnerUpdateCancelReason,
@@ -110,8 +107,6 @@ export type RunnerSummary = {
   repositoryPicker?: boolean;
   /** Last pushed snapshot while online; absent offline or before the first push. */
   engines?: EngineInventoryEntry[];
-  workspaces: string[];
-  managedWorkspace?: true;
 };
 
 export class RunnerCapabilityUnavailable extends Error {}
@@ -143,8 +138,7 @@ type Gate = {
   key: string;
   registrationId?: string;
   approved(): boolean;
-  allows(workspace: string): boolean;
-  ready?(workspaces: string[], managedWorkspace: boolean): void;
+  ready?(): void;
 };
 
 /** One runner status frame and the connection that carried it. */
@@ -388,13 +382,13 @@ export class RemoteRunnerService {
   }
 
   /** Origin for an agent's MCP URL as seen from the runner it is placed on. */
-  originFor(placement: Placement) {
+  originFor(id: string) {
     const configured = httpsOrigin(
       this.enrollment?.mcpOrigin,
       "DISPATCH_RUNNER_MCP_ORIGIN"
     );
     if (configured) return configured;
-    const registration = this.registrationById(placement.runner);
+    const registration = this.registrationById(id);
     if (!registration || !this.port)
       throw new RunnerUnavailable("The runner is not enrolled.");
     return `https://${formatHost(registration.endpointHost)}:${this.port}`;
@@ -404,7 +398,7 @@ export class RemoteRunnerService {
   get origin() {
     const first = [...this.enrolled.values()][0];
     if (!first) throw new RunnerUnavailable("No runner is enrolled.");
-    return this.originFor({ runner: first.id, workspace: "" });
+    return this.originFor(first.id);
   }
 
   /**
@@ -413,8 +407,8 @@ export class RemoteRunnerService {
    * placement needs a currently non-empty approval file and a configured
    * workspace. Revoked and unknown runners are refused.
    */
-  permitsAgentMcp(placement: Placement) {
-    return Boolean(this.registrationById(placement.runner));
+  permitsAgentMcp(runnerId: string) {
+    return Boolean(this.registrationById(runnerId));
   }
 
   private registrationById(id: string) {
@@ -759,13 +753,8 @@ export class RemoteRunnerService {
       key: registration.id,
       registrationId: registration.id,
       approved: () => this.enrolled.get(fingerprint)?.id === registration.id,
-      allows: () => true,
-      ready: (workspaces, managedWorkspace) => {
-        registration.workspaces = workspaces;
-        registration.managedWorkspace = managedWorkspace;
-        void registry
-          .connected(registration.id, workspaces, managedWorkspace)
-          .catch(() => {});
+      ready: () => {
+        void registry.seen(registration.id).catch(() => {});
       },
     };
   }
@@ -798,7 +787,7 @@ export class RemoteRunnerService {
             engines: this.lastSeen.get(gate.key)?.engines,
           });
           previous?.socket.destroy();
-          gate.ready?.([MANAGED_WORKSPACE], true);
+          gate.ready?.();
           for (const notify of this.connectionListeners) notify(gate.key);
         },
         current: (peer) => this.peers.get(gate.key) === peer,
@@ -1097,10 +1086,6 @@ export class RemoteRunnerService {
                 healthReceivedAt: registration.healthReceivedAt.toISOString(),
               }
             : {}),
-        workspaces: online ? [MANAGED_WORKSPACE] : registration.workspaces,
-        ...(online || registration.managedWorkspace
-          ? { managedWorkspace: true }
-          : {}),
       });
     }
     return runners;
@@ -1386,12 +1371,6 @@ export class RemoteRunnerService {
   // ---------------------------------------------------------------------------
   // Agent operations
   // ---------------------------------------------------------------------------
-
-  isManagedWorkspace(placement: Placement) {
-    return (
-      placement.workspace === MANAGED_WORKSPACE && this.available(placement)
-    );
-  }
 
   /** The runner's last pushed, validated engine inventory, if any. */
   engineInventorySnapshot(
@@ -1815,59 +1794,8 @@ export class RemoteRunnerService {
     );
   }
 
-  supportsSessionFiles(placement: Placement) {
-    return this.available(placement);
-  }
-  supportsSessionCheckout(placement: Placement) {
-    return this.available(placement);
-  }
-  supportsGitQueries(placement: Placement) {
-    return this.available(placement);
-  }
-  supportsCheckoutWrite(placement: Placement) {
-    return this.available(placement);
-  }
-  supportsPreparedLaunch(placement: Placement) {
-    return this.available(placement);
-  }
-  supportsSessionWorkspaceSource(placement: Placement) {
-    return this.available(placement);
-  }
-  supportsWorkspaceRelease(placement: Placement) {
-    return this.available(placement);
-  }
-  supportsSharedWorktree(placement: Placement) {
-    return this.available(placement);
-  }
-  supportsScopedStop(placement: Placement) {
-    return this.available(placement);
-  }
-  reconcilesLaunches(placement: Placement) {
-    return this.available(placement);
-  }
-  lastSeenCapabilities(placement: Placement) {
-    if (!this.lastSeen.get(placement.runner)?.gate.approved()) return undefined;
-    return {
-      managedWorkspace: true,
-      preparedLaunch: true,
-      sessionWorkspaceSource: true,
-      sessionFiles: true,
-      sharedWorktree: true,
-    };
-  }
-  sessionObservationTargets(id: string): Placement[] | undefined {
-    return this.peers.get(id)?.approved()
-      ? [{ runner: id, workspace: MANAGED_WORKSPACE }]
-      : undefined;
-  }
-  observeSessions(
-    placement: Placement,
-    operation: Extract<Command, { kind: "sessionObservation" }>["operation"]
-  ) {
-    return this.call(placement.runner, operation.op, operation.request);
-  }
-  available(placement: Placement) {
-    return Boolean(this.peers.get(placement.runner)?.approved());
+  available(id: string) {
+    return Boolean(this.peers.get(id)?.approved());
   }
 
   close() {

@@ -35,7 +35,7 @@ it.each([52, 64])(
       "INSERT INTO projects (id, name, repo_root, color) VALUES ('project', 'Project', '/tmp/project', '#336699')"
     );
     await seed(pool, "local", "/tmp/folder");
-    await seed(pool, "runner", "runner://rnr%2Fexample/checkout", "project");
+    await seed(pool, "other", "/tmp/other", "project");
     await runMigrations(databaseUrl);
 
     for (const table of ["templates", "jobs", "job_runs"]) {
@@ -53,12 +53,8 @@ it.each([52, 64])(
           location: { runner: "local", path: "/tmp/folder" },
         },
         {
-          directory: "runner://rnr%2Fexample/checkout",
-          location: {
-            runner: "rnr/example",
-            projectId: "project",
-            legacy: true,
-          },
+          directory: "/tmp/other",
+          location: { runner: "local", path: "/tmp/other" },
         },
       ]);
     }

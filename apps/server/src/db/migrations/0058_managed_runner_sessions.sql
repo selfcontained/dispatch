@@ -5,6 +5,3 @@ ALTER TABLE agents
 
 CREATE INDEX agents_runner_cleanup_pending
   ON agents (id) WHERE runner_cleanup_pending AND deleted_at IS NOT NULL;
-
-ALTER TABLE runner_registrations
-  ADD COLUMN managed_workspace boolean NOT NULL DEFAULT false;

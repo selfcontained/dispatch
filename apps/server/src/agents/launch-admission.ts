@@ -5,12 +5,6 @@ import {
 } from "./remote/repository.js";
 import type { AgentRecord, AgentRole } from "./types.js";
 
-type Capabilities = {
-  available: boolean;
-  sessionFiles: boolean;
-  sharedWorktree: boolean;
-};
-
 type BindingIntent = {
   cwd: string;
   launchedByAgentId?: string;
@@ -54,9 +48,8 @@ type SharedRequest = {
 type ManagerRequest = {
   phase: "manager";
   remote: boolean;
-  borrowed: boolean;
   /** Runner values come from enrollment and the peer's ready flags. */
-  capabilities: Capabilities;
+  available: boolean;
   input: BindingIntent & {
     initialFiles?: readonly unknown[];
   };
@@ -72,9 +65,6 @@ const reasons = {
   childBinding: "Invalid child checkout binding.",
   invalidRepository: "Invalid runner repository.",
   runnerUnavailable: "The enrolled runner workspace is unavailable.",
-  sessionFiles: "Update the runner to launch with startup files.",
-  sharedWorktree:
-    "Update the runner to launch an agent in an existing checkout.",
 };
 
 type Reason = keyof typeof reasons;
@@ -189,7 +179,7 @@ export function admitLaunch(
       return { ok: true, owner, parentId: input.parentAgentId };
     }
     case "manager": {
-      const { remote, borrowed, input, capabilities } = request;
+      const { remote, input, available } = request;
       if (!remote) return { ok: true, useWorktree: input.useWorktree };
       let repository: RepositoryTarget | undefined;
       if (input.repository !== undefined) {
@@ -199,11 +189,7 @@ export function admitLaunch(
           return reject("invalidRepository", 400, errorMessage(error));
         }
       }
-      if (!capabilities.available) return reject("runnerUnavailable", 409);
-      if (input.initialFiles?.length && !capabilities.sessionFiles)
-        return reject("sessionFiles", 409);
-      if (borrowed && !capabilities.sharedWorktree)
-        return reject("sharedWorktree", 409);
+      if (!available) return reject("runnerUnavailable", 409);
       return {
         ok: true,
         repository,

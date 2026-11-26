@@ -48,8 +48,6 @@ function dialRunner(input: {
   ca: string;
   cert: string;
   key: string;
-  workspaces: string[];
-  streamCredit?: true;
   onFrame?: (frame: Frame | StreamFrame) => void;
 }): Promise<FakeRunner> {
   const url = new URL(input.endpoint);
@@ -64,19 +62,33 @@ function dialRunner(input: {
     });
     const closed = new Promise<void>((done) => socket.on("close", done));
     socket.on("error", reject);
-    const send = wireFrames<Frame | StreamFrame, Frame | StreamFrame>(
+    const send = wireFrames<{ id: number; op?: string } | StreamFrame, unknown>(
       socket,
-      (frame) => input.onFrame?.(frame)
+      (frame) => {
+        if ("op" in frame && frame.op) {
+          if (frame.op === "runner.describe")
+            send({
+              id: frame.id,
+              ok: true,
+              value: {
+                runnerId: "fixture",
+                displayName: "fixture",
+                build: { version: "" },
+                protocol: 1,
+                engines: [],
+                capabilities: {},
+              },
+            });
+          else
+            send({
+              id: frame.id,
+              ok: false,
+              error: { code: "unavailable", message: "No sample" },
+            });
+        } else input.onFrame?.(frame as StreamFrame);
+      }
     );
-    socket.once("secureConnect", () => {
-      send({
-        type: "ready",
-        version: 1,
-        workspaces: input.workspaces,
-        ...(input.streamCredit && { streamCredit: true }),
-      } as Frame);
-      resolve({ socket, closed, send });
-    });
+    socket.once("secureConnect", () => resolve({ socket, closed, send }));
   });
 }
 
@@ -317,12 +329,8 @@ describe("runner-initiated connect enrollment", () => {
     // Repeated polls after approval are idempotent.
     expect(await service.pollConnectRequest(created.id)).toEqual(polled);
 
-    runners.push(
-      await dialRunner({ endpoint, ca, cert, key, workspaces: ["proof"] })
-    );
-    await waitFor(() =>
-      service.available({ runner: approved.id, workspace: "proof" })
-    );
+    runners.push(await dialRunner({ endpoint, ca, cert, key }));
+    await waitFor(() => service.available(approved.id));
   });
 
   it("acknowledges stream credit on the enrolled TLS connection", async () => {
@@ -340,16 +348,14 @@ describe("runner-initiated connect enrollment", () => {
       ca,
       cert,
       key,
-      workspaces: ["proof"],
-      streamCredit: true,
+
       onFrame: (frame) => frames.push(frame),
     });
     runners.push(runner);
-    await waitFor(() => frames.length > 0);
-    expect(frames).toEqual([{ type: "stream", action: "accept" }]);
+    await waitFor(() => service.connectedRunnerIds().length === 1);
     runner.send({ type: "stream", action: "open", id: "unregistered" });
-    await waitFor(() => frames.length > 1);
-    expect(frames[1]).toEqual({
+    await waitFor(() => frames.length > 0);
+    expect(frames[0]).toEqual({
       type: "stream",
       action: "cancel",
       id: "unregistered",
@@ -753,12 +759,9 @@ describe("runner-initiated connect enrollment", () => {
         ca,
         cert,
         key,
-        workspaces: ["proof"],
       })
     );
-    await waitFor(() =>
-      service.available({ runner: registrationId, workspace: "proof" })
-    );
+    await waitFor(() => service.available(registrationId));
   }, 20_000);
 });
 

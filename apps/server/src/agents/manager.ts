@@ -13,11 +13,9 @@ import { checkoutRunners, runnerDirectory } from "../runners/directory.js";
 import type { LocalRunner } from "../runners/local.js";
 import {
   controllerPlacement,
-  checkoutReadPlacement,
   enrolledRunnerId,
   isOnEnrolledRunner,
-  legacySessionLocation,
-  launchSessionLocation,
+  sessionLocation,
   placementForRunner,
   placementFromRow,
   runnerIdForPlacement,
@@ -148,9 +146,6 @@ import {
 } from "./checkout-intent.js";
 import { RemoteEventInbox } from "./remote/event-inbox.js";
 import {
-  MANAGED_WORKSPACE,
-  remotePlacement,
-  type Placement as SessionLocation,
   type RunnerRepository,
   type LaunchProgress,
   type CheckoutQuery,
@@ -242,6 +237,7 @@ export type AttentionTarget = {
 };
 
 type CreateAgentInput = {
+  placement?: Placement;
   name?: string;
   type?: AgentType;
   role?: AgentRole;
@@ -452,7 +448,7 @@ function asWorktreeError(error: unknown): never {
 
 type PendingAgentStop = {
   agent_id: string;
-  placement: SessionLocation | null;
+  placement: string | null;
   launch_id: string | null;
   force: boolean;
 };
@@ -639,12 +635,7 @@ export class AgentManager {
               [id]
             )
           ).rows[0];
-          return row
-            ? legacySessionLocation({
-                cwd: row.cwd,
-                placement: placementFromRow(row),
-              })
-            : null;
+          return row ? sessionLocation(placementFromRow(row)) : null;
         },
         recordLaunch: async (id, launchId) => {
           await pool.query(
@@ -785,7 +776,7 @@ export class AgentManager {
   /** Bounded wait for a recovered launch's runner to reconnect. */
   private async waitForRunner(agentId: string): Promise<void> {
     const agent = await this.getAgent(agentId);
-    const placement = agent ? legacySessionLocation(agent) : null;
+    const placement = agent ? sessionLocation(agent.placement) : null;
     if (!placement || !this.remote) return;
     const deadline = Date.now() + this.recoveredLaunchWaitMs;
     while (!this.remote.available(placement) && Date.now() < deadline)
@@ -1246,13 +1237,13 @@ export class AgentManager {
   }> {
     const groups = new Map<
       string,
-      { placement: ReturnType<typeof legacySessionLocation>; ids: string[] }
+      { placement: ReturnType<typeof sessionLocation>; ids: string[] }
     >();
     let runningAgentCount = 0;
     for (const agent of await this.listAgents()) {
       if (!["creating", "running", "stopping"].includes(agent.status)) continue;
       runningAgentCount++;
-      const placement = legacySessionLocation(agent);
+      const placement = sessionLocation(agent.placement);
       if (!placement && !sameRunner(agent.placement, controllerPlacement))
         continue;
       const key = JSON.stringify(placement);
@@ -2388,14 +2379,18 @@ export class AgentManager {
           ? parent
           : await this.getAgent(input.launchedByAgentId);
       if (!by) throw new AgentError("Launching agent not found.", 404);
-      if (launchSessionLocation(by.cwd, by.placement)) {
+      if (sessionLocation(by.placement)) {
+        input.placement = by.placement;
         folder = input.launcherFolder;
         input.cwd = by.cwd;
       }
     }
     const placement =
-      checkoutOwner?.placement ?? checkoutReadPlacement(input.cwd);
-    let location = launchSessionLocation(input.cwd, placement);
+      checkoutOwner?.placement ??
+      input.placement ??
+      parent?.placement ??
+      controllerPlacement;
+    let location = sessionLocation(placement);
     // The launcher's folder is its session's, a child's or not; a template's
     // own checkout (it names a repository) is not (T36).
     const launcherId = input.launchedByAgentId ?? input.parentAgentId;
@@ -2416,10 +2411,7 @@ export class AgentManager {
       checkoutOwner ??= launcher;
       // An independent agent belongs to its folder's project.
       if (!input.parentAgentId) input.projectId = checkoutOwner.projectId;
-      const parentLocation = launchSessionLocation(
-        checkoutOwner.cwd,
-        placement
-      );
+      const parentLocation = sessionLocation(placement);
       if (parentLocation) {
         location = parentLocation;
         input.cwd = checkoutOwner.cwd;
@@ -2550,35 +2542,21 @@ export class AgentManager {
     }: Awaited<ReturnType<AgentManager["resolveCreateTarget"]>>
   ) {
     const remote = this.remote;
-    const held =
+    const held = Boolean(
       location &&
-      this.holds?.isHeld(runnerIdForPlacement(placement)) &&
-      !remote?.available(location)
-        ? remote?.lastSeenCapabilities(location)
-        : undefined;
-    const managed = Boolean(
-      location &&
-      (held?.managedWorkspace ?? remote?.isManagedWorkspace(location))
+      this.holds?.isHeld(location) &&
+      remote?.lastConnectionEpoch(location) !== undefined &&
+      remote.permitsAgentMcp(location)
     );
-    const prepares = Boolean(
-      location &&
-      (held?.preparedLaunch ?? remote?.supportsPreparedLaunch?.(location))
+    const projectSource = Boolean(
+      location && !checkoutOwner && !launcherDirectory
     );
-    const sessionSource = Boolean(
-      prepares &&
-      location &&
-      (held?.sessionWorkspaceSource ??
-        remote?.supportsSessionWorkspaceSource?.(location))
-    );
-    // A named folder is prepared from that folder, not the project's.
-    const projectSource = prepares && !checkoutOwner && !launcherDirectory;
     const borrowed = Boolean(
       location && checkoutOwner && input.useWorktree === false
     );
     const admission = admitLaunch({
       phase: "manager",
       remote: location !== null,
-      borrowed: borrowed && !sessionSource,
       input: checkoutOwner
         ? { ...input, repository: undefined }
         : projectSource
@@ -2592,29 +2570,13 @@ export class AgentManager {
                   : {},
             }
           : input,
-      capabilities: {
-        available:
-          !location ||
-          ((remote?.available(location) === true || held !== undefined) &&
-            this.config.agentRuntime === "acp"),
-        sessionFiles:
-          !location ||
-          (held?.sessionFiles ??
-            remote?.supportsSessionFiles?.(location) === true),
-        sharedWorktree:
-          !location ||
-          (held?.sharedWorktree ??
-            remote?.supportsSharedWorktree?.(location) === true),
-      },
+      available:
+        !location ||
+        ((remote?.available(location) || held) &&
+          this.config.agentRuntime === "acp"),
     });
     if (!admission.ok)
       throw new AgentError(admission.message, admission.statusCode);
-    // The folder is bound by the runner's preparation before the host starts.
-    if (launcherDirectory && !prepares)
-      throw new AgentError(
-        "Update the runner to restart its prepared workspace.",
-        409
-      );
     if (projectSource && !projectRepository)
       throw new AgentError(
         input.projectId
@@ -2630,16 +2592,8 @@ export class AgentManager {
         "Enter a repository URL or select a project with a repository origin.",
         400
       );
-    input.useWorktree =
-      location && !sessionSource && !projectSource && !checkoutOwner
-        ? admission.useWorktree
-        : repository?.checkout
-          ? false
-          : input.useWorktree;
+    if (repository?.checkout) input.useWorktree = false;
     return {
-      managed,
-      prepares,
-      sessionSource,
       projectSource,
       repository,
       borrowed,
@@ -2659,9 +2613,6 @@ export class AgentManager {
       checkoutOwner,
     }: Awaited<ReturnType<AgentManager["resolveCreateTarget"]>>,
     {
-      managed,
-      prepares,
-      sessionSource,
       projectSource,
       repository,
       borrowed,
@@ -2712,7 +2663,7 @@ export class AgentManager {
       checkoutOwner &&
       location &&
       input.useWorktree !== false &&
-      (!sessionSource || input.pullRequest)
+      input.pullRequest
         ? await runnerDirectory(this.checkoutReadRunners(), checkoutOwner)
             .for(checkoutOwner.placement)
             .call("workspace.describe", {
@@ -2727,11 +2678,6 @@ export class AgentManager {
       repository?.url ??
       projectRepository ??
       undefined;
-    if (sourceCheckout && !sessionSource && !origin)
-      throw new AgentError(
-        "The runner could not resolve the checkout repository.",
-        400
-      );
     const pullRequestHead = (target: PullRequestTarget, cwd?: string) =>
       runnerDirectory(this.checkoutReadRunners())
         .for(placement)
@@ -2753,25 +2699,12 @@ export class AgentManager {
         }
       : {
           ...(checkoutOwner &&
-            sessionSource && { defaultBranch: async () => "main" }),
+            location && { defaultBranch: async () => "main" }),
           ...(origin &&
-            location &&
-            remote && {
-              ...(!projectSource &&
-                !sessionSource && {
-                  defaultBranch: () =>
-                    runnerDefaultBranch(origin, (owner, repo) =>
-                      remote.listGitHubBranches(
-                        runnerIdForPlacement(placement),
-                        owner,
-                        repo
-                      )
-                    ),
-                }),
+            location && {
               repository: async () => origin,
               pullRequestHead,
-              ...(checkoutOwner &&
-                sessionSource && { forkPullRequests: false }),
+              ...(checkoutOwner && { forkPullRequests: false }),
             }),
         };
     // Remember the icon of the folder the launch reads, before a managed
@@ -2802,7 +2735,7 @@ export class AgentManager {
       // The request a local launch from that folder records, prepared on
       // the child's own session before its host starts.
       preparation = localPreparation(launcherDirectory, worktree);
-    } else if (checkoutOwner && sessionSource) {
+    } else if (checkoutOwner && location) {
       preparation = {
         source: { session: sessionFromWire(checkoutOwner.id) },
         ...(worktree && { worktree: runnerWorktree(worktree) }),
@@ -2816,7 +2749,7 @@ export class AgentManager {
       (p.checkout || projectSource || input.projectId)
     ) {
       const checkout =
-        p.checkout?.source === "pullRequest" && prepares
+        p.checkout?.source === "pullRequest"
           ? {
               kind: "pr" as const,
               branch: p.checkout.branch,
@@ -2825,26 +2758,12 @@ export class AgentManager {
           : p.checkout
             ? toRunnerCheckout(p.checkout)
             : (runnerRepository?.checkout ?? { kind: "default" as const });
-      runnerRepository = {
-        url:
-          !prepares && p.checkout?.source === "pullRequest"
-            ? p.checkout.repository
-            : origin,
-        checkout,
+      runnerRepository = { url: origin, checkout };
+      preparation = {
+        source: { repository: origin, checkout },
+        copyIgnored: [...WORKTREE_LOCAL_CONFIG_FILES],
+        installDependencies: true,
       };
-      if (prepares) {
-        preparation = {
-          source: { repository: origin, checkout },
-          copyIgnored: [...WORKTREE_LOCAL_CONFIG_FILES],
-          installDependencies: true,
-        };
-      } else {
-        try {
-          parseRepository(runnerRepository);
-        } catch (error) {
-          throw new AgentError(errorMessage(error), 400);
-        }
-      }
     }
     await mkdir(p.filesDir, { recursive: true });
     return {
@@ -2856,7 +2775,7 @@ export class AgentManager {
         worktree,
         preparation,
         repository: runnerRepository,
-        managed,
+        managed: Boolean(location),
         owner: borrowed ? checkoutOwner?.id : undefined,
       },
     };
@@ -3181,7 +3100,7 @@ export class AgentManager {
       await this.recordStartup(() =>
         this.launchContextRecorder?.recordStartupDone?.({
           agentId: id,
-          cwd: workspace?.effectiveCwd ?? opts.originalCwd,
+          cwd: workspace?.effectiveCwd ?? agent.cwd,
         })
       );
 
@@ -3457,18 +3376,6 @@ export class AgentManager {
     resume: boolean,
     onEvent?: (step: LaunchProgress) => void
   ) {
-    const location = launchSessionLocation(agent.cwd, agent.placement);
-    if (location && this.remote?.available(location)) {
-      if (
-        !this.remote.supportsPreparedLaunch(location) ||
-        ("session" in preparation.source &&
-          !this.remote.supportsSessionWorkspaceSource(location))
-      )
-        throw new AgentError(
-          "Update the runner to restart its prepared workspace.",
-          409
-        );
-    }
     const { directory, placement } = checkoutRunners(
       this.checkoutReadRunners(),
       agent
@@ -3485,20 +3392,26 @@ export class AgentManager {
         { ...preparation, session },
         { onEvent }
       ));
-    // The checkout's folder on its runner, shown as a local worktree's is.
-    if (prepared.worktree)
-      await this.pool.query(
-        `UPDATE agents SET worktree_branch = $2,
-          base_branch = COALESCE(base_branch, $3), worktree_path = $4,
-          updated_at = NOW()
-         WHERE id = $1 AND deleted_at IS NULL`,
-        [
-          agent.id,
-          prepared.worktree.branch,
-          prepared.worktree.base,
-          displayPath(prepared.worktree.path),
-        ]
-      );
+    const cwd = displayPath(prepared.path);
+    const worktree = prepared.worktree;
+    await this.pool.query(
+      `UPDATE agents SET cwd = $2, launch_cwd = COALESCE(NULLIF(launch_cwd, ''), $2), worktree_branch = $3, base_branch = COALESCE(base_branch, $4),
+       worktree_path = $5, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL`,
+      [
+        agent.id,
+        cwd,
+        worktree?.branch ?? null,
+        worktree?.base ?? null,
+        worktree ? displayPath(worktree.path) : null,
+      ]
+    );
+    agent.cwd = cwd;
+    agent.launchCwd ||= cwd;
+    if (worktree) {
+      agent.worktreeBranch = worktree.branch;
+      agent.worktreePath = displayPath(worktree.path);
+      agent.baseBranch ??= worktree.base;
+    }
   }
 
   /**
@@ -3554,7 +3467,7 @@ export class AgentManager {
         "could not record the agent's system prompt"
       );
     }
-    const placement = remotePlacement(agent.cwd) ?? undefined;
+    const placement = sessionLocation(agent.placement) ?? undefined;
     this.streamRecorder.setCwd(agent.id, agentStreamDirectory(agent));
     // Rows a previous host left open (a crash mid-turn) settle first, so the
     // feed never shows a turn that can no longer finish.
@@ -3568,15 +3481,6 @@ export class AgentManager {
           ? `${remoteMcpOrigin}/api/mcp/jobs/${opts.jobRunId}/${agent.id}`
           : `${remoteMcpOrigin}/api/mcp/${agent.id}`)
       : dispatchMcpUrl(this.config, agent.id, opts.jobRunId);
-    if (
-      placement?.workspace === MANAGED_WORKSPACE &&
-      this.remote?.available(placement) &&
-      this.remote.isManagedWorkspace(placement) !== Boolean(agent.runnerManaged)
-    )
-      throw new AgentError(
-        "The runner workspace mode changed since this agent was created.",
-        409
-      );
     const binding = placement
       ? (
           await this.pool.query<{
@@ -4269,7 +4173,7 @@ export class AgentManager {
           !isOnEnrolledRunner(agent.placement, update.runnerId)
         )
           return false;
-        const location = legacySessionLocation(agent);
+        const location = sessionLocation(agent.placement);
         if (!location || !this.remote?.available(location)) return false;
 
         // There is no engine-side wait token for Dispatch children. A live
@@ -4328,7 +4232,7 @@ export class AgentManager {
     input: StopAgentInput
   ): Promise<AgentRecord> {
     let agent = await this.getRequiredAgent(id);
-    const location = legacySessionLocation(agent);
+    const location = sessionLocation(agent.placement);
     const runnerId = enrolledRunnerId(agent.placement);
     const guard = runnerId && this.holds ? agent.status : undefined;
     await this.cancelSchedules?.(id).catch((err) =>
@@ -4735,10 +4639,8 @@ export class AgentManager {
     }
   }
 
-  permitsRemoteAgentMcp(
-    placement: NonNullable<ReturnType<typeof remotePlacement>>
-  ): boolean {
-    return this.remote?.permitsAgentMcp(placement) ?? false;
+  permitsRemoteAgentMcp(runnerId: string): boolean {
+    return this.remote?.permitsAgentMcp(runnerId) ?? false;
   }
 
   readRepoManifest(agent: AgentRecord) {
