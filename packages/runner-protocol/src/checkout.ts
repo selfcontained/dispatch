@@ -187,11 +187,6 @@ export type SessionCheckout = {
   branch?: string | null;
 };
 
-/** Observe the bound checkout, or finalize the session with a conditional removal. */
-export type CheckoutRelease =
-  | { kind: "observe"; policy?: "ownership" | "changes" }
-  | { kind: "release"; expectedState: string | null };
-
 export type CheckoutObservation = {
   ownership: "owned" | "borrowed" | "external" | "none";
   /** Opaque machine-local checkout owner and dependent session handles. */
@@ -216,19 +211,6 @@ export const UNOBSERVED_STATE = "0".repeat(64);
 
 export function isCheckoutStateId(value: unknown): value is string {
   return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
-}
-
-export function isCheckoutRelease(value: unknown): value is CheckoutRelease {
-  return (
-    isRecord(value) &&
-    ((value.kind === "observe" &&
-      (value.policy === undefined ||
-        value.policy === "ownership" ||
-        value.policy === "changes")) ||
-      (value.kind === "release" &&
-        (value.expectedState === null ||
-          isCheckoutStateId(value.expectedState))))
-  );
 }
 
 export function isCheckoutObservation(

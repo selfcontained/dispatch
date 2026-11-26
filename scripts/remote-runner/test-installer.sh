@@ -396,7 +396,7 @@ grep -Fq '"uid": 103' "$root/settings/runner.json"
 [[ ! -e "$root/running" && ! -e "$root/settings/key.pem" ]] || fail
 ! grep -Eq '^(start|enable) ' "$root/systemctl" || fail
 [[ "$(find "$root/settings/runner.json" -perm 0600 -print)" == "$root/settings/runner.json" ]] || fail
-grep -q '"workspaces": {}' "$root/settings/runner.json"
+! grep -Eq '"workspaces"[[:space:]]*:' "$root/settings/runner.json" || fail
 # The fixed trial helper shares the verified executable inode and lives
 # behind the private directory. Both units are removed as a pair.
 cmp bin/dispatch-runner-trial.service "$root/dispatch-runner-trial.service" || fail

@@ -114,16 +114,11 @@ if (process.argv[2]?.startsWith("recovery-")) {
     process.argv[5] || undefined,
     process.argv[6] || undefined
   );
-} else if (
-  process.argv[2] === "runner-engine-capability" ||
-  process.argv[2] === "runner-engine-host"
-) {
-  const { runEngineCapabilityWorker, runEngineHostWorker } =
-    await loadRunnerComposition().then((entry) =>
-      entry.loadEngineCapabilityWorker()
-    );
-  if (process.argv[2] === "runner-engine-host") await runEngineHostWorker();
-  else await runEngineCapabilityWorker();
+} else if (process.argv[2] === "runner-engine-host") {
+  const { runEngineHostWorker } = await loadRunnerComposition().then((entry) =>
+    entry.loadEngineCapabilityWorker()
+  );
+  await runEngineHostWorker();
 } else if (process.argv[2] === "runner-update-compatibility") {
   const { embeddedBuild } = await import("./agents/build-identity.js");
   const { runnerHandoff } = await loadRunnerComposition().then((entry) =>
