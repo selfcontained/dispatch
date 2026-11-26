@@ -61,16 +61,6 @@ function unreachable(error: unknown): never {
   });
 }
 
-export function usesBoundArchiveRelease(
-  service: RemoteRunnerService,
-  cwd: string
-): boolean {
-  const placement = remotePlacement(cwd);
-  return (
-    placement !== null && service.supportsWorkspaceRelease?.(placement) === true
-  );
-}
-
 export function enrolledArchiveCheckout(
   service: RemoteRunnerService,
   placement: V1Placement,
