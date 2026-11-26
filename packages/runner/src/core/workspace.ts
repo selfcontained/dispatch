@@ -703,8 +703,11 @@ export function workspaceHandlers(
           borrowers: [],
           checkout: null,
         };
+      // `ownership` asks who owns it, not its state: nothing is read.
       const state =
-        held.checkout.ownership === "owned" && port.observe
+        held.checkout.ownership === "owned" &&
+        port.observe &&
+        input.policy !== "ownership"
           ? await port.observe(held.checkout.path).catch(() => null)
           : null;
       return {

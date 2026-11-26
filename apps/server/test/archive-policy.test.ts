@@ -648,11 +648,10 @@ describe("negotiated archive release", () => {
       writeFileSync(path.join(checkout, "late.txt"), "written while offline");
       const requestSession = vi.fn(async (_placement, request) => {
         if (request.kind === "checkoutRelease") {
-          // Through the adapter a forced archive observes with changes too
-          // (one Git status; the runner keeps an unreadable status as null).
+          // A forced archive asks ownership alone: no Git status or fetch.
           expect(request.operation).toEqual({
             kind: "observe",
-            policy: "changes",
+            policy: mode === "force" ? "ownership" : "changes",
           });
           return {
             value: JSON.stringify({

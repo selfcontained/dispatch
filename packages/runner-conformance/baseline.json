@@ -397,12 +397,6 @@
   },
   {
     "lane": "remote",
-    "scenario": "workspace.observe/pending",
-    "task": "T16",
-    "reason": "scenario not written yet"
-  },
-  {
-    "lane": "remote",
     "scenario": "path.resolve/pending",
     "task": "T17",
     "reason": "scenario not written yet"

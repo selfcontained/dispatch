@@ -275,8 +275,13 @@ export function archiveExecutor(
           borrowers: [],
           checkout: null,
         };
+      // A forced removal needs only ownership: no checkout state is read
+      // (no Git status or fetch on the runner).
       return archiveObservation(
-        await runner.call("workspace.observe", { session })
+        await runner.call("workspace.observe", {
+          session,
+          ...(mode === "force" && { policy: "ownership" as const }),
+        })
       );
     },
     borrowers: () => [],

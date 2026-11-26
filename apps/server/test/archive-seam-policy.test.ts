@@ -114,6 +114,7 @@ function run(
   );
   return {
     outcome,
+    call,
     ops: () => call.mock.calls.map(([op]) => op),
     logger,
     queries,
@@ -174,6 +175,20 @@ describe("a runner-prepared worktree row that records its folder", () => {
     const owned = run("enrolled", "force", {}, row);
     expect(await owned.outcome).toEqual(released);
     expect(owned.ops()).toEqual(["workspace.observe", "workspace.release"]);
+  });
+});
+
+describe("what an enrolled archive asks the runner to observe", () => {
+  it.each([
+    ["force", { session: "agt_a", policy: "ownership" }],
+    ["auto", { session: "agt_a" }],
+  ] as const)("%s", async (mode, request) => {
+    const enrolled = run("enrolled", mode);
+    await enrolled.outcome;
+    const observes = enrolled.call.mock.calls.filter(
+      ([op]) => op === "workspace.observe"
+    );
+    expect(observes.map(([, input]) => input)).toEqual([request]);
   });
 });
 

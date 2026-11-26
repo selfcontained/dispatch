@@ -1075,6 +1075,52 @@ const workspacePreparation: Scenario[] = [
   },
 ];
 
+/**
+ * `policy: "ownership"` answers who owns the session's checkout without
+ * reading its state (no Git status or fetch); absent, the state is read.
+ */
+export const workspaceObserveOwnership: Scenario = {
+  op: "workspace.observe",
+  id: "workspace.observe/ownership-reads-no-state",
+  async run({ workspace }) {
+    expect(workspace, "Missing managed runner fixture.");
+    const { runner, repository } = workspace;
+    const session = sessionFromWire("observe-ownership");
+    await runner.call("workspace.prepare", {
+      session,
+      source: {
+        repository,
+        checkout: { kind: "new", branch: "observe-ownership" },
+      },
+      copyIgnored: [],
+      installDependencies: false,
+    });
+    try {
+      const ownership = await runner.call("workspace.observe", {
+        session,
+        policy: "ownership",
+      });
+      expect(
+        ownership.ownership === "owned" && ownership.checkout === null,
+        "An ownership observation read the checkout's state."
+      );
+      const changes = await runner.call("workspace.observe", { session });
+      expect(
+        changes.ownership === "owned" && changes.checkout !== null,
+        "An observation without a policy did not read the checkout's state."
+      );
+    } finally {
+      await runner
+        .call("workspace.release", {
+          session,
+          deleteBranch: true,
+          originalBranch: "observe-ownership",
+        })
+        .catch(() => {});
+    }
+  },
+};
+
 const workspaceRelease: Scenario = {
   op: "workspace.release",
   id: "workspace.release/owned-and-protected",
@@ -1086,6 +1132,7 @@ const workspaceRelease: Scenario = {
 
 export const remoteScenarios: readonly Scenario[] = [
   workspaceRelease,
+  workspaceObserveOwnership,
   ...checkoutReads,
   ...runnerGitQueries,
   ...workspacePreparation,
@@ -1096,6 +1143,7 @@ export const remoteScenarios: readonly Scenario[] = [
       op !== interactiveTerminal.op &&
       op !== putFile.op &&
       op !== workspaceRelease.op &&
+      op !== workspaceObserveOwnership.op &&
       !runnerGitQueries.some((scenario) => scenario.op === op) &&
       !checkoutReads.some((scenario) => scenario.op === op) &&
       !workspacePreparation.some((scenario) => scenario.op === op)

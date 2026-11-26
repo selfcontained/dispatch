@@ -211,18 +211,32 @@ export function createEnrolledCheckoutRunner(
       op,
       request,
       absent: [],
-      // Bound release observes with changes; the caller decides removal.
+      // Bound release observes with changes, or ownership alone for a
+      // removal already authorized; the caller decides removal.
       extras: {
         workspace: placement.workspace,
-        ...(op === "workspace.observe" && { observationPolicy: "changes" }),
+        ...(op === "workspace.observe" && {
+          observationPolicy:
+            (request as Req<"workspace.observe">).policy ?? "changes",
+        }),
       },
     } as Decoded<K>;
-    const command = encodeCommand(frame);
+    const encoded = encodeCommand(frame);
     if (
-      command.kind !==
+      encoded.kind !==
       (op === "workspace.observe" ? "checkoutRelease" : "workspaceRelease")
     )
       throw new Error("Invalid workspace release command.");
+    // The bytes the archive transport sends (`enrolledArchiveCheckout`):
+    // `requestSession` appends the workspace, so the frame stays identical.
+    const command =
+      encoded.kind === "checkoutRelease"
+        ? {
+            kind: encoded.kind,
+            agentId: encoded.agentId,
+            operation: encoded.operation,
+          }
+        : encoded;
     const { value } =
       archiveEpoch === undefined
         ? await service.requestSession(placement, command, undefined, signal)
