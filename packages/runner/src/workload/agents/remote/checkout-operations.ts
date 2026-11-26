@@ -1,6 +1,8 @@
 import { Readable } from "node:stream";
 import {
   MANAGED_WORKSPACE,
+  isCheckoutExecutionOptions,
+  scheduleDeadline,
   isCheckoutCommand,
   isCheckoutCommandFile,
   isCheckoutReadRequest,
@@ -16,7 +18,11 @@ import {
   type Req,
   type Res,
 } from "@dispatch/runner-protocol/contract";
-import type { CallHandlers, Handlers } from "../../../handlers.js";
+import type {
+  CallHandlers,
+  ConnectionContext,
+  Handlers,
+} from "../../../handlers.js";
 import type { createSessionSupervisor } from "./session-supervisor.js";
 
 type Supervisor = Pick<
@@ -201,4 +207,81 @@ export function enrolledCheckouts(
     return worker.read(cwd, selection, signal);
   };
   return { calls, checkoutRead };
+}
+
+type ExecWorker = (
+  cwd: string,
+  session: string,
+  input: Req<"checkout.exec">,
+  send: NonNullable<ConnectionContext["sendOutput"]>,
+  signal: AbortSignal
+) => Promise<{ exitCode: number; truncated: boolean }>;
+
+/** Hold both checkout locks until the workload exits and its output is acknowledged. */
+export function enrolledCommand(
+  supervisor: Supervisor,
+  execute: ExecWorker
+): NonNullable<CallHandlers["checkout.exec"]> {
+  return async (input, { sendOutput, signal }) => {
+    if (
+      !sendOutput ||
+      !signal ||
+      !("session" in input.target) ||
+      !("path" in input.guard)
+    )
+      throw invalid();
+    const session = sessionToWire(input.target.session);
+    const checkout = commandSelector(input.target.checkout);
+    if (
+      !isCheckoutExecutionOptions(input) ||
+      !isCheckoutCommand({
+        kind: "run",
+        checkout,
+        path: input.guard.path,
+        state: input.guard.digest,
+        argv: input.argv,
+      })
+    )
+      throw invalid();
+    const deadline = new AbortController();
+    const { timeoutMs } = input;
+    const clear =
+      timeoutMs === null
+        ? undefined
+        : scheduleDeadline(timeoutMs, () =>
+            deadline.abort(
+              new RunnerCallError({
+                code: "timeout",
+                message: `Runner checkout command timed out after ${timeoutMs / 1000} seconds.`,
+              })
+            )
+          );
+    const active = AbortSignal.any([signal, deadline.signal]);
+    try {
+      const result = await supervisor.withCommandCheckout(
+        session,
+        MANAGED_WORKSPACE,
+        checkout,
+        undefined,
+        active,
+        (cwd) => execute(cwd, session, input, sendOutput, active)
+      );
+      if (!result)
+        throw new RunnerCallError({
+          code: "stale",
+          message: "The moved checkout is no longer selected.",
+        });
+      return {
+        exitCode: result.exitCode,
+        stdout: "",
+        stderr: "",
+        ...(input.maxOutput !== null && { truncated: result.truncated }),
+      };
+    } catch (error) {
+      if (deadline.signal.aborted) throw deadline.signal.reason;
+      throw error;
+    } finally {
+      clear?.();
+    }
+  };
 }

@@ -266,11 +266,35 @@ export async function streamCheckoutWorker(
   streams: FlowStreams,
   signal: AbortSignal
 ) {
+  const status = await streamCommandOutput(
+    command,
+    env,
+    input,
+    execution.maxOutput,
+    (name, source, transfer) =>
+      streams.send(execution[name], source, transfer, { stall: "blocked" }),
+    signal
+  );
+  return JSON.stringify(status);
+}
+
+export async function streamCommandOutput(
+  command: [string, ...string[]],
+  env: NodeJS.ProcessEnv,
+  input: string,
+  maxOutput: number | null,
+  sendOutput: (
+    name: "stdout" | "stderr",
+    source: Readable,
+    signal: AbortSignal
+  ) => Promise<void>,
+  signal: AbortSignal
+) {
   signal.throwIfAborted();
   const child = startCheckoutWorker(command, env, input);
   let truncated = false;
   async function* limitOutput(source: AsyncIterable<Buffer>) {
-    let remaining = execution.maxOutput ?? Infinity;
+    let remaining = maxOutput ?? Infinity;
     for await (const chunk of source) {
       if (chunk.length > remaining) truncated = true;
       const kept = chunk.subarray(0, remaining);
@@ -284,12 +308,11 @@ export async function streamCheckoutWorker(
   });
   const controller = new AbortController();
   const transfer = AbortSignal.any([signal, controller.signal]);
-  const send = (id: string, source: AsyncIterable<Buffer>) =>
-    streams.send(
-      id,
+  const send = (name: "stdout" | "stderr", source: AsyncIterable<Buffer>) =>
+    sendOutput(
+      name,
       Readable.from(limitOutput(source), { objectMode: false }),
-      transfer,
-      { stall: "blocked" }
+      transfer
     );
   // Either output can finish before the worker exits. Cancellation must
   // release the checkout even if neither transfer is still listening.
@@ -299,8 +322,8 @@ export async function streamCheckoutWorker(
       signal,
       Promise.all([
         child.exited,
-        send(execution.stdout, child.stdout),
-        send(execution.stderr, stderr),
+        send("stdout", child.stdout),
+        send("stderr", stderr),
       ])
     );
     completed = true;
@@ -311,7 +334,7 @@ export async function streamCheckoutWorker(
       throw new Error(
         value?.error || `Checkout worker failed (status ${workerStatus}).`
       );
-    return JSON.stringify({ exitCode: value.exitCode, truncated });
+    return { exitCode: value.exitCode, truncated };
   } finally {
     controller.abort();
     if (!completed) stopCheckoutWorker(child);

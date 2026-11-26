@@ -30,12 +30,13 @@ export type CheckoutExecution = {
   stderr: string;
 };
 
-function isCheckoutExecution(value: unknown): value is CheckoutExecution {
+export function isCheckoutExecutionOptions(
+  value: unknown
+): value is Omit<CheckoutExecution, "stdout" | "stderr"> {
   const limit = (n: unknown) =>
     n === null || (typeof n === "number" && Number.isSafeInteger(n) && n >= 0);
   return (
     isRecord(value) &&
-    Object.keys(value).length === 6 &&
     limit(value.timeoutMs) &&
     limit(value.maxOutput) &&
     (value.shell === "direct" || value.shell === "login") &&
@@ -46,10 +47,18 @@ function isCheckoutExecution(value: unknown): value is CheckoutExecution {
         !/[=\0]/.test(key) &&
         typeof entry === "string" &&
         !entry.includes("\0")
-    ) &&
+    )
+  );
+}
+
+function isCheckoutExecution(value: unknown): value is CheckoutExecution {
+  return (
+    isRecord(value) &&
+    Object.keys(value).length === 6 &&
     isOpaqueId(value.stdout) &&
     isOpaqueId(value.stderr) &&
-    value.stdout !== value.stderr
+    value.stdout !== value.stderr &&
+    isCheckoutExecutionOptions(value)
   );
 }
 
@@ -146,4 +155,18 @@ export function isCheckoutCommandStatus(
     value.exitCode <= 255 &&
     (value.truncated === undefined || typeof value.truncated === "boolean")
   );
+}
+
+/** Node timers clamp values outside the signed 32-bit range to one ms. */
+export function scheduleDeadline(ms: number, expired: () => void) {
+  const deadline = performance.now() + ms;
+  let timer: ReturnType<typeof setTimeout>;
+  const tick = () => {
+    const remaining = deadline - performance.now();
+    if (remaining <= 0) expired();
+    else
+      timer = setTimeout(tick, Math.min(Math.ceil(remaining), 2_147_483_647));
+  };
+  timer = setTimeout(tick, Math.min(ms, 2_147_483_647));
+  return () => clearTimeout(timer);
 }

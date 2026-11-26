@@ -788,3 +788,65 @@ it("resolves enrolled checkout operations from the session binding and workload 
   ).rejects.toMatchObject({ code: "not_found" });
   expect(manifest).toHaveBeenCalledTimes(2);
 });
+
+it("holds the command checkout while credited output is sent and aborts a timed-out child", async () => {
+  const { enrolledCommand } =
+    await import("../src/workload/agents/remote/checkout-operations.js");
+  const execute = vi.fn<Parameters<typeof enrolledCommand>[1]>(
+    async (cwd, id, input, send, signal) => {
+      expect(cwd).toBe("/held");
+      expect(id).toBe(sessionToWire(session));
+      if (input.argv[0] === "wait") {
+        await new Promise<void>((done) =>
+          signal.addEventListener("abort", () => done(), { once: true })
+        );
+        signal.throwIfAborted();
+      }
+      await Promise.all([
+        send("stdout", Readable.from([Buffer.from("program output")]), signal),
+        send("stderr", Readable.from([]), signal),
+      ]);
+      return { exitCode: 0, truncated: false };
+    }
+  );
+  const command = enrolledCommand(
+    {
+      checkoutDirectory: async () => "/held",
+      withCommandCheckout: async (
+        _id,
+        _workspace,
+        selector,
+        _configured,
+        _signal,
+        work
+      ) => (selector === "moved" ? null : work("/held")),
+    },
+    execute
+  );
+  const { client } = await pair({ calls: { "checkout.exec": command } });
+  const run = {
+    target: { session },
+    guard: { path: "manifest", digest: "a".repeat(64) },
+    argv: ["program"],
+    env: {},
+    timeoutMs: null,
+    maxOutput: null,
+    shell: "direct",
+  } as const;
+  const input = { ...run, argv: ["program"] };
+  await expect(client.call("checkout.exec", input)).resolves.toEqual({
+    exitCode: 0,
+    stdout: "program output",
+    stderr: "",
+  });
+  await expect(
+    client.call("checkout.exec", {
+      ...input,
+      target: { session, checkout: "moved" },
+    })
+  ).rejects.toMatchObject({ code: "stale" });
+  await expect(
+    client.call("checkout.exec", { ...input, argv: ["wait"], timeoutMs: 30 })
+  ).rejects.toMatchObject({ code: "timeout" });
+  expect(execute).toHaveBeenCalledTimes(2);
+});

@@ -1,3 +1,5 @@
+import { scheduleDeadline } from "@dispatch/runner-protocol";
+export { scheduleDeadline };
 import { commandOutput } from "../transport/command-output.js";
 import {
   operations,
@@ -55,20 +57,6 @@ function executionOptions(command: Command) {
   return command.kind === "checkoutCommand" && command.operation.kind === "run"
     ? command.operation.execution
     : undefined;
-}
-
-/** Node timers clamp values outside the signed 32-bit range to one ms. */
-export function scheduleDeadline(ms: number, expired: () => void) {
-  const deadline = performance.now() + ms;
-  let timer: ReturnType<typeof setTimeout>;
-  const tick = () => {
-    const remaining = deadline - performance.now();
-    if (remaining <= 0) expired();
-    else
-      timer = setTimeout(tick, Math.min(Math.ceil(remaining), 2_147_483_647));
-  };
-  timer = setTimeout(tick, Math.min(ms, 2_147_483_647));
-  return () => clearTimeout(timer);
 }
 
 /** Legacy reply deadline, also used by the runner as its update drain

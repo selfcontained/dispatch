@@ -144,7 +144,7 @@ export async function executeStreamedCheckoutCommand(
   cwd: string,
   session: string,
   operation: Extract<CheckoutCommand, { kind: "run" }>,
-  execution: CheckoutExecution,
+  execution: Pick<CheckoutExecution, "env" | "shell">,
   loginPath: string | undefined,
   read: Parameters<typeof checkoutCommandGuard>[3]
 ) {

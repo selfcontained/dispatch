@@ -1,6 +1,11 @@
-import { RunnerCallError } from "@dispatch/runner-protocol/contract";
+import {
+  operations,
+  sessionToWire,
+  RunnerCallError,
+} from "@dispatch/runner-protocol/contract";
 import {
   isCheckoutCommand,
+  isCheckoutExecutionOptions,
   MAX_CHECKOUT_COMMAND_OUTPUT_BYTES,
 } from "@dispatch/runner-protocol";
 import {
@@ -30,10 +35,43 @@ export async function runCheckoutCommandCli(
     const operation: unknown = JSON.parse(
       Buffer.concat(chunks).toString("utf8")
     );
-    if (!isCheckoutCommand(operation))
-      throw new Error("Invalid checkout command.");
     const read = (file: string) =>
       readCheckoutCommandFile(cwd, file, { configuredRoot });
+    if (operations["checkout.exec"].request.check(operation)) {
+      const { target, guard, argv } = operation;
+      if (
+        !("session" in target) ||
+        sessionToWire(target.session) !== session ||
+        !("digest" in guard) ||
+        !isCheckoutExecutionOptions(operation)
+      )
+        throw new Error("Invalid checkout command binding.");
+      const bound = {
+        kind: "run",
+        checkout:
+          target.checkout === "launch" || target.checkout === "moved"
+            ? target.checkout
+            : "effective",
+        path: guard.path,
+        state: guard.digest,
+        argv,
+      } as const;
+      if (!isCheckoutCommand(bound))
+        throw new Error("Invalid checkout command.");
+      streamed = true;
+      const exitCode = await executeStreamedCheckoutCommand(
+        cwd,
+        session,
+        bound,
+        operation,
+        loginPath,
+        read
+      );
+      await reportCheckoutWorkerStatus({ exitCode });
+      return;
+    }
+    if (!isCheckoutCommand(operation))
+      throw new Error("Invalid checkout command.");
     if (operation.kind === "run" && operation.execution) {
       streamed = true;
       const exitCode = await executeStreamedCheckoutCommand(
