@@ -704,12 +704,15 @@ export function workspaceHandlers(
           checkout: null,
         };
       // `ownership` asks who owns it, not its state: nothing is read.
-      const state =
-        held.checkout.ownership === "owned" &&
-        port.observe &&
-        input.policy !== "ownership"
-          ? await port.observe(held.checkout.path).catch(() => null)
-          : null;
+      let state = null;
+      if (held.checkout.ownership === "owned" && input.policy !== "ownership") {
+        if (!port.observe)
+          throw new RunnerCallError({
+            code: "failed",
+            message: "Checkout observation is unavailable.",
+          });
+        state = await port.observe(held.checkout.path);
+      }
       return {
         ownership: "owned" as const,
         owner: session,

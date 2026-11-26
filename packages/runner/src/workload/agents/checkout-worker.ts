@@ -1216,7 +1216,20 @@ export const workspaceWorkload = {
   putFile: (source: string, { mustExist }: { mustExist: boolean }) =>
     sessionFilesWorkload.put(source, mustExist ? "prompt" : "reference"),
   /** Main's archive observation of a worktree (`observeGitCheckout`). */
-  observe: (directory: string) => observeGitCheckout(directory),
+  async observe(directory: string) {
+    try {
+      return await observeGitCheckout(directory);
+    } catch (error) {
+      const failure = error as NodeJS.ErrnoException;
+      if (
+        failure.code === "ENOENT" &&
+        failure.syscall === "realpath" &&
+        failure.path === directory
+      )
+        return null;
+      throw error;
+    }
+  },
   async release(
     _session: string,
     checkout: { path: string; identity?: string },

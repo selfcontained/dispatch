@@ -32,6 +32,7 @@ export type AgentWorktreeStatus = {
 
 export type AgentArchivePreview = {
   worktreeStatus: AgentWorktreeStatus | null;
+  worktreeStatusUnreadable?: true;
   subAgentCount: number;
   cleanupDescriptions: string[];
 };

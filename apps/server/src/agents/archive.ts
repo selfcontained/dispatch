@@ -20,7 +20,11 @@ import type { RunnerComposition } from "../runners/directory.js";
 import type { Runner } from "@dispatch/runner-protocol/contract";
 import type { RemoteRunnerService } from "./remote/service.js";
 import { resolveArchiveHooks, runLifecycleHook } from "./lifecycle-hooks.js";
-import { AgentError, LifecycleSuperseded } from "./errors.js";
+import {
+  AgentError,
+  CheckoutStatusUnavailable,
+  LifecycleSuperseded,
+} from "./errors.js";
 import type { AgentRuntime } from "./runtime.js";
 import type {
   AgentRecord,
@@ -112,8 +116,18 @@ export async function previewArchive(
       pending.push(await getRequiredAgent(childId));
     }
   }
-  const status = target.worktreePath ? await readStatus(target) : null;
+  let status = null;
+  let unreadable = false;
+  if (target.worktreePath || target.runnerManaged) {
+    try {
+      status = await readStatus(target);
+    } catch (error) {
+      if (!(error instanceof CheckoutStatusUnavailable)) throw error;
+      unreadable = true;
+    }
+  }
   return {
+    ...(unreadable && { worktreeStatusUnreadable: true }),
     worktreeStatus: status && {
       hasWorktree: status.hasWorktree,
       hasUnmergedCommits: status.hasUnmergedCommits,
@@ -162,23 +176,44 @@ export async function archiveCheckout(
       ? runnerArchiveExecutor(agent, remote, stopped, policy)
       : archiveExecutor(pool, agent, runner, stopped);
   const budget = runner.cleanupBudgetMs;
+  if (budget === undefined)
+    return finishArchiveCheckout(pool, logger, agent, mode, executor, hooks);
+
+  // Once the cleanup budget expires, a late observation cannot authorize removal.
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let expired = false;
+  let rejectObservation: ((error: Error) => void) | undefined;
+  const error = new Error(`Worktree cleanup timed out after ${budget}ms`);
+  if (mode === "auto") {
+    const observe = executor.observe;
+    executor.observe = async (request) => {
+      if (expired) throw error;
+      try {
+        return await Promise.race([
+          observe(request),
+          new Promise<never>((_, reject) => {
+            rejectObservation = reject;
+          }),
+        ]);
+      } finally {
+        rejectObservation = undefined;
+      }
+    };
+    const release = executor.release;
+    executor.release = (state) => {
+      if (expired) throw error;
+      return release(state);
+    };
+  }
   try {
     return await Promise.race([
       finishArchiveCheckout(pool, logger, agent, mode, executor, hooks),
-      ...(budget === undefined
-        ? []
-        : [
-            new Promise<never>((_, reject) => {
-              timer = setTimeout(
-                () =>
-                  reject(
-                    new Error(`Worktree cleanup timed out after ${budget}ms`)
-                  ),
-                budget
-              );
-            }),
-          ]),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          expired = true;
+          (rejectObservation ?? reject)(error);
+        }, budget);
+      }),
     ]);
   } catch (err) {
     const failure = archiveFailure(policy);

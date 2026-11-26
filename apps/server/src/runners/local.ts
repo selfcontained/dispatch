@@ -699,7 +699,7 @@ export function createLocalCheckoutRunner(
       };
     const owned = await childOwned(input.session, worktree, options);
     if (owned) return owned;
-    const state = await workspaceWorkload.observe(worktree).catch(() => null);
+    const state = await workspaceWorkload.observe(worktree);
     return {
       ownership: "owned",
       owner: session.id,

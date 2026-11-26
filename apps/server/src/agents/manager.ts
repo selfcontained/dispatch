@@ -77,7 +77,11 @@ import {
   observeArchiveCheckout,
   type ArchiveCheckoutAgent,
 } from "./archive-checkout.js";
-import { AgentError, LifecycleSuperseded } from "./errors.js";
+import {
+  AgentError,
+  CheckoutStatusUnavailable,
+  LifecycleSuperseded,
+} from "./errors.js";
 import { admitLaunch } from "./launch-admission.js";
 import { type AgentEventBus, createAgentEventBus } from "./events.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
@@ -4635,15 +4639,11 @@ export class AgentManager {
         this.localRunnerChild
       );
     } catch {
-      throw new AgentError(
-        "Checkout status is unavailable on the owning runner.",
-        503
-      );
+      throw new CheckoutStatusUnavailable();
     }
     const { checkout, ownership, borrowers } = observation;
     if (ownership === "owned" && !checkout) {
-      // The runner answered that its checkout is gone (or unreadable, as
-      // main's readWorktreeStatus reads it): main's answer for the row's
+      // The runner answered that its checkout is gone. Return the answer for the row's
       // recorded worktree, or its no-worktree answer when none is recorded.
       const worktreePath = agent.worktreePath ?? null;
       return {

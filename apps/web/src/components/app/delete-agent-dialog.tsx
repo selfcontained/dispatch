@@ -54,6 +54,7 @@ export function DeleteAgentDialog({
   }, [open, targetId]);
 
   const worktreeStatus = preview.data?.worktreeStatus;
+  const unreadable = preview.data?.worktreeStatusUnreadable;
   const cascadeCount = preview.data?.subAgentCount ?? 0;
   const cleanupDescriptions = preview.data?.cleanupDescriptions ?? [];
   const cascadeNote =
@@ -70,6 +71,7 @@ export function DeleteAgentDialog({
   };
 
   const confirm = async () => {
+    if (unreadable) return archive("keep");
     if (choosing) return archive("force");
     // Outstanding work gets a choice of what happens to the worktree.
     if (
@@ -97,20 +99,28 @@ export function DeleteAgentDialog({
       }
       description={
         <>
-          {choosing
-            ? `The agent will be archived either way.${cascadeNote}`
-            : `This removes the agent record and all files.${cascadeNote}`}
+          {unreadable
+            ? cascadeNote
+            : choosing
+              ? `The agent will be archived either way.${cascadeNote}`
+              : `This removes the agent record and all files.${cascadeNote}`}
           {cleanupDescriptions.length > 0 ? (
             <span className="mt-2 block text-foreground">
               {cleanupDescriptions.join(" ")}
-              {worktreeStatus?.hasWorktree
+              {unreadable || worktreeStatus?.hasWorktree
                 ? " Keeping the worktree still runs this cleanup."
                 : null}
             </span>
           ) : null}
         </>
       }
-      confirmLabel={choosing ? "Archive and remove worktree" : "Archive agent"}
+      confirmLabel={
+        unreadable
+          ? "Archive, keep worktree"
+          : choosing
+            ? "Archive and remove worktree"
+            : "Archive agent"
+      }
       confirmTestId={
         choosing ? "delete-agent-force-worktree" : "delete-agent-confirm"
       }
@@ -129,6 +139,12 @@ export function DeleteAgentDialog({
           : undefined
       }
     >
+      {unreadable ? (
+        <Alert
+          tone="warning"
+          title="Worktree cleanup failed; leaving on disk."
+        />
+      ) : null}
       {preview.isError ? (
         <Alert title="Couldn’t check what archive will remove.">
           <Button

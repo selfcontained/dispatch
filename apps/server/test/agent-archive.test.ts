@@ -460,7 +460,7 @@ describe("executeArchive", () => {
     });
   });
 
-  it("attempts auto cleanup when the built-in runner cannot observe the checkout", async () => {
+  it("archives and keeps the checkout when the built-in runner cannot observe it", async () => {
     vi.mocked(observeGitCheckout).mockRejectedValueOnce(
       new Error("Git status unavailable")
     );
@@ -473,7 +473,7 @@ describe("executeArchive", () => {
       ),
     });
     await executeArchive(deps, "a1", makeCallbacks());
-    expect(cleanupGitWorktree).toHaveBeenCalledOnce();
+    expect(cleanupGitWorktree).not.toHaveBeenCalled();
   });
 
   describe("worktree cleanup decision — keep mode", () => {

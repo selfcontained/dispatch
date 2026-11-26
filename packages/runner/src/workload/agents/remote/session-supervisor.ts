@@ -602,9 +602,16 @@ export async function createSessionSupervisor(
     }
   }
 
+  class MissingCheckoutDirectory extends Error {
+    constructor() {
+      super("The runner session checkout is unavailable.");
+    }
+  }
+
   async function checkedDirectory(dir: string) {
     const entry = await lstat(dir).catch(missingPath);
-    if (!entry?.isDirectory() || (await realpath(dir)) !== dir)
+    if (!entry) throw new MissingCheckoutDirectory();
+    if (!entry.isDirectory() || (await realpath(dir)) !== dir)
       throw new Error("The runner session checkout is unavailable.");
     return entry;
   }
@@ -830,7 +837,10 @@ export async function createSessionSupervisor(
       policy === "ownership"
         ? null
         : await describeOwnedState(owner, policy === "changes").catch(
-            () => null
+            (error) => {
+              if (error instanceof MissingCheckoutDirectory) return null;
+              throw error;
+            }
           )
     );
   }
