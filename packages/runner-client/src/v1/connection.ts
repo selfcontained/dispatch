@@ -256,7 +256,8 @@ export async function receiveCheckoutRead<K extends CheckoutReadName>(
   const { target, ...parameters } = input as Req<CheckoutReadName>;
   if (
     !("session" in target) ||
-    !["current", "launch"].includes(target.checkout ?? "current")
+    !["current", "launch", "owned"].includes(target.checkout ?? "current") ||
+    (target.checkout === "owned" && op !== "checkout.read")
   )
     throw new RunnerCallError({
       code: "invalid",
@@ -265,7 +266,9 @@ export async function receiveCheckoutRead<K extends CheckoutReadName>(
   const operation = {
     op,
     request: parameters,
-    ...(target.checkout === "launch" && { checkout: "launch" as const }),
+    ...((target.checkout === "launch" || target.checkout === "owned") && {
+      checkout: "launch" as const,
+    }),
   } as CheckoutReadRequest;
   const streamId = randomUUID();
   const controller = new AbortController();

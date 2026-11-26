@@ -122,6 +122,7 @@ export async function callCheckoutRead<K extends CheckoutReadName>(
   // The legacy inspection carrier has no selector; it can only read current.
   if (
     request.target.checkout === "launch" ||
+    request.target.checkout === "owned" ||
     ((op === "checkout.list" || op === "checkout.read") &&
       (request as Req<"checkout.read">).mode === "native")
   )

@@ -432,3 +432,31 @@ it("reads live roots without a session binding while frozen", async () => {
     { op: "git.roots", input: { directory: "/repo/work", request: {} } },
   ]);
 });
+
+it("reads the immutable owned checkout while frozen without selecting the moved folder", async () => {
+  const value = { data: "owned" };
+  const { connection, calls, fence } = await harness(() => value);
+  await fence.freeze();
+  cleanups.push(() => fence.thaw());
+  expect(
+    await connection.call("checkout.read", {
+      target: { session: sessionFromWire("moved"), checkout: "owned" },
+      path: ".agents/owners.json",
+      encoding: "utf8",
+      maxBytes: null,
+    })
+  ).toEqual(value);
+  expect(calls).toEqual([
+    {
+      op: "checkout.read",
+      input: {
+        directory: "/launch",
+        request: {
+          path: ".agents/owners.json",
+          encoding: "utf8",
+          maxBytes: null,
+        },
+      },
+    },
+  ]);
+});

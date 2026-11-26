@@ -173,3 +173,34 @@ it("keeps a prepared worktree's root when its receipt resumes after a workspace 
   expect(binding?.checkout.path).toBe(mainRoot);
   expect(binding?.currentPath).toBe(fixture.moved);
 });
+
+it.each(names)(
+  "reads owned through the real child and identical in-process port: %s",
+  async (name) => {
+    const row = fixture.rows.find((r) => r.name === name)!;
+    const spy = vi.spyOn(native.workload!, "run");
+    try {
+      const reply = await child.session
+        .call("checkout.read", {
+          target: { session: sessionFromWire(row.id), checkout: "owned" },
+          path: ".agents/owners.json",
+          encoding: "utf8",
+          maxBytes: null,
+        })
+        .then(ownerReply)
+        .catch(() => null);
+      expect(ownerEvidence(reply)).toEqual(row.expected);
+      expect(spy).not.toHaveBeenCalled();
+      expect(
+        ownerEvidence(
+          await fixture
+            .direct(row)
+            .then(ownerReply)
+            .catch(() => null)
+        )
+      ).toEqual(row.expected);
+    } finally {
+      spy.mockRestore();
+    }
+  }
+);

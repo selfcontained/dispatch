@@ -223,6 +223,20 @@ export async function ownedCheckoutFixture(
       );
       return workload.run("checkout.read", { directory, request }, {});
     },
+    async direct(row: (typeof rows)[number]) {
+      return workload.run(
+        "checkout.read",
+        {
+          directory: row.home,
+          request: {
+            path: ".agents/owners.json",
+            encoding: "utf8",
+            maxBytes: null,
+          },
+        },
+        {}
+      );
+    },
     async restart() {
       supervisor.close();
       supervisor = await create();
