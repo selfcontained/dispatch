@@ -11,6 +11,7 @@ import {
   sessionToWire,
   type Res,
   type Target,
+  type ReadTarget,
 } from "@dispatch/runner-protocol/contract";
 import { Duplex } from "node:stream";
 import type { CallHandlers, OpenHandlers } from "../handlers.js";
@@ -33,10 +34,11 @@ const notBound = () =>
 /** The directory a binding's selector names. */
 function selected(
   binding: StoredBinding,
-  selector: "current" | "launch" | "moved" | undefined
+  selector: "current" | "launch" | "moved" | "owned" | undefined
 ): string {
   switch (selector) {
     case "launch":
+    case "owned":
       return binding.checkout.path;
     case "moved":
       if (binding.currentPath === null) throw notBound();
@@ -118,7 +120,10 @@ export function checkoutHandlers(
    */
   repositoryClone?: (url: string) => Promise<string>
 ): CallHandlers {
-  async function directory(target: Target, op?: string): Promise<string> {
+  async function directory(
+    target: Target | ReadTarget,
+    op?: string
+  ): Promise<string> {
     if ("session" in target) {
       const binding = await store.get(sessionToWire(target.session));
       if (!binding) throw notBound();
@@ -199,7 +204,7 @@ export function checkoutHandlers(
     ...EXEC_OPS,
     ...WRITE_OPS,
   ]) {
-    const run = async (input: { target: Target }) => {
+    const run = async (input: { target: Target | ReadTarget }) => {
       const { target, ...request } = input;
       // A write lands only in a checkout this runner's own binding names.
       if (
@@ -211,8 +216,9 @@ export function checkoutHandlers(
           message: "This runner writes in the checkouts it holds",
         });
       const dir = await directory(target, op);
+      const requested = "session" in target ? target.checkout : undefined;
       const selector: Selector =
-        ("session" in target && target.checkout) || "current";
+        requested === "owned" ? "launch" : (requested ?? "current");
       const command = (EXEC_OPS as readonly string[]).includes(op);
       try {
         return await platform.workload.run(

@@ -26,7 +26,7 @@ export const OPERATION_TASK = {
   "path.resolve": "T17",
   "path.complete": "T17",
   "checkout.list": "T40", // Native folder definition enumeration; original views T09.
-  "checkout.read": "T40", // Native folder definition reads; original reads T09.
+  "checkout.read": "T40", // Owned checkout and native folder definition reads; original reads T09.
   "checkout.write": "T35",
   "checkout.preview": "T09",
   "checkout.index": "T09",

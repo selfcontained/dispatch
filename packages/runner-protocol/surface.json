@@ -2108,7 +2108,7 @@
                   },
                   "checkout": {
                     "optional": {
-                      "literal": ["current", "launch", "moved"]
+                      "literal": ["current", "launch", "moved", "owned"]
                     }
                   }
                 }
