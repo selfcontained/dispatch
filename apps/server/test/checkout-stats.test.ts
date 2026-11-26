@@ -1,5 +1,5 @@
 import { placementForRunner } from "../src/runners/placement.js";
-import { isCheckoutViewData } from "../src/agents/checkout-view-data.js";
+import { operations } from "@dispatch/runner-protocol/contract";
 import { afterEach, expect, it, vi } from "vitest";
 import { readAgentStats } from "../src/agents/checkout-runner.js";
 import { readCheckoutView } from "../../../packages/runner/src/workload/agents/checkout-view.js";
@@ -33,15 +33,17 @@ function service(read: () => unknown) {
 }
 
 it("validates optional stats outcomes and legacy data", () => {
+  const schema = operations["checkout.stats"].response;
+  const wire = { ...totals, excluded: totals, computedAt: 123 };
   for (const data of [
     null,
-    stats,
-    { ...stats, outcome: "partial" },
-    { ...stats, outcome: "success" },
+    wire,
+    { ...wire, outcome: "partial" },
+    { ...wire, outcome: "success" },
   ])
-    expect(isCheckoutViewData(view, data)).toBe(true);
+    expect(schema.check(data)).toBe(true);
   for (const outcome of [null, 1, {}, ["partial"], "no-data", "failure"])
-    expect(isCheckoutViewData(view, { ...stats, outcome })).toBe(false);
+    expect(schema.check({ ...wire, outcome })).toBe(false);
 });
 
 it.each(["success", "partial"] as const)(

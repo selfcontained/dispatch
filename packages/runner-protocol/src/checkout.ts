@@ -1,4 +1,4 @@
-import { fileDiagnostic } from "./contract/views.js";
+import type { fileDiagnostic } from "./contract/views.js";
 import type { Infer } from "./contract/schema.js";
 import { isOpaqueId } from "./placement.js";
 import { isRecord } from "./validation.js";
@@ -30,9 +30,6 @@ export type CheckoutReply =
       repositoryRoot: string | null;
     }
   | DefaultBranchFilesReply;
-
-export const DEFAULT_BRANCH_FILE_LIMIT = 100;
-export const DEFAULT_BRANCH_REPLY_BYTES = 4 * 1024 * 1024;
 
 export type DefaultBranchFilesReply = {
   kind: "defaultBranchFiles";
@@ -101,87 +98,6 @@ export function isCheckoutQuery(value: unknown): value is CheckoutQuery {
   return (
     value.kind === "changes" &&
     (value.baseBranch === null || validBranch(value.baseBranch))
-  );
-}
-
-function validFileDiagnostics(value: unknown, fileCount: number): boolean {
-  if (value === undefined) return true;
-  if (!Array.isArray(value)) return false;
-  let previous = 0;
-  for (const item of value) {
-    if (
-      !fileDiagnostic.check(item) ||
-      item.fileIndex < previous ||
-      item.fileIndex > fileCount
-    )
-      return false;
-    previous = item.fileIndex;
-  }
-  return true;
-}
-
-export function isCheckoutReply(
-  value: unknown,
-  query: CheckoutQuery
-): value is CheckoutReply {
-  if (!isRecord(value) || value.kind !== query.kind) return false;
-  if (value.kind === "defaultBranchFiles" && query.kind === value.kind) {
-    return (
-      typeof value.hasOrigin === "boolean" &&
-      typeof value.refreshing === "boolean" &&
-      typeof value.truncated === "boolean" &&
-      (value.updatedAt === null ||
-        (typeof value.updatedAt === "number" &&
-          Number.isFinite(value.updatedAt) &&
-          value.updatedAt >= 0)) &&
-      Array.isArray(value.warnings) &&
-      value.warnings.every(
-        (warning) => typeof warning === "string" && warning.length <= 512
-      ) &&
-      Array.isArray(value.files) &&
-      value.files.length <= DEFAULT_BRANCH_FILE_LIMIT &&
-      validFileDiagnostics(value.diagnostics, value.files.length) &&
-      value.files.every(
-        (file) =>
-          isRecord(file) &&
-          safeCheckoutPath(file.path) &&
-          query.directories.includes(
-            file.path.slice(0, file.path.lastIndexOf("/"))
-          ) &&
-          typeof file.content === "string" &&
-          new TextEncoder().encode(file.content).length <= 256 * 1024
-      ) &&
-      new TextEncoder().encode(JSON.stringify(value)).length <=
-        DEFAULT_BRANCH_REPLY_BYTES
-    );
-  }
-  if (value.kind === "readFile")
-    return (
-      value.content === null ||
-      (typeof value.content === "string" &&
-        new TextEncoder().encode(value.content).length <= 256 * 1024)
-    );
-  if (value.kind === "roots")
-    return (
-      (value.checkoutRoot === null || isCheckoutPath(value.checkoutRoot)) &&
-      (value.repositoryRoot === null || isCheckoutPath(value.repositoryRoot))
-    );
-  if (value.kind === "listFiles")
-    return (
-      Array.isArray(value.names) &&
-      value.names.length <= 1024 &&
-      value.names.every((name) => relativePath(name) && !name.includes("/"))
-    );
-  return (
-    typeof value.baseRef === "string" &&
-    value.baseRef.length > 0 &&
-    value.baseRef.length <= 512 &&
-    typeof value.stateId === "string" &&
-    /^[a-f0-9]{64}$/.test(value.stateId) &&
-    typeof value.head === "string" &&
-    /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value.head) &&
-    Array.isArray(value.files) &&
-    value.files.every(relativePath)
   );
 }
 

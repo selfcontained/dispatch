@@ -262,24 +262,6 @@ const retained = [
     "Enrolled view reply budget",
   ],
   [
-    "N13",
-    protocol + "checkout.ts",
-    "value.names.length <= 1024",
-    "Enrolled legacy listing reply budget",
-  ],
-  [
-    "N13",
-    protocol + "checkout.ts",
-    "DEFAULT_BRANCH_REPLY_BYTES = 4 * 1024 * 1024",
-    "Enrolled legacy default-branch reply budget",
-  ],
-  [
-    "N13",
-    protocol + "checkout.ts",
-    "encode(value.content).length <= 256 * 1024",
-    "Enrolled legacy file reply budget",
-  ],
-  [
     "N14",
     protocol + "checkout-command.ts",
     "MAX_CHECKOUT_COMMAND_FILE_BYTES = 256 * 1024",
