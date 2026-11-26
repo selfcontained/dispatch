@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import {
   chmod,
@@ -111,33 +110,13 @@ it("direct checkout exec uses and caches the login-only workload PATH", async ()
       await execute(bin!, args, { env: { HOME: home, PATH: "/usr/bin:/bin" } })
     ).stdout;
   });
-  const state = createHash("sha256")
-    .update(
-      JSON.stringify(["session", "effective", root, root, "guard", "data"])
-    )
-    .digest("hex");
-  const options = {
-    shell: "direct",
-    timeoutMs: null,
-    maxOutput: null,
-    env: {},
-    stdout: "out",
-    stderr: "err",
-  } as const;
   const run = async () =>
     executeStreamedCheckoutCommand(
       root,
       "session",
-      {
-        kind: "run",
-        checkout: "effective",
-        path: "guard",
-        state,
-        argv: ["checkout-probe"],
-      },
-      options,
-      await loginPath(),
-      async () => ({ root, content: "data" })
+      ["checkout-probe"],
+      { shell: "direct", env: {} },
+      await loginPath()
     );
 
   expect(await run()).toBe(23);
