@@ -610,7 +610,7 @@ describe("merge-risk assessor", () => {
     new MergeRiskAssessor({
       pool,
       settings,
-      agentRoot: async () => null,
+      owners: async () => null,
       github: { details: (_runner, url) => details(url) },
       transport,
     });
@@ -661,7 +661,7 @@ describe("merge-risk assessor", () => {
       pool,
       settings,
       github,
-      agentRoot: async () => null,
+      owners: async () => null,
       transport,
     });
     const explanationTransport = vi.fn<typeof fetch>(async () =>

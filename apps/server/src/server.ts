@@ -1,3 +1,7 @@
+import {
+  sameRunner,
+  sessionFromWire,
+} from "@dispatch/runner-protocol/contract";
 import { parseEngineCapabilityResult } from "./agents/remote/engine-capability-result.js";
 import {
   engineScopeKey,
@@ -8,7 +12,6 @@ import { localLaunchSettings } from "./agents/acp/launch-env.js";
 import {
   controllerPlacement,
   enrolledRunnerId,
-  isOnEnrolledRunner,
   placementForEnrolledId,
   runnerIdForPlacement,
 } from "./runners/placement.js";
@@ -142,8 +145,7 @@ import {
 } from "./generated/runtime-assets.js";
 import { BrainStore } from "./brain/store.js";
 import { registerActivityRoutes } from "./routes/activity/index.js";
-import { parseCodeowners } from "./personas/codeowners.js";
-import { LEGACY_OWNERS_PATH, OWNERS_PATH } from "./personas/paths.js";
+import { loadCodeownersFromFiles } from "./personas/codeowners.js";
 import { createMergeRiskGitHubSource } from "./agents/merge-risk/github-source.js";
 import { RiskExplanations } from "./agents/merge-risk/explanations.js";
 import { registerAgentRoutes } from "./routes/agents/index.js";
@@ -467,24 +469,33 @@ const mergeRiskGitHub = createMergeRiskGitHubSource(githubRunnerFor);
 const mergeRiskAssessor = new MergeRiskAssessor({
   pool,
   github: mergeRiskGitHub,
-  remoteOwners: async (id, runnerId) => {
+  owners: async (id, runnerId) => {
     const agent = await agentManager.getAgent(id);
-    if (!agent || !isOnEnrolledRunner(agent.placement, runnerId)) return null;
-    for (const path of [OWNERS_PATH, LEGACY_OWNERS_PATH]) {
-      const reply = await agentManager.inspectCheckout(agent, {
-        kind: "readFile",
-        path,
-      });
-      if (reply.kind === "readFile" && reply.content !== null)
-        return parseCodeowners(reply.content, path);
-    }
-    return null;
+    if (
+      !agent ||
+      !sameRunner(agent.placement, placementForEnrolledId(runnerId))
+    )
+      return null;
+    const runner = runnerDirectory(
+      agentManager.checkoutReadRunners(),
+      agent
+    ).for(agent.placement);
+    const target = { session: sessionFromWire(id), checkout: "owned" as const };
+    return loadCodeownersFromFiles({
+      access: (path) => runner.call("checkout.access", { target, path }),
+      read: async (path) =>
+        (
+          await runner.call("checkout.read", {
+            target,
+            path,
+            mode: "native",
+            encoding: "utf8",
+            maxBytes: null,
+          })
+        )?.data ?? "",
+    });
   },
   settings: routingSettings,
-  agentRoot: async (id) => {
-    const agent = await agentManager.getAgent(id);
-    return agent?.worktreePath ?? agent?.cwd ?? null;
-  },
   warn: (error) => app.log.warn({ err: error }, "Merge-risk assessment failed"),
 });
 const pullRequests = new PullRequestRefresher({

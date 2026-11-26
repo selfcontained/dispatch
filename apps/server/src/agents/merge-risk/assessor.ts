@@ -20,10 +20,7 @@ import {
   DECISIONS_MODEL,
 } from "../../chat/decisions-client.js";
 import type { RoutingSettings } from "../../chat/routing-settings.js";
-import {
-  loadCodeowners,
-  type CodeownersConfig,
-} from "../../personas/codeowners.js";
+import type { CodeownersConfig } from "../../personas/codeowners.js";
 import {
   buildMergeRiskEvidence,
   MergeRiskEvidenceTooLarge,
@@ -44,11 +41,10 @@ import {
 type Options = {
   pool: Pool;
   settings: RoutingSettings;
-  /** Checkout root for an owning agent, used to read its ownership map. */
-  agentRoot: (agentId: string) => Promise<string | null>;
-  remoteOwners?: (
+  /** The owning agent's checkout map, read through its runner. */
+  owners: (
     agentId: string,
-    runnerId: string
+    runnerId: string | null
   ) => Promise<CodeownersConfig | null>;
   /** PR details as the tracking agent's runner reads them. */
   github: Pick<MergeRiskGitHubSource, "details">;
@@ -281,13 +277,8 @@ export class MergeRiskAssessor {
   ): Promise<CodeownersConfig | null> {
     for (const agentId of agentIds) {
       try {
-        if (runnerId !== null) {
-          const config = await this.options.remoteOwners?.(agentId, runnerId);
-          if (config) return config;
-          continue;
-        }
-        const root = await this.options.agentRoot(agentId);
-        if (root) return await loadCodeowners(root);
+        const config = await this.options.owners(agentId, runnerId);
+        if (config) return config;
       } catch {
         // A missing or invalid map leaves subsystems empty; the file list still carries the paths.
       }

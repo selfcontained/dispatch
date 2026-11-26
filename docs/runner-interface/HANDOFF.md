@@ -231,3 +231,9 @@ Unused in source since the archive seam and B2, deleted with legacy (tests still
 ### T40 F_OK presence seam (intentional operation addition)
 
 `checkout.access` intentionally raises the operation count from 72 to 73. It probes native F_OK access (links followed; directories and unreadable files present), returns false only on ENOENT, and carries other native errors unchanged with code/path/syscall details. Its two planned controller consumers are the assessor's primary/legacy map selection and then the folder picker's `hasCodeowners`. Selection order stays in the controller: select with access, read the selected file once using native mode, and never try legacy after a read-time ENOENT. The assessor is an explicitly named native-read consumer alongside folder/project definition readers. Writes and commands still do not accept the owned selector.
+
+### T40 assessor ownership reads
+
+The assessor uses the owning session's `owned` checkout for every runner, with F_OK primary/legacy selection followed by one native read. In the enrolled root matrix, `moved-repository` and `moved-subfolder` now use the worktree owner rather than the selected workspace owner, matching main; worktree, no-worktree, gone-worktree and non-repository cases are unchanged. Native FIFO maps now wait for their writer instead of the old enrolled regular-file inspection rejecting them. A selected file disappearing during its read does not retry legacy, as on main.
+
+Main's evidence identity inconsistency is preserved: assessed files come from the PR URL while the ownership map comes from the agent's launch/worktree checkout; there is no repository identity cross-check. The icon's `launch` selector is unchanged.
