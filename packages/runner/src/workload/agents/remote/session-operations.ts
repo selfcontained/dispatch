@@ -80,6 +80,17 @@ export function enrolledSessions(
           },
         };
       },
+      "git.context": async ({ target }) => {
+        if (!("session" in target))
+          throw new RunnerCallError({
+            code: "invalid",
+            message: "Invalid checkout read binding.",
+          });
+        return supervisor.gitContext(sessionToWire(target.session), workspace, {
+          kind: "context",
+          checkout: target.checkout,
+        });
+      },
       "workspace.describe": async ({ session }) => {
         const id = sessionToWire(session);
         if (!(await supervisor.isBound(id, workspace)))

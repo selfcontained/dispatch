@@ -57,6 +57,7 @@ export const OPERATION_TASK = {
   "github.pr.status": "T32",
   "github.pr.details": "T33",
   "github.pr.diff": "T33",
+  // Background inventory yields to a protected update; explicit lists remain available.
   "engine.list": "T28",
   "engine.install": "T29",
   "engine.update": "T29",

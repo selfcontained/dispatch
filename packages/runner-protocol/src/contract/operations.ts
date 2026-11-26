@@ -846,6 +846,8 @@ export const operations = {
     // (`version` null, `signedIn` null, no `actions`).
     request: object({
       refresh: boolean,
+      /** A periodic sample. A protected update can defer its workload probes. */
+      background: optional(literal(true)),
       include: optional(array(literal("version", "actions", "signIn"))),
     }),
     response: object({

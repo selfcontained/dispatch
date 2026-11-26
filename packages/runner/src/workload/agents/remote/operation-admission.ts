@@ -54,6 +54,12 @@ export function enrolledAdmission(admission: Pick<UpdateAdmission, "admit">) {
   return {
     message: UPDATE_FENCED_MESSAGE,
     enter(op: string, input?: unknown) {
+      if (
+        op === "engine.list" &&
+        operations[op].request.check(input) &&
+        input.background
+      )
+        return admission.admit(60_000)?.release ?? null;
       if (!Object.hasOwn(operations, op) || exempt.has(op as OpName))
         return () => {};
       return admission.admit(deadline(op as OpName, input))?.release ?? null;

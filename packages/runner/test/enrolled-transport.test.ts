@@ -318,6 +318,7 @@ it("pins enrolled admission and the original fenced message", async () => {
     {
       calls: {
         "session.alive": () => ({ state: "gone" }),
+        "engine.list": () => ({ entries: [] }),
         "session.stop": () => {
           throw new Error("unexpected admission");
         },
@@ -334,7 +335,13 @@ it("pins enrolled admission and the original fenced message", async () => {
     code: "fenced",
     message: enrolledAdmission({ admit }).message,
   });
-  expect(admit.mock.calls).toEqual([[20000]]);
+  await expect(client.call("engine.list", { refresh: false })).resolves.toEqual(
+    { entries: [] }
+  );
+  await expect(
+    client.call("engine.list", { refresh: false, background: true })
+  ).rejects.toMatchObject({ code: "fenced" });
+  expect(admit.mock.calls).toEqual([[20000], [60000]]);
 });
 
 it("carries a bound watch pulse and closes its worker after the last subscriber", async () => {
