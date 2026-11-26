@@ -1,4 +1,7 @@
-import { remotePlacement, type RunnerRepository } from "./remote/protocol.js";
+import {
+  remotePlacement,
+  type RunnerRepository,
+} from "@dispatch/runner-protocol";
 import {
   pathFromWire,
   type Placement,
