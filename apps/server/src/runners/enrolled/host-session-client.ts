@@ -6,8 +6,10 @@ import {
 import type { Duplex } from "node:stream";
 
 export function enrolledHostStream(channel: Duplex, id: string) {
-  return mapIncomingFrames(channel, (message) =>
-    encodeHostFrame(message as HostMessage, id)
+  return mapIncomingFrames(
+    channel,
+    (message) => encodeHostFrame(message as HostMessage, id),
+    32 * 1024 * 1024
   );
 }
 

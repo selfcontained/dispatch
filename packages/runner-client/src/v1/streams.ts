@@ -393,6 +393,10 @@ export class FlowStreams {
         },
         (error) => (error ? reject(error) : resolve())
       );
+    }).catch(() => {
+      // A socket write failed; source and sink failures have their own path.
+      this.socket.destroy();
+      entry.finish(streamError("unavailable", "Stream connection closed"));
     });
   }
 

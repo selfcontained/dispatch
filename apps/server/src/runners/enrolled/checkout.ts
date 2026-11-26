@@ -14,7 +14,10 @@ import {
 import { projectRepositoryUrl } from "../../agents/remote/repository.js";
 import { createHash } from "node:crypto";
 import { posix } from "node:path";
-import { sessionFileBlob } from "../../files/session-file-blob.js";
+import {
+  sessionFileBlob,
+  sessionFileBytesBlob,
+} from "../../files/session-file-blob.js";
 import type { RemoteRunnerService } from "../../agents/remote/service.js";
 import type { CheckoutSession } from "../directory.js";
 
@@ -44,7 +47,7 @@ async function sessionFile<K extends "files.put" | "files.get">(
       name: posix.basename(path),
       size: bytes.length,
       digest: createHash("sha256").update(bytes).digest("hex"),
-      blob: bytes.toString("base64"),
+      blob: sessionFileBytesBlob(bytes),
     } as Res<K>;
   }
   const { name, blob } = input as Req<"files.put">;

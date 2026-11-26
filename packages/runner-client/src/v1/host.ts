@@ -83,12 +83,28 @@ export function decodeSessionFrame(
 
 /**
  * Newline-delimited JSON frames as the v1 host and its clients write them:
- * blank and malformed lines are skipped, and a line has no length limit.
+ * Blank and malformed lines are skipped. The enrolled carrier supplies its byte limit.
  */
-export function frameDecoder(): (chunk: Buffer | string) => AnyRecord[] {
+export function frameDecoder(
+  maxLineBytes = Infinity
+): (chunk: Buffer | string) => AnyRecord[] {
   const decoder = new StringDecoder("utf8");
   let buffer = "";
+  let lineBytes = 0;
   return (chunk) => {
+    if (Number.isFinite(maxLineBytes)) {
+      const bytes = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+      let start = 0;
+      while (start < bytes.length) {
+        const end = bytes.indexOf(10, start);
+        lineBytes += (end < 0 ? bytes.length : end) - start;
+        if (lineBytes > maxLineBytes)
+          throw new Error("Host frame exceeds its byte limit");
+        if (end < 0) break;
+        lineBytes = 0;
+        start = end + 1;
+      }
+    }
     buffer += typeof chunk === "string" ? chunk : decoder.write(chunk);
     const frames: AnyRecord[] = [];
     let index: number;
@@ -114,9 +130,10 @@ export function frameDecoder(): (chunk: Buffer | string) => AnyRecord[] {
  */
 export function mapIncomingFrames(
   source: Duplex,
-  map: (frame: AnyRecord) => unknown
+  map: (frame: AnyRecord) => unknown,
+  maxLineBytes?: number
 ): Duplex {
-  const decode = frameDecoder();
+  const decode = frameDecoder(maxLineBytes);
   const mapped: Duplex = new Duplex({
     allowHalfOpen: false,
     read() {
@@ -136,7 +153,14 @@ export function mapIncomingFrames(
     },
   });
   source.on("data", (chunk: Buffer) => {
-    for (const frame of decode(chunk)) {
+    let frames: AnyRecord[];
+    try {
+      frames = decode(chunk);
+    } catch {
+      mapped.destroy();
+      return;
+    }
+    for (const frame of frames) {
       if (mapped.destroyed) return;
       if (!mapped.push(JSON.stringify(map(frame)) + "\n")) source.pause();
     }

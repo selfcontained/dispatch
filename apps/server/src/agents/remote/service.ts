@@ -1452,19 +1452,9 @@ export class RemoteRunnerService {
   }
   async getFile(runnerId: string, id: string, path: string) {
     const input = { session: sessionFromWire(id), path };
-    const chunks: Buffer[] = [];
-    await this.onPeer(runnerId, "files.get", input, (connection) =>
-      connection.getFile(
-        input,
-        new Writable({
-          write(chunk, _enc, done) {
-            chunks.push(Buffer.from(chunk));
-            done();
-          },
-        })
-      )
+    return this.onPeer(runnerId, "files.get", input, (connection) =>
+      connection.collectFile(input)
     );
-    return Buffer.concat(chunks);
   }
   async putFile(
     runnerId: string,
@@ -1480,17 +1470,8 @@ export class RemoteRunnerService {
       digest: "",
     };
     return this.onPeer(runnerId, "files.put", input, async (connection) => {
-      const controller = new AbortController();
-      const reply = connection.call("files.put", input, { timeoutMs: null });
-      try {
-        const [result] = await Promise.all([
-          reply,
-          connection.sendBlob(input.blob, source.open(), controller.signal),
-        ]);
-        return displayPath(result.path);
-      } finally {
-        controller.abort();
-      }
+      const result = await connection.putFile(input, () => source.open());
+      return displayPath(result.path);
     });
   }
 
