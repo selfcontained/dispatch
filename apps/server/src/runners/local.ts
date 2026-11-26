@@ -45,17 +45,13 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { Duplex } from "node:stream";
 import { childProcessEnv } from "../shared/process/child-environment.js";
-import { hostCommand } from "@dispatch/runner/host/host-command";
+import { inProcessPorts } from "./in-process.js";
+import type {
+  InProcessEngines,
+  InProcessPorts,
+} from "@dispatch/runner-protocol/in-process";
+export type { InProcessEngines } from "@dispatch/runner-protocol/in-process";
 import { LOCAL_RUNNER_ID } from "./placement.js";
-import {
-  createCheckoutWorkload,
-  githubWorkload,
-  localEnginePort,
-  readCommandGuard,
-  sessionFilesWorkload,
-  workspaceWorkload,
-} from "../agents/checkout-worker.js";
-import { toPersonaDefinition } from "../personas/loader.js";
 import {
   sessionFileBlob,
   sessionFileBytesBlob,
@@ -65,13 +61,6 @@ import {
   agentWorkspaceDir,
 } from "../agents/workspace-target.js";
 import { selectWorkspaceFromResolution } from "./workspace-selection.js";
-
-const checkoutWorkload = createCheckoutWorkload({
-  parseDefinition: toPersonaDefinition,
-});
-
-/** The checkout workload this adapter runs in process, for its tests to observe. */
-export const localCheckoutWorkload = checkoutWorkload;
 
 /** Checkout reads the local runner child serves (T09). */
 const CHILD_READS = new Set<CallName>([
@@ -303,6 +292,13 @@ export function createLocalCheckoutRunner(
   description: RunnerDescription,
   child?: Runner
 ): CheckoutRunner {
+  const {
+    checkoutWorkload,
+    githubWorkload,
+    readCommandGuard,
+    sessionFilesWorkload,
+    workspaceWorkload,
+  } = inProcessPorts();
   /**
    * One attempt at the child, or null (use the port here) when there is no
    * child or `missed` says it did not answer. The attempt itself dials a
@@ -1308,7 +1304,7 @@ function pulses(directory: string): CallerChannel<"checkout.watch"> {
     stop();
     for (const listener of closes) listener();
   };
-  const stop = checkoutWorkload.watch(
+  const stop = inProcessPorts().checkoutWorkload.watch(
     directory,
     () => {
       if (open) for (const listener of data) listener(PULSE);
@@ -1484,56 +1480,12 @@ const childMissed = (error: unknown) =>
     error.code === "unknown_outcome" ||
     error.code === "fenced");
 
-/** The posix-user engine port, as this process runs it while the child is away. */
-export type InProcessEngines = {
-  models(request: Req<"engine.models">): Promise<Res<"engine.models">>;
-  usage(request: Req<"engine.usage">): Promise<Res<"engine.usage">>;
-  quotaReset(
-    request: Req<"engine.quota.reset">
-  ): Promise<Res<"engine.quota.reset">>;
-  updateInspect(
-    request: Req<"engine.update.inspect">
-  ): Promise<Res<"engine.update.inspect">>;
-  updateSpawn(
-    request: Req<"engine.update.spawn">
-  ): Promise<Res<"engine.update.spawn">>;
-  updateRelease(
-    request: Req<"engine.update.release">
-  ): Promise<Res<"engine.update.release">>;
-  updateProbe(
-    request: Req<"engine.update.probe">
-  ): Promise<Res<"engine.update.probe">>;
-  operation(request: Req<"engine.operation">): Promise<Res<"engine.operation">>;
-
-  pluginStatus(
-    request: Req<"engine.plugin.status">
-  ): Promise<Res<"engine.plugin.status">>;
-  pluginApply(
-    request: Req<"engine.plugin.apply">
-  ): Promise<Res<"engine.plugin.apply">>;
-  list(request: Req<"engine.list">): Promise<Res<"engine.list">>;
-  loginStart(
-    request: Req<"engine.login.start">,
-    onUpdate: (login: Res<"engine.login.start">) => void
-  ): Promise<Res<"engine.login.start">>;
-  loginSubmit(
-    request: Req<"engine.login.submit">
-  ): Promise<Res<"engine.login.submit">>;
-  loginStatus(
-    request: Req<"engine.login.status">
-  ): Promise<Res<"engine.login.status">>;
-  loginCancel(
-    request: Req<"engine.login.cancel">
-  ): Promise<Res<"engine.login.cancel">>;
-  close(): void;
-};
-
 /** The child's engine port in this process, with the app's configured CLIs. */
 export function inProcessEngines(
-  bins: Parameters<typeof localEnginePort>[0],
+  bins: Parameters<InProcessPorts<Buffer>["localEnginePort"]>[0],
   frozen: () => boolean = () => false
 ): InProcessEngines {
-  const port = localEnginePort(bins);
+  const port = inProcessPorts().localEnginePort(bins);
   const guard =
     <A extends unknown[], R>(run: (...args: A) => R) =>
     (...args: A): R => {
@@ -1878,7 +1830,7 @@ export function startLocalRunnerProcess(options: {
         displayName: "Local",
         engines: [],
         // The child's environment is scrubbed; the host's argv is the app's.
-        hostCommand: hostCommand(),
+        hostCommand: inProcessPorts().hostCommand(),
       },
     },
     frozen: () => fence.wanted,

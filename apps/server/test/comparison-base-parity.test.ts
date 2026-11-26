@@ -1,3 +1,4 @@
+import { inProcessPorts } from "../src/runners/in-process.js";
 /*
  * The comparison base a local agent's Changes and review read, pinned on real
  * repositories against the in-process rule it replaced: the repository's
@@ -17,7 +18,6 @@ import {
   type ComparisonUse,
 } from "../src/agents/effective-base.js";
 import { agentDiffPath } from "../src/agents/workspace-target.js";
-import { localCheckoutWorkload } from "../src/runners/local.js";
 import { localDefaultBranch } from "../src/shared/git/default-branch.js";
 
 let root: string;
@@ -139,7 +139,7 @@ describe("a local agent's comparison base", () => {
 
   it("is read through the runner child when it answers, else in process", async () => {
     const agent = worktreeAgent(fixtures.trunk!);
-    const inProcess = vi.spyOn(localCheckoutWorkload, "run");
+    const inProcess = vi.spyOn(inProcessPorts().checkoutWorkload, "run");
     try {
       const call = vi.fn(async () => ({
         branch: null,

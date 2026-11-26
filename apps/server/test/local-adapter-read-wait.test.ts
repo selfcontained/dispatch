@@ -1,3 +1,4 @@
+import { inProcessPorts } from "../src/runners/in-process.js";
 /*
  * A read sent to the local child is waited for, as main's read is, until it
  * answers, its connection is lost, or the caller cancels: never read twice.
@@ -25,7 +26,6 @@ import {
 } from "@dispatch/runner-protocol/contract";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { runnerDirectory } from "../src/runners/directory.js";
-import { localCheckoutWorkload } from "../src/runners/local.js";
 import { controllerPlacement } from "../src/runners/placement.js";
 import {
   startTestLocalRunner,
@@ -77,7 +77,7 @@ const readsHere = (here: ReturnType<typeof vi.spyOn>) =>
 it("waits on a live child's slow read: one reader, all the bytes", async () => {
   const fifo = join(root, "slow.fifo");
   execFileSync("mkfifo", [fifo]);
-  const here = vi.spyOn(localCheckoutWorkload, "run");
+  const here = vi.spyOn(inProcessPorts().checkoutWorkload, "run");
   const read = nativeRead("slow.fifo");
   await delay(1_000);
   const payload = "x".repeat(1024 * 1024);
@@ -89,7 +89,7 @@ it("waits on a live child's slow read: one reader, all the bytes", async () => {
 it("a stopped child resumed before the writer finishes completes its own read", async () => {
   const fifo = join(root, "slow.fifo");
   execFileSync("mkfifo", [fifo]);
-  const here = vi.spyOn(localCheckoutWorkload, "run");
+  const here = vi.spyOn(inProcessPorts().checkoutWorkload, "run");
   const read = nativeRead("slow.fifo");
   const writer = await open(fifo, "w");
   const prefix = "p".repeat(256 * 1024);
@@ -110,7 +110,7 @@ it("a stopped child resumed before the writer finishes completes its own read", 
 }, 30_000);
 
 it("a stopped child that dies loses its connection: the read is made here once", async () => {
-  const here = vi.spyOn(localCheckoutWorkload, "run");
+  const here = vi.spyOn(inProcessPorts().checkoutWorkload, "run");
   const pid = child.current()!.pid;
   // Stopped: the request is written, never read.
   process.kill(pid, "SIGSTOP");
@@ -125,7 +125,7 @@ it("a stopped child that dies loses its connection: the read is made here once",
 }, 30_000);
 
 it("cancelling a read at a stopped child rejects at once, with no read here", async () => {
-  const here = vi.spyOn(localCheckoutWorkload, "run");
+  const here = vi.spyOn(inProcessPorts().checkoutWorkload, "run");
   stopped = child.current()!.pid;
   process.kill(stopped, "SIGSTOP");
   const controller = new AbortController();
@@ -146,7 +146,7 @@ it("a read a frozen child refuses (fenced) is made here, as before", async () =>
       throw new RunnerCallError({ code: "fenced", message: "frozen" });
     }),
   } as unknown as Runner;
-  const here = vi.spyOn(localCheckoutWorkload, "run");
+  const here = vi.spyOn(inProcessPorts().checkoutWorkload, "run");
   const read = runnerDirectory({ child: () => fenced })
     .for(controllerPlacement)
     .call("checkout.read", {

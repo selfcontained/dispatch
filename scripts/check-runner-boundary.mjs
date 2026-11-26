@@ -794,7 +794,8 @@ export function scanSource(file, source, declared = new Set()) {
       // workload itself for sessions the child holds no current binding for.
       const inProcessReads =
         relative === "runners/local.ts" &&
-        target === server + "agents/checkout-worker";
+        (target === server + "agents/checkout-worker" ||
+          target === server + "runners/in-process");
       if (inProcessReads)
         hit(
           "R3 local adapter delegation",

@@ -1178,14 +1178,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/runners/local.ts",
-    "kind": "R5 Dispatch to runner",
-    "detail": "@dispatch/runner/host/host-command",
-    "task": "T40",
-    "count": 1,
-    "class": "moves-with-workload"
-  },
-  {
     "file": "apps/server/src/server.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/shared/lib/run-command",

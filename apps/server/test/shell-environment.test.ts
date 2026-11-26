@@ -10,7 +10,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   applyCapturedEnvironment,
@@ -325,9 +325,28 @@ describe("shell environment protocol", () => {
     const restoreAt = main.indexOf(
       "await restoreLegacyMacLaunchAgentEnvironment()"
     );
+    const portsAt = main.indexOf("await loadInProcessPorts(loadCheckoutWorker");
     const serverAt = main.indexOf('await import("./server.js")');
     expect(restoreAt).toBeGreaterThan(0);
-    expect(serverAt).toBeGreaterThan(restoreAt);
+    expect(portsAt).toBeGreaterThan(restoreAt);
+    expect(serverAt).toBeGreaterThan(portsAt);
+  });
+
+  it("propagates a rejected workload import before server construction", async () => {
+    const { loadInProcessPorts } = await vi.importActual<
+      typeof import("../src/runners/in-process.js")
+    >("../src/runners/in-process.js");
+    const failure = new Error(
+      "Cannot find module './agents/checkout-worker.js'"
+    );
+    await expect(
+      loadInProcessPorts(
+        async () => {
+          throw failure;
+        },
+        () => null
+      )
+    ).rejects.toBe(failure);
   });
 
   it("parses null-delimited values containing whitespace, newlines, and equals", () => {
