@@ -19,10 +19,12 @@ import {
 import {
   blobPathFrame,
   channelStreams,
+  downloadStream,
   INLINE_REPLY_BYTES,
   jsonLines,
   replyStream,
   socketHello,
+  socketCancel,
   socketRequest,
   type BlobPathReply,
   type SocketEvent,
@@ -123,8 +125,11 @@ export function serveOperationSocket(
   const send = frameWriter<
     StreamFrame | SocketReply | SocketEvent | BlobPathReply
   >(socket);
+  const commands = new Map<number, AbortController>();
   const pendingFlushes = new Set<() => void>();
   socket.once("close", () => {
+    for (const command of commands.values()) command.abort();
+    commands.clear();
     for (const flushed of pendingFlushes) flushed();
   });
   const write = (
@@ -279,8 +284,13 @@ export function serveOperationSocket(
         );
     }
     if (streams.handle(message)) return;
+    if (endpoint.kind === "enrolled" && socketCancel.check(message)) {
+      commands.get(message.id)?.abort();
+      return;
+    }
     if (!socketRequest.check(message)) return socket.destroy();
     const { id, op, input } = message;
+    if (commands.has(id)) return socket.destroy();
     const spec = (operations as Record<string, OperationSpec>)[op];
     const reply = (
       result: { value: Json } | { error: RunnerError },
@@ -327,9 +337,23 @@ export function serveOperationSocket(
           .send(ids.out, channel, undefined, { stall: false })
           .catch(() => channel.destroy());
       });
+    const command =
+      endpoint.kind === "enrolled" && spec?.cancellable
+        ? new AbortController()
+        : undefined;
+    if (command) commands.set(id, command);
     let answered = false;
     const callContext: ConnectionContext = {
       ...context,
+      ...(command && { signal: command.signal }),
+      ...(endpoint.kind === "enrolled" &&
+        op === "files.get" && {
+          async sendFile(source: Readable) {
+            const blob = downloadStream(id);
+            await streams.send(blob, source);
+            return blob;
+          },
+        }),
       emit(event) {
         if (!answered && spec?.events?.check(event))
           write({ id, event: event as Json });
@@ -337,6 +361,7 @@ export function serveOperationSocket(
     };
     void call(op, spec, input, calls, callContext).then((result) => {
       answered = true;
+      if (command) commands.delete(id);
       reply(result, release);
     });
   });

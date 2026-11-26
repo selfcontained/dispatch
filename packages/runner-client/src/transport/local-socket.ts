@@ -31,7 +31,7 @@
  * connection lost after it is `unknown_outcome`.
  */
 import { connect } from "node:net";
-import { Duplex, PassThrough, type Readable } from "node:stream";
+import { Duplex, PassThrough, Readable, type Writable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import {
   operations,
@@ -70,6 +70,8 @@ export const socketHello = object({
   nonce: string,
   streamCredit: optional(literal(true)),
 });
+/** Cancel an outstanding cancellable operation on the enrolled connection. */
+export const socketCancel = object({ id: integer, cancel: literal(true) });
 export const socketRequest = object({ id: integer, op: string, input: json });
 export const socketReply = union(
   object({ id: integer, ok: literal(true), value: json }),
@@ -112,6 +114,11 @@ export function replyStream(id: number) {
  * under a line's limit, so a reply never ends the connection.
  */
 export const INLINE_REPLY_BYTES = 256 * 1024;
+
+/** The credited file contents for a files.get request on an enrolled peer. */
+export function downloadStream(id: number) {
+  return `download:${id}`;
+}
 
 /** The two stream IDs that carry channel `id`. */
 export function channelStreams(id: number) {
@@ -490,15 +497,29 @@ export class LocalSocketConnection {
         clearTimeout(timer);
         signal?.removeEventListener("abort", abort);
       };
+      const cancelRemote = () => {
+        if (
+          !this.enrolled ||
+          !(operations as Record<string, OperationSpec>)[op]?.cancellable
+        )
+          return;
+        try {
+          this.send({ id, cancel: true });
+        } catch {
+          // Connection close already cancels this runner's checkout commands.
+        }
+      };
       const timer =
         timeoutMs === null
           ? undefined
           : setTimeout(() => {
+              cancelRemote();
               this.pending.delete(id);
               done();
               reject(fail("timeout", `No ${op} reply in ${timeoutMs} ms`));
             }, timeoutMs);
       const abort = () => {
+        cancelRemote();
         this.pending.delete(id);
         done();
         reject(fail("cancelled", "The call was cancelled"));
@@ -551,6 +572,41 @@ export class LocalSocketConnection {
     ).reply as Promise<Res<K>>;
   }
 
+  /** Register the download sink before the runner can send any file bytes. */
+  async getFile(
+    input: Req<"files.get">,
+    sink: Writable,
+    signal?: AbortSignal
+  ): Promise<Res<"files.get">> {
+    if (!this.enrolled)
+      throw fail("invalid", "File downloads require an enrolled connection");
+    const controller = new AbortController();
+    const active = signal
+      ? AbortSignal.any([signal, controller.signal])
+      : controller.signal;
+    let transfer: Promise<void> | undefined;
+    const { id, reply } = this.request(
+      "files.get",
+      input,
+      active,
+      null,
+      (id) => {
+        transfer = this.streams.receive(downloadStream(id), sink, active);
+      }
+    );
+    try {
+      const [value] = await Promise.all([reply, transfer]);
+      if (
+        !operations["files.get"].response.check(value) ||
+        value.blob !== downloadStream(id)
+      )
+        throw fail("invalid", "Invalid runner file response.");
+      return value;
+    } finally {
+      controller.abort();
+    }
+  }
+
   /** Open a channel. The duplex carries the channel's bytes. */
   async openChannel<K extends OpenName>(
     op: K,
@@ -599,7 +655,11 @@ export class LocalSocketConnection {
     source: { path: string; inPlace?: { mustExist: boolean } } | Readable,
     signal?: AbortSignal
   ): Promise<void> {
-    if (!("path" in source) || typeof source.path !== "string")
+    if (
+      (this.enrolled && source instanceof Readable) ||
+      !("path" in source) ||
+      typeof source.path !== "string"
+    )
       return this.streams.send(id, source as Readable, signal);
     if (this.enrolled)
       return Promise.reject(

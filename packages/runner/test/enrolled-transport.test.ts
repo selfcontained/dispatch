@@ -1,3 +1,6 @@
+import { createReadStream } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
 import { once } from "node:events";
 import { CONNECTION_WINDOW } from "@dispatch/runner-client/v1/node";
 import type { UpdateStatusFrame } from "@dispatch/runner-protocol";
@@ -6,6 +9,7 @@ import { Duplex, PassThrough, Readable, Writable } from "node:stream";
 import { afterEach, expect, it, vi } from "vitest";
 import { LocalSocketConnection } from "@dispatch/runner-client/transport/local-socket";
 import {
+  RunnerCallError,
   pathFromWire,
   sessionFromWire,
 } from "@dispatch/runner-protocol/contract";
@@ -102,6 +106,61 @@ it("carries calls, terminal bytes in both directions and credited blob bytes", a
   expect(Buffer.concat(bytes).equals(content)).toBe(true);
 });
 
+it("transfers an fs.ReadStream as bytes and closes the sink on a rejected download", async () => {
+  const fixture = fileURLToPath(import.meta.url);
+  const expected = await readFile(fixture);
+  const received: Buffer[] = [];
+  const sink = () =>
+    new Writable({
+      write(chunk, _, done) {
+        received.push(Buffer.from(chunk));
+        done();
+      },
+    });
+  const { client } = await pair({
+    calls: {
+      "files.get": async ({ path }, context) => {
+        if (path === "missing")
+          throw new RunnerCallError({
+            code: "not_found",
+            message: "Missing file",
+          });
+        const blob = await context.sendFile!(createReadStream(fixture));
+        return {
+          name: "fixture",
+          blob,
+          size: expected.length,
+          digest: "fixture",
+        };
+      },
+      "files.put": async ({ blob }, context) => {
+        await context.receiveBlob(blob, sink());
+        return { path: pathFromWire("/fixture") };
+      },
+    },
+  });
+  const metadata = await client.getFile({ session, path: "fixture" }, sink());
+  expect(metadata.size).toBe(expected.length);
+  expect(Buffer.concat(received)).toEqual(expected);
+  received.length = 0;
+  const rejectedSink = sink();
+  await expect(
+    client.getFile({ session, path: "missing" }, rejectedSink)
+  ).rejects.toMatchObject({ code: "not_found" });
+  expect(rejectedSink.destroyed).toBe(true);
+  await Promise.all([
+    client.call("files.put", {
+      session,
+      blob: "upload",
+      name: "fixture",
+      size: expected.length,
+      digest: "fixture",
+    }),
+    client.sendBlob("upload", createReadStream(fixture)),
+  ]);
+  expect(Buffer.concat(received)).toEqual(expected);
+});
+
 it("closes on a local-only path frame", async () => {
   const { socket } = await pair({ calls: {} });
   const closed = once(socket, "close");
@@ -171,6 +230,66 @@ it.each(["flush", "disconnect"] as const)(
     expect(drained).toHaveBeenCalledOnce();
   }
 );
+
+it("cancels only the caller's outstanding checkout command", async () => {
+  const started = vi.fn();
+  const aborted = vi.fn();
+  const { client } = await pair({
+    calls: {
+      "checkout.exec": async ({ argv }, { signal }) => {
+        if (!signal)
+          throw new Error("Expected an enrolled cancellation signal");
+        started(argv);
+        await new Promise<void>((done) =>
+          signal.addEventListener(
+            "abort",
+            () => {
+              aborted(argv);
+              done();
+            },
+            { once: true }
+          )
+        );
+        return { exitCode: 1, stdout: "", stderr: "" };
+      },
+      "session.alive": () => ({ state: "live" }),
+    },
+  });
+  const command = (name: string, signal: AbortSignal) =>
+    client.call(
+      "checkout.exec",
+      {
+        target: { session },
+        guard: { path: "dispatch.json", digest: "fixture" },
+        argv: [name],
+        env: {},
+        timeoutMs: null,
+        maxOutput: null,
+        shell: "direct",
+      },
+      { signal }
+    );
+  const a = new AbortController(),
+    b = new AbortController();
+  const first = expect(command("first", a.signal)).rejects.toMatchObject({
+    code: "cancelled",
+  });
+  const second = expect(command("second", b.signal)).rejects.toMatchObject({
+    code: "unknown_outcome",
+  });
+  await vi.waitFor(() => expect(started).toHaveBeenCalledTimes(2));
+  a.abort();
+  await first;
+  await vi.waitFor(() => expect(aborted.mock.calls).toEqual([[["first"]]]));
+  await expect(client.call("session.alive", { session })).resolves.toEqual({
+    state: "live",
+  });
+  client.close();
+  await second;
+  await vi.waitFor(() =>
+    expect(aborted.mock.calls).toEqual([[["first"]], [["second"]]])
+  );
+});
 
 it("never replays an admitted mutation or an interrupted read on the next connection", async () => {
   let drop!: () => void;
