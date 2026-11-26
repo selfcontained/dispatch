@@ -17,7 +17,7 @@ import {
   matchesOwnerPattern,
   resolveCodeowners,
   type CodeownersConfig,
-} from "../src/personas/codeowners.js";
+} from "./helpers/codeowners.js";
 import { runCommand } from "../src/shared/lib/run-command.js";
 import { loadPersonas } from "./helpers/persona-loader.js";
 

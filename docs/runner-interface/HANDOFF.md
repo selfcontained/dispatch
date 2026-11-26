@@ -233,3 +233,9 @@ Unused in source since the archive seam and B2, deleted with legacy (tests still
 By owner decision, the controller no longer looks up or converts workspace receipts from unreleased branch revisions. The runner resumes current receipts and the controller replays the request persisted on the agent row when needed. Agents created by older revisions of this branch may need archiving or relaunching.
 
 By owner decision, only the persisted managed flag authorizes managed cleanup. An unflagged managed locator from an unreleased branch revision is retained on archive and retry. The locator is read only to protect those files and clear pending cleanup. Configured-workspace retries keep their existing behavior.
+
+### T40 assessor ownership reads
+
+The assessor uses the owning session's `owned` checkout for every runner, with F_OK primary/legacy selection followed by one native read. In the enrolled root matrix, `moved-repository` and `moved-subfolder` now use the worktree owner rather than the selected workspace owner, matching main; worktree, no-worktree, gone-worktree and non-repository cases are unchanged. Native FIFO maps now wait for their writer instead of the old enrolled regular-file inspection rejecting them. A selected file disappearing during its read does not retry legacy, as on main.
+
+Main's evidence identity inconsistency is preserved: assessed files come from the PR URL while the ownership map comes from the agent's launch/worktree checkout; there is no repository identity cross-check. The icon's `launch` selector is unchanged.

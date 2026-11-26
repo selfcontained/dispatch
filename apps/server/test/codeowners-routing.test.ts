@@ -1,10 +1,7 @@
 import { access } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  loadCodeowners,
-  resolveCodeowners,
-} from "../src/personas/codeowners.js";
+import { loadCodeowners, resolveCodeowners } from "./helpers/codeowners.js";
 
 const root = path.resolve(import.meta.dirname, "../../..");
 

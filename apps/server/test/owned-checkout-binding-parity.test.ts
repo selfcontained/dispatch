@@ -15,7 +15,7 @@ import {
   loadCodeowners,
   parseCodeowners,
   type CodeownersConfig,
-} from "../src/personas/codeowners.js";
+} from "./helpers/codeowners.js";
 import { buildMergeRiskEvidence } from "../src/agents/merge-risk/evidence.js";
 import { checkoutWorkload } from "./helpers/checkout-workload.js";
 

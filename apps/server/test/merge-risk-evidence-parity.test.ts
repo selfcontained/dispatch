@@ -232,7 +232,7 @@ describe("local merge-risk evidence matches main", () => {
         pool,
         settings,
         github,
-        agentRoot: async () => null,
+        owners: async () => null,
         transport,
       });
       const assessed = await assessor.assess(URL_, fixturePr(), []);
@@ -296,7 +296,7 @@ describe("local merge-risk evidence matches main", () => {
       pool,
       settings,
       github: createMergeRiskGitHubSource(() => locals["in process"]()),
-      agentRoot: async () => null,
+      owners: async () => null,
       transport,
     });
     expect(await assessor.assess(URL_, fixturePr(), [])).toMatchObject({
@@ -358,7 +358,7 @@ describe("runner merge-risk evidence", () => {
       pool,
       settings,
       github,
-      agentRoot: async () => null,
+      owners: async () => null,
       transport,
     });
     // A record saved locally (main's empty scope) is never a runner's.
@@ -437,7 +437,7 @@ describe("runner merge-risk evidence", () => {
       pool,
       settings,
       github: createMergeRiskGitHubSource(() => runner),
-      agentRoot: async () => null,
+      owners: async () => null,
       transport,
     });
     expect(

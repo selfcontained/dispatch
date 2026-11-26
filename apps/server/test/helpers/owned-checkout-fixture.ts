@@ -17,7 +17,7 @@ import {
   loadCodeowners,
   parseCodeowners,
   type CodeownersConfig,
-} from "../../src/personas/codeowners.js";
+} from "./codeowners.js";
 import {
   createSessionSupervisor,
   runnerStorageKey,

@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import { loadCodeowners } from "../src/personas/codeowners.js";
+import { loadCodeowners } from "./helpers/codeowners.js";
 import { OWNERS_PATH, LEGACY_OWNERS_PATH } from "../src/personas/paths.js";
 const transition = vi.hoisted(() => ({
   removeBeforeRead: null as string | null,

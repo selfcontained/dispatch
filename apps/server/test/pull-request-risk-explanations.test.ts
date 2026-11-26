@@ -652,7 +652,7 @@ it.each(
     const assessor = new MergeRiskAssessor({
       pool,
       settings,
-      agentRoot: async () => null,
+      owners: async () => null,
       transport: scoring,
       github: { details: async () => details },
     });

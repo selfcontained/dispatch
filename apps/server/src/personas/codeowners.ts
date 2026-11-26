@@ -1,5 +1,3 @@
-import { access, readFile } from "node:fs/promises";
-import path from "node:path";
 import * as z from "zod/v4";
 
 import { validatePersonaSlug } from "./authoring.js";
@@ -64,33 +62,39 @@ export type OwnerReviewResult = OwnerReviewPlan & {
   failures: Array<{ persona: string; error: string; files: string[] }>;
 };
 
+export type CodeownersFiles = {
+  access(path: string): Promise<boolean>;
+  read(path: string): Promise<string>;
+};
+
 /** The owners map in use: `.agents/owners.json`, else the legacy location. */
-async function findOwnersPath(root: string): Promise<string | null> {
+async function findOwnersPath(
+  probe: CodeownersFiles["access"]
+): Promise<string | null> {
   for (const candidate of [OWNERS_PATH, LEGACY_OWNERS_PATH]) {
-    try {
-      await access(path.join(root, candidate));
-      return candidate;
-    } catch (error) {
-      // Only a missing map falls through to the legacy location.
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
+    if (await probe(candidate)) return candidate;
   }
   return null;
 }
 
 /** Whether the checkout has an ownership map at all; validity is checked at launch. */
-export async function hasCodeowners(root: string): Promise<boolean> {
-  return (await findOwnersPath(root)) !== null;
+export async function hasCodeowners(
+  files: Pick<CodeownersFiles, "access">
+): Promise<boolean> {
+  return (await findOwnersPath(files.access)) !== null;
 }
 
-export async function loadCodeowners(root: string): Promise<CodeownersConfig> {
-  const ownersPath = await findOwnersPath(root);
+/** Select with F_OK first, then read only that file; a read failure never selects legacy. */
+export async function loadCodeownersFromFiles(
+  files: CodeownersFiles
+): Promise<CodeownersConfig> {
+  const ownersPath = await findOwnersPath(files.access);
   if (!ownersPath) {
     throw new Error(
       `No ${OWNERS_PATH} found in this workspace. Add ownership rules before launching owner reviews.`
     );
   }
-  const content = await readFile(path.join(root, ownersPath), "utf8");
+  const content = await files.read(ownersPath);
   return parseCodeowners(content, ownersPath);
 }
 
