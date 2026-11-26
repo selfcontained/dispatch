@@ -1,6 +1,14 @@
 import type { Pool } from "pg";
 import { previewArchive } from "../src/agents/archive.js";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { execFileSync, spawn } from "node:child_process";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -210,6 +218,165 @@ describe("runLifecycleHook", () => {
     await expect(readFile(path.join(launch, "stopped"), "utf8")).resolves.toBe(
       "x\n"
     );
+  });
+
+  function localArchiveAgent(): AgentRecord {
+    return {
+      id: "agt_hook",
+      placement: controllerPlacement,
+      cwd: root,
+      worktreePath: null,
+      workspacePath: null,
+    } as AgentRecord;
+  }
+
+  async function previewLocalArchive() {
+    return previewArchive(
+      {
+        pool: { query: async () => ({ rows: [] }) } as unknown as Pool,
+        getRequiredAgent: async () => localArchiveAgent(),
+      },
+      localArchiveAgent().id,
+      vi.fn()
+    );
+  }
+
+  const archiveManifest = JSON.stringify({
+    hooks: {
+      archive: {
+        command: ["sh", "-c", 'echo "$DISPATCH_AGENT_ID" >> invoked'],
+        description: "Clean up",
+      },
+    },
+  });
+
+  it("reads an archive manifest from a FIFO for preview and execution", async () => {
+    const manifest = path.join(root, ".dispatch/tools.json");
+    await mkdir(path.dirname(manifest));
+    execFileSync("mkfifo", [manifest]);
+    async function supplyManifest<T>(read: () => Promise<T>) {
+      const writer = spawn("sh", [
+        "-c",
+        'printf %s "$1" > "$2"',
+        "sh",
+        archiveManifest,
+        manifest,
+      ]);
+      try {
+        return await read();
+      } finally {
+        writer.kill();
+      }
+    }
+    await supplyManifest(async () => {
+      expect((await previewLocalArchive()).cleanupDescriptions).toEqual([
+        "Clean up",
+      ]);
+    });
+    await supplyManifest(() =>
+      runLifecycleHook("archive", localArchiveAgent(), logger, {})
+    );
+    expect(await readFile(path.join(root, "invoked"), "utf8")).toBe(
+      "agt_hook\n"
+    );
+  });
+
+  it.each([false, true])(
+    "executes the current regular-file archive hook after preview (edited %s)",
+    async (edited) => {
+      const manifest = path.join(root, ".dispatch/tools.json");
+      await mkdir(path.dirname(manifest));
+      await writeFile(manifest, archiveManifest);
+      expect((await previewLocalArchive()).cleanupDescriptions).toEqual([
+        "Clean up",
+      ]);
+      if (edited)
+        await writeFile(
+          manifest,
+          JSON.stringify({
+            hooks: {
+              archive: {
+                description: "Edited",
+                command: ["sh", "-c", "echo edited >> invoked"],
+              },
+            },
+          })
+        );
+      await runLifecycleHook("archive", localArchiveAgent(), logger, {});
+      expect(await readFile(path.join(root, "invoked"), "utf8")).toBe(
+        edited ? "edited\n" : "agt_hook\n"
+      );
+    }
+  );
+
+  it("runs the resolved archive command once after an unrelated manifest edit", async () => {
+    const manifest = path.join(root, ".dispatch/tools.json");
+    await mkdir(path.dirname(manifest));
+    await writeFile(manifest, archiveManifest);
+    let calls = 0;
+    await runLifecycleHook(
+      "archive",
+      localArchiveAgent(),
+      logger,
+      {},
+      async (request) => {
+        if (++calls === 2)
+          await writeFile(
+            manifest,
+            JSON.stringify({ ...JSON.parse(archiveManifest), tools: [] })
+          );
+        return request();
+      }
+    );
+    expect(await readFile(path.join(root, "invoked"), "utf8")).toBe(
+      "agt_hook\n"
+    );
+  });
+
+  it("rejects a replacement directory at the same path before spawning an archive command", async () => {
+    const selected = path.join(root, "selected");
+    await mkdir(path.join(selected, ".dispatch"), { recursive: true });
+    await writeFile(
+      path.join(selected, ".dispatch/tools.json"),
+      archiveManifest
+    );
+    let calls = 0;
+    const parked = path.join(root, "parked");
+    await expect(
+      runLifecycleHook(
+        "archive",
+        { ...localArchiveAgent(), cwd: selected },
+        logger,
+        {},
+        async (request) => {
+          if (++calls === 2) {
+            await rename(selected, parked);
+            await mkdir(selected);
+          }
+          return request();
+        }
+      )
+    ).rejects.toMatchObject({ code: "stale" });
+    for (const dir of [selected, parked])
+      await expect(readFile(path.join(dir, "invoked"))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+  });
+
+  it("retains invalid archive definitions while treating native file errors as absent", async () => {
+    const manifest = path.join(root, ".dispatch/tools.json");
+    await mkdir(manifest, { recursive: true });
+    await expect(
+      runLifecycleHook("archive", localArchiveAgent(), logger, {})
+    ).resolves.toBeUndefined();
+    await rm(manifest, { recursive: true });
+    await writeFile(
+      manifest,
+      JSON.stringify({ hooks: { archive: { command: [] } } })
+    );
+    await expect(
+      runLifecycleHook("archive", localArchiveAgent(), logger, {})
+    ).rejects.toThrow('Hook "archive" must include a non-empty command array.');
   });
 
   it("uses the launch checkout's archive hook for an older worktree", async () => {

@@ -1,5 +1,9 @@
 import { checkoutRunners } from "../runners/directory.js";
-import { RunnerCallError } from "@dispatch/runner-protocol/contract";
+import {
+  pathFromWire,
+  sessionFromWire,
+  RunnerCallError,
+} from "@dispatch/runner-protocol/contract";
 import type { FastifyBaseLogger } from "fastify";
 
 import {
@@ -34,24 +38,40 @@ export async function* resolveArchiveHooks(
     checkout: "launch" | "moved",
     root: string
   ) {
-    const target = { checkout, path: REPO_TOOL_MANIFEST_PATH };
+    const { directory, placement } = checkoutRunners(runners, row);
+    const executor = directory.for(placement);
     const file = await whileFenced(() =>
-      requestCheckoutCommand(runners, row, { ...target, kind: "read" }).catch(
-        (error) => {
-          // Main treats an unreadable manifest as absent. Fencing and command
-          // failures still belong to the runner and the lifecycle coordinator.
+      executor
+        .call("checkout.read", {
+          target: {
+            session: sessionFromWire(row.id),
+            checkout: checkout === "launch" ? "owned" : "moved",
+          },
+          path: REPO_TOOL_MANIFEST_PATH,
+          mode: "native",
+          encoding: "utf8",
+          maxBytes: null,
+          bindRoot: true,
+        })
+        .catch((error) => {
+          // Main treats filesystem errors as an absent manifest. Propagate runner
+          // and lifecycle failures, and parse hook definitions outside the catch.
           if (
-            error instanceof RunnerCallError ||
-            error instanceof LifecycleSuperseded
+            error instanceof RunnerCallError &&
+            error.code === "failed" &&
+            error.details &&
+            typeof error.details === "object" &&
+            "syscall" in error.details
           )
-            throw error;
-          return null;
-        }
-      )
+            return null;
+          throw error;
+        })
     );
-    const hook =
-      file && parseRepoHooks(parseRepoToolFile(file.content)).archive;
-    return file && hook ? { row, root, target, state: file.state, hook } : null;
+    const hook = file && parseRepoHooks(parseRepoToolFile(file.data)).archive;
+    if (!file || !hook) return null;
+    if (!file.rootIdentity)
+      throw new Error("Archive manifest read omitted its checkout identity.");
+    return { executor, root, checkout, identity: file.rootIdentity, hook };
   }
   const first = await read(agent, "launch", launch);
   if (first) yield first;
@@ -84,11 +104,13 @@ export async function runLifecycleHook(
   whileFenced: WhileFenced = requestNow
 ): Promise<void> {
   if (hookName === "archive") {
-    for await (const { row, root, target, state, hook } of resolveArchiveHooks(
-      agent,
-      runners,
-      whileFenced
-    )) {
+    for await (const {
+      executor,
+      root,
+      checkout,
+      identity,
+      hook,
+    } of resolveArchiveHooks(agent, runners, whileFenced)) {
       logger.info(
         {
           agentId: agent.id,
@@ -100,13 +122,15 @@ export async function runLifecycleHook(
       );
       const [command, ...args] = hook.command;
       const result = await whileFenced(() =>
-        requestCheckoutCommand(
-          runners,
-          row,
-          { ...target, kind: "run", state, argv: hook.command },
-          undefined,
-          60_000
-        )
+        executor.call("checkout.exec", {
+          target: { session: sessionFromWire(agent.id), checkout },
+          guard: { root: pathFromWire(root), identity },
+          argv: hook.command,
+          env: { DISPATCH_AGENT_ID: agent.id },
+          timeoutMs: 60_000,
+          maxOutput: null,
+          shell: "direct",
+        })
       ).catch((error) => {
         if (error instanceof RunnerCallError && error.code === "timeout")
           throw new Error(
