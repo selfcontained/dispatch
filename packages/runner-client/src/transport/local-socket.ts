@@ -503,10 +503,8 @@ export class LocalSocketConnection {
         signal?.removeEventListener("abort", abort);
       };
       const cancelRemote = () => {
-        if (
-          !this.enrolled ||
-          !(operations as Record<string, OperationSpec>)[op]?.cancellable
-        )
+        const spec = (operations as Record<string, OperationSpec>)[op];
+        if (!this.enrolled || !(spec?.cancellable || spec?.kind === "open"))
           return;
         try {
           this.send({ id, cancel: true });

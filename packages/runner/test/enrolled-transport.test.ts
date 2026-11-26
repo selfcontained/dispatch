@@ -1,3 +1,6 @@
+import { enrolledAdmission } from "../src/workload/agents/remote/operation-admission.js";
+import { enrolledChannels } from "../src/workload/agents/remote/channel-operations.js";
+import { SharedCheckoutWatches } from "../src/workload/agents/checkout-watch.js";
 import { enrolledEngineCalls } from "../src/workload/agents/remote/machine-operations.js";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -33,7 +36,7 @@ afterEach(() => {
 // connection-scoped IDs, exactly as after a runner reconnects.
 async function pair(
   handlers: Handlers,
-  fence?: WriteFence,
+  fence?: Parameters<typeof serveOperationSocket>[3],
   status?: (frame: UpdateStatusFrame) => void
 ) {
   const server = createServer();
@@ -252,6 +255,99 @@ it("addresses an engine workload operation without a session", async () => {
     loginId: "fixture",
   });
 });
+it("pins enrolled admission and the original fenced message", async () => {
+  const admit = vi.fn(() => null);
+  const { client } = await pair(
+    {
+      calls: {
+        "session.alive": () => ({ state: "gone" }),
+        "session.stop": () => {
+          throw new Error("unexpected admission");
+        },
+      },
+    },
+    enrolledAdmission({ admit })
+  );
+  await expect(client.call("session.alive", { session })).resolves.toEqual({
+    state: "gone",
+  });
+  await expect(
+    client.call("session.stop", { session, force: true })
+  ).rejects.toMatchObject({
+    code: "fenced",
+    message: enrolledAdmission({ admit }).message,
+  });
+  expect(admit.mock.calls).toEqual([[20000]]);
+});
+
+it("carries a bound watch pulse and closes its worker after the last subscriber", async () => {
+  let changed!: () => void;
+  const close = vi.fn();
+  const hooks = enrolledChannels(
+    { checkoutDirectory: async () => "/fixture" },
+    new SharedCheckoutWatches((_cwd, onChange) => {
+      changed = onChange;
+      return close;
+    }),
+    { onTerminal: () => () => {} },
+    () => {
+      throw new Error("unexpected terminal");
+    }
+  );
+  const { client } = await pair({ calls: {}, opens: hooks.opens });
+  const { channel } = await client.openChannel("checkout.watch", {
+    target: { session },
+  });
+  const pulse = once(channel, "data");
+  changed();
+  expect(String((await pulse)[0])).toBe("1");
+  channel.destroy();
+  await vi.waitFor(() => expect(close).toHaveBeenCalledOnce());
+});
+
+it("delivers terminal readiness, controls and the protected update close reason", async () => {
+  let fence!: () => void;
+  const unsubscribe = vi.fn();
+  const hooks = enrolledChannels(
+    { checkoutDirectory: async () => "/fixture" },
+    new SharedCheckoutWatches(() => () => {}),
+    {
+      onTerminal(close) {
+        fence = close;
+        return unsubscribe;
+      },
+    },
+    () =>
+      spawn(process.execPath, [
+        "-e",
+        `
+    const fs = require("fs");
+    fs.writeSync(2, JSON.stringify({cwd:"/fixture",host:"fixture",user:"workload"}));
+    fs.closeSync(2);
+    process.stdin.pipe(process.stdout);
+  `,
+      ])
+  );
+  const { client } = await pair({ calls: {}, opens: hooks.opens });
+  const { info, channel } = await client.openChannel("terminal.open", {
+    target: { session },
+    cols: 80,
+    rows: 24,
+  });
+  expect(info).toMatchObject({ cwd: "/fixture", user: "workload" });
+  const echo = once(channel, "data");
+  channel.write('{"type":"input","data":"fixture"}\n');
+  expect(String((await echo)[0])).toContain("fixture");
+  const reason = once(channel, "data");
+  fence();
+  expect(JSON.parse(String((await reason)[0]))).toMatchObject({
+    type: "error",
+    reason: "update",
+  });
+  channel.destroy();
+  await vi.waitFor(() => expect(unsubscribe).toHaveBeenCalledOnce());
+});
+
 it("keeps the enrolled frame budget for large launch prompts", async () => {
   const systemText = "a".repeat(2 * 1024 * 1024);
   const { client } = await pair({

@@ -118,7 +118,7 @@ export function serveOperationSocket(
   socket: Duplex,
   endpoint: { kind: "local"; nonce: string } | { kind: "enrolled" },
   handlers: CallHandlers | Handlers,
-  fence?: Pick<WriteFence, "enter">
+  fence?: Pick<WriteFence, "enter"> & { message?: string }
 ) {
   const { calls, opens = {} } =
     "calls" in handlers ? (handlers as Handlers) : { calls: handlers };
@@ -316,21 +316,56 @@ export function serveOperationSocket(
       // Too long for one line: the caller registers the stream on this
       // answer, before it reads the stream's first frame.
       const stream = replyStream(id);
-      write({ id, ok: true, stream }, release);
+      write({ id, ok: true, stream });
       const chunks = (function* () {
         for (let at = 0; at < bytes.length; at += 64 * 1024)
           yield bytes.subarray(at, at + 64 * 1024);
       })();
-      void streams.send(stream, Readable.from(chunks)).catch(() => {});
+      void streams
+        .send(stream, Readable.from(chunks))
+        .then(release, release)
+        .catch(() => {});
     };
     const release = fence ? fence.enter(op, input) : () => {};
-    if (!release) return reply({ error: errorOf(fencedError()) });
+    if (!release)
+      return reply({
+        error: fence?.message
+          ? { code: "fenced", message: fence.message }
+          : errorOf(fencedError()),
+      });
+    const command =
+      endpoint.kind === "enrolled" &&
+      (spec?.cancellable || spec?.kind === "open")
+        ? new AbortController()
+        : undefined;
+    if (command) commands.set(id, command);
     if (spec?.kind === "open")
       return void open(op, spec, input, opens, {
         ...context,
+        ...(command && { signal: command.signal }),
         emit: () => {},
       }).then((result) => {
-        if ("error" in result) return reply(result, release);
+        if ("error" in result) {
+          if (command) commands.delete(id);
+          return reply(result, release);
+        }
+        if (command) {
+          result.channel.once("close", () => commands.delete(id));
+          if (command.signal.aborted) {
+            result.channel.destroy();
+            return reply(
+              {
+                error: { code: "cancelled", message: "The call was cancelled" },
+              },
+              release
+            );
+          }
+          command.signal.addEventListener(
+            "abort",
+            () => result.channel.destroy(),
+            { once: true }
+          );
+        }
         const ids = channelStreams(id);
         const { channel } = result;
         // Register before replying: the caller starts sending after it.
@@ -342,11 +377,6 @@ export function serveOperationSocket(
           .send(ids.out, channel, undefined, { stall: false })
           .catch(() => channel.destroy());
       });
-    const command =
-      endpoint.kind === "enrolled" && spec?.cancellable
-        ? new AbortController()
-        : undefined;
-    if (command) commands.set(id, command);
     let answered = false;
     const callContext: ConnectionContext = {
       ...context,

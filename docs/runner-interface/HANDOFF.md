@@ -259,3 +259,5 @@ Enrolled TLS also carries the existing validated `update_status` observation fro
 The enrolled supervisor still writes the retirement marker when an unknown managed session is discarded or released. It prevents a delayed launch after restart without creating a checkout, a binding or a host. Snapshot-based release and its separate `.released` receipt have no current caller.
 
 Protected-update recovery distinguishes a lost transport acknowledgement from the coordinator's explicit decision after reconnect. The coordinator rechecks the saved attempt, registration, epoch and advert. In staging or settling it can issue another offer for that attempt, including after a supervisor restart that lost the in-memory staging result. Existing coordinator fixtures pin this recovery. The transport never resends a call.
+
+Credit bounds unacknowledged stream payload to 1 MiB in each direction across all streams on an enrolled connection. This budget covers bytes in transit. Open terminals retain per-channel bookkeeping and their workload processes, and streamed-terminal concurrency stays as before.
