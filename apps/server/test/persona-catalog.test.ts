@@ -585,3 +585,34 @@ it("the enrolled runner's self-exec worker receives the exact definition parser"
     "Could not load persona .agents/personas/b-link.md: unsupported file or larger than 256 KiB.",
   ]);
 });
+
+it.each([
+  ["a-invalid", "b-link"],
+  ["b-invalid", "a-link"],
+])(
+  "keeps main's catalog warning order for %s and %s",
+  async (invalid, link) => {
+    await publish("valid", "c-valid");
+    const dir = ".agents/personas";
+    await writeFile(
+      path.join(author, dir, invalid + ".md"),
+      "---\ntype: typo\n---\nbad"
+    );
+    await symlink("c-valid.md", path.join(author, dir, link + ".md"));
+    await git(author, "add", ".");
+    await git(author, "commit", "-m", "ordered definitions");
+    await git(author, "push");
+    const catalog = await new PersonaCatalogCache(runner, () => now).get(
+      checkout,
+      true
+    );
+    expect(catalog.personas.map(({ slug }) => slug)).toEqual(["c-valid"]);
+    const invalidWarning = `Could not load persona ${dir}/${invalid}.md: invalid persona definition.`;
+    const linkWarning = `Could not load persona ${dir}/${link}.md: unsupported file or larger than 256 KiB.`;
+    expect(catalog.warnings).toEqual(
+      invalid < link
+        ? [invalidWarning, linkWarning]
+        : [linkWarning, invalidWarning]
+    );
+  }
+);
