@@ -5141,10 +5141,11 @@ describe("AgentManager", () => {
           remote: { requestSession } as unknown as RemoteRunnerService,
         });
         const localStatus = await manager.checkWorktreeStatus(child.id);
-        await pool.query("UPDATE agents SET cwd = $2 WHERE id = $1", [
-          child.id,
-          runnerCwd,
-        ]);
+        // The runner the locator names, as every launch records it (0065).
+        await pool.query(
+          "UPDATE agents SET cwd = $2, runner_id = 'runner-test' WHERE id = $1",
+          [child.id, runnerCwd]
+        );
         const runnerStatus = await runnerManager.checkWorktreeStatus(child.id);
         expect(requestSession).toHaveBeenCalledWith(
           { runner: "runner-test", workspace: "@session" },
@@ -5289,7 +5290,7 @@ describe("AgentManager", () => {
           useWorktree: false,
         });
         await pool.query(
-          "UPDATE agents SET cwd = $2, worktree_path = $3 WHERE id = $1",
+          "UPDATE agents SET cwd = $2, worktree_path = $3, runner_id = 'runner-test' WHERE id = $1",
           [agent.id, runnerCwd, worktreePath]
         );
         return agent;
@@ -5364,6 +5365,174 @@ describe("AgentManager", () => {
             vi.fn(async () => ({ value: "not json" }))
           ).checkWorktreeStatus(agent.id)
         ).rejects.toMatchObject({ statusCode: 503 });
+      });
+    });
+
+    describe("the status read on a runner that releases bound checkouts", () => {
+      const runnerCwd = "runner://runner-test/@session";
+      const replies = {
+        owned: {
+          ownership: "owned",
+          owner: "self",
+          borrowers: ["agt_review"],
+          checkout: {
+            path: "/srv/checkouts/kept",
+            branch: "feature",
+            stateId: "0".repeat(64),
+            unmerged: false,
+            changedFiles: ["a.ts"],
+            uncommittedFiles: ["?? b.ts"],
+          },
+        },
+        borrowed: {
+          ownership: "borrowed",
+          owner: "agt_owner",
+          borrowers: [],
+          checkout: null,
+        },
+        external: {
+          ownership: "external",
+          owner: null,
+          borrowers: [],
+          checkout: null,
+        },
+        gone: {
+          ownership: "owned",
+          owner: "self",
+          borrowers: [],
+          checkout: null,
+        },
+      };
+      async function runnerAgent() {
+        const agent = await manager.createAgent({
+          cwd: "/tmp",
+          useWorktree: false,
+        });
+        await pool.query(
+          "UPDATE agents SET cwd = $2, worktree_path = $3, runner_id = 'runner-test' WHERE id = $1",
+          [agent.id, runnerCwd, "/srv/checkouts/kept"]
+        );
+        return agent;
+      }
+      function managerFor(
+        capable: boolean,
+        requestSession: ReturnType<typeof vi.fn>
+      ) {
+        return new AgentManager(pool, noopLogger, testConfig, {
+          runtime,
+          remote: {
+            requestSession,
+            supportsWorkspaceRelease: () => capable,
+            connectionEpoch: () => (capable ? 3 : undefined),
+          } as unknown as RemoteRunnerService,
+        });
+      }
+      const outcome = (work: Promise<unknown>) =>
+        work.then(
+          (status) => ({ status }),
+          (error: { statusCode?: number; message?: string }) => ({
+            error: { statusCode: error.statusCode, message: error.message },
+          })
+        );
+
+      it.each([
+        ...Object.entries(replies).map(
+          ([name, reply]) =>
+            [name, async () => ({ value: JSON.stringify(reply) })] as const
+        ),
+        [
+          "offline",
+          async () => {
+            throw new Error("Runner runner-test is not connected.");
+          },
+        ] as const,
+        [
+          "an error reply",
+          async () => {
+            throw new Error("Checkout observation failed.");
+          },
+        ] as const,
+        ["not an observation", async () => ({ value: "not json" })] as const,
+      ])(
+        "%s: the same status (or 503 body) as through the snapshot transport",
+        async (_name, reply) => {
+          const agent = await runnerAgent();
+          const results = [];
+          for (const capable of [false, true]) {
+            const requestSession = vi.fn(reply);
+            results.push(
+              await outcome(
+                managerFor(capable, requestSession).checkWorktreeStatus(
+                  agent.id
+                )
+              )
+            );
+            expect(requestSession).toHaveBeenCalledOnce();
+            // The capable peer is asked for the checkout's state (changes);
+            // the snapshot peer gets its own frame, as before.
+            expect(requestSession.mock.calls[0]![1]).toEqual({
+              kind: "checkoutRelease",
+              agentId: agent.id,
+              operation: capable
+                ? { kind: "observe", policy: "changes" }
+                : { kind: "observe" },
+            });
+          }
+          expect(results[1]).toEqual(results[0]);
+          if ("error" in results[0]!)
+            expect(results[0].error).toEqual({
+              statusCode: 503,
+              message: "Checkout status is unavailable on the owning runner.",
+            });
+        }
+      );
+
+      it("without an enrolled service: today's 503", async () => {
+        const agent = await runnerAgent();
+        await expect(
+          new AgentManager(pool, noopLogger, testConfig, {
+            runtime,
+          }).checkWorktreeStatus(agent.id)
+        ).rejects.toMatchObject({
+          statusCode: 503,
+          message: "Checkout status is unavailable on the owning runner.",
+        });
+      });
+
+      it.each([
+        [true, null],
+        [false, "1".repeat(64)],
+      ] as const)(
+        "beginArchive keeps the observed state only for a snapshot peer (bound release %s)",
+        async (capable, kept) => {
+          const agent = await runnerAgent();
+          await managerFor(
+            capable,
+            vi.fn(async () => ({ value: "released" }))
+          ).beginArchive(agent.id, "auto", "1".repeat(64));
+          const { rows } = await pool.query(
+            "SELECT archive_checkout_state FROM agents WHERE id = $1",
+            [agent.id]
+          );
+          expect(rows[0]?.archive_checkout_state).toBe(kept);
+        }
+      );
+
+      it("beginArchive keeps the observed state for a local row", async () => {
+        const agent = await manager.createAgent({
+          cwd: "/tmp",
+          useWorktree: false,
+        });
+        await managerFor(true, vi.fn()).beginArchive(
+          agent.id,
+          "auto",
+          "1".repeat(64)
+        );
+        const { rows } = await pool.query(
+          "SELECT archive_checkout_state FROM agents WHERE id = $1",
+          [agent.id]
+        );
+        expect(rows[0]?.archive_checkout_state).toBe("1".repeat(64));
       });
     });
 
