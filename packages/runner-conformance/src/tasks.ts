@@ -38,7 +38,7 @@ export const OPERATION_TASK = {
   "checkout.changes": "T09",
   "checkout.defaultFiles": "T09",
   "checkout.watch": "T09",
-  "checkout.exec": "T14",
+  "checkout.exec": "T40", // Resolved directory guard; existing manifest digest guard T14.
   "files.put": "T12",
   "files.get": "T11",
   "git.context": "T15",

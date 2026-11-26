@@ -90,6 +90,13 @@ const launchProgress = object({
   status: optional(literal("done", "failed")),
   detail: optional(string),
 });
+const execOptions = {
+  argv: array(string),
+  env: record(string),
+  timeoutMs: nullable(integer),
+  maxOutput: nullable(integer),
+  shell: literal("direct", "login"),
+};
 /** A program and its leading arguments. */
 const program = object({ path: string, args: optional(array(string)) });
 const engineEvent = union(engineProgress, engineComplete);
@@ -417,11 +424,19 @@ export const operations = {
       path: string,
       /** Folder/project definition readers and assessor configuration reads: native file/error semantics. */
       mode: optional(literal("native")),
+      /** Include the directory identity for a command resolved from this read. */
+      bindRoot: optional(literal(true)),
       /** `base64` returns the file's raw bytes, base64 encoded, inside the checkout. */
       encoding: literal("utf8", "base64"),
       maxBytes: nullable(integer),
     }),
-    response: nullable(object({ data: string, digest: optional(string) })),
+    response: nullable(
+      object({
+        data: string,
+        digest: optional(string),
+        rootIdentity: optional(string),
+      })
+    ),
     errors: ["forbidden", "too_large"],
     retry: read,
     timeout: "long",
@@ -557,15 +572,21 @@ export const operations = {
   "checkout.exec": op({
     scope: "session",
     kind: "call",
-    request: object({
-      target,
-      guard: object({ path: string, digest: string }),
-      argv: array(string),
-      env: record(string),
-      timeoutMs: nullable(integer),
-      maxOutput: nullable(integer),
-      shell: literal("direct", "login"),
-    }),
+    request: union(
+      object({
+        target,
+        guard: object({ path: string, digest: string }),
+        ...execOptions,
+      }),
+      object({
+        target: object({
+          session: sessionHandle,
+          checkout: literal("launch", "moved"),
+        }),
+        guard: object({ root: runnerPath, identity: string }),
+        ...execOptions,
+      })
+    ),
     response: commandResult,
     errors: ["stale", "busy"],
     retry: none,

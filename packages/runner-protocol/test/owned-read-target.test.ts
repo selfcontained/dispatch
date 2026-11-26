@@ -52,3 +52,33 @@ it.each([undefined, "current", "launch", "moved"] as const)(
     ).toBe(true);
   }
 );
+
+it("requires an explicit session checkout for commands bound to a resolved directory", () => {
+  const exec = operations["checkout.exec"].request;
+  const command = {
+    argv: ["true"],
+    env: {},
+    timeoutMs: 60_000,
+    maxOutput: null,
+    shell: "direct",
+  };
+  const guard = { root: "/root", identity: "1:2" };
+  for (const checkout of ["launch", "moved"])
+    expect(
+      exec.check({ ...command, guard, target: { session, checkout } })
+    ).toBe(true);
+  for (const target of [
+    { session },
+    { session, checkout: "current" },
+    { path: "/root" },
+    { repository: "r" },
+  ])
+    expect(exec.check({ ...command, guard, target })).toBe(false);
+  expect(
+    exec.check({
+      ...command,
+      guard: { path: "file", digest: "d" },
+      target: { session },
+    })
+  ).toBe(true);
+});

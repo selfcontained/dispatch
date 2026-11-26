@@ -2182,6 +2182,11 @@
               "literal": ["native"]
             }
           },
+          "bindRoot": {
+            "optional": {
+              "literal": [true]
+            }
+          },
           "encoding": {
             "literal": ["utf8", "base64"]
           },
@@ -2195,6 +2200,9 @@
           "object": {
             "data": "string",
             "digest": {
+              "optional": "string"
+            },
+            "rootIdentity": {
               "optional": "string"
             }
           }
@@ -2826,57 +2834,98 @@
       "scope": "session",
       "kind": "call",
       "request": {
-        "object": {
-          "target": {
-            "union": [
-              {
+        "union": [
+          {
+            "object": {
+              "target": {
+                "union": [
+                  {
+                    "object": {
+                      "session": {
+                        "opaque": "SessionHandle"
+                      },
+                      "checkout": {
+                        "optional": {
+                          "literal": ["current", "launch", "moved"]
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "object": {
+                      "path": {
+                        "opaque": "RunnerPath"
+                      }
+                    }
+                  },
+                  {
+                    "object": {
+                      "repository": "string"
+                    }
+                  }
+                ]
+              },
+              "guard": {
+                "object": {
+                  "path": "string",
+                  "digest": "string"
+                }
+              },
+              "argv": {
+                "array": "string"
+              },
+              "env": {
+                "record": "string"
+              },
+              "timeoutMs": {
+                "nullable": "integer"
+              },
+              "maxOutput": {
+                "nullable": "integer"
+              },
+              "shell": {
+                "literal": ["direct", "login"]
+              }
+            }
+          },
+          {
+            "object": {
+              "target": {
                 "object": {
                   "session": {
                     "opaque": "SessionHandle"
                   },
                   "checkout": {
-                    "optional": {
-                      "literal": ["current", "launch", "moved"]
-                    }
+                    "literal": ["launch", "moved"]
                   }
                 }
               },
-              {
+              "guard": {
                 "object": {
-                  "path": {
+                  "root": {
                     "opaque": "RunnerPath"
-                  }
+                  },
+                  "identity": "string"
                 }
               },
-              {
-                "object": {
-                  "repository": "string"
-                }
+              "argv": {
+                "array": "string"
+              },
+              "env": {
+                "record": "string"
+              },
+              "timeoutMs": {
+                "nullable": "integer"
+              },
+              "maxOutput": {
+                "nullable": "integer"
+              },
+              "shell": {
+                "literal": ["direct", "login"]
               }
-            ]
-          },
-          "guard": {
-            "object": {
-              "path": "string",
-              "digest": "string"
             }
-          },
-          "argv": {
-            "array": "string"
-          },
-          "env": {
-            "record": "string"
-          },
-          "timeoutMs": {
-            "nullable": "integer"
-          },
-          "maxOutput": {
-            "nullable": "integer"
-          },
-          "shell": {
-            "literal": ["direct", "login"]
           }
-        }
+        ]
       },
       "response": {
         "object": {

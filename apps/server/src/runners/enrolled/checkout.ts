@@ -666,10 +666,16 @@ export function createEnrolledCheckoutRunner(
       }
 
       const execRequest = request as Req<"checkout.exec">;
+      if (!("path" in execRequest.guard))
+        throw new RunnerCallError({
+          code: "unsupported",
+          message: "This transport requires a file-digest command guard.",
+        });
       const frame: Decoded<"checkout.exec"> = {
         op,
         request: {
           ...execRequest,
+          guard: execRequest.guard,
           target: {
             ...request.target,
             checkout: request.target.checkout ?? "current",

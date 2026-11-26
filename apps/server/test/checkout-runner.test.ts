@@ -1,5 +1,5 @@
 import { checkoutWorkload } from "./helpers/checkout-workload.js";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -71,7 +71,11 @@ describe("checkout.exec", () => {
         kind: "read",
       });
       expect(file?.content).toBe("{}");
-      const call = (patch: Partial<Req<"checkout.exec">>) =>
+      const call = (
+        patch: Partial<
+          Extract<Req<"checkout.exec">, { guard: { digest: string } }>
+        >
+      ) =>
         runner.call("checkout.exec", {
           ...req,
           guard: { path, digest: file!.state },
@@ -97,6 +101,45 @@ describe("checkout.exec", () => {
       ).rejects.toMatchObject({ code: "stale" });
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a resolved command when its session selects a different directory", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "checkout-guard-"));
+    try {
+      const checkout = await mkdtemp(join(directory, "owned-"));
+      await writeFile(join(checkout, "manifest"), "{}");
+      const local = { ...agent, cwd: checkout };
+      const binding = checkoutRunners({}, local);
+      const runner = binding.directory.for(binding.placement);
+      const target = {
+        session: sessionFromWire(agent.id),
+        checkout: "launch" as const,
+      };
+      const file = await runner.call("checkout.read", {
+        target: { ...target, checkout: "owned" },
+        path: "manifest",
+        mode: "native",
+        encoding: "utf8",
+        maxBytes: null,
+        bindRoot: true,
+      });
+      await expect(
+        runner.call("checkout.exec", {
+          ...req,
+          target,
+          guard: {
+            root: pathFromWire(directory),
+            identity: file!.rootIdentity!,
+          },
+          argv: ["sh", "-c", "touch invoked"],
+        })
+      ).rejects.toMatchObject({ code: "stale" });
+      await expect(stat(join(checkout, "invoked"))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
     }
   });
 

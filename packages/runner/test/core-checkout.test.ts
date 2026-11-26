@@ -81,14 +81,14 @@ const target = (session: string, checkout?: "current" | "launch" | "moved") =>
 const listing = { truncated: false, entries: [] };
 
 describe("core checkout commands", () => {
-  const exec: Omit<Req<"checkout.exec">, "target"> = {
+  const exec = {
     guard: { path: ".dispatch/tools.json", digest: "d" },
     argv: ["true"],
     env: { EXTRA: "1" },
     timeoutMs: null,
     maxOutput: null,
     shell: "direct",
-  };
+  } satisfies Omit<Req<"checkout.exec">, "target">;
   const result = { exitCode: 0, stdout: "", stderr: "" };
 
   it("runs a command in the selected checkout, on the request's terms", async () => {

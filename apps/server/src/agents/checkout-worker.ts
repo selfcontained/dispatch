@@ -199,6 +199,11 @@ function nativeEntry(root: string, relative: string) {
   return resolved;
 }
 
+async function directoryIdentity(directory: string) {
+  const { dev, ino } = await stat(directory, { bigint: true });
+  return `${dev}:${ino}`;
+}
+
 function nativeFailure(error: unknown): never {
   const failure = error as NodeJS.ErrnoException;
   throw new RunnerCallError({
@@ -291,7 +296,10 @@ async function work<K extends WorkerOp>(
       if (native.mode === "native") {
         const file = nativeEntry(directory, native.path);
         let bytes: Buffer;
+        let rootIdentity: string | undefined;
         try {
+          if (native.bindRoot)
+            rootIdentity = await directoryIdentity(directory);
           bytes = await readFile(file);
         } catch (error) {
           nativeFailure(error);
@@ -305,6 +313,7 @@ async function work<K extends WorkerOp>(
             message: `The file is larger than ${native.maxBytes} bytes`,
           });
         return {
+          ...(rootIdentity !== undefined && { rootIdentity }),
           data: bytes.toString(native.encoding),
           digest: createHash("sha256").update(bytes).digest("hex"),
         };
@@ -478,17 +487,26 @@ async function execCheckoutCommand(
       message: "Checkout command cancelled.",
     });
   if (signal?.aborted) throw cancelled();
-  const { root, content, digest } = await readCommandGuard(
-    directory,
-    selector,
-    guard.path
-  );
-  if (content === null || digest !== guard.digest)
-    throw new RunnerCallError({
-      code: "stale",
-      message:
-        "Checkout command authorization is stale. Read the checkout file again.",
-    });
+  let root = directory;
+  if (!("path" in guard)) {
+    if (
+      displayPath(guard.root) !== directory ||
+      (await directoryIdentity(directory).catch(() => null)) !== guard.identity
+    )
+      throw new RunnerCallError({
+        code: "stale",
+        message: "The resolved checkout directory changed.",
+      });
+  } else {
+    const file = await readCommandGuard(directory, selector, guard.path);
+    if (file.content === null || file.digest !== guard.digest)
+      throw new RunnerCallError({
+        code: "stale",
+        message:
+          "Checkout command authorization is stale. Read the checkout file again.",
+      });
+    root = file.root;
+  }
   if (signal?.aborted) throw cancelled();
   const [command, ...args] = argv;
   if (!command)

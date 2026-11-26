@@ -550,10 +550,13 @@ export function createLocalCheckoutRunner(
         (child) =>
           child.call(
             "checkout.exec",
-            {
-              ...input,
-              target: { session: target.session, checkout: selector },
-            },
+            "path" in input.guard
+              ? {
+                  ...input,
+                  guard: input.guard,
+                  target: { session: target.session, checkout: selector },
+                }
+              : input,
             once(options)
           ),
         neverSent,

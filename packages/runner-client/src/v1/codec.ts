@@ -955,7 +955,11 @@ export function encodeCommand(input: Decoded | LegacyCommand): Command {
     }
     case "checkout.exec": {
       const target = r.target as { checkout?: "current" | "launch" | "moved" };
-      const guard = r.guard as { path: string; digest: string };
+      const guard = r.guard as
+        | { path: string; digest: string }
+        | { root: unknown };
+      if (!("path" in guard))
+        throw new Error("Resolved checkout commands have no v1 frame.");
       return {
         ...session,
         kind: "checkoutCommand",
