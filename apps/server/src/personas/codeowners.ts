@@ -1,5 +1,3 @@
-import { access, readFile } from "node:fs/promises";
-import path from "node:path";
 import * as z from "zod/v4";
 
 import { validatePersonaSlug } from "./authoring.js";
@@ -79,29 +77,11 @@ async function findOwnersPath(
   return null;
 }
 
-function nativeFiles(root: string): CodeownersFiles {
-  return {
-    async access(file) {
-      try {
-        await access(path.join(root, file));
-        return true;
-      } catch (error) {
-        // Only a missing map falls through to the legacy location.
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-        return false;
-      }
-    },
-    read: (file) => readFile(path.join(root, file), "utf8"),
-  };
-}
-
 /** Whether the checkout has an ownership map at all; validity is checked at launch. */
-export async function hasCodeowners(root: string): Promise<boolean> {
-  return (await findOwnersPath(nativeFiles(root).access)) !== null;
-}
-
-export async function loadCodeowners(root: string): Promise<CodeownersConfig> {
-  return loadCodeownersFromFiles(nativeFiles(root));
+export async function hasCodeowners(
+  files: Pick<CodeownersFiles, "access">
+): Promise<boolean> {
+  return (await findOwnersPath(files.access)) !== null;
 }
 
 /** Select with F_OK first, then read only that file; a read failure never selects legacy. */

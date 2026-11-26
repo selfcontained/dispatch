@@ -1,3 +1,6 @@
+import { pathFromWire } from "@dispatch/runner-protocol/contract";
+import { runnerDirectory } from "../runners/directory.js";
+import { controllerPlacement } from "../runners/placement.js";
 import { remotePlacement } from "@dispatch/runner-protocol";
 import type { Effort } from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
@@ -177,7 +180,15 @@ export async function registerPersonaRoutes(
       // Owner reviews read the map from the checkout being reviewed, so only
       // the worktree decides whether the option is offered.
       const codeowners = worktreeRoot
-        ? await hasCodeowners(worktreeRoot)
+        ? await hasCodeowners({
+            access: (file) =>
+              runnerDirectory(deps.agentManager.checkoutReadRunners())
+                .for(controllerPlacement)
+                .call("checkout.access", {
+                  target: { path: pathFromWire(worktreeRoot) },
+                  path: file,
+                }),
+          })
         : false;
       return {
         personas,

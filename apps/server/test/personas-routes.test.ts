@@ -204,7 +204,9 @@ describe("GET /api/v1/personas", () => {
     });
     expect(response.statusCode).toBe(200);
     expect(response.json().codeowners).toBe(true);
-    expect(hasCodeowners).toHaveBeenCalledWith("/tmp");
+    expect(hasCodeowners).toHaveBeenCalledWith({
+      access: expect.any(Function),
+    });
   });
 });
 

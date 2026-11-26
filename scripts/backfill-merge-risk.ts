@@ -1,3 +1,4 @@
+import { access, readFile } from "node:fs/promises";
 /**
  * One-time, read-only backfill: rebuild the merge-risk evidence payload for
  * every pull request a Dispatch instance has already shipped, so the policy
@@ -30,7 +31,7 @@ import {
 } from "../apps/server/src/agents/pull-request-reader.js";
 import { readPullRequestDetails } from "../apps/server/src/agents/remote/github-runner-executor.js";
 import {
-  loadCodeowners,
+  loadCodeownersFromFiles,
   type CodeownersConfig,
 } from "../apps/server/src/personas/codeowners.js";
 
@@ -110,7 +111,18 @@ async function listPullRequests(): Promise<PrRow[]> {
 
 let owners: CodeownersConfig | null = null;
 try {
-  owners = await loadCodeowners(ownersRoot);
+  owners = await loadCodeownersFromFiles({
+    async access(file) {
+      try {
+        await access(path.join(ownersRoot, file));
+        return true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        return false;
+      }
+    },
+    read: (file) => readFile(path.join(ownersRoot, file), "utf8"),
+  });
 } catch (error) {
   process.stderr.write(
     `No ownership map at ${ownersRoot}; subsystems will be empty (${error instanceof Error ? error.message : String(error)}).\n`

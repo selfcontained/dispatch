@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, it } from "vitest";
-import { loadCodeowners, parseCodeowners } from "../src/personas/codeowners.js";
+import { loadCodeowners, parseCodeowners } from "./helpers/codeowners.js";
 import { checkoutWorkload } from "./helpers/checkout-workload.js";
 import { ownerEvidence } from "./helpers/owned-checkout-fixture.js";
 
