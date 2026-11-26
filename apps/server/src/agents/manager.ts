@@ -448,7 +448,7 @@ function asWorktreeError(error: unknown): never {
 
 type PendingAgentStop = {
   agent_id: string;
-  placement: string | null;
+  runner_id: string | null;
   launch_id: string | null;
   force: boolean;
 };
@@ -1113,7 +1113,7 @@ export class AgentManager {
             runnerName
           );
         } catch (error) {
-          if (error instanceof RunnerUpdateFenced) throw error;
+          if (isUpdateFenced(error)) throw error;
           this.logger.warn(
             { err: error, agentId: id },
             "Native prompt file is unavailable"
@@ -2968,11 +2968,7 @@ export class AgentManager {
           }
         } catch (error) {
           if (
-            !(
-              error instanceof RunnerUpdateFenced &&
-              runnerId &&
-              this.holds?.isHeld(runnerId)
-            )
+            !(isUpdateFenced(error) && runnerId && this.holds?.isHeld(runnerId))
           )
             throw error;
         }
@@ -3211,7 +3207,7 @@ export class AgentManager {
     create?: Parameters<AgentManager["holdLaunch"]>[3]
   ): Promise<boolean> {
     return (
-      error instanceof RunnerUpdateFenced &&
+      isUpdateFenced(error) &&
       (await this.holdLaunch(agent, kind, launchId, create))
     );
   }
@@ -3232,7 +3228,7 @@ export class AgentManager {
         return await step();
       } catch (error) {
         if (
-          !(error instanceof RunnerUpdateFenced) ||
+          !isUpdateFenced(error) ||
           !runnerId ||
           !this.holds?.isHeld(runnerId)
         )
@@ -4316,10 +4312,10 @@ export class AgentManager {
 
     try {
       const result = await this.pool.query<{ launch_id: string | null }>(
-        `INSERT INTO pending_agent_stops (agent_id, placement, launch_id, force)
-         SELECT id, $2::jsonb, host_launch_id, $3 FROM agents WHERE id = $1
+        `INSERT INTO pending_agent_stops (agent_id, runner_id, launch_id, force)
+         SELECT id, $2::text, host_launch_id, $3 FROM agents WHERE id = $1
          ON CONFLICT (agent_id) DO UPDATE SET
-           placement = EXCLUDED.placement, launch_id = EXCLUDED.launch_id,
+           runner_id = EXCLUDED.runner_id, launch_id = EXCLUDED.launch_id,
            force = EXCLUDED.force RETURNING launch_id`,
         [id, location, force]
       );
@@ -4375,7 +4371,7 @@ export class AgentManager {
   private async pendingStop(id: string): Promise<PendingAgentStop | undefined> {
     return (
       await this.pool.query<PendingAgentStop>(
-        "SELECT agent_id, placement, launch_id, force FROM pending_agent_stops WHERE agent_id = $1",
+        "SELECT agent_id, runner_id, launch_id, force FROM pending_agent_stops WHERE agent_id = $1",
         [id]
       )
     ).rows[0];
@@ -4418,7 +4414,7 @@ export class AgentManager {
     await this.runtime.retryStop(
       id,
       intent.force,
-      intent.placement,
+      intent.runner_id,
       intent.launch_id ?? undefined
     );
     await this.clearPendingStop(id);
@@ -4915,6 +4911,13 @@ function sameGitContext(
     a.worktreeName === b.worktreeName &&
     a.isWorktree === b.isWorktree &&
     (a.repoIconPath ?? null) === (b.repoIconPath ?? null)
+  );
+}
+
+function isUpdateFenced(error: unknown) {
+  return (
+    error instanceof RunnerUpdateFenced ||
+    (error instanceof RunnerCallError && error.code === "fenced")
   );
 }
 
