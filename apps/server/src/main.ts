@@ -1,6 +1,7 @@
 import { captureStartupAcpAdapter } from "./startup/acp-adapter.js";
 import { restoreLegacyMacLaunchAgentEnvironment } from "./startup/shell-environment.js";
 
+const loadCheckoutWorker = () => import("./agents/checkout-worker.js");
 const loadTerminalWorker = () => import("./terminal/runner-worker.js");
 
 // Modes of this binary, checked before anything else so none of them
@@ -147,7 +148,7 @@ if (process.argv[2]?.startsWith("recovery-")) {
     githubWorkload,
     localEnginePort,
     localHostEntry,
-  } = await import("./agents/checkout-worker.js");
+  } = await loadCheckoutWorker();
   const { toPersonaDefinition } = await import("./personas/loader.js");
   const { localTerminalHandlers } = await loadTerminalWorker();
   await runCli(process.argv.slice(2), {
@@ -171,11 +172,8 @@ if (process.argv[2]?.startsWith("recovery-")) {
   const { runAgentHost } = await import("@dispatch/runner/cli");
   const { embeddedBuild } = await import("./agents/build-identity.js");
   const { hostSearchPath } = await import("./agents/acp/host-search-path.js");
-  const { ownedEnvironment, killOwnedProcesses } =
-    await import("./shared/process/owned-processes.js");
   const { engineVersion } = await import("./agents/engine-availability.js");
   await runAgentHost(process.argv.slice(2), {
-    ownership: { ownedEnvironment, killOwnedProcesses },
     engineVersion,
     build: embeddedBuild,
     searchPath: hostSearchPath,
@@ -194,6 +192,10 @@ async function serve(): Promise<void> {
   captureStartupAcpAdapter();
   const shellEnvironment = await restoreLegacyMacLaunchAgentEnvironment();
 
+  const { loadInProcessPorts } = await import("./runners/in-process.js");
+  const { parseEngineCapabilityResult } =
+    await import("./agents/remote/engine-capability-result.js");
+  await loadInProcessPorts(loadCheckoutWorker, parseEngineCapabilityResult);
   const { app, shutdown, start } = await import("./server.js");
 
   if (shellEnvironment.state === "resolved") {

@@ -280,6 +280,13 @@ test("T09 records its in-process read fallback once, beside the adapter delegati
     ).map(({ kind, detail, task }) => [kind, detail, task]),
     [["R3 local adapter delegation", fallback.detail, "T18"]]
   );
+  assert.deepEqual(
+    scanSource(
+      app + "runners/local.ts",
+      'import { inProcessPorts } from "./in-process.js";'
+    ).map(({ kind, detail, task }) => [kind, detail, task]),
+    [["R3 local adapter delegation", fallback.detail, "T18"]]
+  );
 });
 
 test("T09's worker entry replaces main's checkout subcommand imports only as they go", () => {

@@ -1,4 +1,4 @@
-import { parseEngineCapabilityResult } from "./agents/remote/engine-capability-result.js";
+import { inProcessPorts } from "./runners/in-process.js";
 import {
   engineScopeKey,
   type EngineScope,
@@ -287,7 +287,11 @@ const remoteRunner = configuredRunner({
     validateJobMcpToken(config.authToken, token, runId, agentId),
 });
 const runnerEngines = remoteRunner
-  ? remoteEngineTransport(remoteRunner, parseEngineCapabilityResult, app.log)
+  ? remoteEngineTransport(
+      remoteRunner,
+      inProcessPorts().parseEngineCapabilityResult,
+      app.log
+    )
   : undefined;
 // Runner update holds: nothing is held until an update coordinator begins one.
 const runnerHolds = remoteRunner

@@ -1,4 +1,3 @@
-import { isPromptSource } from "./prompt-source.js";
 import { AgentError } from "../errors.js";
 import { isPromptImageMimeType } from "./prompt-source.js";
 import type { RuntimeLaunch } from "../runtime.js";
@@ -64,10 +63,11 @@ import type { RunnerUpdateHolds } from "../remote/update-hold.js";
 import type { Placement } from "@dispatch/runner-protocol";
 import type { RemoteEventInbox } from "../remote/event-inbox.js";
 import {
-  HostClient,
+  createHostSessionClient,
+  type HostSessionClient,
   type HostQuiesceLease,
-  UpdateAcknowledgementLost,
-} from "@dispatch/runner-client/host-client";
+  isUpdateAcknowledgementLost,
+} from "../../runners/enrolled/host-session-client.js";
 import { type JournalEntry } from "@dispatch/runner-protocol/host";
 
 /** The engine's ACP handshake can take a while on a cold adapter. */
@@ -165,7 +165,7 @@ type Live = {
   runnerId: string;
   /** The runner connection the host's newest channel was opened over. */
   channelEpoch?: number;
-  client: HostClient;
+  client: HostSessionClient;
   commands: AvailableCommand[];
   configOptions: SessionConfigOption[];
   /** Serializes submission/acceptance, not the lifetime of a turn. */
@@ -1042,7 +1042,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           if (
             submitted &&
             !(
-              error instanceof UpdateAcknowledgementLost &&
+              isUpdateAcknowledgementLost(error) &&
               entry.client.isReady() &&
               (error.receipt === "claimed" ||
                 (error.receipt === undefined &&
@@ -1164,7 +1164,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       agentId,
       remote: Boolean(placement),
       runnerId: runnerIdAt(placement),
-      client: null as unknown as HostClient,
+      client: null as unknown as HostSessionClient,
       commands: [],
       configOptions: [],
       pumping: false,
@@ -1188,8 +1188,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     // A replacement replays the old host's exit; that ends no held work.
     const replaced = recycleHolds.get(agentId);
     if (replaced?.forced && replaced.restarting) replaced.entry = entry;
-    entry.client = new HostClient({
-      validSource: isPromptSource,
+    entry.client = createHostSessionClient({
       agentId,
       remote: Boolean(placement),
       openSocket: async () => {
@@ -2216,8 +2215,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
 
     async stopIdleHostForRecovery(agentId) {
       if (runtime.isBusy(agentId)) return false;
-      const client = new HostClient({
-        validSource: isPromptSource,
+      const client = createHostSessionClient({
         agentId,
         remote: false,
         openSocket: async () => {

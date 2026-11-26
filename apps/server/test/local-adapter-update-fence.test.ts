@@ -1,3 +1,4 @@
+import { inProcessPorts } from "../src/runners/in-process.js";
 /*
  * The local adapter's mutations honour the app's update fence. The app's own
  * local runner process (supervisor and fence, `startLocalRunnerProcess`)
@@ -25,7 +26,6 @@ import {
 import { putSessionFile } from "../src/files/session-file.js";
 import { runnerDirectory } from "../src/runners/directory.js";
 import {
-  localCheckoutWorkload,
   startLocalRunnerProcess,
   type LocalRunnerProcess,
 } from "../src/runners/local.js";
@@ -147,7 +147,7 @@ afterAll(async () => {
 describe("mutations while the app's update fence is wanted", () => {
   it("are refused by a frozen child, and here while it is away; reads answer", async () => {
     const here = [
-      vi.spyOn(localCheckoutWorkload, "run"),
+      vi.spyOn(inProcessPorts().checkoutWorkload, "run"),
       vi.spyOn(workspaceWorkload, "release"),
       vi.spyOn(sessionFilesWorkload, "put"),
     ];

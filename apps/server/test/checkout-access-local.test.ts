@@ -1,10 +1,10 @@
+import { inProcessPorts } from "../src/runners/in-process.js";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { sessionFromWire } from "@dispatch/runner-protocol/contract";
 import { BindingStore } from "../../../packages/runner/src/local/bindings.js";
 import { bindingFromRow } from "../src/runners/local-bindings.js";
-import { localCheckoutWorkload } from "../src/runners/local.js";
 import { runnerDirectory } from "../src/runners/directory.js";
 import { controllerPlacement } from "../src/runners/placement.js";
 import { checkoutWorkload } from "./helpers/checkout-workload.js";
@@ -55,7 +55,7 @@ it.each(
       if (error.code === "ENOENT") return false;
       throw error;
     });
-  const port = vi.spyOn(localCheckoutWorkload, "run");
+  const port = vi.spyOn(inProcessPorts().checkoutWorkload, "run");
   const calls = vi.spyOn(child.session, "call");
   try {
     const result = await runnerDirectory(
@@ -98,7 +98,7 @@ it.each(["child", "no-child"] as const)(
     const expected = await access(path.join(row.home, file))
       .then(() => null)
       .catch((error) => error as NodeJS.ErrnoException);
-    const port = vi.spyOn(localCheckoutWorkload, "run");
+    const port = vi.spyOn(inProcessPorts().checkoutWorkload, "run");
     try {
       await expect(
         runnerDirectory(
@@ -139,7 +139,7 @@ it("compares a retained stale binding before probing the desired exact path", as
   await store.import([
     { session: id, path: home, currentPath: null, worktree: null },
   ]);
-  const port = vi.spyOn(localCheckoutWorkload, "run"),
+  const port = vi.spyOn(inProcessPorts().checkoutWorkload, "run"),
     calls = vi.spyOn(child.session, "call");
   try {
     expect(
@@ -183,7 +183,7 @@ it("falls back once after a real child loses an accepted access call", async () 
     backoffMs: 60000,
     env: { RUNNER_FIXTURE_NATIVE_PAUSE: marker },
   });
-  const port = vi.spyOn(localCheckoutWorkload, "run"),
+  const port = vi.spyOn(inProcessPorts().checkoutWorkload, "run"),
     calls = vi.spyOn(lost.session, "call");
   try {
     await lost.session.call("runner.describe", {});

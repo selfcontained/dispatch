@@ -59,14 +59,6 @@
     "count": 1
   },
   {
-    "file": "apps/server/src/agents/acp/runtime.ts",
-    "kind": "R5 Dispatch to client transport",
-    "detail": "@dispatch/runner-client/host-client",
-    "task": "T40",
-    "count": 1,
-    "class": "route-through-runner"
-  },
-  {
     "file": "apps/server/src/agents/archive-checkout.ts",
     "kind": "R1 placement call",
     "detail": "remotePlacement(agent.cwd)",
@@ -410,13 +402,6 @@
     "file": "apps/server/src/agents/github-pull-request-evidence.ts",
     "kind": "R2 host import",
     "detail": "apps/server/src/shared/process/child-environment",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/workspace",
     "task": "T04",
     "count": 1
   },
@@ -1068,14 +1053,6 @@
   {
     "file": "apps/server/src/main.ts",
     "kind": "R2 host import",
-    "detail": "apps/server/src/shared/process/owned-processes",
-    "task": "T40",
-    "count": 1,
-    "class": "moves-with-workload"
-  },
-  {
-    "file": "apps/server/src/main.ts",
-    "kind": "R2 host import",
     "detail": "apps/server/src/terminal/runner-worker",
     "task": "T04",
     "count": 1
@@ -1170,14 +1147,6 @@
     "detail": "checkout reads in process without a current child binding",
     "task": "T18",
     "count": 1
-  },
-  {
-    "file": "apps/server/src/runners/local.ts",
-    "kind": "R5 Dispatch to runner",
-    "detail": "@dispatch/runner/host/host-command",
-    "task": "T40",
-    "count": 1,
-    "class": "moves-with-workload"
   },
   {
     "file": "apps/server/src/server.ts",

@@ -1,9 +1,7 @@
 import path from "node:path";
 import type { FastifyBaseLogger } from "fastify";
 
-import { createWorkspacePreparation } from "./workspace.js";
-import { runnerWorktree } from "./workspace-launch.js";
-import { WORKTREE_LOCAL_CONFIG_FILES } from "./worktree-local-config-files.js";
+import { inProcessPorts } from "../runners/in-process.js";
 
 /** Workspace and file helpers for workloads sharing the controller account. */
 export function createLocalRunner(
@@ -20,10 +18,7 @@ export function createLocalRunner(
       throw new Error("Invalid agent state directory");
     return path.join(agentStateRoot, agentId);
   }
-  const workspace = createWorkspacePreparation({
-    runnerWorktree,
-    localConfigFiles: WORKTREE_LOCAL_CONFIG_FILES,
-  });
+  const workspace = inProcessPorts().receipts;
   return {
     /**
      * A receipt an earlier build wrote for the agent's worktree launch,
