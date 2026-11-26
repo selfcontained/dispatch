@@ -8,7 +8,7 @@ import { readWorkspaceView, WorkspaceError } from "../files/workspace-view.js";
 import { getAgentDiff, getAgentFileDiff } from "../shared/git/agent-diff.js";
 import { getAgentDiffImage } from "../shared/git/diff-image.js";
 import { getDiffStatsComputation } from "../shared/git/diff-stats.js";
-import { recordedReviewBase } from "./checkout-inspection.js";
+import { readRecordedBase } from "./checkout-inspection.js";
 /** Runs under the workload account on Linux, or in process for a native session. */
 export async function readCheckoutView(
   cwd: string,
@@ -17,7 +17,7 @@ export async function readCheckoutView(
 ) {
   if (!("baseBranch" in view)) return readWorkspaceView(cwd, view);
   const base =
-    view.baseBranch ?? (managed ? await recordedReviewBase(cwd) : null);
+    view.baseBranch ?? (managed ? await readRecordedBase(cwd) : null);
   switch (view.kind) {
     case "stats": {
       const computation = await getDiffStatsComputation(cwd, base, view);
