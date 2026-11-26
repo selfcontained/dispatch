@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { sessionFromWire, type Req } from "@dispatch/runner-protocol/contract";
 import { BindingStore } from "../../../packages/runner/src/local/bindings.js";
@@ -262,4 +262,67 @@ it("keeps main's consuming FIFO map instead of the old enrolled empty assessment
     })
   );
   expect(ownerEvidence(await pending)).toEqual({ "fifo-owner": 1 });
+});
+
+it("pins old/new enrolled output for deletion between successful access and read", async () => {
+  const home = path.join(fixture.root, "vanishing-grade");
+  for (const file of [OWNERS_PATH, LEGACY_OWNERS_PATH])
+    await mkdir(path.dirname(path.join(home, file)), { recursive: true });
+  const config = (name: string) =>
+    JSON.stringify({
+      version: 1,
+      rules: [{ paths: ["src/**"], personas: [name] }],
+    });
+  await writeFile(path.join(home, OWNERS_PATH), config("primary-owner"));
+  await writeFile(path.join(home, LEGACY_OWNERS_PATH), config("legacy-owner"));
+  const selected = assessor(async () =>
+    loadCodeownersFromFiles({
+      access: (file) =>
+        checkoutWorkload.run(
+          "checkout.access",
+          { directory: home, request: { path: file } },
+          {}
+        ),
+      read: async (file) => {
+        await unlink(path.join(home, file));
+        return (
+          (
+            await checkoutWorkload.run(
+              "checkout.read",
+              {
+                directory: home,
+                request: {
+                  path: file,
+                  mode: "native",
+                  encoding: "utf8",
+                  maxBytes: null,
+                },
+              },
+              {}
+            )
+          )?.data ?? ""
+        );
+      },
+    })
+  );
+  expect(
+    ownerEvidence(await selected.owners(["vanishing"], "rnr_assessor"))
+  ).toEqual({});
+  const old = assessor(async () => {
+    for (const file of [OWNERS_PATH, LEGACY_OWNERS_PATH]) {
+      const reply = await checkoutWorkload.run(
+        "checkout.read",
+        {
+          directory: home,
+          request: { path: file, encoding: "utf8", maxBytes: null },
+        },
+        {}
+      );
+      if (reply) return parseCodeowners(reply.data, file);
+    }
+    return null;
+  });
+  expect(
+    ownerEvidence(await old.owners(["vanishing"], "rnr_assessor"))
+  ).toEqual({ "legacy-owner": 1 });
 });
