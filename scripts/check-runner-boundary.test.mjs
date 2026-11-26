@@ -476,9 +476,24 @@ test("computed imports resolve only preceding literal const bindings in the same
     );
 });
 
+test("controller logs, attachments and metrics grants apply only at their owners", () => {
+  for (const [owner, capability] of [
+    ["jobs/setup-log.ts", "fs/promises"],
+    ["observability/service-resources.ts", "os"],
+    ["server/mcp-file-storage.ts", "fs/promises"],
+    ["tasks/attachment-storage.ts", "fs/promises"],
+  ]) {
+    const source = `import "node:${capability}";`;
+    assert.deepEqual(scanSource(app + owner, source), []);
+    assert.ok(scanSource(app + owner.replace(".ts", "-other.ts"), source).some(hit => hit.kind === "R2 host access" && hit.detail === capability));
+    assert.ok(scanSource(app + owner, 'import "node:fs";').some(hit => hit.kind === "R2 host access" && hit.detail === "fs"));
+  }
+});
+
 test("every exact own-machine grant accepts only its named capability", () => {
   const sources = {
     fs: 'import "node:fs";',
+    "fs/promises": 'import "node:fs/promises";',
     os: 'import "node:os";',
     process: 'import "node:child_process";',
     openssl: 'Bun.spawn(["openssl", "version"]);',
