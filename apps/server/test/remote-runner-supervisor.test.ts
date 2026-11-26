@@ -259,6 +259,7 @@ describe("runner session supervision", () => {
       | "uid"
       | "gid"
       | "bindingWritten"
+      | "observeCheckout"
     >
   ) {
     supervisor = await createSessionSupervisor(
@@ -1631,6 +1632,35 @@ describe("runner session supervision", () => {
     await recovered.discard(agentId, workspace);
     await recovered.discard(agentId, workspace);
     await expect(stat(author)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("observes ownership alone for an authorized removal: no checkout state is read (no Git status or fetch)", async () => {
+    const workspace = MANAGED_WORKSPACE;
+    // The state read (Git status, and the fetch archive changes run).
+    const observeCheckout = vi.fn(async () => {
+      throw new Error("no checkout state is read");
+    });
+    const running = await start([], vi.fn(), undefined, { observeCheckout });
+    await running.launch(launch(workspace), undefined);
+    await running.stop(agentId, workspace, true);
+    expect(
+      await running.checkoutRelease(agentId, workspace, {
+        kind: "observe",
+        policy: "ownership",
+      })
+    ).toEqual({
+      ownership: "owned",
+      owner: agentId,
+      borrowers: [],
+      checkout: null,
+    });
+    expect(observeCheckout).not.toHaveBeenCalled();
+    // The caller's decision needs the state: it is read.
+    await running.checkoutRelease(agentId, workspace, {
+      kind: "observe",
+      policy: "changes",
+    });
+    expect(observeCheckout).toHaveBeenCalledOnce();
   });
 
   it.each(["owner-first", "borrower-first", "changed-after-observation"])(

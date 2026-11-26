@@ -315,7 +315,15 @@ export const operations = {
   "workspace.observe": op({
     scope: "session",
     kind: "call",
-    request: object(session),
+    request: object({
+      ...session,
+      /**
+       * `ownership`: who owns the checkout and who borrows it, without its
+       * state (no Git status or fetch), for a removal already authorized.
+       * Absent: the checkout's state for the caller's decision.
+       */
+      policy: optional(literal("ownership")),
+    }),
     response: observation,
     errors: ["not_found"],
     retry: read,

@@ -1822,6 +1822,11 @@
         "object": {
           "session": {
             "opaque": "SessionHandle"
+          },
+          "policy": {
+            "optional": {
+              "literal": ["ownership"]
+            }
           }
         }
       },
