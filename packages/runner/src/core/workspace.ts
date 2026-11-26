@@ -741,7 +741,20 @@ export function workspaceHandlers(
       return { path: pathFromWire(await port.putFile(path, { mustExist })) };
     },
 
+    ...(port.launchProbes && {
+      "path.complete": port.launchProbes.complete,
+      "git.remoteHeads": port.launchProbes.remoteHeads,
+    }),
+
     async "path.resolve"(input: Req<"path.resolve">) {
+      if (input.automatic) {
+        if (!port.launchProbes)
+          throw new RunnerCallError({
+            code: "unsupported",
+            message: "This runner does not inspect launch folders.",
+          });
+        return port.launchProbes.inspect(input.path);
+      }
       if (!port.resolvePath)
         throw new RunnerCallError({
           code: "unsupported",

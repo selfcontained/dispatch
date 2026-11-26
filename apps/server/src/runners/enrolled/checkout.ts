@@ -345,12 +345,22 @@ export function createEnrolledCheckoutRunner(
         ) as Promise<Res<K>>;
       }
       // A folder on this runner, as its workload account resolves it.
-      if (op === "path.resolve") {
+      if (
+        op === "path.resolve" ||
+        op === "path.complete" ||
+        op === "git.remoteHeads"
+      ) {
         if (!service)
           throw new RunnerCallError({
             code: "unavailable",
             message: "The runner is unavailable.",
           });
+        if (op !== "path.resolve")
+          return service.readRunnerPath(
+            runnerId,
+            op,
+            input as Req<"path.complete" | "git.remoteHeads">
+          ) as Promise<Res<K>>;
         return service.resolveRunnerPath(
           runnerId,
           input as Req<"path.resolve">

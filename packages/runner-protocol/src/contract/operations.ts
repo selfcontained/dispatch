@@ -353,6 +353,8 @@ export const operations = {
     kind: "call",
     request: object({
       path: string,
+      /** Automatic launch-form probe of the typed path with privacy checks. */
+      automatic: optional(literal(true)),
       /** False: no Git probe of `path` (`git` stays null). */
       git: optional(literal(false)),
       /** Also resolve `path`'s project root (`projectRoot` or `projectRootError`). */
@@ -651,6 +653,16 @@ export const operations = {
     errors: [],
     retry: read,
     timeout: "default",
+    capability: "baseline",
+  }),
+  "git.remoteHeads": op({
+    scope: "runner",
+    kind: "call",
+    request: object({ path: string }),
+    response: object({ branches: array(string) }),
+    errors: [],
+    retry: read,
+    timeout: "long",
     capability: "baseline",
   }),
   "git.branches": op({

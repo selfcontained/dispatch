@@ -2,6 +2,7 @@ import { promisify } from "node:util";
 import { childProcessEnv } from "../shared/process/child-environment.js";
 import { repositoryUrl, projectRepositoryUrl } from "@dispatch/runner-protocol";
 import type { DefinitionParser } from "./default-branch-files.js";
+import type { LaunchFolderProbes } from "@dispatch/runner-protocol/in-process";
 export type CheckoutWorkloadInputs = { parseDefinition: DefinitionParser };
 import { json } from "node:stream/consumers";
 import {
@@ -151,7 +152,12 @@ const STATUS_CODES: Record<number, ErrorCode> = {
  * is the declared one for that status, or `failed`.
  */
 function workerError(
-  op: WorkerOp | "checkout.exec" | "checkout.write",
+  op:
+    | WorkerOp
+    | "checkout.exec"
+    | "checkout.write"
+    | "path.complete"
+    | "git.remoteHeads",
   error: unknown
 ): RunnerCallError {
   if (error instanceof RunnerCallError) return error;
@@ -780,7 +786,7 @@ export const WORKER_ALIASES: Record<string, string> = {
  */
 export async function runCheckoutWorker(
   argv: string[],
-  inputs: CheckoutWorkloadInputs
+  inputs: CheckoutWorkloadInputs & { launchProbes: LaunchFolderProbes }
 ): Promise<void> {
   const checkoutWorkload = createCheckoutWorkload(inputs);
   const [op, cwd, flag] = argv;
@@ -833,6 +839,25 @@ export async function runCheckoutWorker(
     }
     return;
   }
+  if (op === "path.complete" || op === "git.remoteHeads") {
+    const request: unknown = await json(process.stdin);
+    try {
+      const data =
+        op === "path.complete" && operations[op].request.check(request)
+          ? await inputs.launchProbes.complete(request)
+          : op === "git.remoteHeads" && operations[op].request.check(request)
+            ? await inputs.launchProbes.remoteHeads(request)
+            : undefined;
+      if (!data) throw new Error("Invalid path query.");
+      process.stdout.write(JSON.stringify({ data }));
+    } catch (error) {
+      const { code, message, details } = workerError(op, error);
+      process.stdout.write(
+        JSON.stringify({ error: { code, message, details } })
+      );
+    }
+    return;
+  }
   if (op === "path.resolve") {
     // `runner-worker path.resolve`: main's launch folder resolution as the
     // workload account (`~` is its HOME).
@@ -841,7 +866,9 @@ export async function runCheckoutWorker(
       throw new Error("Invalid path query.");
     const { path: raw, ...options } = request;
     try {
-      const data = await workspaceWorkload.resolvePath(raw, options);
+      const data = options.automatic
+        ? await inputs.launchProbes.inspect(raw)
+        : await workspaceWorkload.resolvePath(raw, options);
       process.stdout.write(JSON.stringify({ data }));
     } catch (error) {
       const { code, message, details } = workerError(op, error);

@@ -904,6 +904,7 @@ export function createLocalCheckoutRunner(
     );
     if (answered) return answered.value;
     const { path: requested, ...rest } = input;
+    if (rest.automatic) return inProcessPorts().launchProbes.inspect(requested);
     return workspaceWorkload.resolvePath(requested, rest);
   }
 
@@ -1233,6 +1234,21 @@ export function createLocalCheckoutRunner(
           "git.origin",
           { directory: request.path, request },
           { signal: options?.signal }
+        ) as Promise<Res<K>>;
+      }
+      if (op === "path.complete" || op === "git.remoteHeads") {
+        const answered = await readAttempt(
+          op,
+          input,
+          (child, read) => child.call(op, input, read),
+          options
+        );
+        if (answered) return answered.value;
+        const { launchProbes } = inProcessPorts();
+        return (
+          op === "path.complete"
+            ? launchProbes.complete(input as Req<"path.complete">)
+            : launchProbes.remoteHeads(input as Req<"git.remoteHeads">)
         ) as Promise<Res<K>>;
       }
       if (op === "path.resolve")

@@ -20,6 +20,9 @@ import { githubWorkload } from "../../src/agents/checkout-worker.js";
 import { localTerminalHandlers } from "../../src/terminal/runner-worker.js";
 import { localHostEntry } from "../../src/agents/acp/local-host-entry.js";
 
+import { createLaunchFolderProbes } from "../../src/agents/local-workspace-probes.js";
+import { shouldSkipAutomaticMacPathProbe } from "../../src/shared/mac-path-privacy.js";
+
 const dieOnce = (marker: string | undefined) => {
   if (marker && existsSync(marker)) {
     rmSync(marker);
@@ -81,6 +84,7 @@ await runCli(process.argv.slice(2), {
     workload: checkoutWorkload,
     workspace: {
       ...workspaceWorkload,
+      launchProbes: createLaunchFolderProbes(shouldSkipAutomaticMacPathProbe),
       async create(spec, path) {
         const made = await workspaceWorkload.create(spec, path);
         dieOnce(process.env.RUNNER_DIE_AFTER_CREATE);

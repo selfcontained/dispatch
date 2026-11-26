@@ -1221,7 +1221,7 @@ export async function runRemoteRunner(
             // `~`, its permissions for every stat and realpath.
             result(
               await runCheckoutWorker(
-                workloadLogin([...self("runner-worker"), "path.resolve"]),
+                workloadLogin([...self("runner-worker"), command.operation.op]),
                 await checkoutGitEnv(),
                 JSON.stringify(command.operation.request),
                 AbortSignal.any([

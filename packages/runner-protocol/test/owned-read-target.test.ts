@@ -36,7 +36,7 @@ it("accepts owned for file and presence reads, leaving other target schemas unch
       shell: "direct",
     })
   ).toBe(false);
-  expect(Object.keys(operations)).toHaveLength(73);
+  expect(Object.keys(operations)).toHaveLength(74);
 });
 it.each([undefined, "current", "launch", "moved"] as const)(
   "keeps the existing read target: %s",

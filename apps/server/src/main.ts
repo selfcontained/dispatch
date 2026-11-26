@@ -2,6 +2,13 @@ import { captureStartupAcpAdapter } from "./startup/acp-adapter.js";
 import { restoreLegacyMacLaunchAgentEnvironment } from "./startup/shell-environment.js";
 
 const loadCheckoutWorker = () => import("./agents/checkout-worker.js");
+async function loadLaunchProbes() {
+  const { createLaunchFolderProbes } =
+    await import("./agents/local-workspace-probes.js");
+  const { shouldSkipAutomaticMacPathProbe } =
+    await import("./shared/mac-path-privacy.js");
+  return createLaunchFolderProbes(shouldSkipAutomaticMacPathProbe);
+}
 const loadTerminalWorker = () => import("./terminal/runner-worker.js");
 
 // Modes of this binary, checked before anything else so none of them
@@ -70,7 +77,10 @@ if (process.argv[2]?.startsWith("recovery-")) {
   const [mode, ...rest] = process.argv.slice(2);
   await runCheckoutWorker(
     mode === "runner-worker" ? rest : [WORKER_ALIASES[mode!]!, ...rest],
-    { parseDefinition: toPersonaDefinition }
+    {
+      parseDefinition: toPersonaDefinition,
+      launchProbes: await loadLaunchProbes(),
+    }
   );
 } else if (process.argv[2] === "runner-prepare-dependencies") {
   const { installWorkspaceDependencies } =
@@ -160,7 +170,10 @@ if (process.argv[2]?.startsWith("recovery-")) {
       workload: createCheckoutWorkload({
         parseDefinition: toPersonaDefinition,
       }),
-      workspace: workspaceWorkload,
+      workspace: {
+        ...workspaceWorkload,
+        launchProbes: await loadLaunchProbes(),
+      },
       github: githubWorkload,
       engines: localEnginePort(),
     },
@@ -195,7 +208,11 @@ async function serve(): Promise<void> {
   const { loadInProcessPorts } = await import("./runners/in-process.js");
   const { parseEngineCapabilityResult } =
     await import("./agents/remote/engine-capability-result.js");
-  await loadInProcessPorts(loadCheckoutWorker, parseEngineCapabilityResult);
+  await loadInProcessPorts(
+    loadCheckoutWorker,
+    parseEngineCapabilityResult,
+    await loadLaunchProbes()
+  );
   const { app, shutdown, start } = await import("./server.js");
 
   if (shellEnvironment.state === "resolved") {

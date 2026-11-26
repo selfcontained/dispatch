@@ -186,7 +186,7 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-const resolve = (id: string, request: object) =>
+const resolve = (id: string, request: object, op = "path.resolve") =>
   Buffer.from(
     JSON.stringify({
       type: "request",
@@ -195,7 +195,7 @@ const resolve = (id: string, request: object) =>
         kind: "pathResolve",
         agentId: "@path",
         workspace: "@session",
-        operation: { op: "path.resolve", request },
+        operation: { op, request },
       },
     }) + "\n"
   );
@@ -267,6 +267,27 @@ it("resolves a folder as the workload, never as the supervisor", async () => {
     expect(
       JSON.parse((spawnWorker as unknown as { input: string }).input)
     ).toEqual(request);
+    for (const [op, query] of [
+      ["path.complete", { prefix: "~/s", limit: 20 }],
+      ["git.remoteHeads", { path: "~/src" }],
+    ] as const) {
+      socket.emit("data", resolve(op, query, op));
+      await vi.waitFor(() =>
+        expect(
+          socket.write.mock.calls.some(([line]) =>
+            String(line).includes(`"id":"${op}"`)
+          )
+        ).toBe(true)
+      );
+      const [executable, argv, settings] = spawnWorker.mock.lastCall!;
+      expect(executable).toEqual(command);
+      expect(argv.slice(0, -1)).toEqual(args.slice(0, -1));
+      expect(argv.at(-1)).toBe(op);
+      expect(settings.env.HOME).toBe(root);
+      expect(
+        JSON.parse((spawnWorker as unknown as { input: string }).input)
+      ).toEqual(query);
+    }
     // No session binding chooses or narrows the folder.
     expect(bound.calls).toBe(0);
   } finally {

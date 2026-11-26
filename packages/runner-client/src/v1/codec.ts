@@ -788,11 +788,18 @@ export function encodeCommand(input: Decoded | LegacyCommand): Command {
       >["operation"],
     };
   }
-  if (op === "path.resolve")
+  if (
+    op === "path.resolve" ||
+    op === "path.complete" ||
+    op === "git.remoteHeads"
+  )
     return {
       ...base((extras.agentId ?? "@path") as string),
       kind: "pathResolve",
-      operation: { op, request: input.request as Req<"path.resolve"> },
+      operation: { op, request: input.request } as Extract<
+        Command,
+        { kind: "pathResolve" }
+      >["operation"],
     };
   if (op === "checkout.write")
     return {
@@ -1092,6 +1099,8 @@ export function decodeResult<K extends OpName>(
     case "git.defaultBranch":
     case "git.branches":
     case "git.base":
+    case "git.remoteHeads":
+    case "path.complete":
     case "path.resolve":
     case "checkout.write":
     case "workspace.prepare":
@@ -1258,6 +1267,8 @@ export function encodeResult<K extends OpName>(
     if (
       op === "workspace.prepare" ||
       op === "workspace.resume" ||
+      op === "git.remoteHeads" ||
+      op === "path.complete" ||
       op === "path.resolve" ||
       op === "checkout.write" ||
       (op === "checkout.defaultFiles" && input.extras.repositoryFiles)
@@ -1294,6 +1305,8 @@ export function encodeResult<K extends OpName>(
     case "git.defaultBranch":
     case "git.branches":
     case "git.base":
+    case "git.remoteHeads":
+    case "path.complete":
     case "path.resolve":
     case "checkout.write":
     case "workspace.prepare":
@@ -1494,6 +1507,5 @@ export const STREAMED_ON_V1 = {
 export const NOT_ON_V1 = {
   "runner.describe": "derived from the v1 ready frame plus registry fields",
   "runner.health": "v1 pushes health frames after accept_health",
-  "path.complete": "controller-machine probe today (D7)",
   "port.connect": "missing from both (D6)",
 } as const satisfies Partial<Record<OpName, string>>;
