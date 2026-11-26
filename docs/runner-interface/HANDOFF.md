@@ -142,6 +142,7 @@ Enrolled runners retain the existing 300-second read transport deadline for nati
 
 ## Open differences — must close before the seal
 
+- **A read falls back here on connection loss, which does not by itself prove the child stopped running it** (since Part A). The adapter treats a lost or closed connection (`unknown_outcome` mid-read) as "the child went" and reads here once. In normal operation the app closes that connection only after the child exited (the supervisor's `waiting` state), on a restart's new endpoint, or at app shutdown; the transport also drops it on a malformed frame (a defect). A 3 MiB reply crosses the same connection without loss. To close it: fall back only once the child's exit is observed (the supervisor's `exited`), not on the socket close alone.
 - **Archive under `auto` when a checkout's state cannot be read (owner decision, one answer for both):**
   1. Main treats a failed status read as clean, so `auto` removes the worktree (design 0.5, `auto` rule). The owner has been asked whether an unreadable status should keep the checkout instead (unreadable ≠ clean), for every runner.
   2. Local `auto` archive through the adapter: when the child's `workspace.describe` or `workspace.observe` fails with an ordinary error (not a missed read), the archive keeps the checkout (`kept: failed`), where main observes in process and, per 1, removes it. Option A (#1614) covers the release only; this observe path is left as it is until 1 is decided, then both move together.
