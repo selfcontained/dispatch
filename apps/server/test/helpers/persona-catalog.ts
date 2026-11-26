@@ -32,13 +32,19 @@ export class PersonaCatalogCache extends Catalog {
           );
           return reply;
         }
-        if (op === "git.roots") {
-          const { target, ...request } = raw as Req<"git.roots">;
+        if (
+          op === "git.roots" ||
+          op === "checkout.list" ||
+          op === "checkout.read"
+        ) {
+          const { target, ...request } = raw as Req<
+            "git.roots" | "checkout.list" | "checkout.read"
+          >;
           if (!("path" in target))
             throw new Error("Catalog fixture requires a folder target.");
           return checkoutWorkload.run(
-            "git.roots",
-            { directory: displayPath(target.path), request },
+            op,
+            { directory: displayPath(target.path), request } as never,
             options ?? {}
           );
         }
