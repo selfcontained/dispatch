@@ -9,6 +9,7 @@ import {
   placementFromRow,
   controllerPlacement,
 } from "../runners/placement.js";
+import { RunnerRevoked } from "./remote/service.js";
 import type { AgentRuntime } from "./runtime.js";
 import type { AgentRecord, AgentStatus } from "./types.js";
 
@@ -102,8 +103,17 @@ async function reconcileAgentStatuses(
   );
 
   const reconciled: AgentRecord[] = [];
-  const isAlive =
+  const probeLiveness =
     runtime.inventoryLiveness?.() ?? runtime.isAlive.bind(runtime);
+
+  const isAlive = async (id: string) => {
+    try {
+      return await probeLiveness(id);
+    } catch (error) {
+      if (error instanceof RunnerRevoked) return "revoked" as const;
+      throw error;
+    }
+  };
 
   // Reattach attempts can each wait for a hello timeout. Probe eligible
   // hosts together so several busy hosts do not stall the whole pass in
@@ -181,17 +191,23 @@ async function reconcileAgentStatuses(
       row.status === "running" || row.status === "creating"
         ? (probe?.alive ?? false)
         : await isAlive(row.id);
-    if (!alive) {
-      const logTail = await runtime.readLogTail(row.id);
+    if (!alive || alive === "revoked") {
+      const revoked = alive === "revoked";
+      const logTail = revoked
+        ? RunnerRevoked.reason
+        : await runtime.readLogTail(row.id);
       const launchFailed = row.status === "creating";
-      const nextStatus: AgentStatus = launchFailed ? "error" : "stopped";
+      const nextStatus: AgentStatus =
+        revoked || launchFailed ? "error" : "stopped";
       const baseMessage = launchFailed
         ? "Launch failed before the agent became ready."
         : "The agent is no longer running.";
       await deps.settleStream(row.id, "the agent stopped");
       await deps.setAgentStatus(row.id, nextStatus, logTail || null);
       await deps.setReconnectProgress(row.id, null);
-      if (launchFailed) {
+      if (revoked) {
+        await deps.notifyBlocked(row.id, RunnerRevoked.reason);
+      } else if (launchFailed) {
         await deps.notifyBlocked(
           row.id,
           logTail ? `${baseMessage}\n${logTail}` : baseMessage

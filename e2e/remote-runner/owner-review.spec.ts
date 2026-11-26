@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { authHeaders, callMcpToolViaAPI, deleteAgentViaAPI } from "../helpers";
 import {
+  agentInfo,
   enrollViaUi,
   guest,
   lane,
@@ -652,6 +653,11 @@ test("identical runner paths yield separate tool catalogs", async ({
       expect(res.ok(), await res.text()).toBe(true);
       const id = (await res.json()).agent.id as string;
       agents.push(id);
+      await expect
+        .poll(async () => (await agentInfo(request, id)).status, {
+          timeout: 30_000,
+        })
+        .toBe("running");
       const moved = await request.patch("/api/v1/agents/" + id + "/workspace", {
         headers: authHeaders(),
         data: { path: directory },

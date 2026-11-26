@@ -107,6 +107,8 @@ export class TemplateService {
       projectId: input.projectId,
       projectRoot,
     });
+    if (input.directory === "" && (target.directory !== "" || !input.projectId))
+      throw new Error("Template directory is required.");
     if (input.persona)
       await resolvePersona(
         personaScope({
@@ -211,10 +213,13 @@ export class TemplateService {
       projectId,
       projectRoot,
     });
+    if (input.directory === "" && (target.directory !== "" || !projectId))
+      throw new Error("Template directory is required.");
     const targetChanged =
       Boolean(input.directory) ||
       projectId !== existing.projectId ||
-      target.directory !== existing.directory;
+      target.directory !== existing.directory ||
+      !sameRunner(targetPlacement(target), targetPlacement(existing));
     const persona =
       input.persona !== undefined ? input.persona : existing.persona;
     if (

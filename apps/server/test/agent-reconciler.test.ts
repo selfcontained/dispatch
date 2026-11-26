@@ -1,3 +1,4 @@
+import { RunnerRevoked } from "../src/agents/remote/service.js";
 import { sessionFromWire } from "@dispatch/runner-protocol/contract";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -251,6 +252,31 @@ describe("reconcileAgentStatuses — reconnect latency", () => {
 });
 
 describe("reconcileAgentStatuses — missing-host detection", () => {
+  it("records a revoked registration even when reconciliation precedes the host disconnect callback", async () => {
+    const runtime = makeRuntime({
+      inventoryLiveness: () => async () => {
+        throw new RunnerRevoked();
+      },
+    });
+    const { reconciler, setAgentStatus, notifyBlocked } = setup({
+      activeRows: [
+        { id: "agt_revoked", status: "running", updatedAt: minutesAgo(2) },
+      ],
+      runtime,
+    });
+    await reconciler.reconcileAgentStatuses();
+    expect(setAgentStatus).toHaveBeenCalledWith(
+      "agt_revoked",
+      "error",
+      RunnerRevoked.reason
+    );
+    expect(notifyBlocked).toHaveBeenCalledWith(
+      "agt_revoked",
+      RunnerRevoked.reason
+    );
+    expect(runtime.readLogTail).not.toHaveBeenCalled();
+  });
+
   it("running agent whose host is gone → settles the stream and flips to stopped", async () => {
     const runtime = makeRuntime({ isAlive: vi.fn().mockResolvedValue(false) });
     const { reconciler, setAgentStatus, notifyBlocked, settleStream } = setup({
