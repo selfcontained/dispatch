@@ -1,3 +1,4 @@
+import { inProcessPorts } from "../src/runners/in-process.js";
 /*
  * The local adapter with a real child that dies mid-call. A read answers as
  * a healthy child does, from exactly one in-process call, without waiting
@@ -30,7 +31,6 @@ import {
 } from "@dispatch/runner-protocol/contract";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { workspaceWorkload } from "../src/agents/checkout-worker.js";
-import { localCheckoutWorkload as checkoutWorkload } from "../src/runners/local.js";
 import { runnerDirectory } from "../src/runners/directory.js";
 import { controllerPlacement } from "../src/runners/placement.js";
 import {
@@ -183,7 +183,7 @@ describe("a read whose child dies mid-call", () => {
     async (op, request) => {
       const run = () =>
         adapter(() => child.session).call(op, request(target) as never);
-      const here = vi.spyOn(checkoutWorkload, "run");
+      const here = vi.spyOn(inProcessPorts().checkoutWorkload, "run");
       try {
         const healthy = await outcome(run);
         expect(healthy).not.toHaveProperty("error");
@@ -206,7 +206,7 @@ describe("a read whose child dies mid-call", () => {
       const at = { path: pathFromWire(repo) };
       const run = () =>
         adapter(() => child.session).call(op, request(at) as never);
-      const here = vi.spyOn(checkoutWorkload, "run");
+      const here = vi.spyOn(inProcessPorts().checkoutWorkload, "run");
       try {
         const healthy = await outcome(run);
         expect(healthy).not.toHaveProperty("error");
@@ -234,7 +234,7 @@ describe("a read whose child dies mid-call", () => {
         "path" in base.target ? { target: { path: pathFromWire(repo) } } : base;
       const run = () =>
         adapter(() => child.session).call(op, request as Req<typeof op>);
-      const here = vi.spyOn(checkoutWorkload, "run");
+      const here = vi.spyOn(inProcessPorts().checkoutWorkload, "run");
       try {
         const healthy = await outcome(run);
         expect(healthy).not.toHaveProperty("error");
@@ -281,7 +281,7 @@ describe("a read whose child dies mid-call", () => {
     const request = { target, path: "" } as Req<"checkout.list">;
     const run = () =>
       adapter(() => child.session, moved).call("checkout.list", request);
-    const here = vi.spyOn(checkoutWorkload, "run");
+    const here = vi.spyOn(inProcessPorts().checkoutWorkload, "run");
     try {
       const healthy = await outcome(run);
       expect(JSON.stringify(healthy)).toContain("b.ts");
@@ -343,7 +343,7 @@ describe("a mutation whose child dies mid-call", () => {
       encoding: "utf8",
       maxBytes: null,
     });
-    const here = vi.spyOn(checkoutWorkload, "run");
+    const here = vi.spyOn(inProcessPorts().checkoutWorkload, "run");
     try {
       const { answer } = await interrupted(() =>
         adapter(() => child.session).call("checkout.write", request)
@@ -474,7 +474,7 @@ async function crashed(call: () => Promise<unknown>) {
 describe("checkout.watch when the child cannot open it", () => {
   it("watches here for the subscription's life, also after the child is back", async () => {
     const down = sessionFor(null);
-    const here = vi.spyOn(checkoutWorkload, "watch");
+    const here = vi.spyOn(inProcessPorts().checkoutWorkload, "watch");
     try {
       const { channel } = await adapter(() => down).open("checkout.watch", {
         target,
@@ -520,7 +520,7 @@ describe("a read the child answers", () => {
         });
       }),
     } as unknown as Runner;
-    const here = vi.spyOn(checkoutWorkload, "run");
+    const here = vi.spyOn(inProcessPorts().checkoutWorkload, "run");
     try {
       for (const op of ["checkout.read", "checkout.write"] as const)
         expect(

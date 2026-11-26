@@ -407,13 +407,6 @@
   },
   {
     "file": "apps/server/src/agents/local-runner.ts",
-    "kind": "R2 host import",
-    "detail": "apps/server/src/agents/workspace",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner.ts",
     "kind": "R3 local method",
     "detail": "bindWorkspace",
     "task": "T04",
@@ -1176,14 +1169,6 @@
     "detail": "checkout reads in process without a current child binding",
     "task": "T18",
     "count": 1
-  },
-  {
-    "file": "apps/server/src/runners/local.ts",
-    "kind": "R5 Dispatch to runner",
-    "detail": "@dispatch/runner/host/host-command",
-    "task": "T40",
-    "count": 1,
-    "class": "moves-with-workload"
   },
   {
     "file": "apps/server/src/server.ts",

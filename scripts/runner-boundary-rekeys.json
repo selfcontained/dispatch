@@ -1,5 +1,5 @@
 {
-  "budget": 19,
+  "budget": 18,
   "importers": [
     "apps/server/src/agents/acp/host-search-path.ts",
     "apps/server/src/agents/acp/local-host-entry.ts",
@@ -13,7 +13,6 @@
     "apps/server/src/agents/remote/session-supervisor.ts",
     "apps/server/src/agents/remote/workload-tools.ts",
     "apps/server/src/main.ts",
-    "apps/server/src/runners/local.ts",
     "apps/server/src/shared/plugin-status.ts",
     "apps/server/src/terminal/pty.ts"
   ],
@@ -242,19 +241,6 @@
     {
       "key": {
         "file": "apps/server/src/agents/remote/workload-tools.ts",
-        "kind": "R5 Dispatch to runner",
-        "detail": "@dispatch/runner/host/host-command"
-      },
-      "task": "T40",
-      "class": "moves-with-workload",
-      "reason": "Host module moved before its workload importer.",
-      "movedDependency": "apps/server/src/agents/acp/host-command.ts",
-      "type": "package-import",
-      "target": "packages/runner/src/host/host-command.ts"
-    },
-    {
-      "key": {
-        "file": "apps/server/src/runners/local.ts",
         "kind": "R5 Dispatch to runner",
         "detail": "@dispatch/runner/host/host-command"
       },

@@ -1,3 +1,4 @@
+import { inProcessPorts } from "../src/runners/in-process.js";
 /*
  * A local agent's checkout file listing (`listFiles`, owner reviews' and
  * personas' reads) answers as main's in-process `inspectCheckout` does, with
@@ -21,7 +22,6 @@ import {
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { inspectCheckout } from "../src/agents/checkout-inspection.js";
 import { inspectAgentCheckout } from "../src/agents/checkout-runner.js";
-import { localCheckoutWorkload } from "../src/runners/local.js";
 import { controllerPlacement } from "../src/runners/placement.js";
 import type { AgentRecord } from "../src/agents/types.js";
 import {
@@ -119,7 +119,7 @@ describe("listFiles for a local agent", () => {
   );
 
   it.each(paths)("%j answers as main's, from a real child", async (path) => {
-    const here = vi.spyOn(localCheckoutWorkload, "run");
+    const here = vi.spyOn(inProcessPorts().checkoutWorkload, "run");
     try {
       expect(await now(path, viaChild)).toEqual(await main(repo, path));
     } finally {
@@ -149,7 +149,7 @@ describe("listFiles for a local agent", () => {
 
 describe("listFiles through the agent's runner", () => {
   it("is served by a healthy child: nothing runs here", async () => {
-    const here = vi.spyOn(localCheckoutWorkload, "run");
+    const here = vi.spyOn(inProcessPorts().checkoutWorkload, "run");
     try {
       expect(await now("src", viaChild)).toEqual(await main(repo, "src"));
       expect(here).not.toHaveBeenCalled();

@@ -55,7 +55,10 @@ import { resolvePath } from "./workspace.js";
 import { resolveProjectRoot } from "../projects/resolve-root.js";
 import { SharedCheckoutWatches, watchCheckout } from "./checkout-watch.js";
 import { spawn, execFile } from "node:child_process";
-import { loginShellCommand } from "@dispatch/runner/host/host-command";
+import {
+  hostCommand,
+  loginShellCommand,
+} from "@dispatch/runner/host/host-command";
 import { readCheckoutCommandFile } from "./checkout-inspection.js";
 import {
   capture,
@@ -1769,3 +1772,7 @@ export async function inferRepositoryUrl(cwd: string): Promise<string> {
     "The project has no unambiguous HTTPS repository origin. Enter its repository URL."
   );
 }
+
+// Provided to the entry that composes the controller's in-process ports.
+export { hostCommand };
+export { createWorkspacePreparation } from "./workspace.js";
