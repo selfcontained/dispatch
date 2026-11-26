@@ -81,6 +81,7 @@
         "apps/server/test/fixtures/acp-*",
         "apps/server/test/helpers/inject-app.ts",
         "apps/server/test/helpers/local-runner-child.ts",
+        "apps/server/test/helpers/stream-helper.ts",
         "apps/server/test/helpers/main-local-hosts.ts",
         "apps/server/test/local-runner-host-adoption.test.ts",
         "apps/server/test/local-runner-sole-spawner.test.ts",
