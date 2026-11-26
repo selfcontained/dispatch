@@ -1,3 +1,4 @@
+import type { WorkspacePreparationPort } from "./workspace-operations.js";
 import type { BuildIdentity } from "@dispatch/runner-protocol/build-identity";
 import { childProcessEnv } from "../../shared/process/child-environment.js";
 import { executionArgs, setpriv } from "./workload-identity.js";
@@ -30,7 +31,6 @@ import {
   sessionFromWire,
   sessionToWire,
   type Req,
-  type Res,
 } from "@dispatch/runner-protocol/contract";
 import {
   runnerReplyTimeoutMs,
@@ -373,33 +373,26 @@ const FENCE_EXEMPT = new Set<Command["kind"]>([
 ]);
 
 /** Test seams. Production uses the installed root updater layout. */
-type WorkspaceOp =
-  | "workspace.prepare"
-  | "workspace.resume"
-  | "workspace.release";
 type WorkspacePreparationFactory = (options: {
   state: string;
   ids: { supervisor: number; uid: number; gid: number };
   asWorkload: WorkloadCommand;
   step: (op: string, args: unknown[]) => Promise<unknown>;
-}) => Promise<{
-  legacy(session: string): Promise<boolean>;
-  bindingWritten(session: string): Promise<void>;
-  hasReceipt(session: string): Promise<boolean>;
-  remove(session: string): Promise<boolean>;
-  releaseLegacy(
-    session: string,
-    source: string | null,
-    request: Omit<Req<"workspace.release">, "session">
-  ): Promise<boolean>;
-  call<K extends WorkspaceOp>(
-    op: K,
-    request: Req<K>,
-    emit: (event: unknown) => void
-  ): Promise<Res<K>>;
-  /** A repository's cached clone, as a launch from that repository uses it. */
-  repositoryClone?(url: string): Promise<string>;
-}>;
+}) => Promise<
+  WorkspacePreparationPort & {
+    legacy(session: string): Promise<boolean>;
+    bindingWritten(session: string): Promise<void>;
+    hasReceipt(session: string): Promise<boolean>;
+    remove(session: string): Promise<boolean>;
+    releaseLegacy(
+      session: string,
+      source: string | null,
+      request: Omit<Req<"workspace.release">, "session">
+    ): Promise<boolean>;
+    /** A repository's cached clone, as a launch from that repository uses it. */
+    repositoryClone?(url: string): Promise<string>;
+  }
+>;
 
 export type RunnerUpdateOptions = {
   build: BuildIdentity;

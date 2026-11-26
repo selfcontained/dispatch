@@ -1,3 +1,4 @@
+import { enrolledWorkspace } from "../../../packages/runner/src/workload/agents/remote/workspace-operations.js";
 import { enrolledSessions } from "../../../packages/runner/src/workload/agents/remote/session-operations.js";
 import { streamHelper } from "./helpers/stream-helper.js";
 import { placementForRunner } from "../src/runners/placement.js";
@@ -826,16 +827,38 @@ describe("runner session supervision", () => {
       const runner = await start([]);
       const bindings = path.join(state, "bindings");
       const before = await readdir(bindings);
-      const release = vi.fn(async () => true);
+      const release = vi.fn(async () => {
+        throw new Error("No working checkout");
+      });
+      const session = sessionFromWire(agentId);
       if (operation === "release") {
         await expect(
-          runner.releaseWorkspace(agentId, MANAGED_WORKSPACE, release)
-        ).resolves.toBe(true);
+          enrolledWorkspace(runner, { call: release }, vi.fn())[
+            "workspace.release"
+          ]({ session, deleteBranch: false, originalBranch: null })
+        ).resolves.toEqual({ removed: true });
       } else {
         await runner.discard(agentId, MANAGED_WORKSPACE);
       }
       runner.close();
       const restarted = await start([]);
+      const calls = enrolledWorkspace(restarted, { call: release }, vi.fn());
+      const context = { emit: vi.fn(), receiveBlob: vi.fn() };
+      await expect(
+        calls["workspace.resume"]({ session }, context)
+      ).resolves.toBeNull();
+      await expect(
+        calls["workspace.prepare"](
+          {
+            session,
+            source: { scratch: true },
+            copyIgnored: [],
+            installDependencies: false,
+          },
+          context
+        )
+      ).rejects.toMatchObject({ code: "conflict" });
+
       await expect(
         restarted.launch(launch(MANAGED_WORKSPACE), undefined)
       ).rejects.toThrow("This runner session has been archived.");
