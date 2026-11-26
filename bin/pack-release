@@ -71,15 +71,16 @@ trap 'rm -f "$MANIFEST"' EXIT
 # If you add a new runtime dependency (file, directory, config), add it to
 # this manifest AND to the pack-release.test.ts assertions.
 if [[ -n "$RUNNER_ARCH" ]]; then
-  binaries=(dist/bun/dispatch-*-bun-linux-"$RUNNER_ARCH")
+  binaries=(dist/runner/dist/bun/dispatch-*-bun-linux-"$RUNNER_ARCH")
   if [[ ${#binaries[@]} != 1 || ! -s "${binaries[0]}" || ! -s dist/bun/BUILD_IDENTITY.json ]]; then
-    echo "error: expected one Linux $RUNNER_ARCH runner and a build identity in dist/bun" >&2
+    echo "error: expected one Linux $RUNNER_ARCH runner and a build identity for this release" >&2
     exit 1
   fi
-  printf '%s\n' "${binaries[0]}" dist/bun/BUILD_IDENTITY.json \
+  tar_inputs=(-C "$ROOT_DIR/dist/runner" "${binaries[0]#dist/runner/}" -C "$ROOT_DIR"
+    dist/bun/BUILD_IDENTITY.json
     bin/install-dispatch-runner.sh bin/dispatch-runner bin/dispatch-runner.service \
     'bin/dispatch-runner-update@.service' bin/dispatch-runner-trial.service \
-    bin/50-dispatch-trial.conf bin/runner-handoff-v1.py > "$MANIFEST"
+    bin/50-dispatch-trial.conf bin/runner-handoff-v1.py)
 else
   cat > "$MANIFEST" <<'LIST'
 dist/bun
@@ -107,7 +108,11 @@ fi
 # GNU tar on a Linux host prints an "Ignoring unknown extended header keyword"
 # warning per entry when it extracts or verifies an otherwise perfectly valid
 # release. COPYFILE_DISABLE=1 separately stops ._ AppleDouble sidecar files.
-COPYFILE_DISABLE=1 tar --no-xattrs -czf "$OUTPUT" -T "$MANIFEST"
+if [[ -n "$RUNNER_ARCH" ]]; then
+  COPYFILE_DISABLE=1 tar --no-xattrs -czf "$OUTPUT" "${tar_inputs[@]}"
+else
+  COPYFILE_DISABLE=1 tar --no-xattrs -czf "$OUTPUT" -T "$MANIFEST"
+fi
 
 # Print summary
 SIZE=$(wc -c < "$OUTPUT" | tr -d ' ')

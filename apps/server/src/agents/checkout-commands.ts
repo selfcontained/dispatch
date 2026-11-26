@@ -37,15 +37,33 @@ export async function requestCheckoutCommand(
 ) {
   const { directory, placement } = checkoutRunners(runners, agent);
   const runner = directory.for(placement);
-  if (operation.kind === "read") return runner.readManifest(operation, signal);
+  const target = {
+    session: sessionFromWire(agent.id),
+    checkout:
+      operation.checkout === "effective"
+        ? ("current" as const)
+        : operation.checkout,
+  };
+  if (operation.kind === "read") {
+    const file = await runner.call(
+      "checkout.read",
+      {
+        target,
+        mode: "command-manifest",
+        path: operation.path,
+        encoding: "utf8",
+        maxBytes: runner.manifestMaxBytes,
+      },
+      { signal }
+    );
+    if (!file) return null;
+    if (!file.digest) throw new Error("Missing checkout command guard.");
+    return { content: file.data, state: file.digest };
+  }
   return runner.call(
     "checkout.exec",
     {
-      target: {
-        session: sessionFromWire(agent.id),
-        checkout:
-          operation.checkout === "effective" ? "current" : operation.checkout,
-      },
+      target,
       guard: { path: operation.path, digest: operation.state },
       argv: operation.argv,
       // Dispatch's terms for every runner: main's environment addition and

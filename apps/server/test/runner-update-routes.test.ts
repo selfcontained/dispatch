@@ -13,7 +13,6 @@ const runner = (id: string, status: string) => ({
   id,
   name: id,
   status,
-  workspaces: [],
 });
 
 async function routes() {

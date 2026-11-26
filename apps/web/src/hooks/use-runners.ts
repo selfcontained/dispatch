@@ -12,8 +12,6 @@ export type Runner = {
   id: string;
   name: string;
   status: RunnerStatus;
-  workspaces: string[];
-  managedWorkspace?: true;
   engineManagement?: true;
   engineCapabilities?: true;
   githubManagement?: boolean;

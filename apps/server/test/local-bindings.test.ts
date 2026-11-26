@@ -103,11 +103,8 @@ describe("bindingFromRow (truth table, app side)", () => {
     ).toBe("  ");
   });
 
-  it("no cwd, or a runner locator an older build left: absent", () => {
+  it("omits a local row with no checkout directory", () => {
     expect(bindingFromRow(row({ cwd: null }))).toBeNull();
     expect(bindingFromRow(row({ cwd: "" }))).toBeNull();
-    expect(
-      bindingFromRow(row({ cwd: "runner://rnr_example/@session" }))
-    ).toBeNull();
   });
 });

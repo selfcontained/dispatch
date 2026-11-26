@@ -18,7 +18,9 @@ import {
 } from "@dispatch/runner-client/host-framing";
 import { createAcpRuntime } from "../src/agents/acp/runtime.js";
 import { AgentManager } from "../src/agents/manager.js";
-import { wireFrames } from "../src/runners/enrolled/v1-framing.js";
+import { enrolledUpdates } from "../../../packages/runner/src/workload/agents/remote/update-operations.js";
+import { serveOperationSocket } from "../../../packages/runner/src/local/socket-server.js";
+import { frameWriter } from "@dispatch/runner-client/v1/node";
 import {
   RemoteRunnerService,
   RunnerUnavailable,
@@ -263,17 +265,18 @@ export async function updateWorld(
       holds,
       hostSeq: async () => ({ seq: 0, journalId: null }),
       syncJournal: async () => {},
-      placement: async (agentId) =>
-        agentId === AGENT ? { runner: RUNNER, workspace: "work" } : null,
+      placement: async (agentId) => (agentId === AGENT ? RUNNER : null),
       remote: {
         available: () => service.connectionEpoch(RUNNER) !== undefined,
         connectionEpoch: (id) => service.connectionEpoch(id),
-        requestSession: (async (_placement: unknown, operation: any) => {
+        call: (async (_id, op) => {
           if (service.connectionEpoch(RUNNER) === undefined)
             throw new RunnerUnavailable("offline");
-          if (operation.kind === "alive")
-            return { value: hosts.reply !== "gone" };
-          if (operation.kind !== "attach") return { value: "" };
+          if (op === "session.alive")
+            return { state: hosts.reply === "gone" ? "gone" : "live" };
+          return {};
+        }) as RemoteRunnerService["call"],
+        openStream: (async () => {
           if (hosts.reply === "gone") throw new RunnerUnavailable("gone");
           hosts.attaches++;
           const [ours, theirs] = socketPair();
@@ -301,7 +304,7 @@ export async function updateWorld(
             }
           });
           return { channel: ours };
-        }) as RemoteRunnerService["requestSession"],
+        }) as RemoteRunnerService["openStream"],
       },
     });
     const manager = {
@@ -311,7 +314,7 @@ export async function updateWorld(
         id === AGENT
           ? {
               id,
-              cwd: `runner://${RUNNER}/work`,
+              cwd: "/runner/work",
               placement: placementForRunner(RUNNER),
             }
           : null,
@@ -431,27 +434,59 @@ export async function updateWorld(
         approved: () => internals.enrolled.has("fp"),
         allows: () => true,
       });
-      let connection: ReturnType<typeof supervisor.connect> | undefined;
-      const send = wireFrames<any, any>(client, (frame) => {
-        runner.frames.push(frame);
-        if (runner.capable) void connection?.receive(frame);
-      });
+      const send = frameWriter<unknown>(client);
       const safeSend = (frame: unknown) => {
         if (!client.destroyed) send(frame);
       };
-      client.on("close", () => connection?.close());
-      link = { socket: client, send: safeSend };
-      safeSend({
-        type: "ready",
-        version: 1,
-        workspaces: ["work"],
-        ...(runner.capable && { selfUpdate: supervisor.advert() }),
-      });
-      if (runner.capable)
-        connection = supervisor.connect((frame) => {
+      const pending: UpdateStatusFrame[] = [];
+      let described = false;
+      const updates = enrolledUpdates(
+        {
+          ...supervisor,
+          connect(observe) {
+            const link = supervisor.connect(observe);
+            return {
+              ...link,
+              receive: (frame) => {
+                runner.frames.push(frame);
+                return link.receive(frame);
+              },
+            };
+          },
+        },
+        (frame) => {
           runner.statuses.push(frame);
-          safeSend(frame);
-        });
+          if (described) safeSend(frame);
+          else pending.push(frame);
+        }
+      );
+      client.once("close", () => updates.close());
+      link = { socket: client, send: safeSend };
+      serveOperationSocket(
+        client,
+        { kind: "enrolled" },
+        {
+          ...(runner.capable && updates.calls),
+          "runner.describe": () => {
+            const advert = runner.capable && supervisor.advert();
+            setImmediate(() => {
+              described = true;
+              for (const frame of pending.splice(0)) safeSend(frame);
+            });
+            return {
+              runnerId: RUNNER,
+              displayName: RUNNER,
+              build: {
+                version: runner.identity.version,
+                revision: runner.identity.revision,
+              },
+              protocol: 1,
+              engines: [],
+              capabilities: advert ? { selfUpdate: advert } : {},
+            };
+          },
+        }
+      );
       await flush();
       await flush();
     },

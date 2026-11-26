@@ -2147,53 +2147,83 @@
       "scope": "session",
       "kind": "call",
       "request": {
-        "object": {
-          "target": {
-            "union": [
-              {
+        "union": [
+          {
+            "object": {
+              "target": {
+                "union": [
+                  {
+                    "object": {
+                      "session": {
+                        "opaque": "SessionHandle"
+                      },
+                      "checkout": {
+                        "optional": {
+                          "literal": ["current", "launch", "moved", "owned"]
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "object": {
+                      "path": {
+                        "opaque": "RunnerPath"
+                      }
+                    }
+                  },
+                  {
+                    "object": {
+                      "repository": "string"
+                    }
+                  }
+                ]
+              },
+              "path": "string",
+              "mode": {
+                "optional": {
+                  "literal": ["native"]
+                }
+              },
+              "bindRoot": {
+                "optional": {
+                  "literal": [true]
+                }
+              },
+              "encoding": {
+                "literal": ["utf8", "base64"]
+              },
+              "maxBytes": {
+                "nullable": "integer"
+              }
+            }
+          },
+          {
+            "object": {
+              "target": {
                 "object": {
                   "session": {
                     "opaque": "SessionHandle"
                   },
                   "checkout": {
                     "optional": {
-                      "literal": ["current", "launch", "moved", "owned"]
+                      "literal": ["current", "launch", "moved"]
                     }
                   }
                 }
               },
-              {
-                "object": {
-                  "path": {
-                    "opaque": "RunnerPath"
-                  }
-                }
+              "mode": {
+                "literal": ["command-manifest"]
               },
-              {
-                "object": {
-                  "repository": "string"
-                }
+              "path": "string",
+              "encoding": {
+                "literal": ["utf8"]
+              },
+              "maxBytes": {
+                "nullable": "integer"
               }
-            ]
-          },
-          "path": "string",
-          "mode": {
-            "optional": {
-              "literal": ["native"]
             }
-          },
-          "bindRoot": {
-            "optional": {
-              "literal": [true]
-            }
-          },
-          "encoding": {
-            "literal": ["utf8", "base64"]
-          },
-          "maxBytes": {
-            "nullable": "integer"
           }
-        }
+        ]
       },
       "response": {
         "nullable": {
@@ -2760,6 +2790,31 @@
       },
       "response": {
         "object": {
+          "diagnostics": {
+            "optional": {
+              "array": {
+                "union": [
+                  {
+                    "object": {
+                      "code": {
+                        "literal": ["unsupported", "unreadable"]
+                      },
+                      "path": "string",
+                      "fileIndex": "integer"
+                    }
+                  },
+                  {
+                    "object": {
+                      "code": {
+                        "literal": ["limit", "refresh", "cache", "incomplete"]
+                      },
+                      "fileIndex": "integer"
+                    }
+                  }
+                ]
+              }
+            }
+          },
           "hasOrigin": "boolean",
           "files": {
             "array": {
@@ -3807,6 +3862,11 @@
       "request": {
         "object": {
           "refresh": "boolean",
+          "background": {
+            "optional": {
+              "literal": [true]
+            }
+          },
           "include": {
             "optional": {
               "array": {

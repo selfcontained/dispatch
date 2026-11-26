@@ -3,26 +3,22 @@ import {
   setLearnedAgentModels,
   onStoredModelCatalogRead,
 } from "../src/shared/agent-models.js";
-import { fixtureEngineActions } from "./helpers/engine-actions.js";
+import {
+  fixtureEngineActions,
+  type FixtureEngineDeps,
+  type RunnerEngineTransport,
+} from "./helpers/engine-actions.js";
 import { describe, expect, it, vi } from "vitest";
 
 import type { EngineLogin } from "@dispatch/shared";
 import type { EngineOperationEvent } from "@dispatch/runner-protocol/engine-management";
 import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 
-import {
-  EngineManager as ActualEngineManager,
-  type RunnerEngineTransport,
-} from "../src/agents/remote/engine-manager.js";
+import { EngineManager as ActualEngineManager } from "../src/agents/remote/engine-manager.js";
 
 // T29 actions are supplied separately from legacy inventory/sign-in fixture transport.
 class EngineManager extends ActualEngineManager {
-  constructor(
-    deps: Omit<
-      ConstructorParameters<typeof ActualEngineManager>[0],
-      "engineActions"
-    >
-  ) {
+  constructor(deps: FixtureEngineDeps) {
     super({
       ...deps,
       engineActions: fixtureEngineActions(deps),
@@ -367,7 +363,7 @@ describe("EngineManager runner scope", () => {
     );
     expect(transport.send).toHaveBeenCalledWith(
       "r1",
-      { type: "login_start", engine: "claude" },
+      { type: "login_start", engine: "claude", restart: false },
       undefined
     );
   });

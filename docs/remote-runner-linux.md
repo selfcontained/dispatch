@@ -73,6 +73,8 @@ checks for the bootstrap and archive instead of release attestations. When
 invoking the installer directly, the dev flag requires both `--source URL`
 and `--sha256 HEX` for the archive digest.
 
+The installed Linux executable contains the runner and its workers. From a source checkout, run a mode with `pnpm --filter @dispatch/runner start <mode> [arguments]`. This generates the build identity and embedded stream helper before starting the program.
+
 To prepare a development controller, build the Linux targets from the same
 checkout and revision as the controller. Put the bootstrap and the desired
 native payloads in the directory specified by
@@ -83,6 +85,7 @@ DISPATCH_BUN_TARGETS=bun-linux-x64,bun-linux-arm64 pnpm run build:bun
 mkdir -p "$DISPATCH_RUNNER_ARTIFACT_DEV_DIR"
 cp bin/install-dispatch-runner.sh "$DISPATCH_RUNNER_ARTIFACT_DEV_DIR/"
 for arch in x64 arm64; do
+  bun scripts/build-standalone-runner.mjs "bun-linux-$arch"
   bin/pack-release --runner-arch "$arch" \
     --output "$DISPATCH_RUNNER_ARTIFACT_DEV_DIR/dispatch-runner-linux-$arch.tar.gz"
 done

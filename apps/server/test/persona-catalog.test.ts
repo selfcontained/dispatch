@@ -192,7 +192,7 @@ describe("shared remote persona catalog", () => {
       await publish("default instructions");
       const agent = {
         id: "author",
-        cwd: placement === "local" ? worktree : "runner://rnr_test/session",
+        cwd: placement === "local" ? worktree : "/srv/checkout",
       } as never;
       const manager = {
         getAgent: async () => agent,
@@ -227,7 +227,7 @@ describe("shared remote persona catalog", () => {
   );
 
   it("keeps checkout personas and built-ins available to an older runner", async () => {
-    const agent = { id: "author", cwd: "runner://rnr_old/proof" } as never;
+    const agent = { id: "author", cwd: "/srv/checkout" } as never;
     const manager = {
       getAgent: async () => agent,
       inspectCheckout: async (
@@ -459,7 +459,7 @@ describe("shared remote persona catalog", () => {
       (root: string) =>
         launchPersonaScope({ checkoutReadRunners: () => ({}) } as never, {
           placement: { runner: "rnr_test" } as never,
-          cwd: "runner://rnr_test/session",
+          cwd: "/srv/checkout",
           projectRoot: root,
           repository: null,
         }),
@@ -512,7 +512,7 @@ describe("shared remote persona catalog", () => {
   });
 });
 
-it("keeps invalid-before-unsupported warnings ordered and invalid content off the wire", async () => {
+it("returns definition text and the position of each file diagnostic", async () => {
   await publish("valid", "c-valid");
   await writeFile(
     path.join(author, ".agents/personas/a-invalid.md"),
@@ -528,15 +528,15 @@ it("keeps invalid-before-unsupported warnings ordered and invalid content off th
     true
   );
   expect(reply.files.map((file) => file.path)).toEqual([
+    ".agents/personas/a-invalid.md",
     ".agents/personas/c-valid.md",
   ]);
-  expect(reply.warnings).toEqual([
-    "Could not load persona .agents/personas/a-invalid.md: invalid persona definition.",
-    "Could not load persona .agents/personas/b-link.md: unsupported file or larger than 256 KiB.",
+  expect(reply.diagnostics).toEqual([
+    { code: "unsupported", path: ".agents/personas/b-link.md", fileIndex: 1 },
   ]);
 });
 
-it("the enrolled runner's self-exec worker receives the exact definition parser", async () => {
+it("the enrolled worker reads definitions and reports a symlink in listing order", async () => {
   await publish("valid", "c-valid");
   await writeFile(
     path.join(author, ".agents/personas/a-invalid.md"),
@@ -547,7 +547,7 @@ it("the enrolled runner's self-exec worker receives the exact definition parser"
   await git(author, "commit", "-m", "worker parser fixtures");
   await git(author, "push");
   const reply = await new Promise<{
-    data: { files: Array<{ path: string }>; warnings: string[] };
+    data: { files: Array<{ path: string }>; diagnostics: unknown[] };
   }>((resolve, reject) => {
     const worker = execFile(
       "bun",
@@ -578,10 +578,41 @@ it("the enrolled runner's self-exec worker receives the exact definition parser"
     );
   });
   expect(reply.data.files.map((file) => file.path)).toEqual([
+    ".agents/personas/a-invalid.md",
     ".agents/personas/c-valid.md",
   ]);
-  expect(reply.data.warnings).toEqual([
-    "Could not load persona .agents/personas/a-invalid.md: invalid persona definition.",
-    "Could not load persona .agents/personas/b-link.md: unsupported file or larger than 256 KiB.",
+  expect(reply.data.diagnostics).toEqual([
+    { code: "unsupported", path: ".agents/personas/b-link.md", fileIndex: 1 },
   ]);
 });
+
+it.each([
+  ["a-invalid", "b-link"],
+  ["b-invalid", "a-link"],
+])(
+  "keeps main's catalog warning order for %s and %s",
+  async (invalid, link) => {
+    await publish("valid", "c-valid");
+    const dir = ".agents/personas";
+    await writeFile(
+      path.join(author, dir, invalid + ".md"),
+      "---\ntype: typo\n---\nbad"
+    );
+    await symlink("c-valid.md", path.join(author, dir, link + ".md"));
+    await git(author, "add", ".");
+    await git(author, "commit", "-m", "ordered definitions");
+    await git(author, "push");
+    const catalog = await new PersonaCatalogCache(runner, () => now).get(
+      checkout,
+      true
+    );
+    expect(catalog.personas.map(({ slug }) => slug)).toEqual(["c-valid"]);
+    const invalidWarning = `Could not load persona ${dir}/${invalid}.md: invalid persona definition.`;
+    const linkWarning = `Could not load persona ${dir}/${link}.md: unsupported file or larger than 256 KiB.`;
+    expect(catalog.warnings).toEqual(
+      invalid < link
+        ? [invalidWarning, linkWarning]
+        : [linkWarning, invalidWarning]
+    );
+  }
+);

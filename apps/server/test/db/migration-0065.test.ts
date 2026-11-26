@@ -35,7 +35,7 @@ it.each([52, 64])(
       "INSERT INTO projects (id, name, repo_root, color) VALUES ('project', 'Project', '/tmp/project', '#336699')"
     );
     await seed(pool, "local", "/tmp/folder");
-    await seed(pool, "runner", "runner://rnr%2Fexample/checkout", "project");
+    await seed(pool, "other", "/tmp/other", "project");
     await runMigrations(databaseUrl);
 
     for (const table of ["templates", "jobs", "job_runs"]) {
@@ -53,12 +53,8 @@ it.each([52, 64])(
           location: { runner: "local", path: "/tmp/folder" },
         },
         {
-          directory: "runner://rnr%2Fexample/checkout",
-          location: {
-            runner: "rnr/example",
-            projectId: "project",
-            legacy: true,
-          },
+          directory: "/tmp/other",
+          location: { runner: "local", path: "/tmp/other" },
         },
       ]);
     }
@@ -80,3 +76,20 @@ it.each([52, 64])(
     ]);
   }
 );
+
+it("scopes saved job and template names to the runner before a project has a checkout", async () => {
+  const pool = await setupTestDb();
+  await runMigrations(getTestDatabaseUrl());
+  for (const table of ["templates", "jobs"]) {
+    const insert = (id: string, runner: string) =>
+      pool.query(
+        `INSERT INTO ${table} (id,name,directory,location) VALUES ($1,'Nightly','',$2)`,
+        [id, { runner, projectId: "project" }]
+      );
+    await insert("alpha", "alpha");
+    await insert("beta", "beta");
+    await expect(insert("duplicate", "alpha")).rejects.toMatchObject({
+      code: "23505",
+    });
+  }
+});

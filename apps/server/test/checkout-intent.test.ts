@@ -1,4 +1,3 @@
-import { checkoutReadPlacement } from "../src/runners/placement.js";
 import type { RepositoryCheckout } from "@dispatch/runner-protocol";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -9,13 +8,17 @@ import { parseRepository } from "../src/agents/remote/repository.js";
 import { getPullRequestHead } from "../../../packages/runner/src/workload/shared/github/pr.js";
 import {
   resolveCheckoutIntent,
-  runnerDefaultBranch,
   toLocalWorktreeRequest,
   toRunnerCheckout,
   type CheckoutIntent,
 } from "../src/agents/checkout-intent.js";
 import { AgentManager } from "../src/agents/manager.js";
-import { localDefaultBranch } from "../../../packages/runner/src/workload/shared/git/default-branch.js";
+import { pathFromWire } from "@dispatch/runner-protocol/contract";
+import { runnerDirectory } from "../src/runners/directory.js";
+import {
+  controllerPlacement,
+  placementForRunner,
+} from "../src/runners/placement.js";
 import { agentComparisonBase } from "../src/agents/effective-base.js";
 import { readAgentView } from "../src/agents/checkout-runner.js";
 import { inspectCheckout } from "./helpers/checkout-inspection.js";
@@ -112,11 +115,6 @@ describe("checkout intent", () => {
           : { kind: "default" }
       );
     }
-    const oldRunner = vi.fn(async () => ({ branches: ["main"] }));
-    await expect(
-      runnerDefaultBranch("https://github.com/owner/repo.git", oldRunner)
-    ).resolves.toBeUndefined();
-    expect(oldRunner).toHaveBeenCalledWith("owner", "repo");
   });
 
   it("preserves the recorded base without a worktree", async () => {
@@ -174,17 +172,23 @@ it.each([
       });
       const local = await resolveCheckoutIntent(
         {},
-        { ...context, defaultBranch: () => localDefaultBranch(cwd) }
+        {
+          ...context,
+          defaultBranch: async () => {
+            const { branch, currentBranch } = await runnerDirectory({})
+              .for(controllerPlacement)
+              .call("git.defaultBranch", {
+                target: { path: pathFromWire(cwd) },
+              });
+            return branch ?? currentBranch ?? "main";
+          },
+        }
       );
       const remote = await resolveCheckoutIntent(
         {},
         {
           ...context,
-          defaultBranch: () =>
-            runnerDefaultBranch(
-              "https://github.com/owner/repo.git",
-              async () => ({ branches: [branch], defaultBranch: branch })
-            ),
+          defaultBranch: async () => branch,
         }
       );
       expect(local.normalizedBaseBranch).toBe(branch);
@@ -216,7 +220,12 @@ it.each([
         expect(await agentComparisonBase(agent, use)).toBe(branch);
         expect(
           await agentComparisonBase(
-            { ...agent, cwd: "runner://runner/@session", worktreePath: null },
+            {
+              ...agent,
+              cwd: "/runner/session",
+              placement: placementForRunner("runner"),
+              worktreePath: null,
+            },
             use,
             launch
           )
@@ -309,10 +318,10 @@ describe("pull request intent", () => {
       const origin = "https://github.com/owner/repo";
       const target = { owner: "owner", repo: "repo", number: 12 };
       const head = { url: origin, branch: "topic" };
-      const lookupGitHubPullRequestHead = vi.fn(async () => head);
+      const call = vi.fn(async () => head);
       const prepared = new Error("lookup complete");
       const manager = Object.assign(Object.create(AgentManager.prototype), {
-        remote: { lookupGitHubPullRequestHead },
+        remote: { call },
         async prepareCreateInputs(
           _input: unknown,
           _cwd: string,
@@ -329,8 +338,8 @@ describe("pull request intent", () => {
           {},
           {},
           {
-            placement: checkoutReadPlacement("runner://test/workspace"),
-            location: { runner: "test", workspace: "workspace" },
+            placement: placementForRunner("test"),
+            location: "test",
             directory: null,
             ...(hasFolder && {
               launcherDirectory: {
@@ -344,12 +353,15 @@ describe("pull request intent", () => {
           { repository: { url: origin } }
         )
       ).rejects.toBe(prepared);
-      expect(lookupGitHubPullRequestHead).toHaveBeenCalledExactlyOnceWith(
+      expect(call).toHaveBeenCalledExactlyOnceWith(
         "test",
-        "owner",
-        "repo",
-        12,
-        hasFolder ? "/work/checkout" : undefined
+        "github.pr.head",
+        {
+          ...target,
+          ...(hasFolder && { cwd: "/work/checkout" }),
+        },
+        undefined,
+        undefined
       );
     }
   );

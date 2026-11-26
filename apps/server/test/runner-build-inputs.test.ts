@@ -4,7 +4,7 @@ import { expect, it } from "vitest";
 
 it("supplies build inputs at every embedding entry that consumes them", async () => {
   const source = await readFile(
-    new URL("../src/main.ts", import.meta.url),
+    new URL("../../../packages/runner/src/program.ts", import.meta.url),
     "utf8"
   );
   const tree = ts.createSourceFile(
@@ -15,8 +15,7 @@ it("supplies build inputs at every embedding entry that consumes them", async ()
   );
   const required = new Map([
     ["runRunnerUpdateTrial", ["build"]],
-    ["runCheckoutWorker", ["parseDefinition"]],
-    ["createCheckoutWorkload", ["parseDefinition"]],
+    ["runCheckoutWorker", ["launchProbes"]],
     ["runRunnerUpdateStage", ["packageVersion"]],
     ["runRemoteRunner", ["build", "healthBuild"]],
     ["runCli", ["build"]],

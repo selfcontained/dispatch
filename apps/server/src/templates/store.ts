@@ -114,7 +114,7 @@ export class TemplateStore {
         `,
         [
           id,
-          normalizeSavedDirectory(input.directory),
+          normalizeSavedDirectory(input.directory, location),
           input.name,
           input.description,
           input.prompt,
@@ -154,11 +154,12 @@ export class TemplateStore {
 
   async getTemplateByDirectoryAndName(
     directory: string,
-    name: string
+    name: string,
+    runner = "local"
   ): Promise<TemplateRecord | null> {
     const result = await this.pool.query(
-      `SELECT ${this.columns()} FROM templates WHERE directory = $1 AND name = $2`,
-      [normalizeSavedDirectory(directory), name]
+      `SELECT ${this.columns()} FROM templates WHERE directory = $1 AND name = $2 AND COALESCE(location->>'runner', 'local') = $3`,
+      [normalizeSavedDirectory(directory, runner), name, runner]
     );
     return result.rows[0] ? mapTemplate(result.rows[0]) : null;
   }
@@ -205,9 +206,10 @@ export class TemplateStore {
         input,
         "branchName"
       );
-      const resolvedDir = input.directory
-        ? normalizeSavedDirectory(input.directory)
-        : undefined;
+      const resolvedDir =
+        input.directory !== undefined
+          ? normalizeSavedDirectory(input.directory, input[storedLocation])
+          : undefined;
       const result = await this.pool.query(
         `
         UPDATE templates

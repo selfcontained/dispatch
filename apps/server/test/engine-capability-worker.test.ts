@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import type { EngineCapabilityOperation } from "@dispatch/runner-protocol/engine-management";
+import type { EngineHostCall } from "@dispatch/runner-protocol/engine-management";
 import { expect, it } from "vitest";
 
 const execute = promisify(execFile);
@@ -66,27 +66,7 @@ if (args === "plugin list --json") {
 `,
       { mode: 0o755 }
     );
-    async function worker(home: string, operation: EngineCapabilityOperation) {
-      const child = execute("bun", [main, "runner-engine-capability"], {
-        cwd: home,
-        env: { HOME: home, PATH: process.env.PATH },
-        timeout: 20_000,
-      });
-      child.child.stdin!.end(
-        JSON.stringify({
-          operation,
-          bins: {
-            claudeBin: cli,
-            codexBin: cli,
-            opencodeBin: cli,
-            adapter: { bin: process.execPath, args: [adapter] },
-          },
-          secret: "fixture-secret",
-        })
-      );
-      return JSON.parse((await child).stdout);
-    }
-    async function typedModels(home: string) {
+    async function worker(home: string, call: EngineHostCall) {
       const child = execute("bun", [main, "runner-engine-host"], {
         cwd: home,
         env: { HOME: home, PATH: process.env.PATH },
@@ -95,86 +75,63 @@ if (args === "plugin list --json") {
       child.child.stdin!.end(
         JSON.stringify({
           id: 1,
-          call: { op: "engine.models", request: { engine: "codex" } },
+          call,
           bins: { claude: cli, codex: cli, opencode: cli },
           adapter: { bin: process.execPath, args: [adapter] },
         }) + "\n"
       );
       return JSON.parse((await child).stdout.trim());
     }
-    const typed = await typedModels(homes[0]!);
-    expect(typed.data).toMatchObject({
-      current: "first/default",
+    const plugin = { engine: "codex", plugin: "dispatch@dispatch" } as const;
+    const [first, second, installed, absent] = await Promise.all([
+      worker(homes[0]!, { op: "engine.models", request: { engine: "codex" } }),
+      worker(homes[1]!, {
+        op: "engine.models",
+        request: { engine: "opencode", model: "second/alternate" },
+      }),
+      worker(homes[0]!, { op: "engine.plugin.status", request: plugin }),
+      worker(homes[1]!, { op: "engine.plugin.status", request: plugin }),
+    ]);
+    expect(first.data).toMatchObject({
       defaultModel: "first/default",
       models: [
         {
           id: "first/default",
-          effort: [{ description: "Full described effort fixture" }],
+          effort: [
+            { value: "first", description: "Full described effort fixture" },
+          ],
         },
         { id: "first/alternate" },
       ],
     });
-    const plugin = { engine: "codex", plugin: "dispatch@dispatch" } as const;
-    const [first, second, installed, absent] = await Promise.all([
-      worker(homes[0]!, { type: "model_catalog", engine: "codex" }),
-      worker(homes[1]!, {
-        type: "model_catalog",
-        engine: "opencode",
-        model: "second/alternate",
-      }),
-      worker(homes[0]!, { type: "plugin_status", ...plugin }),
-      worker(homes[1]!, { type: "plugin_status", ...plugin }),
-    ]);
-    expect(first).toMatchObject({
-      ok: true,
-      capability: {
-        catalog: {
-          defaultModel: "first/default",
-          models: [
-            { id: "first/default", effort: [{ value: "first" }] },
-            { id: "first/alternate" },
-          ],
-        },
-      },
+    expect(second.data).toMatchObject({
+      defaultModel: "second/default",
+      models: [
+        { id: "second/default" },
+        { id: "second/alternate", effort: [{ value: "second" }] },
+      ],
     });
-    // Legacy v1 intentionally strips descriptions. This exact byte fixture
-    // stays unchanged until live discovery moves to the typed contract.
-    expect(JSON.stringify(first.capability.catalog.models[0].effort)).toBe(
-      '[{"value":"first","name":"first"}]'
-    );
-    expect(second).toMatchObject({
-      ok: true,
-      capability: {
-        catalog: {
-          defaultModel: "second/default",
-          models: [
-            { id: "second/default" },
-            { id: "second/alternate", effort: [{ value: "second" }] },
-          ],
-        },
-      },
+    expect(installed.data).toMatchObject({
+      currentVersion: "1.2.3",
+      installed: true,
     });
-    expect(installed).toMatchObject({
-      ok: true,
-      capability: { status: { currentVersion: "1.2.3", installed: true } },
-    });
-    expect(absent).toMatchObject({
-      ok: true,
-      capability: { status: { installed: false, actions: ["install"] } },
-    });
+    expect(absent.data).toMatchObject({ installed: false });
     expect(
-      await worker(homes[1]!, { type: "plugin_install", ...plugin })
-    ).toMatchObject({
-      ok: true,
-      capability: { status: { currentVersion: "2.0.0", installed: true } },
-    });
+      (
+        await worker(homes[1]!, {
+          op: "engine.plugin.apply",
+          request: { ...plugin, action: "install", requestId: "fixture" },
+        })
+      ).data
+    ).toMatchObject({ currentVersion: "2.0.0", installed: true });
     expect(
-      await worker(homes[1]!, {
-        type: "plugin_status",
-        ...plugin,
-        plugin: "other@marketplace",
-      })
-    ).toMatchObject({ ok: false, unsupported: true });
+      (
+        await worker(homes[1]!, {
+          op: "engine.plugin.status",
+          request: { ...plugin, plugin: "other@marketplace" },
+        })
+      ).error
+    ).toMatchObject({ code: "unsupported" });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

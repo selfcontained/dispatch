@@ -88,7 +88,20 @@ export const changes = object({
   files: array(string),
 });
 
+export const fileDiagnostic = union(
+  object({
+    code: literal("unsupported", "unreadable"),
+    path: string,
+    fileIndex: integer,
+  }),
+  object({
+    code: literal("limit", "refresh", "cache", "incomplete"),
+    fileIndex: integer,
+  })
+);
+
 export const defaultFiles = object({
+  diagnostics: optional(array(fileDiagnostic)),
   hasOrigin: boolean,
   files: array(object({ path: string, content: string })),
   warnings: array(string),

@@ -10,7 +10,6 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BlockDelivery } from "@dispatch/shared";
-import { workspaceLocator } from "@dispatch/runner-protocol";
 import { block } from "@/test-utils/blocks";
 import { DeliveryIndicator, DeliveryMeta } from "./chat-delivery-meta";
 
@@ -43,7 +42,12 @@ function receipt(delivery: BlockDelivery[]) {
   return block({ id: "receipt", authorKind: "user", delivery });
 }
 function renderHeld(
-  agent: { cwd: string; activity: string; currentTurn: unknown },
+  agent: {
+    engineLoginRunnerId?: string;
+    cwd: string;
+    activity: string;
+    currentTurn: unknown;
+  },
   runnerStatus?: string
 ) {
   const client = new QueryClient({
@@ -65,7 +69,7 @@ function renderHeld(
     }
   );
 }
-const remoteCwd = workspaceLocator({ runner: "run_1", workspace: "/w" });
+const remote = { engineLoginRunnerId: "run_1", cwd: "/w" };
 function ui(delivery: BlockDelivery[]) {
   return (
     <>
@@ -86,7 +90,7 @@ describe("held label reason", () => {
     api
       .mockResolvedValueOnce({ runners: [{ id: "run_1", status: "offline" }] })
       .mockResolvedValueOnce({ runners: [{ id: "run_1", status: "online" }] });
-    renderHeld({ cwd: remoteCwd, activity: "idle", currentTurn: null });
+    renderHeld({ ...remote, activity: "idle", currentTurn: null });
 
     await act(() => vi.advanceTimersByTimeAsync(10));
     expect(api).toHaveBeenCalledWith("/api/runners");
@@ -102,17 +106,14 @@ describe("held label reason", () => {
   });
 
   it("says the runner when an idle remote agent's runner is offline", () => {
-    renderHeld(
-      { cwd: remoteCwd, activity: "idle", currentTurn: null },
-      "offline"
-    );
+    renderHeld({ ...remote, activity: "idle", currentTurn: null }, "offline");
     expect(screen.getByTestId("chat-held-hint").textContent).toBe(
       "Queued until the runner reconnects"
     );
   });
   it("keeps the turn wording while a turn runs, even on an offline runner", () => {
     renderHeld(
-      { cwd: remoteCwd, activity: "working", currentTurn: { blockId: "b" } },
+      { ...remote, activity: "working", currentTurn: { blockId: "b" } },
       "offline"
     );
     expect(screen.getByTestId("chat-held-hint").textContent).toBe(
@@ -128,10 +129,7 @@ describe("held label reason", () => {
       "Queued until the turn ends"
     );
     cleanup();
-    renderHeld(
-      { cwd: remoteCwd, activity: "idle", currentTurn: null },
-      "online"
-    );
+    renderHeld({ ...remote, activity: "idle", currentTurn: null }, "online");
     expect(screen.getByTestId("chat-held-hint").textContent).toBe(
       "Queued until the turn ends"
     );

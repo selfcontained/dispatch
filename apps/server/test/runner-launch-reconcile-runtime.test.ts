@@ -22,7 +22,7 @@ import {
   type RunnerHoldState,
 } from "../src/agents/remote/update-hold.js";
 import type { RuntimeLaunch } from "../src/agents/runtime.js";
-import { scriptedHost } from "./runner-update-hold-fixtures.js";
+import { attachedHost, scriptedHost } from "./runner-update-hold-fixtures.js";
 import { localRunnerIn } from "./helpers/local-runner-child.js";
 
 const logger = {
@@ -48,7 +48,6 @@ type Outcome = "lost" | "fenced" | "error" | "unavailable" | "ok";
 
 async function fixture(options: {
   outcomes: Outcome[];
-  reconciles?: boolean;
   /** Polls the runner stays away after each lost reply. */
   offlinePolls?: number;
   beforeLaunchReconcile?: RuntimeLaunch["beforeLaunchReconcile"];
@@ -70,22 +69,10 @@ async function fixture(options: {
   let offline = 0;
   const launches: { launchId?: string }[] = [];
   const outcomes = [...options.outcomes];
-  const requestSession = vi.fn(
-    async (
-      _placement: unknown,
-      operation: {
-        kind: string;
-        agentId: string;
-        launch?: { launchId?: string };
-      }
-    ) => {
-      if (operation.kind === "attach")
-        return {
-          value: true,
-          channel: net.createConnection(host.socket),
-        };
-      if (operation.kind !== "launch") return { value: true };
-      const launchId = operation.launch?.launchId;
+  const call = vi.fn(
+    async (_runner: string, op: string, input: { launchId: string }) => {
+      if (op !== "session.launch") return {};
+      const launchId = input.launchId;
       launches.push(launchId === undefined ? {} : { launchId });
       const outcome = outcomes.shift() ?? "ok";
       if (outcome === "lost") {
@@ -120,12 +107,15 @@ async function fixture(options: {
     logger,
     hostSeq: async () => ({ seq: 0, journalId: null }),
     syncJournal: async () => {},
-    placement: async (id) =>
-      id === "agt_held" ? { runner: "r1", workspace: "proof" } : null,
+    placement: async (id) => (id === "agt_held" ? "r1" : null),
     remote: {
-      requestSession,
+      call,
+      openStream: async (
+        _runner: string,
+        _op: string,
+        { session }: { session: string }
+      ) => attachedHost(net.createConnection(host.socket), session),
       available,
-      reconcilesLaunches: () => options.reconciles !== false,
     } as never,
     holds,
     launchRetryPollMs: 5,
@@ -133,12 +123,12 @@ async function fixture(options: {
   const launch = (launchId: string | null = LAUNCH) =>
     runtime.launch({
       agentId: "agt_held",
-      placement: { runner: "r1", workspace: "proof" },
+      placement: "r1",
       engine: "claude",
       model: null,
       systemPrompt: null,
       resumeSessionId: null,
-      cwd: "runner://r1/proof",
+      cwd: "/runner/checkout",
       bins: { claudeBin: "", codexBin: null, opencodeBin: "" },
       env: {},
       pathPrefix: [],
@@ -197,16 +187,6 @@ describe("a launch reply lost across a runner update", () => {
     expect(launches).toHaveLength(1);
   });
 
-  it("keeps the uncertain outcome for a runner that does not reconcile launch IDs", async () => {
-    const { holds, launches, launch } = await fixture({
-      outcomes: ["lost", "ok"],
-      reconciles: false,
-    });
-    await holds.begin("r1", ATTEMPT);
-    await expect(launch()).rejects.toBeInstanceOf(RunnerAcknowledgementLost);
-    expect(launches).toHaveLength(1);
-  });
-
   it("keeps the uncertain outcome for a launch without an ID", async () => {
     const { holds, launches, launch } = await fixture({
       outcomes: ["lost", "ok"],
@@ -215,7 +195,7 @@ describe("a launch reply lost across a runner update", () => {
     await expect(launch(null)).rejects.toBeInstanceOf(
       RunnerAcknowledgementLost
     );
-    expect(launches).toEqual([{}]);
+    expect(launches).toEqual([{ launchId: expect.any(String) }]);
   });
 
   it.each(["error", "unavailable"] as const)(

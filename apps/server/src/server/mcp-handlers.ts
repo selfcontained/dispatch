@@ -74,7 +74,7 @@ import {
 } from "../runners/saved-location.js";
 import { resolvePersona } from "../personas/resolve.js";
 import type { Placement } from "@dispatch/runner-protocol/contract";
-import { checkoutReadPlacement } from "../runners/placement.js";
+import { controllerPlacement } from "../runners/placement.js";
 import {
   PROJECT_IDENTITY_SQL,
   SESSION_REPOSITORY_SQL,
@@ -226,7 +226,7 @@ async function addressableAgents<
     }
     // The same repository key (D5, D8) the sender's own scope came from.
     const aKey = await repositoryKey({
-      placement: a.placement ?? checkoutReadPlacement(a.cwd),
+      placement: a.placement ?? controllerPlacement,
       repositoryRoot: () =>
         // agent cwd not in a git repo — skip
         repositoryRoot(a).catch(() => null),
@@ -437,6 +437,9 @@ async function handleLaunchAgent(
   // A template launches at its saved location; a folder is a path on the
   // caller's machine.
   const templateTarget = input.cwd === undefined && template ? template : null;
+  const launchPlacement = templateTarget
+    ? targetPlacement(templateTarget)
+    : (parent.placement ?? controllerPlacement);
   const selectedPersona = input.persona
     ? await resolvePersona(
         cwd === parentCwd
@@ -444,9 +447,7 @@ async function handleLaunchAgent(
           : // The target's runner (D7): a folder on the caller's, else the
             // template project's repository read on that runner.
             launchPersonaScope(deps.agentManager, {
-              placement: targetPlacement(
-                templateTarget ?? { directory: parentCwd }
-              ),
+              placement: launchPlacement,
               cwd,
               source: "workspace",
               repository:
@@ -572,7 +573,7 @@ async function handleLaunchAgent(
   const templateModel =
     template?.agentType === agentType ? template.model : undefined;
   const scope = await modelScopeFor(
-    launcherFolder !== undefined ? parent.cwd : cwd,
+    launchPlacement,
     agentType as (typeof CLI_AGENT_TYPES)[number],
     {
       model: input.model !== undefined ? input.model : templateModel,
@@ -630,6 +631,7 @@ async function handleLaunchAgent(
     name: input.name,
     type: agentType as (typeof CLI_AGENT_TYPES)[number],
     cwd,
+    placement: launchPlacement,
     // As the UI launches a template: its project on its runner, if any.
     ...(templateTarget && savedTarget({ ...templateTarget, useWorktree })),
     fullAccess,

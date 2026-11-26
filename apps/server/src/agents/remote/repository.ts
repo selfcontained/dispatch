@@ -13,7 +13,7 @@ import {
   runnerDirectory,
   type CheckoutCommandRunners,
 } from "../../runners/directory.js";
-import { checkoutReadPlacement } from "../../runners/placement.js";
+import { controllerPlacement } from "../../runners/placement.js";
 
 /** A folder's repository identity, read by the runner that owns the folder. */
 export async function inferProjectRepository(
@@ -23,7 +23,7 @@ export async function inferProjectRepository(
   try {
     return (
       await runnerDirectory(runners)
-        .for(checkoutReadPlacement(cwd))
+        .for(controllerPlacement)
         .call("git.origin", { path: cwd })
     ).url;
   } catch {

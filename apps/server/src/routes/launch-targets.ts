@@ -488,7 +488,7 @@ export async function registerLaunchTargetRoutes(
       )?.effort,
       directory: target.location.kind === "folder" ? directory : "",
       branchesUrl: `${ROOT}/${target.key}/branches?${branchQuery}`,
-      personasUrl: `/api/v1/personas?${query({ cwd: located.directory, projectId: q.projectId, type: "task" })}`,
+      personasUrl: `/api/v1/personas?${query({ cwd: located.directory, ...(target.location.kind === "project" && { runner: target.id }), projectId: q.projectId, type: "task" })}`,
       defaults: {
         baseBranch: target.location.kind === "folder" ? "main" : "",
         preferenceKey:

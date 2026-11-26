@@ -78,6 +78,7 @@ function fixtureRunner(policy: "local" | "enrolled", f: Fixture = {}) {
   });
   const runner = {
     call,
+    connection: { state: "ready" },
     archive: policy === "local" ? localArchivePolicy : enrolledArchivePolicy,
     ...(policy === "local" && { cleanupBudgetMs: 60_000 }),
   } as unknown as ArchiveRunner;
@@ -104,8 +105,7 @@ function run(
   const logger = { warn: vi.fn(), info: vi.fn() };
   const agent = {
     id: "agt_a",
-    cwd:
-      row.cwd ?? (policy === "local" ? "/repo" : "runner://runner-a/@session"),
+    cwd: row.cwd ?? (policy === "local" ? "/repo" : "/srv/checkout"),
     worktreePath:
       row.worktreePath === undefined ? "/checkout" : row.worktreePath,
     worktreeBranch: "feature",
@@ -330,48 +330,5 @@ describe("failures and the host", () => {
   it("only local carries main's cleanup budget", () => {
     expect(fixtureRunner("local").runner.cleanupBudgetMs).toBe(60_000);
     expect(fixtureRunner("enrolled").runner.cleanupBudgetMs).toBeUndefined();
-  });
-});
-
-describe("a peer without bound release keeps the snapshot release", () => {
-  it("routes to the legacy transport, not the adapter", async () => {
-    const requestSession = vi.fn(async () => ({ value: "retained" }));
-    const remote = {
-      supportsWorkspaceRelease: () => false,
-      requestSession,
-    } as unknown as RemoteRunnerService;
-    const agent = {
-      id: "agt_a",
-      cwd: "runner://runner-a/@session",
-      worktreePath: null,
-      worktreeBranch: null,
-      baseBranch: null,
-    };
-    const runner = runnerDirectory(
-      { remote },
-      {
-        ...agent,
-        workspacePath: null,
-        placement: placementForRunner("runner-a"),
-      }
-    ).for(placementForRunner("runner-a")) as unknown as ArchiveRunner;
-    expect(runner.serves?.("workspace.release")).toBe(false);
-    await archiveCheckout(
-      { query: async () => ({ rows: [] }) } as unknown as Pool,
-      { warn: vi.fn() } as unknown as FastifyBaseLogger,
-      agent,
-      "keep",
-      true,
-      {},
-      runner,
-      remote
-    );
-    expect(requestSession.mock.calls.map((c) => (c as unknown[])[1])).toEqual([
-      {
-        kind: "checkoutRelease",
-        agentId: "agt_a",
-        operation: { kind: "release", expectedState: null },
-      },
-    ]);
   });
 });

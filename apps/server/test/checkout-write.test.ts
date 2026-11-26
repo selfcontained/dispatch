@@ -76,15 +76,14 @@ describe("checkout.write (main's walk)", () => {
     await expect(stat(path.join(root, file))).rejects.toThrow();
   });
 
-  it("refuses links with main's reasons and texts", async () => {
+  it("refuses links with structured reasons", async () => {
     const elsewhere = await mkdtemp(path.join(os.tmpdir(), "elsewhere-"));
     try {
       await mkdir(path.join(root, ".agents"));
       await symlink(elsewhere, path.join(root, ".agents/personas"));
       expect(await refusal(write("x", null))).toEqual({
         code: "forbidden",
-        message:
-          "Refusing to write through symlinked persona directory: personas.",
+        message: "Refusing to write through symlinked directory: personas.",
         details: { reason: "symlink-dir", segment: "personas" },
       });
       await rm(path.join(root, ".agents/personas"));
@@ -92,7 +91,7 @@ describe("checkout.write (main's walk)", () => {
       await symlink(path.join(elsewhere, "target.md"), path.join(root, file));
       expect(await refusal(write("x", null))).toEqual({
         code: "forbidden",
-        message: "Refusing to overwrite a symlinked persona file.",
+        message: "Refusing to overwrite a symlinked file.",
         details: { reason: "symlink-file" },
       });
       await expect(stat(path.join(elsewhere, "target.md"))).rejects.toThrow();

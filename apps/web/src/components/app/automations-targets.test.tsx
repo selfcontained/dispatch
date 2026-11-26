@@ -71,8 +71,7 @@ function fixture(
     if (url === "/api/v1/launch-targets") return { targets };
     if (url.startsWith("/api/v1/launch-targets/saved/"))
       return {
-        targetKey:
-          template?.directory === "/repo" ? controller.key : enrolled.key,
+        targetKey: template?.runner ? enrolled.key : controller.key,
         projectId: "project",
         directory: "",
       };
@@ -93,7 +92,7 @@ function fixture(
           baseBranch: url.startsWith(enrolled.dataUrl) ? "" : "main",
           preferenceKey: url,
           templateFields: url.startsWith(enrolled.dataUrl)
-            ? { directory: "runner://fixture/@session" }
+            ? { directory: "", runner: "fixture" }
             : {},
         },
       };
@@ -186,7 +185,8 @@ it.each(["release/unlisted", "https://github.com/org/repo/pull/7"])(
     const template = {
       id: "saved",
       name: "Nightly",
-      directory: "runner://fixture/@session",
+      directory: "",
+      runner: "fixture",
       projectId: "project",
       agentType: "codex",
       model: null,
@@ -294,7 +294,8 @@ it.each([
     const template = {
       id: "saved",
       name: "Nightly",
-      directory: runner ? "runner://fixture/@session" : "/repo",
+      directory: runner ? "" : "/repo",
+      runner: runner ? "fixture" : null,
       projectId: "project",
       agentType: "codex",
       model: null,

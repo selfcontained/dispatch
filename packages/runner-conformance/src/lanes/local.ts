@@ -10,12 +10,10 @@
  * engine programs, both on the launch request, as an app does.
  */
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -227,14 +225,6 @@ export async function startLocalLane(): Promise<Lane> {
   return {
     runner,
     session: SESSION,
-    // Command guards bind the digest to the checkout and its root, as the
-    // remote lane's v1 guards do.
-    async readGuard(_session, path) {
-      const content = readFileSync(join(checkout, path), "utf8");
-      return createHash("sha256")
-        .update(JSON.stringify(["current", checkout, checkout, path, content]))
-        .digest("hex");
-    },
     async seed(path, content) {
       const file = join(checkout, path);
       mkdirSync(dirname(file), { recursive: true });

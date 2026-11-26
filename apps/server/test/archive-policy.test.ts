@@ -12,10 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
-import type {
-  CheckoutObservation,
-  CheckoutRelease,
-} from "@dispatch/runner-protocol";
+import type { CheckoutObservation } from "@dispatch/runner-protocol";
 import {
   RunnerCallError,
   type Runner,
@@ -181,40 +178,22 @@ function harness(
       return { rows: [], rowCount: 0 };
     },
   } as unknown as Pool;
-  // Mirrors the runner supervisor: a null or stale authorization retains,
-  // a live borrower defers, otherwise the checkout is removed.
   const remote = {
-    requestSession: async (
-      _placement: unknown,
-      request: { operation: CheckoutRelease }
-    ) => {
+    connectionEpoch: () => (options.offline ? undefined : 1),
+    call: async (_runner: string, op: string) => {
       if (options.offline)
         throw new RunnerCallError({
           code: "unavailable",
           message: "Runner is offline.",
         });
-      const { operation } = request;
-      if (operation.kind === "observe") {
-        const observation: CheckoutObservation = {
-          ...(await observeRow()),
-          borrowers: row.borrowed ? ["borrower"] : [],
-        };
-        return { value: JSON.stringify(observation) };
-      }
-      if (operation.expectedState === null) return { value: "retained" };
+      if (op === "workspace.observe") return observeRow();
       if (options.releaseError) throw new Error("release failed");
-      if (row.state === "race")
-        writeFileSync(path.join(checkout, "late.txt"), "late");
-      const current = await observeRow();
-      if (current.checkout?.stateId !== operation.expectedState)
-        return { value: "retained" };
-      if (row.borrowed) return { value: "inUse" };
-      await port(
+      const removed = await workspaceWorkload.release(
         "agent-fixture",
         { path: checkout },
         { deleteBranch: true, originalBranch: "feature" }
       );
-      return { value: "released" };
+      return { removed };
     },
   } as unknown as RemoteRunnerService;
   const agent = {
@@ -224,12 +203,11 @@ function harness(
       worktreeBranch: null,
     }),
     ...(options.rowWorktree && { worktreePath: options.rowWorktree }),
-    cwd: row.placement === "runner" ? "runner://test/@session" : repo,
+    cwd: row.placement === "runner" ? checkout : repo,
     placement:
       row.placement === "runner"
         ? placementForRunner("test")
         : controllerPlacement,
-    runnerManaged: row.placement === "runner",
   } as unknown as AgentRecord;
   const deps = {
     pool,
@@ -266,10 +244,6 @@ function expected(row: Row): Omit<Result, "rememberedState"> {
     row.mode === "force" ||
     (row.mode === "auto" && ["clean", "changed", "race"].includes(row.state));
   if (!authorizes) return { pending: false, removed: false };
-  if (row.placement === "runner") {
-    if (row.state === "race") return { pending: false, removed: false };
-    if (row.borrowed) return { pending: true, removed: false };
-  }
   return { pending: false, removed: true };
 }
 
@@ -288,8 +262,6 @@ describe("archive checkout outcome table", () => {
       expected(row)
     );
     // A deferred release keeps the authorization it observed.
-    if (result.pending)
-      expect(result.rememberedState).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it.each(ROWS.filter(({ placement }) => placement === "local"))(
@@ -592,8 +564,7 @@ function retry(h: Harness, row: Row) {
       { child: h.deps.localRunnerChild, remote: h.deps.remote },
       h.agent,
       h.agent.placement
-    ),
-    h.deps.remote
+    )
   );
 }
 
@@ -655,60 +626,56 @@ describe("negotiated archive release", () => {
       expect(db.checkoutState).toBeNull();
 
       writeFileSync(path.join(checkout, "late.txt"), "written while offline");
-      const requestSession = vi.fn(async (_placement, request) => {
-        if (request.kind === "checkoutRelease") {
+      const call = vi.fn(async (_runner, op, request) => {
+        if (op === "workspace.observe") {
           // A forced archive asks ownership alone: no Git status or fetch.
-          expect(request.operation).toEqual({
-            kind: "observe",
-            policy: mode === "force" ? "ownership" : "changes",
+          expect(request).toEqual({
+            session: agent.id,
+            ...(mode === "force" && { policy: "ownership" }),
           });
           return {
-            value: JSON.stringify({
-              ownership,
-              owner: ownership === "owned" ? agent.id : null,
-              borrowers: ["borrower"],
-              checkout:
-                mode === "force"
-                  ? null
-                  : {
-                      path: checkout,
-                      branch: "feature",
-                      stateId: "0".repeat(64),
-                      unmerged: false,
-                      changedFiles: [],
-                      uncommittedFiles: ["late.txt"],
-                    },
-            }),
+            ownership,
+            owner: ownership === "owned" ? agent.id : null,
+            borrowers: ["borrower"],
+            checkout:
+              mode === "force"
+                ? null
+                : {
+                    path: checkout,
+                    branch: "feature",
+                    stateId: "0".repeat(64),
+                    unmerged: false,
+                    changedFiles: [],
+                    uncommittedFiles: ["late.txt"],
+                  },
           };
         }
         expect(request).toMatchObject({
-          kind: "workspaceRelease",
-          agentId: agent.id,
-          operation: { deleteBranch: true, originalBranch: "feature" },
+          session: agent.id,
+          deleteBranch: true,
+          originalBranch: "feature",
         });
-        expect(request.operation).not.toHaveProperty("expectedState");
+        expect(request).not.toHaveProperty("expectedState");
         const removed = await workspaceWorkload.release(
           agent.id,
           { path: checkout },
-          request.operation
+          request
         );
-        return { value: JSON.stringify({ removed }) };
+        return { removed };
       });
       deps.remote = {
-        supportsWorkspaceRelease: () => true,
-        requestSession,
+        connectionEpoch: () => 1,
+        call,
       } as unknown as RemoteRunnerService;
       expect(await finishCheckout(deps, agent, mode, true, {})).toBe(false);
       expect(existsSync(checkout)).toBe(!removes);
       expect(db.checkoutState).toBeNull();
-      expect(
-        requestSession.mock.calls.map(([, request]) => request.kind)
-      ).toEqual(
+      expect(call.mock.calls.map(([, op]) => op)).toEqual(
         mode === "keep"
           ? []
           : removes
-            ? ["checkoutRelease", "workspaceRelease"]
-            : ["checkoutRelease"]
+            ? ["workspace.observe", "workspace.release"]
+            : ["workspace.observe"]
       );
     }
   );
@@ -724,59 +691,32 @@ describe("a gone runner checkout", () => {
     } as const;
     const { deps, agent } = harness(row);
     git(repo, "worktree", "remove", "--force", checkout);
-    const requestSession = vi.fn(async (_placement, request) => {
-      if (request.kind === "checkoutRelease")
+    const call = vi.fn(async (_runner, op, request) => {
+      if (op === "workspace.observe")
         return {
-          value: JSON.stringify({
-            ownership: "owned",
-            owner: agent.id,
-            borrowers: [],
-            checkout: null,
-          }),
+          ownership: "owned",
+          owner: agent.id,
+          borrowers: [],
+          checkout: null,
         };
       expect(request).toMatchObject({
-        kind: "workspaceRelease",
-        agentId: agent.id,
+        session: agent.id,
       });
-      return { value: JSON.stringify({ removed: true }) };
+      return { removed: true };
     });
     deps.remote = {
-      supportsWorkspaceRelease: () => true,
-      requestSession,
+      connectionEpoch: () => 1,
+      call,
     } as unknown as RemoteRunnerService;
     expect(await finishCheckout(deps, agent, "auto", true, {})).toBe(false);
-    expect(requestSession.mock.calls.map(([, r]) => r.kind)).toEqual([
-      "checkoutRelease",
-      "workspaceRelease",
+    expect(call.mock.calls.map(([, op]) => op)).toEqual([
+      "workspace.observe",
+      "workspace.release",
     ]);
   });
 });
 
 describe("pending release retry", () => {
-  const firstAttempts = ROWS.filter(
-    (row) => !row.borrowed && expected({ ...row, borrowed: true }).pending
-  );
-
-  it.each(firstAttempts)(
-    "$placement $mode $state: a borrowed release retries to the first-attempt outcome",
-    async (row) => {
-      shape(row.state);
-      const borrowed = harness({ ...row, borrowed: true });
-      expect(
-        await finishCheckout(borrowed.deps, borrowed.agent, row.mode, true, {})
-      ).toBe(true);
-      expect(existsSync(checkout)).toBe(true);
-      // The borrower has gone; the retry makes a fresh observation.
-      const free = harness(row);
-      free.db.checkoutState = borrowed.db.checkoutState;
-      const outcome = await retry(free, row);
-      expect({
-        pending: outcome.kind === "pending",
-        removed: !existsSync(checkout),
-      }).toEqual(expected(row));
-    }
-  );
-
   it.each(["auto", "keep", "force"] as const)(
     "runner %s: an offline release retries to the first-attempt outcome",
     async (mode) => {
@@ -800,24 +740,6 @@ describe("pending release retry", () => {
       }).toEqual(expected(row));
     }
   );
-
-  it("reevaluates a pending force cleanup at retry and removes late edits", async () => {
-    const row = {
-      placement: "runner",
-      mode: "force",
-      state: "clean",
-      borrowed: false,
-    } as const;
-    const borrowed = harness({ ...row, borrowed: true });
-    expect(
-      await finishCheckout(borrowed.deps, borrowed.agent, "force", true, {})
-    ).toBe(true);
-    writeFileSync(path.join(checkout, "later.txt"), "later");
-    const free = harness(row);
-    free.db.checkoutState = borrowed.db.checkoutState;
-    expect((await retry(free, row)).kind).toBe("released");
-    expect(existsSync(checkout)).toBe(false);
-  });
 });
 
 /*
@@ -1040,12 +962,17 @@ describe("runner archive co-owner, whatever the row's worktree path", () => {
         pool,
         {
           id: "runner-agent",
-          cwd: "runner://test/@session",
+          cwd: "/workload/checkout",
+          placement: placementForRunner("test"),
           worktreePath,
           worktreeBranch: null,
           baseBranch: null,
         },
-        { call: vi.fn(), archive: enrolledArchivePolicy } as never,
+        {
+          call: vi.fn(),
+          connection: { state: "ready" },
+          archive: enrolledArchivePolicy,
+        } as never,
         true
       );
       return executor.observedCoOwner!({

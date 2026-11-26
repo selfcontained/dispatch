@@ -1,15 +1,9 @@
-import { createEngineUpdatePort } from "@dispatch/runner-protocol/engine-update-port";
 import type { Req, Res } from "@dispatch/runner-protocol/contract";
-import type { EngineHostCallName } from "@dispatch/runner-protocol/engine-management";
-type EngineCalls = {
-  call<K extends EngineHostCallName>(op: K, input: Req<K>): Promise<Res<K>>;
-};
 import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 import { access, constants, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import {
   compareVersions,
   clearEngineVersionCache,
@@ -895,8 +889,4 @@ export class EngineUpdateHost {
       version: request.bin ? await engineVersion(request.bin) : null,
     };
   }
-}
-
-export function engineUpdatePort(engines: EngineCalls) {
-  return createEngineUpdatePort(engines, randomUUID, clearEngineVersionCache);
 }

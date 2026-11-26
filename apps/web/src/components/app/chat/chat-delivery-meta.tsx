@@ -6,7 +6,6 @@ import {
   useSyncExternalStore,
 } from "react";
 import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query";
-import { remotePlacement } from "@dispatch/runner-protocol";
 import type {
   Block,
   BlockDeliveryState,
@@ -85,7 +84,7 @@ function useWaitingOnRunner(held: readonly string[]): boolean {
     const agent = agents?.find((entry) => entry.id === id);
     if (!agent || agent.currentTurn || agent.activity === "working")
       return undefined;
-    return remotePlacement(agent.cwd)?.runner;
+    return agent.engineLoginRunnerId;
   });
   const eligible = runnerIds.length > 0 && runnerIds.every(Boolean);
   const { data: runners } = useRunners({ enabled: eligible, poll: eligible });

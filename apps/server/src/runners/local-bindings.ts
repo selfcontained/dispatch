@@ -12,7 +12,6 @@
  * current path, never a removable one.
  */
 import type { Pool } from "pg";
-import { remotePlacement } from "@dispatch/runner-protocol";
 import { runnerIdToWire } from "@dispatch/runner-protocol/contract";
 import { LOCAL_RUNNER_ID } from "./placement.js";
 
@@ -47,13 +46,12 @@ const text = (value: string | null) => {
 };
 
 /**
- * One row's binding, or null when the row has no checkout on this machine
- * (no `cwd`, or a runner locator left by an older build).
+ * One local row's binding, or null when it has no checkout directory.
  */
 export function bindingFromRow(row: LocalBindingRow): LocalBinding | null {
   // Paths are filesystem identities, not labels: main preserves their bytes.
   const cwd = row.cwd;
-  if (!cwd || remotePlacement(cwd)) return null;
+  if (!cwd) return null;
   const worktreePath = row.worktreePath;
   const workspacePath = row.workspacePath;
   return {

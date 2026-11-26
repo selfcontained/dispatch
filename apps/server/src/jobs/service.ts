@@ -1,4 +1,8 @@
 import {
+  controllerPlacement,
+  runnerIdForPlacement,
+} from "../runners/placement.js";
+import {
   displayPath,
   pathFromWire,
   sameRunner,
@@ -12,7 +16,7 @@ import {
   type ProjectIdentity,
 } from "../runners/repository-identity.js";
 import {
-  hasSavedLocator,
+  requestedRunnerPlacement,
   resolveSavedTarget,
   savedLaunchTarget,
   storedLocation,
@@ -165,9 +169,10 @@ export class JobService {
 
   async getJobByName(
     directory: string,
-    name: string
+    name: string,
+    runner = "local"
   ): Promise<JobRecord | null> {
-    return this.store.getJobByDirectoryAndName(directory, name);
+    return this.store.getJobByDirectoryAndName(directory, name, runner);
   }
 
   async runJob(input: RunJobInput): Promise<RunJobResult> {
@@ -543,12 +548,13 @@ export class JobService {
             );
             if (
               previous &&
-              previous.config.directory !== attached.config.directory
+              (previous.config.directory !== attached.config.directory ||
+                !sameRunner(
+                  targetPlacement(previous.config),
+                  targetPlacement(attached.config)
+                ))
             )
-              await this.syncContinuationHandoff(
-                previous,
-                attached.config.directory
-              );
+              await this.syncContinuationHandoff(previous, attached.config);
           }
           this.emitRunStateChange(attached);
         },
@@ -568,23 +574,24 @@ export class JobService {
 
   private async syncContinuationHandoff(
     run: JobRunRecord,
-    destinationDirectory?: string
+    destination?: JobRunRecord["config"]
   ): Promise<void> {
     if (!this.brainStore || !run.agentId) return;
     const job = await this.store.getJob(run.jobId);
     if (!job?.continuationEnabled) return;
-    const directory = destinationDirectory ?? run.config.directory;
+    const target = destination ?? run.config;
+    const directory = target.directory;
     // The key the successor's Brain tools read (D5, D8). A plain folder on
     // the controller's machine keeps its normalized path, as on main.
     const agentId = run.agentId;
     const repoRoot =
       (await repositoryKey({
-        placement: targetPlacement({ directory }),
+        placement: targetPlacement(target),
         repositoryRoot: async () => {
           const roots = await runnerDirectory(
             this.agentManager.checkoutReadRunners()
           )
-            .for(targetPlacement({ directory }))
+            .for(targetPlacement(target))
             .call("git.roots", { target: { path: pathFromWire(directory) } })
             .catch(() => null);
           return roots?.repositoryRoot
@@ -703,7 +710,10 @@ export class JobService {
     callerFullAccess?: boolean,
     personaScope: SavedPersonaScope = savedPersonaScope(this.agentManager)
   ): Promise<JobRecord> {
-    input = { ...input, directory: normalizeJobDirectory(input.directory) };
+    input = {
+      ...input,
+      directory: normalizeJobDirectory(input.directory, input),
+    };
     if (input.agentType === "opencode") input = { ...input, fullAccess: true };
     assertAccessCeiling(input.fullAccess ?? false, callerFullAccess);
     const displayName = input.displayName?.trim() || input.name;
@@ -745,7 +755,7 @@ export class JobService {
         "task"
       );
     const scope = await modelScopeFor(
-      target.directory,
+      targetPlacement(target),
       input.agentType ?? "claude",
       { model: input.model, effort: input.effort }
     );
@@ -885,7 +895,7 @@ export class JobService {
     const requestedDirectory =
       input.directory === undefined
         ? previousDirectory
-        : normalizeJobDirectory(input.directory);
+        : normalizeJobDirectory(input.directory, input);
     const previousTarget = backingTemplate ?? existing;
     const target = resolveSavedTarget(requestedDirectory, {
       ...input,
@@ -897,10 +907,15 @@ export class JobService {
     const { directory } = target;
     const branchName = normalizeNullableString(input.branchName);
     const baseBranch = normalizeNullableString(input.baseBranch);
-    if (name !== existing.name || directory !== existing.directory) {
+    if (
+      name !== existing.name ||
+      directory !== existing.directory ||
+      !sameRunner(targetPlacement(target), targetPlacement(previousTarget))
+    ) {
       const conflict = await this.store.getJobByDirectoryAndName(
         directory,
-        name
+        name,
+        runnerIdForPlacement(targetPlacement(target))
       );
       if (conflict && conflict.id !== existing.id) {
         throw new Error(
@@ -925,7 +940,7 @@ export class JobService {
       ? backingTemplate.effort
       : existing.effort;
     const scope = await modelScopeFor(
-      directory,
+      targetPlacement(target),
       input.agentType ?? existing.agentType,
       {
         model:
@@ -1643,12 +1658,20 @@ function normalizeNullableString(
   return trimmed ? trimmed : null;
 }
 
-function normalizeJobDirectory(directory: string): string {
+function normalizeJobDirectory(
+  directory: string,
+  target: { runner?: string }
+): string {
+  if (
+    !sameRunner(
+      requestedRunnerPlacement(target) ?? controllerPlacement,
+      controllerPlacement
+    )
+  )
+    return "";
   if (!directory.trim()) throw new Error("Job directory is required.");
   const trimmed = directory.trim();
-  return hasSavedLocator(trimmed)
-    ? trimmed
-    : normalizePath(resolveTilde(trimmed));
+  return normalizePath(resolveTilde(trimmed));
 }
 
 /** Saved folder/key normalization on the controller; it performs no machine read. */

@@ -1,3 +1,4 @@
+import { placementForRunner } from "../src/runners/placement.js";
 import { isCheckoutViewData } from "@dispatch/runner-protocol";
 import { afterEach, expect, it, vi } from "vitest";
 import { readAgentStats } from "../src/agents/checkout-runner.js";
@@ -14,15 +15,20 @@ const view = {
   includeUncommitted: true,
 } as const;
 const local = { cwd: "/repo", worktreePath: null, baseBranch: "main" };
-const runner = { ...local, cwd: "runner://runner1/workspace1" };
+const runner = { ...local, placement: placementForRunner("runner1") };
 const totals = { files: 1, added: 2, deleted: 0 };
 const stats = { ...totals, excludingTests: totals, computedAt: 123 };
 
 function service(read: () => unknown) {
   return {
-    requestSession: async () => ({
-      value: JSON.stringify({ data: await read() }),
-    }),
+    call: async () => {
+      const data = (await read()) as
+        | (typeof stats & { outcome?: string })
+        | null;
+      if (!data) return null;
+      const { excludingTests, ...rest } = data;
+      return { ...rest, excluded: excludingTests };
+    },
   } as unknown as RemoteRunnerService;
 }
 

@@ -132,3 +132,13 @@ describe("a local row's co-owner, as main decides it", () => {
     expect(await localCoOwner(pool, owner(), local())).toBeNull();
   });
 });
+
+it("treats identical paths on another runner as a different checkout", async () => {
+  await other({
+    cwd: real,
+    worktree_path: link,
+    worktree_branch: "owner-branch",
+    runner_id: "runner-other",
+  });
+  expect(await localCoOwner(pool, owner(), local())).toBeNull();
+});

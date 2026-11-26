@@ -98,7 +98,7 @@ describe("launchPersonaScope (D7)", () => {
     expect(
       launchPersonaScope(manager, {
         placement: elsewhere,
-        cwd: "runner://elsewhere:@managed",
+        cwd: "/srv/checkout",
         projectRoot: "/project",
         repository: "https://example.com/o/r",
       })
@@ -112,7 +112,7 @@ describe("launchPersonaScope (D7)", () => {
     expect(
       launchPersonaScope(manager, {
         placement: elsewhere,
-        cwd: "runner://elsewhere:@managed",
+        cwd: "/srv/checkout",
         projectRoot: "/project",
         repository: null,
       })

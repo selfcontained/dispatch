@@ -2,12 +2,10 @@ import { isOpaqueId } from "./placement.js";
 import { isRecord } from "./validation.js";
 
 /*
- * Supervisor self-update frames for wire v1. They are negotiated by
- * `ready.selfUpdate` on an approved connection: a service sends them only to
- * a runner that advertised it, and a runner sends `update_status` only in
- * reply to one of them. Peers without the capability see the old protocol.
- * The frames carry build identity and opaque session IDs only, never Dispatch
- * prompts, schedules or interruption policy.
+ * The protected updater validates these inputs for the update operations.
+ * Its status observation can also arrive on the authenticated enrolled
+ * connection after reconnect, when a trial finished or a fence expired.
+ * The local socket does not carry this connection-scoped notification.
  */
 
 export const RUNNER_SELF_UPDATE_PROTOCOL = 1;

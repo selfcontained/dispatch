@@ -5,7 +5,10 @@
  * workload; Dispatch only parses.
  */
 import { createHash } from "node:crypto";
-import type { Runner } from "@dispatch/runner-protocol/contract";
+import {
+  RunnerCallError,
+  type Runner,
+} from "@dispatch/runner-protocol/contract";
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import { sessionRunner, target } from "../agents/checkout-runner.js";
 import type { PersonaFiles } from "./authoring.js";
@@ -52,12 +55,37 @@ export function sessionPersonaFiles(
       return reply.names;
     },
     async write(path, data, expectedDigest) {
-      await runner.call("checkout.write", {
-        target: target(agent),
-        path,
-        data,
-        expectedDigest,
-      });
+      try {
+        await runner.call("checkout.write", {
+          target: target(agent),
+          path,
+          data,
+          expectedDigest,
+        });
+      } catch (error) {
+        if (!(error instanceof RunnerCallError) || error.code !== "forbidden")
+          throw error;
+        const details = error.details;
+        if (!details || typeof details !== "object" || Array.isArray(details))
+          throw error;
+        let message: string;
+        switch (details.reason) {
+          case "symlink-dir":
+            if (typeof details.segment !== "string") throw error;
+            message = `Refusing to write through symlinked persona directory: ${details.segment}.`;
+            break;
+          case "symlink-file":
+            message = "Refusing to overwrite a symlinked persona file.";
+            break;
+          case "outside":
+            message =
+              "Persona directory must remain inside the current workspace.";
+            break;
+          default:
+            throw error;
+        }
+        throw new RunnerCallError({ code: error.code, details, message });
+      }
     },
   };
   return { files, writes: runner.serves?.("checkout.write") ?? true };

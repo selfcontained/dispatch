@@ -406,6 +406,10 @@ jobs:
           # Only a pack-release without --runner-arch may skip them.
           if grep -q -- --runner-arch bin/pack-release; then
             for arch in x64 arm64; do
+              # Older recovery tags packed the matching server executable.
+              if [[ -f scripts/build-standalone-runner.mjs ]]; then
+                DISPATCH_RUNNER_UPDATE_DEV_BUILD=0 bun scripts/build-standalone-runner.mjs "bun-linux-$arch"
+              fi
               bin/pack-release --runner-arch "$arch" --output "dispatch-runner-linux-$arch.tar.gz"
               test -s "dispatch-runner-linux-$arch.tar.gz"
             done

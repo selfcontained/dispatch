@@ -23,7 +23,7 @@ async function setup(remote = false) {
     ...(remote
       ? [
           {
-            project: "runner://fixture/@session",
+            project: "/srv/fixture/checkout",
             usage_count: 2,
             latest_created_at: new Date("2026-01-01"),
             agent_id: "runner",
@@ -72,15 +72,13 @@ it.each(["", "?limit=1", "?limit=50&search=unchanged"])(
     ]);
   }
 );
-it("excludes runner agents and stored locators without rejecting ordinary folder strings", async () => {
+it("excludes runner agents without rejecting ordinary folder strings", async () => {
   const { app, targets } = await setup(true);
   const result = (
     await app.inject(
       targets[0].historyUrl +
         "?candidates=" +
-        encodeURIComponent(
-          JSON.stringify(["runner://fixture/@session", "~/missing", "/var/raw"])
-        )
+        encodeURIComponent(JSON.stringify(["~/missing", "/var/raw"]))
     )
   ).json();
   expect(result.projects).toEqual(["/var/unchanged", "~/missing", "/var/raw"]);

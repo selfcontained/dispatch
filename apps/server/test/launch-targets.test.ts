@@ -107,7 +107,7 @@ async function setup(projectFailure = false) {
         placement: id.startsWith("controller")
           ? controllerPlacement
           : placementForRunner(id === "missing-target" ? "missing" : "fixture"),
-        cwd: id.startsWith("controller") ? "/cwd" : "runner://fixture/@session",
+        cwd: id.startsWith("controller") ? "/cwd" : "/srv/fixture/checkout",
         projectId: id === "unscoped" ? null : "project",
         ...(id === "controller-moved"
           ? {
@@ -220,7 +220,7 @@ describe("launch target adapter", () => {
     expect(data.agentTypes).toEqual(["codex"]);
     expect(data.engineOptions[0].installed).toBe(false);
     expect(data.defaults.templateFields).toEqual({
-      directory: "runner://fixture/@session",
+      directory: "",
     });
     expect(data.engineOptions[0].install).toBe("existing codex command");
     expect(data.catalog.models.codex[0].id).toBe("runner-model");
@@ -233,7 +233,7 @@ describe("launch target adapter", () => {
     });
     const personas = (await get(data.personasUrl)).json();
     expect(personas.query.projectId).toBe("project");
-    expect(personas.query.cwd).toBe("runner://fixture/@session");
+    expect(personas.query.runner).toBe("fixture");
   });
   it("projects saved targets separately without altering existing template bytes", async () => {
     const { get, targets } = await setup();

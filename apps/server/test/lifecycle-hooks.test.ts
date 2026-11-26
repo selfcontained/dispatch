@@ -524,8 +524,7 @@ describe("runLifecycleHook", () => {
     const directory = "/workload/owned";
     const agent = {
       id: "enrolled",
-      runnerManaged: true,
-      cwd: "runner://runner-a/main",
+      cwd: directory,
       placement: placementForRunner("runner-a"),
     } as AgentRecord;
     const call = vi.fn(async (op: string) => {
@@ -552,7 +551,6 @@ describe("runLifecycleHook", () => {
       directory: {
         for: () => ({
           call,
-          readManifest: async () => null,
           archive: directories.enrolledArchivePolicy,
         }),
       },
@@ -727,28 +725,27 @@ describe("runLifecycleHook", () => {
 it("puts each of a hook's runner requests through the fence retry", async () => {
   const refused = new Set(["read", "run"]);
   const kinds: string[] = [];
-  const requestSession = vi.fn(async (_placement, { operation }) => {
-    kinds.push(`${operation.checkout} ${operation.kind}`);
-    if (refused.delete(operation.kind)) throw new Error("fenced");
-    const content = JSON.stringify({ hooks: { stop: { command: ["true"] } } });
-    return {
-      value: JSON.stringify(
-        operation.kind === "read"
-          ? { content, state: "a".repeat(64) }
-          : { exitCode: 0, stderr: "", stdout: "", truncated: false }
-      ),
-    };
+  const call = vi.fn(async (_runner, op, input) => {
+    const kind = op === "checkout.read" ? "read" : "run";
+    kinds.push(input.target.checkout + " " + kind);
+    if (refused.delete(kind)) throw new Error("fenced");
+    if (kind === "read")
+      return {
+        data: JSON.stringify({ hooks: { stop: { command: ["true"] } } }),
+        digest: "a".repeat(64),
+      };
+    return { exitCode: 0, stderr: "", stdout: "", truncated: false };
   });
   await runLifecycleHook(
     "stop",
     {
       id: "session",
-      cwd: "runner://machine/work",
+      cwd: "/machine/work",
       placement: placementForRunner("machine"),
     } as AgentRecord,
     logger,
     {
-      remote: { requestSession } as unknown as RemoteRunnerService,
+      remote: { call } as unknown as RemoteRunnerService,
     },
     (request) => request().catch(request)
   );
@@ -764,27 +761,26 @@ it("puts each of a hook's runner requests through the fence retry", async () => 
 
 it("reports a runner hook failure and still runs the moved checkout on each teardown attempt", async () => {
   const warn = vi.fn();
-  const call = vi.fn(async (_placement, { operation }) => {
-    const content = JSON.stringify({
-      hooks: { stop: { command: ["cleanup", operation.checkout] } },
-    });
+  const call = vi.fn(async (_runner, op, input) => {
+    const checkout = input.target.checkout;
+    if (op === "checkout.read")
+      return {
+        data: JSON.stringify({
+          hooks: { stop: { command: ["cleanup", checkout] } },
+        }),
+        digest: "a".repeat(64),
+      };
     return {
-      value: JSON.stringify(
-        operation.kind === "read"
-          ? { content, state: "a".repeat(64) }
-          : {
-              exitCode: operation.checkout === "launch" ? 23 : 0,
-              stderr: "cleanup failed",
-              stdout: "",
-              truncated: false,
-            }
-      ),
+      exitCode: checkout === "launch" ? 23 : 0,
+      stderr: "cleanup failed",
+      stdout: "",
+      truncated: false,
     };
   });
-  const remote = { requestSession: call } as unknown as RemoteRunnerService;
+  const remote = { call } as unknown as RemoteRunnerService;
   const agent = {
     id: "session",
-    cwd: "runner://machine/work",
+    cwd: "/machine/work",
     placement: placementForRunner("machine"),
   } as AgentRecord;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -793,9 +789,9 @@ it("reports a runner hook failure and still runs the moved checkout on each tear
     ).resolves.toBeUndefined();
   }
   expect(
-    call.mock.calls.map(([, { operation }]) => [
-      operation.checkout,
-      operation.kind,
+    call.mock.calls.map(([, op, input]) => [
+      input.target.checkout,
+      op === "checkout.read" ? "read" : "run",
     ])
   ).toEqual([
     ["launch", "read"],

@@ -459,10 +459,10 @@ describe("reconcileAgentStatuses — happy path", () => {
 });
 
 describe("cleanupOrphanedHosts", () => {
-  const enrolled = { runner: "enrolled", workspace: "workspace" };
+  const enrolled = "enrolled";
   const ended = (id: string, launchId: string, placement = "local") => ({
     id,
-    cwd: placement === "local" ? "/tmp" : `runner://${placement}/workspace`,
+    cwd: placement === "local" ? "/tmp" : "/srv/checkout",
     runner_id: placement,
     host_launch_id: launchId,
   });
@@ -487,7 +487,7 @@ describe("cleanupOrphanedHosts", () => {
       runtime,
       cleanupAgentRows: [
         ended("agt_local", "local-launch"),
-        ended("agt_remote", "remote-launch", enrolled.runner),
+        ended("agt_remote", "remote-launch", enrolled),
       ],
     });
     await reconciler.cleanupOrphanedHosts();
@@ -522,7 +522,7 @@ describe("cleanupOrphanedHosts", () => {
       runtime: makeRuntime({ retryStop, listSessions }),
       cleanupAgentRows: [
         ended("agt_local", "local-launch"),
-        ended("agt_remote", "remote-launch", enrolled.runner),
+        ended("agt_remote", "remote-launch", enrolled),
       ],
     });
     await reconciler.cleanupOrphanedHosts("enrolled");
@@ -554,7 +554,7 @@ describe("cleanupOrphanedHosts", () => {
       }),
       cleanupAgentRows: [
         ended("agt_local", "old-launch"),
-        ended("agt_remote", "remote-launch", enrolled.runner),
+        ended("agt_remote", "remote-launch", enrolled),
       ],
     });
     await reconciler.cleanupOrphanedHosts();

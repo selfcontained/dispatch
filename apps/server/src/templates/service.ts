@@ -122,7 +122,7 @@ export class TemplateService {
         "task"
       );
     const scope = await modelScopeFor(
-      target.directory,
+      targetPlacement(target),
       input.agentType ?? "claude",
       { model: input.model, effort: input.effort }
     );
@@ -245,7 +245,7 @@ export class TemplateService {
     if (targetChanged) Object.assign(updates, target);
     if (input.prompt !== undefined) updates.prompt = input.prompt;
     const scope = await modelScopeFor(
-      target.directory,
+      targetPlacement(target),
       input.agentType ?? existing.agentType,
       {
         model:
@@ -331,9 +331,14 @@ export class TemplateService {
 
   async getTemplateByName(
     directory: string,
-    name: string
+    name: string,
+    runner = "local"
   ): Promise<TemplateRecord | null> {
-    return await this.store.getTemplateByDirectoryAndName(directory, name);
+    return await this.store.getTemplateByDirectoryAndName(
+      directory,
+      name,
+      runner
+    );
   }
 
   async launchTemplate(input: LaunchTemplateInput): Promise<LaunchResult> {
@@ -353,7 +358,9 @@ export class TemplateService {
       ? await resolveTemplateLaunch(
           stored,
           input,
-          input.directory ?? stored.directory
+          input.directory && input.directory !== stored.directory
+            ? controllerPlacement
+            : targetPlacement(stored)
         )
       : null;
     if (!template) {

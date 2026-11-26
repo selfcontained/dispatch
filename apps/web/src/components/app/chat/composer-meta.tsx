@@ -1,4 +1,3 @@
-import { remotePlacement } from "@dispatch/runner-protocol";
 import { RunnerProviderUsage } from "@/components/runner-engines/runner-provider-usage";
 import type {
   AgentConfigOption,
@@ -334,7 +333,7 @@ function UsageChip({
   const [open, setOpen] = useState(false);
   // Read once on mount (including a closed chip), then use the shared cache.
   // No network polling: the local clock alone keeps expiry reminders current.
-  const runnerId = agent ? remotePlacement(agent.cwd)?.runner : undefined;
+  const runnerId = agent?.engineLoginRunnerId;
   const plans = useProviderPlans(!runnerId);
   const { isStale, refetch } = plans;
   const now = useNow(true);

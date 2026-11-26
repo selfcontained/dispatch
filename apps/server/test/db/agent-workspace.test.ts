@@ -265,12 +265,10 @@ describe("set_workspace parity", () => {
   it("returns the same result shape for a local and a runner session", async () => {
     // A runner reply as the supervisor builds it with the shared git probe.
     const runnerReply = (body: Record<string, unknown>) => ({
-      value: JSON.stringify({
-        path: otherRepo,
-        moved: true,
-        origin: null,
-        ...body,
-      }),
+      path: otherRepo,
+      moved: true,
+      origin: null,
+      ...body,
     });
     // Git context is probed after a move, as for a local session.
     const context = {
@@ -280,21 +278,17 @@ describe("set_workspace parity", () => {
       worktreeName: "other",
       isWorktree: false,
     };
-    const requestSession = vi.fn(
-      async (
-        _placement: unknown,
-        command: { operation?: { kind?: string } }
-      ) =>
-        command.operation?.kind === "context"
-          ? { value: JSON.stringify(context) }
-          : runnerReply({
-              repositoryRoot: otherRepo,
-              checkoutRoot: otherRepo,
-              branch: "fix/wrong-repo",
-            })
+    const call = vi.fn(async (_placement: unknown, op: string) =>
+      op === "git.context"
+        ? context
+        : runnerReply({
+            repositoryRoot: otherRepo,
+            checkoutRoot: otherRepo,
+            branch: "fix/wrong-repo",
+          })
     );
     const remote = {
-      requestSession,
+      call,
     } as unknown as import("../../src/agents/remote/service.js").RemoteRunnerService;
     const runnerManager = new AgentManager(pool, noopLogger, inertConfig, {
       remote,
@@ -302,7 +296,7 @@ describe("set_workspace parity", () => {
     await insertWorktreeAgent("agt_local", launchWorktree, "agt/launch");
     await pool.query(
       `INSERT INTO agents (id, name, status, cwd, runner_id) VALUES ($1, $1, 'stopped', $2, 'runner-test')`,
-      ["agt_runner", "runner://runner-test/@session"]
+      ["agt_runner", launchWorktree]
     );
     const handlers = (agentManager: InstanceType<typeof AgentManager>) =>
       createMcpHandlers({
@@ -335,7 +329,7 @@ describe("set_workspace parity", () => {
       ).resolves.toEqual(nativeMove);
     }
 
-    requestSession.mockClear();
+    call.mockClear();
     for (const baseBranch of ["--all", "has space", "topic..main"]) {
       const input = { ...move, baseBranch };
       await expect(
@@ -345,7 +339,7 @@ describe("set_workspace parity", () => {
         handlers(runnerManager).setWorkspace("agt_runner", input)
       ).rejects.toMatchObject({ statusCode: 400 });
     }
-    expect(requestSession).not.toHaveBeenCalled();
+    expect(call).not.toHaveBeenCalled();
     expect((await manager.getAgent("agt_local"))?.workspaceBaseBranch).toBe(
       "HEAD"
     );
@@ -353,7 +347,7 @@ describe("set_workspace parity", () => {
       (await runnerManager.getAgent("agt_runner"))?.workspaceBaseBranch
     ).toBe("HEAD");
 
-    requestSession.mockResolvedValueOnce(
+    call.mockResolvedValueOnce(
       runnerReply({
         path: path.join(otherRepo, "nested"),
         repositoryRoot: otherRepo,
@@ -369,9 +363,9 @@ describe("set_workspace parity", () => {
       isWorktree: false,
     });
 
-    // An older runner omits the git fields from its selection; the result
+    // A selection may omit optional Git fields; the result
     // keeps its shape, and the Git facts come from the context probe.
-    requestSession.mockResolvedValueOnce(runnerReply({}));
+    call.mockResolvedValueOnce(runnerReply({}));
     const legacy = await handlers(runnerManager).setWorkspace(
       "agt_runner",
       move

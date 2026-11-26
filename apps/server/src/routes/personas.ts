@@ -1,7 +1,6 @@
-import { pathFromWire } from "@dispatch/runner-protocol/contract";
+import { pathFromWire, sameRunner } from "@dispatch/runner-protocol/contract";
 import { runnerDirectory } from "../runners/directory.js";
 import { controllerPlacement } from "../runners/placement.js";
-import { remotePlacement } from "@dispatch/runner-protocol";
 import type { Effort } from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import { listPersonas } from "../personas/resolve.js";
@@ -10,7 +9,7 @@ import {
   personaCheckoutRoot,
   personaScopeFor,
 } from "../personas/persona-scope.js";
-import { targetPlacement } from "../runners/saved-location.js";
+import { requestedRunnerPlacement } from "../runners/saved-location.js";
 import type { ProjectStore } from "../projects/store.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
@@ -123,6 +122,7 @@ export async function registerPersonaRoutes(
     const query = request.query as {
       agentId?: unknown;
       cwd?: unknown;
+      runner?: unknown;
       projectId?: unknown;
       type?: unknown;
     };
@@ -161,13 +161,14 @@ export async function registerPersonaRoutes(
       const project = projectId ? await deps.projects.get(projectId) : null;
       if (projectId && !project)
         return reply.code(404).send({ error: "Project not found." });
+      const placement = requestedRunnerPlacement(query) ?? controllerPlacement;
       const worktreeRoot =
-        cwd && !remotePlacement(cwd)
+        cwd && sameRunner(placement, controllerPlacement)
           ? await resolveOptionalWorktreeRoot(cwd, deps.agentManager)
           : null;
       const { personas, warnings, refreshing, updatedAt } = await listPersonas(
         launchPersonaScope(deps.agentManager, {
-          placement: targetPlacement({ directory: cwd ?? "" }),
+          placement,
           cwd,
           projectRoot: project?.repoRoot ?? undefined,
           repository: projectId
@@ -294,7 +295,7 @@ export async function registerPersonaRoutes(
       const parent = await deps.agentManager.getAgent(agentId);
       if (!parent) return reply.code(404).send({ error: "Agent not found." });
       const agentType = body.agentType as (typeof CLI_AGENT_TYPES)[number];
-      const scope = await modelScopeFor(parent.cwd, agentType, {
+      const scope = await modelScopeFor(parent.placement, agentType, {
         model: body.model,
         effort: body.effort,
       });

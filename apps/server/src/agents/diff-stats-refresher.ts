@@ -7,7 +7,7 @@ import {
 } from "./effective-base.js";
 import { agentDiffPath } from "./workspace-target.js";
 
-export type DiffStatsAgent = ComparisonBaseAgent & { runnerManaged?: boolean };
+export type DiffStatsAgent = ComparisonBaseAgent;
 
 export type DiffStatsChangedEvent = {
   type: "agent.diff_state_changed";

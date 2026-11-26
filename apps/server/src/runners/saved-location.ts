@@ -1,9 +1,4 @@
-import {
-  MANAGED_WORKSPACE,
-  isOpaqueId,
-  remotePlacement,
-  workspaceLocator,
-} from "@dispatch/runner-protocol";
+import { isOpaqueId } from "@dispatch/runner-protocol";
 import { sameRunner, type Placement } from "@dispatch/runner-protocol/contract";
 import { resolveLaunchLocation } from "../agents/workspace-target.js";
 import {
@@ -12,12 +7,12 @@ import {
   runnerIdForPlacement,
 } from "./placement.js";
 
-/** A null project retains a legacy unscoped locator or an unresolved folder save. */
+/** A saved launch target can await project selection. */
 export type Location =
   | { runner: string; path: string }
   | { runner: string; projectId: string | null };
 
-type StoredLocation = Location & { legacy?: true };
+type StoredLocation = Location;
 
 export const storedLocation = Symbol("saved launch location");
 
@@ -28,8 +23,7 @@ export type SavedTarget = {
 };
 
 export function targetPlacement(target: SavedTarget): Placement {
-  const runner =
-    target[storedLocation]?.runner ?? remotePlacement(target.directory)?.runner;
+  const runner = target[storedLocation]?.runner;
   return runner === undefined
     ? controllerPlacement
     : placementForRunner(runner);
@@ -42,8 +36,7 @@ export function defaultSavedTarget<T extends SavedTarget & { runner?: string }>(
   caller: { cwd: string; projectId?: string | null; placement?: Placement },
   defaultDirectory?: boolean
 ): T {
-  const callerPlacement =
-    caller.placement ?? targetPlacement({ directory: caller.cwd });
+  const callerPlacement = caller.placement ?? controllerPlacement;
   const placement =
     input.runner !== undefined
       ? placementForRunner(input.runner)
@@ -76,7 +69,6 @@ export function resolveSavedTarget(
     directorySupplied?: boolean;
   } = {}
 ): SavedTarget & { [storedLocation]: StoredLocation } {
-  const locator = remotePlacement(directory);
   const previous = options.previous;
   const placement =
     options.runner !== undefined
@@ -86,33 +78,16 @@ export function resolveSavedTarget(
         : targetPlacement({ directory });
   const runner = runnerIdForPlacement(placement);
   if (sameRunner(placement, controllerPlacement)) {
-    const path = resolveLaunchLocation(
-      options.projectRoot ?? (locator ? "." : directory)
-    );
+    const path = resolveLaunchLocation(options.projectRoot ?? directory);
     return { directory: path, [storedLocation]: { runner, path } };
   }
-  const workspace =
-    locator && sameRunner(placementForRunner(locator.runner), placement)
-      ? locator.workspace
-      : MANAGED_WORKSPACE;
-  const directoryOnRunner = workspaceLocator({ runner, workspace });
-  const legacy =
-    (previous?.directory === directoryOnRunner &&
-      (previous[storedLocation]?.legacy || !previous[storedLocation])) ||
-    (locator &&
-      !options.projectId &&
-      sameRunner(placementForRunner(locator.runner), placement));
   return {
-    directory: directoryOnRunner,
-    [storedLocation]: {
-      runner,
-      projectId: options.projectId ?? null,
-      ...(legacy && { legacy: true }),
-    },
+    directory: "",
+    [storedLocation]: { runner, projectId: options.projectId ?? null },
   };
 }
 
-/** Compatibility projection for the launcher until it accepts a Location. */
+/** A saved enrolled project gains a directory when its runner prepares the checkout. */
 export function savedLaunchTarget(
   target: SavedTarget & { useWorktree: boolean }
 ) {
@@ -120,49 +95,35 @@ export function savedLaunchTarget(
   const location = target[storedLocation];
   if (sameRunner(placement, controllerPlacement))
     return {
+      placement,
       cwd: location && "path" in location ? location.path : target.directory,
     };
 
-  const runner = runnerIdForPlacement(placement);
-  const locator = remotePlacement(target.directory);
-  const workspace =
-    locator && sameRunner(placementForRunner(locator.runner), placement)
-      ? locator.workspace
-      : MANAGED_WORKSPACE;
   const projectId =
     location && "projectId" in location ? location.projectId : target.projectId;
-  if (location && !location.legacy && !projectId)
+  if (!projectId)
     throw new Error("A project is required to launch on this runner.");
   return {
-    cwd: workspaceLocator({ runner, workspace }),
-    ...(projectId &&
-    location &&
-    !location.legacy &&
-    workspace === MANAGED_WORKSPACE
-      ? {
-          projectId,
-          repository: target.useWorktree
-            ? {}
-            : { checkout: { kind: "default" as const } },
-        }
-      : {}),
+    cwd: "",
+    placement,
+    projectId,
+    repository: target.useWorktree
+      ? {}
+      : { checkout: { kind: "default" as const } },
   };
 }
 
-export function sameSavedCheckout(a: SavedTarget, b: SavedTarget): boolean {
-  return (
-    sameRunner(targetPlacement(a), targetPlacement(b)) &&
-    remotePlacement(a.directory)?.workspace ===
-      remotePlacement(b.directory)?.workspace
-  );
-}
-
-export function hasSavedLocator(directory: string): boolean {
-  return remotePlacement(directory) !== null;
-}
-
-export function normalizeSavedDirectory(directory: string): string {
-  return resolveLaunchLocation(directory);
+export function normalizeSavedDirectory(
+  directory: string,
+  location?: Location | string
+): string {
+  const placement =
+    typeof location === "string"
+      ? placementForRunner(location)
+      : targetPlacement({ directory, [storedLocation]: location });
+  return sameRunner(placement, controllerPlacement)
+    ? resolveLaunchLocation(directory)
+    : "";
 }
 
 /** Keep the internal location through snapshots and out of existing JSON APIs. */

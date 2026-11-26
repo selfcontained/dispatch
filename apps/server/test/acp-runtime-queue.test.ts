@@ -1,3 +1,4 @@
+import { attachedHost } from "./runner-update-hold-fixtures.js";
 /**
  * The runtime's prompt queue against a scripted host on a real socket,
  * where the test decides how the host's messages are framed on the wire.
@@ -143,19 +144,15 @@ async function fastFailingHost(): Promise<{
 describe("AcpRuntime prompt queue", () => {
   it("attaches a surviving remote host on the first prompt after service startup", async () => {
     const { stateRoot, prompts } = await fastFailingHost();
-    const placement = { runner: "test-runner", workspace: "proof" };
-    // The host already exists, while the new service has no runtime entry.
-    const requestSession = vi.fn(async (target, operation) => {
-      if (operation.kind === "discard")
-        return { value: true, channel: undefined };
-      expect(target).toEqual(placement);
-      expect(operation).toEqual({ kind: "attach", agentId });
-      return {
-        value: true,
-        channel: net.createConnection(
-          hostFile(path.join(stateRoot, agentId), "socket")
-        ),
-      };
+    const placement = "test-runner";
+    const openStream = vi.fn(async (target, op, input) => {
+      expect(target).toBe(placement);
+      expect(op).toBe("session.attach");
+      expect(input).toEqual({ session: agentId });
+      return attachedHost(
+        net.createConnection(hostFile(path.join(stateRoot, agentId), "socket")),
+        agentId
+      );
     });
     const runtime = createAcpRuntime({
       localRunner: localRunnerIn(stateRoot),
@@ -167,11 +164,11 @@ describe("AcpRuntime prompt queue", () => {
       logger,
       hostSeq: async () => ({ seq: 0, journalId: null }),
       placement: async () => placement,
-      remote: { requestSession, available: () => true },
+      remote: { openStream, call: vi.fn(), available: () => true },
     });
     const delivery = runtime.prompt(agentId, "during service recovery");
     await Promise.all([delivery.accepted, delivery.settled]);
-    expect(requestSession).toHaveBeenCalledTimes(1);
+    expect(openStream).toHaveBeenCalledTimes(1);
     expect(prompts).toEqual(["during service recovery"]);
     await runtime.discard(agentId);
   });

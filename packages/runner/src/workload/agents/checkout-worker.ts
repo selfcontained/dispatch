@@ -1,9 +1,7 @@
 import { promisify } from "node:util";
 import { childProcessEnv } from "../shared/process/child-environment.js";
 import { repositoryUrl, projectRepositoryUrl } from "@dispatch/runner-protocol";
-import type { DefinitionParser } from "./default-branch-files.js";
 import type { LaunchFolderProbes } from "@dispatch/runner-protocol/in-process";
-export type CheckoutWorkloadInputs = { parseDefinition: DefinitionParser };
 import { json } from "node:stream/consumers";
 import {
   isCheckoutReadRequest,
@@ -116,6 +114,7 @@ type Selector = "current" | "launch" | "moved";
 type Input<K extends WorkerOp | "checkout.exec" | "checkout.write"> = {
   directory: string;
   request: Omit<Req<K>, "target">;
+  selector?: Selector;
 } & (K extends "checkout.exec" ? { selector: Selector } : unknown) &
   (K extends "git.context" ? { checkoutBranch?: string } : unknown);
 
@@ -233,8 +232,7 @@ function marked<F extends { path: string; isTest?: boolean }>(
 
 async function work<K extends WorkerOp>(
   op: K,
-  { directory, request }: Input<K>,
-  parseDefinition: DefinitionParser
+  { directory, request, selector }: Input<K>
 ): Promise<unknown> {
   switch (op) {
     case "checkout.access": {
@@ -293,7 +291,34 @@ async function work<K extends WorkerOp>(
       return readWorkspaceView(directory, { kind: "index", generation });
     }
     case "checkout.read": {
-      const native = request as Input<"checkout.read">["request"];
+      const native = request as
+        | Omit<Extract<Req<"checkout.read">, { mode?: "native" }>, "target">
+        | Omit<
+            Extract<Req<"checkout.read">, { mode: "command-manifest" }>,
+            "target"
+          >;
+      if (native.mode === "command-manifest") {
+        if (!selector)
+          throw new RunnerCallError({
+            code: "invalid",
+            message: "Missing command checkout selector.",
+          });
+        const { content, digest } = await readCommandGuard(
+          directory,
+          selector,
+          native.path
+        );
+        if (content === null) return null;
+        if (
+          native.maxBytes !== null &&
+          Buffer.byteLength(content) > native.maxBytes
+        )
+          throw new RunnerCallError({
+            code: "too_large",
+            message: `The file is larger than ${native.maxBytes} bytes`,
+          });
+        return { data: content, digest };
+      }
       if (native.mode === "native") {
         let bytes: Buffer;
         let data: string;
@@ -426,15 +451,11 @@ async function work<K extends WorkerOp>(
     case "checkout.defaultFiles": {
       const { dirs, wait } =
         request as Input<"checkout.defaultFiles">["request"];
-      const reply = await inspectCheckout(
-        directory,
-        {
-          kind: "defaultBranchFiles",
-          directories: dirs,
-          waitForRefresh: wait,
-        },
-        { parseDefinition }
-      );
+      const reply = await inspectCheckout(directory, {
+        kind: "defaultBranchFiles",
+        directories: dirs,
+        waitForRefresh: wait,
+      });
       if (reply.kind !== "defaultBranchFiles")
         throw new Error("Invalid default-branch files reply.");
       const { kind: _kind, ...files } = reply;
@@ -454,7 +475,7 @@ async function work<K extends WorkerOp>(
  * directory and root, so a command never runs against a file read
  * elsewhere.
  */
-export async function readCommandGuard(
+async function readCommandGuard(
   directory: string,
   selector: Selector,
   file: string
@@ -673,7 +694,7 @@ async function readGitQuery<K extends GitQueryName>(
 /** One OS watch per checkout in this process, however many sessions watch it. */
 const watches = new SharedCheckoutWatches(watchCheckout);
 
-export function createCheckoutWorkload(inputs: CheckoutWorkloadInputs) {
+export function createCheckoutWorkload() {
   return {
     watch(directory: string, changed: () => void, closed: () => void) {
       return watches.subscribe(directory, changed, closed);
@@ -716,8 +737,7 @@ export function createCheckoutWorkload(inputs: CheckoutWorkloadInputs) {
           )) as Res<K>;
         return (await work(
           op as WorkerOp,
-          input as unknown as Input<WorkerOp>,
-          inputs.parseDefinition
+          input as unknown as Input<WorkerOp>
         )) as Res<K>;
       } catch (error) {
         throw workerError(op, error);
@@ -813,9 +833,9 @@ export const WORKER_ALIASES: Record<string, string> = {
  */
 export async function runCheckoutWorker(
   argv: string[],
-  inputs: CheckoutWorkloadInputs & { launchProbes: LaunchFolderProbes }
+  inputs: { launchProbes: LaunchFolderProbes }
 ): Promise<void> {
-  const checkoutWorkload = createCheckoutWorkload(inputs);
+  const checkoutWorkload = createCheckoutWorkload();
   const [op, cwd, flag] = argv;
   if (op && Object.hasOwn(workspaceSteps, op)) {
     const args: unknown = await json(process.stdin);
@@ -970,7 +990,7 @@ export async function runCheckoutWorker(
     case "inspect": {
       const { runCheckoutInspectionCli } =
         await import("./checkout-inspection.js");
-      return runCheckoutInspectionCli(cwd!, inputs.parseDefinition);
+      return runCheckoutInspectionCli(cwd!);
     }
     case "observe": {
       const { observeGitCheckout, observeScratchCheckout } =
@@ -1648,17 +1668,14 @@ function isWithin(root: string, target: string): boolean {
 const symlinkDir = (segment: string) =>
   refuse(
     { reason: "symlink-dir", segment },
-    `Refusing to write through symlinked persona directory: ${segment}.`
+    `Refusing to write through symlinked directory: ${segment}.`
   );
 const symlinkFile = () =>
-  refuse(
-    { reason: "symlink-file" },
-    "Refusing to overwrite a symlinked persona file."
-  );
+  refuse({ reason: "symlink-file" }, "Refusing to overwrite a symlinked file.");
 const outside = () =>
   refuse(
     { reason: "outside" },
-    "Persona directory must remain inside the current workspace."
+    "Directory must remain inside the current workspace."
   );
 
 const errno = (error: unknown) => (error as NodeJS.ErrnoException)?.code;

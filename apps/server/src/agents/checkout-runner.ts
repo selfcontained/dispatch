@@ -28,7 +28,7 @@ import {
   type CheckoutCommandRunners,
   type CheckoutSession,
 } from "../runners/directory.js";
-import { checkoutReadPlacement } from "../runners/placement.js";
+import { controllerPlacement } from "../runners/placement.js";
 import { TEST_FILE_PATTERNS } from "@dispatch/runner-protocol";
 import { WorkspaceError } from "@dispatch/runner-protocol";
 
@@ -45,25 +45,23 @@ type ReadAgent = ComparisonBaseAgent &
   Partial<Pick<AgentRecord, "id" | "placement">>;
 
 function readRunners(runners: CheckoutReadRunners): CheckoutCommandRunners {
-  if (runners && "requestSession" in runners) return { remote: runners };
+  if (runners && "call" in runners) return { remote: runners };
   return runners ?? {};
 }
 
 /** The agent's checkout runner, by its placement. */
 export function sessionRunner(
   runners: CheckoutReadRunners,
-  agent: ReadAgent,
-  legacyView?: CheckoutView
+  agent: ReadAgent
 ): Runner {
   const session = {
     ...agent,
     id: agent.id ?? "",
-    placement: agent.placement ?? checkoutReadPlacement(agent.cwd),
+    placement: agent.placement ?? controllerPlacement,
   } as CheckoutSession;
   const { directory, placement } = checkoutRunners(
     readRunners(runners),
-    session,
-    legacyView
+    session
   );
   return directory.for(placement);
 }
@@ -311,7 +309,7 @@ async function readAgentViewData(
       ? { ...view, baseBranch: view.baseBranch ?? comparisonBase }
       : view;
   return readThrough(() =>
-    readRunnerView(sessionRunner(runners, agent, query), agent, query)
+    readRunnerView(sessionRunner(runners, agent), agent, query)
   );
 }
 
@@ -332,7 +330,7 @@ export async function readAgentStats(
   } as const;
   try {
     const data = await readRunnerView(
-      sessionRunner(runners, { ...agent, id }, view),
+      sessionRunner(runners, { ...agent, id }),
       { id },
       view
     );

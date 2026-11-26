@@ -1,89 +1,54 @@
 import {
+  attachAuthenticatedRunner,
+  type OperationPeer,
+} from "../../runners/enrolled/operation-peer.js";
+import { withSessionPeer } from "../../runners/enrolled/connection.js";
+import {
+  openOperationChannel,
+  type OperationConnection,
+} from "../../runners/enrolled/connection.js";
+import type { SessionFileSource } from "../../files/session-file-blob.js";
+import {
   runnerIdFromWire,
-  RunnerCallError,
-  operations,
-  runnerError,
   type RunnerDescription,
+  sessionFromWire,
+  pathFromWire,
+  displayPath,
+  type CallName,
+  type OpName,
+  type OpenName,
+  type CallOptions,
   type Req,
   type Res,
 } from "@dispatch/runner-protocol/contract";
 import {
-  parseEngineInventory,
   type EngineInventoryEntry,
-  isEngineCapabilityOperation,
   type EngineHostCallName,
-  type EngineHostCall,
 } from "@dispatch/runner-protocol/engine-management";
 import { projectRepositoryUrl } from "./repository.js";
 import { X509Certificate } from "node:crypto";
-import { readFileSync, watchFile, unwatchFile } from "node:fs";
 import http from "node:http";
 import https from "node:https";
 import { connect as connectTcp, isIP, type Socket } from "node:net";
 import os from "node:os";
 import { Writable } from "node:stream";
 import { createServer, type Server, type TLSSocket } from "node:tls";
-import {
-  wireFrames,
-  receiveFile,
-  decodeResult,
-  ResultError,
-  receiveCheckoutExec,
-  receiveCheckoutRead,
-  openTerminalStream,
-  sendFile,
-  type FileSource,
-  RunnerConnection,
-  RunnerUnavailable,
-  RunnerUpdateFenced,
-  RunnerAcknowledgementLost,
-} from "../../runners/enrolled/v1-framing.js";
-export {
-  RunnerUnavailable,
-  RunnerHostGone,
-  RunnerUpdateFenced,
-  RunnerAcknowledgementLost,
-} from "../../runners/enrolled/v1-framing.js";
+import { receiveEnrollmentRequest } from "../../runners/enrolled/enrollment.js";
+import { RunnerUnavailable } from "./errors.js";
 import type { Pool } from "pg";
-import {
-  FlowStreams,
-  type StreamFrame,
-} from "../../runners/enrolled/v1-framing.js";
 import type { FastifyBaseLogger } from "fastify";
 import {
-  type CheckoutReadName,
-  parseRunnerHealth,
   type RunnerHealth,
-  parseReadyFrame,
-  type ReadyFrame,
   RUNNER_WIRE_VERSION,
   type ConnectCreated,
   type ConnectPoll,
-  type ServiceFrame,
-  type RunnerFrame,
-  type EnrollmentRequest,
-  type EnrollmentReply,
-  MANAGED_WORKSPACE,
-  type Command,
-  type RunnerOperation,
-  type GitHubOperation,
   type GitHubStatus,
-  type GitHubPullRequestObservation,
-  type GitHubPullRequestTarget,
   parseGitHubStatus,
-  isGitHubPullRequestObservation,
-  isGitHubPullRequestDetails,
-  isGitHubPullRequestDiff,
   githubPullRequestHead,
   githubRepositoryResults,
   validBranch,
-  type SessionOperation,
-  type LaunchProgress,
-  parseLaunchProgress,
-  type Placement,
   endsUpdateAttempt,
   parseUpdateServiceFrame,
-  parseUpdateStatus,
   type RunnerUpdateCancelReason,
   type RunnerUpdateTarget,
   type SelfUpdateAdvert,
@@ -105,22 +70,12 @@ import {
 } from "./registry.js";
 import { resolveRunnerUpdatePath } from "@dispatch/runner-protocol/update-format";
 import { publicKeyPin } from "./certificate-authority.js";
-
-/** The single manually approved registration of the original prototype. */
-export type LegacyConfig = {
-  id: string;
-  host: string;
-  port: number;
-  cert: string;
-  key: string;
-  ca: string;
-  approval: string;
-  workspaces: string[];
-  /** Guest-reachable HTTPS MCP origin. Defaults to this listener's proxy. */
-  mcpOrigin?: string;
-  /** Host the guest dials for the default MCP origin. */
-  endpointHost?: string;
-};
+export {
+  RunnerUnavailable,
+  RunnerHostGone,
+  RunnerUpdateFenced,
+  RunnerAcknowledgementLost,
+} from "./errors.js";
 
 export type EnrollmentOptions = {
   registry: RunnerRegistry;
@@ -152,8 +107,6 @@ export type RunnerSummary = {
   repositoryPicker?: boolean;
   /** Last pushed snapshot while online; absent offline or before the first push. */
   engines?: EngineInventoryEntry[];
-  workspaces: string[];
-  managedWorkspace?: true;
 };
 
 export class RunnerCapabilityUnavailable extends Error {}
@@ -185,8 +138,7 @@ type Gate = {
   key: string;
   registrationId?: string;
   approved(): boolean;
-  allows(workspace: string): boolean;
-  ready?(workspaces: string[], managedWorkspace: boolean): void;
+  ready?(): void;
 };
 
 /** One runner status frame and the connection that carried it. */
@@ -197,64 +149,13 @@ export type RunnerUpdateEvent = {
   status: UpdateStatusFrame;
 };
 
-type Peer = {
+type Peer = OperationPeer & {
   socket: TLSSocket;
-  connection: RunnerConnection;
-  streams?: FlowStreams;
-  filesGetStream: boolean;
-  filesPutStream: boolean;
-  /** The raw frame sender for this connection. */
-  send: (frame: ServiceFrame) => void;
-  epoch: number;
-  /** Advertised self-update support; update frames go only to such a peer. */
-  selfUpdate?: SelfUpdateAdvert;
-  workspaces: Set<string>;
-  managedWorkspace: boolean;
   gate: Gate;
   health?: { sample: RunnerHealth; receivedAt: Date };
   healthStoredAt?: number;
-  reportsHealth?: boolean;
-  engineCapabilities: boolean;
-  /** Advertised in `ready`; whether this peer answers the `"engine"` command. */
-  engineManagement: boolean;
-  githubManagement: boolean;
-  repositoryPicker?: boolean;
-  pullRequestStatus: boolean;
-  pullRequestEvidence: boolean;
-  checkoutInspection: boolean;
-  checkoutMetadata: boolean;
-  checkoutCommands: boolean;
-  checkoutExecStream: boolean;
-  checkoutReadStream: boolean;
-  terminals: boolean;
-  terminalOpenStream: boolean;
-  defaultBranchFiles: boolean;
-  sessionCheckout: boolean;
-  checkoutRelease: boolean;
-  sessionFiles: boolean;
-  sessionFileTail?: Promise<unknown>;
-  checkoutViews: boolean;
-  sharedWorktree: boolean;
-  workspacePreparation: boolean;
-  workspacePrepare: boolean;
-  preparedLaunch: boolean;
-  sessionWorkspaceSource: boolean;
-  gitQueries: boolean;
-  /** Writes in a session's checkout as its workload (`checkoutWrite`). */
-  checkoutWrite: boolean;
-  /** Reads a repository's default-branch files from its cache (`repositoryFiles`). */
-  repositoryFiles: boolean;
-  /** Resolves a folder as its workload account (`pathResolve`). */
-  pathResolve: boolean;
-  workspaceRelease: boolean;
-  /** Reconciles a repeated `launch.launchId` instead of running it again. */
-  launchReconcile: boolean;
-  scopedStop: boolean;
-  sessionObservation: boolean;
-  /** Last pushed, validated engine inventory; absent until the runner first reports one. */
   engines?: EngineInventoryEntry[];
 };
-
 const MAX_UNAUTHENTICATED = 64;
 const MAX_HTTP_RELAYS = 256;
 const UNAUTHENTICATED_TIMEOUT = 10_000;
@@ -351,10 +252,6 @@ export function configuredRunner(input?: {
   validAgentToken?: (token: string, agentId: string) => boolean;
   validJobToken?: (token: string, runId: string, agentId: string) => boolean;
 }) {
-  const filename = process.env.DISPATCH_REMOTE_SERVICE_CONFIG;
-  const legacy: LegacyConfig | undefined = filename
-    ? JSON.parse(readFileSync(filename, "utf8"))
-    : undefined;
   const enrollment: EnrollmentOptions | undefined =
     input && process.env.DISPATCH_RUNNERS !== "0"
       ? {
@@ -372,9 +269,8 @@ export function configuredRunner(input?: {
           log: console,
         }
       : undefined;
-  return legacy || enrollment
+  return enrollment
     ? new RemoteRunnerService(
-        legacy,
         enrollment,
         input && {
           host: input.host,
@@ -409,17 +305,9 @@ export class RemoteRunnerService {
    * it disconnects, for admitting launches a runner update will hold. */
   private readonly lastSeen = new Map<
     string,
-    Pick<
-      Peer,
-      | "gate"
-      | "workspaces"
-      | "managedWorkspace"
-      | "preparedLaunch"
-      | "sessionFiles"
-      | "sharedWorktree"
-      | "engines"
-      | "epoch"
-    > & { ready: ReadyFrame; build?: RunnerDescription["build"] }
+    Pick<Peer, "gate" | "engines" | "epoch" | "description"> & {
+      build?: RunnerDescription["build"];
+    }
   >();
   private peerEpoch = 0;
   private readonly updateListeners = new Set<
@@ -427,13 +315,11 @@ export class RemoteRunnerService {
   >();
   /** Enrolled, unrevoked registrations by client certificate fingerprint. */
   private readonly enrolled = new Map<string, Registration>();
-  private readonly legacySockets = new Set<TLSSocket>();
   private readonly sockets = new Set<TLSSocket>();
   private unauthenticated = 0;
   private activeHttpRelays = 0;
   private activeArtifactRelays = 0;
   private readonly maxHttpRelays = MAX_HTTP_RELAYS;
-  private legacyListener?: Server;
   private listener?: Server;
   private listening?: Promise<void>;
   private authority?: {
@@ -446,7 +332,6 @@ export class RemoteRunnerService {
   private proxyPort?: Promise<number>;
 
   constructor(
-    private readonly legacy?: LegacyConfig,
     private readonly enrollment?: EnrollmentOptions,
     /** Local Dispatch API that the listeners proxy agent MCP requests to. */
     private readonly api?: {
@@ -463,13 +348,6 @@ export class RemoteRunnerService {
     },
     private readonly logger?: Pick<FastifyBaseLogger, "debug">
   ) {
-    if (legacy) {
-      httpsOrigin(legacy.mcpOrigin, "Runner MCP origin");
-      if (!legacy.mcpOrigin && !legacy.endpointHost)
-        throw new Error(
-          "Runner service config needs mcpOrigin or endpointHost for MCP."
-        );
-    }
     if (enrollment) {
       httpsOrigin(enrollment.mcpOrigin, "DISPATCH_RUNNER_MCP_ORIGIN");
       anyOrigin(enrollment.approvalOrigin, "DISPATCH_RUNNER_APPROVAL_ORIGIN");
@@ -504,18 +382,13 @@ export class RemoteRunnerService {
   }
 
   /** Origin for an agent's MCP URL as seen from the runner it is placed on. */
-  originFor(placement: Placement) {
-    if (this.legacy && placement.runner === this.legacy.id)
-      return (
-        httpsOrigin(this.legacy.mcpOrigin, "Runner MCP origin") ??
-        `https://${formatHost(this.legacy.endpointHost!)}:${this.legacy.port}`
-      );
+  originFor(id: string) {
     const configured = httpsOrigin(
       this.enrollment?.mcpOrigin,
       "DISPATCH_RUNNER_MCP_ORIGIN"
     );
     if (configured) return configured;
-    const registration = this.registrationById(placement.runner);
+    const registration = this.registrationById(id);
     if (!registration || !this.port)
       throw new RunnerUnavailable("The runner is not enrolled.");
     return `https://${formatHost(registration.endpointHost)}:${this.port}`;
@@ -523,11 +396,9 @@ export class RemoteRunnerService {
 
   /** @deprecated Single-runner origin; prefer {@link originFor}. */
   get origin() {
-    if (this.legacy)
-      return this.originFor({ runner: this.legacy.id, workspace: "" });
     const first = [...this.enrolled.values()][0];
     if (!first) throw new RunnerUnavailable("No runner is enrolled.");
-    return this.originFor({ runner: first.id, workspace: "" });
+    return this.originFor(first.id);
   }
 
   /**
@@ -536,18 +407,8 @@ export class RemoteRunnerService {
    * placement needs a currently non-empty approval file and a configured
    * workspace. Revoked and unknown runners are refused.
    */
-  permitsAgentMcp(placement: Placement) {
-    if (this.legacy && placement.runner === this.legacy.id) {
-      try {
-        return (
-          this.legacy.workspaces.includes(placement.workspace) &&
-          readFileSync(this.legacy.approval, "utf8").trim().length > 0
-        );
-      } catch {
-        return false;
-      }
-    }
-    return Boolean(this.registrationById(placement.runner));
+  permitsAgentMcp(runnerId: string) {
+    return Boolean(this.registrationById(runnerId));
   }
 
   private registrationById(id: string) {
@@ -560,54 +421,11 @@ export class RemoteRunnerService {
   // Listeners
   // ---------------------------------------------------------------------------
 
-  /** Start the legacy listener (no database needed). */
-  async start() {
-    const legacy = this.legacy;
-    if (!legacy || this.legacyListener) return;
-    const listener = createServer(
-      {
-        ca: readFileSync(legacy.ca),
-        cert: readFileSync(legacy.cert),
-        key: readFileSync(legacy.key),
-        requestCert: true,
-        rejectUnauthorized: false,
-      },
-      (socket) => this.accept(socket, "legacy")
-    );
-    this.legacyListener = listener;
-    await new Promise<void>((resolve, reject) => {
-      listener.once("error", reject);
-      listener.listen(legacy.port, legacy.host, resolve);
-    });
-    watchFile(
-      legacy.approval,
-      { interval: 500, persistent: false },
-      this.recheckLegacy
-    );
-  }
-
   /** Start the enrolled listener when any registration exists. */
   async startEnrolled() {
     if (this.enrollment && (await this.enrollment.registry.hasActive()))
       await this.ensureListening();
   }
-
-  private legacyApproved(socket: TLSSocket) {
-    try {
-      return (
-        socket.authorized &&
-        socket.getPeerCertificate().fingerprint256 ===
-          readFileSync(this.legacy!.approval, "utf8").trim()
-      );
-    } catch {
-      return false;
-    }
-  }
-
-  private recheckLegacy = () => {
-    for (const socket of this.legacySockets)
-      if (!this.legacyApproved(socket)) socket.destroy();
-  };
 
   private ensureListening(host?: string): Promise<void> {
     const run = async () => {
@@ -633,7 +451,7 @@ export class RemoteRunnerService {
       }
       const listener = createServer(
         { ...context, requestCert: true, rejectUnauthorized: false },
-        (socket) => this.accept(socket, "enrolled")
+        (socket) => this.accept(socket)
       );
       const listen = (port: number) =>
         new Promise<void>((resolve, reject) => {
@@ -678,14 +496,14 @@ export class RemoteRunnerService {
   // Connections
   // ---------------------------------------------------------------------------
 
-  private accept(socket: TLSSocket, kind: "legacy" | "enrolled") {
+  private accept(socket: TLSSocket) {
     socket.on("error", () => socket.destroy());
     this.sockets.add(socket);
     socket.on("close", () => this.sockets.delete(socket));
     // Bun can mark a resumed TLS session authorized even when the client
     // never presented a certificate. Only certificate peers use runner RPC.
     if (socket.authorized && socket.getPeerCertificate()?.fingerprint256) {
-      const gate = this.gateFor(socket, kind);
+      const gate = this.gateFor(socket);
       return gate ? this.attachPeer(socket, gate) : socket.destroy();
     }
     // Unauthenticated peers may pair once or reach the scoped MCP proxy.
@@ -717,7 +535,7 @@ export class RemoteRunnerService {
     socket.once("close", clearDeadline);
     let prefix = "";
     const classify = (chunk: Buffer) => {
-      if (!prefix && chunk[0] === 0x7b && kind === "enrolled") {
+      if (!prefix && chunk[0] === 0x7b) {
         socket.off("data", classify);
         socket.pause();
         socket.unshift(chunk);
@@ -926,21 +744,7 @@ export class RemoteRunnerService {
     return this.proxyPort;
   }
 
-  private gateFor(
-    socket: TLSSocket,
-    kind: "legacy" | "enrolled"
-  ): Gate | undefined {
-    if (kind === "legacy") {
-      const legacy = this.legacy!;
-      if (!this.legacyApproved(socket)) return undefined;
-      this.legacySockets.add(socket);
-      socket.once("close", () => this.legacySockets.delete(socket));
-      return {
-        key: legacy.id,
-        approved: () => this.legacyApproved(socket),
-        allows: (workspace) => legacy.workspaces.includes(workspace),
-      };
-    }
+  private gateFor(socket: TLSSocket): Gate | undefined {
     const fingerprint = socket.getPeerCertificate().fingerprint256;
     const registration = this.enrolled.get(fingerprint);
     if (!registration) return undefined;
@@ -949,273 +753,158 @@ export class RemoteRunnerService {
       key: registration.id,
       registrationId: registration.id,
       approved: () => this.enrolled.get(fingerprint)?.id === registration.id,
-      allows: () => true,
-      ready: (workspaces, managedWorkspace) => {
-        registration.workspaces = workspaces;
-        registration.managedWorkspace = managedWorkspace;
-        void registry
-          .connected(registration.id, workspaces, managedWorkspace)
-          .catch(() => {});
+      ready: () => {
+        void registry.seen(registration.id).catch(() => {});
       },
     };
   }
 
   private attachPeer(socket: TLSSocket, gate: Gate) {
     socket.setKeepAlive(true, 30_000);
-    const deadline = setTimeout(() => socket.destroy(), 5000);
-    let peer: Peer | undefined;
-    socket.on("close", () => {
-      clearTimeout(deadline);
-      if (!peer) return;
-      if (this.peers.get(gate.key) === peer) {
-        this.peers.delete(gate.key);
-        for (const notify of this.connectionListeners) notify(gate.key);
-      }
-      peer.connection.close();
-      if (gate.registrationId)
-        void this.enrollment?.registry
-          .seen(gate.registrationId)
-          .catch(() => {});
-    });
-    const send = wireFrames<
-      RunnerFrame | StreamFrame,
-      ServiceFrame | StreamFrame
-    >(socket, (frame) => {
-      if (!gate.approved()) return socket.destroy();
-      if (!peer) {
-        const ready = parseReadyFrame(frame);
-        if (!ready) return socket.destroy();
-        clearTimeout(deadline);
-        peer = {
-          socket,
-          reportsHealth: ready.health === true,
-          engineManagement: ready.engineManagement === true,
-          engineCapabilities: ready.engineCapabilities === true,
-          pullRequestStatus: ready.pullRequestStatus === true,
-          pullRequestEvidence: ready.pullRequestEvidence === true,
-          repositoryPicker: ready.repositoryPicker === true,
-          githubManagement: ready.githubManagement === true,
-          checkoutViews: ready.checkoutViews === true,
-          sessionCheckout: ready.sessionCheckout === true,
-          checkoutRelease: ready.checkoutRelease === true,
-          sessionFiles: ready.sessionFiles === true,
-          filesGetStream: ready.filesGetStream === true,
-          filesPutStream: ready.filesPutStream === true,
-          defaultBranchFiles: ready.defaultBranchFiles === true,
-          checkoutMetadata: ready.checkoutMetadata === true,
-          checkoutCommands: ready.checkoutCommands === true,
-          checkoutExecStream: ready.checkoutExecStream === true,
-          checkoutReadStream: ready.checkoutReadStream === true,
-          terminals: ready.terminals === true,
-          terminalOpenStream: ready.terminalOpenStream === true,
-          checkoutInspection: ready.checkoutInspection === true,
-          sharedWorktree: ready.sharedWorktree === true,
-          workspacePreparation: ready.workspacePreparation === true,
-          workspacePrepare: ready.workspacePrepare === true,
-          preparedLaunch:
-            ready.workspacePrepare === true && ready.preparedLaunch === true,
-          sessionWorkspaceSource: ready.sessionWorkspaceSource === true,
-          gitQueries: ready.gitQueries === true,
-          checkoutWrite: ready.checkoutWrite === true,
-          repositoryFiles: ready.repositoryFiles === true,
-          pathResolve: ready.pathResolve === true,
-          workspaceRelease: ready.workspaceRelease === true,
-          launchReconcile: ready.launchReconcile === true,
-          scopedStop: ready.scopedStop === true,
-          sessionObservation: ready.sessionObservation === true,
-          connection: new RunnerConnection(send),
-          ...(ready.streamCredit && { streams: new FlowStreams(socket, send) }),
-          send,
-          epoch: ++this.peerEpoch,
-          ...(ready.selfUpdate && { selfUpdate: ready.selfUpdate }),
-          workspaces: new Set(ready.workspaces),
-          managedWorkspace: ready.managedWorkspace === true,
-          gate,
-        };
-        // A reconnect replaces a half-open predecessor for the same runner.
-        const previous = this.peers.get(gate.key);
-        this.peers.set(gate.key, peer);
-        this.lastSeen.set(gate.key, {
-          gate,
-          ready,
-          epoch: peer.epoch,
-          build: ready.selfUpdate,
-          workspaces: peer.workspaces,
-          managedWorkspace: peer.managedWorkspace,
-          preparedLaunch: peer.preparedLaunch,
-          sessionFiles: peer.sessionFiles,
-          sharedWorktree: peer.sharedWorktree,
-          engines: this.lastSeen.get(gate.key)?.engines,
-        });
-        previous?.socket.destroy();
-        if (peer.streams) {
-          send({
-            type: "stream",
-            action: "accept",
-            ...(peer.checkoutReadStream && { checkoutReadStream: true }),
-            ...(peer.checkoutExecStream && { checkoutExecStream: true }),
-            ...(peer.terminalOpenStream && { terminalOpenStream: true }),
-          });
-          peer.streams.enable();
-        }
-        gate.ready?.(ready.workspaces, peer.managedWorkspace);
-        for (const notify of this.connectionListeners) notify(gate.key);
-        if (peer.reportsHealth) {
-          send({
-            type: "accept_health",
-            ...(peer.engineManagement ? { engineInventory: true } : {}),
-          });
-        }
-        return;
-      }
-      if (this.peers.get(gate.key) !== peer) return socket.destroy();
-      if (peer.streams?.handle(frame)) return;
-      if (frame.type === "health" && peer.reportsHealth) {
-        const sample = parseRunnerHealth(frame.sample);
-        if (!sample) return socket.destroy();
-        const receivedAt = new Date();
-        // The latest sample is served: an update's commit can follow the
-        // connection's first one within a second.
-        peer.health = { sample, receivedAt };
-        this.lastSeen.get(gate.key)!.build = {
-          version: sample.version,
-          revision: sample.revision,
-        };
-        // Bound storage writes from an over-eager peer.
-        if (
-          peer.healthStoredAt !== undefined &&
-          receivedAt.getTime() - peer.healthStoredAt < 1000
-        )
-          return;
-        peer.healthStoredAt = receivedAt.getTime();
-        if (gate.registrationId)
-          void this.enrollment?.registry
-            .recordHealth(gate.registrationId, sample, receivedAt)
-            .catch((error) =>
-              (this.enrollment?.log ?? console).warn(
-                "Could not store runner health",
-                error
-              )
-            );
-      } else if (
-        frame.type === "engine_inventory" &&
-        peer.engineManagement &&
-        peer.reportsHealth
-      ) {
-        const entries = parseEngineInventory(frame.entries);
-        if (entries === null) return socket.destroy();
-        peer.engines = entries;
-        this.lastSeen.get(gate.key)!.engines = entries;
-      } else if (
-        frame.type === "launch_progress" &&
-        (peer.workspacePreparation || peer.workspacePrepare)
-      ) {
-        const progress = parseLaunchProgress(frame);
-        if (!progress) return socket.destroy();
-        peer.connection.receive(progress);
-      } else if (frame.type === "update_status" && peer.selfUpdate) {
-        const status = parseUpdateStatus(frame);
-        if (!status) return socket.destroy();
-        // The ready advert is otherwise cached for the whole connection.
-        if (status.fenceCleared) {
-          const { fenceUnreadable: _, ...advert } = peer.selfUpdate;
-          peer.selfUpdate = advert;
-        }
-        if (
-          peer.selfUpdate.pendingAttemptId === status.attemptId &&
-          endsUpdateAttempt(status)
-        ) {
-          const { pendingAttemptId: _, ...advert } = peer.selfUpdate;
-          peer.selfUpdate = advert;
-        }
-        const event = { runnerId: gate.key, epoch: peer.epoch, status };
-        for (const listener of this.updateListeners) {
-          try {
-            listener(event);
-          } catch (error) {
-            (this.enrollment?.log ?? console).warn(
-              "Runner update listener failed",
-              error
-            );
+    const epoch = ++this.peerEpoch;
+    attachAuthenticatedRunner(
+      socket,
+      {
+        id: gate.key,
+        name: this.registrationById(gate.key)?.name ?? gate.key,
+        approved: gate.approved,
+      },
+      epoch,
+      {
+        connected: (authenticated) => {
+          const peer = Object.assign(authenticated, { socket, gate });
+          const previous = this.peers.get(gate.key);
+          if ((this.lastSeen.get(gate.key)?.epoch ?? 0) > epoch) {
+            socket.destroy();
+            return;
           }
-        }
-      } else if (
-        frame.type === "result" ||
-        frame.type === "data" ||
-        frame.type === "close"
-      )
-        peer.connection.receive(frame);
-      else socket.destroy();
-    });
+          this.peers.set(gate.key, peer);
+          this.lastSeen.set(gate.key, {
+            gate,
+            epoch,
+            description: peer.description,
+            build: peer.description.build,
+            engines: this.lastSeen.get(gate.key)?.engines,
+          });
+          previous?.socket.destroy();
+          gate.ready?.();
+          for (const notify of this.connectionListeners) notify(gate.key);
+        },
+        current: (peer) => this.peers.get(gate.key) === peer,
+        disconnected: (peer) => {
+          if (this.peers.get(gate.key) === peer) {
+            this.peers.delete(gate.key);
+            for (const notify of this.connectionListeners) notify(gate.key);
+          }
+          if (gate.registrationId)
+            void this.enrollment?.registry
+              .seen(gate.registrationId)
+              .catch(() => {});
+        },
+        status: (peer, status) => {
+          if (!peer.selfUpdate) return;
+          if (status.fenceCleared) delete peer.selfUpdate.fenceUnreadable;
+          if (
+            peer.selfUpdate.pendingAttemptId === status.attemptId &&
+            endsUpdateAttempt(status)
+          )
+            delete peer.selfUpdate.pendingAttemptId;
+          for (const listener of this.updateListeners) {
+            try {
+              listener({ runnerId: gate.key, epoch, status });
+            } catch (error) {
+              (this.enrollment?.log ?? console).warn(
+                "Runner update listener failed",
+                error
+              );
+            }
+          }
+        },
+        health: (_peer, sample) => {
+          const receivedAt = new Date();
+          const peer = this.peers.get(gate.key)!;
+          peer.health = { sample, receivedAt };
+          this.lastSeen.get(gate.key)!.build = {
+            version: sample.version,
+            revision: sample.revision,
+          };
+          if (
+            peer.healthStoredAt !== undefined &&
+            receivedAt.getTime() - peer.healthStoredAt < 1000
+          )
+            return;
+          peer.healthStoredAt = receivedAt.getTime();
+          if (gate.registrationId)
+            void this.enrollment?.registry
+              .recordHealth(gate.registrationId, sample, receivedAt)
+              .catch((error) =>
+                (this.enrollment?.log ?? console).warn(
+                  "Could not store runner health",
+                  error
+                )
+              );
+        },
+        inventory: (_peer, entries) => {
+          this.peers.get(gate.key)!.engines = entries;
+          this.lastSeen.get(gate.key)!.engines = entries;
+        },
+      }
+    );
   }
 
   private pair(socket: TLSSocket) {
-    let used = false;
-    const reply = (frame: EnrollmentReply) => {
-      try {
-        send(frame);
-      } catch {
-        /* closed */
-      }
-      socket.end();
-    };
-    const send = wireFrames<EnrollmentRequest, EnrollmentReply>(
-      socket,
-      (request) => {
-        if (used) return socket.destroy();
-        used = true;
-        // Public bootstrap: the CA certificate, which runners check against
-        // the fingerprint pinned in their pairing command.
-        if (request.type === "ca_request" && request.version === 1)
-          return reply({
-            type: "ca",
-            ca: this.authority?.caPem ?? "",
-          });
-        if (
-          request.type !== "enroll" ||
-          request.version !== 1 ||
-          typeof request.code !== "string" ||
-          request.code.length > 128 ||
-          typeof request.publicKey !== "string" ||
-          request.publicKey.length > 8192
-        )
-          return reply({
-            type: "enroll_error",
-            error: "Invalid pairing request.",
-          });
-        this.enrollment!.registry.redeem(request.code, request.publicKey).then(
-          ({ registration, cert, ca, previousFingerprint }) => {
-            // A re-key retires the old certificate and its live connection.
-            if (previousFingerprint) {
-              this.enrolled.delete(previousFingerprint);
-              this.peers.get(registration.id)?.socket.destroy();
-            }
-            this.enrolled.set(registration.fingerprint!, registration);
-            reply({
-              type: "enrolled",
-              id: registration.id,
-              name: registration.name,
-              cert,
-              ca,
-            });
-          },
-          (error) => {
-            // Slow down code guessing; codes carry 160 bits regardless.
-            setTimeout(
-              () =>
-                reply({
-                  type: "enroll_error",
-                  error:
-                    error instanceof PairingRejected
-                      ? error.message
-                      : "Pairing failed.",
-                }),
-              500
-            );
+    receiveEnrollmentRequest(socket, (request, reply) => {
+      // Public bootstrap: the CA certificate, which runners check against
+      // the fingerprint pinned in their pairing command.
+      if (request.type === "ca_request" && request.version === 1)
+        return reply({
+          type: "ca",
+          ca: this.authority?.caPem ?? "",
+        });
+      if (
+        request.type !== "enroll" ||
+        request.version !== 1 ||
+        typeof request.code !== "string" ||
+        request.code.length > 128 ||
+        typeof request.publicKey !== "string" ||
+        request.publicKey.length > 8192
+      )
+        return reply({
+          type: "enroll_error",
+          error: "Invalid pairing request.",
+        });
+      this.enrollment!.registry.redeem(request.code, request.publicKey).then(
+        ({ registration, cert, ca, previousFingerprint }) => {
+          // A re-key retires the old certificate and its live connection.
+          if (previousFingerprint) {
+            this.enrolled.delete(previousFingerprint);
+            this.peers.get(registration.id)?.socket.destroy();
           }
-        );
-      }
-    );
+          this.enrolled.set(registration.fingerprint!, registration);
+          reply({
+            type: "enrolled",
+            id: registration.id,
+            name: registration.name,
+            cert,
+            ca,
+          });
+        },
+        (error) => {
+          // Slow down code guessing; codes carry 160 bits regardless.
+          setTimeout(
+            () =>
+              reply({
+                type: "enroll_error",
+                error:
+                  error instanceof PairingRejected
+                    ? error.message
+                    : "Pairing failed.",
+              }),
+            500
+          );
+        }
+      );
+    });
   }
 
   /**
@@ -1359,38 +1048,6 @@ export class RemoteRunnerService {
 
   async list(includeCleared = false): Promise<RunnerSummary[]> {
     const runners: RunnerSummary[] = [];
-    if (this.legacy) {
-      const peer = this.peers.get(this.legacy.id);
-      runners.push({
-        // Legacy locators keep addressing the configured id.
-        id: this.legacy.id,
-        name: this.legacy.id,
-        engineManagement:
-          peer?.gate.approved() === true && peer.engineManagement,
-        ...(peer?.gate.approved() &&
-          peer.engineCapabilities && { engineCapabilities: true as const }),
-        ...(peer?.gate.approved() &&
-          peer.repositoryPicker && { repositoryPicker: true }),
-        githubManagement:
-          peer?.gate.approved() === true && peer.githubManagement,
-        ...(peer?.engines ? { engines: peer.engines } : {}),
-        ...(peer?.health
-          ? {
-              health: peer.health.sample,
-              healthReceivedAt: peer.health.receivedAt.toISOString(),
-            }
-          : {}),
-        status: peer?.gate.approved() ? "online" : "offline",
-        workspaces: peer
-          ? [...peer.workspaces].filter((w) =>
-              this.legacy!.workspaces.includes(w)
-            )
-          : [...this.legacy.workspaces],
-        ...(peer?.managedWorkspace && peer.gate.allows(MANAGED_WORKSPACE)
-          ? { managedWorkspace: true }
-          : {}),
-      });
-    }
     if (!this.enrollment) return runners;
     for (const registration of await this.enrollment.registry.list(
       includeCleared
@@ -1413,11 +1070,10 @@ export class RemoteRunnerService {
             : online
               ? "online"
               : "offline",
-        engineManagement: online && peer.engineManagement,
-        ...(online &&
-          peer.engineCapabilities && { engineCapabilities: true as const }),
-        ...(online && peer.repositoryPicker && { repositoryPicker: true }),
-        githubManagement: online && peer.githubManagement,
+        engineManagement: online,
+        ...(online && { engineCapabilities: true as const }),
+        ...(online && { repositoryPicker: true }),
+        githubManagement: online,
         ...(online && peer.engines ? { engines: peer.engines } : {}),
         ...(online && peer.health
           ? {
@@ -1430,10 +1086,6 @@ export class RemoteRunnerService {
                 healthReceivedAt: registration.healthReceivedAt.toISOString(),
               }
             : {}),
-        workspaces: online ? [...peer!.workspaces] : registration.workspaces,
-        ...((online ? peer!.managedWorkspace : registration.managedWorkspace)
-          ? { managedWorkspace: true }
-          : {}),
       });
     }
     return runners;
@@ -1495,7 +1147,7 @@ export class RemoteRunnerService {
    * (so agent placements are unchanged), and drops the old connection.
    */
   async reissueRegistration(id: string, hostHint?: string) {
-    if (!this.enrollment || this.legacy?.id === id)
+    if (!this.enrollment)
       throw new RunnerRequestError(404, "Runner not found.");
     const host = await this.prepareEndpoint(hostHint);
     const issued = await this.enrollment.registry.reissue(id, host);
@@ -1518,11 +1170,6 @@ export class RemoteRunnerService {
 
   /** Revoke a registration and drop its live connection immediately. */
   async revoke(id: string) {
-    if (this.legacy?.id === id)
-      throw new RunnerRequestError(
-        409,
-        "This runner is configured by DISPATCH_REMOTE_SERVICE_CONFIG; empty its approval file to revoke it."
-      );
     if (!this.enrollment)
       throw new RunnerRequestError(404, "Runner not found.");
     this.revoking.add(id);
@@ -1725,14 +1372,6 @@ export class RemoteRunnerService {
   // Agent operations
   // ---------------------------------------------------------------------------
 
-  isManagedWorkspace(placement: Placement) {
-    return (
-      placement.workspace === MANAGED_WORKSPACE &&
-      this.peers.get(placement.runner)?.managedWorkspace === true &&
-      this.available(placement)
-    );
-  }
-
   /** The runner's last pushed, validated engine inventory, if any. */
   engineInventorySnapshot(
     runnerId: string
@@ -1750,120 +1389,109 @@ export class RemoteRunnerService {
     return seen?.gate.approved() ? seen.engines : undefined;
   }
 
-  getFile(placement: Placement, agentId: string, path: string) {
-    const peer = this.workspacePeer(placement);
-    return receiveFile(
-      {
-        agentId,
-        workspace: placement.workspace,
-        kind: "sessionFile",
-        operation: { kind: "collect", path },
-      },
-      (command, signal) =>
-        this.request(placement, command, false, undefined, signal, peer),
-      peer?.filesGetStream ? peer.streams : undefined
-    );
-  }
-
-  streamCheckoutRead<K extends CheckoutReadName>(
-    placement: Placement,
+  private async onPeer<K extends OpName, T>(
+    id: string,
     op: K,
-    request: Req<K>,
-    signal?: AbortSignal
-  ) {
-    const peer = this.workspacePeer(placement);
-    if (!peer?.checkoutReadStream || !peer.streams) return;
-    return receiveCheckoutRead(
+    input: Req<K>,
+    send: (connection: OperationConnection) => T,
+    epoch?: number
+  ): Promise<Awaited<T>> {
+    if (
+      !this.registrationById(id) &&
+      (await this.enrollment?.registry.isRevoked(id))
+    )
+      throw new RunnerRevoked();
+    return withSessionPeer(
+      id,
       op,
-      request,
-      placement.workspace,
-      (command, active) =>
-        this.request(placement, command, false, undefined, active, peer),
-      peer.streams,
-      signal
+      input,
+      () => this.peers.get(id),
+      (runner, sessions) =>
+        this.enrollment!.registry.ownsSessions(runner, sessions),
+      send,
+      epoch
     );
   }
-
-  streamTerminal(
-    placement: Placement,
-    agentId: string,
-    dimensions: Pick<Req<"terminal.open">, "cols" | "rows">
-  ) {
-    const peer = this.workspacePeer(placement);
-    if (!peer?.terminalOpenStream || !peer.streams) return;
-    return openTerminalStream(
-      { kind: "openTerminal", agentId, workspace: placement.workspace },
-      dimensions,
-      (command, signal) =>
-        this.request(placement, command, false, undefined, signal, peer),
-      peer.streams
+  call<K extends CallName>(
+    id: string,
+    op: K,
+    input: Req<K>,
+    options?: CallOptions<K>,
+    epoch?: number
+  ): Promise<Res<K>> {
+    return this.onPeer(
+      id,
+      op,
+      input,
+      (connection) =>
+        connection.call(op, input, {
+          signal: options?.signal,
+          onEvent: options?.onEvent as ((event: unknown) => void) | undefined,
+        }),
+      epoch
     );
   }
-
-  streamCheckoutExec = (
-    placement: Placement,
-    command: Extract<Command, { kind: "checkoutCommand" }>,
-    { timeoutMs, maxOutput, shell, env }: Req<"checkout.exec">,
+  openStream<K extends OpenName>(
+    id: string,
+    op: K,
+    input: Req<K>,
     signal?: AbortSignal
-  ) => {
-    const peer = this.workspacePeer(placement);
-    if (!peer?.checkoutExecStream || !peer.streams) return;
-    return receiveCheckoutExec(
-      command,
-      { timeoutMs, maxOutput, shell, env },
-      (request, active) =>
-        this.request(placement, request, false, undefined, active, peer),
-      peer.streams,
-      signal
-    );
-  };
-
-  /** `files.put`: the file's path in the session's files area on the runner. */
-  async putFile(
-    placement: Placement,
-    agentId: string,
-    name: string,
-    source: FileSource
   ) {
-    const peer = this.workspacePeer(placement);
-    const value = await sendFile(
-      {
-        agentId,
-        workspace: placement.workspace,
-        kind: "sessionFile",
-      },
-      name,
-      source,
-      (command, signal) =>
-        this.request(placement, command, false, undefined, signal, peer),
-      peer?.filesPutStream ? peer.streams : undefined
+    return this.onPeer(id, op, input, (connection) =>
+      connection.openChannel(op, input, { signal })
     );
-    if (typeof value !== "string" || !value.startsWith("/"))
-      throw new Error("Invalid runner input file location.");
-    return value;
   }
-
-  requestSession(
-    placement: Placement,
-    operation: SessionOperation,
-    onProgress?: (progress: LaunchProgress) => void,
-    signal?: AbortSignal,
-    expectedEpoch?: number
+  async open<K extends OpenName>(
+    id: string,
+    op: K,
+    input: Req<K>,
+    signal?: AbortSignal
   ) {
-    const expectedPeer =
-      expectedEpoch === undefined ? undefined : this.workspacePeer(placement);
-    if (expectedEpoch !== undefined && expectedPeer?.epoch !== expectedEpoch)
-      throw new RunnerUnavailable("The enrolled runner connection changed.");
-    return this.request(
-      placement,
-      { ...operation, workspace: placement.workspace },
-      operation.kind === "attach" ||
-        operation.kind === "watchCheckout" ||
-        operation.kind === "openTerminal",
-      onProgress,
-      signal,
-      expectedPeer
+    const { info, channel } = await this.openStream(id, op, input, signal);
+    return { info, channel: openOperationChannel(op, channel) };
+  }
+  async getFile(runnerId: string, id: string, path: string) {
+    const input = { session: sessionFromWire(id), path };
+    const chunks: Buffer[] = [];
+    await this.onPeer(runnerId, "files.get", input, (connection) =>
+      connection.getFile(
+        input,
+        new Writable({
+          write(chunk, _enc, done) {
+            chunks.push(Buffer.from(chunk));
+            done();
+          },
+        })
+      )
     );
+    return Buffer.concat(chunks);
+  }
+  async putFile(
+    runnerId: string,
+    id: string,
+    name: string,
+    source: SessionFileSource
+  ) {
+    const input = {
+      session: sessionFromWire(id),
+      name,
+      blob: crypto.randomUUID(),
+      size: source.size,
+      digest: "",
+    };
+    return this.onPeer(runnerId, "files.put", input, async (connection) => {
+      const controller = new AbortController();
+      const reply = connection.call("files.put", input, { timeoutMs: null });
+      try {
+        const [result] = await Promise.all([
+          reply,
+          connection.sendBlob(input.blob, source.open(), controller.signal),
+        ]);
+        return displayPath(result.path);
+      } finally {
+        controller.abort();
+      }
+    });
   }
 
   /** Status frames from runners that advertised self-update support. */
@@ -1887,11 +1515,9 @@ export class RemoteRunnerService {
       id,
       name,
     }));
-    if (this.legacy)
-      registrations.unshift({ id: this.legacy.id, name: this.legacy.id });
     return registrations.map(({ id, name }) => {
       const seen = this.lastSeen.get(id);
-      const advert = seen?.ready.selfUpdate;
+      const advert = seen?.description.capabilities.selfUpdate;
       const build = this.peers.get(id)?.health?.sample ?? seen?.build;
       return {
         runnerId: runnerIdFromWire(id),
@@ -1900,7 +1526,7 @@ export class RemoteRunnerService {
           version: build?.version ?? "",
           ...(build?.revision && { revision: build.revision }),
         },
-        protocol: seen?.ready.version ?? RUNNER_WIRE_VERSION,
+        protocol: seen?.description.protocol ?? RUNNER_WIRE_VERSION,
         engines: (seen?.engines ?? [])
           .filter(({ installed }) => installed)
           .map(({ id }) => id),
@@ -1915,9 +1541,7 @@ export class RemoteRunnerService {
 
   /** An enrolled, unrevoked runner, online or not. */
   isRegistered(runnerId: string): boolean {
-    return (
-      Boolean(this.registrationById(runnerId)) || this.legacy?.id === runnerId
-    );
+    return Boolean(this.registrationById(runnerId));
   }
 
   /** The current connection's self-update advertisement, if any. */
@@ -1956,7 +1580,43 @@ export class RemoteRunnerService {
       throw new RunnerUnavailable("The runner connection changed.");
     const parsed = parseUpdateServiceFrame(frame);
     if (!parsed) throw new TypeError("Invalid runner update frame.");
-    peer.send(parsed);
+    const { attemptId: attempt } = parsed;
+    const sent = (() => {
+      switch (parsed.type) {
+        case "update_offer":
+          return peer.connection.call("update.offer", {
+            attempt,
+            target: parsed.target,
+            retry: parsed.retry ?? false,
+          });
+        case "update_fence":
+          return peer.connection.call("update.fence", {
+            attempt,
+            retained: parsed.retainSessions,
+          });
+        case "update_activate":
+          return peer.connection.call("update.activate", { attempt });
+        case "update_confirm":
+          return peer.connection.call("update.confirm", {
+            attempt,
+            revision: parsed.revision,
+            sha256: parsed.sha256,
+          });
+        case "update_cancel":
+          return peer.connection.call("update.cancel", {
+            attempt,
+            reason: parsed.reason,
+          });
+      }
+    })();
+    // The coordinator consumes observed transitions, including durable
+    // receipts after reconnect. This send never schedules recovery itself.
+    void sent.catch((error) =>
+      (this.enrollment?.log ?? console).warn(
+        "Runner update acknowledgement unavailable",
+        error
+      )
+    );
     return { epoch: peer.epoch };
   }
 
@@ -2027,152 +1687,7 @@ export class RemoteRunnerService {
     op: K,
     request: Req<K>
   ): Promise<Res<K>> {
-    try {
-      const { value, channel } = await this.requestRunner(runnerId, {
-        kind: "engine",
-        operation: {
-          type: "contract",
-          call: { op, request } as EngineHostCall,
-        },
-      });
-      channel?.destroy();
-      if (typeof value !== "string")
-        throw new RunnerCallError({
-          code: "unknown_outcome",
-          message: "Invalid engine operation reply.",
-        });
-      const ack = JSON.parse(value);
-      if (!ack || typeof ack !== "object" || typeof ack.ok !== "boolean")
-        throw new RunnerCallError({
-          code: "unknown_outcome",
-          message: "Invalid engine operation reply.",
-        });
-      if (ack.failure !== undefined && !runnerError.check(ack.failure))
-        throw new RunnerCallError({
-          code: "unknown_outcome",
-          message: "Invalid engine operation reply.",
-        });
-      if (!ack.ok)
-        throw new RunnerCallError(
-          ack.failure ?? { code: "failed", message: ack.error }
-        );
-      if (!operations[op].response.check(ack.result))
-        throw new RunnerCallError({
-          code: "unknown_outcome",
-          message: "Invalid engine operation result.",
-        });
-      return ack.result as Res<K>;
-    } catch (error) {
-      if (error instanceof RunnerCallError) throw error;
-      if (error instanceof SyntaxError)
-        throw new RunnerCallError({
-          code: "unknown_outcome",
-          message: "Invalid engine operation reply.",
-        });
-      if (error instanceof RunnerUpdateFenced)
-        throw new RunnerCallError({ code: "fenced", message: error.message });
-      if (error instanceof RunnerAcknowledgementLost)
-        throw new RunnerCallError({
-          code: "unknown_outcome",
-          message: error.message,
-        });
-      if (error instanceof RunnerUnavailable)
-        throw new RunnerCallError({
-          code: "unavailable",
-          message: error.message,
-        });
-      throw error;
-    }
-  }
-
-  async requestRunner(runnerId: string, operation: RunnerOperation) {
-    const peer = this.peers.get(runnerId);
-    if (!peer?.gate.approved())
-      throw new RunnerUnavailable("The runner is disconnected or unavailable.");
-    if (
-      operation.kind === "engine"
-        ? !peer.engineManagement
-        : !peer.githubManagement
-    )
-      throw new RunnerCapabilityUnavailable(
-        operation.kind === "engine"
-          ? "This runner does not support engine management."
-          : "Update the runner to manage its GitHub account."
-      );
-
-    if (
-      operation.kind === "github" &&
-      operation.operation.type === "pullRequestStatus" &&
-      !peer.pullRequestStatus
-    )
-      throw new RunnerCapabilityUnavailable(
-        "Update the runner to read pull request status."
-      );
-
-    if (
-      operation.kind === "github" &&
-      (operation.operation.type === "pullRequestDetails" ||
-        operation.operation.type === "pullRequestDiff" ||
-        (operation.operation.type === "pullRequestStatus" &&
-          operation.operation.withCredentialContext)) &&
-      !peer.pullRequestEvidence
-    )
-      throw new RunnerCapabilityUnavailable(
-        "Update the runner to read pull request evidence."
-      );
-
-    if (
-      operation.kind === "engine" &&
-      isEngineCapabilityOperation(operation.operation) &&
-      !peer.engineCapabilities
-    ) {
-      throw new RunnerCapabilityUnavailable(
-        "Update the runner to read engine capabilities."
-      );
-    }
-
-    if (
-      operation.kind === "github" &&
-      (operation.operation.type === "repositorySearch" ||
-        operation.operation.type === "repositoryBranches") &&
-      !peer.repositoryPicker
-    ) {
-      throw new RunnerCapabilityUnavailable(
-        "Update the runner to browse your repositories."
-      );
-    }
-
-    // V1 requires a routable workspace and an id even for a runner-wide operation.
-    for (const workspace of peer.workspaces) {
-      if (peer.gate.allows(workspace)) {
-        const result = await this.request(
-          { runner: runnerId, workspace },
-          { ...operation, agentId: `@${operation.kind}`, workspace },
-          operation.kind === "engine"
-        );
-        if (this.peers.get(runnerId) !== peer || !peer.gate.approved()) {
-          result.channel?.destroy();
-          throw new RunnerUnavailable("The runner connection changed.");
-        }
-        return result;
-      }
-    }
-    throw new RunnerUnavailable("The runner has no available workspace.");
-  }
-
-  private async requestGitHub(
-    runnerId: string,
-    operation: GitHubOperation
-  ): Promise<unknown> {
-    const peer = this.peers.get(runnerId);
-    const { value } = await this.requestRunner(runnerId, {
-      kind: "github",
-      operation,
-    });
-    if (this.peers.get(runnerId) !== peer || !peer?.gate.approved())
-      throw new RunnerUnavailable("The runner connection changed.");
-    if (typeof value !== "string") throw new Error("Invalid GitHub reply.");
-    return JSON.parse(value);
+    return this.call(runnerId, op, request);
   }
 
   async githubAccount(
@@ -2181,7 +1696,15 @@ export class RemoteRunnerService {
   ): Promise<GitHubStatus> {
     try {
       const status = parseGitHubStatus(
-        await this.requestGitHub(runnerId, { type })
+        await (type === "status"
+          ? this.call(runnerId, "github.account", {})
+          : type === "logout"
+            ? this.call(runnerId, "github.logout", {})
+            : this.call(
+                runnerId,
+                type === "login" ? "github.login.start" : "github.login.cancel",
+                { requestId: crypto.randomUUID() }
+              ))
       );
       if (status.status === "failed")
         return {
@@ -2211,221 +1734,13 @@ export class RemoteRunnerService {
     }
   }
 
-  async readRepositoryRoots(
-    runnerId: string,
-    request: Req<"git.roots">
-  ): Promise<Res<"git.roots">> {
-    const peer = this.peers.get(runnerId);
-    if (peer?.gitQueries)
-      for (const workspace of peer.workspaces) {
-        const placement = { runner: runnerId, workspace };
-        if (!this.workspacePeer(placement)) continue;
-        const op = "git.roots";
-        const { value } = await this.requestSession(placement, {
-          agentId: "@git",
-          kind: "gitQuery",
-          operation: { op, request },
-        });
-        try {
-          return decodeResult(
-            { op, request, absent: [], extras: { workspace } },
-            value
-          );
-        } catch (error) {
-          if (error instanceof ResultError)
-            throw new RunnerCallError(error.error);
-          throw error;
-        }
-      }
-    throw new RunnerCallError({
-      code: "unavailable",
-      message: "The runner is unavailable.",
-    });
-  }
-
-  async readRepositoryOrigin(
-    runnerId: string,
-    request: Req<"git.origin">
-  ): Promise<Res<"git.origin">> {
-    const peer = this.peers.get(runnerId);
-    if (peer?.gitQueries)
-      for (const workspace of peer.workspaces) {
-        const placement = { runner: runnerId, workspace };
-        if (!this.workspacePeer(placement)) continue;
-        const op = "git.origin";
-        const { value } = await this.requestSession(placement, {
-          agentId: "@git",
-          kind: "gitQuery",
-          operation: { op, request },
-        });
-        try {
-          return decodeResult(
-            { op, request, absent: [], extras: { workspace } },
-            value
-          );
-        } catch (error) {
-          if (error instanceof ResultError)
-            throw new RunnerCallError(error.error);
-          throw error;
-        }
-      }
-    throw new RunnerCallError({
-      code: "unavailable",
-      message: "The runner is unavailable.",
-    });
-  }
-
-  async listRepositoryBranches(
-    runnerId: string,
-    target: { repository: string }
-  ) {
-    const peer = this.peers.get(runnerId);
-    if (peer?.gitQueries) {
-      for (const workspace of peer.workspaces) {
-        const placement = { runner: runnerId, workspace };
-        if (!this.workspacePeer(placement)) continue;
-        const op = "git.branches";
-        const request = { target };
-        const { value } = await this.requestSession(placement, {
-          agentId: "@git",
-          kind: "gitQuery",
-          operation: { op, request },
-        });
-        try {
-          return decodeResult(
-            { op, request, absent: [], extras: { workspace } },
-            value
-          );
-        } catch (error) {
-          if (error instanceof ResultError)
-            throw new RunnerCallError(error.error);
-          throw error;
-        }
-      }
-    }
-    const github = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)$/.exec(
-      target.repository
-    );
-    if (!github)
-      throw new RunnerCapabilityUnavailable(
-        "git.branches is unavailable on this runner."
-      );
-    return this.listGitHubBranches(runnerId, github[1]!, github[2]!);
-  }
-
-  /**
-   * `path.resolve` on the runner, as its workload account: a launch folder
-   * an agent on that runner names (D7's agent-selected folder).
-   */
-  async resolveRunnerPath(
-    runnerId: string,
-    request: Req<"path.resolve">
-  ): Promise<Res<"path.resolve">> {
-    return this.readRunnerPath(runnerId, "path.resolve", request);
-  }
-
-  async readRunnerPath<
-    K extends "path.resolve" | "path.complete" | "git.remoteHeads",
-  >(runnerId: string, op: K, request: Req<K>): Promise<Res<K>> {
-    const peer = this.peers.get(runnerId);
-    if (peer?.pathResolve)
-      for (const workspace of peer.workspaces) {
-        const placement = { runner: runnerId, workspace };
-        if (!this.workspacePeer(placement)) continue;
-        const { value } = await this.requestSession(placement, {
-          agentId: "@path",
-          kind: "pathResolve",
-          operation: { op, request } as Extract<
-            Command,
-            { kind: "pathResolve" }
-          >["operation"],
-        });
-        try {
-          return decodeResult(
-            { op, request, absent: [], extras: { workspace } },
-            value
-          );
-        } catch (error) {
-          if (error instanceof ResultError)
-            throw new RunnerCallError(error.error);
-          throw error;
-        }
-      }
-    throw new RunnerCallError({
-      code: "unavailable",
-      message: "The runner is unavailable.",
-    });
-  }
-
-  /**
-   * A repository's default-branch files from the runner's own repository
-   * cache, before any session exists (`checkout.defaultFiles` with a
-   * `{repository}` target). A peer without `repositoryFiles` cannot.
-   */
-  async readRepositoryFiles(
-    runnerId: string,
-    request: Req<"checkout.defaultFiles">,
-    signal?: AbortSignal
-  ): Promise<Res<"checkout.defaultFiles">> {
-    // The same URL rules as a launch from a repository and the branch
-    // picker: credential-free HTTPS, normalised.
-    let repository: string;
-    try {
-      repository = projectRepositoryUrl(
-        (request.target as { repository: string }).repository
-      );
-    } catch {
-      throw new RunnerCallError({
-        code: "invalid",
-        message: "Not a runner repository URL.",
-      });
-    }
-    request = { ...request, target: { repository } };
-    const peer = this.peers.get(runnerId);
-    if (peer?.repositoryFiles)
-      for (const workspace of peer.workspaces) {
-        const placement = { runner: runnerId, workspace };
-        if (!this.workspacePeer(placement)) continue;
-        const op = "checkout.defaultFiles";
-        const { value } = await this.requestSession(
-          placement,
-          {
-            agentId: "@repository",
-            kind: "repositoryFiles",
-            operation: { op, request },
-          },
-          undefined,
-          signal
-        );
-        try {
-          return decodeResult(
-            {
-              op,
-              request,
-              absent: [],
-              extras: { workspace, repositoryFiles: true },
-            },
-            value
-          );
-        } catch (error) {
-          if (error instanceof ResultError)
-            throw new RunnerCallError(error.error);
-          throw error;
-        }
-      }
-    throw new RunnerCallError({
-      code: "unsupported",
-      message: "This runner does not read repository files.",
-    });
-  }
-
-  supportsCheckoutWrite(placement: Placement) {
-    return this.workspacePeer(placement)?.checkoutWrite === true;
+  async listRepositoryBranches(id: string, target: { repository: string }) {
+    const repository = projectRepositoryUrl(target.repository);
+    return this.call(id, "git.branches", { target: { repository } });
   }
 
   async listGitHubBranches(runnerId: string, owner: string, repo: string) {
-    const response = await this.requestGitHub(runnerId, {
-      type: "repositoryBranches",
+    const response = await this.call(runnerId, "github.branches", {
       owner,
       repo,
     });
@@ -2450,8 +1765,7 @@ export class RemoteRunnerService {
   }
 
   async searchGitHubRepositories(runnerId: string, query: string) {
-    const response = await this.requestGitHub(runnerId, {
-      type: "repositorySearch",
+    const response = await this.call(runnerId, "github.repositories", {
       query,
     });
     if (
@@ -2463,62 +1777,6 @@ export class RemoteRunnerService {
     return githubRepositoryResults(response.repositories);
   }
 
-  /** `github.pr.status` on a connected runner; a capable peer scopes it to its credential. */
-  async readPullRequestStatus(
-    runnerId: string,
-    { owner, repo, number }: GitHubPullRequestTarget
-  ): Promise<GitHubPullRequestObservation> {
-    const response = await this.requestGitHub(runnerId, {
-      type: "pullRequestStatus",
-      owner,
-      repo,
-      number,
-      ...(this.peers.get(runnerId)?.pullRequestEvidence && {
-        withCredentialContext: true,
-      }),
-    });
-    if (!isGitHubPullRequestObservation(response))
-      throw new Error("Invalid runner pull request observation.");
-    return response;
-  }
-
-  /** `github.pr.details` on a connected runner, scoped to its credential. */
-  async readPullRequestDetails(
-    runnerId: string,
-    target: GitHubPullRequestTarget
-  ) {
-    const value = await this.requestGitHub(runnerId, {
-      owner: target.owner,
-      repo: target.repo,
-      number: target.number,
-      type: "pullRequestDetails",
-    });
-    return isGitHubPullRequestDetails(value) && value.number === target.number
-      ? value
-      : null;
-  }
-
-  /** `github.pr.diff` on a connected runner, for the credential its details named. */
-  async readPullRequestDiff(
-    runnerId: string,
-    target: GitHubPullRequestTarget & {
-      base: string;
-      head: string;
-      context: string;
-    }
-  ) {
-    const value = await this.requestGitHub(runnerId, {
-      owner: target.owner,
-      repo: target.repo,
-      number: target.number,
-      type: "pullRequestDiff",
-      base: target.base,
-      head: target.head,
-      credentialContext: target.context,
-    });
-    return isGitHubPullRequestDiff(value) ? value : null;
-  }
-
   async lookupGitHubPullRequestHead(
     runnerId: string,
     owner: string,
@@ -2527,318 +1785,21 @@ export class RemoteRunnerService {
     cwd?: string
   ) {
     return githubPullRequestHead(
-      await this.requestGitHub(
-        runnerId,
-        cwd === undefined
-          ? { type: "pullRequestHead", owner, repo, number }
-          : { type: "pullRequestHeadAtPath", owner, repo, number, cwd }
-      )
+      await this.call(runnerId, "github.pr.head", {
+        owner,
+        repo,
+        number,
+        ...(cwd === undefined ? {} : { cwd: pathFromWire(cwd) }),
+      })
     );
   }
 
-  supportsSessionFiles(placement: Placement) {
-    return (
-      this.available(placement) &&
-      this.peers.get(placement.runner)?.sessionFiles === true
-    );
-  }
-
-  supportsSessionCheckout(placement: Placement) {
-    return (
-      this.available(placement) &&
-      this.peers.get(placement.runner)?.sessionCheckout === true
-    );
-  }
-
-  supportsGitQueries(placement: Placement) {
-    return this.workspacePeer(placement)?.gitQueries === true;
-  }
-
-  supportsPreparedLaunch(placement: Placement) {
-    return this.workspacePeer(placement)?.preparedLaunch === true;
-  }
-
-  supportsSessionWorkspaceSource(placement: Placement) {
-    return this.workspacePeer(placement)?.sessionWorkspaceSource === true;
-  }
-
-  supportsWorkspaceRelease(placement: Placement) {
-    return this.workspacePeer(placement)?.workspaceRelease === true;
-  }
-
-  supportsSharedWorktree(placement: Placement) {
-    return (
-      this.available(placement) &&
-      this.peers.get(placement.runner)?.sharedWorktree === true
-    );
-  }
-
-  /** Whether the connected runner reconciles a repeated launch ID. */
-  supportsScopedStop(placement: Placement): boolean {
-    return this.workspacePeer(placement)?.scopedStop === true;
-  }
-
-  reconcilesLaunches(placement: Placement) {
-    return this.peers.get(placement.runner)?.launchReconcile === true;
-  }
-
-  /**
-   * The capabilities the runner's latest approved connection advertised,
-   * even while it is disconnected. Only for admitting a launch that a runner
-   * update holds: the launch is checked again against the reconnected peer
-   * when it is released.
-   */
-  lastSeenCapabilities(placement: Placement) {
-    const seen = this.lastSeen.get(placement.runner);
-    if (
-      !seen ||
-      !seen.gate.approved() ||
-      !seen.gate.allows(placement.workspace) ||
-      !seen.workspaces.has(placement.workspace)
-    )
-      return undefined;
-    return {
-      managedWorkspace: seen.managedWorkspace,
-      preparedLaunch: seen.preparedLaunch,
-      ...(seen.ready.sessionWorkspaceSource && {
-        sessionWorkspaceSource: true,
-      }),
-      sessionFiles: seen.sessionFiles,
-      sharedWorktree: seen.sharedWorktree,
-    };
-  }
-
-  private workspacePeer(placement: Placement) {
-    const peer = this.peers.get(placement.runner);
-    if (
-      peer?.gate.approved() &&
-      peer.gate.allows(placement.workspace) &&
-      peer.workspaces.has(placement.workspace)
-    )
-      return peer;
-    return undefined;
-  }
-
-  sessionObservationTargets(runnerId: string): Placement[] | undefined {
-    const peer = this.peers.get(runnerId);
-    if (!peer?.gate.approved() || !peer.sessionObservation) return undefined;
-    return [...peer.workspaces]
-      .filter((workspace) => peer.gate.allows(workspace))
-      .map((workspace) => ({ runner: runnerId, workspace }));
-  }
-
-  async observeSessions(
-    placement: Placement,
-    operation: Extract<Command, { kind: "sessionObservation" }>["operation"]
-  ): Promise<unknown> {
-    const peer = this.workspacePeer(placement);
-    if (!peer?.sessionObservation) return undefined;
-    const { value } = await this.request(
-      placement,
-      {
-        kind: "sessionObservation",
-        workspace: placement.workspace,
-        agentId: "runner",
-        operation,
-      },
-      false,
-      undefined,
-      undefined,
-      peer
-    );
-    return typeof value === "string" ? JSON.parse(value) : null;
-  }
-
-  available(placement: Placement) {
-    return Boolean(this.workspacePeer(placement));
-  }
-
-  async request(
-    placement: Placement,
-    command: Command,
-    open = false,
-    onProgress?: (progress: LaunchProgress) => void,
-    signal?: AbortSignal,
-    expectedPeer?: Peer
-  ) {
-    if (
-      !this.registrationById(placement.runner) &&
-      placement.runner !== this.legacy?.id &&
-      (await this.enrollment?.registry.isRevoked(placement.runner))
-    ) {
-      throw new RunnerRevoked();
-    }
-    const peer = this.workspacePeer(placement);
-    if (
-      !peer ||
-      (expectedPeer && expectedPeer !== peer) ||
-      command.workspace !== placement.workspace
-    ) {
-      throw new RunnerUnavailable(
-        "The enrolled runner is disconnected or the workspace is unavailable."
-      );
-    }
-    if (
-      (command.kind === "viewCheckout" || command.kind === "watchCheckout") &&
-      !peer.checkoutViews
-    )
-      throw new RunnerCapabilityUnavailable(
-        "Update this runner to open Files and Changes."
-      );
-    const checkout =
-      command.kind === "launch"
-        ? command.launch.repository?.checkout
-        : undefined;
-    if (
-      (command.kind === "sessionCheckout" ||
-        checkout?.kind === "default" ||
-        (checkout?.kind === "branch" && checkout.allowDefault)) &&
-      !peer.sessionCheckout
-    )
-      throw new RunnerCapabilityUnavailable(
-        "Update the runner to use these checkout options."
-      );
-    if (command.kind === "openTerminal" && !peer.terminals)
-      throw new RunnerCapabilityUnavailable(
-        "Update this runner to open a terminal."
-      );
-    if (command.kind === "checkoutCommand" && !peer.checkoutCommands)
-      throw new RunnerCapabilityUnavailable(
-        "This runner version does not support checkout commands. Update the runner to execute checkout commands."
-      );
-    if (command.kind === "sessionFile" && !peer.sessionFiles)
-      throw new RunnerCapabilityUnavailable(
-        "Update the runner to transfer session files."
-      );
-    if (command.kind === "workspaceRelease" && !peer.workspaceRelease)
-      throw new RunnerCapabilityUnavailable(
-        "Update the runner to release a bound workspace."
-      );
-    if (command.kind === "checkoutRelease" && !peer.checkoutRelease)
-      throw new RunnerCapabilityUnavailable(
-        "Update the runner to inspect and release a session checkout."
-      );
-    if (
-      command.kind === "inspectCheckout" &&
-      command.query.kind === "defaultBranchFiles" &&
-      !peer.defaultBranchFiles
-    )
-      throw new RunnerCapabilityUnavailable(
-        "Update the runner to read default-branch files."
-      );
-    if (
-      command.kind === "inspectCheckout" &&
-      (command.query.kind === "roots" || command.query.kind === "listFiles") &&
-      !peer.checkoutMetadata
-    )
-      throw new RunnerCapabilityUnavailable(
-        "Update the runner to discover checkout metadata."
-      );
-    if (command.kind === "inspectCheckout" && !peer.checkoutInspection)
-      throw new RunnerCapabilityUnavailable(
-        "Update the runner to inspect a session checkout."
-      );
-    if (
-      command.kind === "launch" &&
-      command.launch.useWorktreeOf &&
-      !peer.sharedWorktree
-    )
-      throw new RunnerCapabilityUnavailable(
-        "Update the runner to launch a reviewer in an existing checkout."
-      );
-    if (
-      (command.kind === "workspacePrepare" ||
-        command.kind === "workspaceResume") &&
-      !peer.workspacePrepare
-    )
-      throw new RunnerCallError({
-        code: "unsupported",
-        message: "This runner does not serve workspace preparation.",
-      });
-    if (command.kind === "gitQuery" && !peer.gitQueries)
-      throw new RunnerCallError({
-        code: "unsupported",
-        message: "This runner does not serve Git queries.",
-      });
-    if (command.kind === "checkoutWrite" && !peer.checkoutWrite)
-      throw new RunnerCallError({
-        code: "unsupported",
-        message: "This runner does not write checkout files.",
-      });
-    if (command.kind === "pathResolve" && !peer.pathResolve)
-      throw new RunnerCallError({
-        code: "unsupported",
-        message: "This runner does not resolve folders.",
-      });
-    if (command.kind === "repositoryFiles" && !peer.repositoryFiles)
-      throw new RunnerCallError({
-        code: "unsupported",
-        message: "This runner does not read repository files.",
-      });
-    if (command.kind === "launch" && peer.workspacePreparation && onProgress)
-      command = {
-        ...command,
-        launch: { ...command.launch, prepareWorkspace: true },
-      };
-    if (
-      command.kind === "stop" &&
-      ((command.expectedLaunchId !== undefined && !peer.scopedStop) ||
-        (command.expectedOwner !== undefined && !peer.sessionObservation))
-    )
-      throw new RunnerCapabilityUnavailable(
-        "This runner cannot stop a specific launch."
-      );
-    if (
-      command.kind === "launch" &&
-      command.launch.owner !== undefined &&
-      !peer.sessionObservation
-    ) {
-      const { owner: _owner, ...launch } = command.launch;
-      command = { ...command, launch };
-    }
-    if (
-      command.kind === "launch" &&
-      command.launch.launchId !== undefined &&
-      !peer.launchReconcile
-    ) {
-      // An older runner keeps the launch shape it knows.
-      const { launchId: _launchId, ...launch } = command.launch;
-      command = { ...command, launch };
-    }
-    if (
-      command.kind === "launch" &&
-      command.launch.prepareWorkspace &&
-      !peer.workspacePreparation
-    )
-      throw new RunnerCapabilityUnavailable(
-        "Update the runner to prepare session workspaces."
-      );
-    if (
-      command.kind === "sessionFile" &&
-      command.operation.streamId === undefined
-    ) {
-      // A single file can occupy most of the transport's write buffer.
-      const transfer = (peer.sessionFileTail ?? Promise.resolve())
-        .catch(() => {})
-        .then(() => peer.connection.request(command));
-      peer.sessionFileTail = transfer;
-      try {
-        return await transfer;
-      } finally {
-        if (peer.sessionFileTail === transfer) peer.sessionFileTail = undefined;
-      }
-    }
-    return peer.connection.request(command, {
-      openChannel: open,
-      onProgress,
-      signal,
-    });
+  available(id: string) {
+    return Boolean(this.peers.get(id)?.approved());
   }
 
   close() {
-    if (this.legacy) unwatchFile(this.legacy.approval, this.recheckLegacy);
     for (const socket of this.sockets) socket.destroy();
-    this.legacyListener?.close();
     this.listener?.close();
     if (this.proxyPort) this.proxy.close();
   }

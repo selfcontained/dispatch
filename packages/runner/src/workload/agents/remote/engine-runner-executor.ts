@@ -22,7 +22,6 @@ import { findEngineBin } from "../engine-availability.js";
 import { executionArgs, setpriv } from "./workload-identity.js";
 import { spawn } from "node:child_process";
 import { isDeepStrictEqual } from "node:util";
-import { randomUUID } from "node:crypto";
 import { chown, mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -35,32 +34,20 @@ import {
 } from "@dispatch/runner-protocol/contract";
 import {
   RUNNER_ENGINES,
-  isEngineCapabilityOperation,
   type EngineInventoryEntry,
   type EngineLoginView,
-  type EngineOperation,
-  type EngineOperationAck,
-  type EngineOperationEvent,
   type EngineSupportedAction,
 } from "@dispatch/runner-protocol/engine-management";
 
 import type { AcpEngineId } from "@dispatch/runner-protocol/host";
-import {
-  compareVersions,
-  engineStatuses,
-  withEngineVersions,
-} from "../engine-availability.js";
+import { engineStatuses, withEngineVersions } from "../engine-availability.js";
 import {
   EngineLogins,
   isLoginEngine,
   loginScript,
   type EngineLoginDeps,
 } from "../engine-login.js";
-import {
-  engineUpdatePort,
-  inspectInstallation,
-  withEngineUpdates,
-} from "../engine-updates.js";
+import { inspectInstallation, withEngineUpdates } from "../engine-updates.js";
 
 /**
  * One engine's installation, and the install or update it offers: the half
@@ -508,7 +495,6 @@ function sanitizeVersion(output: string): string | null {
 }
 
 export class EngineRunnerExecutor {
-  private installingBundledPackage = false;
   private hostCeilingLogged = false;
   private readonly workload: EngineWorkload;
   private readonly wrap: NonNullable<EngineRunnerExecutorConfig["wrap"]>;
@@ -861,19 +847,6 @@ export class EngineRunnerExecutor {
       : null;
   }
 
-  private async ensureManagedNode(command: ManagedCommand): Promise<boolean> {
-    const usable = async () =>
-      Number((await this.probe("node")).version?.split(".")[0]) >= 22;
-    if (await usable()) return true;
-    const result = await this.run(
-      command.executable,
-      ["add", "--global", `node-linux-${process.arch}@22`],
-      { ...this.config.env, ...command.env },
-      90_000
-    );
-    return result.code === 0 && (await usable());
-  }
-
   /** One engine's installation and the configured install or update it offers. */
   private async installation(
     engine: RunnerEngine,
@@ -912,279 +885,9 @@ export class EngineRunnerExecutor {
     return (await this.workload.list()).entries;
   }
 
-  /** Run one operation; `onEvent` receives any progress before the ack returns. */
-  async handle(
-    operation: EngineOperation,
-    onEvent?: (event: EngineOperationEvent) => void
-  ): Promise<EngineOperationAck> {
-    if (isEngineCapabilityOperation(operation)) {
-      return {
-        ok: false,
-        unsupported: true,
-        error: "Engine capabilities require a workload worker.",
-      };
-    }
-    switch (operation.type) {
-      case "contract":
-        try {
-          return {
-            ok: true,
-            result: await this.callHost(
-              operation.call.op,
-              operation.call.request as never
-            ),
-          };
-        } catch (error) {
-          return {
-            ok: false,
-            error: error instanceof Error ? error.message : String(error),
-            ...(error instanceof RunnerCallError && {
-              failure: {
-                code: error.code,
-                message: error.message,
-                ...(error.details !== undefined && { details: error.details }),
-              },
-            }),
-          };
-        }
-      case "status": {
-        const entries = await this.inventory();
-        onEvent?.({ type: "inventory", entries });
-        return { ok: true };
-      }
-      case "install":
-        return this.runManaged(operation.engine, "install", onEvent);
-      case "update":
-        return this.runManaged(operation.engine, "update", onEvent);
-      case "login_start":
-        return loginAck(
-          this.workload.loginStart({
-            engine: operation.engine,
-            ...(operation.restart !== undefined && {
-              restart: operation.restart,
-            }),
-          }),
-          onEvent
-        );
-      case "login_submit":
-        return loginAck(this.workload.loginSubmit(operation), onEvent);
-      case "login_cancel":
-        return loginAck(this.workload.loginCancel(operation));
-      case "login_status":
-        return loginAck(this.workload.loginStatus(operation));
-    }
-  }
-
-  private async runManaged(
-    engine: RunnerEngine,
-    kind: "install" | "update",
-    onEvent?: (event: EngineOperationEvent) => void
-  ): Promise<EngineOperationAck> {
-    const cfg = this.config.engines[engine];
-    const step = kind === "install" ? cfg?.install : cfg?.update;
-    if (
-      kind === "update" &&
-      (!step || (await this.resolveBin(engine)) !== cfg?.bin)
-    )
-      return this.executeDetectedUpdate(engine, onEvent);
-    if (!step) {
-      return {
-        ok: false,
-        error: `No managed install command is configured for ${LABELS[engine]} on this runner.`,
-      };
-    }
-    const bundled = this.bundledCommand(engine, step);
-    if (!bundled)
-      return this.executeManaged(engine, kind, step, false, onEvent);
-    if (this.installingBundledPackage)
-      return {
-        ok: false,
-        error:
-          "Another engine installation is in progress. Try again when it finishes.",
-      };
-    this.installingBundledPackage = true;
-    try {
-      return await this.executeManaged(engine, kind, bundled, true, onEvent);
-    } finally {
-      this.installingBundledPackage = false;
-    }
-  }
-
-  private async executeDetectedUpdate(
-    engine: RunnerEngine,
-    onEvent?: (event: EngineOperationEvent) => void
-  ): Promise<EngineOperationAck> {
-    const plan = await this.callHost("engine.update.inspect", { engine });
-    if (!plan.canUpdate || !plan.run) return { ok: false, error: plan.reason };
-    const port = engineUpdatePort({
-      call: (op, input) => this.callHost(op, input),
-    });
-    const operationId = randomUUID();
-    const bin = plan.probePath ?? plan.realPath!;
-    const before = await port.verify(bin);
-    const runner = port.runner({
-      output: (outputChunk) =>
-        onEvent?.({
-          type: "operation_progress",
-          operationId,
-          engine,
-          phase: "update",
-          message: "",
-          outputChunk,
-        }),
-    });
-    const refresh =
-      !plan.run.refresh ||
-      (
-        await runner(plan.run.refresh.executable, plan.run.refresh.args, {
-          env: plan.run.refresh.env,
-          timeoutMs: 60_000,
-        })
-      ).exitCode === 0;
-    const result = refresh
-      ? await runner(plan.run.executable, plan.run.args, {
-          env: plan.run.env,
-          timeoutMs: 120_000,
-        })
-      : null;
-    const after = await port.verify(bin);
-    const success = Boolean(
-      before && after && compareVersions(after, before) > 0
-    );
-    const message = success
-      ? `Update completed. Verified installed version ${after}.`
-      : result?.exitCode === 0
-        ? "Update command completed, but a newer installed version could not be verified. Recheck status before retrying."
-        : "Update command failed. Review the output before retrying.";
-    onEvent?.({
-      type: "operation_complete",
-      operationId,
-      engine,
-      success,
-      message,
-    });
-    return success
-      ? { ok: true, operationId, message }
-      : { ok: false, error: message };
-  }
-
-  private async executeManaged(
-    engine: RunnerEngine,
-    kind: "install" | "update",
-    step: ManagedCommand,
-    bundled: boolean,
-    onEvent?: (event: EngineOperationEvent) => void
-  ): Promise<EngineOperationAck> {
-    const cfg = this.config.engines[engine];
-    const current = await this.resolveEngine(engine);
-    if (current.installed && current.bin !== cfg?.bin) {
-      return {
-        ok: false,
-        error: "This engine is maintained by the runner administrator.",
-      };
-    }
-    const operationId = randomUUID();
-    onEvent?.({
-      type: "operation_progress",
-      operationId,
-      engine,
-      phase: kind,
-      message: kind === "install" ? "Installing…" : "Updating…",
-    });
-    if (bundled && !(await this.ensureManagedNode(step))) {
-      const message =
-        "Could not install the engine runtime. Check this runner’s access to the package registry.";
-      onEvent?.({
-        type: "operation_complete",
-        operationId,
-        engine,
-        success: false,
-        message,
-      });
-      return { ok: false, error: message };
-    }
-    const before = current.version;
-    const result = await this.run(
-      step.executable,
-      step.args,
-      { ...this.config.env, ...step.env },
-      180_000,
-      (chunk) => {
-        onEvent?.({
-          type: "operation_progress",
-          operationId,
-          engine,
-          phase: kind,
-          message: "",
-          outputChunk: chunk.slice(0, 4_000),
-        });
-      }
-    );
-    const commandFailed = result.spawnError !== undefined || result.code !== 0;
-    const after = cfg?.bin ? (await this.probe(cfg.bin)).version : null;
-    const label = kind === "install" ? "Install" : "Update";
-    const advanced =
-      kind === "install"
-        ? Boolean(after)
-        : Boolean(before && after && compareVersions(after, before) > 0);
-    // An update command can legitimately exit 0 and do nothing — the
-    // engine was already current. That's success, not a failed update.
-    const upToDate =
-      !commandFailed && kind === "update" && !advanced && Boolean(before);
-    const success = !commandFailed && (advanced || upToDate);
-    const message = commandFailed
-      ? `${label} command failed${result.code !== null ? ` (exit code ${result.code})` : ""}.`
-      : upToDate
-        ? `Already up to date (version ${after}).`
-        : advanced
-          ? `${label} completed. Verified installed version ${after}.`
-          : `${label} command completed, but a ${kind === "install" ? "new" : "newer"} installed version could not be verified.`;
-    onEvent?.({
-      type: "operation_complete",
-      operationId,
-      engine,
-      success,
-      message,
-    });
-    return success
-      ? { ok: true, operationId, message }
-      : { ok: false, error: message };
-  }
-
   /** Stop every sign-in under way; for shutdown. */
   close(): void {
     this.hostWorker?.kill();
     this.workload.close();
   }
-}
-
-/** A sign-in's wire v1 ack; `onEvent`, when given, hears the login too. */
-async function loginAck(
-  login: Promise<EngineLoginView>,
-  onEvent?: (event: EngineOperationEvent) => void
-): Promise<EngineOperationAck> {
-  try {
-    const view = toLoginView(await login);
-    onEvent?.({ type: "login_update", login: view });
-    return { ok: true, login: view };
-  } catch (error) {
-    if (error instanceof RunnerCallError)
-      return { ok: false, error: error.message };
-    throw error;
-  }
-}
-
-function toLoginView(login: {
-  id: string;
-  engine: RunnerEngine;
-  status: EngineLoginView["status"];
-  url?: string;
-  userCode?: string;
-  needsCode: boolean;
-  detail?: string;
-  error?: string;
-  expiresAt?: string;
-  finishedAt?: string;
-}): EngineLoginView {
-  return login;
 }

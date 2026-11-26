@@ -27,7 +27,6 @@ const runner: Runner = {
   id: "runner-1",
   name: "Build runner",
   status: "online",
-  workspaces: [],
 };
 const receivedAt = "2026-01-15T08:42:17.123Z";
 

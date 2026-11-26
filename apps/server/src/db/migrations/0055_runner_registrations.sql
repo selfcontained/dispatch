@@ -21,14 +21,12 @@ CREATE TABLE runner_registrations (
   code_expires_at timestamptz,
   cert_fingerprint text UNIQUE,
   cert_expires_at timestamptz,
-  workspaces jsonb NOT NULL DEFAULT '[]'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
   enrolled_at timestamptz,
   last_seen_at timestamptz,
   revoked_at timestamptz
 );
 
--- A name addresses placements (runner://<name>/<workspace>), so only one
--- unrevoked registration may hold it.
+-- Only one active registration may use a name.
 CREATE UNIQUE INDEX runner_registrations_active_name
   ON runner_registrations (name) WHERE revoked_at IS NULL;

@@ -567,7 +567,7 @@ describe("cwd seeding", () => {
   });
 
   it("keeps main’s accepted directory inputs unchanged", async () => {
-    const locator = "runner://linux/@session";
+    const locator = "/srv/linux/checkout";
     window.localStorage.setItem(LAST_USED_CWD_KEY, locator);
     const { result } = await setup({ resolveDefaultCwd: () => locator });
     expect(result.current.createCwd).toBe(locator);
@@ -1118,7 +1118,7 @@ describe("agent launch projection", () => {
       );
       const { result } = await setup({
         sourceAgentId: "selected",
-        resolveDefaultCwd: () => "runner://fixture/@session",
+        resolveDefaultCwd: () => "/srv/fixture/checkout",
       });
       await waitFor(() => expect(result.current.launch.key).toBe(targetKey));
       await waitFor(() =>
@@ -1168,7 +1168,7 @@ it("keeps main's saved-model payload while a new folder's location data loads", 
 });
 
 it.each(["pending", "failed"])(
-  "never exposes a selected runner locator while its projection is %s",
+  "never exposes a selected runner directory while its projection is %s",
   async (state) => {
     const fallback = apiMock.getMockImplementation()!;
     apiMock.mockImplementation((url, opts) =>
@@ -1182,7 +1182,7 @@ it.each(["pending", "failed"])(
     );
     const { result } = await setup({
       sourceAgentId: "selected",
-      resolveDefaultCwd: () => "runner://fixture/@session",
+      resolveDefaultCwd: () => "/srv/fixture/checkout",
     });
     expect(result.current.createCwd).toBe("");
     expect(result.current.cwdHistory).toEqual([]);
@@ -1199,7 +1199,7 @@ it.each(["pending", "failed"])(
 it("offers only server-validated folder history, including after a projection failure", async () => {
   window.localStorage.setItem(
     CWD_HISTORY_KEY,
-    JSON.stringify(["runner://fixture/@session", "/repo/prior"])
+    JSON.stringify(["/srv/fixture/checkout", "/repo/prior"])
   );
   const fallback = apiMock.getMockImplementation()!;
   apiMock.mockImplementation((url, opts) =>
@@ -1215,7 +1215,7 @@ it("offers only server-validated folder history, including after a projection fa
   );
   const { result } = await setup({
     sourceAgentId: "selected",
-    resolveDefaultCwd: () => "runner://fixture/@session",
+    resolveDefaultCwd: () => "/srv/fixture/checkout",
   });
   await waitFor(() =>
     expect(result.current.launch.projection.isError).toBe(true)
@@ -1228,7 +1228,7 @@ it("offers only server-validated folder history, including after a projection fa
   expect(result.current.createCwd).toBe("");
   expect(
     apiMock.mock.calls.some(([url]) =>
-      url.includes(encodeURIComponent("runner://fixture/@session"))
+      url.includes(encodeURIComponent("/srv/fixture/checkout"))
     )
   ).toBe(true);
 });

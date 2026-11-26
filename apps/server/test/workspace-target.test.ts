@@ -51,15 +51,14 @@ describe("agentStreamDirectory", () => {
     ).toBe("/moved");
   });
 
-  it("uses the reported checkout for a runner address", () => {
-    expect(
-      agentStreamDirectory({
-        cwd: "runner://r/@session",
-        workspacePath: null,
-        worktreePath: null,
-        gitContext: { worktreePath: "/runner/checkout" } as never,
-      })
-    ).toBe("/runner/checkout");
+  it("uses the prepared launch directory for an enrolled session", () => {
+    const agent = {
+      cwd: "/srv/checkout/nested",
+      workspacePath: null,
+      worktreePath: "/srv/checkout",
+      gitContext: { worktreePath: "/srv/checkout", isWorktree: true },
+    };
+    expect(agentStreamDirectory(agent)).toBe("/srv/checkout/nested");
   });
 });
 

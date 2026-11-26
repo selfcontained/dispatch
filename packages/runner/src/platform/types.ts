@@ -57,6 +57,7 @@ export type Selector = "current" | "launch" | "moved";
 export type WorkerInput<K extends WorkloadOp> = {
   directory: string;
   request: Omit<Req<K>, "target">;
+  selector?: Selector;
 } & (K extends ExecOp ? { selector: Selector } : unknown) &
   (K extends "git.context" ? { checkoutBranch?: string } : unknown);
 

@@ -30,9 +30,12 @@
     "@dispatch/runner-protocol": "workspace:*",
     "@agentclientprotocol/sdk": "1.8.0",
     "jsonc-parser": "3.3.1",
-    "zod": "4.3.6"
+    "zod": "4.3.6",
+    "@agentclientprotocol/claude-agent-acp": "0.108.0",
+    "@agentclientprotocol/codex-acp": "2.7.0"
   },
   "scripts": {
+    "start": "bun ../../scripts/generate-runner-runtime-assets.mjs && bun --no-env-file src/standalone.ts",
     "check": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
     "test": "vitest run --root ."
   },

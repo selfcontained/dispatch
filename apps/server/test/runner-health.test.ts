@@ -109,7 +109,6 @@ describe("a runner's health reports", () => {
       id: "rnr_one",
       name: "one",
       enrolled: true,
-      workspaces: [],
     };
     Object.assign(service as any, {
       enrollment: {
@@ -120,33 +119,57 @@ describe("a runner's health reports", () => {
         },
       },
     });
+    let samples = 0;
     const socket = Object.assign(
-      new Duplex({ read() {}, write: (_chunk, _encoding, done) => done() }),
+      new Duplex({
+        read() {},
+        write(chunk, _encoding, done) {
+          done();
+          const { id, op } = JSON.parse(String(chunk));
+          const value =
+            op === "runner.describe"
+              ? {
+                  runnerId: registration.id,
+                  displayName: "Fixture",
+                  build: { version: "1" },
+                  protocol: 1,
+                  engines: [],
+                  capabilities: {},
+                }
+              : op === "engine.list"
+                ? { entries: [] }
+                : {
+                    version: "1.2.3",
+                    sessions: ++samples,
+                    working: 0,
+                    cpuPercent: null,
+                    memoryUsed: 1,
+                    memoryTotal: 2,
+                  };
+          queueMicrotask(() =>
+            socket.push(JSON.stringify({ id, ok: true, value }) + "\n")
+          );
+        },
+      }),
       { setKeepAlive() {} }
     );
-    (service as any).attachPeer(socket, {
-      key: registration.id,
-      registrationId: registration.id,
-      approved: () => true,
-      allows: () => true,
-    });
-    const send = (frame: object) => socket.push(JSON.stringify(frame) + "\n");
-    send({ type: "ready", version: 1, workspaces: ["work"], health: true });
-    for (const sessions of [1, 2])
-      send({
-        type: "health",
-        sample: {
-          version: "1.2.3",
-          sessions,
-          working: 0,
-          cpuPercent: null,
-          memoryUsed: 1,
-          memoryTotal: 2,
-        },
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      (service as any).attachPeer(socket, {
+        key: registration.id,
+        registrationId: registration.id,
+        approved: () => true,
+        allows: () => true,
       });
-    await vi.waitFor(async () =>
-      expect((await service.list())[0]?.health?.sessions).toBe(2)
-    );
+      await vi.waitFor(() => expect(recordHealth).toHaveBeenCalledOnce());
+      await vi.advanceTimersByTimeAsync(30000);
+      await vi.waitFor(async () =>
+        expect((await service.list())[0]?.health?.sessions).toBe(2)
+      );
+    } finally {
+      vi.useRealTimers();
+      socket.destroy();
+    }
     expect(recordHealth).toHaveBeenCalledOnce();
     socket.destroy();
   });

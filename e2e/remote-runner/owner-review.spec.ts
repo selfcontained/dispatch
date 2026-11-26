@@ -166,11 +166,11 @@ for (const placement of ["This Mac", "Linux runner"] as const) {
       seed(tmp, marker);
       const remote = placement === "Linux runner";
       let cwd = tmp;
+      let runner: string | undefined;
       if (remote) {
         const row = await runnerRow(request, "scratch");
-        const runnerId =
-          row?.id ?? (await enrollViaUi(page, request, "scratch"));
-        cwd = `runner://${runnerId}/@session`;
+        runner = row?.id ?? (await enrollViaUi(page, request, "scratch"));
+        cwd = "";
       }
       if (remote) projectId = await repositoryProject(request, "scratch", tmp);
       else {
@@ -188,6 +188,7 @@ for (const placement of ["This Mac", "Linux runner"] as const) {
           projectId,
           agentType: "claude",
           directory: cwd,
+          runner,
           useWorktree: false,
           prompt: "ready",
         },
@@ -495,15 +496,18 @@ for (const placement of ["This Mac", "Linux runner"] as const) {
       seed(tmp, randomUUID());
       seedDefaultBranch(tmp);
       const remote = placement === "Linux runner";
-      const cwd = remote
-        ? `runner://${(await runnerRow(request, "scratch"))?.id ?? (await enrollViaUi(page, request, "scratch"))}/@session`
-        : tmp;
+      const runner = remote
+        ? ((await runnerRow(request, "scratch"))?.id ??
+          (await enrollViaUi(page, request, "scratch")))
+        : undefined;
+      const cwd = remote ? "" : tmp;
       if (remote)
         projectId = await repositoryProject(request, "scratch", tmp, "trunk");
       const created = await request.post("/api/v1/agents", {
         headers: authHeaders(),
         data: {
           name: "Default-branch persona author",
+          runner,
           projectId,
           type: "claude",
           cwd,
@@ -607,6 +611,7 @@ test("identical runner paths yield separate tool catalogs", async ({
   request,
 }) => {
   const agents: string[] = [];
+  const projects: string[] = [];
   try {
     expect(state.runners.alpha.workspaceDir).toBe(
       state.runners.beta.workspaceDir
@@ -630,19 +635,28 @@ test("identical runner paths yield separate tool catalogs", async ({
         );
       };
       writeManifest(name);
+      const projectId = await repositoryProject(request, name);
+      projects.push(projectId);
       const res = await request.post("/api/v1/agents", {
         headers: authHeaders(),
         data: {
           name: `Catalog ${name}`,
           type: "claude",
           useWorktree: false,
-          cwd: `runner://${runner}/${state.workspace}`,
+          cwd: "",
+          runner,
+          projectId,
           initialPrompt: "ready",
         },
       });
       expect(res.ok(), await res.text()).toBe(true);
       const id = (await res.json()).agent.id as string;
       agents.push(id);
+      const moved = await request.patch("/api/v1/agents/" + id + "/workspace", {
+        headers: authHeaders(),
+        data: { path: directory },
+      });
+      expect(moved.ok(), await moved.text()).toBe(true);
       const listed = () => listTools(request, id);
       const matching = (description: string) =>
         expect.arrayContaining([
@@ -656,105 +670,11 @@ test("identical runner paths yield separate tool catalogs", async ({
     }
   } finally {
     for (const id of agents) await deleteAgentViaAPI(request, id);
+    for (const id of projects)
+      await request.delete("/api/v1/projects/" + id, {
+        headers: authHeaders(),
+      });
     for (const name of ["alpha", "beta"] as const)
       guest(name, `rm -rf ${state.runners[name].workspaceDir}/.git`);
-  }
-});
-
-test("task first turn sees the configured runner's existing unpublished branch", async ({
-  page,
-  request,
-}, testInfo) => {
-  const host = mkdtempSync(path.join(os.tmpdir(), "dispatch-task-host-"));
-  const headers = authHeaders();
-  const marker = randomUUID();
-  const branch = "guest-unpublished-" + marker;
-  const directory = state.runners.alpha.workspaceDir;
-  let projectId: string | undefined;
-  let templateId: string | undefined;
-  let authorId: string | undefined;
-  let seeded = false;
-  try {
-    execFileSync("git", ["init", "-b", "main", host]);
-    const runner =
-      (await runnerRow(request, "alpha"))?.id ??
-      (await enrollViaUi(page, request, "alpha"));
-    guest(
-      "alpha",
-      `cd "${directory}" && test ! -e .git && test ! -e review-marker.txt`
-    );
-    seeded = true;
-    execFileSync("docker", [
-      "exec",
-      "-u",
-      "1500:1500",
-      state.runners.alpha.container,
-      "sh",
-      "-c",
-      `cd "${directory}" &&
-        git init -b main &&
-        git add marker.txt &&
-        git -c user.name=Fixture -c user.email=fixture@localhost commit -m base &&
-        git switch -c "${branch}" &&
-        printf '%s' baseline > review-marker.txt &&
-        git add review-marker.txt &&
-        git -c user.name=Fixture -c user.email=fixture@localhost commit -m unpublished &&
-        printf '%s' "${marker}" > review-marker.txt`,
-    ]);
-    const project = await request.post("/api/v1/projects", {
-      headers,
-      data: {
-        name: "Configured runner task",
-        repoRoot: host,
-        color: "#7c6ee6",
-      },
-    });
-    expect(project.ok(), await project.text()).toBe(true);
-    projectId = (await project.json()).id;
-    const template = await request.post("/api/v1/templates", {
-      headers,
-      data: {
-        name: "Configured runner builder",
-        projectId,
-        agentType: "claude",
-        directory: `runner://${runner}/${state.workspace}`,
-        useWorktree: false,
-        prompt: "proof-launch-branch proof-reviewed-checkout",
-      },
-    });
-    expect(template.ok(), await template.text()).toBe(true);
-    templateId = (await template.json()).id;
-    const task = await request.post("/api/v1/tasks", {
-      headers,
-      data: { projectId, title: "Open the unpublished guest branch" },
-    });
-    expect(task.ok(), await task.text()).toBe(true);
-    const { id: taskId } = await task.json();
-    const launch = await request.post(`/api/v1/tasks/${taskId}/launch`, {
-      headers,
-      data: { templateId },
-    });
-    expect(launch.ok(), await launch.text()).toBe(true);
-    authorId = (await launch.json()).agent.id;
-    await page.goto(`/agents/${authorId}`, { waitUntil: "domcontentloaded" });
-    await expect(settledTurns(page)).toHaveCount(1, { timeout: 45_000 });
-    const firstTurn = settledTurns(page).first().getByTestId("harness-result");
-    await expect(firstTurn).toContainText("Launch branch " + branch);
-    await expect(firstTurn).toContainText("Checkout marker " + marker);
-    const screenshot = testInfo.outputPath("configured-first-turn.png");
-    await page.screenshot({ path: screenshot });
-    await testInfo.attach("Configured runner first turn", {
-      path: screenshot,
-      contentType: "image/png",
-    });
-  } finally {
-    if (authorId) await deleteAgentViaAPI(request, authorId, "keep");
-    if (templateId)
-      await request.delete(`/api/v1/templates/${templateId}`, { headers });
-    if (projectId)
-      await request.delete(`/api/v1/projects/${projectId}`, { headers });
-    if (seeded)
-      guest("alpha", `cd "${directory}" && rm -rf .git review-marker.txt`);
-    rmSync(host, { recursive: true, force: true });
   }
 });

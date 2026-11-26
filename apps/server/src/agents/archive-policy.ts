@@ -2,7 +2,6 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
 import {
-  remotePlacement,
   type CheckoutObservation,
   type CheckoutReleaseResult,
 } from "@dispatch/runner-protocol";
@@ -16,12 +15,9 @@ import {
   archiveObservation,
   archiveReleaseState,
   authorizesArchiveRelease,
-  parseRemoteArchiveObservation,
   rememberArchiveCheckoutState,
   type ArchiveCheckoutAgent,
 } from "./archive-checkout.js";
-import { enrolledArchiveCheckout } from "../runners/enrolled/checkout.js";
-import type { RemoteRunnerService } from "./remote/service.js";
 import type { WorktreeCleanupMode } from "./types.js";
 import type { ArchivePolicy, RunnerComposition } from "../runners/directory.js";
 
@@ -226,6 +222,7 @@ export async function localCoOwner(
        FROM agents
        WHERE deleted_at IS NULL
          AND id <> $1
+         AND runner_id = (SELECT runner_id FROM agents WHERE id = $1)
          AND (worktree_path = $2
               OR workspace_path = ANY($4::text[])
               OR cwd = ANY($4::text[])
@@ -245,6 +242,7 @@ export async function observedCoOwner(
 ) {
   const { rows } = await pool.query<{ id: string }>(
     `SELECT id FROM agents WHERE deleted_at IS NULL AND id <> $1
+      AND runner_id = (SELECT runner_id FROM agents WHERE id = $1)
       AND ((role = 'review' AND id = ANY($2::text[])) OR (cwd = $3 AND
         (worktree_path = $4 OR workspace_path = $4 OR worktree_branch = $5)))
       LIMIT 1`,
@@ -295,7 +293,9 @@ export function archiveExecutor(
     originalBranch: agent.worktreeBranch,
   };
   const executor: ArchiveExecutor = {
-    ready: stopped || !policy.awaitsStoppedHost,
+    ready:
+      !policy.awaitsStoppedHost ||
+      (stopped && runner.connection.state === "ready"),
     async observe(mode) {
       // Force needs no Git status or fetch to authorize removal.
       if (mode === "force" && policy.forceSkipsObserve)
@@ -333,39 +333,5 @@ export function archiveExecutor(
       (await runner.call("workspace.release", { session, ...decision }))
         .removed,
     observedCoOwner: (observation) => observedCoOwner(pool, agent, observation),
-  };
-}
-
-/**
- * The snapshot release on a runner that does not serve bound release
- * (`checkoutRelease`'s expected state), as before the archive seam.
- */
-export function runnerArchiveExecutor(
-  agent: ArchiveCheckoutAgent,
-  remote: RemoteRunnerService | undefined,
-  /** The guest host stopped; the runner refuses to release a live host. */
-  stopped: boolean,
-  policy: ArchivePolicy
-): ArchiveExecutor {
-  const placement = remotePlacement(agent.cwd);
-  const transport =
-    placement && remote
-      ? enrolledArchiveCheckout(remote, placement, agent.id)
-      : undefined;
-  return {
-    ready: Boolean(stopped && remote),
-    async observe(mode) {
-      if (!transport) throw new Error("Missing remote runner placement.");
-      const { value } = await transport.observe(
-        mode === "force" ? "ownership" : "changes"
-      );
-      return parseRemoteArchiveObservation(value);
-    },
-    borrowers: () => [],
-    async release(expectedState) {
-      if (!transport) throw new Error("Missing remote runner placement.");
-      return transport.release(expectedState);
-    },
-    onError: archiveFailure(policy),
   };
 }

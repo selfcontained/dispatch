@@ -10,7 +10,6 @@ import { BindingStore } from "../../../packages/runner/src/local/bindings.js";
 import { bindingFromRow } from "../src/runners/local-bindings.js";
 import { runnerDirectory } from "../src/runners/directory.js";
 import { controllerPlacement } from "../src/runners/placement.js";
-import { toPersonaDefinition } from "../src/personas/loader.js";
 import {
   ownedCheckoutFixture,
   ownerEvidence,
@@ -37,10 +36,8 @@ vi.mock(
     native.factory = actual.createCheckoutWorkload;
     return {
       ...actual,
-      createCheckoutWorkload: (
-        inputs: Parameters<typeof actual.createCheckoutWorkload>[0]
-      ) => {
-        const result = actual.createCheckoutWorkload(inputs);
+      createCheckoutWorkload: () => {
+        const result = actual.createCheckoutWorkload();
         native.workload = result;
         return result;
       },
@@ -52,9 +49,7 @@ let fixture: Awaited<ReturnType<typeof ownedCheckoutFixture>>,
   state: string;
 beforeAll(async () => {
   // The fixture gets an unwrapped instance; the spy below observes the adapter's.
-  fixture = await ownedCheckoutFixture(
-    native.factory!({ parseDefinition: toPersonaDefinition })
-  );
+  fixture = await ownedCheckoutFixture(native.factory!());
   state = path.join(fixture.root, "local");
   const store = new BindingStore(state);
   for (const row of fixture.rows) {

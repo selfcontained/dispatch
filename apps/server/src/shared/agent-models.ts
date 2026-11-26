@@ -1,5 +1,5 @@
 import {
-  checkoutReadPlacement,
+  controllerPlacement,
   runnerIdForPlacement,
 } from "../runners/placement.js";
 
@@ -389,11 +389,11 @@ export function onModelCatalogValidation(
 
 /** Launches establish an authoritative catalog; picker reads never wait. */
 export async function modelScopeFor(
-  target: string | null | undefined,
+  placement: typeof controllerPlacement | undefined,
   agentType: AgentType,
   request: ModelValidationRequest = {}
 ): Promise<ModelScope> {
-  const runnerId = runnerIdForPlacement(checkoutReadPlacement(target));
+  const runnerId = runnerIdForPlacement(placement ?? controllerPlacement);
   const ready = catalogValidation
     ? await catalogValidation(runnerId, agentType, request)
     : getLearnedAgentModels(agentType, runnerId) !== undefined;

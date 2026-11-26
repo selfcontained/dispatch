@@ -344,7 +344,6 @@ describe("shell environment protocol", () => {
         async () => {
           throw failure;
         },
-        () => null,
         { inspect: vi.fn(), complete: vi.fn(), remoteHeads: vi.fn() }
       )
     ).rejects.toBe(failure);

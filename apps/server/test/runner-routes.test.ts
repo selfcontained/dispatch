@@ -160,7 +160,6 @@ describe("runner control API", () => {
           automaticUpdates: true,
           engineManagement: false,
           githubManagement: false,
-          workspaces: [],
         },
       ],
     });

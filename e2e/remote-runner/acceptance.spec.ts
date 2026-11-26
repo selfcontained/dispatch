@@ -11,7 +11,7 @@ import {
   guest,
   guestDiagnostics,
   guestOk,
-  invocations,
+  invocations as countInvocations,
   lane,
   launchViaApi,
   launchViaUi,
@@ -27,14 +27,17 @@ import {
   type RunnerName,
 } from "./harness";
 
-// One serial fleet: a local agent plus two Docker runners that both expose a
-// workspace named "proof" at the same absolute path. Markers differ, so any output or
-// file landing on the wrong side is visible.
+// Each runner clones its own marked repository. A file or answer from the wrong machine is visible.
 test.describe.configure({ mode: "serial" });
-const WS = state.workspace;
 const runnerIds: Partial<Record<RunnerName, string>> = {};
-// Placement is keyed by the opaque registration id, never the display name.
-const loc = (r: RunnerName) => `runner://${runnerIds[r]}/${WS}`;
+const projectIds: Partial<Record<RunnerName, string>> = {};
+const directories: Partial<Record<RunnerName, string>> = {};
+const target = (name: RunnerName) => ({
+  runner: runnerIds[name]!,
+  projectId: projectIds[name]!,
+});
+const invocations = (name: RunnerName) =>
+  countInvocations(name, directories[name]!);
 const agents: Record<"local" | RunnerName, string> = {
   local: "",
   alpha: "",
@@ -48,8 +51,6 @@ test.beforeAll(() => {
 });
 test.afterAll(async ({ request }) => {
   await cleanupE2EAgents(request);
-  for (const name of ["alpha", "beta"] as const)
-    guest(name, `rm -rf ${state.runners[name].workspaceDir}/.git`);
   for (const id of projects)
     await request.delete(`/api/v1/projects/${id}`, { headers: authHeaders() });
   await Promise.all(
@@ -70,7 +71,7 @@ test.afterEach(async ({}, testInfo) => {
 const text = (p: Page) => p.locator("body");
 const answers = (p: Page, s: string) => p.getByText(s, { exact: false });
 
-test("enroll two runners with identical workspace names", async ({
+test("enroll two runners with distinct registrations", async ({
   page,
   request,
 }) => {
@@ -80,7 +81,6 @@ test("enroll two runners with identical workspace names", async ({
   for (const n of ["alpha", "beta"]) {
     const row = rows.find((r) => r.name === n)!;
     expect(row.status).toBe("online");
-    expect(row.workspaces).toContain(WS);
   }
   expect(state.runners.alpha.workspaceDir).toBe(
     state.runners.beta.workspaceDir
@@ -88,26 +88,24 @@ test("enroll two runners with identical workspace names", async ({
   expect(marker("alpha")).not.toBe(marker("beta"));
 });
 
-// The legacy configured-workspace and scratch fixtures exercise explicit
-// runner locators through the API. Project-based UI launch is covered by the
-// GitHub account fixture.
-async function launchLegacyFixture(
+async function launchProjectFixture(
   page: Page,
   opts: {
     name: string;
-    cwd: string;
+    runner: string;
     prompt: string;
     restricted?: boolean;
     projectId?: string;
   }
 ) {
-  const { name, cwd, prompt, restricted } = opts;
+  const { name, runner, prompt, restricted } = opts;
   const response = await page.request.post("/api/v1/agents", {
     headers: authHeaders(),
     data: {
       name,
       projectId: opts.projectId,
-      cwd,
+      runner,
+      cwd: "",
       type: "claude",
       fullAccess: !restricted,
       useWorktree: false,
@@ -125,12 +123,6 @@ test("local and runner fixture launches answer from their own side", async ({
   baseURL,
   browser,
 }, testInfo) => {
-  // Repo tools follow main: their manifest is discovered from a Git root.
-  for (const name of ["alpha", "beta"] as const)
-    guest(
-      name,
-      `git -C ${state.runners[name].workspaceDir} init -b main && chown -R 1500:1500 ${state.runners[name].workspaceDir}/.git`
-    );
   for (const [key, prompt] of [
     ["local", "local-start"],
     ["alpha", "prove-marker proof-count"],
@@ -138,6 +130,16 @@ test("local and runner fixture launches answer from their own side", async ({
   ] as const) {
     const page = await (await browser.newContext({ baseURL })).newPage();
     pages[key] = page;
+    if (key !== "local") {
+      projectIds[key] = await repositoryProject(
+        page.request,
+        key,
+        undefined,
+        "main",
+        true
+      );
+      projects.push(projectIds[key]!);
+    }
     const { status, id } =
       key === "local"
         ? await launchViaUi(page, {
@@ -145,16 +147,23 @@ test("local and runner fixture launches answer from their own side", async ({
             cwd: "/tmp",
             prompt,
           })
-        : await launchLegacyFixture(page, {
+        : await launchProjectFixture(page, {
             name: `e2e-rr-${key}`,
-            cwd: loc(key),
+            ...target(key),
             prompt,
             restricted: true,
           });
     expect(status).toBe(201);
     agents[key] = id!;
-    if (key !== "local")
-      expect((await agentInfo(page.request, id!)).cwd).toBe(loc(key));
+    if (key !== "local") {
+      const expected = `/var/lib/runner/sessions/${id}/checkout`;
+      await expect
+        .poll(async () => (await agentInfo(page.request, id!)).cwd, {
+          timeout: 45000,
+        })
+        .toBe(expected);
+      directories[key] = expected;
+    }
     await expect(page).toHaveURL((u) => u.pathname === `/agents/${id}`, {
       timeout: 15_000,
     });
@@ -172,13 +181,11 @@ test("local and runner fixture launches answer from their own side", async ({
     await expect(answers(pages[r]!, "Approved repo operation:")).toBeVisible({
       timeout: 15_000,
     });
-    expect(guestOk(r, `test -f ${state.runners[r].workspaceDir}/repo-op`)).toBe(
-      true
-    );
+    expect(guestOk(r, `test -f ${directories[r]}/repo-op`)).toBe(true);
     expect(
       guestOk(
         other,
-        `test -f ${state.runners[other].workspaceDir}/provider-invocations && test "$(wc -l < ${state.runners[other].workspaceDir}/provider-invocations)" -gt 1`
+        `test -f ${directories[other]}/provider-invocations && test "$(wc -l < ${directories[other]}/provider-invocations)" -gt 1`
       )
     ).toBe(false);
   }
@@ -225,18 +232,12 @@ test("permission decisions stay on their runner across a disconnect", async ({
   // Alpha's approval wrote only alpha's file; beta is still waiting.
   await expect
     .poll(() =>
-      guestOk(
-        "alpha",
-        `test -f ${state.runners.alpha.workspaceDir}/protected-action`
-      )
+      guestOk("alpha", `test -f ${directories.alpha}/protected-action`)
     )
     .toBe(true);
-  expect(
-    guestOk(
-      "beta",
-      `test -f ${state.runners.beta.workspaceDir}/protected-action`
-    )
-  ).toBe(false);
+  expect(guestOk("beta", `test -f ${directories.beta}/protected-action`)).toBe(
+    false
+  );
   await lane("beta", "allow");
   await expect.poll(betaPermissions, { timeout: 60_000 }).toMatchObject({
     connected: true,
@@ -252,12 +253,9 @@ test("permission decisions stay on their runner across a disconnect", async ({
     answers(pages.beta!, "Guest permission answered.").last()
   ).toBeVisible({ timeout: 30_000 });
   expect(invocations("beta")).toBe(betaBefore + 1);
-  expect(
-    guestOk(
-      "beta",
-      `test -f ${state.runners.beta.workspaceDir}/protected-action`
-    )
-  ).toBe(false);
+  expect(guestOk("beta", `test -f ${directories.beta}/protected-action`)).toBe(
+    false
+  );
 });
 
 test("runner supervisor restarts mid-turn and reattaches to the original host", async ({
@@ -370,7 +368,7 @@ test("revoke alpha: it cannot return, beta and local are unaffected", async ({
   await expect
     .poll(async () => (await agentInfo(request, agents.alpha)).status)
     .toBe("error");
-  expect(await launchViaApi(request, loc("alpha"))).toBe(409);
+  expect(await launchViaApi(request, target("alpha"))).toBe(409);
   expect(invocations("alpha")).toBe(alphaInvocations);
   await testInfo.attach("alpha revoked", {
     body: await page.getByTestId("runner-settings").screenshot(),
@@ -389,7 +387,7 @@ test("revoke alpha: it cannot return, beta and local are unaffected", async ({
     "after-revoke-local",
   ]);
   expect((await runnerRow(request, "beta"))?.status).toBe("online");
-  expect((await agentInfo(request, agents.beta)).cwd).toBe(loc("beta"));
+  expect((await agentInfo(request, agents.beta)).cwd).toBe(directories.beta);
 });
 
 // ---------------------------------------------------------------- failures
@@ -430,16 +428,14 @@ test.describe("failure suite", () => {
     ).toHaveLength(1);
   });
 
-  test("unknown runner and workspace are refused; revoked runner is not selectable", async ({
+  test("unknown and revoked runners are refused at launch", async ({
     page,
     request,
   }) => {
-    for (const cwd of [
-      "runner://nobody/proof",
-      `runner://${runnerIds.beta}/not-a-workspace`,
-      loc("alpha"),
-    ])
-      expect(await launchViaApi(request, cwd), cwd).toBeGreaterThanOrEqual(400);
+    for (const runner of ["nobody", runnerIds.alpha!])
+      expect(
+        await launchViaApi(request, { runner, projectId: projectIds.beta! })
+      ).toBeGreaterThanOrEqual(400);
     expect(await runnerOptionEnabled(page, runnerIds.alpha!)).toBe(false);
     expect(await runnerOptionEnabled(page, runnerIds.beta!)).toBe(true);
   });
@@ -482,7 +478,7 @@ test.describe("failure suite", () => {
         timeout: 30_000,
       })
       .toBe("offline");
-    expect(await launchViaApi(request, loc("beta"))).toBeGreaterThanOrEqual(
+    expect(await launchViaApi(request, target("beta"))).toBeGreaterThanOrEqual(
       400
     );
     expect(await runnerOptionEnabled(page, runnerIds.beta!)).toBe(false);
@@ -504,22 +500,19 @@ test("managed scratch checkout selection persists across host start and preserve
   request,
 }, testInfo) => {
   const runnerId = await enrollViaUi(page, request, "scratch");
-  expect((await runnerRow(request, "scratch"))?.workspaces).toEqual([
-    "@session",
-  ]);
   const projectId = await repositoryProject(request, "scratch");
   projects.push(projectId);
-  const { status, id } = await launchLegacyFixture(page, {
+  const { status, id } = await launchProjectFixture(page, {
     projectId,
     name: "e2e-rr-managed-scratch",
-    cwd: `runner://${runnerId}/@session`,
+    runner: runnerId,
     prompt: "proof-count scratch-start",
   });
   expect(status).toBe(201);
   expect(id).toMatch(/^agt_[a-z0-9]+$/);
-  expect((await agentInfo(request, id!)).cwd).toBe(
-    `runner://${runnerId}/@session`
-  );
+  await expect
+    .poll(async () => (await agentInfo(request, id!)).cwd, { timeout: 45000 })
+    .toBe(`/var/lib/runner/sessions/${id}/checkout`);
   await expect(page).toHaveURL((url) => url.pathname === `/agents/${id}`);
   await expect(settledTurns(page)).toHaveCount(1, { timeout: 45_000 });
   await expect(
@@ -580,15 +573,14 @@ test("managed scratch checkout selection persists across host start and preserve
       headers: authHeaders(),
       data: { path },
     });
-  const foreign = await updateWorkspace("runner://another-runner/@session");
-  expect(foreign.status()).toBe(400);
   const changed = await updateWorkspace(`${selected}/src`);
   expect(changed.ok(), await changed.text()).toBe(true);
   expect((await changed.json()).agent).toMatchObject({
-    cwd: `runner://${runnerId}/@session`,
+    cwd: `/var/lib/runner/sessions/${id}/checkout`,
     workspacePath: selected,
   });
-  for (const workspace of [`runner://${runnerId}/@session`, selected]) {
+  {
+    const workspace = selected;
     const files = await request.get(workspaceRoute, {
       headers: authHeaders(),
       params: { workspace, path: "" },

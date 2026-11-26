@@ -53,11 +53,12 @@ it("uses the enrolled runner carrier without a session", async () => {
     repositoryRoot: null,
     checkoutRoot: null,
   }));
-  const service = { readRepositoryRoots } as unknown as RemoteRunnerService;
+  const service = {
+    call: readRepositoryRoots,
+  } as unknown as RemoteRunnerService;
   const runner = createEnrolledCheckoutRunner(
     service,
     "test-runner",
-    null,
     undefined,
     () => ({}) as never
   );
@@ -69,15 +70,20 @@ it("uses the enrolled runner carrier without a session", async () => {
     repositoryRoot: null,
     checkoutRoot: null,
   });
-  expect(readRepositoryRoots).toHaveBeenCalledExactlyOnceWith("test-runner", {
-    target: { path: pathFromWire("/runner/path") },
-  });
+  expect(readRepositoryRoots).toHaveBeenCalledExactlyOnceWith(
+    "test-runner",
+    "git.roots",
+    {
+      target: { path: pathFromWire("/runner/path") },
+    },
+    undefined,
+    undefined
+  );
 });
 it("does not fall back when the enrolled runner is unavailable", async () => {
   const runner = createEnrolledCheckoutRunner(
     undefined,
     "test-runner",
-    null,
     undefined,
     () => ({}) as never
   );
@@ -169,24 +175,20 @@ it.each(["unavailable", "unknown_outcome"] as const)(
 it("manager roots use git.roots for an enrolled session and retain reply bytes", async () => {
   const { AgentManager } = await import("../src/agents/manager.js");
   const { placementForRunner } = await import("../src/runners/placement.js");
-  const requestSession = vi.fn(async () => ({
-    value: JSON.stringify({
-      data: {
-        checkoutRoot: "/runner/worktree",
-        repositoryRoot: "/runner/repo",
-      },
-    }),
+  const call = vi.fn(async () => ({
+    checkoutRoot: "/runner/worktree",
+    repositoryRoot: "/runner/repo",
   }));
   const result = await AgentManager.prototype.inspectCheckout.call(
     {
       checkoutReadRunners: () => ({
         local: undefined,
-        remote: { requestSession, supportsGitQueries: () => true },
+        remote: { call },
       }),
     } as never,
     {
       id: "roots-agent",
-      cwd: "runner://enrolled/session-workspace",
+      cwd: "/runner/worktree",
       placement: placementForRunner("enrolled"),
       worktreePath: null,
       workspacePath: null,
@@ -196,16 +198,10 @@ it("manager roots use git.roots for an enrolled session and retain reply bytes",
   expect(JSON.stringify(result)).toBe(
     '{"kind":"roots","checkoutRoot":"/runner/worktree","repositoryRoot":"/runner/repo"}'
   );
-  expect(requestSession).toHaveBeenCalledExactlyOnceWith(
-    { runner: "enrolled", workspace: "session-workspace" },
-    {
-      agentId: "roots-agent",
-      kind: "gitQuery",
-      operation: {
-        op: "git.roots",
-        request: { target: { session: "roots-agent", checkout: "current" } },
-      },
-    },
+  expect(call).toHaveBeenCalledExactlyOnceWith(
+    "enrolled",
+    "git.roots",
+    { target: { session: "roots-agent", checkout: "current" } },
     undefined,
     undefined
   );
@@ -238,11 +234,12 @@ it("forwards checkoutOnly through the enrolled root-query carrier", async () => 
     repositoryRoot: null,
     checkoutRoot: "/work",
   }));
-  const service = { readRepositoryRoots } as unknown as RemoteRunnerService;
+  const service = {
+    call: readRepositoryRoots,
+  } as unknown as RemoteRunnerService;
   const runner = createEnrolledCheckoutRunner(
     service,
     "test-runner",
-    null,
     undefined,
     () => ({}) as never
   );
@@ -256,6 +253,9 @@ it("forwards checkoutOnly through the enrolled root-query carrier", async () => 
   });
   expect(readRepositoryRoots).toHaveBeenCalledExactlyOnceWith(
     "test-runner",
-    request
+    "git.roots",
+    request,
+    undefined,
+    undefined
   );
 });

@@ -54,7 +54,7 @@ vi.mock("node:child_process", async (original) =>
   disk.record(await original())
 );
 
-const HOME = "runner://rnr_test/@session";
+const HOME = "/srv/checkout";
 const tools = [
   "create_job",
   "update_job",
@@ -128,12 +128,22 @@ async function argsFor(tool: string, stored: string) {
     `INSERT INTO templates (id, name, directory, prompt) VALUES ($1, $2, $3, 'work')`,
     [id, name, stored]
   );
+  if (stored === HOME)
+    await pool.query(
+      "UPDATE templates SET directory='', location=$2 WHERE id=$1",
+      [id, { runner: "rnr_test", projectId }]
+    );
   if (tool === "update_template") return { templateId: id };
   const jobId = randomUUID();
   await pool.query(
     `INSERT INTO jobs (id, name, directory, prompt, template_id) VALUES ($1, $2, $3, 'work', $4)`,
     [jobId, name, stored, id]
   );
+  if (stored === HOME)
+    await pool.query("UPDATE jobs SET directory='', location=$2 WHERE id=$1", [
+      jobId,
+      { runner: "rnr_test", projectId },
+    ]);
   return { jobId };
 }
 
@@ -245,7 +255,7 @@ describe.each(routes)("a runner agent on the %s route", (route) => {
       );
       expect(disk.calls.filter((entry) => entry.includes(root))).toEqual([]);
       expect(await saved(tool, args)).toEqual({
-        directory: HOME,
+        directory: "",
         persona: "runner-builder",
       });
     }
@@ -303,7 +313,7 @@ it.each(["job", "template"])(
       [name]
     );
     expect(saved).toMatchObject({
-      directory: HOME,
+      directory: "",
       location: { runner: "rnr_test", projectId },
     });
     createAgent.mockRejectedValueOnce(new Error("launch captured"));
@@ -313,7 +323,8 @@ it.each(["job", "template"])(
         : templateService.launchTemplate({ templateId: saved.id });
     await expect(launch).rejects.toThrow("launch captured");
     expect(createAgent.mock.lastCall?.[0]).toMatchObject({
-      cwd: HOME,
+      cwd: "",
+      placement: placementForRunner("rnr_test"),
       projectId,
       repository: expect.any(Object),
     });
@@ -333,10 +344,7 @@ it.each(["job", "template"])(
         prompt: "Work.",
       });
       expect(reply.error, reply.text).toBe(false);
-      const directory =
-        runner === "local"
-          ? path.join(root, "project")
-          : "runner://offline-runner/@session";
+      const directory = runner === "local" ? path.join(root, "project") : "";
       expect(
         (
           await pool.query(

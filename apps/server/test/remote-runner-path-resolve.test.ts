@@ -1,3 +1,4 @@
+import { rootCertificates } from "node:tls";
 import { streamHelper } from "./helpers/stream-helper.js";
 import { embeddedBuild } from "../src/agents/build-identity.js";
 import { gitSha, packageVersion } from "../src/generated/runtime-assets.js";
@@ -99,12 +100,11 @@ vi.mock(
         return Object.assign(supervisor, {
           async withCommandCheckout<T>(
             _agentId: string,
-            _workspace: string,
             _checkout: string,
-            _configured: string | undefined,
             _signal: AbortSignal,
             run: (cwd: string) => Promise<T>
           ) {
+            if (_agentId !== "fixture") return null;
             bound.calls += 1;
             return run(bound.cwd);
           },
@@ -149,7 +149,7 @@ beforeEach(async () => {
   root = await mkdtemp(path.join(os.tmpdir(), "dispatch-runner-path-"));
   config = path.join(root, "runner.json");
   const key = path.join(root, "key");
-  await writeFile(key, "unused test credential", { mode: 0o600 });
+  await writeFile(key, rootCertificates[0]!, { mode: 0o600 });
   await writeFile(
     config,
     JSON.stringify({
@@ -163,7 +163,6 @@ beforeEach(async () => {
       home: root,
       path: "/usr/bin:/bin",
       bins: {},
-      workspaces: {},
     })
   );
   reportIdentity.mockImplementation((_command, _args, _options, callback) =>
@@ -192,20 +191,8 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-const resolve = (id: string, request: object, op = "path.resolve") =>
-  Buffer.from(
-    JSON.stringify({
-      type: "request",
-      id,
-      command: {
-        kind: "pathResolve",
-        agentId: "@path",
-        workspace: "@session",
-        operation: { op, request },
-      },
-    }) + "\n"
-  );
-
+const resolve = (id: number, input: object, op = "path.resolve") =>
+  Buffer.from(JSON.stringify({ id, op, input }) + "\n");
 it("resolves a folder as the workload, never as the supervisor", async () => {
   const socket = Object.assign(new EventEmitter(), {
     write: vi.fn(),
@@ -233,22 +220,14 @@ it("resolves a folder as the workload, never as the supervisor", async () => {
   try {
     await vi.waitFor(() => expect(dial).toHaveBeenCalledTimes(1));
     socket.emit("secureConnect");
-    await vi.waitFor(() =>
-      expect(
-        socket.write.mock.calls.some(([line]) =>
-          String(line).includes('"pathResolve":true')
-        )
-      ).toBe(true)
-    );
 
     const request = { path: "~/src/../app", projectRoot: true };
-    socket.emit("data", resolve("folder", request));
+    socket.emit("data", resolve(1, request));
     await vi.waitFor(() =>
       expect(
         socket.write.mock.calls.some(
           ([line]) =>
-            String(line).includes('"id":"folder"') &&
-            String(line).includes("/srv/app")
+            String(line).includes('"id":1') && String(line).includes("/srv/app")
         )
       ).toBe(true)
     );
@@ -277,11 +256,11 @@ it("resolves a folder as the workload, never as the supervisor", async () => {
       ["path.complete", { prefix: "~/s", limit: 20 }],
       ["git.remoteHeads", { path: "~/src" }],
     ] as const) {
-      socket.emit("data", resolve(op, query, op));
+      socket.emit("data", resolve(op === "path.complete" ? 2 : 3, query, op));
       await vi.waitFor(() =>
         expect(
           socket.write.mock.calls.some(([line]) =>
-            String(line).includes(`"id":"${op}"`)
+            String(line).includes(`"id":${op === "path.complete" ? 2 : 3}`)
           )
         ).toBe(true)
       );

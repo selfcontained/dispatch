@@ -4,10 +4,6 @@ import type { CheckoutState } from "./checkout.js";
 import type { CheckoutReadName } from "./checkout-reads.js";
 import type { GitQueryName } from "./execution.js";
 import type { EngineBins } from "./host.js";
-import type {
-  EngineCapabilityOperation,
-  EngineCapabilityResult,
-} from "./engine-management.js";
 
 export type InProcessEngines = {
   models(request: Req<"engine.models">): Promise<Res<"engine.models">>;
@@ -117,14 +113,5 @@ export interface InProcessPorts<Bytes extends Uint8Array> {
     get(source: string): Promise<Bytes>;
   };
   localEnginePort(bins?: EngineBins): InProcessEngines;
-  readCommandGuard(
-    directory: string,
-    selector: Selector,
-    file: string
-  ): Promise<{ root: string; content: string | null; digest: string }>;
   hostCommand(): string[];
-  parseEngineCapabilityResult(
-    operation: EngineCapabilityOperation,
-    value: unknown
-  ): EngineCapabilityResult | null;
 }

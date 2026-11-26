@@ -44,7 +44,7 @@ const runner = (
   id: "rnr/one",
   name: "Build machine",
   status,
-  workspaces: [],
+
   update,
   healthReceivedAt: "2026-01-15T08:42:17.123Z",
   health: {

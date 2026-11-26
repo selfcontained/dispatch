@@ -1,8 +1,4 @@
-import {
-  DefaultBranchFiles,
-  type DefinitionParser,
-  CATALOG_LIMIT_WARNING,
-} from "./default-branch-files.js";
+import { DefaultBranchFiles } from "./default-branch-files.js";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -473,13 +469,22 @@ export async function observeGitCheckout(
 
 function encodeReply(reply: CheckoutReply): string {
   if (reply.kind === "defaultBranchFiles") {
-    const files = reply.files.filter(
-      ({ path, content }) =>
-        path.length <= 4096 &&
-        !path.includes("\\") &&
-        Buffer.byteLength(content) <= 256 * 1024
-    );
-    reply = { ...reply, files };
+    const files: typeof reply.files = [];
+    const offsets = [0];
+    for (const file of reply.files) {
+      if (
+        file.path.length <= 4096 &&
+        !file.path.includes("\\") &&
+        Buffer.byteLength(file.content) <= 256 * 1024
+      )
+        files.push(file);
+      offsets.push(files.length);
+    }
+    const diagnostics = (reply.diagnostics ?? []).map((item) => ({
+      ...item,
+      fileIndex: offsets[item.fileIndex]!,
+    }));
+    reply = { ...reply, files, diagnostics };
     const encoded = JSON.stringify(reply) + "\n";
     if (Buffer.byteLength(encoded) <= MAX_REPLY_BYTES) return encoded;
 
@@ -487,9 +492,9 @@ function encodeReply(reply: CheckoutReply): string {
       ...reply,
       files: [] as typeof reply.files,
       truncated: true,
-      warnings: reply.warnings.includes(CATALOG_LIMIT_WARNING)
-        ? reply.warnings
-        : [...reply.warnings, CATALOG_LIMIT_WARNING],
+      diagnostics: diagnostics.some((item) => item.code === "limit")
+        ? diagnostics
+        : [...diagnostics, { code: "limit" as const, fileIndex: files.length }],
     };
     let bytes = Buffer.byteLength(JSON.stringify(limited) + "\n");
     for (const file of reply.files) {
@@ -499,6 +504,8 @@ function encodeReply(reply: CheckoutReply): string {
       if (bytes > MAX_REPLY_BYTES) break;
       limited.files.push(file);
     }
+    for (const item of limited.diagnostics)
+      item.fileIndex = Math.min(item.fileIndex, limited.files.length);
     reply = limited;
   }
   const encoded = JSON.stringify(reply) + "\n";
@@ -548,29 +555,14 @@ async function effectiveCommandRoot(cwd: string) {
 export async function readCheckoutCommandFile(
   cwd: string,
   file: string,
-  {
-    configuredRoot,
-    exact = false,
-  }: { configuredRoot?: string; exact?: boolean } = {}
+  { exact = false }: { exact?: boolean } = {}
 ) {
   const root = exact ? await realpath(cwd) : await effectiveCommandRoot(cwd);
-  if (configuredRoot) {
-    const relative = path.relative(configuredRoot, root);
-    if (
-      relative === ".." ||
-      relative.startsWith(".." + path.sep) ||
-      path.isAbsolute(relative)
-    )
-      throw new Error(
-        "Repository root is outside the configured runner checkout."
-      );
-  }
   const content = await readWorktreeFile(root, validateFilePath(file));
   return { root, content };
 }
 
 export type InspectCheckoutOptions = {
-  parseDefinition?: DefinitionParser;
   /**
    * Consult the base a runner recorded in Git config when the service sent
    * none. Runner checkouts keep it for older services and rows; the native
@@ -581,37 +573,17 @@ export type InspectCheckoutOptions = {
   unresolvedBase?: string;
 };
 
-export function inspectCheckout(
-  cwd: string,
-  query: Extract<CheckoutQuery, { kind: "defaultBranchFiles" }>,
-  options: InspectCheckoutOptions & { parseDefinition: DefinitionParser }
-): Promise<CheckoutReply>;
-export function inspectCheckout(
-  cwd: string,
-  query: Exclude<CheckoutQuery, { kind: "defaultBranchFiles" }>,
-  options?: InspectCheckoutOptions
-): Promise<CheckoutReply>;
-export function inspectCheckout(
-  cwd: string,
-  query: CheckoutQuery,
-  options: InspectCheckoutOptions & { parseDefinition: DefinitionParser }
-): Promise<CheckoutReply>;
 export async function inspectCheckout(
   cwd: string,
   query: CheckoutQuery,
-  {
-    recordedBase = true,
-    unresolvedBase,
-    parseDefinition,
-  }: InspectCheckoutOptions = {}
+  { recordedBase = true, unresolvedBase }: InspectCheckoutOptions = {}
 ): Promise<CheckoutReply> {
   const validated = parseQuery(query);
   if (validated.kind === "defaultBranchFiles") {
     const reply = await defaultBranchFiles.get(
       cwd,
       validated.directories,
-      validated.waitForRefresh,
-      parseDefinition!
+      validated.waitForRefresh
     );
     return reply;
   }
@@ -674,10 +646,7 @@ export async function inspectCheckout(
   return reply;
 }
 
-export async function runCheckoutInspectionCli(
-  cwd: string,
-  parseDefinition: DefinitionParser
-): Promise<void> {
+export async function runCheckoutInspectionCli(cwd: string): Promise<void> {
   try {
     const chunks: Buffer[] = [];
     let size = 0;
@@ -690,7 +659,7 @@ export async function runCheckoutInspectionCli(
     }
     const input: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
     const query = parseQuery(input);
-    const reply = await inspectCheckout(cwd, query, { parseDefinition });
+    const reply = await inspectCheckout(cwd, query);
     await new Promise<void>((resolve, reject) => {
       process.stdout.write(encodeReply(reply), (error) =>
         error ? reject(error) : resolve()

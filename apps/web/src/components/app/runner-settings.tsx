@@ -411,11 +411,6 @@ function RunnerDetail({
       <div className="space-y-2 py-4">
         <RunnerUpdateStatus runner={runner} />
         <RunnerHealthDetails runner={runner} />
-        {runner.workspaces.length > 0 && !runner.managedWorkspace && (
-          <p className="break-words text-body-sm text-muted-foreground">
-            Folders: {runner.workspaces.join(", ")}
-          </p>
-        )}
       </div>
     </div>
   );

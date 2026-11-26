@@ -18,7 +18,6 @@ import {
   type EngineInventoryEntry,
   type EngineOperation,
   type EngineOperationAck,
-  type EngineOperationEvent,
   type EngineScope,
 } from "@dispatch/runner-protocol/engine-management";
 
@@ -36,33 +35,6 @@ import type { EngineCalls } from "../../runners/local.js";
  */
 
 export type { EngineScope };
-
-/** What a runner's connection exposes for engine management; supplied by the caller. */
-export interface RunnerEngineTransport {
-  /**
-   * Send one operation to the named runner. `onEvent` receives any
-   * progress frames the runner streams before its ack. Reject (or resolve
-   * `{ ok: false, unsupported: true }`) for an offline runner or one that
-   * predates engine management.
-   */
-  send(
-    runnerId: string,
-    operation: EngineOperation,
-    onEvent?: (event: EngineOperationEvent) => void
-  ): Promise<EngineOperationAck>;
-  /**
-   * The runner's last pushed inventory snapshot, if any — a cheap read
-   * that skips a wire round trip. `inventory()` falls back to `send` with
-   * a `"status"` operation when this is absent (not yet pushed, or the
-   * transport doesn't track a cache).
-   */
-  cachedInventory?(runnerId: string): EngineInventoryEntry[] | undefined;
-  /**
-   * The last inventory from any connection: what to show while the runner
-   * can't be read, as during its update.
-   */
-  lastKnownInventory?(runnerId: string): EngineInventoryEntry[] | undefined;
-}
 
 export type LocalEngineDeps = {
   /** The local runner's engine inventory and sign-in. */
@@ -90,9 +62,8 @@ export class EngineManager {
     private readonly deps: {
       onSignedIn?: (scope: EngineScope, engine: RunnerEngine) => void;
       local: LocalEngineDeps;
-      remote: RunnerEngineTransport;
       engineActions: {
-        calls(scope: EngineScope): EngineCalls;
+        calls(scope: EngineScope, liveInventory?: boolean): EngineCalls;
         models(
           scope: EngineScope,
           engine: RunnerEngine,
@@ -130,8 +101,7 @@ export class EngineManager {
 
   async rpc(
     scope: EngineScope,
-    operation: EngineOperation,
-    onEvent?: (event: EngineOperationEvent) => void
+    operation: EngineOperation
   ): Promise<EngineOperationAck> {
     if (operation.type === "model_catalog") {
       const catalog = this.deps.engineActions.models(
@@ -194,11 +164,7 @@ export class EngineManager {
         };
       }
     }
-    if (
-      operation.type === "plugin_status" ||
-      operation.type === "plugin_install" ||
-      operation.type === "plugin_update"
-    ) {
+    if ("plugin" in operation) {
       const checker = runnerPluginChecker(
         this.deps.engineActions.calls(scope),
         operation.plugin
@@ -244,10 +210,24 @@ export class EngineManager {
         };
       }
     }
-    const ack =
-      scope.kind === "local"
-        ? await this.localRpc(operation)
-        : await this.deps.remote.send(scope.runnerId, operation, onEvent);
+    if (operation.type === "status") {
+      if (scope.kind === "runner") {
+        try {
+          await this.deps.engineActions
+            .calls(scope, true)
+            .call("engine.list", { refresh: true });
+        } catch (error) {
+          if (!(error instanceof RunnerCallError)) throw error;
+          return {
+            ok: false,
+            error: error.message,
+            ...(error.code === "unsupported" && { unsupported: true }),
+          };
+        }
+      }
+      return { ok: true };
+    }
+    const ack = await this.sessionLogin(scope, operation);
     this.observeSignIn(scope, ack);
     if (scope.kind === "runner" && operation.type === "login_start")
       this.track(scope, ack.ok ? ack.login : undefined);
@@ -258,7 +238,6 @@ export class EngineManager {
     // before the operation ran.
     if (
       !isEngineCapabilityOperation(operation) &&
-      operation.type !== "status" &&
       operation.type !== "login_status"
     ) {
       const entries = await this.readInventory(scope, true).catch(() => null);
@@ -275,10 +254,7 @@ export class EngineManager {
     scope: EngineScope,
     operation: Extract<EngineOperation, { type: `login_${string}` }>
   ): Promise<EngineOperationAck> {
-    const ack =
-      scope.kind === "local"
-        ? await this.localLogin(operation)
-        : await this.deps.remote.send(scope.runnerId, operation);
+    const ack = await this.sessionLogin(scope, operation);
     this.observeSignIn(scope, ack);
     if (operation.type === "login_start")
       this.track(scope, ack.ok ? ack.login : undefined);
@@ -386,12 +362,12 @@ export class EngineManager {
       : (result.entries as EngineInventoryEntry[]);
   }
 
-  /** A local sign-in operation through the local runner, as a wire v1 ack. */
-  private async localLogin(
+  /** Project the runner’s sign-in result into the engine-management HTTP response. */
+  private async sessionLogin(
+    scope: EngineScope,
     operation: Extract<EngineOperation, { type: `login_${string}` }>
   ): Promise<EngineOperationAck> {
-    const { engines } = this.deps.local;
-    const local: EngineScope = { kind: "local" };
+    const engines = this.deps.engineActions.calls(scope);
     try {
       let login: unknown;
       switch (operation.type) {
@@ -405,9 +381,9 @@ export class EngineManager {
             },
             // Known by ID from the moment it exists, so a page asking for
             // the current login sees it while its link is on the way.
-            { onEvent: (event) => this.track(local, event.login) }
+            { onEvent: (event) => this.track(scope, event.login) }
           );
-          this.track(local, login as EngineLogin);
+          this.track(scope, login as EngineLogin);
           break;
         case "login_submit":
           login = await engines.call("engine.login.submit", {
@@ -432,20 +408,5 @@ export class EngineManager {
         return { ok: false, error: error.message };
       throw error;
     }
-  }
-
-  private async localRpc(
-    operation: EngineOperation
-  ): Promise<EngineOperationAck> {
-    switch (operation.type) {
-      case "status":
-        return { ok: true };
-      case "login_start":
-      case "login_submit":
-      case "login_cancel":
-      case "login_status":
-        return this.localLogin(operation);
-    }
-    throw new Error("Engine operation was not routed.");
   }
 }

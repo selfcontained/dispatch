@@ -1,19 +1,10 @@
-/*
- * The enrolled adapter serves `workspace.observe` and `workspace.release` on a
- * runner that releases bound checkouts, sending the frames the archive's own
- * transport (`enrolledArchiveCheckout`) sends: changes observation, then the
- * caller's release decision, both on the connection the first one used.
- */
 import {
   RunnerCallError,
   sessionFromWire,
 } from "@dispatch/runner-protocol/contract";
 import { describe, expect, it, vi } from "vitest";
 import type { RemoteRunnerService } from "../src/agents/remote/service.js";
-import {
-  createEnrolledCheckoutRunner,
-  enrolledArchiveCheckout,
-} from "../src/runners/enrolled/checkout.js";
+import { createEnrolledCheckoutRunner } from "../src/runners/enrolled/checkout.js";
 import type { CheckoutSession } from "../src/runners/directory.js";
 
 const placement = { runner: "runner-a", workspace: "@managed" };
@@ -30,27 +21,27 @@ const release = {
   originalBranch: "agt/topic",
 };
 
-function service(options: { capable?: boolean; epochs?: number[] } = {}) {
-  const epochs = [...(options.epochs ?? [7])];
-  let epoch = epochs[0];
-  const requestSession = vi.fn(
-    async (
-      _placement: unknown,
-      operation: { kind: string; operation?: { kind?: string } }
-    ) => {
-      epoch = epochs.shift() ?? epoch;
-      return {
-        value:
-          operation.kind === "workspaceRelease"
-            ? JSON.stringify({ removed: true })
-            : JSON.stringify(observed),
-      };
-    }
-  );
+function service(options: { epochs?: number[] } = {}) {
+  const epochs = options.epochs ?? [7];
+  let index = 0;
   return {
-    requestSession,
-    connectionEpoch: vi.fn(() => epoch),
-    supportsWorkspaceRelease: vi.fn(() => options.capable ?? true),
+    connectionEpoch: () => epochs[Math.min(index, epochs.length - 1)],
+    call: vi.fn(
+      async (
+        _id: string,
+        op: string,
+        _req: unknown,
+        _options: unknown,
+        epoch: number
+      ) => {
+        if (epoch !== epochs[Math.min(index++, epochs.length - 1)])
+          throw new RunnerCallError({
+            code: "unavailable",
+            message: "Connection changed",
+          });
+        return op === "workspace.release" ? { removed: true } : observed;
+      }
+    ),
   };
 }
 
@@ -58,7 +49,6 @@ function adapter(remote: ReturnType<typeof service>) {
   return createEnrolledCheckoutRunner(
     remote as unknown as RemoteRunnerService,
     placement.runner,
-    placement,
     { id: agentId } as CheckoutSession,
     () => ({}) as never
   );
@@ -66,35 +56,25 @@ function adapter(remote: ReturnType<typeof service>) {
 
 describe("archive operations on an enrolled runner", () => {
   it("send the archive transport's frames, on its pinned connection", async () => {
-    const viaTransport = service();
-    const transport = enrolledArchiveCheckout(
-      viaTransport as unknown as RemoteRunnerService,
-      placement,
-      agentId
-    );
-    const transportObserved = JSON.parse(
-      (await transport.observe("changes")).value as string
-    );
-    const transportRemoved = await transport.releaseBound(release);
-
     const viaAdapter = service();
     const runner = adapter(viaAdapter);
     expect(await runner.call("workspace.observe", { session })).toEqual(
-      transportObserved
+      observed
     );
     expect(
       await runner.call("workspace.release", { session, ...release })
-    ).toEqual({ removed: transportRemoved });
+    ).toEqual({ removed: true });
 
-    // As sent: `requestSession` stamps the placement's workspace on each.
-    const frames = (remote: ReturnType<typeof service>) =>
-      remote.requestSession.mock.calls.map(([where, operation, , , epoch]) => [
-        where,
-        { ...operation, workspace: placement.workspace },
-        epoch,
-      ]);
-    expect(frames(viaAdapter)).toEqual(frames(viaTransport));
-    expect(frames(viaAdapter).map(([, , epoch]) => epoch)).toEqual([7, 7]);
+    expect(viaAdapter.call.mock.calls).toEqual([
+      [placement.runner, "workspace.observe", { session }, undefined, 7],
+      [
+        placement.runner,
+        "workspace.release",
+        { session, ...release },
+        undefined,
+        7,
+      ],
+    ]);
   });
 
   it.each([
@@ -103,31 +83,21 @@ describe("archive operations on an enrolled runner", () => {
   ] as const)(
     "observe for %s sends the archive transport's own frame",
     async (_case, policy) => {
-      const viaTransport = service();
-      await enrolledArchiveCheckout(
-        viaTransport as unknown as RemoteRunnerService,
-        placement,
-        agentId
-      ).observe(policy);
       const viaAdapter = service();
       await adapter(viaAdapter).call("workspace.observe", {
         session,
         ...(policy === "ownership" && { policy }),
       });
-      // Byte for byte, as `requestSession` writes it (workspace appended).
-      const sent = (remote: ReturnType<typeof service>) =>
-        JSON.stringify({
-          ...(remote.requestSession.mock.calls[0]![1] as object),
-          workspace: placement.workspace,
-        });
-      expect(viaAdapter.requestSession.mock.calls[0]![1]).toEqual(
-        viaTransport.requestSession.mock.calls[0]![1]
+      expect(viaAdapter.call).toHaveBeenCalledExactlyOnceWith(
+        placement.runner,
+        "workspace.observe",
+        {
+          session,
+          ...(policy === "ownership" && { policy }),
+        },
+        undefined,
+        7
       );
-      expect(sent(viaAdapter)).toBe(sent(viaTransport));
-      expect(JSON.parse(sent(viaAdapter))).toMatchObject({
-        kind: "checkoutRelease",
-        operation: { kind: "observe", policy },
-      });
     }
   );
 
@@ -136,21 +106,10 @@ describe("archive operations on an enrolled runner", () => {
     const remote = service({ epochs: [7, 8] });
     const runner = adapter(remote);
     await runner.call("workspace.observe", { session });
-    await runner.call("workspace.release", { session, ...release });
-    expect(remote.requestSession.mock.calls.map((call) => call[4])).toEqual([
-      7, 7,
-    ]);
-  });
-
-  it("are unsupported on a runner without bound release", async () => {
-    const remote = service({ capable: false });
-    const runner = adapter(remote);
-    for (const call of [
-      () => runner.call("workspace.observe", { session }),
-      () => runner.call("workspace.release", { session, ...release }),
-    ])
-      await expect(call()).rejects.toMatchObject({ code: "unsupported" });
-    expect(remote.requestSession).not.toHaveBeenCalled();
+    await expect(
+      runner.call("workspace.release", { session, ...release })
+    ).rejects.toMatchObject({ code: "unavailable" });
+    expect(remote.call.mock.calls.map((call) => call[4])).toEqual([7, 7]);
   });
 
   it("refuse another session's checkout", async () => {
@@ -160,13 +119,13 @@ describe("archive operations on an enrolled runner", () => {
         session: sessionFromWire("agt_other"),
       })
     ).rejects.toBeInstanceOf(RunnerCallError);
-    expect(remote.requestSession).not.toHaveBeenCalled();
+    expect(remote.call).not.toHaveBeenCalled();
   });
 
   it("reject an observation the runner did not shape", async () => {
     const remote = service();
-    remote.requestSession.mockResolvedValueOnce({
-      value: JSON.stringify({ ownership: "maybe" }),
+    remote.call.mockResolvedValueOnce({
+      ownership: "maybe",
     });
     await expect(
       adapter(remote).call("workspace.observe", { session })

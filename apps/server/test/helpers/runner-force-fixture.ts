@@ -1,3 +1,8 @@
+import { attachedHost } from "../runner-update-hold-fixtures.js";
+import {
+  enrolledTarget,
+  seedEnrolledProject,
+} from "./manager-enrolled-runner.js";
 /**
  * A forced runner update without a runner: the real manager on Postgres, the
  * real ACP runtime, holds and coordinator, over scripted hosts that keep
@@ -41,7 +46,6 @@ import { trackHoldWork } from "./hold-work.js";
 import { localRunnerFor } from "./local-runner-child.js";
 
 export const RUNNER = "r1";
-const PLACE = `runner://${RUNNER}/@session`;
 
 export const logger = {
   info: () => {},
@@ -119,6 +123,7 @@ export type Host = {
 };
 
 export async function forceWorld(pool: Pool) {
+  await seedEnrolledProject(pool);
   // Short on purpose: each host binds host.sock under here, and unix socket paths
   // are capped (~104 bytes on macOS), which os.tmpdir() would overflow.
   const dir = await mkdtemp("/tmp/dr-force-");
@@ -147,6 +152,7 @@ export async function forceWorld(pool: Pool) {
     trust: true,
     holdStaging: false,
     incompatible: false,
+    inventories: 0,
     frames: [] as any[],
   };
 
@@ -225,6 +231,7 @@ export async function forceWorld(pool: Pool) {
             sessionId: h.sessionId,
             resumed: h.launches.length > 1 && !h.resumeFails,
             running: true,
+            commands: [],
             turn: h.turn,
             journalSeq: h.journal.length,
             journalId: `journal_${h.id}`,
@@ -233,7 +240,7 @@ export async function forceWorld(pool: Pool) {
             ...(!h.legacy && {
               hostInstanceId: h.instanceId,
               hostBuild: h.build,
-              quiesceSupported: h.recyclable,
+              ...(h.recyclable && { quiesceSupported: true }),
               promptReceiptSupported: true as const,
             }),
           } as HostMessage);
@@ -341,23 +348,67 @@ export async function forceWorld(pool: Pool) {
     const remote = {
       available: () => !dead && epoch !== undefined,
       connectionEpoch: () => (dead ? undefined : epoch),
-      isManagedWorkspace: () => true,
+      lastConnectionEpoch: () => 1,
+      permitsAgentMcp: () => true,
       originFor: () => "https://example.test",
-      supportsSessionFiles: () => true,
-      reconcilesLaunches: () => true,
       selfUpdate: () => service.selfUpdate(),
-      async requestSession(
-        _placement: unknown,
-        operation: { kind: string; agentId: string; launch?: any }
+      putFile: async () => {
+        guard();
+        return "/runner/files/x";
+      },
+      async openStream(
+        _runner: string,
+        op: string,
+        input: { session: string }
       ) {
         guard();
-        if (operation.kind === "sessionFile")
-          return { value: "/runner/files/x" };
-        const h = host(operation.agentId);
-        switch (operation.kind) {
-          case "launch": {
-            const { launchId, resumeSessionId } = operation.launch;
-            h.launches.push({ launchId, resume: resumeSessionId ?? null });
+        expect(op).toBe("session.attach");
+        const h = host(input.session);
+        if (!h.alive) throw new RunnerUnavailable("no host");
+        if (h.attachFails) throw new Error("attach failed");
+        const socket = channel(h);
+        channels.add(socket);
+        return attachedHost(socket, h.id);
+      },
+      async call(
+        _runner: string,
+        op: string,
+        input: { session: string; launchId?: string; resume?: string | null }
+      ) {
+        guard();
+        if (
+          op === "workspace.prepare" ||
+          op === "workspace.describe" ||
+          op === "workspace.resume"
+        )
+          return {
+            path: "/runner/sessions/" + input.session,
+            moved: false,
+            worktree: null,
+            origin: null,
+            git: null,
+          };
+        if (op === "checkout.read" || op === "git.context") return null;
+        if (op === "session.list") {
+          runner.inventories++;
+          return {
+            sessions: [...hosts.values()]
+              .filter((h) => h.alive)
+              .map((h) => ({
+                session: h.id,
+                state: "live",
+                ...(!h.legacy && { instanceId: h.instanceId, build: h.build }),
+                launchId: h.launches.at(-1)?.launchId,
+              })),
+          };
+        }
+        const h = host(input.session);
+        switch (op) {
+          case "session.launch": {
+            h.launches.push({
+              launchId: input.launchId!,
+              resume: input.resume ?? null,
+            });
             effects.push(`launch:${h.id}`);
             if (!h.alive) {
               h.instanceId = randomUUID();
@@ -367,28 +418,21 @@ export async function forceWorld(pool: Pool) {
               };
             }
             h.alive = true;
-            return { value: true };
+            return {};
           }
-          case "attach": {
-            if (!h.alive) throw new RunnerUnavailable("no host");
-            if (h.attachFails) throw new Error("attach failed");
-            const socket = channel(h);
-            channels.add(socket);
-            return { value: true, channel: socket };
-          }
-          case "alive":
+          case "session.alive":
             h.asked++;
-            return { value: h.alive };
-          case "stop":
+            return { state: h.alive ? "live" : "gone" };
+          case "session.stop":
             h.stops++;
             if (h.stopFails) throw new RunnerUnavailable("stop failed");
             effects.push(`stop:${h.id}`);
             exit(h);
-            return { value: true };
-          case "log":
-            return { value: "" };
+            return {};
+          case "session.logs":
+            return { text: "" };
           default:
-            return { value: true };
+            return {};
         }
       },
     } as unknown as RemoteRunnerService;
@@ -602,15 +646,12 @@ export async function forceWorld(pool: Pool) {
       offset += ms;
     },
     async agent(options: { legacy?: boolean; recyclable?: boolean } = {}) {
-      const agent = await current.manager.createAgent(
-        { cwd: PLACE },
-        {
-          beforeLaunch: async (id) => {
-            host(id).legacy = options.legacy === true;
-            host(id).recyclable = options.recyclable ?? true;
-          },
-        }
-      );
+      const agent = await current.manager.createAgent(enrolledTarget(RUNNER), {
+        beforeLaunch: async (id) => {
+          host(id).legacy = options.legacy === true;
+          host(id).recyclable = options.recyclable ?? true;
+        },
+      });
       made.push(agent.id);
       const h = host(agent.id);
       await vi.waitFor(async () => {

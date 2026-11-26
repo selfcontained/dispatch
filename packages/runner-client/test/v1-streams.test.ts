@@ -2,29 +2,16 @@ import { once } from "node:events";
 import { createServer, connect, type Socket } from "node:net";
 import { Readable, Writable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
-import {
-  parseReadyFrame,
-  parseServiceFrame,
-  RUNNER_WIRE_VERSION,
-  type RunnerFrame,
-  type ServiceFrame,
-} from "@dispatch/runner-protocol";
-import { sessionFromWire } from "@dispatch/runner-protocol/contract";
+import type { ChannelFrame } from "@dispatch/runner-protocol";
 import { describe, expect, it } from "vitest";
-import {
-  receiveCheckoutRead,
-  receiveFile,
-  sendFile,
-  RunnerConnection,
-} from "../src/v1/connection.js";
-import { wireFrames, FlowStreams, acceptsStreams } from "../src/v1/node.js";
+import { hostChannel, wireFrames, FlowStreams } from "../src/v1/node.js";
 import {
   STREAM_CHUNK,
   STREAM_WINDOW,
   type StreamFrame,
 } from "../src/v1/streams.js";
 
-async function loopback(advertise = true, stallMs?: number, file?: Buffer) {
+async function loopback(stallMs?: number) {
   const server = createServer();
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -36,150 +23,24 @@ async function loopback(advertise = true, stallMs?: number, file?: Buffer) {
   const [runnerSocket] = (await incoming) as [Socket];
   clientSocket.setNoDelay(true);
   runnerSocket.setNoDelay(true);
-  const received: unknown[] = [];
-  const attach = {
-    kind: "attach",
-    agentId: "other-session",
-    workspace: "test",
-  } as const;
-  let ready!: () => void;
-  const handshake = new Promise<void>((resolve) => {
-    ready = resolve;
-  });
-
-  const send = wireFrames<
-    RunnerFrame | StreamFrame,
-    ServiceFrame | StreamFrame
-  >(clientSocket, (frame) => {
+  type Frame = StreamFrame | ChannelFrame;
+  const send = wireFrames<Frame, Frame>(clientSocket, (frame) => {
     if (client.handle(frame)) return;
-    if (frame.type === "ready") {
-      if (parseReadyFrame(frame)?.streamCredit) {
-        send({ type: "stream", action: "accept" });
-        client.enable();
-      } else ready();
-    } else if (
-      frame.type === "result" ||
-      frame.type === "data" ||
-      frame.type === "close"
-    ) {
-      connection.receive(frame);
-    }
+    if (frame.type === "data" && frame.id === "attached")
+      channel.push(Buffer.from(frame.data, "base64"));
   });
+  const reply = wireFrames<Frame, Frame>(runnerSocket, (frame) => {
+    if (!runner.handle(frame) && frame.type === "data") reply(frame);
+  });
+  const channel = hostChannel("attached", send, () => {});
   const client = new FlowStreams(clientSocket, send, stallMs);
-  const connection = new RunnerConnection(send);
-  clientSocket.once("close", () => connection.close());
-  const reply = wireFrames<unknown, RunnerFrame | StreamFrame>(
-    runnerSocket,
-    (value) => {
-      if (acceptsStreams(value)) {
-        runner.enable();
-        ready();
-        return;
-      }
-      if (runner.handle(value)) return;
-      received.push(value);
-      const frame = parseServiceFrame(value);
-      if (
-        frame?.type === "request" &&
-        frame.command.kind === "checkoutRead" &&
-        file
-      ) {
-        void runner
-          .send(frame.command.operation.streamId, Readable.from([file]))
-          .then(
-            () => reply({ type: "result", id: frame.id, value: true }),
-            () =>
-              reply({
-                type: "result",
-                id: frame.id,
-                error: "Checkout stream ended.",
-              })
-          );
-      }
-      if (frame?.type === "request" && frame.command.kind === "attach")
-        reply({ type: "result", id: frame.id, value: true });
-      if (
-        frame?.type === "request" &&
-        frame.command.kind === "sessionFile" &&
-        frame.command.operation.kind === "collect" &&
-        file
-      ) {
-        const { streamId } = frame.command.operation;
-        if (streamId) {
-          const chunks = function* () {
-            for (let offset = 0; offset < file.length; offset += STREAM_CHUNK)
-              yield file.subarray(offset, offset + STREAM_CHUNK);
-          };
-          void runner.send(streamId, Readable.from(chunks())).then(
-            () => reply({ type: "result", id: frame.id, value: true }),
-            () =>
-              reply({
-                type: "result",
-                id: frame.id,
-                error: "File transfer failed.",
-              })
-          );
-        } else {
-          reply({
-            type: "result",
-            id: frame.id,
-            value: file.toString("base64"),
-          });
-        }
-      }
-      if (
-        frame?.type === "request" &&
-        frame.command.kind === "sessionFile" &&
-        frame.command.operation.kind === "deliver"
-      ) {
-        const { operation } = frame.command;
-        const done = (bytes: Buffer) => {
-          delivered.push(bytes);
-          reply({
-            type: "result",
-            id: frame.id,
-            value: `/files/${operation.name}`,
-          });
-        };
-        if (operation.streamId === undefined)
-          done(Buffer.from(operation.data, "base64"));
-        else {
-          // Registered on the request frame, before the stream opens.
-          const chunks: Buffer[] = [];
-          void runner
-            .receive(
-              operation.streamId,
-              new Writable({
-                write(chunk: Buffer, _encoding, callback) {
-                  chunks.push(chunk);
-                  callback();
-                },
-              })
-            )
-            .then(() => done(Buffer.concat(chunks)));
-        }
-      }
-      if (frame?.type === "data") reply(frame);
-    }
-  );
-  const delivered: Buffer[] = [];
   const runner = new FlowStreams(runnerSocket, reply, stallMs);
-  reply({
-    type: "ready",
-    version: RUNNER_WIRE_VERSION,
-    workspaces: [],
-    ...(advertise && { streamCredit: true }),
-  });
-  await handshake;
+  client.enable();
+  runner.enable();
   return {
     client,
     runner,
-    connection,
-    received,
-    delivered,
-    attach,
-    clientSocket,
-    runnerSocket,
+    channel,
     reply,
     async close() {
       clientSocket.destroy();
@@ -190,305 +51,6 @@ async function loopback(advertise = true, stallMs?: number, file?: Buffer) {
 }
 
 describe("v1 credit streams", () => {
-  it("receives a checkout reply above the legacy frame limit alongside another session", async () => {
-    const data = "¥".repeat(9 * 1024 * 1024);
-    const link = await loopback(
-      true,
-      undefined,
-      Buffer.from(JSON.stringify({ data: { data } }))
-    );
-    try {
-      const read = receiveCheckoutRead(
-        "checkout.read",
-        {
-          target: { session: sessionFromWire("reader") },
-          path: "large.txt",
-          encoding: "utf8",
-          maxBytes: null,
-        },
-        "test",
-        (command, signal) => link.connection.request(command, { signal }),
-        link.client
-      );
-      await expect(link.connection.request(link.attach)).resolves.toMatchObject(
-        { value: true }
-      );
-      const result = await read;
-      expect(result?.data === data).toBe(true);
-      const frame = parseServiceFrame(link.received[0]);
-      expect(frame).toMatchObject({
-        type: "request",
-        command: { kind: "checkoutRead" },
-      });
-      if (frame?.type !== "request" || frame.command.kind !== "checkoutRead")
-        throw new Error("Missing checkout stream");
-      expect(
-        JSON.stringify({
-          ...frame.command,
-          operation: { ...frame.command.operation, streamId: "stream" },
-        })
-      ).toBe(
-        '{"kind":"checkoutRead","workspace":"test","agentId":"reader","operation":{"op":"checkout.read","request":{"path":"large.txt","encoding":"utf8","maxBytes":null},"streamId":"stream"}}'
-      );
-      expect(link.client.has(frame.command.operation.streamId)).toBe(false);
-      expect(link.runner.has(frame.command.operation.streamId)).toBe(false);
-    } finally {
-      await link.close();
-    }
-  });
-
-  it.each([
-    ["current", "utf8"],
-    ["launch", "utf8"],
-    ["current", "base64"],
-    ["launch", "base64"],
-    ["owned", "utf8"],
-    ["owned", "base64"],
-  ] as const)(
-    "streams unlimited %s %s checkout reads",
-    async (checkout, encoding) => {
-      const bytes = Buffer.alloc(5 * 1024 * 1024, 0xff);
-      bytes.set([0, 128, 239, 127]);
-      const data =
-        encoding === "base64"
-          ? bytes.toString("base64")
-          : "¥".repeat(3 * 1024 * 1024);
-      const link = await loopback(
-        true,
-        undefined,
-        Buffer.from(JSON.stringify({ data: { data } }))
-      );
-      try {
-        const result = await receiveCheckoutRead(
-          "checkout.read",
-          {
-            target: { session: sessionFromWire("reader"), checkout },
-            path: "payload",
-            encoding,
-            maxBytes: null,
-          },
-          "test",
-          (command, signal) => link.connection.request(command, { signal }),
-          link.client
-        );
-        expect(result?.data === data).toBe(true);
-        if (encoding === "base64")
-          expect(Buffer.from(result!.data, "base64").equals(bytes)).toBe(true);
-        const frame = parseServiceFrame(link.received[0]);
-        if (frame?.type !== "request" || frame.command.kind !== "checkoutRead")
-          throw new Error("Missing checkout read frame");
-        if (checkout === "launch" || checkout === "owned")
-          expect(frame.command.operation.checkout).toBe("launch");
-        else expect(frame.command.operation).not.toHaveProperty("checkout");
-        expect(frame.command.operation.request).toEqual({
-          path: "payload",
-          encoding,
-          maxBytes: null,
-        });
-      } finally {
-        await link.close();
-      }
-    }
-  );
-
-  it.each(["current", "launch", "owned"] as const)(
-    "streams boolean access responses for %s",
-    async (checkout) => {
-      for (const data of [true, false]) {
-        const link = await loopback(
-          true,
-          undefined,
-          Buffer.from(JSON.stringify({ data }))
-        );
-        try {
-          expect(
-            await receiveCheckoutRead(
-              "checkout.access",
-              {
-                target: { session: sessionFromWire("reader"), checkout },
-                path: "file",
-              },
-              "test",
-              (command, signal) => link.connection.request(command, { signal }),
-              link.client
-            )
-          ).toBe(data);
-          const frame = parseServiceFrame(link.received[0]);
-          if (
-            frame?.type !== "request" ||
-            frame.command.kind !== "checkoutRead"
-          )
-            throw new Error("Missing access frame");
-          expect(frame.command.operation).toEqual({
-            op: "checkout.access",
-            request: { path: "file" },
-            ...(checkout !== "current" && { checkout: "launch" }),
-            streamId: expect.any(String),
-          });
-        } finally {
-          await link.close();
-        }
-      }
-    }
-  );
-
-  it("preserves native access error details over the read stream", async () => {
-    const error = {
-      code: "failed",
-      message: "ENOTDIR: not a directory, access '/checkout/file/child'",
-      details: {
-        code: "ENOTDIR",
-        path: "/checkout/file/child",
-        syscall: "access",
-      },
-    };
-    const link = await loopback(
-      true,
-      undefined,
-      Buffer.from(JSON.stringify({ error }))
-    );
-    try {
-      await expect(
-        receiveCheckoutRead(
-          "checkout.access",
-          {
-            target: { session: sessionFromWire("reader"), checkout: "owned" },
-            path: "file/child",
-          },
-          "test",
-          (command, signal) => link.connection.request(command, { signal }),
-          link.client
-        )
-      ).rejects.toMatchObject(error);
-    } finally {
-      await link.close();
-    }
-  });
-
-  it("round-trips old and selected read frames and rejects unknown selectors", () => {
-    const operation = {
-      op: "checkout.read",
-      request: { path: "file", encoding: "base64", maxBytes: null },
-      streamId: "stream_1",
-    };
-    const frame = {
-      type: "request",
-      id: "read_1",
-      command: {
-        kind: "checkoutRead",
-        workspace: "test",
-        agentId: "reader",
-        operation,
-      },
-    };
-    for (const checkout of [undefined, "current", "launch"] as const) {
-      const input = {
-        ...frame,
-        command: {
-          ...frame.command,
-          operation: { ...operation, ...(checkout && { checkout }) },
-        },
-      };
-      const parsed = parseServiceFrame(JSON.parse(JSON.stringify(input)));
-      expect(JSON.stringify(parsed)).toBe(JSON.stringify(input));
-    }
-    for (const checkout of ["moved", "unknown", null, 1])
-      expect(
-        parseServiceFrame({
-          ...frame,
-          command: { ...frame.command, operation: { ...operation, checkout } },
-        })
-      ).toBeNull();
-  });
-
-  it.each([true, false])(
-    "reads attachments and preserves the old request shape without streams (%s)",
-    async (streamed) => {
-      const bytes = streamed
-        ? Buffer.alloc(21 * 1024 * 1024, 0xa6)
-        : Buffer.from([0, 255, 128]);
-      const link = await loopback(streamed, undefined, bytes);
-      const command = {
-        kind: "sessionFile",
-        agentId: "agent",
-        workspace: "test",
-        operation: { kind: "collect", path: "/tmp/attachment" },
-      } as const;
-      try {
-        const result = await receiveFile(
-          command,
-          (command, signal) => link.connection.request(command, { signal }),
-          streamed ? link.client : undefined
-        );
-        expect(result.length).toBe(bytes.length);
-        expect(result.equals(bytes)).toBe(true);
-        const request = streamed
-          ? {
-              ...command,
-              operation: { ...command.operation, streamId: expect.any(String) },
-            }
-          : command;
-        expect(link.received).toEqual([
-          { type: "request", id: expect.any(String), command: request },
-        ]);
-      } finally {
-        await link.close();
-      }
-    }
-  );
-
-  it.each([true, false])(
-    "puts files and keeps the old inline frame without streams (%s)",
-    async (streamed) => {
-      const bytes = streamed
-        ? Buffer.alloc(21 * 1024 * 1024, 0x5b)
-        : Buffer.from([0, 255, 128]);
-      const link = await loopback(streamed);
-      const target = {
-        kind: "sessionFile",
-        agentId: "agent",
-        workspace: "test",
-      } as const;
-      try {
-        const path = await sendFile(
-          target,
-          "notes (1).txt",
-          {
-            size: bytes.length,
-            open: () => Readable.from([bytes]),
-            read: async () => bytes,
-          },
-          (command, signal) => link.connection.request(command, { signal }),
-          streamed ? link.client : undefined
-        );
-        expect(path).toBe("/files/notes (1).txt");
-        expect(link.delivered).toHaveLength(1);
-        expect(link.delivered[0]!.equals(bytes)).toBe(true);
-        const operation = streamed
-          ? {
-              kind: "deliver",
-              name: "notes (1).txt",
-              streamId: expect.any(String),
-              size: bytes.length,
-            }
-          : {
-              kind: "deliver",
-              name: "notes (1).txt",
-              data: bytes.toString("base64"),
-            };
-        expect(link.received).toEqual([
-          {
-            type: "request",
-            id: expect.any(String),
-            command: { ...target, operation },
-          },
-        ]);
-      } finally {
-        await link.close();
-      }
-    }
-  );
-
   it("streams 100 MiB to a slow sink while another session stays attached", async () => {
     const link = await loopback();
     const total = 100 * 1024 * 1024;
@@ -538,10 +100,7 @@ describe("v1 credit streams", () => {
       peakRss = startRss;
       const start = performance.now();
       const probe = async () => {
-        const { channel } = await link.connection.request(link.attach, {
-          openChannel: true,
-        });
-        if (!channel) throw new Error("Attach did not open");
+        const { channel } = link;
         do {
           const sentAt = performance.now();
           const response = once(channel, "data", {
@@ -586,7 +145,7 @@ describe("v1 credit streams", () => {
   it.each(["cancelled", "timeout"] as const)(
     "bounds a stalled sink and ends both sides with %s while a second blob completes",
     async (code) => {
-      const link = await loopback(true, 500);
+      const link = await loopback(500);
       const abort = new AbortController();
       let produced = 0;
       const source = Readable.from(
@@ -641,7 +200,7 @@ describe("v1 credit streams", () => {
   );
 
   it("allows a silent command until it actually needs credit", async () => {
-    const link = await loopback(true, 100);
+    const link = await loopback(100);
     const source = new Readable({ read() {} });
     const chunks: Buffer[] = [];
     try {
@@ -686,61 +245,11 @@ describe("v1 credit streams", () => {
         link.reply({ type: "stream", action: "chunk", id, data });
       await refused;
       expect(sink.writableLength).toBe(STREAM_WINDOW);
-      await expect(link.connection.request(link.attach)).resolves.toMatchObject(
-        { value: true }
-      );
-    } finally {
-      await link.close();
-    }
-  });
-
-  it("uses only legacy frames when the runner does not advertise credit", async () => {
-    const link = await loopback(false);
-    try {
-      await expect(
-        link.client.send("disabled", Readable.from([]))
-      ).rejects.toMatchObject({ code: "unavailable" });
-      await expect(link.connection.request(link.attach)).resolves.toMatchObject(
-        { value: true }
-      );
-      expect(link.received).toEqual([
-        {
-          type: "request",
-          id: expect.any(String),
-          command: link.attach,
-        },
-      ]);
+      const echoed = once(link.channel, "data");
+      link.channel.write("still connected");
+      expect(String((await echoed)[0])).toBe("still connected");
     } finally {
       await link.close();
     }
   });
 });
-
-it.each(["checkout.list", "checkout.read"] as const)(
-  "round-trips native %s without changing existing frames",
-  (op) => {
-    const request =
-      op === "checkout.list"
-        ? { path: ".agents/personas" }
-        : { path: ".agents/personas/a.md", encoding: "utf8", maxBytes: null };
-    for (const mode of [undefined, "native"] as const) {
-      const frame = {
-        type: "request",
-        id: "native_read",
-        command: {
-          kind: "checkoutRead",
-          workspace: "test",
-          agentId: "agent",
-          operation: {
-            op,
-            request: { ...request, ...(mode && { mode }) },
-            streamId: "native_stream",
-          },
-        },
-      };
-      expect(JSON.stringify(parseServiceFrame(frame))).toBe(
-        JSON.stringify(frame)
-      );
-    }
-  }
-);

@@ -243,18 +243,3 @@ export function toLocalWorktreeRequest(
     location,
   };
 }
-
-/** Older runners and origins without GitHub metadata resolve the base at checkout. */
-export async function runnerDefaultBranch(
-  url: string,
-  listBranches: (
-    owner: string,
-    repo: string
-  ) => Promise<{ branches: string[]; defaultBranch?: string }>
-): Promise<string | undefined> {
-  const repo =
-    /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i.exec(url);
-  if (!repo) return undefined;
-  const result = await listBranches(repo[1]!, repo[2]!).catch(() => null);
-  return validBranch(result?.defaultBranch) ? result.defaultBranch : undefined;
-}

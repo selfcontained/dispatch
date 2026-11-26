@@ -651,7 +651,7 @@ export class TaskService {
     let effort: Effort | null = null;
     try {
       const scope = await modelScopeFor(
-        savedLaunchTarget(locatedTemplate).cwd,
+        targetPlacement(locatedTemplate),
         agentType ?? template.agentType,
         { model: trigger.model, effort: trigger.effort }
       );
@@ -678,7 +678,7 @@ export class TaskService {
           model: model ?? undefined,
           effort: trigger.effort ?? undefined,
         },
-        savedLaunchTarget(locatedTemplate).cwd
+        targetPlacement(locatedTemplate)
       );
       effort = validateAgentEffort(
         agentType ?? template.agentType,
@@ -943,11 +943,16 @@ export class TaskService {
         );
     if (templateIds.length === 0)
       return validateAgentModel(agentType, model, { kind: "engine" });
-    const targets = new Set<string | null>();
-    for (const id of templateIds)
-      targets.add((await this.deps.getTemplate(id))?.directory ?? null);
+    const targets = new Map<string, typeof controllerPlacement>();
+    for (const id of templateIds) {
+      const template = await this.deps.getTemplate(id);
+      const placement = template
+        ? targetPlacement(template)
+        : controllerPlacement;
+      targets.set(runnerIdForPlacement(placement), placement);
+    }
     let rejection: unknown;
-    for (const target of targets) {
+    for (const target of targets.values()) {
       try {
         return validateAgentModel(
           agentType,

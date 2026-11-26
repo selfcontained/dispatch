@@ -1,8 +1,8 @@
+import { enrolledRunnerId, controllerPlacement } from "../runners/placement.js";
 import type { AgentArchivePreview } from "@dispatch/shared";
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
-import { MANAGED_WORKSPACE, remotePlacement } from "@dispatch/runner-protocol";
 import {
   archiveRunner,
   type ArchiveCheckoutAgent,
@@ -12,7 +12,6 @@ import {
   archiveFailure,
   cascadeMode,
   finishArchiveCheckout,
-  runnerArchiveExecutor,
   type ArchiveCheckoutHooks,
   type ArchiveOutcome,
 } from "./archive-policy.js";
@@ -95,7 +94,6 @@ async function skipArchiveHook(
   pool: Pool,
   agent: AgentRecord
 ): Promise<boolean> {
-  if (retainUnflaggedCheckout(agent)) return true;
   if (agent.worktreePath) return false;
   const { rows } = await pool.query<{ borrowed: boolean }>(
     `SELECT EXISTS (
@@ -144,7 +142,7 @@ export async function previewArchive(
   }
   let status = null;
   let unreadable = false;
-  if (target.worktreePath || target.runnerManaged) {
+  if (target.worktreePath) {
     try {
       status = await readStatus(target);
     } catch (error) {
@@ -170,10 +168,7 @@ export async function previewArchive(
 
 /** The agent's runner, with what the composition gives it for archives. */
 export type ArchiveRunner = Runner &
-  Pick<RunnerComposition, "archive" | "cleanupBudgetMs"> & {
-    /** False on a peer without bound release (snapshot release instead). */
-    serves?: (op: "workspace.release") => boolean;
-  };
+  Pick<RunnerComposition, "archive" | "cleanupBudgetMs">;
 
 /**
  * Finish an agent's checkout on its runner through the one archive
@@ -190,17 +185,12 @@ export async function archiveCheckout(
   /** The agent's host stopped. */
   stopped: boolean,
   hooks: ArchiveCheckoutHooks | undefined,
-  runner: ArchiveRunner,
-  /** Serves the snapshot release on a peer without bound release. */
-  remote?: RemoteRunnerService
+  runner: ArchiveRunner
 ): Promise<ArchiveOutcome> {
   const policy = runner.archive;
   if (policy.coOwner === "recorded" && !agent.worktreePath)
     return { kind: "kept", reason: "notManaged" };
-  const executor =
-    runner.serves?.("workspace.release") === false
-      ? runnerArchiveExecutor(agent, remote, stopped, policy)
-      : archiveExecutor(pool, agent, runner, stopped);
+  const executor = archiveExecutor(pool, agent, runner, stopped);
   const budget = runner.cleanupBudgetMs;
   if (budget === undefined)
     return finishArchiveCheckout(pool, logger, agent, mode, executor, hooks);
@@ -246,16 +236,6 @@ export async function archiveCheckout(
   }
 }
 
-/** An unreleased controller could write a managed locator without recording ownership. */
-export function retainUnflaggedCheckout(
-  agent: Pick<AgentRecord, "runnerManaged" | "cwd">
-) {
-  return (
-    !agent.runnerManaged &&
-    remotePlacement(agent.cwd)?.workspace === MANAGED_WORKSPACE
-  );
-}
-
 /** Returns whether the checkout release stays pending for a retry. */
 export async function finishCheckout(
   deps: ArchiveDeps,
@@ -265,10 +245,8 @@ export async function finishCheckout(
   durations: Record<string, number>,
   onCleanupStart?: () => Promise<void>
 ): Promise<boolean> {
-  if (retainUnflaggedCheckout(agent)) return false;
   const hooks = { durations, onCleanupStart };
-  // Every runner placement, managed or a configured workspace, finishes on
-  // its runner: offline, the release stays pending and is retried.
+  // Release on the runner that owns the binding. An offline release stays pending.
   const outcome = await archiveCheckout(
     deps.pool,
     deps.logger,
@@ -280,8 +258,7 @@ export async function finishCheckout(
       { child: deps.localRunnerChild, remote: deps.remote },
       agent,
       agent.placement
-    ),
-    deps.remote
+    )
   );
   return outcome.kind === "pending";
 }
@@ -294,16 +271,12 @@ export async function beginArchive(
 ): Promise<AgentRecord> {
   const { pool } = deps;
 
-  if (checkoutState !== null && deps.remote) {
+  if (checkoutState !== null) {
     const agent = await deps.getAgent(id);
-    // A bound-release peer decides at release time: no snapshot is kept.
     if (
       agent &&
-      (
-        archiveRunner({ remote: deps.remote }, agent, agent.placement) as {
-          serves?: (op: "workspace.release") => boolean;
-        }
-      ).serves?.("workspace.release") === true
+      archiveRunner({ remote: deps.remote }, agent, agent.placement).archive
+        .coOwner === "observed"
     )
       checkoutState = null;
   }
@@ -370,8 +343,9 @@ export async function executeArchive(
       await deps.settleStream(id);
       // The state directory holds the launch file with the MCP token; the
       // stream is already in the database.
-      if (agent.runnerManaged) await runtime.clearRemoteState?.(id);
-      else if (!retainUnflaggedCheckout(agent)) await runtime.discard(id);
+      if (enrolledRunnerId(agent.placement ?? controllerPlacement))
+        await runtime.clearRemoteState?.(id);
+      else await runtime.discard(id);
       stopped = true;
     } catch (err) {
       if (err instanceof LifecycleSuperseded) return;
@@ -515,7 +489,10 @@ export async function deleteAgentDirect(
   }
 
   let stopped = false;
-  if (agent.status !== "stopped" || agent.runnerManaged) {
+  if (
+    agent.status !== "stopped" ||
+    enrolledRunnerId(agent.placement ?? controllerPlacement)
+  ) {
     const t = Date.now();
     // Not stopAgent: it writes `stopping`/`stopped`, releasing the claim above
     // and letting a fresh archive take this agent mid-teardown.
@@ -544,8 +521,9 @@ export async function deleteAgentDirect(
       await deps.settleStream(id);
       // The state directory holds the launch file with the MCP token; the
       // stream is already in the database.
-      if (agent.runnerManaged) await runtime.clearRemoteState?.(id);
-      else if (!retainUnflaggedCheckout(agent)) await runtime.discard(id);
+      if (enrolledRunnerId(agent.placement ?? controllerPlacement))
+        await runtime.clearRemoteState?.(id);
+      else await runtime.discard(id);
       stopped = true;
     } catch (err) {
       if (err instanceof LifecycleSuperseded) return [];

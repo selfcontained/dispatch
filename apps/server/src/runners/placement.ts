@@ -1,4 +1,3 @@
-import { remotePlacement } from "@dispatch/runner-protocol";
 import {
   placementOf,
   placementRunner,
@@ -18,14 +17,6 @@ export function placementFromRow(row: { runner_id: string }): Placement {
 
 export function placementForRunner(runnerId: string): Placement {
   return placementOf(runnerIdFromWire(runnerId));
-}
-
-/** Older read callers may only have the v1 session locator. */
-export function checkoutReadPlacement(
-  cwd: string | null | undefined
-): Placement {
-  const locator = cwd && remotePlacement(cwd);
-  return locator ? placementForRunner(locator.runner) : controllerPlacement;
 }
 
 export function runnerIdForPlacement(placement: Placement): string {
@@ -51,21 +42,7 @@ export function isOnEnrolledRunner(placement: Placement, runnerId: string) {
   );
 }
 
-/** Until the legacy connection service drops workspace gates, retain the
- * workspace from the locator while selecting the runner from the record.
- */
-export function legacySessionLocation(agent: {
-  placement: Placement;
-  cwd: string;
-}) {
-  const runner = enrolledRunnerId(agent.placement);
-  const locator = runner === undefined ? null : remotePlacement(agent.cwd);
-  return runner !== undefined && locator
-    ? { runner, workspace: locator.workspace }
-    : null;
-}
-
-/** A legacy locator identifies the runner transport, never a user folder. */
-export function launchSessionLocation(cwd: string, placement: Placement) {
-  return legacySessionLocation({ cwd, placement }) ?? null;
+/** Runner address for session services before the runtime has opened its connection. */
+export function sessionLocation(placement: Placement) {
+  return enrolledRunnerId(placement) ?? null;
 }
