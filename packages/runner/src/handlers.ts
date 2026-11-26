@@ -11,6 +11,8 @@ import type {
 export type ConnectionContext = {
   /** An enrolled caller cancelled its command, or its authenticated connection closed. */
   signal?: AbortSignal;
+  /** Close this enrolled terminal at its protected update deadline. */
+  endTerminal?(notice: Buffer): void;
   /** Forward a checkout process stream on the enrolled command's connection. */
   sendOutput?(
     name: "stdout" | "stderr",

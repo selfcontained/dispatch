@@ -377,6 +377,11 @@ export function serveOperationSocket(
       return void open(op, spec, input, opens, {
         ...context,
         ...(command && { signal: command.signal }),
+        ...(endpoint.kind === "enrolled" &&
+          op === "terminal.open" && {
+            endTerminal: (notice: Buffer) =>
+              streams.endWithNotice(channelStreams(id).out, notice),
+          }),
         emit: () => {},
       }).then((result) => {
         if ("error" in result) {

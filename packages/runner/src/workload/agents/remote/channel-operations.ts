@@ -90,7 +90,10 @@ export function enrolledChannels(
         }
         return { info: {}, channel };
       },
-      "terminal.open": async ({ target, cols, rows }, { signal }) => {
+      "terminal.open": async (
+        { target, cols, rows },
+        { signal, endTerminal }
+      ) => {
         if (!("session" in target))
           throw new RunnerCallError({
             code: "invalid",
@@ -151,13 +154,17 @@ export function enrolledChannels(
           });
           const unfenced = admission.onTerminal(() => {
             stdout.unpipe(events);
-            events.end(
+            const notice = Buffer.from(
               JSON.stringify({
                 type: "error",
                 reason: "update",
                 message: TERMINAL_UPDATE_MESSAGE,
               }) + "\n"
             );
+            if (endTerminal) {
+              endTerminal(notice);
+              events.end();
+            } else events.end(notice);
             controller.abort();
           });
           channel.once("close", () => {

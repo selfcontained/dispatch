@@ -149,6 +149,30 @@ export class FlowStreams {
     if (entry) this.cancel(entry, code, "Stream interrupted");
   }
 
+  /** At the enrolled update deadline, order the terminal notice and EOF before
+   * fence_ready without waiting for fresh credit or for the reader's ACK. */
+  endWithNotice(id: string, notice: Buffer) {
+    const entry = this.active.get(id);
+    if (entry?.direction !== "send" || entry.phase === "ended") return;
+    const cost = Math.max(notice.length, MIN_FRAME_CREDIT);
+    if (
+      entry.phase !== "open" ||
+      notice.length > STREAM_CHUNK ||
+      entry.credit < cost ||
+      this.window - this.sending < cost
+    ) {
+      this.interrupt(id, "fenced");
+      return;
+    }
+    entry.phase = "ended";
+    entry.credit -= cost;
+    if (this.window !== Infinity) this.sending += cost;
+    entry.cancelWrite?.();
+    entry.wake?.();
+    if (this.reply(entry, { action: "chunk", data: notice.toString("base64") }))
+      this.reply(entry, { action: "end" });
+  }
+
   private start(
     input: { id: string } & (
       | { direction: "send"; io: Readable }
@@ -254,6 +278,7 @@ export class FlowStreams {
 
   private async waitCredit(entry: Sender) {
     while (
+      entry.phase !== "ended" &&
       entry.credit < MIN_FRAME_CREDIT &&
       this.active.get(entry.id) === entry
     ) {
@@ -263,7 +288,7 @@ export class FlowStreams {
       });
       entry.wake = undefined;
     }
-    return this.active.get(entry.id) === entry;
+    return this.active.get(entry.id) === entry && entry.phase !== "ended";
   }
 
   private returnSendCredit(bytes: number) {
@@ -287,7 +312,8 @@ export class FlowStreams {
             this.budgetWaiters.add(wake);
           });
         }
-        if (this.active.get(entry.id) !== entry) return;
+        if (this.active.get(entry.id) !== entry || entry.phase === "ended")
+          return;
         const slice = bytes.subarray(
           offset,
           offset +
@@ -302,7 +328,7 @@ export class FlowStreams {
       // Do not pull another source chunk while the window is exhausted.
       if (!(await this.waitCredit(entry))) return;
     }
-    if (this.active.get(entry.id) !== entry) return;
+    if (this.active.get(entry.id) !== entry || entry.phase === "ended") return;
     entry.phase = "ended";
     this.touch(entry, true);
     this.reply(entry, { action: "end" });
@@ -347,7 +373,12 @@ export class FlowStreams {
       });
       if (this.active.get(entry.id) !== entry) return;
     }
-    if (this.active.get(entry.id) !== entry || this.socket.destroyed) return;
+    if (
+      this.active.get(entry.id) !== entry ||
+      entry.phase === "ended" ||
+      this.socket.destroyed
+    )
+      return;
     await new Promise<void>((resolve, reject) => {
       this.write(
         {

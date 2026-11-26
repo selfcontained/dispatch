@@ -1,7 +1,9 @@
 import { streamHelper } from "./helpers/stream-helper.js";
 import { embeddedBuild } from "../src/agents/build-identity.js";
 import { gitSha, packageVersion } from "../src/generated/runtime-assets.js";
-import { parseReadyFrame } from "@dispatch/runner-protocol";
+import { issueAuthority } from "../src/agents/remote/certificate-authority.js";
+import { channelStreams } from "@dispatch/runner-client/transport/local-socket";
+
 import { EventEmitter } from "node:events";
 import {
   mkdir,
@@ -55,8 +57,8 @@ const { reportIdentity, dial, spawnChild, supervisorConfig, supervisor } =
       spawnChild: vi.fn(),
       supervisorConfig: vi.fn(),
       supervisor: {
-        launch: fn(),
-        sessionFile: fn(),
+        launchSession: fn(),
+        withSessionFile: fn(),
         observeWorkspace: fn(),
         withCommandCheckout: fn(),
         checkoutDirectory: fn(),
@@ -123,67 +125,41 @@ const unprivilegedStatus = [
   "NoNewPrivs:\t1",
 ].join("\n");
 
-const session = { agentId: "agt_one", workspace: "@session" };
-/** Every command that may start a process, with a valid payload. */
+const session = { session: "agt_one" };
+const sessionTarget = { target: session };
 const fencedCommands = {
-  launch: {
+  "session.launch": {
     ...session,
-    kind: "launch",
-    launch: {
-      agentId: "agt_one",
-      engine: "claude",
-      model: null,
-      systemPrompt: null,
-      resumeSessionId: null,
-      repository: {
-        url: "https://github.com/example/repo",
-        checkout: { kind: "default" },
-      },
-      prepareWorkspace: true,
-    },
+    launchId: attemptId,
+    engine: "claude",
+    model: null,
+    effort: null,
+    access: "default",
+    resume: null,
+    systemText: null,
+    firstText: null,
+    overflowNotice: null,
+    env: {},
+    mcp: [],
+    owner: null,
   },
-  sessionFile: {
-    ...session,
-    kind: "sessionFile",
-    operation: { kind: "collect", path: "notes.md" },
+  "files.get": { ...session, path: "notes.md" },
+  "checkout.watch": sessionTarget,
+  "terminal.open": { ...sessionTarget, rows: 24, cols: 80 },
+  "checkout.list": { ...sessionTarget, path: "" },
+  "git.roots": sessionTarget,
+  "workspace.describe": session,
+  "checkout.read": {
+    ...sessionTarget,
+    path: "README.md",
+    encoding: "utf8",
+    maxBytes: null,
   },
-  watchCheckout: { ...session, kind: "watchCheckout" },
-  openTerminal: { ...session, kind: "openTerminal" },
-  viewCheckout: {
-    ...session,
-    kind: "viewCheckout",
-    query: { kind: "directory", path: "" },
-  },
-  inspectCheckout: {
-    ...session,
-    kind: "inspectCheckout",
-    query: { kind: "roots" },
-  },
-  sessionCheckout: {
-    ...session,
-    kind: "sessionCheckout",
-    operation: { kind: "describe" },
-  },
-  checkoutCommand: {
-    ...session,
-    kind: "checkoutCommand",
-    operation: { kind: "read", checkout: "effective", path: "README.md" },
-  },
-  checkoutRelease: {
-    ...session,
-    kind: "checkoutRelease",
-    operation: { kind: "observe" },
-  },
-  repo: { ...session, kind: "repo" },
-  stop: { ...session, kind: "stop", force: false },
-  discard: { ...session, kind: "discard" },
-  engineCapability: {
-    ...session,
-    kind: "engine",
-    operation: { type: "provider_usage" },
-  },
-  engineStatus: { ...session, kind: "engine", operation: { type: "status" } },
-  github: { ...session, kind: "github", operation: { type: "status" } },
+  "workspace.observe": session,
+  "session.stop": { ...session, force: false },
+  "session.discard": session,
+  "engine.list": { refresh: false, background: true },
+  "github.account": {},
 } as const;
 
 type Socket = EventEmitter & {
@@ -206,12 +182,19 @@ describe("runner update fence", () => {
   const frames = () =>
     socket.write.mock.calls.map(([line]) => JSON.parse(line as string));
   const statuses = () => frames().filter((f) => f.type === "update_status");
-  const resultFor = (id: string) =>
-    frames().find((f) => f.type === "result" && f.id === id);
-  const emit = (frame: object) =>
+  let nextId = 0;
+  const ids = new Map<string, number>();
+  const resultFor = (label: string) =>
+    frames().find((f) => f.id === ids.get(label) && typeof f.ok === "boolean");
+  const send = (frame: object) =>
     socket.emit("data", Buffer.from(JSON.stringify(frame) + "\n"));
-  const request = (id: string, command: object) =>
-    emit({ type: "request", id, command });
+  const request = (label: string, op: string, input: object = {}) => {
+    const id = ++nextId;
+    ids.set(label, id);
+    send({ id, op, input });
+  };
+  const update = (name: string, input: object) =>
+    request(name + ids.size, "update." + name, input);
 
   async function start(
     options: Omit<RunnerUpdateOptions, "build" | "healthBuild" | "streamHelper">
@@ -238,25 +221,28 @@ describe("runner update fence", () => {
     }).catch((error) => error);
     await vi.waitFor(() => expect(dial).toHaveBeenCalledTimes(1));
     socket.emit("secureConnect");
-    return parseReadyFrame(frames()[0]);
+    request("description", "runner.describe");
+    await vi.waitFor(() => expect(resultFor("description")?.ok).toBe(true));
+    return resultFor("description").value.capabilities;
   }
 
   async function stagedAndFenced(retainSessions = true) {
-    emit({ type: "update_offer", attemptId, target, retry: false });
+    update("offer", { attempt: attemptId, target, retry: false });
     await vi.waitFor(() =>
       expect(statuses().at(-1)).toMatchObject({ reason: "ready" })
     );
-    emit({ type: "update_fence", attemptId, retainSessions });
+    update("fence", { attempt: attemptId, retained: retainSessions });
   }
 
   beforeEach(async () => {
     vi.resetAllMocks();
     pendingFlush = [];
+    ids.clear();
     autoFlush = true;
     root = await mkdtemp(path.join(os.tmpdir(), "dispatch-runner-fence-"));
     config = path.join(root, "runner.json");
     const key = path.join(root, "key");
-    await writeFile(key, "unused test credential", { mode: 0o600 });
+    await writeFile(key, issueAuthority("fixture").cert, { mode: 0o600 });
     await writeFile(
       config,
       JSON.stringify({
@@ -270,7 +256,6 @@ describe("runner update fence", () => {
         home: root,
         path: "/usr/bin:/bin",
         bins: {},
-        workspaces: {},
       })
     );
     reportIdentity.mockImplementation((_command, _args, _options, callback) =>
@@ -283,6 +268,7 @@ describe("runner update fence", () => {
     });
     supervisor.liveDirectories.mockResolvedValue([]);
     supervisor.alive.mockResolvedValue(true);
+    supervisor.isBound.mockResolvedValue(true);
     supervisor.log.mockResolvedValue("Guest agent host log.");
   });
 
@@ -303,9 +289,14 @@ describe("runner update fence", () => {
     });
     expect(frames()[0]).not.toHaveProperty("selfUpdate");
     expect(legacy).not.toHaveProperty("selfUpdate");
-    // A controller that sends update frames anyway is a protocol violation.
-    emit({ type: "update_offer", attemptId, target, retry: false });
-    expect(socket.destroy).toHaveBeenCalled();
+    // An unavailable updater answers the authenticated request.
+    update("offer", { attempt: attemptId, target, retry: false });
+    await vi.waitFor(() =>
+      expect(frames().at(-1)).toMatchObject({
+        ok: false,
+        error: { code: "unsupported" },
+      })
+    );
   });
 
   it("advertises the installed identity and the handoff formats", async () => {
@@ -323,11 +314,6 @@ describe("runner update fence", () => {
       installedSha256: identity.sha256,
       handoff: identity.handoff,
     });
-    // An old controller parses the same capabilities as before.
-    const { selfUpdate: _, ...rest } = frames()[0];
-    expect(parseReadyFrame(rest)).toEqual(
-      (({ selfUpdate: _s, ...legacy }) => legacy)(ready!)
-    );
   });
 
   it("reports health again once an update is confirmed", async () => {
@@ -347,44 +333,24 @@ describe("runner update fence", () => {
         state: root,
       },
     });
-    const samples = () =>
-      frames()
-        .filter((frame) => frame.type === "health")
-        .map((frame) => frame.sample);
-    emit({ type: "accept_health" });
+    request("before", "runner.health");
     await vi.waitFor(() =>
-      expect(samples()[0]?.maintenanceFailure?.at).toBe(at)
+      expect(resultFor("before")?.value.maintenanceFailure?.at).toBe(at)
     );
     // What a commit does before its confirmation is reported.
     const installed = path.join(root, "installed-release");
     await writeFile(installed, "1:2 v1.7.28\n");
     const later = new Date(Date.parse(at) + 60_000);
     await utimes(installed, later, later);
-    emit({
-      type: "update_offer",
-      attemptId,
+    update("offer", {
+      attempt: attemptId,
       target: { ...target, sha256: identity.sha256 },
       retry: false,
     });
-    await vi.waitFor(() => expect(samples()).toHaveLength(2));
-    expect(samples()[1].maintenanceFailure).toBeUndefined();
-  });
-
-  it("samples again for nothing short of a confirmation", async () => {
-    await start({
-      updateIdentity: identity,
-      updater: mockUpdater(compatible),
-      fenceStore: memoryStore(),
-    });
-    const samples = () => frames().filter((frame) => frame.type === "health");
-    emit({ type: "accept_health" });
-    await vi.waitFor(() => expect(samples()).toHaveLength(1));
-    emit({ type: "update_offer", attemptId, target, retry: false });
-    await vi.waitFor(() =>
-      expect(statuses().at(-1)).toMatchObject({ reason: "ready" })
-    );
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(samples()).toHaveLength(1);
+    await vi.waitFor(() => expect(statuses().at(-1)?.phase).toBe("confirmed"));
+    request("after", "runner.health");
+    await vi.waitFor(() => expect(resultFor("after")?.ok).toBe(true));
+    expect(resultFor("after").value.maintenanceFailure).toBeUndefined();
   });
 
   it("sends no health to a controller that never accepted it", async () => {
@@ -393,9 +359,8 @@ describe("runner update fence", () => {
       updater: mockUpdater(),
       fenceStore: memoryStore(),
     });
-    emit({
-      type: "update_offer",
-      attemptId,
+    update("offer", {
+      attempt: attemptId,
       target: { ...target, sha256: identity.sha256 },
       retry: false,
     });
@@ -426,12 +391,14 @@ describe("runner update fence", () => {
     expect(ready?.selfUpdate?.pendingAttemptId).toBe(attemptId);
     const startupCalls = reportIdentity.mock.calls.length;
     for (const [id, command] of Object.entries(fencedCommands)) {
-      request(id, command);
+      request(id, id, command);
       expect(resultFor(id)).toEqual({
-        type: "result",
-        id,
-        code: "update-fenced",
-        error: "The runner is updating; the operation was not started.",
+        ok: false,
+        id: ids.get(id),
+        error: {
+          code: "fenced",
+          message: "The runner is updating; the operation was not started.",
+        },
       });
     }
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -448,27 +415,31 @@ describe("runner update fence", () => {
     expect(options.mayStartProcess()).toBe(false);
 
     // Host attach and inspection stay available.
-    request("alive", { ...session, kind: "alive" });
-    request("log", { ...session, kind: "log" });
+    request("alive", "session.alive", session);
+    request("log", "session.logs", { ...session, lines: 10 });
     await vi.waitFor(() =>
-      expect(resultFor("log")).toMatchObject({ value: "Guest agent host log." })
+      expect(resultFor("log")).toMatchObject({
+        value: { text: "Guest agent host log." },
+      })
     );
-    expect(resultFor("alive")).toMatchObject({ value: true });
+    expect(resultFor("alive")).toMatchObject({ value: { state: "live" } });
 
     // Implicit engine probes are skipped.
-    emit({ type: "accept_health", engineInventory: true });
+    request("inventory", "engine.list", { refresh: false, background: true });
     await new Promise((resolve) => setTimeout(resolve, 10));
-    expect(frames().some((f) => f.type === "engine_inventory")).toBe(false);
+    expect(resultFor("inventory")).toMatchObject({ error: { code: "fenced" } });
+    expect(spawnChild).not.toHaveBeenCalled();
 
     // A wrong attempt cannot release it; the matching cancel does.
-    emit({
-      type: "update_cancel",
-      attemptId: "7f1c1d1e-2a3b-4c5d-8e9f-0a1b2c3d4e5f",
+    update("cancel", {
+      attempt: "7f1c1d1e-2a3b-4c5d-8e9f-0a1b2c3d4e5f",
       reason: "policy_changed",
     });
-    request("still-fenced", fencedCommands.stop);
-    expect(resultFor("still-fenced")).toMatchObject({ code: "update-fenced" });
-    emit({ type: "update_cancel", attemptId, reason: "policy_changed" });
+    request("still-fenced", "session.stop", fencedCommands["session.stop"]);
+    expect(resultFor("still-fenced")).toMatchObject({
+      error: { code: "fenced" },
+    });
+    update("cancel", { attempt: attemptId, reason: "policy_changed" });
     await vi.waitFor(() =>
       expect(statuses().at(-1)).toMatchObject({
         attemptId,
@@ -477,39 +448,39 @@ describe("runner update fence", () => {
     );
     await expect(readFile(path.join(state, "fence.json"))).rejects.toThrow();
     supervisor.stop.mockResolvedValue(undefined);
-    request("released", fencedCommands.stop);
+    request("released", "session.stop", fencedCommands["session.stop"]);
     await vi.waitFor(() =>
-      expect(resultFor("released")).toMatchObject({ value: true })
+      expect(resultFor("released")).toMatchObject({ ok: true, value: {} })
     );
     expect(() => options.hostCommand("/state/hosts/agt_one")).not.toThrow();
   });
 
   it.each([true, false])(
-    "flushes one admitted checkout command before fence_ready (retain sessions: %s)",
+    "flushes one admitted session stop before fence_ready (retain sessions: %s)",
     async (retainSessions) => {
       await start({
         updateIdentity: identity,
         updater: mockUpdater(compatible),
         fenceStore: memoryStore(),
       });
-      let finish!: (value: string) => void;
-      supervisor.withCommandCheckout.mockReturnValue(
+      let finish!: () => void;
+      supervisor.stop.mockReturnValue(
         new Promise((resolve) => (finish = resolve))
       );
-      emit({ type: "update_offer", attemptId, target, retry: false });
+      update("offer", { attempt: attemptId, target, retry: false });
       await vi.waitFor(() =>
         expect(statuses().at(-1)).toMatchObject({ reason: "ready" })
       );
       // Admitted in frame order, just before the fence.
-      request("admitted", fencedCommands.checkoutCommand);
-      emit({ type: "update_fence", attemptId, retainSessions });
-      request("late", fencedCommands.checkoutCommand);
-      expect(resultFor("late")).toMatchObject({ code: "update-fenced" });
-      expect(supervisor.withCommandCheckout).toHaveBeenCalledOnce();
+      request("admitted", "session.stop", fencedCommands["session.stop"]);
+      update("fence", { attempt: attemptId, retained: retainSessions });
+      request("late", "session.stop", fencedCommands["session.stop"]);
+      expect(resultFor("late")).toMatchObject({ error: { code: "fenced" } });
+      expect(supervisor.stop).toHaveBeenCalledOnce();
 
       autoFlush = false;
       expect(statuses().at(-1)?.reason).toBe("ready");
-      finish('{"ok":true}');
+      finish();
       await vi.waitFor(() => expect(resultFor("admitted")).toBeDefined());
       // Produced but not yet handed to the transport: still not ready.
       expect(pendingFlush).toHaveLength(1);
@@ -520,10 +491,10 @@ describe("runner update fence", () => {
         expect(statuses().at(-1)).toMatchObject({ reason: "fence_ready" })
       );
       const order = frames().map((f) => f.id ?? f.reason);
-      expect(order.indexOf("admitted")).toBeLessThan(
+      expect(order.indexOf(ids.get("admitted"))).toBeLessThan(
         order.indexOf("fence_ready")
       );
-      expect(supervisor.withCommandCheckout).toHaveBeenCalledOnce();
+      expect(supervisor.stop).toHaveBeenCalledOnce();
     }
   );
 
@@ -535,7 +506,7 @@ describe("runner update fence", () => {
       fenceStore: memoryStore(),
     });
     supervisor.stop.mockReturnValueOnce(new Promise(() => {}));
-    request("stuck", fencedCommands.stop);
+    request("stuck", "session.stop", fencedCommands["session.stop"]);
     await stagedAndFenced();
     await vi.advanceTimersByTimeAsync(20_000 + 4_000);
     expect(statuses().at(-1)?.reason).toBe("ready");
@@ -545,15 +516,19 @@ describe("runner update fence", () => {
       reason: "operations_pending",
     });
     supervisor.stop.mockResolvedValue(undefined);
-    request("after", fencedCommands.stop);
+    request("after", "session.stop", fencedCommands["session.stop"]);
     await vi.waitFor(() =>
-      expect(resultFor("after")).toMatchObject({ value: true })
+      expect(resultFor("after")).toMatchObject({ ok: true, value: {} })
     );
   });
 
-  it.each([true, false])(
-    "closes one terminal with the update reason and reopens on the new supervisor (retain sessions: %s)",
-    async (retainSessions) => {
+  it.each([
+    { retainSessions: true, credit: true },
+    { retainSessions: false, credit: true },
+    { retainSessions: true, credit: false },
+  ])(
+    "closes the terminal at the deadline and reopens on the new supervisor (retain $retainSessions, credit $credit)",
+    async ({ retainSessions, credit }) => {
       await start({
         updateIdentity: identity,
         updater: mockUpdater(compatible),
@@ -563,27 +538,33 @@ describe("runner update fence", () => {
       supervisor.checkoutDirectory.mockResolvedValue("/fixture");
       const shell = () =>
         Object.assign(new EventEmitter(), {
+          stderr: new PassThrough(),
           stdout: new PassThrough(),
           stdin: new PassThrough(),
           kill: vi.fn(),
         });
       const child = shell();
-      const { stdout } = child;
+
       spawnChild.mockReturnValue(child);
-      request("terminal", fencedCommands.openTerminal);
+      request("terminal", "terminal.open", fencedCommands["terminal.open"]);
       await vi.waitFor(() => expect(spawnChild).toHaveBeenCalledOnce());
       expect(spawnChild.mock.calls[0]![1]).toContain("runner-terminal");
-      stdout.write(
-        JSON.stringify({
-          type: "ready",
-          info: { cwd: "/fixture", host: "runner", user: "fixture" },
-        }) + "\n"
+      child.stderr.end(
+        JSON.stringify({ cwd: "/fixture", host: "runner", user: "fixture" })
       );
       await vi.waitFor(() =>
         expect(resultFor("terminal")).toMatchObject({
-          value: expect.any(String),
+          value: { cwd: "/fixture", host: "runner", user: "fixture" },
         })
       );
+      const output = channelStreams(ids.get("terminal")!).out;
+      if (credit)
+        send({
+          type: "stream",
+          action: "credit",
+          id: output,
+          bytes: 256 * 1024,
+        });
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
       await stagedAndFenced(retainSessions);
       // The terminal is open until its grace period ends, and the boundary
@@ -603,19 +584,31 @@ describe("runner update fence", () => {
       );
       expect(child.kill).toHaveBeenCalledOnce();
       const events = frames()
-        .filter((f) => f.type === "data" && f.id === "terminal")
+        .filter((f) => f.action === "chunk" && f.id === output)
         .map((f) => JSON.parse(Buffer.from(f.data, "base64").toString()));
-      expect(events).toContainEqual({
-        type: "error",
-        message: expect.stringContaining("runner is updating"),
-        reason: "update",
-      });
+      if (credit)
+        expect(events).toContainEqual({
+          type: "error",
+          message: expect.stringContaining("runner is updating"),
+          reason: "update",
+        });
+      else expect(events).toEqual([]);
       const all = frames();
-      expect(
-        all.findIndex((f) => f.type === "close" && f.id === "terminal")
-      ).toBeLessThan(all.findIndex((f) => f.reason === "fence_ready"));
-      request("too-early", fencedCommands.openTerminal);
-      expect(resultFor("too-early")).toMatchObject({ code: "update-fenced" });
+      const end = all.findIndex(
+        (f) =>
+          f.id === output &&
+          (credit
+            ? f.action === "end"
+            : f.action === "cancel" && f.code === "fenced")
+      );
+      expect(end).toBeGreaterThan(-1);
+      expect(end).toBeLessThan(
+        all.findIndex((f) => f.reason === "fence_ready")
+      );
+      request("too-early", "terminal.open", fencedCommands["terminal.open"]);
+      expect(resultFor("too-early")).toMatchObject({
+        error: { code: "fenced" },
+      });
       expect(spawnChild).toHaveBeenCalledOnce();
 
       // End the retired supervisor and start another link on the new build.
@@ -635,17 +628,14 @@ describe("runner update fence", () => {
       });
       const reopened = shell();
       spawnChild.mockReturnValue(reopened);
-      request("reopened", fencedCommands.openTerminal);
+      request("reopened", "terminal.open", fencedCommands["terminal.open"]);
       await vi.waitFor(() => expect(spawnChild).toHaveBeenCalledTimes(2));
-      reopened.stdout.write(
-        JSON.stringify({
-          type: "ready",
-          info: { cwd: "/fixture", host: "runner", user: "fixture" },
-        }) + "\n"
+      reopened.stderr.end(
+        JSON.stringify({ cwd: "/fixture", host: "runner", user: "fixture" })
       );
       await vi.waitFor(() =>
         expect(resultFor("reopened")).toMatchObject({
-          value: expect.any(String),
+          value: { cwd: "/fixture", host: "runner", user: "fixture" },
         })
       );
       expect(reopened.kill).not.toHaveBeenCalled();
