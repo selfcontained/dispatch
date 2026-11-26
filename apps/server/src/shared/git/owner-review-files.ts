@@ -1,6 +1,6 @@
 import type { CommandRunner } from "../lib/run-command.js";
 
-export async function collectOwnerReviewChanges(
+export async function collectCheckoutChanges(
   cwd: string,
   baseRef: string,
   run: CommandRunner,
@@ -45,8 +45,8 @@ export async function collectOwnerReviewChanges(
   };
 }
 
-export function ownerReviewPaths(
-  changes: Awaited<ReturnType<typeof collectOwnerReviewChanges>>
+export function checkoutChangedPaths(
+  changes: Awaited<ReturnType<typeof collectCheckoutChanges>>
 ): string[] {
   return [...new Set(Object.values(changes).flat())].sort();
 }
@@ -56,5 +56,5 @@ export async function collectCheckoutFiles(
   baseRef: string,
   run: CommandRunner
 ): Promise<string[]> {
-  return ownerReviewPaths(await collectOwnerReviewChanges(cwd, baseRef, run));
+  return checkoutChangedPaths(await collectCheckoutChanges(cwd, baseRef, run));
 }

@@ -38,8 +38,8 @@ import {
   resolveBaseRef,
 } from "../shared/git/base-ref.js";
 import {
-  collectOwnerReviewChanges,
-  ownerReviewPaths,
+  collectCheckoutChanges,
+  checkoutChangedPaths,
 } from "../shared/git/owner-review-files.js";
 import { getPrStatus } from "../shared/github/pr.js";
 import type { CommandRunner } from "../shared/lib/run-command.js";
@@ -148,7 +148,7 @@ async function readWorktreeFile(
   }
 }
 
-export async function recordedReviewBase(root: string): Promise<string | null> {
+export async function readRecordedBase(root: string): Promise<string | null> {
   const { stdout: ref, exitCode } = await run(
     "git",
     ["symbolic-ref", "--quiet", "HEAD"],
@@ -232,7 +232,7 @@ async function inspectChanges(
   recordedBase: boolean,
   unresolvedBase?: string
 ) {
-  if (recordedBase) baseBranch ??= await recordedReviewBase(root);
+  if (recordedBase) baseBranch ??= await readRecordedBase(root);
   if (baseBranch === null) {
     try {
       baseBranch = (await getPrStatus({ cwd: root }, run)).baseRefName;
@@ -258,7 +258,7 @@ async function inspectChanges(
     ),
   ]);
   const [changes, staged, unmerged] = await Promise.all([
-    collectOwnerReviewChanges(root, base, run, head),
+    collectCheckoutChanges(root, base, run, head),
     run(
       "git",
       [
@@ -291,7 +291,7 @@ async function inspectChanges(
     kind: "changes" as const,
     baseRef,
     head,
-    files: ownerReviewPaths(changes),
+    files: checkoutChangedPaths(changes),
     stateId,
   };
 }
@@ -429,7 +429,7 @@ export async function observeGitCheckout(
             })
           : { stdout: head };
         const [changes, staged, conflicts] = await Promise.all([
-          collectOwnerReviewChanges(root, base, run, head),
+          collectCheckoutChanges(root, base, run, head),
           run(
             "git",
             ["diff", "--cached", "--raw", "--no-abbrev", "-z", head, "--"],
