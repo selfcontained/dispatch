@@ -136,12 +136,14 @@ describe("the composition gives each runner its archive policy", () => {
     );
     expect(localArchivePolicy).toEqual({
       coOwner: "recorded",
+      borrowers: "recorded",
       forceSkipsObserve: true,
       failure: "kept",
       awaitsStoppedHost: false,
     });
     expect(enrolledArchivePolicy).toEqual({
       coOwner: "observed",
+      borrowers: "observed",
       forceSkipsObserve: false,
       failure: "pending",
       awaitsStoppedHost: true,

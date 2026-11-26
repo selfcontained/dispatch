@@ -1,7 +1,6 @@
 import {
   isCheckoutCommandFile,
   isCheckoutObservation,
-  remotePlacement,
   isCheckoutReadName,
   type CheckoutView,
   type GitQuery,
@@ -59,16 +58,6 @@ function unreachable(error: unknown): never {
     code: "unavailable",
     message: error instanceof Error ? error.message : "Runner unavailable.",
   });
-}
-
-export function usesBoundArchiveRelease(
-  service: RemoteRunnerService,
-  cwd: string
-): boolean {
-  const placement = remotePlacement(cwd);
-  return (
-    placement !== null && service.supportsWorkspaceRelease?.(placement) === true
-  );
 }
 
 export function enrolledArchiveCheckout(

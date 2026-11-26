@@ -101,6 +101,11 @@ export async function nativeBorrowers(
   return borrowers;
 }
 
+/**
+ * The status read before archive, on the agent's runner, by the borrower
+ * rule the composition gives that runner. A peer without bound release (or
+ * no enrolled service) keeps its snapshot transport.
+ */
 export async function observeArchiveCheckout(
   pool: Pool,
   agent: ArchiveCheckoutAgent & Pick<AgentRecord, "placement">,
@@ -108,12 +113,39 @@ export async function observeArchiveCheckout(
   remote?: RemoteRunnerService,
   child?: () => Runner | undefined
 ): Promise<CheckoutObservation> {
-  const placement = remotePlacement(agent.cwd);
-  if (placement) {
-    if (!remote)
-      throw new AgentError("The session runner is unavailable.", 503);
-    return observeRemoteCheckout(agent, remote, placement);
-  }
+  return borrowerAsMain(
+    await observeOnRunner(pool, agent, localRunner, remote, child)
+  );
+}
+
+/**
+ * Main's answer for a borrower on every runner: a row that borrows another
+ * session's checkout has no worktree of its own to report (347eb0c3 reported
+ * the owner's; reverted). It stays `borrowed`, with its borrowers; what the
+ * runner observed is unchanged.
+ */
+function borrowerAsMain(observed: CheckoutObservation): CheckoutObservation {
+  return observed.ownership === "borrowed"
+    ? { ...observed, checkout: null }
+    : observed;
+}
+
+async function observeOnRunner(
+  pool: Pool,
+  agent: ArchiveCheckoutAgent & Pick<AgentRecord, "placement">,
+  localRunner: LocalArchiveRunner,
+  remote?: RemoteRunnerService,
+  child?: () => Runner | undefined
+): Promise<CheckoutObservation> {
+  const runner = archiveRunner({ child, remote }, agent, agent.placement);
+  if ((runner as ArchiveServes).serves?.("workspace.release") === false)
+    return observeSnapshotCheckout(agent, remote);
+  if (runner.archive.borrowers === "observed")
+    return archiveObservation(
+      await runner.call("workspace.observe", {
+        session: sessionFromWire(agent.id),
+      })
+    );
   let binding: ArchiveCheckoutAgent = agent;
   if (!agent.worktreePath) {
     // A local borrower launches in the owner's worktree but has no worktree
@@ -129,7 +161,7 @@ export async function observeArchiveCheckout(
     binding = rows[0] ?? agent;
   }
   const observed = archiveObservation(
-    await archiveRunner({ child }, binding, agent.placement).call(
+    await archiveRunner({ child, remote }, binding, agent.placement).call(
       "workspace.observe",
       { session: sessionFromWire(binding.id) }
     )
@@ -144,6 +176,20 @@ export async function observeArchiveCheckout(
     await nativeBorrowers(pool, binding, checkoutPath, localRunner),
     observed.checkout
   );
+}
+
+/** A runner the archive reads a capability of. */
+type ArchiveServes = { serves?: (op: "workspace.release") => boolean };
+
+/** The snapshot transport's status read, as before the seam. */
+function observeSnapshotCheckout(
+  agent: ArchiveCheckoutAgent,
+  remote: RemoteRunnerService | undefined
+): Promise<CheckoutObservation> {
+  const placement = remotePlacement(agent.cwd);
+  if (!remote || !placement)
+    throw new AgentError("The session runner is unavailable.", 503);
+  return observeRemoteCheckout(agent, remote, placement);
 }
 
 export async function observeRemoteCheckout(

@@ -90,6 +90,13 @@ export type ArchivePolicy = {
    * decision carried out by the runner (bound release).
    */
   coOwner: "recorded" | "observed";
+  /**
+   * Who else uses the checkout, for the status read before archive.
+   * `recorded` (main's): a row without its own worktree reads its owner's
+   * binding, and live rows on the checkout's path that hold it borrow it.
+   * `observed` (N35): the runner's own observation, as it reports it.
+   */
+  borrowers: "recorded" | "observed";
   /** Force removes without observing first (main: no Git status or fetch). */
   forceSkipsObserve: boolean;
   /**
@@ -104,6 +111,7 @@ export type ArchivePolicy = {
 /** Main's archive rule, for the runner on this machine. */
 export const localArchivePolicy: ArchivePolicy = {
   coOwner: "recorded",
+  borrowers: "recorded",
   forceSkipsObserve: true,
   failure: "kept",
   awaitsStoppedHost: false,
@@ -112,6 +120,7 @@ export const localArchivePolicy: ArchivePolicy = {
 /** The enrolled runners' archive rule (N35). */
 export const enrolledArchivePolicy: ArchivePolicy = {
   coOwner: "observed",
+  borrowers: "observed",
   forceSkipsObserve: false,
   failure: "pending",
   awaitsStoppedHost: true,

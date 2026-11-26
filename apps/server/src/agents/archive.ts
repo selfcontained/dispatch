@@ -1,4 +1,3 @@
-import { usesBoundArchiveRelease } from "../runners/enrolled/checkout.js";
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
@@ -195,7 +194,15 @@ export async function beginArchive(
 
   if (checkoutState !== null && deps.remote) {
     const agent = await deps.getAgent(id);
-    if (agent && usesBoundArchiveRelease(deps.remote, agent.cwd))
+    // A bound-release peer decides at release time: no snapshot is kept.
+    if (
+      agent &&
+      (
+        archiveRunner({ remote: deps.remote }, agent, agent.placement) as {
+          serves?: (op: "workspace.release") => boolean;
+        }
+      ).serves?.("workspace.release") === true
+    )
       checkoutState = null;
   }
 
