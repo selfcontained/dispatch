@@ -29,12 +29,6 @@ async function insertAgent(id: string, cwd: string) {
 
 it("backs up to main and upgrades again with old and new placements intact", async () => {
   await insertAgent("pre_local", "/tmp/repo");
-  await insertAgent("pre_remote", "runner://rnr_example/@session");
-  await insertAgent("pre_encoded", "runner://snow%2F%E2%98%83%25/%F0%9F%98%80");
-  await insertAgent("pre_malformed", "runner://rnr_example/%FF");
-  await insertAgent("pre_control", "runner://rnr_example/%00");
-  await insertAgent("pre_escaped_twice", "runner://id%252F/checkout");
-
   // The reserved registration must abort the migration before it adds the column.
   await pool.query(
     "INSERT INTO runner_registrations (id, name, endpoint_host) VALUES ('local', 'Reserved', 'localhost')"
@@ -45,6 +39,9 @@ it("backs up to main and upgrades again with old and new placements intact", asy
   await pool.query("DELETE FROM runner_registrations WHERE id = 'local'");
   await runMigrations(getTestDatabaseUrl());
 
+  await pool.query(
+    "INSERT INTO agents(id,name,status,cwd,runner_id) VALUES ('enrolled','Enrolled','stopped','/srv/session','rnr_example')"
+  );
   const mainDir = await mkdtemp(join(tmpdir(), "dispatch-main-migrations-"));
   try {
     // Main at the T07 base ships the shared prefix through 0052.
@@ -74,28 +71,8 @@ it("backs up to main and upgrades again with old and new placements intact", asy
   expect(
     (await pool.query("SELECT id, runner_id, cwd FROM agents ORDER BY id")).rows
   ).toEqual([
+    { id: "enrolled", runner_id: "rnr_example", cwd: "/srv/session" },
     { id: "main_new", runner_id: "local", cwd: "/tmp/from-main" },
-    { id: "pre_control", runner_id: "local", cwd: "runner://rnr_example/%00" },
-    {
-      id: "pre_encoded",
-      runner_id: "snow/☃%",
-      cwd: "runner://snow%2F%E2%98%83%25/%F0%9F%98%80",
-    },
-    {
-      id: "pre_escaped_twice",
-      runner_id: "id%2F",
-      cwd: "runner://id%252F/checkout",
-    },
     { id: "pre_local", runner_id: "local", cwd: "/tmp/moved" },
-    {
-      id: "pre_malformed",
-      runner_id: "local",
-      cwd: "runner://rnr_example/%FF",
-    },
-    {
-      id: "pre_remote",
-      runner_id: "rnr_example",
-      cwd: "runner://rnr_example/@session",
-    },
   ]);
 });

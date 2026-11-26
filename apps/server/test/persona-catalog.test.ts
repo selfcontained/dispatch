@@ -192,7 +192,7 @@ describe("shared remote persona catalog", () => {
       await publish("default instructions");
       const agent = {
         id: "author",
-        cwd: placement === "local" ? worktree : "runner://rnr_test/session",
+        cwd: placement === "local" ? worktree : "/srv/checkout",
       } as never;
       const manager = {
         getAgent: async () => agent,
@@ -227,7 +227,7 @@ describe("shared remote persona catalog", () => {
   );
 
   it("keeps checkout personas and built-ins available to an older runner", async () => {
-    const agent = { id: "author", cwd: "runner://rnr_old/proof" } as never;
+    const agent = { id: "author", cwd: "/srv/checkout" } as never;
     const manager = {
       getAgent: async () => agent,
       inspectCheckout: async (
@@ -459,7 +459,7 @@ describe("shared remote persona catalog", () => {
       (root: string) =>
         launchPersonaScope({ checkoutReadRunners: () => ({}) } as never, {
           placement: { runner: "rnr_test" } as never,
-          cwd: "runner://rnr_test/session",
+          cwd: "/srv/checkout",
           projectRoot: root,
           repository: null,
         }),

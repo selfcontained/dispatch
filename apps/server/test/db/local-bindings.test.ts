@@ -106,7 +106,7 @@ it("imports each live local row once with main's ownership, and no other row", a
   );
   // A reviewer whose cwd is another session's worktree.
   await insert("reviewer", { cwd: wt("created") });
-  // Not imported: archived, another runner, an older build's locator.
+  // Not imported: archived and another runner.
   await insert(
     "gone-row",
     worktreeRow("created"),
@@ -117,7 +117,6 @@ it("imports each live local row once with main's ownership, and no other row", a
     { cwd: "/srv/checkout", worktree_path: "/srv/checkout" },
     "UPDATE agents SET runner_id = 'rnr_other' WHERE id = $1"
   );
-  await insert("locator", { cwd: "runner://rnr_other/@session" });
 
   const bindings = await readLocalBindings(pool);
   expect(bindings.map((b) => b.session).sort()).toEqual(

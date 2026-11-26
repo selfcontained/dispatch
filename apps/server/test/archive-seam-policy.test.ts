@@ -97,8 +97,7 @@ function run(
   const logger = { warn: vi.fn(), info: vi.fn() };
   const agent = {
     id: "agt_a",
-    cwd:
-      row.cwd ?? (policy === "local" ? "/repo" : "runner://runner-a/@session"),
+    cwd: row.cwd ?? (policy === "local" ? "/repo" : "/srv/checkout"),
     worktreePath:
       row.worktreePath === undefined ? "/checkout" : row.worktreePath,
     worktreeBranch: "feature",

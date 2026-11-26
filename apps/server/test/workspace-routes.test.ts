@@ -214,7 +214,7 @@ describe("workspace browsing", () => {
 });
 
 describe("workspace request identity", () => {
-  const locator = "runner://rnr_fixture/@session";
+  const launch = "/srv/original";
   const checkout = "/var/lib/runner/sessions/test/checkout";
   const cases = [
     {
@@ -259,39 +259,39 @@ describe("workspace request identity", () => {
     },
     {
       name: "runner prepared checkout",
-      cwd: locator,
+      cwd: launch,
       worktreePath: checkout,
       workspacePath: null,
       requested: checkout,
       status: 200,
     },
     {
-      name: "runner legacy locator",
-      cwd: locator,
+      name: "runner stale launch directory",
+      cwd: launch,
       worktreePath: checkout,
       workspacePath: null,
-      requested: locator,
+      requested: launch,
       status: 409,
     },
     {
       name: "runner selected workspace",
-      cwd: locator,
+      cwd: launch,
       worktreePath: checkout,
       workspacePath: "/selected",
       requested: "/selected",
       status: 200,
     },
     {
-      name: "runner locator after selection",
-      cwd: locator,
+      name: "runner stale launch after selection",
+      cwd: launch,
       worktreePath: checkout,
       workspacePath: "/selected",
-      requested: locator,
+      requested: launch,
       status: 409,
     },
     {
       name: "runner stale worktree after selection",
-      cwd: locator,
+      cwd: launch,
       worktreePath: checkout,
       workspacePath: "/selected",
       requested: checkout,
@@ -299,7 +299,7 @@ describe("workspace request identity", () => {
     },
     {
       name: "runner unrelated directory",
-      cwd: locator,
+      cwd: launch,
       worktreePath: checkout,
       workspacePath: null,
       requested: "/unrelated",
@@ -313,7 +313,7 @@ describe("workspace request identity", () => {
         const agent = {
           id: "test",
           placement: {
-            runner: fields.cwd === locator ? "rnr_fixture" : "local",
+            runner: fields.cwd === launch ? "rnr_fixture" : "local",
           },
           ...fields,
         };

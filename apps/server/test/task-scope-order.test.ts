@@ -56,7 +56,7 @@ it("resolves local repository identity before project lookup and subsequent even
 it("does not turn a runner's same-spelled path into a controller folder key", async () => {
   rootRead.mockResolvedValue("/shared/repo");
   const scope = vi.fn(async () => null);
-  const cwd = "runner://scope-runner/@session";
+  const cwd = "/srv/checkout";
   await agentTaskProject(
     {
       ...agent(cwd),

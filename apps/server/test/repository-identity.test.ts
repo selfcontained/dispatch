@@ -1,3 +1,4 @@
+import { resolveSavedTarget } from "../src/runners/saved-location.js";
 import { execFileSync } from "node:child_process";
 import {
   mkdirSync,
@@ -275,7 +276,7 @@ describe("loop handoff on a runner", () => {
       agentId: "agt_r",
       chainId: null,
       chainIteration: 1,
-      config: { directory: "runner://rnr_identity/ws_1" },
+      config: resolveSavedTarget("", { runner: "rnr_identity" }),
     });
     return keys[0];
   }
@@ -299,7 +300,7 @@ describe("loop handoff on a runner", () => {
   });
 
   it("a run with no project and no repository keeps today's key", async () => {
-    await expect(handoffKey(null)).resolves.toBe("runner://rnr_identity/ws_1");
+    await expect(handoffKey(null)).resolves.toBe("");
   });
 });
 
@@ -315,8 +316,8 @@ describe("icon cache key for a runner agent with no project", () => {
   const agent = (projectId: string | null) => ({
     id: "agt_icon",
     placement: runner,
-    cwd: "runner://rnr_identity/@session",
-    launchCwd: "runner://rnr_identity/@session",
+    cwd: "/srv/checkout",
+    launchCwd: "/srv/checkout",
     gitContext: null,
     projectId,
   });

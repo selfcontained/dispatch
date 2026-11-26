@@ -405,7 +405,7 @@ describe("recordEngineModels", () => {
       type: "codex",
       model: "runner-model",
       effort: null,
-      cwd: "runner://runner-a/workspace",
+      cwd: "/srv/checkout",
       placement: placementForRunner("runner-a"),
     };
     const manager = {

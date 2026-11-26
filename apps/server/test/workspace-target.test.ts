@@ -54,7 +54,7 @@ describe("agentStreamDirectory", () => {
   it("uses the reported checkout for a runner address", () => {
     expect(
       agentStreamDirectory({
-        cwd: "runner://r/@session",
+        cwd: "/srv/checkout",
         workspacePath: null,
         worktreePath: null,
         gitContext: { worktreePath: "/runner/checkout" } as never,

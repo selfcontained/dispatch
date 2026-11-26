@@ -76,3 +76,20 @@ it.each([52, 64])(
     ]);
   }
 );
+
+it("scopes saved job and template names to the runner before a project has a checkout", async () => {
+  const pool = await setupTestDb();
+  await runMigrations(getTestDatabaseUrl());
+  for (const table of ["templates", "jobs"]) {
+    const insert = (id: string, runner: string) =>
+      pool.query(
+        `INSERT INTO ${table} (id,name,directory,location) VALUES ($1,'Nightly','',$2)`,
+        [id, { runner, projectId: "project" }]
+      );
+    await insert("alpha", "alpha");
+    await insert("beta", "beta");
+    await expect(insert("duplicate", "alpha")).rejects.toMatchObject({
+      code: "23505",
+    });
+  }
+});

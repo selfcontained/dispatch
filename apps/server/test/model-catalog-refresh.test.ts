@@ -1,3 +1,4 @@
+import { placementForRunner } from "../src/runners/placement.js";
 import { validateAgentEffort } from "../src/shared/agent-effort.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
@@ -782,8 +783,8 @@ function validationFixture() {
   return f;
 }
 const validationTargets = [
-  { id: "local", target: "/tmp/validation" },
-  { id: "alpha", target: "runner://alpha/@session" },
+  { id: "local", target: placementForRunner("local") },
+  { id: "alpha", target: placementForRunner("alpha") },
 ];
 describe.each(validationTargets)(
   "first catalog validation on $id",

@@ -1,3 +1,4 @@
+import { enrolledTarget } from "../helpers/manager-enrolled-runner.js";
 /**
  * A forced runner update end to end on Dispatch's side: receipt before any
  * interrupt, exact turns cut, every session resumed once, and one
@@ -1006,7 +1007,7 @@ describe("stop and archive while a drain waits", () => {
 });
 
 describe("liveness while a drain waits", () => {
-  it("asks only about hosts it isn't attached to, and only every ten seconds", async () => {
+  it("uses the runner inventory without probing each host for liveness", async () => {
     world.runner.incompatible = true;
     const busy = await world.agent();
     const idle = await world.agent();
@@ -1034,11 +1035,11 @@ describe("liveness while a drain waits", () => {
     for (let i = 0; i < 5; i++) await world.coordinator.tick();
     expect(hosts.map(({ asked }) => asked)).toEqual([0, 0, 0]);
 
+    const before = world.runner.inventories;
     world.advance(UPDATE_TIMING.drainProbeMs);
     await world.coordinator.tick();
-    expect(busy.asked).toBe(0);
-    expect(idle.asked).toBe(1);
-    expect(detached.asked).toBeGreaterThan(0);
+    expect(world.runner.inventories).toBeGreaterThan(before);
+    expect(hosts.map(({ asked }) => asked)).toEqual([0, 0, 0]);
   });
 
   it("ends the wait only on fresh answers", async () => {
@@ -1051,9 +1052,14 @@ describe("liveness while a drain waits", () => {
     await world.coordinator.tick();
     // Back, as a launch admitted before the hold would be.
     gone.alive = gone.attachFails = true;
-    gone.asked = 0;
+    const before = world.runner.inventories;
     busy.settle();
-    await world.until(() => !busy.alive && gone.asked > 0);
+    await world.until(
+      () =>
+        !busy.alive &&
+        world.runner.inventories > before &&
+        world.view()?.attempt?.agents === 1
+    );
     expect(world.view()?.attempt).toMatchObject({
       phase: "draining",
       agents: 1,
@@ -1647,7 +1653,7 @@ describe("runner update scenarios", () => {
         await world.activated();
       }
       const queued = await world.manager.createAgent({
-        cwd: `runner://${RUNNER}/@session`,
+        ...enrolledTarget(RUNNER),
         initialPrompt: marker,
       });
       const [{ launchId }] = world.holds.current(RUNNER)!.launches;

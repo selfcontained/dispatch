@@ -1,3 +1,7 @@
+import {
+  resolveSavedTarget,
+  targetPlacement,
+} from "../src/runners/saved-location.js";
 import { readRepositoryRoot } from "./helpers/task-scope.js";
 import { launchPersonaScope } from "../src/personas/persona-scope.js";
 import type { Pool } from "pg";
@@ -34,8 +38,8 @@ import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
  * "runner-model" only in the online runner's.
  */
 const LOCAL = "/repo/model-scope";
-const ONLINE = "runner://online/@session";
-const OFFLINE = "runner://offline/@session";
+const ONLINE = "online";
+const OFFLINE = "offline";
 const LOCAL_ONLY = "opus";
 const RUNNER_ONLY = "runner-model";
 
@@ -92,12 +96,19 @@ beforeEach(() => {
 });
 afterEach(forgetLearnedAgentModels);
 
+const fields = (directory: string) => ({
+  directory: directory === LOCAL ? LOCAL : "",
+  ...(directory !== LOCAL && { runner: directory }),
+  projectId,
+});
+const location = (directory: string) =>
+  resolveSavedTarget(fields(directory).directory, fields(directory));
 function template(directory: string): TemplateRecord {
   const now = new Date().toISOString();
   return {
     id: `tpl_${directory.replace(/\W/g, "_")}`,
     projectId,
-    directory,
+    ...location(directory),
     name: "Scope",
     description: null,
     prompt: "Build",
@@ -146,7 +157,7 @@ const callers: Record<string, { run: Caller }> = {
     run: (directory, model) =>
       new TemplateService(pool, agentManager, logger).addTemplate({
         name: `scope-${++seq}`,
-        directory,
+        ...fields(directory),
         agentType: "claude",
         model,
       }),
@@ -156,7 +167,7 @@ const callers: Record<string, { run: Caller }> = {
       const service = new TemplateService(pool, agentManager, logger);
       const existing = await service.addTemplate({
         name: `scope-${++seq}`,
-        directory,
+        ...fields(directory),
         agentType: "claude",
       });
       return service.updateTemplate(existing.id, { model });
@@ -176,7 +187,7 @@ const callers: Record<string, { run: Caller }> = {
         agentRuntime: "inert",
       } as AppConfig).addJob({
         name: `scope-${++seq}`,
-        directory,
+        ...fields(directory),
         prompt: "Run",
         agentType: "claude",
         model,
@@ -189,7 +200,7 @@ const callers: Record<string, { run: Caller }> = {
       } as AppConfig);
       const existing = await service.addJob({
         name: `scope-${++seq}`,
-        directory,
+        ...fields(directory),
         prompt: "Run",
         agentType: "claude",
       });
@@ -219,7 +230,11 @@ const callers: Record<string, { run: Caller }> = {
   // Create Agent, MCP launch_agent and reviewer launches share this check.
   "agent launch": {
     run: async (cwd, model) =>
-      validateAgentModel("claude", model, await modelScopeFor(cwd, "claude")),
+      validateAgentModel(
+        "claude",
+        model,
+        await modelScopeFor(targetPlacement(location(cwd)), "claude")
+      ),
   },
 };
 
@@ -321,7 +336,10 @@ describe("placement-scoped model validation", () => {
   });
 
   it("checks effort against the runner's levels for the model", async () => {
-    const scope = await modelScopeFor(ONLINE, "claude");
+    const scope = await modelScopeFor(
+      targetPlacement(location(ONLINE)),
+      "claude"
+    );
     expect(validateAgentEffort("claude", "turbo", RUNNER_ONLY, scope)).toBe(
       "turbo"
     );
@@ -332,7 +350,7 @@ describe("placement-scoped model validation", () => {
     await expect(
       new TemplateService(pool, agentManager, logger).addTemplate({
         name: `scope-${++seq}`,
-        directory: ONLINE,
+        ...fields(ONLINE),
         agentType: "claude",
         model: RUNNER_ONLY,
         effort: "max",

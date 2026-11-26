@@ -853,7 +853,8 @@ it("uses a task's default project and accepts explicit project choices on a runn
     expect(created.statusCode).toBe(200);
     const base = {
       taskId: created.json().id,
-      cwd: "runner://offline/@session",
+      cwd: "",
+      runner: "offline",
     };
     for (const projectId of [undefined, project.id, other.id]) {
       const response = await authedInject("POST", "/api/v1/agents", {

@@ -283,7 +283,6 @@ describe("launch_agent's folder, as main resolves it", () => {
     `${root}/file`,
     `${root}/sealed`,
     `${root}/locked/inner`,
-    "runner://another/@session",
   ];
   beforeAll(async () => {
     root = await realpath(await mkdtemp(path.join(os.tmpdir(), "launch-")));
@@ -449,8 +448,6 @@ describe("launch_agent's folder from a runner caller (D7)", () => {
       `${root}/missing`,
       `${root}/file`,
       `${root}/locked/inner`,
-      // Neither another runner's locator nor a bare path moves the launch.
-      "runner://another/@session",
     ]) {
       const result = await launchFrom(raw);
       expect(result, raw).toEqual({
@@ -461,7 +458,7 @@ describe("launch_agent's folder from a runner caller (D7)", () => {
   });
 
   it("never places a named folder on the controller or another runner", async () => {
-    for (const raw of ["/", "/etc", `${root}/app`, "runner://another/@x"]) {
+    for (const raw of ["/", "/etc", `${root}/app`]) {
       const result = await launchFrom(raw);
       for (const question of result.asked)
         expect(question.runner, raw).toBe(runner);

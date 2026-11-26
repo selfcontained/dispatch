@@ -12,7 +12,7 @@ it("validates the click contract, rejects agent bearer requests and scopes calls
         id === "owner"
           ? {
               id,
-              cwd: "runner://runner-a/workspace",
+              cwd: "/srv/checkout",
               placement: placementForRunner("runner-a"),
             }
           : null,
