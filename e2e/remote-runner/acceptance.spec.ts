@@ -206,7 +206,7 @@ test("permission decisions stay on their runner across a disconnect", async ({
     return response.json();
   };
   for (const r of ["alpha", "beta"] as const)
-    await chat(pages[r]!, "prove-permission");
+    await chat(pages[r]!, "proof-count prove-permission");
   const ask = (r: RunnerName) => pages[r]!.getByTestId("permission-requests");
   await expect(ask("alpha")).toBeVisible({ timeout: 30_000 });
   await expect(ask("beta")).toBeVisible({ timeout: 30_000 });
