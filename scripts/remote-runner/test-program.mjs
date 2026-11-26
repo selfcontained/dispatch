@@ -2,7 +2,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,7 +12,7 @@ const bun =
   process.env.BUN_BINARY ??
   spawnSync("which", ["bun"], { encoding: "utf8" }).stdout.trim();
 const binary = path.resolve(process.argv[2]);
-const dir = mkdtempSync(path.join(tmpdir(), "dispatch-program-"));
+const dir = mkdtempSync("/tmp/runner-program-");
 try {
   const shell = path.join(dir, "shell");
   writeFileSync(shell, "#!/bin/sh\nsleep 0.2\n", { mode: 0o700 });
@@ -28,7 +27,6 @@ try {
     [["agent-host"], "", /usage: dispatch agent-host --state/],
     [["claude-acp", "--version"], "", /0\.108\.0/],
     [["codex-acp", "--version"], "", /2\.7\.0/],
-    [["local-runner"], "{}", /first launcher message|invalid|start/i],
     [
       ["remote-runner", path.join(dir, "runner.json")],
       "",
@@ -39,8 +37,8 @@ try {
     [["runner-worker", "git-context", dir], "", /\{/],
     [
       ["runner-view-checkout", dir],
-      "{}",
-      /Unable to read the session checkout/,
+      '{"kind":"directory","path":""}',
+      /fixture\.txt/,
     ],
     [["runner-inspect-checkout", dir], '{"kind":"roots"}', /"kind":"roots"/],
     [["runner-observe-checkout", dir, "--scratch"], "", /"stateId"/],
@@ -91,6 +89,21 @@ try {
     const result = spawnSync(command, args, { cwd: dir, env });
     assert.equal(result.status, 0);
     assert.deepEqual(result.stdout, helper);
+  }
+  const launcher = fileURLToPath(
+    new URL(
+      "../../packages/runner/test/fixtures/program-local.ts",
+      import.meta.url
+    )
+  );
+  for (const command of [[bun, entry], [binary]]) {
+    const result = spawnSync(bun, [launcher, ...command], {
+      cwd: dir,
+      env,
+      timeout: 10000,
+      encoding: "utf8",
+    });
+    assert.equal(result.status, 0, result.error?.message ?? result.stderr);
   }
   for (const [args, input, pattern] of fixtures) {
     let expectedStatus;
