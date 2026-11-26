@@ -430,6 +430,12 @@ describe("AgentManager", () => {
   });
 
   describe("setProject", () => {
+    afterAll(async () => {
+      await pool.query(
+        "DELETE FROM projects WHERE id IN ('project-a', 'project-b')"
+      );
+    });
+
     it("moves an agent's children with it and keeps child: false launches put", async () => {
       await pool.query(
         "INSERT INTO projects (id, name, repo_root) VALUES ('project-a', 'A', '/tmp'), ('project-b', 'B', '/var/tmp') ON CONFLICT DO NOTHING"
@@ -970,11 +976,22 @@ describe("AgentManager", () => {
 
       it("leaves a local launch to main's folder matching", async () => {
         const folder = await mkdtemp(path.join(os.tmpdir(), "url-local-"));
-        const local = await runnerManager().createAgent({
-          cwd: folder,
-          repository: { url: joined },
-        });
-        expect(local.projectId).toBeNull();
+        try {
+          const launch = () =>
+            runnerManager().createAgent({
+              cwd: folder,
+              repository: { url: joined },
+            });
+          expect((await launch()).projectId).toBeNull();
+          await pool.query(
+            "INSERT INTO projects (id, name, repo_root) VALUES ('url-local-folder', 'Local Folder', $1)",
+            [folder]
+          );
+          expect((await launch()).projectId).toBe("url-local-folder");
+        } finally {
+          await pool.query("DELETE FROM projects WHERE id='url-local-folder'");
+          await rm(folder, { recursive: true, force: true });
+        }
       });
     });
 
