@@ -1,3 +1,4 @@
+import { checkoutReadPlacement } from "../src/runners/placement.js";
 import type { RepositoryCheckout } from "@dispatch/runner-protocol";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -302,6 +303,57 @@ it("uses main for a native worktree request with no recorded base", () => {
 
 describe("pull request intent", () => {
   const repository = async () => "https://github.com/owner/repo";
+  it.each([true, false])(
+    "routes the enrolled launch lookup with a selected folder: %s",
+    async (hasFolder) => {
+      const origin = "https://github.com/owner/repo";
+      const target = { owner: "owner", repo: "repo", number: 12 };
+      const head = { url: origin, branch: "topic" };
+      const lookupGitHubPullRequestHead = vi.fn(async () => head);
+      const prepared = new Error("lookup complete");
+      const manager = Object.assign(Object.create(AgentManager.prototype), {
+        remote: { lookupGitHubPullRequestHead },
+        async prepareCreateInputs(
+          _input: unknown,
+          _cwd: string,
+          options: {
+            pullRequestHead: (pr: typeof target) => Promise<typeof head>;
+          }
+        ) {
+          expect(await options.pullRequestHead(target)).toEqual(head);
+          throw prepared;
+        },
+      });
+      await expect(
+        manager.prepareCreate(
+          {},
+          {},
+          {
+            placement: checkoutReadPlacement("runner://test/workspace"),
+            location: { runner: "test", workspace: "workspace" },
+            directory: null,
+            ...(hasFolder && {
+              launcherDirectory: {
+                cwd: "/link",
+                canonicalPath: "/work/checkout",
+                origin,
+                git: { status: "ok", value: {} },
+              },
+            }),
+          },
+          { repository: { url: origin } }
+        )
+      ).rejects.toBe(prepared);
+      expect(lookupGitHubPullRequestHead).toHaveBeenCalledExactlyOnceWith(
+        "test",
+        "owner",
+        "repo",
+        12,
+        hasFolder ? "/work/checkout" : undefined
+      );
+    }
+  );
+
   it.each([
     ["https://github.com/../repo", "#12"],
     ["https://github.com/owner/.", "#12"],

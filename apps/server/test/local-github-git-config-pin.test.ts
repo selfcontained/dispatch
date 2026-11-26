@@ -10,6 +10,9 @@ import path from "node:path";
 import { expect, it, vi } from "vitest";
 import { pathFromWire } from "@dispatch/runner-protocol/contract";
 import { githubWorkload } from "../src/agents/checkout-worker.js";
+import { runnerDirectory } from "../src/runners/directory.js";
+import { controllerPlacement } from "../src/runners/placement.js";
+import { startTestLocalRunner } from "./helpers/local-runner-child.js";
 import { githubHandlers } from "../../../packages/runner/src/core/github.js";
 import type { Platform } from "../../../packages/runner/src/platform/types.js";
 import {
@@ -106,5 +109,61 @@ printf '%s' '{"url":"https://github.com/org/fork.git","branch":"topic"}'
   } finally {
     vi.unstubAllEnvs();
     await rm(cwd, { force: true, recursive: true });
+  }
+});
+
+it("reads the PR head once at a real child and uses the port once when the connection is lost", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "pr-head-child-"));
+  const bin = path.join(root, "gh");
+  const head = { url: "https://github.com/org/repo.git", branch: "topic" };
+  const request = {
+    owner: "org",
+    repo: "repo",
+    number: 1,
+    cwd: pathFromWire(root),
+  };
+  const signal = AbortSignal.timeout(10_000);
+  const fallback = vi
+    .spyOn(githubWorkload, "pullRequestHead")
+    .mockResolvedValue(head);
+  const child = startTestLocalRunner(root, {
+    env: { PATH: root + path.delimiter + process.env.PATH },
+    backoffMs: 60_000,
+  });
+  try {
+    await child.ready();
+    await child.session.call("runner.describe", {}, { signal });
+    const call = vi.spyOn(child.session, "call");
+    const runner = runnerDirectory({ child: () => child.session }).for(
+      controllerPlacement
+    );
+    const read = () => runner.call("github.pr.head", request, { signal });
+    await writeFile(bin, `#!/bin/sh\nprintf '%s' '${JSON.stringify(head)}'\n`, {
+      mode: 0o700,
+    });
+    expect(await read()).toEqual(head);
+    expect(call).toHaveBeenCalledExactlyOnceWith("github.pr.head", request, {
+      signal,
+      wait: false,
+      timeoutMs: null,
+    });
+    expect(fallback).not.toHaveBeenCalled();
+    call.mockClear();
+    await writeFile(bin, "#!/bin/sh\nprintf '{}'\n");
+    await expect(read()).rejects.toThrow(
+      "GitHub pull request source branch is unavailable."
+    );
+    expect(call).toHaveBeenCalledTimes(1);
+    expect(fallback).not.toHaveBeenCalled();
+    call.mockClear();
+    // The fixture gh is the child's direct subprocess. Lose the connection mid-read.
+    await writeFile(bin, '#!/bin/sh\nkill -KILL "$PPID"\n');
+    expect(await read()).toEqual(head);
+    expect(call).toHaveBeenCalledTimes(1);
+    expect(fallback).toHaveBeenCalledExactlyOnceWith(request);
+  } finally {
+    await child.stop();
+    fallback.mockRestore();
+    await rm(root, { recursive: true, force: true });
   }
 });
