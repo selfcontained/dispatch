@@ -156,7 +156,7 @@ it("runs a bound session's repo tool in the child, uncapped, with its agent id",
     "-c",
     'printf %200000s "" | tr " " x; printf "$DISPATCH_AGENT_ID" >&2',
   ]);
-  expect(runs).toEqual(["checkout.exec"]);
+  expect(runs).toEqual(["checkout.read", "checkout.exec"]);
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toHaveLength(200_000);
   expect(result.stderr).toBe(bound);
@@ -280,7 +280,7 @@ it("kills only a timed-out stop hook in the child, leaving what it started", asy
       { info: vi.fn(), warn } as unknown as FastifyBaseLogger,
       { child: () => child }
     );
-    expect(hookRuns).toEqual(["checkout.exec"]);
+    expect(hookRuns).toEqual(["checkout.read", "checkout.exec"]);
     expect(warn).toHaveBeenCalledWith(
       expect.objectContaining({
         err: expect.objectContaining({
@@ -315,7 +315,7 @@ it("refuses a command with fenced while the child is frozen; reads still serve",
       argv: ["true"],
     })
   ).rejects.toMatchObject({ code: "fenced" });
-  expect(runs).toEqual([]);
+  expect(runs).toEqual(["checkout.read"]);
   await expect(
     session.call("checkout.read", {
       target: { session: sessionOf(bound), checkout: "current" },

@@ -1,5 +1,10 @@
 import { loginShellCommand } from "@dispatch/runner/host/host-command";
-import { RunnerCallError } from "@dispatch/runner-protocol/contract";
+import { realpath, stat } from "node:fs/promises";
+import {
+  RunnerCallError,
+  displayPath,
+  type Req,
+} from "@dispatch/runner-protocol/contract";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -75,15 +80,35 @@ export async function checkoutCommandGuard(
   return { root, content, state };
 }
 
-export async function executeStreamedCheckoutCommand(
-  cwd: string,
-  session: string,
-  operation: Extract<CheckoutCommand, { kind: "run" }>,
-  execution: Pick<CheckoutExecution, "env" | "shell">,
-  loginPath: string | undefined,
-  read: Parameters<typeof checkoutCommandGuard>[3]
+export async function directoryIdentity(directory: string) {
+  const { dev, ino } = await stat(directory, { bigint: true });
+  return `${dev}:${ino}`;
+}
+
+export async function resolvedCommandDirectory(
+  directory: string,
+  guard: Extract<Req<"checkout.exec">["guard"], { identity: string }>
 ) {
-  const { root } = await checkoutCommandGuard(cwd, session, operation, read);
+  const resolved = await realpath(directory).catch(() => null);
+  if (
+    displayPath(guard.root) !== directory ||
+    resolved === null ||
+    (await directoryIdentity(resolved).catch(() => null)) !== guard.identity
+  )
+    throw new RunnerCallError({
+      code: "stale",
+      message: "The resolved checkout directory changed.",
+    });
+  return resolved;
+}
+
+export async function executeStreamedCheckoutCommand(
+  root: string,
+  session: string,
+  argv: string[],
+  execution: Pick<CheckoutExecution, "env" | "shell">,
+  loginPath: string | undefined
+) {
   const inherited = loginPath
     ? { ...process.env, PATH: loginPath }
     : process.env;
@@ -91,14 +116,10 @@ export async function executeStreamedCheckoutCommand(
     ...repoCommandEnvironment(session, inherited),
     ...execution.env,
   };
-  const [command, ...args] = operation.argv;
+  const [command, ...args] = argv;
   const launch =
     execution.shell === "login"
-      ? loginShellCommand(
-          operation.argv,
-          process.env.SHELL || "/bin/bash",
-          env.PATH
-        )
+      ? loginShellCommand(argv, process.env.SHELL || "/bin/bash", env.PATH)
       : { bin: command!, args };
   const child = spawn(launch.bin, launch.args, {
     cwd: root,

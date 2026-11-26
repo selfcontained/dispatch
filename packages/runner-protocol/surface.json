@@ -2234,6 +2234,11 @@
             },
             "rootIdentity": {
               "optional": "string"
+            },
+            "root": {
+              "optional": {
+                "opaque": "RunnerPath"
+              }
             }
           }
         }

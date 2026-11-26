@@ -64,6 +64,8 @@ import { readCheckoutCommandFile } from "./checkout-inspection.js";
 import {
   capture,
   commandBaseEnvironment,
+  directoryIdentity,
+  resolvedCommandDirectory,
 } from "./checkout-command-executor.js";
 import {
   access,
@@ -198,11 +200,6 @@ function nativeEntry(root: string, relative: string) {
       message: "Expected a repository-relative worktree file path",
     });
   return resolved;
-}
-
-async function directoryIdentity(directory: string) {
-  const { dev, ino } = await stat(directory, { bigint: true });
-  return `${dev}:${ino}`;
 }
 
 function nativeFailure(error: unknown, boundRead = false): never {
@@ -344,7 +341,10 @@ async function work<K extends WorkerOp>(
           nativeFailure(error, native.bindRoot);
         }
         return {
-          ...(rootIdentity !== undefined && { rootIdentity }),
+          ...(rootIdentity !== undefined && {
+            rootIdentity,
+            root: pathFromWire(directory),
+          }),
           data,
           digest: createHash("sha256").update(bytes).digest("hex"),
         };
@@ -520,17 +520,7 @@ async function execCheckoutCommand(
   if (signal?.aborted) throw cancelled();
   let root = directory;
   if (!("path" in guard)) {
-    const resolved = await realpath(directory).catch(() => null);
-    if (
-      displayPath(guard.root) !== directory ||
-      resolved === null ||
-      (await directoryIdentity(resolved).catch(() => null)) !== guard.identity
-    )
-      throw new RunnerCallError({
-        code: "stale",
-        message: "The resolved checkout directory changed.",
-      });
-    root = resolved;
+    root = await resolvedCommandDirectory(directory, guard);
   } else {
     const file = await readCommandGuard(directory, selector, guard.path);
     if (file.content === null || file.digest !== guard.digest)
