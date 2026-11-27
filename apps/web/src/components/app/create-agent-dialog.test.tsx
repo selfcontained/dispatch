@@ -457,3 +457,51 @@ it("presents search failures as status text rather than selectable rows", async 
   );
   expect(screen.queryByRole("option")).toBeNull();
 });
+
+it("keeps the list height fixed across loading, results, empty and error states", async () => {
+  let finish!: (value: {
+    repositories: { name: string; url: string }[];
+  }) => void;
+  vi.mocked(api).mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      })
+  );
+  mountRepositoryPicker();
+  await act(async () => {});
+  fireEvent.click(screen.getByRole("combobox", { name: "Project" }));
+  const list = screen.getByRole("listbox");
+  const fixedClass = list.className;
+  expect(fixedClass.split(" ")).toContain("h-80");
+  const search = screen.getByPlaceholderText(
+    "Search projects or your repos, or paste a URL"
+  );
+  fireEvent.change(search, { target: { value: "repo" } });
+  await waitFor(() => expect(api).toHaveBeenCalled());
+  expect(screen.getByText("Your GitHub repositories")).toBeTruthy();
+  expect(screen.getByRole("listbox").className).toBe(fixedClass);
+  await act(async () => {
+    finish({
+      repositories: [
+        { name: "acme/repo", url: "https://github.com/acme/repo" },
+      ],
+    });
+  });
+  await screen.findByRole("option", { name: "acme/repo" });
+  expect(screen.getByRole("listbox").className).toBe(fixedClass);
+  vi.mocked(api).mockResolvedValue({ repositories: [] });
+  fireEvent.change(search, { target: { value: "nothing" } });
+  await waitFor(() =>
+    expect(screen.getByRole("status").textContent).toBe("No matches.")
+  );
+  expect(screen.getByRole("listbox").className).toBe(fixedClass);
+  vi.mocked(api).mockRejectedValue(new Error("offline"));
+  fireEvent.change(search, { target: { value: "offline" } });
+  await waitFor(() =>
+    expect(screen.getByRole("status").textContent).toBe(
+      "Couldn’t search repositories."
+    )
+  );
+  expect(screen.getByRole("listbox").className).toBe(fixedClass);
+});

@@ -180,6 +180,7 @@ export function RunnerRepositoryPicker({
           <PopoverTrigger asChild>
             <Button
               type="button"
+              size="md"
               className="min-w-0 flex-1 justify-between"
               ref={trigger}
               aria-labelledby={labelId}
@@ -189,11 +190,13 @@ export function RunnerRepositoryPicker({
               data-testid="create-agent-runner-project"
             >
               <span className="flex min-w-0 items-center gap-2">
-                {project ? (
-                  <ProjectAvatar project={project} />
-                ) : repository ? (
-                  <GitFork className="size-4 shrink-0" />
-                ) : null}
+                <span className="flex size-5 shrink-0 items-center justify-center">
+                  {project ? (
+                    <ProjectAvatar project={project} />
+                  ) : repository ? (
+                    <GitFork className="size-4 shrink-0" />
+                  ) : null}
+                </span>
                 <span className="truncate" id={`${labelId}-value`}>
                   {project?.name ??
                     (pending
@@ -234,13 +237,13 @@ export function RunnerRepositoryPicker({
                   value={input}
                   onValueChange={setInput}
                 />
-                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
+                <span className="pointer-events-none absolute right-3 top-1/2 flex size-4 -translate-y-1/2 items-center justify-center">
                   {(searching || loading) && (
                     <Spinner className="size-3.5 text-muted-foreground" />
                   )}
                 </span>
               </div>
-              <CommandList className="max-h-80 min-h-0 touch-pan-y overscroll-contain">
+              <CommandList className="h-80 max-h-[calc(var(--radix-popover-content-available-height)_-_2.5rem)] min-h-0 shrink-0 touch-pan-y overscroll-contain">
                 {projectMatches.length > 0 && (
                   <CommandGroup className={groupClassName} heading="Projects">
                     {projectMatches.map((item) => (
@@ -275,7 +278,7 @@ export function RunnerRepositoryPicker({
                     ))}
                   </CommandGroup>
                 )}
-                {repositories.length > 0 && (
+                {searchGitHub && (
                   <CommandGroup
                     className={groupClassName}
                     heading="Your GitHub repositories"
@@ -343,18 +346,18 @@ export function RunnerRepositoryPicker({
                     </CommandItem>
                   </CommandGroup>
                 )}
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className={
+                    status && !searching && !loading
+                      ? "flex h-9 shrink-0 items-center px-3 text-body-sm text-muted-foreground"
+                      : "sr-only"
+                  }
+                >
+                  {status}
+                </div>
               </CommandList>
-              <div
-                role="status"
-                aria-live="polite"
-                className={
-                  status && !(searching && projectMatches.length)
-                    ? "flex h-9 shrink-0 items-center px-3 text-body-sm text-muted-foreground"
-                    : "sr-only"
-                }
-              >
-                {status}
-              </div>
             </Command>
           </PopoverContent>
         </Popover>
