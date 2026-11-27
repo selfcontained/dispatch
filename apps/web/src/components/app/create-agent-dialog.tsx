@@ -223,6 +223,9 @@ function CreateAgentDialogContent({
                 cwd={form.createCwd}
                 branchesUrl={form.targetData.branchesUrl}
                 defaultBaseBranch={form.targetData.defaultBaseBranch}
+                reserveExpandedSpace={
+                  form.launch.target?.location.kind === "project"
+                }
                 worktreeAvailable={form.worktreeAvailable}
                 useWorktree={form.createUseWorktree}
                 onUseWorktreeChange={form.setCreateUseWorktree}

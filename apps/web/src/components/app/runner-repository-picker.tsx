@@ -190,13 +190,15 @@ export function RunnerRepositoryPicker({
               data-testid="create-agent-runner-project"
             >
               <span className="flex min-w-0 items-center gap-2">
-                <span className="flex size-5 shrink-0 items-center justify-center">
-                  {project ? (
-                    <ProjectAvatar project={project} />
-                  ) : repository ? (
-                    <GitFork className="size-4 shrink-0" />
-                  ) : null}
-                </span>
+                {(project || repository) && (
+                  <span className="flex size-5 shrink-0 items-center justify-center">
+                    {project ? (
+                      <ProjectAvatar project={project} />
+                    ) : repository ? (
+                      <GitFork className="size-4 shrink-0" />
+                    ) : null}
+                  </span>
+                )}
                 <span className="truncate" id={`${labelId}-value`}>
                   {project?.name ??
                     (pending

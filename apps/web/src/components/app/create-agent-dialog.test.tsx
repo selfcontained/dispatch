@@ -235,6 +235,17 @@ it("replaces the empty fallback when the open dialog receives a learned catalog"
 
 it("requires a runner project and loads branches from its repository", async () => {
   mount("codex", catalog, true, "/agents");
+  const originalApi = vi.mocked(api).getMockImplementation()!;
+  let finishBranches:
+    | ((value: { branches: string[]; defaultBranch: string }) => void)
+    | undefined;
+  vi.mocked(api).mockImplementation((path, init) =>
+    path.startsWith("/fixture/runner/branches?")
+      ? new Promise((resolve) => {
+          finishBranches = resolve;
+        })
+      : originalApi(path, init)
+  );
   const machine = await screen.findByRole("combobox", { name: "Runs on" });
   fireEvent.keyDown(machine, { key: "ArrowDown" });
   fireEvent.click(screen.getByRole("option", { name: /Runner A/ }));
@@ -247,6 +258,25 @@ it("requires a runner project and loads branches from its repository", async () 
   expect(screen.queryByTestId("create-agent-cwd")).toBeNull();
   expect(screen.queryByRole("combobox", { name: "Workspace" })).toBeNull();
 
+  const startingBefore = screen.getByRole("combobox", {
+    name: "Starting branch",
+  });
+  const newBranchBefore = screen.getByRole("checkbox", {
+    name: "Toggle new branch creation",
+  });
+  const nameBefore = screen.getByRole("textbox", { name: "New branch name" });
+  expect(startingBefore).toHaveProperty("disabled", true);
+  expect(newBranchBefore).toHaveProperty("disabled", true);
+  expect(nameBefore).toHaveProperty("disabled", true);
+  expect(screen.getByTestId("create-agent-worktree")).toHaveProperty(
+    "disabled",
+    true
+  );
+  const expanded = startingBefore.closest("[aria-hidden]")!;
+  expect(expanded.getAttribute("aria-hidden")).toBe("false");
+  expect(expanded.hasAttribute("inert")).toBe(false);
+  const expandedClass = expanded.className;
+
   await waitFor(() => expect(project).toHaveProperty("disabled", false));
   fireEvent.click(project);
   const menu = screen.getByRole("listbox");
@@ -258,6 +288,17 @@ it("requires a runner project and loads branches from its repository", async () 
   const startingBranch = await screen.findByRole("combobox", {
     name: "Starting branch",
   });
+  await waitFor(() => expect(finishBranches).toBeDefined());
+  expect(startingBranch.closest("[aria-hidden]")?.className).toBe(
+    expandedClass
+  );
+  expect(startingBranch).toHaveProperty("disabled", false);
+  await act(async () => {
+    finishBranches!({ branches: ["trunk", "release"], defaultBranch: "trunk" });
+  });
+  expect(startingBranch.closest("[aria-hidden]")?.className).toBe(
+    expandedClass
+  );
   fireEvent.click(startingBranch);
   await screen.findByRole("option", { name: "trunk" });
   expect(api).toHaveBeenCalledWith("/fixture/runner/branches?projectId=p1");

@@ -13,6 +13,8 @@ type WorktreeSectionProps = {
   branchesUrl?: string;
   defaultBaseBranch?: string;
   worktreeAvailable: boolean;
+  /** Runner projects reserve their branch controls before selection. */
+  reserveExpandedSpace?: boolean;
   useWorktree: boolean;
   onUseWorktreeChange: (value: boolean) => void;
   baseBranch: string;
@@ -28,6 +30,7 @@ export function WorktreeSection({
   branchesUrl,
   defaultBaseBranch,
   worktreeAvailable,
+  reserveExpandedSpace = false,
   useWorktree,
   onUseWorktreeChange,
   baseBranch,
@@ -38,18 +41,19 @@ export function WorktreeSection({
   onCreateNewBranchChange,
 }: WorktreeSectionProps): JSX.Element {
   const worktreeChecked = worktreeAvailable && useWorktree;
+  const expanded = reserveExpandedSpace || worktreeChecked;
   // Clip only while collapsed or animating; once open, let the branch
   // dropdown overflow the section.
-  const [openSettled, setOpenSettled] = useState(worktreeChecked);
-  if (!worktreeChecked && openSettled) setOpenSettled(false);
+  const [openSettled, setOpenSettled] = useState(expanded);
+  if (!expanded && openSettled) setOpenSettled(false);
   // React 18 has no `inert` prop; keep collapsed controls out of the tab order.
   const collapsibleRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = collapsibleRef.current;
     if (!el) return;
-    if (worktreeChecked) el.removeAttribute("inert");
+    if (expanded) el.removeAttribute("inert");
     else el.setAttribute("inert", "");
-  }, [worktreeChecked]);
+  }, [expanded]);
 
   return (
     <div
@@ -92,23 +96,21 @@ export function WorktreeSection({
       </div>
       <div
         ref={collapsibleRef}
-        aria-hidden={!worktreeChecked}
+        aria-hidden={!expanded}
         onTransitionEnd={(event) => {
-          if (event.target === event.currentTarget && worktreeChecked) {
+          if (event.target === event.currentTarget && expanded) {
             setOpenSettled(true);
           }
         }}
         className={cn(
           "grid transition-[grid-template-rows,opacity] duration-200 ease-out",
-          worktreeChecked
-            ? "grid-rows-[1fr] opacity-100"
-            : "grid-rows-[0fr] opacity-0"
+          expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
         )}
       >
         <div
           className={cn(
             "min-h-0",
-            !(worktreeChecked && openSettled) && "overflow-hidden"
+            !(expanded && openSettled) && "overflow-hidden"
           )}
         >
           <div className="space-y-2 pt-2">
