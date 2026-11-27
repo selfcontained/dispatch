@@ -341,7 +341,11 @@ export function useCreateAgentForm({
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
       const cwd = createCwd.trim();
-      if (!cwd || !locationReady) return;
+      if (
+        (!cwd && launch.target?.location.kind !== "project") ||
+        !locationReady
+      )
+        return;
 
       setCreating(true);
       setSubmitError(undefined);
@@ -426,6 +430,7 @@ export function useCreateAgentForm({
     [
       createBaseBranch,
       launch.target?.launchFields,
+      launch.target?.location.kind,
       targetData.defaultBaseBranch,
       project,
       locationReady,

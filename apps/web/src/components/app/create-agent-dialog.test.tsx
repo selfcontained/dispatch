@@ -79,6 +79,8 @@ function mount(
                   status: "online",
                   location: {
                     kind: "project",
+                    repositorySearchUrl:
+                      "/api/v1/runners/runner-a/repository-search",
                     projects: [
                       {
                         id: "p1",
@@ -245,7 +247,7 @@ it("requires a runner project and loads branches from its repository", async () 
   expect(screen.queryByRole("combobox", { name: "Workspace" })).toBeNull();
 
   await waitFor(() => expect(project).toHaveProperty("disabled", false));
-  fireEvent.keyDown(project, { key: "ArrowDown" });
+  fireEvent.click(project);
   const menu = screen.getByRole("listbox");
   expect(
     within(menu).queryByRole("option", { name: "Folder Only" })
@@ -267,3 +269,86 @@ it("requires a runner project and loads branches from its repository", async () 
     screen.getByRole("combobox", { name: "Starting branch" })
   ).toBeDefined();
 });
+
+it.each([true, false])(
+  "selects a searched repository by project (existing: %s)",
+  async (existing) => {
+    mount("codex", catalog, true, "/agents");
+    const original = vi.mocked(api).getMockImplementation()!;
+    const repository = "https://github.com/example/new-repo";
+    const picked = {
+      id: "picked",
+      name: "new-repo",
+      repoRoot: null,
+      repository,
+    };
+    let created = false;
+    vi.mocked(api).mockImplementation(async (path, init) => {
+      if (path.includes("/repository-search?"))
+        return {
+          repositories: [{ name: "example/new-repo", url: repository }],
+        };
+      if (path === "/api/runners")
+        return {
+          runners: [
+            {
+              id: "runner-a",
+              name: "Runner A",
+              status: "online",
+              repositoryPicker: true,
+            },
+          ],
+        };
+      if (path === "/api/v1/projects" && init?.method === "POST") {
+        created = true;
+        return picked;
+      }
+      if (
+        path === "/api/v1/projects" ||
+        path.startsWith("/api/v1/projects?repository=")
+      )
+        return existing || created ? [picked] : [];
+      if (path === "/api/v1/projects/picked/repository")
+        return { url: repository + ".git" };
+      const response = (await original(path, init)) as {
+        targets: { location: { projects: (typeof picked)[] } }[];
+      };
+      if (path === "/api/v1/launch-targets" && (existing || created))
+        response.targets[1].location.projects.push(picked);
+      return response;
+    });
+    const machine = await screen.findByRole("combobox", { name: "Runs on" });
+    fireEvent.keyDown(machine, { key: "ArrowDown" });
+    fireEvent.click(screen.getByRole("option", { name: /Runner A/ }));
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("combobox", { name: "Project" }));
+    await screen.findByPlaceholderText(
+      "Search projects or your repos, or paste a URL"
+    );
+    fireEvent.change(
+      screen.getByPlaceholderText(
+        "Search projects or your repos, or paste a URL"
+      ),
+      { target: { value: "new-repo" } }
+    );
+    fireEvent.click(
+      await screen.findByRole("option", { name: "example/new-repo" })
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("combobox", { name: "Project" }).textContent
+      ).toContain("new-repo")
+    );
+    const posts = vi
+      .mocked(api)
+      .mock.calls.filter(
+        ([path, init]) => path === "/api/v1/projects" && init?.method === "POST"
+      );
+    expect(posts).toHaveLength(existing ? 0 : 1);
+    if (!existing)
+      expect(JSON.parse(posts[0]![1]!.body as string)).toMatchObject({
+        repository,
+        name: "new-repo",
+      });
+  }
+);

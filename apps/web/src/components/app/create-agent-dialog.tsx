@@ -177,6 +177,7 @@ function CreateAgentDialogContent({
                 <TaskContextCard task={task} />
               ) : form.launch.target?.location.kind === "project" ? (
                 <RunnerProjectPicker
+                  searchUrl={form.launch.target.location.repositorySearchUrl}
                   projects={form.launch.target.location.projects ?? []}
                   projectId={form.createProjectId}
                   loading={form.launch.list.isLoading}
@@ -256,7 +257,8 @@ function CreateAgentDialogContent({
                   disabled={
                     form.creating ||
                     !form.locationReady ||
-                    !form.createCwd.trim()
+                    (form.launch.target?.location.kind !== "project" &&
+                      !form.createCwd.trim())
                   }
                   data-testid="create-agent-with-context"
                   onClick={form.enterContextStep}

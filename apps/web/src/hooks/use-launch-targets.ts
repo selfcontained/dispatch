@@ -14,6 +14,7 @@ export type LaunchTarget = {
   location: {
     kind: "folder" | "project";
     projects?: Project[];
+    repositorySearchUrl?: string;
     error?: string;
   };
   dataUrl: string;

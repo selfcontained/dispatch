@@ -30,7 +30,7 @@ type Target = {
   key: string;
   name: string;
   id: string;
-  location: { kind: "folder" | "project" };
+  location: { kind: "folder" | "project"; repositorySearchUrl?: string };
   status: string;
 };
 type Project = {
@@ -99,7 +99,12 @@ export async function registerLaunchTargetRoutes(
   async function targets(request: FastifyRequest): Promise<Target[]> {
     const controller = runnerIdForPlacement(controllerPlacement);
     const { runners } = await read<{
-      runners: Array<{ id: string; name: string; status: string }>;
+      runners: Array<{
+        id: string;
+        name: string;
+        status: string;
+        repositoryPicker?: boolean;
+      }>;
     }>(request, "/api/runners");
     return [
       {
@@ -116,7 +121,12 @@ export async function registerLaunchTargetRoutes(
           id: r.id,
           name: r.name,
           status: r.status,
-          location: { kind: "project" as const },
+          location: {
+            kind: "project" as const,
+            ...(r.repositoryPicker && {
+              repositorySearchUrl: `/api/v1/runners/${encodeURIComponent(r.id)}/repository-search`,
+            }),
+          },
         })),
     ];
   }

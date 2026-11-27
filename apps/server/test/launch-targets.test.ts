@@ -42,7 +42,12 @@ async function setup(projectFailure = false) {
   });
   app.get("/api/runners", async () => ({
     runners: [
-      { id: "fixture", name: "Fixture", status: "offline" },
+      {
+        id: "fixture",
+        name: "Fixture",
+        repositoryPicker: true,
+        status: "offline",
+      },
       { id: "gone", name: "Gone", status: "revoked" },
     ],
   }));
@@ -185,6 +190,10 @@ describe("launch target adapter", () => {
     ]);
     expect(targets[1].status).toBe("offline");
     expect(targets[1].location.projects).toHaveLength(1);
+    expect(targets[1].location.repositorySearchUrl).toBe(
+      "/api/v1/runners/fixture/repository-search"
+    );
+    expect(targets[0].location.repositorySearchUrl).toBeUndefined();
     expect(targets[1].key).not.toContain("fixture");
     expect(targets[0].key).not.toBe("local");
     expect(targets[0].selectionFields).toEqual({ runner: "local" });

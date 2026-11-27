@@ -280,6 +280,7 @@ export function TemplateConfigFields({
 
       {target?.launch.target?.location.kind === "project" ? (
         <RunnerProjectPicker
+          searchUrl={target.launch.target.location.repositorySearchUrl}
           projects={target.launch.target.location.projects ?? []}
           projectId={projectId ?? null}
           loading={target.launch.list.isLoading}
