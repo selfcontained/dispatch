@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { ChevronDown, GitFork } from "lucide-react";
+import { Check, ChevronDown, GitFork, Search } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
+import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -19,6 +20,57 @@ import type { Project } from "@/hooks/use-projects";
 import { api } from "@/lib/api";
 import { ProjectIcon } from "./project-location";
 
+type PickerProject = Project & { repository?: string | null };
+
+/** Display only; the server remains responsible for repository identity. */
+function repositoryLabel(value: string) {
+  try {
+    const url = new URL(value);
+    return url.pathname
+      .replace(/\/+$/, "")
+      .replace(/\.git$/, "")
+      .replace(/^\//, "");
+  } catch {
+    return value;
+  }
+}
+
+function RepositoryName({ value }: { value: string }) {
+  const label = repositoryLabel(value);
+  const split = label.lastIndexOf("/");
+  return (
+    <span className="flex min-w-0 flex-1 items-baseline" title={label}>
+      {split >= 0 && (
+        <span className="flex max-w-[40%] min-w-0 shrink text-muted-foreground">
+          <span className="truncate">{label.slice(0, split)}</span>
+          <span className="shrink-0">/</span>
+        </span>
+      )}
+      <span className="min-w-0 truncate font-medium">
+        {label.slice(split + 1)}
+      </span>
+    </span>
+  );
+}
+
+function ProjectAvatar({ project }: { project: PickerProject }) {
+  return (
+    <ProjectIcon
+      project={project}
+      className="size-5"
+      fallback={
+        <span style={{ color: project.color }}>
+          {project.name.slice(0, 1).toUpperCase()}
+        </span>
+      }
+    />
+  );
+}
+
+const groupClassName =
+  "[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pb-1.5 [&_[cmdk-group-heading]]:pt-3 [&_[cmdk-group-heading]]:text-label-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wide [&_[cmdk-group-heading]]:text-muted-foreground [&+[cmdk-group]]:border-t [&+[cmdk-group]]:border-border";
+const rowClassName = "py-1.5 text-body-md data-[selected=true]:bg-fill-hover";
+
 export function RunnerRepositoryPicker({
   searchUrl,
   projectId,
@@ -32,7 +84,7 @@ export function RunnerRepositoryPicker({
 }: {
   searchUrl?: string;
   projectId?: string | null;
-  projects?: Project[];
+  projects?: PickerProject[];
   loading?: boolean;
   error?: boolean;
   pending?: boolean;
@@ -83,6 +135,34 @@ export function RunnerRepositoryPicker({
     searchGitHub && search === text && !matches.isError
       ? (matches.data?.repositories ?? [])
       : [];
+  const searching = searchGitHub && (search !== text || matches.isFetching);
+  const status =
+    urlInput && !validUrl
+      ? "Invalid repository URL."
+      : searching
+        ? "Searching GitHub…"
+        : searchGitHub && matches.isError
+          ? "Couldn’t search repositories."
+          : !projectMatches.length && !repositories.length && !validUrl
+            ? loading
+              ? "Loading projects…"
+              : error
+                ? "Couldn’t load projects."
+                : "No matches."
+            : null;
+  // A quiet annotation from already loaded data, never an admission decision.
+  const linkedProject = (url: string) =>
+    projects.find((item) => {
+      if (!item.repository) return false;
+      try {
+        return (
+          new URL(item.repository).host === new URL(url).host &&
+          repositoryLabel(item.repository) === repositoryLabel(url)
+        );
+      } catch {
+        return false;
+      }
+    });
   const changeOpen = (next: boolean) => {
     setOpen(next);
     setInput("");
@@ -110,7 +190,7 @@ export function RunnerRepositoryPicker({
             >
               <span className="flex min-w-0 items-center gap-2">
                 {project ? (
-                  <ProjectIcon project={project} />
+                  <ProjectAvatar project={project} />
                 ) : repository ? (
                   <GitFork className="size-4 shrink-0" />
                 ) : null}
@@ -136,87 +216,144 @@ export function RunnerRepositoryPicker({
           >
             <Command
               shouldFilter={false}
-              className="min-h-0 border-0 bg-transparent shadow-none [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-body-sm [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground"
+              className="min-h-0 border-0 bg-transparent shadow-none"
             >
-              <CommandInput
-                aria-label="Search projects or repositories"
-                placeholder={
-                  canSearch
-                    ? "Search projects or your repos, or paste a URL"
-                    : "Search projects or paste an HTTPS URL"
-                }
-                value={input}
-                onValueChange={setInput}
-              />
-              <CommandList className="min-h-0 touch-pan-y overscroll-contain">
+              <div className="relative">
+                <Search
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                />
+                <CommandInput
+                  className="pl-7 pr-6"
+                  aria-label="Search projects or repositories"
+                  placeholder={
+                    canSearch
+                      ? "Search projects or your repos, or paste a URL"
+                      : "Search projects or paste an HTTPS URL"
+                  }
+                  value={input}
+                  onValueChange={setInput}
+                />
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
+                  {(searching || loading) && (
+                    <Spinner className="size-3.5 text-muted-foreground" />
+                  )}
+                </span>
+              </div>
+              <CommandList className="max-h-80 min-h-0 touch-pan-y overscroll-contain">
                 {projectMatches.length > 0 && (
-                  <CommandGroup heading="Projects">
+                  <CommandGroup className={groupClassName} heading="Projects">
                     {projectMatches.map((item) => (
                       <CommandItem
                         key={item.id}
                         value={`project:${item.id}`}
+                        aria-label={item.name}
+                        className={rowClassName}
                         onSelect={() => {
                           onProject?.(item.id);
                           changeOpen(false);
                         }}
                       >
-                        <ProjectIcon project={item} />
-                        <span className="truncate">{item.name}</span>
+                        <ProjectAvatar project={item} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-normal">
+                            {item.name}
+                          </span>
+                          {item.repository && (
+                            <span className="block truncate text-body-sm text-muted-foreground">
+                              {repositoryLabel(item.repository)}
+                            </span>
+                          )}
+                        </span>
+                        {item.id === projectId && (
+                          <Check
+                            aria-label="Selected"
+                            className="size-3.5 shrink-0 text-muted-foreground"
+                          />
+                        )}
                       </CommandItem>
                     ))}
                   </CommandGroup>
                 )}
                 {repositories.length > 0 && (
-                  <CommandGroup heading="Your GitHub repositories">
-                    {repositories.map((item) => (
-                      <CommandItem
-                        key={item.url}
-                        value={item.url}
-                        onSelect={() => {
-                          onRepository(item.url);
-                          changeOpen(false);
-                        }}
-                      >
-                        <GitFork className="size-4 shrink-0" />
-                        <span className="truncate">{item.name}</span>
-                      </CommandItem>
-                    ))}
+                  <CommandGroup
+                    className={groupClassName}
+                    heading="Your GitHub repositories"
+                  >
+                    {repositories.map((item) => {
+                      const linked = linkedProject(item.url);
+                      return (
+                        <CommandItem
+                          key={item.url}
+                          value={item.url}
+                          aria-label={item.name}
+                          className={rowClassName}
+                          onSelect={() => {
+                            onRepository(item.url);
+                            changeOpen(false);
+                          }}
+                        >
+                          <GitFork
+                            aria-hidden="true"
+                            className="size-4 shrink-0 text-muted-foreground"
+                          />
+                          <RepositoryName value={item.name} />
+                          {linked && (
+                            <span title={linked.name} aria-label={linked.name}>
+                              <ProjectAvatar project={linked} />
+                            </span>
+                          )}
+                          {(repository === item.url ||
+                            Boolean(projectId && linked?.id === projectId)) && (
+                            <Check
+                              aria-label="Selected"
+                              className="size-3.5 shrink-0 text-muted-foreground"
+                            />
+                          )}
+                        </CommandItem>
+                      );
+                    })}
                   </CommandGroup>
                 )}
                 {validUrl && (
-                  <CommandGroup heading="Repository URL">
+                  <CommandGroup
+                    className={groupClassName}
+                    heading="Repository URL"
+                  >
                     <CommandItem
                       value={text}
+                      aria-label={repositoryLabel(text)}
+                      className={rowClassName}
                       onSelect={() => {
                         onRepository(text);
                         changeOpen(false);
                       }}
                     >
-                      <GitFork className="size-4 shrink-0" />
-                      <span className="truncate">{text}</span>
+                      <GitFork
+                        aria-hidden="true"
+                        className="size-4 shrink-0 text-muted-foreground"
+                      />
+                      <RepositoryName value={text} />
+                      {repository === text && (
+                        <Check
+                          aria-label="Selected"
+                          className="size-3.5 shrink-0 text-muted-foreground"
+                        />
+                      )}
                     </CommandItem>
                   </CommandGroup>
                 )}
               </CommandList>
               <div
                 role="status"
-                className="empty:hidden px-3 py-2 text-body-sm text-muted-foreground"
+                aria-live="polite"
+                className={
+                  status && !(searching && projectMatches.length)
+                    ? "flex h-9 shrink-0 items-center px-3 text-body-sm text-muted-foreground"
+                    : "sr-only"
+                }
               >
-                {urlInput && !validUrl
-                  ? "Invalid repository URL."
-                  : searchGitHub && (search !== text || matches.isFetching)
-                    ? "Searching GitHub…"
-                    : searchGitHub && matches.isError
-                      ? "Couldn’t search repositories."
-                      : !projectMatches.length &&
-                          !repositories.length &&
-                          !validUrl
-                        ? loading
-                          ? "Loading projects…"
-                          : error
-                            ? "Couldn’t load projects."
-                            : "No matches."
-                        : null}
+                {status}
               </div>
             </Command>
           </PopoverContent>

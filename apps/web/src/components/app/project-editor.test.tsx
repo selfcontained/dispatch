@@ -137,7 +137,9 @@ it("creates a project from a repository URL on a chosen runner", async () => {
     ),
     { target: { value: url } }
   );
-  const option = await screen.findByRole("option", { name: url });
+  const option = await screen.findByRole("option", {
+    name: "example/new-repo",
+  });
   await act(async () => {});
   fireEvent.click(option);
   expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe(

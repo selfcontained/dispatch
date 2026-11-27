@@ -14,6 +14,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeAll, expect, it, vi } from "vitest";
 
 import { api } from "@/lib/api";
+import { RunnerRepositoryPicker } from "./runner-repository-picker";
 import { CreateAgentDialog } from "./create-agent-dialog";
 
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
@@ -352,3 +353,107 @@ it.each([true, false])(
       });
   }
 );
+
+function mountRepositoryPicker() {
+  const onRepository = vi.fn();
+  render(
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <RunnerRepositoryPicker
+        searchUrl="/fixture/search"
+        projectId="linked"
+        projects={[
+          {
+            id: "linked",
+            name: "Repo project",
+            repository: "https://github.com/acme/repo.git",
+            repoRoot: null,
+            color: "#9575ed",
+            extraRoots: [],
+            iconOverride: null,
+            createdAt: "",
+            updatedAt: "",
+          },
+        ]}
+        onProject={vi.fn()}
+        onRepository={onRepository}
+      />
+    </QueryClientProvider>
+  );
+  return onRepository;
+}
+
+it("shows project repository details and annotates linked repository rows without changing selection", async () => {
+  vi.mocked(api).mockResolvedValue({
+    repositories: [
+      { name: "acme/repo", url: "https://github.com/acme/repo" },
+      {
+        name: "a-very-long-organization/new-repo",
+        url: "https://github.com/a-very-long-organization/new-repo",
+      },
+    ],
+  });
+  const onRepository = mountRepositoryPicker();
+  fireEvent.click(screen.getByRole("combobox", { name: "Project" }));
+  const projectRow = screen.getByRole("option", { name: "Repo project" });
+  expect(within(projectRow).getByText("acme/repo")).toBeTruthy();
+  expect(within(projectRow).getByLabelText("Selected")).toBeTruthy();
+  fireEvent.change(
+    screen.getByPlaceholderText(
+      "Search projects or your repos, or paste a URL"
+    ),
+    { target: { value: "repo" } }
+  );
+  const linked = await screen.findByRole("option", { name: "acme/repo" });
+  expect(within(linked).getByLabelText("Repo project")).toBeTruthy();
+  expect(within(linked).getByLabelText("Selected")).toBeTruthy();
+  const fresh = screen.getByRole("option", {
+    name: "a-very-long-organization/new-repo",
+  });
+  expect(within(fresh).queryByLabelText("Selected")).toBeNull();
+  fireEvent.click(fresh);
+  expect(onRepository).toHaveBeenCalledWith(
+    "https://github.com/a-very-long-organization/new-repo"
+  );
+});
+
+it("displays a pasted URL as owner/repo while selecting its original URL", async () => {
+  const onRepository = mountRepositoryPicker();
+  await act(async () => {});
+  fireEvent.click(screen.getByRole("combobox", { name: "Project" }));
+  const url = "https://github.com/acme/pasted-repo.git";
+  fireEvent.change(
+    screen.getByPlaceholderText(
+      "Search projects or your repos, or paste a URL"
+    ),
+    { target: { value: url } }
+  );
+  const option = await screen.findByRole("option", {
+    name: "acme/pasted-repo",
+  });
+  expect(within(option).getByText("pasted-repo")).toBeTruthy();
+  fireEvent.click(option);
+  expect(onRepository).toHaveBeenCalledWith(url);
+});
+
+it("presents search failures as status text rather than selectable rows", async () => {
+  vi.mocked(api).mockRejectedValue(new Error("offline"));
+  mountRepositoryPicker();
+  await act(async () => {});
+  fireEvent.click(screen.getByRole("combobox", { name: "Project" }));
+  fireEvent.change(
+    screen.getByPlaceholderText(
+      "Search projects or your repos, or paste a URL"
+    ),
+    { target: { value: "missing" } }
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("status").textContent).toBe(
+      "Couldn’t search repositories."
+    )
+  );
+  expect(screen.queryByRole("option")).toBeNull();
+});
