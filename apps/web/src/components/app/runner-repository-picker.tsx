@@ -136,7 +136,7 @@ export function RunnerRepositoryPicker({
           >
             <Command
               shouldFilter={false}
-              className="min-h-0 border-0 bg-transparent shadow-none"
+              className="min-h-0 border-0 bg-transparent shadow-none [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-body-sm [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground"
             >
               <CommandInput
                 aria-label="Search projects or repositories"
