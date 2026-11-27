@@ -257,9 +257,7 @@ it("puts the target first and re-derives the engine and required project for an 
       .getByRole("button", { name: "Create template" })
       .hasAttribute("disabled")
   ).toBe(true);
-  fireEvent.keyDown(screen.getByTestId("create-agent-runner-project"), {
-    key: "Enter",
-  });
+  fireEvent.click(screen.getByTestId("create-agent-runner-project"));
   fireEvent.click(await screen.findByRole("option", { name: "Repository" }));
   fireEvent.change(screen.getByPlaceholderText("template name"), {
     target: { value: "Fixture template" },
