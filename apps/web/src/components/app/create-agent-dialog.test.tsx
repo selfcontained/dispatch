@@ -57,7 +57,8 @@ function mount(
   initialEntry = "/agents?project=p1",
   localPicker = false,
   task: { id: string; title: string; projectId: string } | null = null,
-  repositoryOnly = false
+  repositoryOnly = false,
+  labels: { project?: string; runner?: string } = {}
 ) {
   vi.mocked(api).mockImplementation(async (path) => {
     if (path === "/api/v1/agent-models") return response;
@@ -75,7 +76,7 @@ function mount(
                 projects: [
                   {
                     id: "p1",
-                    name: "Sample Project",
+                    name: labels.project ?? "Sample Project",
                     repoRoot: repositoryOnly ? null : "/repo",
                     repository: "https://github.com/example/project",
                   },
@@ -98,7 +99,7 @@ function mount(
             ? [
                 {
                   key: "runner-choice",
-                  name: "Runner A",
+                  name: labels.runner ?? "Runner A",
                   status: "online",
                   location: {
                     folders: false,
@@ -107,7 +108,7 @@ function mount(
                     projects: [
                       {
                         id: "p1",
-                        name: "Sample Project",
+                        name: labels.project ?? "Sample Project",
                         repoRoot: repositoryOnly ? null : "/repo",
                         repository: "https://github.com/example/project.git",
                       },
@@ -154,7 +155,7 @@ function mount(
       return [
         {
           id: "p1",
-          name: "Sample Project",
+          name: labels.project ?? "Sample Project",
           repoRoot: repositoryOnly ? null : "/repo",
         },
         { id: "p2", name: "Folder Only", repoRoot: "/folder" },
@@ -166,7 +167,7 @@ function mount(
           ? [
               {
                 id: "runner-a",
-                name: "Runner A",
+                name: labels.runner ?? "Runner A",
                 status: "online",
               },
             ]
@@ -824,5 +825,145 @@ it.each(["Local", "Runner A"])(
     expect(payload).not.toHaveProperty("cwd");
     if (host === "Runner A") expect(payload.runner).toBe("runner-a");
     else expect(payload).not.toHaveProperty("runner");
+  }
+);
+
+it.each([true, false])(
+  "keeps task launch ready after choosing Haiku and a name on Local, then switching runner (repository-only=%s)",
+  async (repositoryOnly) => {
+    const task = {
+      id: "hp-launch-smoke",
+      title: "hp launch smoke",
+      projectId: "p1",
+    };
+    const models = {
+      ...catalog,
+      models: {
+        ...catalog.models,
+        claude: [
+          { id: "sonnet", label: "Sonnet" },
+          { id: "haiku", label: "Haiku" },
+        ],
+      },
+      defaults: { ...catalog.defaults, claude: "sonnet" },
+    };
+    mount("codex", models, true, "/agents", true, task, repositoryOnly, {
+      project: "Hello-World",
+      runner: "ubu",
+    });
+    const original = vi.mocked(api).getMockImplementation()!;
+    let finishBranches:
+      | ((value: { branches: string[]; defaultBranch: string }) => void)
+      | undefined;
+    vi.mocked(api).mockImplementation(async (path, init) => {
+      if (path.startsWith("/fixture/runner/branches?"))
+        return new Promise((resolve) => {
+          finishBranches = resolve;
+        });
+      if (path.startsWith("/fixture/controller/branches?"))
+        return { branches: ["master", "release"], defaultBranch: "master" };
+      if (path === `/api/v1/tasks/${task.id}/briefing`)
+        return { projectId: task.projectId, text: "Task briefing" };
+      if (path === "/api/v1/agents" && init?.method === "POST")
+        return { agent: { id: "task-agent", type: "claude" } };
+      return original(path, init);
+    });
+    const machine = await screen.findByRole("combobox", { name: "Runs on" });
+    await within(machine).findByText("Local");
+    const worktree = screen.getByRole("checkbox", {
+      name: "Create managed git worktree",
+    });
+    const starting = screen.getByRole("combobox", { name: "Starting branch" });
+    await waitFor(() => {
+      expect(worktree).toHaveProperty("disabled", false);
+      expect(starting).toHaveProperty("disabled", false);
+      expect(starting.querySelector(".animate-spin")).toBeNull();
+      expect(
+        vi
+          .mocked(api)
+          .mock.calls.some(([path]) =>
+            path.startsWith("/fixture/controller/branches?")
+          )
+      ).toBe(true);
+    });
+    const type = screen.getByRole("combobox", { name: "Type" });
+    fireEvent.keyDown(type, { key: "ArrowDown" });
+    fireEvent.click(screen.getByRole("option", { name: /Claude/ }));
+    const model = screen.getByRole("combobox", { name: "Model" });
+    await within(model).findByText("Sonnet");
+    fireEvent.keyDown(model, { key: "ArrowDown" });
+    fireEvent.click(screen.getByRole("option", { name: "Haiku" }));
+    const name = screen.getByTestId("create-agent-name");
+    fireEvent.change(name, { target: { value: "smoke on ubu" } });
+    fireEvent.keyDown(machine, { key: "ArrowDown" });
+    fireEvent.click(screen.getByRole("option", { name: /ubu/ }));
+    await waitFor(() => expect(finishBranches).toBeDefined());
+    expect(screen.getByTestId("create-agent-task").textContent).toContain(
+      "Hello-World"
+    );
+    expect(
+      screen.queryByRole("combobox", { name: "Project or repository" })
+    ).toBeNull();
+    expect(worktree).toHaveProperty("disabled", false);
+    expect(worktree.getAttribute("data-state")).toBe("checked");
+    await act(async () =>
+      finishBranches!({
+        branches: ["master", "release"],
+        defaultBranch: "master",
+      })
+    );
+    await waitFor(() => {
+      expect(starting).toHaveProperty("disabled", false);
+      expect(starting.querySelector(".animate-spin")).toBeNull();
+    });
+    expect(model.textContent).toContain("Haiku");
+    expect(
+      screen.getByRole("combobox", { name: "Type" }).textContent
+    ).toContain("Claude");
+    expect(name).toHaveProperty("value", "smoke on ubu");
+    const branch = screen.getByRole("textbox", { name: "New branch name" });
+    expect(branch).toHaveProperty("disabled", false);
+    fireEvent.change(branch, { target: { value: "feature/hp-launch-smoke" } });
+    fireEvent.click(starting);
+    fireEvent.click(await screen.findByRole("option", { name: "master" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create agent" }));
+    await waitFor(() =>
+      expect(
+        vi
+          .mocked(api)
+          .mock.calls.some(
+            ([path, init]) =>
+              path === "/api/v1/agents" && init?.method === "POST"
+          )
+      ).toBe(true)
+    );
+    const request = vi
+      .mocked(api)
+      .mock.calls.find(
+        ([path, init]) => path === "/api/v1/agents" && init?.method === "POST"
+      )!;
+    const payload = JSON.parse(String(request[1]!.body));
+    expect(payload).toMatchObject({
+      taskId: task.id,
+      projectId: task.projectId,
+      runner: "runner-a",
+      name: "smoke on ubu",
+      type: "claude",
+      model: "haiku",
+      useWorktree: true,
+      createNewBranch: true,
+      worktreeBranch: "feature/hp-launch-smoke",
+    });
+    expect(payload).not.toHaveProperty("baseBranch");
+    expect(
+      vi
+        .mocked(api)
+        .mock.calls.some(
+          ([path]) =>
+            path.startsWith("/fixture/runner/branches?") &&
+            new URL(path, "http://fixture").searchParams.get("projectId") ===
+              task.projectId
+        )
+    ).toBe(true);
   }
 );
