@@ -50,12 +50,22 @@ import { LOCAL_RUNNER_ID } from "./placement.js";
 import {
   sessionFileBlob,
   sessionFileBytesBlob,
-} from "../files/session-file-blob.js";
+} from "@dispatch/runner-client/session-files";
 import {
   agentDiffPath,
   agentWorkspaceDir,
 } from "../agents/workspace-target.js";
 import { selectWorkspaceFromResolution } from "./workspace-selection.js";
+
+// Public file helpers enter through the same client boundary as session calls.
+export {
+  withSessionFileBlob,
+  sessionFileBlob,
+  sessionFileBytesBlob,
+  takeSessionFileBytes,
+  type SessionFileSource,
+  type SessionFileBlob,
+} from "@dispatch/runner-client/session-files";
 
 /** Checkout reads the local runner child serves (T09). */
 const CHILD_READS = new Set<CallName>([

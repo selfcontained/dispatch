@@ -11,7 +11,8 @@
     "./session": "./src/session/local-runner.ts",
     "./host-client": "./src/host-client.ts",
     "./host-framing": "./src/host-framing.ts",
-    "./session/operations": "./src/session/operations.ts"
+    "./session/operations": "./src/session/operations.ts",
+    "./session-files": "./src/session-files.ts"
   },
   "files": [
     "src"
