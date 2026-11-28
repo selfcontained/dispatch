@@ -909,6 +909,85 @@ const runnerGitQueries: Scenario[] = [
 
 const workspacePreparation: Scenario[] = [
   {
+    op: "session.retire",
+    id: "session.retire/retains-checkout",
+    async run({ workspace }) {
+      expect(workspace, "Missing managed runner fixture.");
+      const { runner, repository } = workspace;
+      const owner = sessionFromWire("retire-owner");
+      const borrower = sessionFromWire("retire-borrower");
+      const checkout = await runner.call("workspace.prepare", {
+        session: owner,
+        source: {
+          repository,
+          checkout: { kind: "new", branch: "retire-checkout" },
+        },
+        copyIgnored: [],
+        installDependencies: false,
+      });
+      await runner.call("workspace.prepare", {
+        session: borrower,
+        source: { session: owner },
+        copyIgnored: [],
+        installDependencies: false,
+      });
+      expect(
+        (
+          await runner.call("workspace.observe", {
+            session: owner,
+            policy: "ownership",
+          })
+        ).borrowers.includes(String(borrower)),
+        "Owner did not report its borrower."
+      );
+      await runner.call("session.retire", {
+        session: owner,
+        checkoutPending: true,
+      });
+      expect(
+        (
+          await runner.call("workspace.observe", {
+            session: owner,
+            policy: "ownership",
+          })
+        ).borrowers.includes(String(borrower)),
+        "Pending retirement lost the checkout or borrower recovery binding."
+      );
+      await runner.call("session.retire", { session: borrower });
+      expect(
+        !(
+          await runner.call("workspace.observe", {
+            session: owner,
+            policy: "ownership",
+          })
+        ).borrowers.includes(String(borrower)),
+        "Retired borrower retained its binding."
+      );
+      await runner.call("session.retire", { session: owner });
+      await runner.call("session.retire", { session: owner });
+      const observed = await runner.call("workspace.observe", {
+        session: owner,
+        policy: "ownership",
+      });
+      expect(
+        observed.ownership === "none",
+        "Retired owner retained its binding."
+      );
+      const file = await runner.call("checkout.read", {
+        target: { path: checkout.path },
+        path: "target-matrix/read.txt",
+        mode: "native",
+        encoding: "utf8",
+        maxBytes: null,
+      });
+      expect(
+        file?.data === "target-kind sentinel ✓\n",
+        "Host retirement removed or changed the retained checkout."
+      );
+    },
+  },
+
+  {
     op: "workspace.prepare",
     id: "workspace.prepare/repository",
     async run({ runner: configured, workspace }) {

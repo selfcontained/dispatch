@@ -12,7 +12,7 @@
  * not written its pid yet). An app rolled back to an older build finds the
  * same records and drives the same hosts.
  */
-import { mkdir, open, rm, unlink } from "node:fs/promises";
+import { mkdir, open, readdir, rm, unlink } from "node:fs/promises";
 import { createConnection, type Socket } from "node:net";
 import { join } from "node:path";
 import { Duplex } from "node:stream";
@@ -69,6 +69,8 @@ export type LocalSessionOptions = {
   sweepMs?: number | null;
   /** The directory a session is bound to, for a launch that names none. */
   boundDirectory?: (key: string) => Promise<string | null>;
+  /** Retire the stopped session binding after its checkout decision is complete. */
+  retireBinding?: (key: string) => Promise<void>;
   /** Release managed repository checkouts before their recovery records go away. */
   discardWorkspace?: (
     session: Req<"session.discard">["session"],
@@ -295,6 +297,40 @@ export function localSessionHandlers(
     return sessions;
   }
 
+  async function discardSession(
+    session: Req<"session.discard">["session"],
+    context: ConnectionContext,
+    retainCheckout: boolean,
+    checkoutPending = false
+  ) {
+    const key = keyOf(session);
+    return core.lock(key, async () => {
+      if (await running(key))
+        throw new RunnerCallError({
+          code: "busy",
+          message: "The host is still running",
+        });
+      if (!retainCheckout) await options.discardWorkspace?.(session, context);
+      await core.removeLaunch(key);
+      if (checkoutPending) {
+        // Local preparation receipts share the host directory. Keep only the
+        // recovery receipt until the checkout decision can complete.
+        for (const file of await readdir(layout.hostDir(key)).catch((error) => {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+          throw error;
+        }))
+          if (file !== "workspace-preparation")
+            await rm(join(layout.hostDir(key), file), {
+              recursive: true,
+              force: true,
+            });
+      } else {
+        await options.retireBinding?.(key);
+        await rm(layout.hostDir(key), { recursive: true, force: true });
+      }
+      return {};
+    });
+  }
   return {
     /** Live hosts, as `session.list` reads them: the update boundary's count. */
     async liveCount() {
@@ -453,17 +489,10 @@ export function localSessionHandlers(
       },
       /** Remove the session's directory; a running host is `busy`. */
       async "session.discard"({ session }, context) {
-        const key = keyOf(session);
-        return core.lock(key, async () => {
-          if (await running(key))
-            throw new RunnerCallError({
-              code: "busy",
-              message: "The host is still running",
-            });
-          await options.discardWorkspace?.(session, context);
-          await rm(layout.hostDir(key), { recursive: true, force: true });
-          return {};
-        });
+        return discardSession(session, context, false);
+      },
+      async "session.retire"({ session, checkoutPending }, context) {
+        return discardSession(session, context, true, checkoutPending);
       },
       async "session.alive"({ session }) {
         const { state } = await inspectHostDir(layout.hostDir(keyOf(session)));

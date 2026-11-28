@@ -154,6 +154,7 @@ const makeRuntime = (overrides: Partial<AgentRuntime> = {}): AgentRuntime => ({
   ...createInertRuntime(),
   stop: vi.fn().mockResolvedValue(undefined),
   discard: vi.fn().mockResolvedValue(undefined),
+  clearRemoteState: vi.fn().mockResolvedValue(undefined),
   ...overrides,
 });
 
@@ -175,7 +176,7 @@ const makePool = (queryImpl?: (...args: unknown[]) => unknown) => ({
 
 const makeDeps = (overrides: Partial<ArchiveDeps> = {}): ArchiveDeps => {
   const pool = makePool();
-  return {
+  const deps: ArchiveDeps = {
     pool: pool as never,
     logger: noopLogger,
     runtime: makeRuntime(),
@@ -188,6 +189,38 @@ const makeDeps = (overrides: Partial<ArchiveDeps> = {}): ArchiveDeps => {
     setArchivePhase: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
+  deps.localRunnerChild ??= () =>
+    ({
+      connection: { state: "ready", epoch: 1, onChange: () => () => {} },
+      async call(op: string, input: any) {
+        const agent = await deps.getRequiredAgent(String(input.session));
+        if (op === "session.retire") return {};
+        if (op === "workspace.observe")
+          return {
+            ownership: agent.worktreePath ? "owned" : "external",
+            owner: agent.worktreePath ? agent.id : null,
+            borrowers: [],
+            checkout:
+              !agent.worktreePath || input.policy === "ownership"
+                ? null
+                : await observeGitCheckout(agent.worktreePath!),
+          };
+        if (op === "workspace.release") {
+          await cleanupGitWorktree(
+            {
+              cwd: agent.worktreePath!,
+              force: true,
+              deleteBranch: input.deleteBranch,
+              originalBranch: input.originalBranch,
+            },
+            async () => ({ exitCode: 0, stdout: "", stderr: "" })
+          );
+          return { removed: true };
+        }
+        throw new Error(`Unexpected ${op}`);
+      },
+    }) as never;
+  return deps;
 };
 
 const makeCallbacks = () => ({
@@ -612,7 +645,8 @@ describe("executeArchive", () => {
 
       expect(runtime.stop).toHaveBeenCalledWith("a1", true);
       expect(settleStream).toHaveBeenCalledWith("a1");
-      expect(runtime.discard).toHaveBeenCalledWith("a1");
+      expect(runtime.discard).not.toHaveBeenCalled();
+      expect(runtime.clearRemoteState).toHaveBeenCalledWith("a1");
     });
 
     it("continues the archive when stopping the host fails", async () => {
@@ -652,7 +686,7 @@ describe("executeArchive", () => {
         "stop",
         agent,
         expect.anything(),
-        { remote: undefined },
+        { remote: undefined, child: deps.localRunnerChild },
         undefined
       );
     });
@@ -1093,7 +1127,7 @@ describe("executeArchive", () => {
                 },
               };
             if (op === "workspace.release") return { removed: true };
-            if (op === "session.discard") return {};
+            if (op === "session.retire") return {};
             throw new Error("Unexpected operation " + op);
           }
         );
@@ -1114,9 +1148,9 @@ describe("executeArchive", () => {
         expect(call.mock.calls.map(([, op]) => op)).toEqual(
           online
             ? release
-              ? ["workspace.observe", "workspace.release"]
-              : ["workspace.observe", "session.discard"]
-            : []
+              ? ["workspace.observe", "workspace.release", "session.retire"]
+              : ["workspace.observe", "session.retire"]
+            : ["session.retire"]
         );
         expect(pool.query).toHaveBeenCalledWith(
           expect.stringContaining("runner_cleanup_pending = $2"),
@@ -1172,7 +1206,7 @@ describe("executeArchive", () => {
       });
 
       const pool = makePool(async (sql: string, params?: unknown[]) => {
-        if (sql.includes("worktree_path = $2")) {
+        if (sql.includes("SELECT id FROM agents WHERE deleted_at")) {
           // A second live row points at the same worktree.
           return { rows: [{ id: "other" }], rowCount: 1 };
         }
@@ -1225,8 +1259,7 @@ describe("executeArchive", () => {
           if (
             childFailed &&
             params?.[0] === parent.id &&
-            (params[3] as string[] | undefined)?.includes(checkout) &&
-            sql.includes(`OR ${column} = ANY($4::text[])`)
+            sql.includes("SELECT id FROM agents WHERE deleted_at")
           ) {
             return { rows: [{ id: child.id }], rowCount: 1 };
           }
@@ -1357,7 +1390,7 @@ describe("executeArchive", () => {
       expect(cb.onComplete).toHaveBeenCalled();
       expect(noopLogger.warn).toHaveBeenCalledWith(
         expect.objectContaining({ agentId: "a1" }),
-        "Worktree cleanup failed; leaving on disk."
+        "Runner checkout release remains pending."
       );
     });
   });
@@ -1403,7 +1436,7 @@ describe("deleteAgentDirect", () => {
     vi.clearAllMocks();
   });
 
-  it("deletes a stopped agent without tearing down a host", async () => {
+  it("confirms even a recorded stopped host before archive cleanup", async () => {
     const agent = makeAgent("a1", { status: "stopped" });
     const pool = makePool();
     const runtime = makeRuntime();
@@ -1415,7 +1448,7 @@ describe("deleteAgentDirect", () => {
 
     await deleteAgentDirect(deps, "a1");
 
-    expect(runtime.stop).not.toHaveBeenCalled();
+    expect(runtime.stop).toHaveBeenCalledWith("a1", true);
     expect(runLifecycleHook).toHaveBeenCalledExactlyOnceWith(
       "archive",
       agent,
@@ -1444,7 +1477,8 @@ describe("deleteAgentDirect", () => {
     // stopAgent would write `stopping`/`stopped` and release the claim.
     expect(runtime.stop).toHaveBeenCalledWith("a1", true);
     expect(deps.settleStream).toHaveBeenCalledWith("a1");
-    expect(runtime.discard).toHaveBeenCalledWith("a1");
+    expect(runtime.discard).not.toHaveBeenCalled();
+    expect(runtime.clearRemoteState).toHaveBeenCalledWith("a1");
     expect(runLifecycleHook).toHaveBeenCalled();
     const statuses = pool.query.mock.calls
       .map(([sql]: [string]) => sql)
@@ -1470,7 +1504,7 @@ describe("deleteAgentDirect", () => {
 
     expect(pool.query).toHaveBeenCalledWith(
       expect.stringContaining("SET deleted_at = NOW()"),
-      ["a1", false]
+      ["a1", true]
     );
   });
 

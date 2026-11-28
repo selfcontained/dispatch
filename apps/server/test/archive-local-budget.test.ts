@@ -95,25 +95,24 @@ function archive(child: Runner, mode: "force" | "auto" = "force") {
   };
 }
 
-it("force reads no checkout state before removing, as main", async () => {
+it("force reads ownership but no checkout state before removing", async () => {
   const { child, call } = owningChild();
   const { outcome } = archive(child);
   expect(await outcome).toEqual({ kind: "released" });
   // The archive's own calls: the co-owner spelling, then the removal. The
   // adapter checks the child's binding names the worktree before removing it.
   expect(call.mock.calls.map(([op]) => op)).toEqual([
-    "path.resolve",
-    "workspace.describe",
+    "workspace.observe",
     "workspace.release",
   ]);
 });
 
 it.each([
-  ["the co-owner read", "path.resolve", "force"],
+  ["the ownership read", "workspace.observe", "force"],
   ["the observation", "workspace.observe", "auto"],
   ["the removal", "workspace.release", "force"],
 ] as const)(
-  "keeps a checkout when %s outlasts main's 60 s cleanup, with main's warning",
+  "retries a checkout when %s outlasts the 60 s cleanup budget",
   async (_, slow, mode) => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const here = vi.spyOn(workspaceWorkload, "release");
@@ -125,7 +124,7 @@ it.each([
     await vi.advanceTimersByTimeAsync(59_000);
     expect(settled).toBeUndefined();
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(await outcome).toEqual({ kind: "kept", reason: "failed" });
+    expect(await outcome).toEqual({ kind: "pending", reason: "unavailable" });
     expect(logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({
         err: expect.objectContaining({
@@ -133,7 +132,7 @@ it.each([
         }),
         worktreePath: worktree,
       }),
-      "Worktree cleanup failed; leaving on disk."
+      "Runner checkout release remains pending."
     );
     // Nothing is sent twice, and nothing is made here.
     expect(
@@ -150,23 +149,28 @@ it("distinguishes a gone checkout root from a failed Git read at an existing roo
   expect(await workspaceWorkload.observe(worktree)).toBeNull();
 });
 
-it("does not release a checkout after a late clean observation", async () => {
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-  const { child, call } = owningChild();
-  const serve = call.getMockImplementation()!;
-  const deferred = Promise.withResolvers<void>();
-  call.mockImplementation(async (op, input) => {
-    if (op === "workspace.observe") await deferred.promise;
-    return serve(op, input);
-  });
-  const { outcome, logger } = archive(child, "auto");
-  await vi.advanceTimersByTimeAsync(60_000);
-  expect(await outcome).toEqual({ kind: "kept", reason: "failed" });
-  deferred.resolve();
-  await vi.advanceTimersByTimeAsync(1);
-  expect(call.mock.calls.map(([op]) => op)).not.toContain("workspace.release");
-  expect(logger.warn).toHaveBeenCalledTimes(1);
-});
+it.each(["auto", "force"] as const)(
+  "does not release after a late %s observation",
+  async (mode) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { child, call } = owningChild();
+    const serve = call.getMockImplementation()!;
+    const deferred = Promise.withResolvers<void>();
+    call.mockImplementation(async (op, input) => {
+      if (op === "workspace.observe") await deferred.promise;
+      return serve(op, input);
+    });
+    const { outcome, logger } = archive(child, mode);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(await outcome).toEqual({ kind: "pending", reason: "unavailable" });
+    deferred.resolve();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(call.mock.calls.map(([op]) => op)).not.toContain(
+      "workspace.release"
+    );
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+  }
+);
 
 it("gives an enrolled runner no cleanup budget: its transport bounds it", () => {
   const enrolled = runnerDirectory({}).for(placementForRunner("enrolled-1"));

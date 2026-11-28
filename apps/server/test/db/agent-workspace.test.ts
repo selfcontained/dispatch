@@ -1,3 +1,4 @@
+import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 /**
  * An agent that moves after launch (its own worktree, another repo) reports a
  * workspace. These run real git against temp repos and a real database: the
@@ -71,6 +72,14 @@ vi.mock(
 
 const { AgentManager } = await import("../../src/agents/manager.js");
 const { createMcpHandlers } = await import("../../src/server/mcp-handlers.js");
+const { BindingStore } =
+  await import("../../../../packages/runner/src/local/bindings.js");
+const { workspaceHandlers } =
+  await import("../../../../packages/runner/src/core/workspace.js");
+const { workspaceWorkload } =
+  await import("../../../../packages/runner/src/workload/agents/checkout-worker.js");
+const { readLocalBindings } =
+  await import("../../src/runners/local-bindings.js");
 
 const noopLogger = {
   info: () => {},
@@ -122,11 +131,14 @@ let otherRepo: string;
 beforeAll(async () => {
   pool = await setupTestDb();
   await runTestMigrations();
-  manager = new AgentManager(pool, noopLogger, inertConfig);
 
   root = await realpath(
     await mkdtemp(path.join(os.tmpdir(), "dispatch-agent-workspace-"))
   );
+  manager = new AgentManager(pool, noopLogger, {
+    ...inertConfig,
+    agentStateRoot: path.join(root, "state"),
+  });
   repo = path.join(root, "repo");
   await mkdir(repo);
   git(repo, "init", "-q", "-b", "main");
@@ -166,14 +178,48 @@ async function insertWorktreeAgent(
 }
 
 async function archive(id: string): Promise<void> {
-  await manager.beginArchive(id, "force");
-  await new Promise<void>((resolve, reject) => {
-    void manager.executeArchive(id, {
-      onPhaseChange: () => {},
-      onComplete: () => resolve(),
-      onError: (err) => reject(err),
+  // Archive unit tests supply the real workspace core at the Runner seam.
+  // setWorkspace tests deliberately retain their existing in-process port.
+  const state = await mkdtemp(path.join(root, "archive-state-"));
+  const store = new BindingStore(state);
+  await store.import(await readLocalBindings(pool));
+  const calls = workspaceHandlers(state, store, workspaceWorkload);
+  const child = {
+    connection: { state: "ready", epoch: 1, onChange: () => () => {} },
+    async call(op: string, request: any) {
+      if (op === "session.retire") {
+        if (!request.checkoutPending)
+          await store.retire(String(request.session));
+        return {};
+      }
+      if (op === "workspace.describe")
+        throw new RunnerCallError({
+          code: "not_found",
+          message: "Native hook fixture",
+        });
+      const handler = calls[op as keyof typeof calls];
+      if (!handler) throw new Error(`Unexpected ${op}`);
+      return handler(request, {
+        emit: () => {},
+        receiveBlob: async () => {
+          throw new Error("No blobs");
+        },
+      });
+    },
+  } as unknown as import("@dispatch/runner-protocol/contract").Runner;
+  manager.attachLocalRunner(() => child);
+  try {
+    await manager.beginArchive(id, "force");
+    await new Promise<void>((resolve, reject) => {
+      void manager.executeArchive(id, {
+        onPhaseChange: () => {},
+        onComplete: () => resolve(),
+        onError: reject,
+      });
     });
-  });
+  } finally {
+    manager.attachLocalRunner(() => undefined);
+  }
 }
 
 describe("setWorkspace", () => {

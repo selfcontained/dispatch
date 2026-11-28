@@ -13,6 +13,7 @@ export const OPERATION_TASK = {
   "session.alive": "T23",
   "session.stop": "T26",
   "session.discard": "T26",
+  "session.retire": "T26",
   "session.logs": "T23",
   "session.list": "T27",
   "session.sample": "T27",

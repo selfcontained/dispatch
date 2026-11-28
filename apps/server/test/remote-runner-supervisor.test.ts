@@ -1851,7 +1851,7 @@ describe("runner session supervision", () => {
     await writeFile(path.join(checkout, "owner-sentinel"), "keep");
     const host = path.join(state, "hosts", reviewerId);
     expect((await stat(host)).isDirectory()).toBe(true);
-    await enrolledSessions(runner, () => {}).calls["session.discard"]({
+    await enrolledSessions(runner, () => {}).calls["session.retire"]({
       session: sessionFromWire(reviewerId),
     });
     await expect(stat(host)).rejects.toMatchObject({ code: "ENOENT" });
@@ -1863,6 +1863,37 @@ describe("runner session supervision", () => {
       "keep"
     );
     expect(await runner.isBound(agentId)).toBe(true);
+  });
+
+  it("retires an owned host and binding while retaining its decided checkout", async () => {
+    const runner = await start();
+    await startHost(runner, launch());
+    await runner.stop(agentId, true);
+    const checkout = await runner.checkoutDirectory(agentId);
+    await writeFile(path.join(checkout, "retained-checkout"), "dirty bytes");
+    const handler = enrolledSessions(runner, () => {}).calls["session.retire"];
+    await handler({ session: sessionFromWire(agentId), checkoutPending: true });
+    expect(await runner.isBound(agentId)).toBe(true);
+    await expect(
+      stat(path.join(state, "hosts", agentId))
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await runner.observeWorkspace(agentId, "ownership")).toMatchObject({
+      ownership: "owned",
+    });
+    for (let attempt = 0; attempt < 2; attempt++)
+      await handler({
+        session: sessionFromWire(agentId),
+      });
+    expect(
+      await readFile(path.join(checkout, "retained-checkout"), "utf8")
+    ).toBe("dirty bytes");
+    expect(await runner.isBound(agentId)).toBe(false);
+    await expect(
+      stat(path.join(state, "hosts", agentId))
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      readFile(path.join(state, "bindings", agentId))
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("binds a nested managed reviewer directly to the durable checkout owner", async () => {

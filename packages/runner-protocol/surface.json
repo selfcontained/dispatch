@@ -1100,6 +1100,29 @@
       "timeout": "default",
       "capability": "baseline"
     },
+    "session.retire": {
+      "scope": "session",
+      "kind": "call",
+      "request": {
+        "object": {
+          "session": {
+            "opaque": "SessionHandle"
+          },
+          "checkoutPending": {
+            "optional": "boolean"
+          }
+        }
+      },
+      "response": {
+        "object": {}
+      },
+      "errors": ["busy"],
+      "retry": {
+        "kind": "read"
+      },
+      "timeout": "default",
+      "capability": "baseline"
+    },
     "session.logs": {
       "scope": "session",
       "kind": "call",

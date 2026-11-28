@@ -19,6 +19,7 @@ import {
 import type { RunnerComposition } from "../runners/directory.js";
 import {
   RunnerCallError,
+  sessionFromWire,
   type Runner,
 } from "@dispatch/runner-protocol/contract";
 import type { RemoteRunnerService } from "./remote/service.js";
@@ -212,7 +213,7 @@ export async function archiveCheckout(
         mode,
         executor,
         hooks,
-        mode === "auto" ? deadline.signal : undefined
+        deadline.signal
       ),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
@@ -225,11 +226,6 @@ export async function archiveCheckout(
       }),
     ]);
   } catch (err) {
-    if (mode === "auto" && deadline.signal.aborted)
-      await pool.query(
-        "UPDATE agents SET archive_cleanup_mode = 'keep', archive_checkout_state = NULL WHERE id = $1",
-        [agent.id]
-      );
     const failure = archiveFailure(policy);
     logger.warn(
       { err, agentId: agent.id, worktreePath: agent.worktreePath },
@@ -253,6 +249,11 @@ export async function finishCheckout(
   const checkoutAgent = await withRepositorySource(deps.pool, agent);
   const hooks = { durations, onCleanupStart };
   // Release on the runner that owns the binding. An offline release stays pending.
+  const runner = archiveRunner(
+    { child: deps.localRunnerChild, remote: deps.remote },
+    checkoutAgent,
+    agent.placement
+  );
   const outcome = await archiveCheckout(
     deps.pool,
     deps.logger,
@@ -260,24 +261,32 @@ export async function finishCheckout(
     mode,
     stopped,
     hooks,
-    archiveRunner(
-      { child: deps.localRunnerChild, remote: deps.remote },
-      checkoutAgent,
-      agent.placement
-    )
+    runner
   );
-  if (
+  // Until binding, the receipt is a kept checkout's only locator, so the
+  // host is retired as pending and its state stays.
+  const keepsReceipt =
     checkoutAgent.repositorySource &&
-    !enrolledRunnerId(agent.placement) &&
-    outcome.kind !== "pending" &&
-    // Until binding, the receipt is the kept checkout's only locator.
-    (outcome.kind === "released" ||
-      !checkoutAgent.preparationPending ||
-      agent.worktreePath)
-  ) {
-    // session.discard owns repository checkouts. Archive has already decided
-    // whether to remove or keep this one; clear only the stopped host's state.
-    await deps.runtime?.clearRemoteState?.(agent.id);
+    checkoutAgent.preparationPending &&
+    outcome.kind !== "released" &&
+    !agent.worktreePath;
+  if (stopped) {
+    try {
+      await runner.call("session.retire", {
+        session: sessionFromWire(agent.id),
+        ...((outcome.kind === "pending" || keepsReceipt) && {
+          checkoutPending: true,
+        }),
+      });
+      if (outcome.kind !== "pending" && !keepsReceipt)
+        await deps.runtime?.clearRemoteState?.(agent.id);
+    } catch (err) {
+      deps.logger.warn(
+        { err, agentId: agent.id },
+        "Runner host retirement remains pending."
+      );
+      return true;
+    }
   }
   return outcome.kind === "pending";
 }
@@ -373,7 +382,6 @@ export async function executeArchive(
       // stream is already in the database.
       if (enrolledRunnerId(agent.placement ?? controllerPlacement))
         await runtime.clearRemoteState?.(id);
-      else if (!source.repositorySource) await runtime.discard(id);
       stopped = true;
     } catch (err) {
       if (err instanceof LifecycleSuperseded) return;
@@ -561,7 +569,6 @@ export async function deleteAgentDirect(
       // stream is already in the database.
       if (enrolledRunnerId(agent.placement ?? controllerPlacement))
         await runtime.clearRemoteState?.(id);
-      else if (!source.repositorySource) await runtime.discard(id);
       stopped = true;
     } catch (err) {
       if (err instanceof LifecycleSuperseded) return [];
@@ -571,6 +578,17 @@ export async function deleteAgentDirect(
       );
     }
     durations.stop = Date.now() - t;
+  } else {
+    try {
+      await runtime.stop(id, true);
+      await deps.settleStream(id);
+      stopped = true;
+    } catch (err) {
+      logger.warn(
+        { err, agentId: id },
+        "Stopped host confirmation during delete failed; cleanup remains pending"
+      );
+    }
   }
 
   try {

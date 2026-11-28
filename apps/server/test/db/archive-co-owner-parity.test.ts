@@ -9,7 +9,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { localCoOwner } from "../../src/agents/archive-policy.js";
+import {
+  localCoOwner,
+  observedCoOwner,
+} from "../../src/agents/archive-policy.js";
 import { runnerDirectory } from "../../src/runners/directory.js";
 import { controllerPlacement } from "../../src/runners/placement.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./setup.js";
@@ -141,4 +144,53 @@ it("treats identical paths on another runner as a different checkout", async () 
     runner_id: "runner-other",
   });
   expect(await localCoOwner(pool, owner(), local())).toBeNull();
+});
+
+describe("the common observed policy preserves live users of a checkout", () => {
+  const observation = () => ({
+    ownership: "owned" as const,
+    owner: "agt_owner",
+    borrowers: [] as string[],
+    checkout: {
+      path: real,
+      branch: "owner-branch",
+      stateId: "0".repeat(64),
+      unmerged: false,
+      changedFiles: [],
+      uncommittedFiles: [],
+    },
+  });
+  it.each(["standard", "review"])(
+    "protects a moved workspace for a %s agent",
+    async (role) => {
+      await other({ role, workspace_path: real });
+      expect(await observedCoOwner(pool, owner(), observation())).toBe(
+        "agt_other"
+      );
+    }
+  );
+  it("protects persisted checkout-owner links independently of cwd", async () => {
+    await other({ runner_worktree_owner: "agt_owner" });
+    expect(
+      await observedCoOwner(pool, owner(), { ...observation(), checkout: null })
+    ).toBe("agt_other");
+  });
+  it("honours the runner's borrower list for every role", async () => {
+    await other({ role: "standard" });
+    expect(
+      await observedCoOwner(pool, owner(), {
+        ...observation(),
+        borrowers: ["agt_other"],
+      })
+    ).toBe("agt_other");
+  });
+  it("does not hold a checkout for an archived borrower", async () => {
+    await other({ workspace_path: real });
+    await pool.query("UPDATE agents SET deleted_at=NOW() WHERE id='agt_other'");
+    expect(await observedCoOwner(pool, owner(), observation())).toBeNull();
+  });
+  it("does not treat a matching folder on another runner as a hold", async () => {
+    await other({ workspace_path: real, runner_id: "runner-other" });
+    expect(await observedCoOwner(pool, owner(), observation())).toBeNull();
+  });
 });

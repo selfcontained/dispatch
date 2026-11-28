@@ -320,12 +320,16 @@ export function workspaceHandlers(
     BindingStore,
     "get" | "origin" | "bindPrepared" | "borrow" | "select"
   > &
-    Partial<Pick<BindingStore, "forget">>,
+    Partial<
+      Pick<BindingStore, "forget" | "retire" | "isRetired" | "borrowers">
+    >,
   port: WorkspacePort,
   /** Where cached clones live; the workload account must be able to write it. */
   repositories = join(stateRoot, "repositories"),
   receiptKey = (session: string) => session
 ): CallHandlers {
+  const retire = (session: string) =>
+    store.retire ? store.retire(session) : store.forget?.(session);
   const pending = new Map<string, Promise<unknown>>();
 
   /** One preparation per session at a time. */
@@ -689,6 +693,8 @@ export function workspaceHandlers(
     async "workspace.release"(input: Req<"workspace.release">) {
       const session = sessionToWire(input.session);
       return serialize(session, async () => {
+        if ((await store.borrowers?.(session))?.length)
+          return { removed: false };
         const held = await store.get(session);
         if (!held) {
           const pending = await interrupted(session);
@@ -706,7 +712,7 @@ export function workspaceHandlers(
             if (!removed) return { removed: false };
           }
           await rm(join(pending.dir, RECEIPT_FILE), { force: true });
-          await store.forget?.(session);
+          await retire(session);
           return { removed: true };
         }
         if (held.checkout.ownership === "external") return { removed: false };
@@ -725,7 +731,7 @@ export function workspaceHandlers(
           }));
         if (removed) {
           await rm(join(dir, RECEIPT_FILE), { force: true });
-          await store.forget(session);
+          await retire(session);
         }
         return { removed };
       });
@@ -741,8 +747,16 @@ export function workspaceHandlers(
       const session = sessionToWire(input.session);
       return serialize(session, async () => {
         const held = await store.get(session);
+        const borrowers = (await store.borrowers?.(session)) ?? [];
         if (!held) {
           const pending = await interrupted(session);
+          if (!pending && (await store.isRetired?.(session)))
+            return {
+              ownership: "none" as const,
+              owner: null,
+              borrowers: [],
+              checkout: null,
+            };
           if (!pending)
             throw new RunnerCallError({
               code: "not_found",
@@ -755,7 +769,7 @@ export function workspaceHandlers(
           return {
             ownership: "owned" as const,
             owner: session,
-            borrowers: [],
+            borrowers,
             checkout: state
               ? { ...state, path: pathFromWire(state.path) }
               : null,
@@ -765,14 +779,14 @@ export function workspaceHandlers(
           return {
             ownership: "borrowed" as const,
             owner: held.borrowedFrom,
-            borrowers: [],
+            borrowers,
             checkout: null,
           };
         if (held.checkout.ownership === "external")
           return {
             ownership: "external" as const,
             owner: null,
-            borrowers: [],
+            borrowers,
             checkout: null,
           };
         // `ownership` asks who owns it, not its state: nothing is read.
@@ -791,7 +805,7 @@ export function workspaceHandlers(
         return {
           ownership: "owned" as const,
           owner: session,
-          borrowers: [],
+          borrowers,
           checkout: state && { ...state, path: pathFromWire(state.path) },
         };
       });

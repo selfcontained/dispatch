@@ -158,6 +158,7 @@ const fencedCommands = {
   "workspace.observe": session,
   "session.stop": { ...session, force: false },
   "session.discard": session,
+  "session.retire": session,
   "engine.list": { refresh: false, background: true },
   "github.account": {},
 } as const;

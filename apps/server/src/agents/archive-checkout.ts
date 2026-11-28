@@ -51,7 +51,7 @@ export async function withRepositorySource<T extends ArchiveCheckoutAgent>(
   agent: T
 ): Promise<T & RepositoryArchiveState> {
   const result = await pool.query<RepositoryArchiveState>(
-    `SELECT COALESCE(runner_preparation->'source' ? 'repository', false) AS "repositorySource",
+    `SELECT COALESCE((runner_preparation->'source' ? 'repository') OR (runner_preparation->'source' ? 'session'), false) AS "repositorySource",
             COALESCE(runner_preparation->'pending' = 'true'::jsonb, false) AS "preparationPending",
             COALESCE(runner_preparation #>> '{source,checkout,kind}' = 'new', false) AS "repositoryBranchCreated"
        FROM agents WHERE id = $1`,

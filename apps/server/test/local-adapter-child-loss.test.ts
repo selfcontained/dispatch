@@ -462,14 +462,15 @@ describe("workspace.release whose reply is lost", () => {
     worktree = prepared.worktree!.path as string;
   }
 
-  it("answers removed when the worktree went before the reply was lost", async () => {
+  it("keeps a lost acknowledgement uncertain until the next idempotent release", async () => {
     await prepareWorktree("after");
     const here = vi.spyOn(workspaceWorkload, "release");
     try {
       await writeFile(join(root, "die-after"), "");
       const { answer } = await crashed(release);
-      // Read-only: the worktree is gone, so the release happened.
-      expect(answer).toEqual({ value: { removed: true } });
+      // The controller never infers ownership from a path after a lost reply.
+      expect(answer).toEqual({ error: "unknown_outcome" });
+      expect(await release()).toEqual({ removed: true });
       expect(existsSync(worktree)).toBe(false);
       expect(here).not.toHaveBeenCalled();
     } finally {

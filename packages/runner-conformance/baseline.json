@@ -796,5 +796,11 @@
     "scenario": "github.branches/path-only",
     "task": "T32",
     "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "session.retire/retains-checkout",
+    "task": "T26",
+    "reason": "Shared scenario written; not yet run on remote (Docker lane requires an approved VM)."
   }
 ]

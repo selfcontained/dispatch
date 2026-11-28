@@ -584,218 +584,6 @@ export function createLocalCheckoutRunner(
     );
   }
 
-  /**
-   * Whether the child's binding for the session names the worktree the row
-   * records (`workspace.describe` alone); false when it holds none, holds
-   * another, cannot answer, or fails to say: main's rule then removes the
-   * row's worktree here. One attempt: it is a read.
-   */
-  async function childNames(
-    session: Req<"workspace.describe">["session"],
-    worktree: string,
-    options?: { signal?: AbortSignal }
-  ): Promise<boolean> {
-    const asked = await readAttempt(
-      "workspace.describe",
-      { session },
-      async (child, read) => {
-        const described = await child.call(
-          "workspace.describe",
-          { session },
-          read
-        );
-        return Boolean(
-          described?.checkoutRoot &&
-          displayPath(described.checkoutRoot) === worktree
-        );
-      },
-      options
-    ).catch(() => {
-      // Only the caller's own cancellation stops the release.
-      options?.signal?.throwIfAborted();
-      return null;
-    });
-    return asked?.value ?? false;
-  }
-
-  /**
-   * After the child refused a release: true only when it affirmatively says
-   * the worktree is not its own to remove (no binding, a binding to another
-   * root, or one not owned); false when it is, or when the answer is lost or
-   * failed. One attempt each.
-   */
-  async function childDisowns(
-    session: Req<"workspace.observe">["session"],
-    worktree: string,
-    options?: { signal?: AbortSignal }
-  ): Promise<boolean> {
-    const asked = await readAttempt(
-      "workspace.observe",
-      { session },
-      async (child, read) => {
-        const described = await child
-          .call("workspace.describe", { session }, read)
-          .catch((error: unknown) => {
-            if (error instanceof RunnerCallError && error.code === "not_found")
-              return null;
-            throw error;
-          });
-        if (
-          !described?.checkoutRoot ||
-          displayPath(described.checkoutRoot) !== worktree
-        )
-          return true;
-        const observed = await child
-          .call("workspace.observe", { session }, read)
-          .catch((error: unknown) => {
-            if (error instanceof RunnerCallError && error.code === "not_found")
-              return null;
-            throw error;
-          });
-        return observed === null || observed.ownership !== "owned";
-      },
-      options
-    ).catch(() => {
-      options?.signal?.throwIfAborted();
-      return null;
-    });
-    return asked?.value === true;
-  }
-
-  /**
-   * The child's observation when its binding for the session is the
-   * worktree the row records and its own to remove; null when it holds
-   * none, holds another, or cannot answer (not running, restarting, died
-   * mid-call, or frozen). One attempt each: it is a read.
-   */
-  async function childOwned(
-    session: Req<"workspace.observe">["session"],
-    worktree: string,
-    options?: { signal?: AbortSignal }
-  ): Promise<Res<"workspace.observe"> | null> {
-    const asked = await readAttempt(
-      "workspace.observe",
-      { session },
-      async (child, read) => {
-        const described = await child
-          .call("workspace.describe", { session }, read)
-          .catch((error: unknown) => {
-            if (error instanceof RunnerCallError && error.code === "not_found")
-              return null;
-            throw error;
-          });
-        if (
-          !described?.checkoutRoot ||
-          displayPath(described.checkoutRoot) !== worktree
-        )
-          return null;
-        const observed = await child.call(
-          "workspace.observe",
-          { session },
-          read
-        );
-        return observed.ownership === "owned" ? observed : null;
-      },
-      options
-    );
-    return asked?.value ?? null;
-  }
-
-  /**
-   * Archive's observation, by main's rule: the worktree the row records is
-   * the agent's own. The child observes it when its binding agrees; else
-   * the same port runs here with the row's facts (R3, as for reads).
-   */
-  async function observe(
-    input: Req<"workspace.observe">,
-    options?: CallOptions<"workspace.observe">
-  ): Promise<Res<"workspace.observe">> {
-    const session = boundSession(input);
-    const worktree = session.worktreePath;
-    if (!worktree)
-      return {
-        ownership: "external",
-        owner: null,
-        borrowers: [],
-        checkout: null,
-      };
-    const owned = await childOwned(input.session, worktree, options);
-    if (owned) return owned;
-    const state = await workspaceWorkload.observe(worktree);
-    return {
-      ownership: "owned",
-      owner: session.id,
-      borrowers: [],
-      checkout: state && { ...state, path: pathFromWire(state.path) },
-    };
-  }
-
-  /**
-   * Archive's removal of the worktree the row records, by the same rule:
-   * in the child when its binding names that worktree (describe alone), once;
-   * else the same port here
-   * with the row's facts, which only a release the child never received may
-   * reach. A release whose reply was lost is never sent again: a read-only
-   * look at the worktree says whether it went (`removed`), else the caller
-   * gets `unknown_outcome` and archive leaves the checkout on disk, as main
-   * does when its cleanup fails.
-   */
-  async function release(
-    input: Req<"workspace.release">,
-    options?: CallOptions<"workspace.release">
-  ): Promise<Res<"workspace.release">> {
-    const session = boundSession(input);
-    const worktree = session.worktreePath;
-    if (!worktree) return { removed: false };
-    if (child && (await childNames(input.session, worktree, options)))
-      try {
-        const released = await child.call(
-          "workspace.release",
-          input,
-          once(options)
-        );
-        // Not removed: the child answered a mutation, so its refusal stands
-        // unless it says the checkout is not its own (no binding, another
-        // root, external or borrowed); then main's rule removes it here. An
-        // unknown answer (lost, failed) keeps the refusal.
-        if (
-          released.removed ||
-          !(await childDisowns(input.session, worktree, options))
-        )
-          return released;
-      } catch (error) {
-        if (
-          error instanceof RunnerCallError &&
-          error.code === "unknown_outcome"
-        ) {
-          // Read-only; an unreadable worktree is not gone, so it keeps the
-          // lost reply.
-          if (await workspaceWorkload.gone(worktree).catch(() => false))
-            return { removed: true };
-          throw error;
-        }
-        if (!neverSent(error)) throw error;
-        options?.signal?.throwIfAborted();
-      }
-    mayWriteHere();
-    // Main removes the checkout Git resolves for the row's path (its
-    // `rev-parse --show-toplevel`), so a row naming a folder inside its
-    // worktree loses the worktree, as on main.
-    const probed = await workspaceWorkload.git(worktree).catch(() => null);
-    return {
-      removed: await workspaceWorkload.release(
-        session.id,
-        {
-          path: probed && probed !== "error" ? probed.worktreePath : worktree,
-        },
-        {
-          deleteBranch: input.deleteBranch,
-          originalBranch: input.originalBranch,
-        }
-      ),
-    };
-  }
-
   async function gitContext(
     input: Req<"git.context">,
     options?: CallOptions<"git.context">
@@ -1142,7 +930,11 @@ export function createLocalCheckoutRunner(
 
   return {
     describe: () => description,
-    connection: { state: "ready", epoch: 0, onChange: () => () => {} },
+    connection: child?.connection ?? {
+      state: "unavailable",
+      epoch: 0,
+      onChange: () => () => {},
+    },
     async call<K extends CallName>(
       op: K,
       input: Req<K>,
@@ -1162,15 +954,32 @@ export function createLocalCheckoutRunner(
         op === "github.repositories" ||
         op === "workspace.prepare" ||
         op === "workspace.resume" ||
-        (agent?.repositorySource &&
-          (op === "workspace.observe" || op === "workspace.release"))
+        op === "workspace.observe" ||
+        op === "workspace.release" ||
+        op === "session.retire" ||
+        op === "session.discard"
       ) {
         if (!child)
           throw new RunnerCallError({
             code: "unavailable",
             message: "The local runner is unavailable",
           });
-        return child.call(op, input, options);
+        if (
+          op === "workspace.release" ||
+          op === "session.retire" ||
+          op === "session.discard"
+        )
+          mayWriteHere();
+        const archiveOperation =
+          op === "workspace.observe" ||
+          op === "workspace.release" ||
+          op === "session.retire" ||
+          op === "session.discard";
+        return child.call(
+          op,
+          input,
+          archiveOperation ? once(options) : options
+        );
       }
       if (CHILD_READS.has(op))
         return read(
@@ -1191,16 +1000,6 @@ export function createLocalCheckoutRunner(
         return select(
           input as Req<"workspace.select">,
           options as CallOptions<"workspace.select">
-        ) as Promise<Res<K>>;
-      if (op === "workspace.observe")
-        return observe(
-          input as Req<"workspace.observe">,
-          options as CallOptions<"workspace.observe">
-        ) as Promise<Res<K>>;
-      if (op === "workspace.release")
-        return release(
-          input as Req<"workspace.release">,
-          options as CallOptions<"workspace.release">
         ) as Promise<Res<K>>;
       if (op === "git.roots") {
         const request = input as Req<"git.roots">;

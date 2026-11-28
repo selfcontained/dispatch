@@ -174,7 +174,7 @@ it("replays the recorded repository request through the same local runner protoc
   expect(call).toHaveBeenLastCalledWith(
     "workspace.release",
     { session: "repo", deleteBranch: false, originalBranch: null },
-    undefined
+    { wait: false }
   );
 });
 
@@ -217,7 +217,7 @@ it("releases a prepared checkout if archive deleted the row while preparation wa
       deleteBranch: true,
       originalBranch: "feature/local",
     },
-    undefined
+    { wait: false }
   );
 });
 

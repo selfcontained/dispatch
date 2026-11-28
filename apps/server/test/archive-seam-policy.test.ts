@@ -69,7 +69,7 @@ function fixtureRunner(policy: "local" | "enrolled", f: Fixture = {}) {
               : CLEAN,
       };
     }
-    if (op === "session.discard") {
+    if (op === "session.retire") {
       if (f.release === "unknown_outcome" || f.release === "failed")
         throw new RunnerCallError({ code: f.release, message: "discard" });
       return {};
@@ -138,217 +138,78 @@ const released: ArchiveOutcome = { kind: "released" };
 const kept = (reason: string) => ({ kind: "kept", reason });
 const pending = (reason: string) => ({ kind: "pending", reason });
 
-describe("the composition gives each runner its archive policy", () => {
-  it("local is main's rule; an enrolled runner's is N35", () => {
-    const directory = runnerDirectory({
-      remote: {} as RemoteRunnerService,
-    });
+describe("one archive policy", () => {
+  it("both directory entries use the same policy object", () => {
+    const directory = runnerDirectory({ remote: {} as RemoteRunnerService });
     expect(directory.for(controllerPlacement).archive).toBe(localArchivePolicy);
     expect(directory.for(placementForRunner("runner-a")).archive).toBe(
-      enrolledArchivePolicy
+      localArchivePolicy
     );
+    expect(enrolledArchivePolicy).toBe(localArchivePolicy);
     expect(localArchivePolicy).toEqual({
-      coOwner: "recorded",
-      borrowers: "recorded",
-      forceSkipsObserve: true,
-      failure: "kept",
-      awaitsStoppedHost: false,
-    });
-    expect(enrolledArchivePolicy).toEqual({
       coOwner: "observed",
       borrowers: "observed",
       forceSkipsObserve: false,
       failure: "pending",
       awaitsStoppedHost: true,
-      discardBorrowedSession: true,
     });
   });
 });
-
-describe("a runner-prepared worktree row that records its folder", () => {
-  const row = { worktreePath: "/runner/checkout" };
-
-  it("still observes ownership on force, and keeps a borrowed checkout", async () => {
-    const borrowed = run("enrolled", "force", { ownership: "borrowed" }, row);
-    expect(await borrowed.outcome).toEqual(kept("notAuthorized"));
-    expect(borrowed.ops()).toEqual(["workspace.observe", "session.discard"]);
-  });
-
-  it("keeps a borrower archive retryable when retiring its host fails", async () => {
-    const failed = run(
-      "enrolled",
-      "force",
-      { ownership: "borrowed", release: "failed" },
-      row
-    );
-    expect(await failed.outcome).toEqual({
-      kind: "pending",
-      reason: "unavailable",
-    });
-    expect(failed.ops()).toEqual(["workspace.observe", "session.discard"]);
-  });
-
-  it("keeps the checkout a live review borrower holds (the runner's borrower list)", async () => {
-    const reviewed = run(
-      "enrolled",
-      "force",
-      { borrowers: ["agt_review"], coOwner: true },
-      row
-    );
-    expect(await reviewed.outcome).toEqual(kept("coOwner"));
-    expect(reviewed.ops()).toEqual(["workspace.observe"]);
-    // N35's rule, not main's: no path spelling, no recorded-worktree query.
-    expect(reviewed.ops()).not.toContain("path.resolve");
-  });
-
-  it("releases an owned checkout on force with the runner's decision", async () => {
-    const owned = run("enrolled", "force", {}, row);
-    expect(await owned.outcome).toEqual(released);
-    expect(owned.ops()).toEqual(["workspace.observe", "workspace.release"]);
-  });
-});
-
-describe("what an enrolled archive asks the runner to observe", () => {
+describe.each(["local", "enrolled"] as const)("%s policy", (placement) => {
   it.each([
-    ["force", { session: "agt_a", policy: "ownership" }],
-    ["auto", { session: "agt_a" }],
-  ] as const)("%s", async (mode, request) => {
-    const enrolled = run("enrolled", mode);
-    await enrolled.outcome;
-    const observes = enrolled.call.mock.calls.filter(
-      ([op]) => op === "workspace.observe"
-    );
-    expect(observes.map(([, input]) => input)).toEqual([request]);
+    ["clean", "auto", {}, released],
+    ["dirty", "auto", { checkout: "dirty" }, kept("notAuthorized")],
+    ["dirty forced", "force", { checkout: "dirty" }, released],
+    ["unreadable forced", "force", { checkout: "unreadable" }, released],
+    ["gone", "auto", { checkout: "gone" }, released],
+    ["borrowed", "force", { ownership: "borrowed" }, kept("notAuthorized")],
+    ["borrower", "force", { borrowers: ["child"] }, pending("borrowed")],
+    ["co-owner", "force", { coOwner: true }, pending("borrowed")],
+    [
+      "uncertain release",
+      "force",
+      { release: "unknown_outcome" },
+      pending("unavailable"),
+    ],
+    ["failed release", "force", { release: "failed" }, pending("unavailable")],
+    ["keep", "keep", {}, kept("notAuthorized")],
+  ] as const)("%s", async (_name, mode, f, outcome) => {
+    const result = run(placement, mode, f as Fixture);
+    expect(await result.outcome).toEqual(outcome);
+    if ("ownership" in f && f.ownership === "borrowed")
+      expect(result.ops()).toEqual(["workspace.observe"]);
+    expect(result.ops()).not.toContain("path.resolve");
   });
-});
-
-describe("a local row gets main's rule", () => {
-  it("force reads no checkout state, only the co-owner spelling", async () => {
-    const forced = run("local", "force", { checkout: "dirty" });
-    expect(await forced.outcome).toEqual(released);
-    expect(forced.ops()).toEqual(["path.resolve", "workspace.release"]);
+  it("force observes ownership even when the DB row records no worktree", async () => {
+    const result = run(placement, "force", {}, { worktreePath: null });
+    expect(await result.outcome).toEqual(released);
+    expect(result.call.mock.calls[0]).toEqual([
+      "workspace.observe",
+      { session: "agt_a", policy: "ownership" },
+    ]);
   });
-
-  it("a recorded co-owner keeps it, before anything is observed", async () => {
-    const shared = run("local", "force", { coOwner: true });
-    expect(await shared.outcome).toEqual(kept("coOwner"));
-    expect(shared.ops()).toEqual(["path.resolve"]);
-  });
-
-  it("a row that records no worktree is not managed", async () => {
-    const plain = run("local", "force", {}, { worktreePath: null });
-    expect(await plain.outcome).toEqual(kept("notManaged"));
-    expect(plain.ops()).toEqual([]);
-  });
-});
-
-describe.each([
-  // [case, mode, fixture, local outcome, enrolled outcome]
-  ["clean", "auto", {}, released, released],
-  [
-    "dirty",
-    "auto",
-    { checkout: "dirty" },
-    kept("notAuthorized"),
-    kept("notAuthorized"),
-  ],
-  ["dirty, forced", "force", { checkout: "dirty" }, released, released],
-  [
-    "status unreadable, forced",
-    "force",
-    { checkout: "unreadable" },
-    released,
-    released,
-  ],
-  ["gone checkout", "auto", { checkout: "gone" }, released, released],
-  [
-    "borrowed",
-    "auto",
-    { ownership: "borrowed" },
-    kept("notAuthorized"),
-    kept("notAuthorized"),
-  ],
-  [
-    "uncertain release",
-    "force",
-    { release: "unknown_outcome" },
-    kept("failed"),
-    pending("unavailable"),
-  ],
-  [
-    "runner-reported failure",
-    "force",
-    { release: "failed" },
-    kept("failed"),
-    pending("unavailable"),
-  ],
-  ["keep", "keep", {}, kept("notAuthorized"), kept("notAuthorized")],
-] as const)("%s", (_name, mode, fixture, local, enrolled) => {
-  it("local: main's outcome", async () => {
-    expect(await run("local", mode, fixture as Fixture).outcome).toEqual(local);
-  });
-  it("enrolled: N35's outcome", async () => {
-    expect(await run("enrolled", mode, fixture as Fixture).outcome).toEqual(
-      enrolled
-    );
-  });
-});
-
-describe.each(["local", "enrolled"] as const)(
-  "%s status failure",
-  (placement) => {
-    it.each([
-      "Git error",
-      "Git timeout",
-      "unreadable .git",
-      "runner observation failed",
-    ])(
-      "retains on %s and force skips the status read",
-      async (statusFailure) => {
-        const auto = run(placement, "auto", { statusFailure });
-        expect(await auto.outcome).toEqual(kept("failed"));
-        expect(auto.ops()).not.toContain("workspace.release");
-        expect(auto.queries).toContain(
-          "UPDATE agents SET archive_cleanup_mode = 'keep', archive_checkout_state = NULL WHERE id = $1"
-        );
-        expect(auto.logger.warn).toHaveBeenCalledWith(
-          expect.anything(),
-          "Worktree cleanup failed; leaving on disk."
-        );
-        const forced = run(placement, "force", { statusFailure });
-        expect(await forced.outcome).toEqual(released);
-      }
-    );
-  }
-);
-
-describe("failures and the host", () => {
-  it("logs each policy's own warning", async () => {
-    const local = run("local", "force", { release: "failed" });
-    await local.outcome;
-    expect(local.logger.warn).toHaveBeenCalledWith(
-      expect.anything(),
-      "Worktree cleanup failed; leaving on disk."
-    );
-    const enrolled = run("enrolled", "force", { release: "failed" });
-    await enrolled.outcome;
-    expect(enrolled.logger.warn).toHaveBeenCalledWith(
+  it.each([
+    "Git error",
+    "Git timeout",
+    "unreadable .git",
+    "runner observation failed",
+  ])("%s stays retryable and never becomes keep", async (statusFailure) => {
+    const result = run(placement, "auto", { statusFailure });
+    expect(await result.outcome).toEqual(pending("unavailable"));
+    expect(result.ops()).not.toContain("workspace.release");
+    expect(
+      result.queries.some((sql) =>
+        sql.includes("archive_cleanup_mode = 'keep'")
+      )
+    ).toBe(false);
+    expect(result.logger.warn).toHaveBeenCalledWith(
       expect.anything(),
       "Runner checkout release remains pending."
     );
   });
-
-  it("an enrolled runner waits for the stopped host; local does not", async () => {
-    const live = run("enrolled", "force", {}, {}, false);
-    expect(await live.outcome).toEqual(pending("unavailable"));
-    expect(live.ops()).toEqual([]);
-    expect(await run("local", "force", {}, {}, false).outcome).toEqual(
-      released
-    );
-  });
-
-  it("only local carries main's cleanup budget", () => {
-    expect(fixtureRunner("local").runner.cleanupBudgetMs).toBe(60_000);
-    expect(fixtureRunner("enrolled").runner.cleanupBudgetMs).toBeUndefined();
+  it("waits for a confirmed stopped host", async () => {
+    const result = run(placement, "force", {}, {}, false);
+    expect(await result.outcome).toEqual(pending("unavailable"));
+    expect(result.ops()).toEqual([]);
   });
 });

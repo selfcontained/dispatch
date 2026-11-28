@@ -33,13 +33,14 @@ import {
   link,
   mkdir,
   readFile,
+  readdir,
   realpath,
   rename,
   rm,
   stat,
   writeFile,
 } from "node:fs/promises";
-import { isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import {
   launcherBinding,
@@ -215,6 +216,8 @@ export interface BindingFiles {
   /** Replace a record (or publish it). */
   replace(name: string, text: string): Promise<void>;
   remove(name: string): Promise<void>;
+  /** Durable record enumeration where the platform exposes it. */
+  list?(): Promise<string[]>;
 }
 
 /** The records in `dir` with Node: published with `link`, never replaced by an import. */
@@ -234,6 +237,11 @@ export function directoryFiles(dir: string): BindingFiles {
         throw error;
       }
     },
+    list: () =>
+      readdir(dir).catch((error) => {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+        throw error;
+      }),
     exists: async (name) => (await presence(join(dir, name))) !== "missing",
     async create(name, text) {
       const temp = await temporary(text);
@@ -281,6 +289,51 @@ export class BindingStore {
     if (!stored || stored.version !== 1 || stored.session !== session)
       throw new Error("Invalid stored checkout binding.");
     return stored;
+  }
+
+  /** A completed release/retirement, distinguished from an unknown session. */
+  async retire(session: string): Promise<void> {
+    await this.files.prepare();
+    await this.files.replace(fileName(session) + ".retired", "");
+    await this.forget(session);
+  }
+
+  isRetired(session: string): Promise<boolean> {
+    return this.files.exists(fileName(session) + ".retired");
+  }
+
+  /** Bindings that still hold this checkout, including imported legacy sharers. */
+  async borrowers(session: string): Promise<string[]> {
+    if (!this.files.list) return [];
+    const owner = await this.get(session);
+    const ownerPath =
+      owner && ((await real(owner.checkout.path)) ?? owner.checkout.path);
+    const result: string[] = [];
+    for (const name of await this.files.list()) {
+      if (!/^[a-f0-9]{64}\.json$/.test(name)) continue;
+      const text = await this.files.read(name);
+      if (text === null) continue;
+      const record = JSON.parse(text) as StoredBinding;
+      if (!record.session || name !== fileName(record.session))
+        throw new Error("Invalid stored checkout binding.");
+      if (record.session === session) continue;
+      const current =
+        record.currentPath &&
+        ((await real(record.currentPath)) ?? record.currentPath);
+      const checkoutPath =
+        (await real(record.checkout.path)) ?? record.checkout.path;
+      if (
+        record.borrowedFrom === session ||
+        (owner &&
+          ((checkoutPath === ownerPath &&
+            (record.borrowedFrom ||
+              record.checkout.ownership === "external")) ||
+            current === ownerPath ||
+            current?.startsWith(ownerPath + sep)))
+      )
+        result.push(record.session);
+    }
+    return result.sort();
   }
 
   async forget(session: string): Promise<void> {
