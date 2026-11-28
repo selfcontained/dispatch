@@ -259,3 +259,43 @@ describe("reference client", () => {
     }
   });
 });
+
+it("covers every read operation's declared target kinds on both lanes", async () => {
+  const { operations } = await import("@dispatch/runner-protocol/contract");
+  const { targetMatrix, TARGET_MATRIX_OPERATIONS } =
+    await import("../src/target-matrix.js");
+  type Shape = import("@dispatch/runner-protocol/contract").Shape;
+  const targets = (shape: Shape): string[] => {
+    if (typeof shape !== "object" || shape === null) return [];
+    if ("union" in shape) return shape.union.flatMap(targets);
+    if ("object" in shape) {
+      const target = shape.object.target;
+      if (target && typeof target === "object" && "union" in target)
+        return target.union.flatMap((part) =>
+          typeof part === "object" && part !== null && "object" in part
+            ? Object.keys(part.object).filter((key) => key !== "checkout")
+            : []
+        );
+    }
+    return [];
+  };
+  const declared = Object.entries(operations)
+    .filter(
+      ([, op]) =>
+        op.retry.kind === "read" && targets(op.request.shape).length > 1
+    )
+    .map(([name]) => name)
+    .sort();
+  expect([...TARGET_MATRIX_OPERATIONS].sort()).toEqual(declared);
+  for (const scenario of targetMatrix) {
+    expect(localScenarios.includes(scenario), scenario.id).toBe(true);
+    expect(remoteScenarios.includes(scenario), scenario.id).toBe(true);
+  }
+  for (const op of declared)
+    expect(
+      targetMatrix
+        .filter((s) => s.op === op)
+        .map((s) => s.id.split("target-")[1])
+        .sort()
+    ).toEqual(["path", "repository", "session"]);
+});

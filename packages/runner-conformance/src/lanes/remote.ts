@@ -1,3 +1,4 @@
+import { MATRIX_TEXT } from "../target-matrix.js";
 import { FIXTURE_GITHUB } from "./fixtures.js";
 /*
  * Remote lane: the compiled runner program on Linux in a Docker container,
@@ -158,10 +159,11 @@ esac
 `;
 
 const ENTRYPOINT = `#!/bin/sh
-cat > /usr/local/bin/gh <<'FIXTURE_GH'
+mkdir -p /opt/conformance-only-path
+cat > /opt/conformance-only-path/gh <<'FIXTURE_GH'
 ${FIXTURE_GITHUB}
 FIXTURE_GH
-chmod 755 /usr/local/bin/gh
+chmod 755 /opt/conformance-only-path/gh
 set -eu
 getent passwd ${UID} >/dev/null || useradd -u ${UID} -m -d /home/workload workload
 install -d -m 700 /run/cfg /var/lib/runner
@@ -185,7 +187,12 @@ PACKAGE
 cat > ${WORKSPACE_DIR}/package-lock.json <<'LOCK'
 {"name":"runner-fixture","version":"1.0.0","lockfileVersion":3,"requires":true,"packages":{"":{"name":"runner-fixture","version":"1.0.0","hasInstallScript":true}}}
 LOCK
-setpriv --reuid=${UID} --regid=${UID} --clear-groups git -C ${WORKSPACE_DIR} add package.json package-lock.json
+mkdir -p ${WORKSPACE_DIR}/target-matrix ${WORKSPACE_DIR}/.agents/personas
+printf '%s' '${MATRIX_TEXT}' > ${WORKSPACE_DIR}/target-matrix/read.txt
+printf '%s' '${MATRIX_TEXT}' > ${WORKSPACE_DIR}/target-matrix/image.png
+printf '%s\n' '---' 'name: Matrix' 'description: Fixture' '---' 'Sentinel' > ${WORKSPACE_DIR}/.agents/personas/target-matrix.md
+chown -R ${UID}:${UID} ${WORKSPACE_DIR}
+setpriv --reuid=${UID} --regid=${UID} --clear-groups git -C ${WORKSPACE_DIR} add .
 setpriv --reuid=${UID} --regid=${UID} --clear-groups git -C ${WORKSPACE_DIR} -c user.name=Fixture -c user.email=fixture@example.invalid commit --allow-empty -m base
 printf "/file-list/\\n" >> ${WORKSPACE_DIR}/.git/info/exclude
 mkdir ${WORKSPACE_DIR}/file-list
@@ -246,7 +253,7 @@ export async function startRemoteLane(): Promise<Lane> {
       uid: UID,
       gid: UID,
       home: "/home/workload",
-      path: "/usr/local/bin:/usr/bin:/bin",
+      path: "/opt/conformance-only-path:/usr/local/bin:/usr/bin:/bin",
       bins: { claudeBin: "/usr/local/bin/fixture-engine", codexBin: null },
       adapter: ["/opt/bin/acp-fixture"],
     };
@@ -413,6 +420,15 @@ export async function startRemoteLane(): Promise<Lane> {
     return {
       runner,
       session: SESSION,
+      github: {
+        async signedIn(value) {
+          rootExec("mkdir", "-p", "/home/workload/.config/gh");
+          rootExec("chown", "-R", `${UID}:${UID}`, "/home/workload/.config");
+          const marker = "/home/workload/.config/gh/fixture-signed-in";
+          if (value) rootExec("touch", marker);
+          else rootExec("rm", "-f", marker);
+        },
+      },
       workspace: {
         runner: checked(managed.runner),
         repository: `file://${BARE_REMOTE}`,

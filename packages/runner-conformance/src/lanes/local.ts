@@ -1,3 +1,4 @@
+import { MATRIX_PATH, MATRIX_IMAGE, MATRIX_TEXT } from "../target-matrix.js";
 import { userInfo } from "node:os";
 /*
  * Local lane: the local runner child exactly as an app starts it, through
@@ -107,8 +108,10 @@ export async function startLocalLane(): Promise<Lane> {
   chmodSync(engine, 0o755);
   const home = join(dir, "home");
   mkdirSync(join(home, ".config/gh"), { recursive: true });
-  writeFileSync(join(dirname(engine), "gh"), FIXTURE_GITHUB);
-  chmodSync(join(dirname(engine), "gh"), 0o755);
+  const ghDirectory = join(dir, "only-on-path");
+  mkdirSync(ghDirectory);
+  writeFileSync(join(ghDirectory, "gh"), FIXTURE_GITHUB);
+  chmodSync(join(ghDirectory, "gh"), 0o755);
   run("git", ["init", "-q", "-b", "main", checkout]);
   writeFileSync(
     join(checkout, "package.json"),
@@ -134,7 +137,15 @@ export async function startLocalLane(): Promise<Lane> {
       },
     })
   );
-  run("git", ["-C", checkout, "add", "package.json", "package-lock.json"]);
+  mkdirSync(join(checkout, "target-matrix"), { recursive: true });
+  mkdirSync(join(checkout, ".agents/personas"), { recursive: true });
+  writeFileSync(join(checkout, MATRIX_PATH), MATRIX_TEXT);
+  writeFileSync(join(checkout, MATRIX_IMAGE), MATRIX_TEXT);
+  writeFileSync(
+    join(checkout, ".agents/personas/target-matrix.md"),
+    "---\nname: Matrix\ndescription: Fixture\n---\nSentinel\n"
+  );
+  run("git", ["-C", checkout, "add", "."]);
   run("git", [
     "-C",
     checkout,
@@ -184,7 +195,7 @@ export async function startLocalLane(): Promise<Lane> {
           adapter: { bin: bun, args: [adapter] },
         },
       }),
-      PATH: `${dirname(engine)}:${process.env.PATH}`,
+      PATH: `${ghDirectory}:${dirname(engine)}:${process.env.PATH}`,
       HOME: home,
       USER: userInfo().username,
       LOGNAME: userInfo().username,
@@ -305,6 +316,13 @@ export async function startLocalLane(): Promise<Lane> {
   return {
     runner,
     session: SESSION,
+    github: {
+      async signedIn(value) {
+        const marker = join(home, ".config/gh/fixture-signed-in");
+        if (value) writeFileSync(marker, "");
+        else rmSync(marker, { force: true });
+      },
+    },
     workspace: {
       runner: checked(runner),
       repository: `file://${repository}`,
