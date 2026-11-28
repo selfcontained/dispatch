@@ -1,5 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 
 import {
   AlertDialog,
@@ -82,9 +83,21 @@ export function RunnerProviderUsage({
       </div>
       {accountEntries && !canReadUsage && (
         <p className="text-muted-foreground">
-          <a className="underline" href="#runner-agent-engines">
+          <Link
+            className="underline"
+            to={{
+              pathname: "/settings/runners",
+              search: `?${new URLSearchParams({ runner: runnerId })}`,
+              hash: "#runner-agent-engines",
+            }}
+            onClick={() =>
+              document
+                .getElementById("runner-agent-engines")
+                ?.scrollIntoView({ block: "start" })
+            }
+          >
             Set up Claude or Codex
-          </a>{" "}
+          </Link>{" "}
           to see usage here.
         </p>
       )}
