@@ -758,7 +758,7 @@ export class LocalSocketConnection {
 
   async collectFile(
     input: Req<"files.get">,
-    options: { maxBytes?: number | null } = {}
+    options: { maxBytes?: number | null; signal?: AbortSignal } = {}
   ): Promise<Buffer> {
     const bytes = new ReceiveBuffer(
       options.maxBytes === null
@@ -775,7 +775,8 @@ export class LocalSocketConnection {
             overflow = true;
             done(new Error("Session files are limited to 20 MiB."));
           },
-        })
+        }),
+        options.signal
       );
     } catch (error) {
       if (overflow)

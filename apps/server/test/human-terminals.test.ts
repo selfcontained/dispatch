@@ -2,7 +2,7 @@ import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
 import { realpath } from "node:fs/promises";
-import { localTerminal } from "../src/runners/local.js";
+import { terminalBackendFor } from "../src/runners/directory.js";
 import {
   pathFromWire,
   type CallerChannel,
@@ -51,13 +51,16 @@ function harness(grace = 60_000) {
   const runner = { open } as unknown as Runner;
   const manager = new HumanTerminalManager(grace);
   const backend = (workspacePath: string | null = null) =>
-    localTerminal(() => runner, {
-      id: "agent",
-      cwd: "/tmp",
-      worktreePath: null,
-      workspacePath,
-      placement: controllerPlacement,
-    });
+    terminalBackendFor(
+      { child: () => runner },
+      {
+        id: "agent",
+        cwd: "/tmp",
+        worktreePath: null,
+        workspacePath,
+        placement: controllerPlacement,
+      }
+    );
   return {
     manager,
     backend,
@@ -400,11 +403,15 @@ describe("terminal browser security", () => {
           )
         ).statusCode
       ).toBe(200); // Fastify strips extra fields; never forwards them.
-      expect(h.open).toHaveBeenCalledWith("terminal.open", {
-        target: { path: pathFromWire(process.cwd()) },
-        cols: 80,
-        rows: 24,
-      });
+      expect(h.open).toHaveBeenCalledWith(
+        "terminal.open",
+        {
+          target: { path: pathFromWire(process.cwd()) },
+          cols: 80,
+          rows: 24,
+        },
+        undefined
+      );
       const result = await create({ cookie: signed("browser-a") });
       const id = result.json().id;
       expect(

@@ -16,6 +16,7 @@ import {
 } from "@dispatch/runner-protocol";
 import {
   placementOf,
+  sessionFromWire,
   placementRunner,
   runnerIdToWire,
   samePlacement,
@@ -26,13 +27,9 @@ import {
 } from "@dispatch/runner-protocol/contract";
 import type { RemoteRunnerService } from "../agents/remote/service.js";
 import type { AgentRecord } from "../agents/types.js";
-import {
-  controllerPlacement,
-  LOCAL_RUNNER_ID,
-  enrolledRunnerId,
-} from "./placement.js";
-import { remoteTerminal } from "../terminal/remote.js";
-import { createLocalCheckoutRunner, localTerminal } from "./local.js";
+import { controllerPlacement, LOCAL_RUNNER_ID } from "./placement.js";
+import { typedTerminal } from "../terminal/typed.js";
+import { createLocalCheckoutRunner } from "./local.js";
 import { createEnrolledCheckoutRunner } from "./enrolled/checkout.js";
 
 export type CheckoutSession = Pick<
@@ -272,11 +269,16 @@ export function sessionRunnerDirectory(
 }
 
 export function terminalBackendFor(
-  { remote, child }: CheckoutCommandRunners,
+  runners: CheckoutCommandRunners,
   agent: CheckoutSession
 ) {
-  const location = enrolledRunnerId(agent.placement);
-  if (!location) return localTerminal(child, agent);
-  if (!remote) throw new Error("The session runner is unavailable.");
-  return remoteTerminal(remote, location, agent.id);
+  return typedTerminal(() =>
+    runnerDirectory(runners, agent)
+      .for(agent.placement)
+      .open("terminal.open", {
+        target: { session: sessionFromWire(agent.id) },
+        cols: 80,
+        rows: 24,
+      })
+  );
 }

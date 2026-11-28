@@ -7,7 +7,8 @@ import type {
 } from "@dispatch/runner-protocol/contract";
 import { TERMINAL_UPDATE_MESSAGE } from "../../../packages/runner/src/workload/agents/remote/update-admission.js";
 import { HumanTerminalManager } from "../src/terminal/manager.js";
-import { remoteTerminal } from "../src/terminal/remote.js";
+import { terminalBackendFor } from "../src/runners/directory.js";
+import { placementForRunner } from "../src/runners/placement.js";
 
 let manager: HumanTerminalManager;
 afterEach(() => manager.shutdown());
@@ -38,7 +39,16 @@ async function open() {
     "owner",
     "tab",
     "agt_one",
-    remoteTerminal({ open: openChannel } as never, "rnr_1", "agt_one")
+    terminalBackendFor(
+      { remote: { open: openChannel } as never },
+      {
+        id: "agt_one",
+        cwd: "/w",
+        worktreePath: null,
+        workspacePath: null,
+        placement: placementForRunner("rnr_1"),
+      }
+    )
   );
   expect(openChannel).toHaveBeenCalledExactlyOnceWith(
     "rnr_1",
@@ -47,7 +57,8 @@ async function open() {
       target: { session: "agt_one" },
       cols: 80,
       rows: 24,
-    }
+    },
+    undefined
   );
   const socket = Object.assign(new EventEmitter(), {
     send: vi.fn(),

@@ -933,6 +933,9 @@ export function workspaceHandlers(
               message: error instanceof Error ? error.message : String(error),
               details: {
                 ...(errno !== undefined && { errno }),
+                ...(typeof failure?.errno === "number" && {
+                  nativeErrno: failure.errno,
+                }),
                 ...(failure?.syscall !== undefined && {
                   syscall: failure.syscall,
                 }),

@@ -285,7 +285,7 @@ export class LocalRunnerSession implements Runner {
     signal?: AbortSignal
   ): Promise<Buffer> {
     const connection = await this.connected(false, signal);
-    return connection.collectFile(input, { maxBytes: null });
+    return connection.collectFile(input, { maxBytes: null, signal });
   }
 
   /** Hand the runner a blob it expects; on this transport a path may be sent. */

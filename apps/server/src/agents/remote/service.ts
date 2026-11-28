@@ -1410,10 +1410,15 @@ export class RemoteRunnerService {
     const { info, channel } = await this.openStream(id, op, input, signal);
     return { info, channel: openOperationChannel(op, channel) };
   }
-  async getFile(runnerId: string, id: string, path: string) {
+  async getFile(
+    runnerId: string,
+    id: string,
+    path: string,
+    signal?: AbortSignal
+  ) {
     const input = { session: sessionFromWire(id), path };
     return this.onPeer(runnerId, "files.get", input, (connection) =>
-      connection.collectFile(input)
+      connection.collectFile(input, { signal })
     );
   }
   async putFile(

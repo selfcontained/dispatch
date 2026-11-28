@@ -5,12 +5,15 @@
  * rules: the path comes back unchanged, a missing prompt file fails, a
  * listed reference keeps its path). With no child, one that is not ready or
  * holds no binding, or one that dies mid-call, the same port runs in
- * process with the same answers. A get stays in process.
+ * process with the same answers. A get streams through the child when bound, with the same native fallback.
  */
 import { randomUUID } from "node:crypto";
+import { PassThrough } from "node:stream";
 import {
   chmodSync,
   mkdtempSync,
+  mkdirSync,
+  symlinkSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -226,12 +229,115 @@ describe("files.put on the local runner", () => {
 });
 
 describe("files.get on the local runner", () => {
-  it("stays in process: one read, the same bytes", async () => {
+  it("streams through the bound child, with no in-process read", async () => {
     const file = path.join(root, "share.bin");
     const bytes = Buffer.from([0, 1, 2, 255]);
     writeFileSync(file, bytes);
-    ops = [];
-    expect(await getSessionFile(runner(session), handle, file)).toEqual(bytes);
-    expect(ops).not.toContain("files.get");
+    const read = vi.spyOn(sessionFilesWorkload, "get");
+    const transfer = vi.spyOn(session, "getFile");
+    try {
+      expect(await getSessionFile(runner(session), handle, file)).toEqual(
+        bytes
+      );
+      expect(transfer).toHaveBeenCalledWith(
+        { session: handle, path: file },
+        undefined
+      );
+      expect(read).not.toHaveBeenCalled();
+    } finally {
+      read.mockRestore();
+      transfer.mockRestore();
+    }
+  });
+
+  it("preserves symlink traversal, relative paths, and native error metadata", async () => {
+    const nested = path.join(root, "nested");
+    mkdirSync(path.join(nested, "subdir"), { recursive: true });
+    symlinkSync(path.join(nested, "subdir"), path.join(root, "link"));
+    writeFileSync(path.join(root, "pick.txt"), "wrong");
+    writeFileSync(path.join(nested, "pick.txt"), "right");
+    for (const prefix of [root, path.relative(process.cwd(), root)]) {
+      const source = `${prefix}/link/../pick.txt`;
+      expect(
+        (await getSessionFile(runner(session), handle, source)).toString()
+      ).toBe("right");
+    }
+    const missing = `${path.relative(process.cwd(), root)}/absent`;
+    const expected = await sessionFilesWorkload
+      .get(missing)
+      .catch((error) => error);
+    await expect(
+      getSessionFile(runner(session), handle, missing)
+    ).rejects.toMatchObject({
+      code: expected.code,
+      errno: expected.errno,
+      syscall: expected.syscall,
+      path: expected.path,
+      message: expected.message,
+    });
+    const empty = await sessionFilesWorkload.get("").catch((error) => error);
+    await expect(
+      getSessionFile(runner(session), handle, "")
+    ).rejects.toMatchObject({ code: empty.code, message: empty.message });
+  });
+
+  it("forwards cancellation through the session wrapper and closes the source", async () => {
+    const source = new PassThrough();
+    const closed = vi.fn(async () => {
+      source.destroy();
+    });
+    const open = vi
+      .spyOn(workspaceWorkload, "readFileStream")
+      .mockResolvedValue({ source, close: closed });
+    const fallback = vi.spyOn(sessionFilesWorkload, "get");
+    const abort = new AbortController();
+    try {
+      const pending = runner(session).call(
+        "files.get",
+        { session: handle, path: path.join(root, "blocked") },
+        { signal: abort.signal }
+      );
+      const rejected = expect(pending).rejects.toBeDefined();
+      await vi.waitFor(() => expect(open).toHaveBeenCalled());
+      abort.abort();
+      await rejected;
+      await vi.waitFor(() => expect(closed).toHaveBeenCalled());
+      expect(fallback).not.toHaveBeenCalled();
+    } finally {
+      open.mockRestore();
+      fallback.mockRestore();
+      source.destroy();
+    }
+  });
+
+  it("keeps uncapped reads and native missing-file errors", async () => {
+    const file = path.join(root, "large.bin");
+    const bytes = Buffer.alloc(21 * 1024 * 1024, 127);
+    writeFileSync(file, bytes);
+    const actual = await getSessionFile(runner(session), handle, file);
+    expect(actual.equals(bytes)).toBe(true);
+    await expect(
+      getSessionFile(runner(session), handle, file + ".missing")
+    ).rejects.toMatchObject({ code: "ENOENT", path: file + ".missing" });
+  });
+
+  it.each([
+    ["no child", undefined],
+    ["an unavailable child", dying("unavailable")],
+    [
+      "an old inline-only child",
+      {
+        ...dying("unavailable"),
+        getFile: vi.fn(async () => {
+          throw new RunnerCallError({ code: "invalid", message: "No stream" });
+        }),
+      } as unknown as Runner,
+    ],
+  ])("preserves native recovery reads with %s", async (_name, peer) => {
+    const file = path.join(root, "recovery.bin");
+    writeFileSync(file, "recover");
+    expect(await getSessionFile(runner(peer), handle, file)).toEqual(
+      Buffer.from("recover")
+    );
   });
 });
