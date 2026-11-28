@@ -55,8 +55,8 @@ async function boundDirectory(
 ): Promise<string> {
   if (!("session" in target))
     throw new RunnerCallError({
-      code: "unsupported",
-      message: "This runner watches the checkouts it holds",
+      code: "invalid",
+      message: "Invalid checkout binding.",
     });
   const binding = await store.get(sessionToWire(target.session));
   if (!binding) throw notBound();
@@ -128,6 +128,19 @@ export function terminalOpens(
 
 const PULSE = Buffer.from("1");
 
+/** The same cached clone backs repository reads on both transports. */
+export function repositoryReadDirectory(
+  url: string,
+  clone?: (url: string) => Promise<string>
+): Promise<string> {
+  if (!clone)
+    throw new RunnerCallError({
+      code: "unsupported",
+      message: "This runner does not read repository files.",
+    });
+  return clone(url);
+}
+
 export function checkoutHandlers(
   store: Pick<BindingStore, "get" | "origin">,
   platform: Platform,
@@ -149,12 +162,11 @@ export function checkoutHandlers(
     if ("path" in target) return displayPath(target.path);
     // A repository's default-branch files, from its cached clone: what main's
     // persona catalog reads from the origin's default branch.
-    if (repositoryClone && op === "checkout.defaultFiles")
-      return repositoryClone(target.repository);
+    if (op === "checkout.defaultFiles" || op === "git.roots")
+      return repositoryReadDirectory(target.repository, repositoryClone);
     throw new RunnerCallError({
-      code: "unsupported",
-      message:
-        "This runner reads checkouts it holds or paths, not repositories",
+      code: "invalid",
+      message: "Invalid checkout binding.",
     });
   }
 

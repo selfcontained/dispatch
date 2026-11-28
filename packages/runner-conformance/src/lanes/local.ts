@@ -168,6 +168,16 @@ export async function startLocalLane(): Promise<Lane> {
 
   const repository = join(dir, "origin.git");
   run("git", ["clone", "-q", "--bare", checkout, repository]);
+  const repositoryUrl = "https://github.com/fixture/conformance";
+  const gitConfig = join(home, ".gitconfig");
+  // Pass the contract's HTTPS validation while all Git traffic stays on disk.
+  run("git", [
+    "config",
+    "--file",
+    gitConfig,
+    `url.file://${repository}.insteadOf`,
+    repositoryUrl,
+  ]);
   const session = new LocalRunnerSession({
     description: {
       runnerId: "local" as never,
@@ -197,6 +207,8 @@ export async function startLocalLane(): Promise<Lane> {
       }),
       PATH: `${ghDirectory}:${dirname(engine)}:${process.env.PATH}`,
       HOME: home,
+      GIT_CONFIG_GLOBAL: gitConfig,
+      GIT_CONFIG_NOSYSTEM: "1",
       USER: userInfo().username,
       LOGNAME: userInfo().username,
       GH_CONFIG_DIR: join(home, ".config/gh"),
@@ -325,7 +337,7 @@ export async function startLocalLane(): Promise<Lane> {
     },
     workspace: {
       runner: checked(runner),
-      repository: `file://${repository}`,
+      repository: repositoryUrl,
       selectionDirectory,
       configuredResume: "empty",
       async interrupt(target) {

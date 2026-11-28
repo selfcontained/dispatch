@@ -229,7 +229,7 @@ describe("core checkout reads", () => {
         target: { repository: "https://example.com/r.git" },
         path: "",
       })
-    ).rejects.toMatchObject({ code: "unsupported" });
+    ).rejects.toMatchObject({ code: "invalid" });
   });
 
   it("describes a binding from the stored record", async () => {
@@ -398,7 +398,7 @@ describe("core repository reads", () => {
         },
       },
     ]);
-    // Other reads of a repository stay unsupported, as before.
+    // Non-default file streams reject repository targets on both runners.
     await expect(
       connection.call("checkout.read", {
         target: repository,
@@ -406,7 +406,7 @@ describe("core repository reads", () => {
         encoding: "utf8",
         maxBytes: null,
       })
-    ).rejects.toMatchObject({ code: "unsupported" });
+    ).rejects.toMatchObject({ code: "invalid" });
   });
 
   it("is unsupported without a repository cache", async () => {

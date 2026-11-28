@@ -396,102 +396,6 @@
     "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
   },
   {
-    "lane": "local",
-    "scenario": "checkout.access/target-repository",
-    "task": "T40",
-    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
-  },
-  {
-    "lane": "local",
-    "scenario": "checkout.read/target-repository",
-    "task": "T40",
-    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
-  },
-  {
-    "lane": "local",
-    "scenario": "checkout.list/target-repository",
-    "task": "T40",
-    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
-  },
-  {
-    "lane": "local",
-    "scenario": "checkout.preview/target-repository",
-    "task": "T40",
-    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
-  },
-  {
-    "lane": "local",
-    "scenario": "checkout.index/target-repository",
-    "task": "T40",
-    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
-  },
-  {
-    "lane": "local",
-    "scenario": "checkout.stats/target-repository",
-    "task": "T40",
-    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
-  },
-  {
-    "lane": "local",
-    "scenario": "checkout.diff/target-repository",
-    "task": "T40",
-    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
-  },
-  {
-    "lane": "local",
-    "scenario": "checkout.changes/target-repository",
-    "task": "T40",
-    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
-  },
-  {
-    "lane": "local",
-    "scenario": "checkout.image/target-repository",
-    "task": "T40",
-    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
-  },
-  {
-    "lane": "local",
-    "scenario": "checkout.watch/target-path",
-    "task": "T40",
-    "reason": "Core checkout watch resolves only session targets (packages/runner/src/core/checkout.ts:59). Contract also accepts path/repository."
-  },
-  {
-    "lane": "local",
-    "scenario": "checkout.watch/target-repository",
-    "task": "T40",
-    "reason": "Core checkout watch resolves only session targets (packages/runner/src/core/checkout.ts:59). Contract also accepts path/repository."
-  },
-  {
-    "lane": "local",
-    "scenario": "git.roots/target-repository",
-    "task": "T40",
-    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
-  },
-  {
-    "lane": "local",
-    "scenario": "git.context/target-repository",
-    "task": "T40",
-    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
-  },
-  {
-    "lane": "local",
-    "scenario": "git.defaultBranch/target-repository",
-    "task": "T40",
-    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
-  },
-  {
-    "lane": "local",
-    "scenario": "git.branches/target-repository",
-    "task": "T40",
-    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
-  },
-  {
-    "lane": "local",
-    "scenario": "git.base/target-repository",
-    "task": "T40",
-    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
-  },
-  {
     "lane": "remote",
     "scenario": "checkout.access/target-session",
     "task": "T40",
@@ -501,7 +405,7 @@
     "lane": "remote",
     "scenario": "checkout.access/target-path",
     "task": "T40",
-    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+    "reason": "Shared positive scenario written; handler-level tests show enrolled rejects path targets (invalid), while Local already supports these server call shapes. Remote Docker lane not run."
   },
   {
     "lane": "remote",
@@ -519,7 +423,7 @@
     "lane": "remote",
     "scenario": "checkout.read/target-path",
     "task": "T40",
-    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+    "reason": "Shared positive scenario written; handler-level tests show enrolled rejects path targets (invalid), while Local already supports these server call shapes. Remote Docker lane not run."
   },
   {
     "lane": "remote",
@@ -537,7 +441,7 @@
     "lane": "remote",
     "scenario": "checkout.list/target-path",
     "task": "T40",
-    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+    "reason": "Shared positive scenario written; handler-level tests show enrolled rejects path targets (invalid), while Local already supports these server call shapes. Remote Docker lane not run."
   },
   {
     "lane": "remote",
@@ -555,7 +459,7 @@
     "lane": "remote",
     "scenario": "checkout.preview/target-path",
     "task": "T40",
-    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+    "reason": "Shared positive scenario written; handler-level tests show enrolled rejects path targets (invalid), while Local already supports these server call shapes. Remote Docker lane not run."
   },
   {
     "lane": "remote",
@@ -573,7 +477,7 @@
     "lane": "remote",
     "scenario": "checkout.index/target-path",
     "task": "T40",
-    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+    "reason": "Shared positive scenario written; handler-level tests show enrolled rejects path targets (invalid), while Local already supports these server call shapes. Remote Docker lane not run."
   },
   {
     "lane": "remote",
@@ -591,7 +495,7 @@
     "lane": "remote",
     "scenario": "checkout.stats/target-path",
     "task": "T40",
-    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+    "reason": "Shared positive scenario written; handler-level tests show enrolled rejects path targets (invalid), while Local already supports these server call shapes. Remote Docker lane not run."
   },
   {
     "lane": "remote",
@@ -609,7 +513,7 @@
     "lane": "remote",
     "scenario": "checkout.diff/target-path",
     "task": "T40",
-    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+    "reason": "Shared positive scenario written; handler-level tests show enrolled rejects path targets (invalid), while Local already supports these server call shapes. Remote Docker lane not run."
   },
   {
     "lane": "remote",
@@ -627,7 +531,7 @@
     "lane": "remote",
     "scenario": "checkout.changes/target-path",
     "task": "T40",
-    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+    "reason": "Shared positive scenario written; handler-level tests show enrolled rejects path targets (invalid), while Local already supports these server call shapes. Remote Docker lane not run."
   },
   {
     "lane": "remote",
@@ -645,7 +549,7 @@
     "lane": "remote",
     "scenario": "checkout.image/target-path",
     "task": "T40",
-    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+    "reason": "Shared positive scenario written; handler-level tests show enrolled rejects path targets (invalid), while Local already supports these server call shapes. Remote Docker lane not run."
   },
   {
     "lane": "remote",
@@ -663,7 +567,7 @@
     "lane": "remote",
     "scenario": "checkout.defaultFiles/target-path",
     "task": "T40",
-    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+    "reason": "Shared positive scenario written; handler-level tests show enrolled rejects path targets (invalid), while Local already supports these server call shapes. Remote Docker lane not run."
   },
   {
     "lane": "remote",
@@ -717,7 +621,7 @@
     "lane": "remote",
     "scenario": "git.context/target-path",
     "task": "T40",
-    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+    "reason": "Shared positive scenario written; handler-level tests show enrolled rejects path targets (invalid), while Local already supports these server call shapes. Remote Docker lane not run."
   },
   {
     "lane": "remote",
