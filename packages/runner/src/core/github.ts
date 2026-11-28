@@ -10,6 +10,9 @@ export function githubHandlers(platform: Platform): CallHandlers {
   const { github } = platform;
   if (!github) return {};
   return {
+    ...(github.repositories && {
+      "github.repositories": (request) => github.repositories!(request),
+    }),
     "github.pr.head": (request) => github.pullRequestHead(request),
     "github.pr.status": (request) => github.pullRequestStatus(request, {}),
     "github.pr.details": (request) => github.pullRequestDetails(request, {}),

@@ -83,3 +83,24 @@ describe("the core's GitHub reads", () => {
       expect(SERVED_WHILE_FROZEN.has(op as never)).toBe(true);
   });
 });
+
+it("serves repository search on the same local core GitHub port", async () => {
+  const result = {
+    repositories: [{ name: "org/repo", url: "https://github.com/org/repo" }],
+  };
+  const repositories = vi.fn().mockResolvedValue(result);
+  const calls = githubHandlers({
+    workload,
+    github: {
+      repositories,
+      pullRequestHead: vi.fn(),
+      pullRequestStatus: vi.fn(),
+      pullRequestDetails: vi.fn(),
+      pullRequestDiff: vi.fn(),
+    },
+  });
+  expect(
+    await calls["github.repositories"]!({ query: "repo" }, {} as never)
+  ).toEqual(result);
+  expect(repositories).toHaveBeenCalledWith({ query: "repo" });
+});

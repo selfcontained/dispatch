@@ -147,7 +147,7 @@ function TemplateDetail({
   const canSave =
     !!draft.name.trim() &&
     target.launch.selectionReady &&
-    (target.launch.target?.location.kind === "project"
+    (target.launch.target?.location.kind === "project" || location.projectId
       ? Boolean(location.projectId)
       : !!location.directory.trim());
 

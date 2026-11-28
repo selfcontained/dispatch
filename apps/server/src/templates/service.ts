@@ -206,7 +206,7 @@ export class TemplateService {
       if (!project) throw new Error("Project not found.");
       projectRoot = project.repoRoot ?? undefined;
     }
-    const target = resolveSavedTarget(input.directory || existing.directory, {
+    const target = resolveSavedTarget(input.directory ?? existing.directory, {
       ...input,
       previous: existing,
       directorySupplied: Boolean(input.directory),

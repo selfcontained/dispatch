@@ -114,7 +114,12 @@ export function WorktreeSection({
           )}
         >
           <div className="space-y-2 pt-2">
-            <div className="ml-8 w-[calc(100%-2rem)]">
+            <div
+              className={cn(
+                "ml-8 w-[calc(100%-2rem)]",
+                reserveExpandedSpace && "min-h-20"
+              )}
+            >
               <BranchSelect
                 cwd={cwd}
                 sourceUrl={branchesUrl}

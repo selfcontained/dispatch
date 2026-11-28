@@ -22,7 +22,7 @@ import type { AgentRecord, WorktreeCleanupMode } from "./types.js";
 export type ArchiveCheckoutAgent = Pick<
   AgentRecord,
   "id" | "cwd" | "worktreePath" | "baseBranch" | "worktreeBranch"
->;
+> & { repositorySource?: boolean };
 
 /** A row's session on the agent's runner, through the directory. */
 export function archiveRunner(
@@ -36,6 +36,21 @@ export function archiveRunner(
     placement,
   });
   return directory.for(placement);
+}
+
+/** Repository-owned checkouts keep release retryable, including interrupted preparation. */
+export async function withRepositorySource<T extends ArchiveCheckoutAgent>(
+  pool: Pool,
+  agent: T
+): Promise<T> {
+  const result = await pool.query<{ repositorySource: boolean }>(
+    `SELECT COALESCE(runner_preparation->'source' ? 'repository', false) AS "repositorySource" FROM agents WHERE id = $1`,
+    [agent.id]
+  );
+  return {
+    ...agent,
+    repositorySource: result.rows[0]?.repositorySource ?? false,
+  };
 }
 
 /** The contract's observation in the archive's terms. */
@@ -100,7 +115,14 @@ export async function observeArchiveCheckout(
   remote?: RemoteRunnerService,
   child?: () => Runner | undefined
 ): Promise<CheckoutObservation> {
-  return borrowerAsMain(await observeOnRunner(pool, agent, remote, child));
+  return borrowerAsMain(
+    await observeOnRunner(
+      pool,
+      await withRepositorySource(pool, agent),
+      remote,
+      child
+    )
+  );
 }
 
 /**

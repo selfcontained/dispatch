@@ -21,12 +21,19 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { sessionFromWire, type Req } from "@dispatch/runner-protocol/contract";
+import {
+  displayPath,
+  pathFromWire,
+  sessionFromWire,
+  type Req,
+} from "@dispatch/runner-protocol/contract";
 import { LocalSocketConnection } from "@dispatch/runner-client/transport/local-socket";
 import { BindingStore } from "../src/local/bindings.js";
 import { WriteFence } from "../src/local/fence.js";
 import { serveSocket } from "../src/local/socket-server.js";
 import { workspaceHandlers } from "../src/core/workspace.js";
+import { localSessionHandlers } from "../src/local/sessions.js";
+import { repositoryWorkspaceDisposer } from "../src/local/workspace.js";
 import {
   repositoryIdentity,
   repositoryKey,
@@ -34,9 +41,9 @@ import {
 } from "../src/core/repository.js";
 import type { WorkspacePort } from "../src/platform/types.js";
 
-const cleanups: Array<() => void> = [];
-afterEach(() => {
-  for (const run of cleanups.splice(0).reverse()) run();
+const cleanups: Array<() => void | Promise<void>> = [];
+afterEach(async () => {
+  for (const run of cleanups.splice(0).reverse()) await run();
 });
 const temp = () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "core-repository-")));
@@ -138,6 +145,28 @@ function port(
       );
       return { path, branch: spec.branch };
     },
+    async observe(path) {
+      return {
+        path,
+        branch: git(path, "branch", "--show-current"),
+        stateId: "snapshot",
+        unmerged: false,
+        changedFiles: [],
+        uncommittedFiles: [],
+      };
+    },
+    async release(_session, checkout, request) {
+      const branch = git(checkout.path, "branch", "--show-current");
+      const common = git(
+        checkout.path,
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-common-dir"
+      );
+      git(common, "worktree", "remove", "--force", checkout.path);
+      if (request.deleteBranch && branch) git(common, "branch", "-D", branch);
+      return true;
+    },
     async copyIgnored() {
       calls.push("copy");
       return [];
@@ -238,7 +267,8 @@ function port(
 
 async function harness(
   withRepository = true,
-  location?: (session: string) => Promise<string>
+  location?: (session: string) => Promise<string>,
+  withSessions = false
 ) {
   const root = temp();
   const state = join(root, "state");
@@ -247,17 +277,35 @@ async function harness(
   const calls: string[] = [];
   const socket = join(root, "r.sock");
   const nonce = randomBytes(8).toString("hex");
+  const workspace = workspaceHandlers(
+    state,
+    store,
+    port(calls, withRepository, location),
+    join(root, "cache")
+  );
+  const sessions = withSessions
+    ? localSessionHandlers({
+        root: state,
+        sweepMs: null,
+        entry: {
+          command: () => [],
+          wrap: () => ({ bin: "unused", args: [] }),
+          env: () => ({}),
+          ownership: {
+            create: () => ({ marker: "unused", env: {} }),
+            cleanup: () => {},
+            members: () => [],
+          },
+          prepare: async () => {},
+        },
+        discardWorkspace: repositoryWorkspaceDisposer(state, workspace),
+      })
+    : undefined;
+  if (sessions) cleanups.push(() => sessions.stop());
   const server = await serveSocket(
     socket,
     nonce,
-    {
-      calls: workspaceHandlers(
-        state,
-        store,
-        port(calls, withRepository, location),
-        join(root, "cache")
-      ),
-    },
+    { calls: { ...workspace, ...sessions?.calls } },
     new WriteFence(false)
   );
   const connection = await LocalSocketConnection.connect({ socket, nonce });
@@ -572,3 +620,170 @@ describe("workspace.prepare at the platform's location", () => {
 function pathOf(binding: { path: unknown }) {
   return binding.path as string;
 }
+
+it.each(["worktree", "pending"])(
+  "releases a repository preparation interrupted before binding (%s receipt)",
+  async (stage) => {
+    const { root, connection, state, store, calls } = await harness();
+    const { bare } = remote(root);
+    const made = await connection.call(
+      "workspace.prepare",
+      request("interrupted", bare, {
+        kind: "new",
+        branch: "feature/interrupted",
+      })
+    );
+    const file = join(state, "interrupted", "workspace-preparation");
+    const receipt = JSON.parse(readFileSync(file, "utf8"));
+    await store.forget("interrupted");
+    if (stage === "pending") {
+      const { worktree, ...rest } = receipt;
+      writeFileSync(
+        file,
+        JSON.stringify({
+          ...rest,
+          pending: { path: worktree.path, branch: worktree.branch },
+        })
+      );
+    }
+    calls.length = 0;
+    const observed = await connection.call("workspace.observe", {
+      session: sessionFromWire("interrupted"),
+    });
+    expect(observed).toMatchObject({
+      ownership: "owned",
+      checkout: { path: made.path },
+    });
+    expect(
+      await connection.call("workspace.release", {
+        session: sessionFromWire("interrupted"),
+        deleteBranch: false,
+        originalBranch: null,
+      })
+    ).toEqual({ removed: true });
+    expect(existsSync(displayPath(made.path))).toBe(false);
+    expect(existsSync(file)).toBe(false);
+    expect(existsSync(receipt.source)).toBe(true); // reusable cache, not an orphan checkout
+    expect(calls).not.toContain("install");
+    expect(calls.some((call) => call.startsWith("create"))).toBe(false);
+  }
+);
+
+it("replays a repository preparation receipt without creating a second checkout", async () => {
+  const { root, state, connection, store, calls } = await harness();
+  const { bare } = remote(root);
+  const input = request("replay", bare, {
+    kind: "new",
+    branch: "feature/replay",
+  });
+  const made = await connection.call("workspace.prepare", input);
+  const receiptPath = join(state, "replay", "workspace-preparation");
+  const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+  receipt.worktree.complete = false;
+  writeFileSync(receiptPath, JSON.stringify(receipt));
+  await store.forget("replay");
+  calls.length = 0;
+  expect(
+    await connection.call("workspace.resume", { session: input.session })
+  ).toMatchObject({ path: made.path });
+  expect(await connection.call("workspace.prepare", input)).toMatchObject({
+    path: made.path,
+  });
+  expect(calls.some((call) => call.startsWith("create"))).toBe(false);
+  expect(calls.filter((call) => call === "install")).toHaveLength(1);
+});
+
+it("refuses to remove a replacement at an interrupted preparation's path", async () => {
+  const { root, connection, state, store } = await harness();
+  const { bare } = remote(root);
+  const made = await connection.call(
+    "workspace.prepare",
+    request("replaced", bare, { kind: "new", branch: "feature/replaced" })
+  );
+  await store.forget("replaced");
+  const checkout = displayPath(made.path);
+  renameSync(checkout, checkout + "-moved");
+  mkdirSync(checkout);
+  writeFileSync(join(checkout, "keep"), "not the managed checkout");
+  await expect(
+    connection.call("workspace.release", {
+      session: sessionFromWire("replaced"),
+      deleteBranch: true,
+      originalBranch: "feature/replaced",
+    })
+  ).rejects.toThrow("removed or replaced");
+  expect(readFileSync(join(checkout, "keep"), "utf8")).toBe(
+    "not the managed checkout"
+  );
+  expect(existsSync(join(state, "replaced", "workspace-preparation"))).toBe(
+    true
+  );
+});
+
+it.each(["bound", "worktree", "pending"])(
+  "local discard releases the managed repository checkout (%s)",
+  async (stage) => {
+    const { root, state, store, connection } = await harness(
+      true,
+      undefined,
+      true
+    );
+    const { bare } = remote(root);
+    const session = sessionFromWire("discard-repository");
+    const made = await connection.call(
+      "workspace.prepare",
+      request("discard-repository", bare, {
+        kind: "new",
+        branch: "feature/discard",
+      })
+    );
+    const file = join(state, "discard-repository", "workspace-preparation");
+    const receipt = JSON.parse(readFileSync(file, "utf8"));
+    if (stage !== "bound") await store.forget("discard-repository");
+    if (stage === "pending") {
+      const { worktree, ...rest } = receipt;
+      writeFileSync(
+        file,
+        JSON.stringify({
+          ...rest,
+          pending: { path: worktree.path, branch: worktree.branch },
+        })
+      );
+    }
+    expect(await connection.call("session.discard", { session })).toEqual({});
+    expect(existsSync(displayPath(made.path))).toBe(false);
+    expect(existsSync(join(state, "discard-repository"))).toBe(false);
+    expect(await store.get("discard-repository")).toBeNull();
+    expect(existsSync(receipt.source)).toBe(true);
+    expect(git(receipt.source, "branch", "--list", "feature/discard")).toBe("");
+  }
+);
+
+it("local discard leaves folder-backed project checkouts unchanged", async () => {
+  const { root, state, store, connection } = await harness(
+    true,
+    undefined,
+    true
+  );
+  const { bare } = remote(root);
+  const folder = join(root, "user-folder");
+  git(root, "clone", "-q", bare, folder);
+  const session = sessionFromWire("discard-folder");
+  const made = await connection.call("workspace.prepare", {
+    session,
+    source: { directory: pathFromWire(folder) },
+    worktree: {
+      name: "folder",
+      branch: "feature/folder",
+      base: "main",
+      create: true,
+    },
+    copyIgnored: [],
+    installDependencies: false,
+  });
+  expect(await connection.call("session.discard", { session })).toEqual({});
+  expect(existsSync(displayPath(made.path))).toBe(true);
+  expect(existsSync(folder)).toBe(true);
+  expect(existsSync(join(state, "discard-folder"))).toBe(false);
+  expect(await store.get("discard-folder")).not.toBeNull();
+});

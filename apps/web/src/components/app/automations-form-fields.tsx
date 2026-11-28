@@ -303,6 +303,25 @@ export function TemplateConfigFields({
         <div className="space-y-1">
           <ProjectLocation
             projectId={projectId}
+            projectPicker={
+              target?.launch.target?.location.repositorySearchUrl ? (
+                <RunnerProjectPicker
+                  searchUrl={target.launch.target.location.repositorySearchUrl}
+                  projects={target.launch.target.location.projects ?? []}
+                  projectId={projectId ?? null}
+                  loading={target.launch.list.isLoading}
+                  error={Boolean(target.launch.target.location.error)}
+                  onProject={(id) =>
+                    onProjectChange?.(
+                      id,
+                      target.launch.target?.location.projects?.find(
+                        (p) => p.id === id
+                      )?.repoRoot ?? ""
+                    )
+                  }
+                />
+              ) : undefined
+            }
             onChange={(p) =>
               onProjectChange?.(p?.id ?? null, p?.repoRoot ?? directory)
             }

@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import * as personaResolver from "../../src/personas/resolve.js";
 import type { AgentRecord } from "../../src/agents/types.js";
+import { resolveSavedTarget } from "../../src/runners/saved-location.js";
 import { TemplateService } from "../../src/templates/service.js";
 import type { TemplateRecord } from "../../src/templates/store.js";
 
@@ -492,4 +493,21 @@ it("normalizes saved restricted templates and task runtime overrides to OpenCode
       )
     ).fullAccess
   ).toBe(true);
+});
+
+it("launches a saved Local repository-only template by project without a folder", async () => {
+  const createAgent = vi.fn(async () => buildAgent());
+  const service = new TemplateService(
+    {} as never,
+    { createAgent } as never,
+    { info: vi.fn() } as never
+  );
+  vi.spyOn(service.store, "getTemplate").mockResolvedValue({
+    ...buildTemplate({ projectId: "repo", directory: "", prompt: "Work" }),
+    ...resolveSavedTarget("", { runner: "local", projectId: "repo" }),
+  });
+  await service.launchTemplate({ templateId: "tmpl_123", args: {} });
+  expect(createAgent).toHaveBeenCalledWith(
+    expect.objectContaining({ cwd: "", projectId: "repo" })
+  );
 });

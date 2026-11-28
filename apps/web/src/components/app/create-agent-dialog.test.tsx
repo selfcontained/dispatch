@@ -54,7 +54,8 @@ function mount(
   type: (typeof types)[number],
   response: object = catalog,
   withRunner = false,
-  initialEntry = "/agents?project=p1"
+  initialEntry = "/agents?project=p1",
+  localPicker = false
 ) {
   vi.mocked(api).mockImplementation(async (path) => {
     if (path === "/api/v1/agent-models") return response;
@@ -65,7 +66,26 @@ function mount(
             key: "controller-choice",
             name: "Local",
             status: "online",
-            location: { kind: "folder" },
+            location: {
+              kind: "folder",
+              ...(localPicker && {
+                repositorySearchUrl: "/fixture/local-repositories",
+                projects: [
+                  {
+                    id: "p1",
+                    name: "Sample Project",
+                    repoRoot: "/repo",
+                    repository: "https://github.com/example/project",
+                  },
+                  {
+                    id: "p2",
+                    name: "Folder Only",
+                    repoRoot: "/folder",
+                    repository: null,
+                  },
+                ],
+              }),
+            },
             dataUrl: "/fixture/controller",
             branchesUrl: "/fixture/controller/branches",
             defaultBaseBranch: "main",
@@ -268,6 +288,7 @@ it("requires a runner project and loads branches from its repository", async () 
   });
   const nameBefore = screen.getByRole("textbox", { name: "New branch name" });
   expect(startingBefore).toHaveProperty("disabled", true);
+  expect(startingBefore.closest(".min-h-20")).toBeTruthy();
   expect(newBranchBefore).toHaveProperty("disabled", true);
   expect(nameBefore).toHaveProperty("disabled", true);
   expect(screen.getByTestId("create-agent-worktree")).toHaveProperty(
@@ -558,4 +579,102 @@ it("keeps the list height fixed across loading, results, empty and error states"
     )
   );
   expect(screen.getByRole("listbox").className).toBe(fixedClass);
+});
+
+it("adds Local repository search alongside the unchanged folder path and history", async () => {
+  mount("codex", catalog, false, "/agents", true);
+  const original = vi.mocked(api).getMockImplementation()!;
+  const repo = {
+    id: "local-repository",
+    name: "local-repo",
+    repoRoot: null,
+    repository: "https://github.com/org/local-repo",
+  };
+  let created = false;
+  vi.mocked(api).mockImplementation(async (path, init) => {
+    if (path === "/api/v1/agents" && init?.method === "POST")
+      return { agent: { id: "created", type: "codex" } };
+    if (path.startsWith("/fixture/local-repositories?"))
+      return {
+        repositories: [{ name: "org/local-repo", url: repo.repository }],
+      };
+    if (path.startsWith("/api/v1/projects?repository=")) return [];
+    if (path === "/api/v1/projects" && init?.method === "POST") {
+      created = true;
+      return repo;
+    }
+    const value = await original(path, init);
+    if (created && path === "/api/v1/projects")
+      return [...(value as object[]), repo];
+    if (created && path === "/api/v1/launch-targets") {
+      const targets = value as {
+        targets: { location: { projects: object[] } }[];
+      };
+      targets.targets[0].location.projects.push(repo);
+    }
+    return value;
+  });
+  const folder = await screen.findByTestId("create-agent-cwd");
+  fireEvent.change(folder, { target: { value: "/local/custom-folder" } });
+  fireEvent.click(screen.getByRole("radio", { name: "Project" }));
+  const picker = await screen.findByRole("combobox", {
+    name: "Project or repository",
+  });
+  fireEvent.click(picker);
+  fireEvent.change(
+    screen.getByPlaceholderText(
+      "Search projects or your repos, or paste a URL"
+    ),
+    { target: { value: "local-repo" } }
+  );
+  fireEvent.click(
+    await screen.findByRole("option", { name: "org/local-repo" })
+  );
+  await waitFor(() => expect(picker.textContent).toContain("local-repo"));
+  expect(folder.closest("[hidden]")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Create agent" }));
+  await waitFor(() =>
+    expect(
+      vi
+        .mocked(api)
+        .mock.calls.some(
+          ([path, init]) => path === "/api/v1/agents" && init?.method === "POST"
+        )
+    ).toBe(true)
+  );
+  const launch = vi
+    .mocked(api)
+    .mock.calls.find(
+      ([path, init]) => path === "/api/v1/agents" && init?.method === "POST"
+    )!;
+  expect(JSON.parse(String(launch[1]!.body))).toMatchObject({
+    projectId: repo.id,
+  });
+  expect(JSON.parse(String(launch[1]!.body))).not.toHaveProperty("cwd");
+  fireEvent.click(screen.getByRole("radio", { name: "Folder" }));
+  expect((folder as HTMLInputElement).value).toBe("/local/custom-folder");
+  expect(folder.closest("[hidden]")).toBeNull();
+});
+
+it("lets Local search for its first project without an existing project", async () => {
+  mount("codex", catalog, false, "/agents", true);
+  const original = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation(async (path, init) => {
+    if (path === "/api/v1/projects") return [];
+    const value = await original(path, init);
+    if (path === "/api/v1/launch-targets")
+      (
+        value as { targets: { location: { projects: object[] } }[] }
+      ).targets[0].location.projects = [];
+    return value;
+  });
+  await screen.findByRole("radio", { name: "Project" });
+  await waitFor(() =>
+    expect(screen.getByRole("radio", { name: "Project" })).toHaveProperty(
+      "disabled",
+      false
+    )
+  );
+  fireEvent.click(screen.getByRole("radio", { name: "Project" }));
+  await screen.findByRole("combobox", { name: "Project or repository" });
 });

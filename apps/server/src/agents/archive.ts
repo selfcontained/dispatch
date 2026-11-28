@@ -5,6 +5,7 @@ import type { Pool } from "pg";
 
 import {
   archiveRunner,
+  withRepositorySource,
   type ArchiveCheckoutAgent,
 } from "./archive-checkout.js";
 import {
@@ -245,6 +246,7 @@ export async function finishCheckout(
   durations: Record<string, number>,
   onCleanupStart?: () => Promise<void>
 ): Promise<boolean> {
+  agent = await withRepositorySource(deps.pool, agent);
   const hooks = { durations, onCleanupStart };
   // Release on the runner that owns the binding. An offline release stays pending.
   const outcome = await archiveCheckout(

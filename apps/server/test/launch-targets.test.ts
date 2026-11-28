@@ -32,7 +32,10 @@ const apps: ReturnType<typeof Fastify>[] = [];
 afterEach(async () => {
   for (const app of apps.splice(0)) await app.close();
 });
-async function setup(projectFailure = false) {
+async function setup(
+  projectFailure = false,
+  projectRoot: string | null = "/repo"
+) {
   const app = Fastify();
   apps.push(app);
   let catalogFailure = false;
@@ -65,11 +68,11 @@ async function setup(projectFailure = false) {
   app.get("/api/v1/projects", async (_request, reply) =>
     projectFailure
       ? reply.code(503).send({ error: "Fixture projects unavailable" })
-      : [{ id: "project", repoRoot: "/repo" }]
+      : [{ id: "project", repoRoot: projectRoot }]
   );
   app.get("/api/v1/projects/:id", async () => ({
     id: "project",
-    repoRoot: "/repo",
+    repoRoot: projectRoot,
   }));
   app.get("/api/v1/projects/:id/repository", async () => ({
     url: "https://github.com/fixture/repo",
@@ -193,7 +196,9 @@ describe("launch target adapter", () => {
     expect(targets[1].location.repositorySearchUrl).toBe(
       "/api/v1/runners/fixture/repository-search"
     );
-    expect(targets[0].location.repositorySearchUrl).toBeUndefined();
+    expect(targets[0].location.repositorySearchUrl).toBe(
+      "/api/v1/runners/local/repository-search"
+    );
     expect(targets[1].key).not.toContain("fixture");
     expect(targets[0].key).not.toBe("local");
     expect(targets[0].selectionFields).toEqual({ runner: "local" });
@@ -314,4 +319,21 @@ it("does not project an unlisted agent target as the controller", async () => {
   expect(
     (await get("/api/v1/launch-targets/saved/agent/missing-target")).statusCode
   ).toBe(404);
+});
+
+it("offers Local repository search and reads repository-only branches without a folder", async () => {
+  const { get, targets, branches } = await setup(false, null);
+  const local = targets[0];
+  expect(local.location.projects).toHaveLength(1);
+  const data = (
+    await get(
+      `${local.dataUrl}?projectId=project&directory=%2Fstale&agentType=claude`
+    )
+  ).json();
+  expect(data.directory).toBe("");
+  expect(data.defaults.baseBranch).toBe("");
+  expect((await get(data.branchesUrl)).statusCode).toBe(200);
+  expect(branches).toHaveBeenCalledWith(controllerPlacement, "git.branches", {
+    target: { repository: "https://github.com/fixture/repo" },
+  });
 });

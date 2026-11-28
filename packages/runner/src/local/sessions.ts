@@ -29,7 +29,7 @@ import {
   frameDecoder,
   mapIncomingFrames,
 } from "@dispatch/runner-client/v1/host";
-import type { Handlers } from "./socket-server.js";
+import type { ConnectionContext, Handlers } from "./socket-server.js";
 import {
   createSessionCore,
   type SessionCoreFactory,
@@ -69,6 +69,11 @@ export type LocalSessionOptions = {
   sweepMs?: number | null;
   /** The directory a session is bound to, for a launch that names none. */
   boundDirectory?: (key: string) => Promise<string | null>;
+  /** Release managed repository checkouts before their recovery records go away. */
+  discardWorkspace?: (
+    session: Req<"session.discard">["session"],
+    context: ConnectionContext
+  ) => Promise<void>;
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -447,7 +452,7 @@ export function localSessionHandlers(
         });
       },
       /** Remove the session's directory; a running host is `busy`. */
-      async "session.discard"({ session }) {
+      async "session.discard"({ session }, context) {
         const key = keyOf(session);
         return core.lock(key, async () => {
           if (await running(key))
@@ -455,6 +460,7 @@ export function localSessionHandlers(
               code: "busy",
               message: "The host is still running",
             });
+          await options.discardWorkspace?.(session, context);
           await rm(layout.hostDir(key), { recursive: true, force: true });
           return {};
         });
