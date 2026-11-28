@@ -518,6 +518,7 @@ export async function registerAgentCrudRoutes(
     const params = request.params as { id?: unknown };
     const query = request.query as {
       cleanupWorktree?: unknown;
+      force?: unknown;
       checkoutState?: unknown;
     };
 
@@ -531,7 +532,9 @@ export async function registerAgentCrudRoutes(
       typeof query.cleanupWorktree === "string" &&
       (validCleanupModes as readonly string[]).includes(query.cleanupWorktree)
         ? (query.cleanupWorktree as CleanupMode)
-        : "auto";
+        : query.force === "true"
+          ? "force"
+          : "auto";
 
     if (
       query.checkoutState !== undefined &&

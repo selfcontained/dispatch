@@ -1,3 +1,4 @@
+import { AgentManager } from "../src/agents/manager.js";
 import { teachKnownSeedCatalogs } from "./helpers/model-catalog-validation.js";
 import { beforeEach as beforeKnownCatalog } from "vitest";
 beforeKnownCatalog(teachKnownSeedCatalogs);
@@ -6,7 +7,7 @@ import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useInjectApp } from "./helpers/inject-app.js";
 
@@ -669,6 +670,24 @@ describe("DELETE /api/v1/agents/:id", () => {
       `/api/v1/agents/${agent.id}?cleanupWorktree=keep`
     );
     expect(res.statusCode).toBe(202);
+  });
+
+  it.each([
+    ["force=true", "force"],
+    ["force=true&cleanupWorktree=keep", "keep"],
+  ] as const)("honors archive query %s", async (query, mode) => {
+    const agent = await createAgent();
+    const archive = vi.spyOn(AgentManager.prototype, "beginArchive");
+    try {
+      const response = await authedInject(
+        "DELETE",
+        `/api/v1/agents/${agent.id}?${query}`
+      );
+      expect(response.statusCode).toBe(202);
+      expect(archive).toHaveBeenCalledWith(agent.id, mode);
+    } finally {
+      archive.mockRestore();
+    }
   });
 
   it("returns error for non-existent agent", async () => {
