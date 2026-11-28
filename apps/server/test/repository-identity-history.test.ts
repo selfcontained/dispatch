@@ -1,3 +1,4 @@
+import { runnerDirectory } from "../src/runners/directory.js";
 import { registerLaunchTargetRoutes } from "../src/routes/launch-targets.js";
 import { placementForRunner } from "../src/runners/placement.js";
 import Fastify from "fastify";
@@ -40,9 +41,23 @@ beforeAll(async () => {
       },
     },
     runners: {
+      ...runnerDirectory({}),
       managementList: async () => [
-        { id: "local", name: "Local", kind: "local", repositoryPicker: true },
-        { id: "fixture", name: "Fixture", status: "offline" },
+        {
+          id: "local",
+          name: "Local",
+          kind: "local",
+          repositoryPicker: true,
+          engineScope: { kind: "local" },
+          launchFields: {},
+        },
+        {
+          id: "fixture",
+          name: "Fixture",
+          status: "offline",
+          engineScope: { kind: "runner", runnerId: "fixture" },
+          launchFields: { runner: "fixture" },
+        },
       ],
     },
     templates: {},

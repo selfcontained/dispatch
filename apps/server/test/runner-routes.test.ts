@@ -158,6 +158,7 @@ describe("runner control API", () => {
           name: "Local",
           kind: "local",
           engineScope: { kind: "local" },
+          launchFields: {},
           engineManagement: true,
           engineCapabilities: true,
           githubManagement: true,
@@ -166,6 +167,8 @@ describe("runner control API", () => {
         {
           id: body.id,
           name: "lima",
+          engineScope: { kind: "runner", runnerId: body.id },
+          launchFields: { runner: body.id },
           status: "pending",
           automaticUpdates: true,
           engineManagement: false,
