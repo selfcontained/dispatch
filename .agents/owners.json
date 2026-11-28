@@ -84,6 +84,8 @@
         "apps/server/test/db/runner-host-recycle.test.ts",
         "apps/server/test/db/runner-launch-reconcile-manager.test.ts",
         "apps/server/test/fixtures/local-runner-entry.ts",
+        "apps/server/test/fixtures/local-runner-fixture.ts",
+        "apps/server/test/fixtures/local-runner-timeout-entry.ts",
         "apps/server/test/fixtures/acp-*",
         "apps/server/test/helpers/inject-app.ts",
         "apps/server/test/helpers/in-process-ports.ts",
