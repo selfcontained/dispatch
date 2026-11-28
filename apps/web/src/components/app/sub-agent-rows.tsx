@@ -85,7 +85,18 @@ function reviewTotals(
     open += s.openFindings;
     if (s.status === "resolved") done += 1;
   }
-  return { total: reviewers.length + archived.length, open, done, running };
+  // No row reaches an archived reviewer's open findings, so the totals line
+  // opens the newest such review.
+  const pending = archived
+    .filter((s) => s.openFindings > 0)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  return {
+    total: reviewers.length + archived.length,
+    open,
+    done,
+    running,
+    pending,
+  };
 }
 
 /** A clean review raised nothing; a resolved one had findings, all settled. */
@@ -115,6 +126,7 @@ export function SubAgentRows({
   actions: SubAgentActions;
 }) {
   const [expanded, setExpanded] = React.useState(false);
+  const navigate = useNavigate();
   const reviews = useAgentReviewSummary();
   const firstActive = useFirstAgentWithTurnLabel(
     childAgents.filter((child) => child.currentTurn)
@@ -137,6 +149,36 @@ export function SubAgentRows({
     (c) => isLive(c) && !shown.includes(c)
   ).length;
   const liveCount = childAgents.filter(isLive).length;
+
+  const reviewLine = review ? (
+    <>
+      <ClipboardCheck aria-hidden="true" className="size-icon-md text-faint" />
+      <span className="text-foreground">Reviews</span>
+      <span className="flex items-center gap-1.5">
+        {review.running ? (
+          <ReviewChip
+            tone="running"
+            count={review.running}
+            label={`${review.running} reviewing`}
+          />
+        ) : null}
+        {review.open ? (
+          <ReviewChip
+            tone="open"
+            count={review.open}
+            label={`${review.open} open findings`}
+          />
+        ) : null}
+        {review.done ? (
+          <ReviewChip
+            tone="done"
+            count={review.done}
+            label={`${review.done} resolved`}
+          />
+        ) : null}
+      </span>
+    </>
+  ) : null;
 
   return (
     <div className="flex flex-col" data-testid="sub-agent-rows">
@@ -220,36 +262,35 @@ export function SubAgentRows({
           </div>
         </>
       ) : null}
-      {review ? (
+      {review?.pending ? (
+        <RowButton
+          className={cn(
+            ROW_GRID,
+            "-mx-1.5 mt-1 min-h-7 w-[calc(100%+0.75rem)] rounded-md px-1.5 text-left text-label-sm pointer-coarse:min-h-9"
+          )}
+          aria-label={`Reviews: ${[
+            review.running && `${review.running} reviewing`,
+            `${review.open} open findings`,
+            review.done && `${review.done} resolved`,
+          ]
+            .filter(Boolean)
+            .join(", ")}. Open the newest review with open findings`}
+          data-agent-control="true"
+          data-testid="sub-agent-reviews-open"
+          onClick={() => {
+            const pending = review.pending!;
+            onNavigate?.();
+            navigate({
+              pathname: agentRoute(pending.streamId),
+              search: `?${new URLSearchParams({ [THREAD_PARAM]: pending.threadId })}`,
+            });
+          }}
+        >
+          {reviewLine}
+        </RowButton>
+      ) : review ? (
         <div className={cn(ROW_GRID, "mt-1 min-h-7 text-label-sm")}>
-          <ClipboardCheck
-            aria-hidden="true"
-            className="size-icon-md text-faint"
-          />
-          <span className="text-foreground">Reviews</span>
-          <span className="flex items-center gap-1.5">
-            {review.running ? (
-              <ReviewChip
-                tone="running"
-                count={review.running}
-                label={`${review.running} reviewing`}
-              />
-            ) : null}
-            {review.open ? (
-              <ReviewChip
-                tone="open"
-                count={review.open}
-                label={`${review.open} open findings`}
-              />
-            ) : null}
-            {review.done ? (
-              <ReviewChip
-                tone="done"
-                count={review.done}
-                label={`${review.done} resolved`}
-              />
-            ) : null}
-          </span>
+          {reviewLine}
         </div>
       ) : null}
     </div>

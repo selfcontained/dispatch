@@ -41,7 +41,10 @@ import { FILE_ITEM_QUERY_PREFIX } from "@/hooks/use-files";
 import { CACHED_RELEASE_INFO_QUERY_KEY } from "@/hooks/use-cached-release-info";
 import { MAC_APP_UPDATE_QUERY_KEY } from "@/hooks/use-mac-app-update";
 import { useInbox } from "@/hooks/use-inbox";
-import { useAgentReviewSummary } from "@/hooks/use-agent-review-summary";
+import {
+  AGENT_REVIEWS_QUERY_KEY,
+  useAgentReviewSummary,
+} from "@/hooks/use-agent-review-summary";
 import { AgentReviewIndicator } from "@/components/app/agent-review-indicator";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { showWebNotification } from "@/lib/web-notifications";
@@ -1383,6 +1386,16 @@ describe("useSSE message handling", () => {
     queryClient.removeQueries({ queryKey: ["agents"] });
     emit({ type: "agent.deleted", agentId: "drop" });
     expect(queryClient.getQueryData<Agent[]>(["agents"])).toBeUndefined();
+  });
+
+  it("refreshes the review summary when an agent is archived", () => {
+    const { queryClient, emit } = renderMessages();
+    queryClient.setQueryData(AGENT_REVIEWS_QUERY_KEY, { agents: {} });
+    emit({ type: "agent.deleted", agentId: "drop" });
+    // An archived reviewer's outcome stays on its parent's card, as archived.
+    expect(
+      queryClient.getQueryState(AGENT_REVIEWS_QUERY_KEY)?.isInvalidated
+    ).toBe(true);
   });
 
   it("switches a freshly cached identity to archived history on deletion and refreshes only its metadata", () => {
