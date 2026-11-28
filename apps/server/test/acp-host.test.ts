@@ -1,3 +1,4 @@
+import { attachedHost } from "./runner-update-hold-fixtures.js";
 /**
  * The agent host end to end: a real `dispatch agent-host` process (bun
  * running src/main.ts) driving the fake ACP agent from e2e/fixtures, with
@@ -6,29 +7,71 @@
  * client, replay from a sequence number, and a clean stop.
  */
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { writeFile } from "node:fs/promises";
+import { Duplex } from "node:stream";
 import os from "node:os";
+import net from "node:net";
+import { once } from "node:events";
 import { spawn, execFileSync } from "node:child_process";
+import { rootCertificates } from "node:tls";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { DriverEvent } from "../src/agents/acp/driver.js";
+import {
+  encodeMessage,
+  HOST_FILES,
+  ndjsonDecoder,
+  parseClientMessage,
+  type HostLaunch,
+  type ClientMessage,
+  type HostMessage,
+} from "@dispatch/runner-client/host-framing";
+import { embeddedBuild } from "../src/agents/build-identity.js";
+import type { DriverEvent } from "@dispatch/runner/host/driver";
 import { createAcpRuntime } from "../src/agents/acp/runtime.js";
+import { preparePromptContext } from "@dispatch/runner/host/host-env";
+import {
+  HostClient,
+  type HostClientDeps,
+  UpdateAcknowledgementLost,
+} from "@dispatch/runner-client/host-client";
+import { isPromptSource } from "../src/agents/acp/prompt-source.js";
+import { mainLocalHosts } from "./helpers/main-local-hosts.js";
+import { RunnerUnavailable } from "../src/agents/remote/service.js";
+import { RunnerUpdateHolds } from "../src/agents/remote/update-hold.js";
 import { buildSystemPrompt } from "../src/agents/acp/system-prompt.js";
 import type { AgentRuntime, RuntimeLaunch } from "../src/agents/runtime.js";
+import {
+  localRunnerFor,
+  startTestLocalRunner,
+  stopLocalRunners,
+} from "./helpers/local-runner-child.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "../../..");
 const mainTs = path.resolve(here, "../src/main.ts");
 const fakeAgent = path.join(repoRoot, "e2e/fixtures/fake-acp-agent.mjs");
+
+function configProbeEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    DATABASE_URL: "postgres://unused",
+    // The probes also run from Dispatch agent contexts, where the default port is reserved.
+    DISPATCH_PORT: "0",
+  };
+}
 
 const logger = {
   info: () => {},
@@ -47,7 +90,8 @@ function runtimeWith(
   stateRoot: string,
   hostSeq: () => number,
   journalId: string | null = null,
-  adapter: { bin: string } | null = { bin: fakeAgent }
+  adapter: { bin: string; args?: string[] } | null = { bin: fakeAgent },
+  overrides?: Partial<Parameters<typeof createAcpRuntime>[0]>
 ): {
   runtime: AgentRuntime;
   seen: Seen[];
@@ -67,11 +111,19 @@ function runtimeWith(
     syncJournal: async (_agentId, id, reset) => {
       synced.push({ journalId: id, reset });
     },
+    localRunner: () => localRunnerFor(stateRoot).session,
+    ...overrides,
   });
   runtime.onEvent((agentId, event, seq) => {
     seen.push({ agentId, event, seq });
   });
   return { runtime, seen, synced };
+}
+
+/** A launch file for a host started by hand, with the adapter the runtime would add. */
+function hostLaunchFor(agentId: string, cwd: string): HostLaunch {
+  const launch = launchFor(agentId, cwd);
+  return { ...launch, bins: { ...launch.bins, adapter: { bin: fakeAgent } } };
 }
 
 function launchFor(agentId: string, cwd: string): RuntimeLaunch {
@@ -124,6 +176,74 @@ const until = async (check: () => boolean, ms = 10_000) => {
   }
 };
 
+describe("host client construction", () => {
+  it.each(["local", "enrolled", "idle recovery"] as const)(
+    "keeps the %s attachment options and acknowledgement error",
+    async (mode) => {
+      const id = "agt_client_options";
+      const placement = "fixture";
+      const { runtime } = runtimeWith("", () => 17, "stored-journal", null, {
+        placement: async () => (mode === "enrolled" ? placement : null),
+        remote: {
+          available: () => true,
+          call: async () => ({ state: "live" }),
+        },
+      });
+      const alive = vi.spyOn(runtime, "isAlive").mockResolvedValue(true);
+      const lost = new UpdateAcknowledgementLost(
+        Promise.resolve(null),
+        "claimed"
+      );
+      const connect = vi
+        .spyOn(HostClient.prototype, "connect")
+        .mockRejectedValue(lost);
+      try {
+        const recovery = mode === "idle recovery";
+        expect(
+          await (recovery
+            ? runtime.stopIdleHostForRecovery!(id)
+            : runtime.attach(id))
+        ).toBe(false);
+        expect(connect).toHaveBeenCalledTimes(1);
+        const client = connect.mock.contexts[0] as unknown as {
+          deps: HostClientDeps;
+        };
+        expect(Object.keys(client.deps)).toEqual([
+          "validSource",
+          "agentId",
+          "remote",
+          "openSocket",
+          ...(recovery ? [] : ["reconnectError", "onReady", "updateDeadline"]),
+          "logger",
+          "fromSeq",
+          "journalId",
+          "onEvent",
+          ...(recovery ? [] : ["onPermissions"]),
+          "onWelcome",
+          "onGone",
+        ]);
+        expect(client.deps.validSource).toBe(isPromptSource);
+        expect(client.deps.agentId).toBe(id);
+        expect(client.deps.remote).toBe(mode === "enrolled");
+        expect(client.deps.logger).toBe(logger);
+        expect(client.deps.fromSeq()).toBe(
+          recovery ? Number.MAX_SAFE_INTEGER : 17
+        );
+        expect(client.deps.journalId()).toBe(
+          recovery ? null : "stored-journal"
+        );
+        expect(lost.constructor).toBe(UpdateAcknowledgementLost);
+        expect(lost.message).toBe(
+          "Runner connection dropped before acknowledgement; execution is unknown."
+        );
+      } finally {
+        connect.mockRestore();
+        alive.mockRestore();
+      }
+    }
+  );
+});
+
 describe("agent host", () => {
   let stateRoot: string;
   let cwd: string;
@@ -146,6 +266,7 @@ describe("agent host", () => {
     // Preserve the owned state until all hosts are stopped, even on assertion failure.
     const { runtime } = runtimeWith(stateRoot, () => 0);
     for (const id of await runtime.listHosted()) await runtime.stop(id, true);
+    await stopLocalRunners();
     delete process.env.DISPATCH_AGENT_HOST_COMMAND;
     rmSync(stateRoot, { recursive: true, force: true });
     rmSync(cwd, { recursive: true, force: true });
@@ -197,8 +318,7 @@ describe("agent host", () => {
         `DISPATCH_ACP_ADAPTER_COMMAND='${JSON.stringify([fakeAgent])}'\n`
       );
       const env: NodeJS.ProcessEnv = {
-        ...process.env,
-        DATABASE_URL: "postgres://unused",
+        ...configProbeEnv(),
         DISPATCH_HOST: "127.0.0.1",
         DOTENV_CONFIG_PATH: dotenv,
       };
@@ -240,8 +360,7 @@ describe("agent host", () => {
       {
         cwd,
         env: {
-          ...process.env,
-          DATABASE_URL: "postgres://unused",
+          ...configProbeEnv(),
           DISPATCH_ACP_ADAPTER_COMMAND: JSON.stringify([fakeAgent]),
         },
         encoding: "utf8",
@@ -308,6 +427,115 @@ describe("agent host", () => {
       await first.runtime.stop(id, true);
     }
   }, 30_000);
+
+  it("refuses an idle-only shutdown mid-turn, finishes the turn, then exits once idle", async () => {
+    // A turn can open after probation read the welcome, so the host itself
+    // must refuse. The test above never gets as far as sending the shutdown.
+    const id = "agt_idle_only";
+    const { runtime, seen } = runtimeWith(stateRoot, () => 0);
+    await runtime.launch(launchFor(id, cwd));
+    const active = runtime.prompt(id, "sleep:2000");
+    void active.settled.catch(() => {});
+    let socket: net.Socket | undefined;
+    let idle: net.Socket | undefined;
+    try {
+      await active.accepted;
+      await until(() =>
+        seen.some(
+          ({ event }) => event.type === "turn" && event.state === "started"
+        )
+      );
+      socket = net.createConnection(path.join(stateRoot, id, "host.sock"));
+      await once(socket, "connect");
+      const decode = ndjsonDecoder<HostMessage>();
+      // A host that shuts down answers nothing more and closes.
+      const reply = new Promise<string>((resolve) => {
+        socket!.on("data", (chunk) => {
+          if (decode(chunk).some((message) => message.type === "pong"))
+            resolve("pong");
+        });
+        socket!.once("close", () => resolve("closed"));
+      });
+      socket.write(
+        encodeMessage({ type: "shutdown", idleOnly: true }) +
+          encodeMessage({ type: "ping" })
+      );
+      expect(await reply).toBe("pong");
+      expect(await runtime.isAlive(id)).toBe(true);
+
+      socket.destroy();
+      const journal = () =>
+        readFileSync(path.join(stateRoot, id, "journal.jsonl"), "utf8")
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line).event);
+      const settled = () =>
+        journal().find(
+          (event) => event?.type === "turn" && event.state === "settled"
+        );
+      await until(() => Boolean(settled()));
+      expect(settled()).toMatchObject({ stopReason: "end_turn" });
+      expect(settled().error).toBeFalsy();
+
+      idle = net.createConnection(path.join(stateRoot, id, "host.sock"));
+      await once(idle, "connect");
+      idle.write(encodeMessage({ type: "shutdown", idleOnly: true }));
+      await until(() => !existsSync(path.join(stateRoot, id, "host.pid")));
+    } finally {
+      socket?.destroy();
+      idle?.destroy();
+      await runtime.stop(id, true);
+    }
+  }, 30_000);
+
+  it("never falls back to a plain stop when a turn opens after probation's welcome", async () => {
+    const id = "agt_recovery_race";
+    // No runtime attached: its reconnect would displace probation's client.
+    const host = mainLocalHosts(stateRoot);
+    const {
+      cwd: folder,
+      bins,
+      env,
+      pathPrefix,
+      ...launch
+    } = launchFor(id, cwd);
+    await host.requestSession(
+      { kind: "launch", agentId: id, launch },
+      {
+        cwd: folder,
+        bins: { ...bins, adapter: { bin: fakeAgent } },
+        env,
+        pathPrefix,
+      }
+    );
+    await until(() => existsSync(path.join(stateRoot, id, "session.json")));
+    const { runtime } = runtimeWith(stateRoot, () => 0);
+    const connect = HostClient.prototype.connect;
+    const spy = vi
+      .spyOn(HostClient.prototype, "connect")
+      .mockImplementation(async function (this: HostClient, ...args) {
+        const welcome = { ...(await connect.apply(this, args)) };
+        await this.prompt("race", "sleep:60000");
+        return welcome;
+      });
+    try {
+      expect(await runtime.stopIdleHostForRecovery!(id)).toBe(false);
+      expect(await runtime.listHosted()).toContain(id);
+    } finally {
+      spy.mockRestore();
+      await runtime.stop(id, true);
+    }
+  }, 30_000);
+
+  it.each([
+    [{ type: "shutdown", force: false, idleOnly: true }, "kept"],
+    [{ type: "shutdown", quiesceId: "lease" }, "kept"],
+    [{ type: "shutdown", idleOnly: "yes" }, "rejected"],
+  ] as const)("parses shutdown %j: %s", (message, outcome) => {
+    expect(parseClientMessage(message)).toEqual(
+      outcome === "kept" ? message : null
+    );
+  });
 
   it("does not count a foreign reused PID as an agent host", async () => {
     const id = "agt_foreign_pid";
@@ -410,10 +638,27 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
   );
 
   it("reports unavailable enumeration without claiming another session", async () => {
-    const { runtime, seen } = runtimeWith(stateRoot, () => 0);
+    // The child enumerates owned processes: its `ps` fails while the flag
+    // file exists (a shim ahead of the real one on its PATH).
+    const scanRoot = mkdtempSync("/tmp/dispatch-scan-");
+    const shims = path.join(scanRoot, "bin");
+    const broken = path.join(scanRoot, "ps-broken");
+    mkdirSync(shims);
+    writeFileSync(
+      path.join(shims, "ps"),
+      `#!/bin/sh\n[ -f ${JSON.stringify(broken)} ] && exit 2\nexec /bin/ps "$@"\n`,
+      { mode: 0o755 }
+    );
+    const scanState = path.join(scanRoot, "state");
+    mkdirSync(scanState);
+    const scanChild = startTestLocalRunner(scanState, {
+      env: { PATH: `${shims}:${process.env.PATH}` },
+    });
+    const { runtime, seen } = runtimeWith(scanState, () => 0, null, undefined, {
+      localRunner: () => scanChild.session,
+    });
     const target = "agt_scan";
     const peer = "agt_peer";
-    const originalPath = process.env.PATH;
     const before = execFileSync("git", ["status", "--porcelain"], {
       cwd,
       encoding: "utf8",
@@ -421,13 +666,30 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
     try {
       await runtime.launch(launchFor(target, cwd));
       await runtime.launch(launchFor(peer, cwd));
-      process.env.PATH = "/nonexistent-owned-test";
+      const call = scanChild.session.call.bind(scanChild.session);
+      const calls = vi
+        .spyOn(scanChild.session, "call")
+        .mockImplementation(async (op, input, options) => {
+          if (op === "session.stop") {
+            // Reproduce the race where the host accepts shutdown and exits
+            // before the runner receives the stop request.
+            await vi.waitFor(
+              async () => {
+                expect(await runtime.isAlive(target)).toBe(false);
+              },
+              { timeout: 5_000 }
+            );
+          }
+          return call(op, input, options);
+        });
+      writeFileSync(broken, "");
       try {
         await expect(runtime.stop(target, true)).rejects.toThrow(
-          "Unable to enumerate owned processes"
+          "Unable to enumerate owned processes (status=2"
         );
       } finally {
-        process.env.PATH = originalPath;
+        calls.mockRestore();
+        rmSync(broken, { force: true });
       }
       expect(await runtime.isAlive(target)).toBe(false);
       expect(await runtime.isAlive(peer)).toBe(true);
@@ -447,11 +709,15 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
         "preserve user work\n"
       );
     } finally {
-      process.env.PATH = originalPath;
       try {
         await runtime.stop(target, true);
       } finally {
-        await runtime.stop(peer, true);
+        try {
+          await runtime.stop(peer, true);
+        } finally {
+          await scanChild.stop();
+          rmSync(scanRoot, { recursive: true, force: true });
+        }
       }
     }
   });
@@ -673,7 +939,12 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
     const session = await first.runtime.launch(launchFor(agentId, cwd));
     expect(session.sessionId).toMatch(/^fake_claude_/);
     expect(await first.runtime.isAlive(agentId)).toBe(true);
-    expect(await first.runtime.hostPid(agentId)).toBeGreaterThan(0);
+    expect(await first.runtime.sampleSessions!(null, [agentId])).toEqual([
+      expect.objectContaining({
+        session: agentId,
+        rssBytes: expect.any(Number),
+      }),
+    ]);
     expect(await first.runtime.listHosted()).toEqual([agentId]);
     await until(() => first.runtime.getCommands(agentId)?.length === 2);
     expect(first.runtime.getCommands(agentId)?.map((c) => c.name)).toEqual([
@@ -758,6 +1029,1240 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
     expect(await replacement.runtime.isAlive(agentId)).toBe(false);
     expect(await replacement.runtime.listHosted()).toEqual([]);
   }, 60_000);
+
+  it("reattaches to an active native host after its controller exits", async () => {
+    const id = "agt_native_handoff";
+    const parentId = "agt_native_parent";
+    const folder = mkdtempSync(path.join(cwd, "session-"));
+    const input = launchFor(id, folder);
+    input.fullAccess = false;
+    const adapter = {
+      bin: "bun",
+      args: [path.join(here, "helpers/remote-acp-fixture.ts")],
+    };
+    const controller = path.join(stateRoot, "handoff.ts");
+    // The earlier app reaches the same local runner child as the next one.
+    const child = localRunnerFor(stateRoot);
+    await child.ready();
+    // Exit only after the engine has begun the turn. Nothing in this process
+    // runs the host's stop path or can resolve a promise in the new controller.
+    writeFileSync(
+      controller,
+      `
+      import {createAcpRuntime} from ${JSON.stringify(pathToFileURL(path.join(here, "../src/agents/acp/runtime.ts")).href)};
+      import {sessionFor} from ${JSON.stringify(pathToFileURL(path.join(here, "helpers/local-runner-child.ts")).href)};
+      const child = sessionFor(${JSON.stringify(child.endpoint())});
+      const runtime = createAcpRuntime({
+        config: ${JSON.stringify({ agentStateRoot: stateRoot, acpAdapter: adapter })},
+        logger: {info(){}, warn(){}, debug(){}, error(){}},
+        hostSeq:async()=>({seq:0,journalId:null}), syncJournal:async()=>{},
+        localRunner: () => child,
+      });
+      const input = ${JSON.stringify(input)};
+      await runtime.launch({...input, agentId: ${JSON.stringify(parentId)}});
+      const {sessionId}=await runtime.launch(input);
+      const pid=Number(await Bun.file(${JSON.stringify(path.join(stateRoot, id, "host.pid"))}).text());
+      let cursor = 0;
+      runtime.onEvent((id, _, seq) => {
+        if (id === input.agentId) cursor = Math.max(cursor, seq);
+      });
+      const turn = runtime.prompt(input.agentId, "proof-count prove-permission");
+      await turn.accepted;
+      for (;;) {
+        const [permission] = runtime.getPermissions(input.agentId).requests;
+        if (permission && cursor > 0) {
+          console.log(JSON.stringify({sessionId, pid, seq: cursor, permissionId: permission.id}));
+          process.exit(0);
+        }
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+    `
+    );
+    const result = execFileSync("bun", [controller], {
+      timeout: 20_000,
+      encoding: "utf8",
+    });
+    const checkpoint = JSON.parse(result.trim());
+    expect(checkpoint.pid).toBeGreaterThan(0);
+    const journalId = readFileSync(
+      path.join(stateRoot, id, "journal.id"),
+      "utf8"
+    ).trim();
+    const { runtime, seen } = runtimeWith(
+      stateRoot,
+      () => checkpoint.seq,
+      journalId
+    );
+    const parent = runtimeWith(stateRoot, () => 0);
+    try {
+      expect(await runtime.listHosted()).toContain(id);
+      expect(await runtime.inspectNativeHost!(id)).toMatchObject({
+        sessionHandle: id,
+        processState: "live",
+        attached: false,
+        activity: "unknown",
+        capabilities: null,
+      });
+      expect(await runtime.attach(id)).toBe(true);
+      expect(await runtime.inspectNativeHost!(id)).toMatchObject({
+        processState: "live",
+        attached: true,
+        activity: "busy",
+        cursor: { journalId },
+      });
+      expect(
+        Number(readFileSync(path.join(stateRoot, id, "host.pid"), "utf8"))
+      ).toBe(checkpoint.pid);
+      expect(runtime.getPermissions(id).requests[0]?.id).toBe(
+        checkpoint.permissionId
+      );
+      await runtime.answerPermission(id, checkpoint.permissionId, "allow");
+      await until(() =>
+        seen.some(
+          ({ event }) => event.type === "turn" && event.state === "settled"
+        )
+      );
+      expect(
+        seen.filter(
+          ({ event }) => event.type === "turn" && event.state === "settled"
+        )
+      ).toHaveLength(1);
+      expect(seen.find(({ seq }) => seq > 0)?.seq).toBe(checkpoint.seq + 1);
+      expect(
+        readFileSync(path.join(folder, "provider-invocations"), "utf8")
+      ).toBe("called\n");
+      expect(await runtime.inspectNativeHost!(id)).toMatchObject({
+        processState: "live",
+        activity: "idle",
+        capabilities: { steering: expect.any(Boolean) },
+      });
+      writeFileSync(path.join(folder, "review-marker.txt"), "native-handoff");
+      expect(readFileSync(path.join(folder, "protected-action"), "utf8")).toBe(
+        "allowed\n"
+      );
+      expect(await parent.runtime.attach(parentId)).toBe(true);
+      await parent.runtime.prompt(parentId, "proof-reviewed-checkout").settled;
+      await until(() =>
+        parent.seen.some(
+          ({ agentId, event }) =>
+            agentId === parentId &&
+            event.type === "update" &&
+            event.update.sessionUpdate === "agent_message_chunk" &&
+            event.update.content.type === "text" &&
+            event.update.content.text.includes("Checkout marker native-handoff")
+        )
+      );
+    } finally {
+      await parent.runtime.stop(parentId, true);
+      await parent.runtime.discard(parentId);
+      await runtime.stop(id, true);
+      await runtime.discard(id);
+    }
+    expect(await runtime.inspectNativeHost!(id)).toMatchObject({
+      processState: "gone",
+      attached: false,
+    });
+    mkdirSync(path.join(stateRoot, id));
+    writeFileSync(path.join(stateRoot, id, "host.pid"), String(process.pid));
+    expect(await runtime.inspectNativeHost!(id)).toMatchObject({
+      processState: "stale",
+      attached: false,
+    });
+    expect(await runtime.listHosted()).not.toContain(id);
+    expect(readFileSync(path.join(folder, "review-marker.txt"), "utf8")).toBe(
+      "native-handoff"
+    );
+  }, 40_000);
+
+  it("sends one running welcome when a client attaches during the session write", async () => {
+    const dir = mkdtempSync("/tmp/dispatch-acp-welcome-");
+    const preload = path.join(dir, "hold-session-write.mjs");
+    const pending = path.join(dir, "write-pending");
+    const release = path.join(dir, "release-write");
+    writeFileSync(
+      preload,
+      `import { mock } from "bun:test";
+import { existsSync, writeFileSync } from "node:fs";
+import * as fs from "node:fs/promises";
+const { writeFile } = fs;
+mock.module("node:fs/promises", () => ({
+  ...fs,
+  async writeFile(file, ...args) {
+    if (file === ${JSON.stringify(path.join(dir, "session.json"))}) {
+      writeFileSync(${JSON.stringify(pending)}, "");
+      while (!existsSync(${JSON.stringify(release)})) await Bun.sleep(10);
+    }
+    return writeFile(file, ...args);
+  },
+}));
+`
+    );
+    writeFileSync(
+      path.join(dir, "launch.json"),
+      JSON.stringify(hostLaunchFor("agt_starting", cwd))
+    );
+    const host = spawn(
+      "bun",
+      ["--preload", preload, mainTs, "agent-host", "--state", dir],
+      { stdio: "ignore" }
+    );
+    const exited = once(host, "exit");
+    let socket: net.Socket | undefined;
+    try {
+      await until(() => existsSync(pending), 5000);
+      socket = net.createConnection(path.join(dir, "host.sock"));
+      const messages: HostMessage[] = [];
+      const decode = ndjsonDecoder<HostMessage>();
+      socket.on("data", (chunk) => messages.push(...decode(chunk)));
+      await once(socket, "connect");
+      socket.write(
+        encodeMessage({ type: "hello", fromSeq: 0, replayComplete: true })
+      );
+      await until(() => messages.some((m) => m.type === "replay_complete"));
+
+      writeFileSync(release, "");
+      const welcomes = () => messages.filter((m) => m.type === "welcome");
+      await until(() => welcomes().length >= 2);
+      expect(welcomes().map((m) => m.running)).toEqual([false, true]);
+    } finally {
+      socket?.destroy();
+      host.kill();
+      await exited;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  it("answers a client that connects before the engine is up only through its hello", async () => {
+    // The client claims the host on connect but says hello a moment later.
+    // If the engine comes up in between, the startup welcome must not reach
+    // it as well as the hello's: a second running welcome replaces the one
+    // in-flight requests were made under, and they answer "unavailable".
+    const dir = mkdtempSync("/tmp/dispatch-acp-welcome-");
+    const preload = path.join(dir, "hold-session-write.mjs");
+    const pending = path.join(dir, "write-pending");
+    const release = path.join(dir, "release-write");
+    const started = path.join(dir, "start-finished");
+    writeFileSync(
+      preload,
+      `import { mock } from "bun:test";
+import { existsSync, writeFileSync } from "node:fs";
+import * as fs from "node:fs/promises";
+const { writeFile } = fs;
+mock.module("node:fs/promises", () => ({
+  ...fs,
+  async writeFile(file, ...args) {
+    if (file !== ${JSON.stringify(path.join(dir, "session.json"))})
+      return writeFile(file, ...args);
+    writeFileSync(${JSON.stringify(pending)}, "");
+    while (!existsSync(${JSON.stringify(release)})) await Bun.sleep(10);
+    await writeFile(file, ...args);
+    // A timer runs after the start-up continuation that follows this write.
+    setTimeout(() => writeFileSync(${JSON.stringify(started)}, ""), 0);
+  },
+}));
+`
+    );
+    writeFileSync(
+      path.join(dir, "launch.json"),
+      JSON.stringify(hostLaunchFor("agt_starting", cwd))
+    );
+    const host = spawn(
+      "bun",
+      ["--preload", preload, mainTs, "agent-host", "--state", dir],
+      { stdio: "ignore" }
+    );
+    const exited = once(host, "exit");
+    let socket: net.Socket | undefined;
+    try {
+      await until(() => existsSync(pending), 5000);
+      socket = net.createConnection(path.join(dir, "host.sock"));
+      const messages: HostMessage[] = [];
+      const decode = ndjsonDecoder<HostMessage>();
+      socket.on("data", (chunk) => messages.push(...decode(chunk)));
+      await once(socket, "connect");
+
+      writeFileSync(release, "");
+      await until(() => existsSync(started), 5000);
+      socket.write(
+        encodeMessage({ type: "hello", fromSeq: 0, replayComplete: true })
+      );
+      await until(() => messages.some((m) => m.type === "replay_complete"));
+      expect(
+        messages.filter((m) => m.type === "welcome").map((m) => m.running)
+      ).toEqual([true]);
+    } finally {
+      socket?.destroy();
+      host.kill();
+      await exited;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  it("lists every file a host writes into its directory", async () => {
+    const ca = path.join(cwd, "host-files-ca.pem");
+    writeFileSync(ca, rootCertificates[0]!);
+    const written = new Set<string>();
+    // Between them the two engines reach every writer.
+    for (const engine of ["codex", "opencode"] as const) {
+      const dir = mkdtempSync("/tmp/dispatch-acp-files-");
+      writeFileSync(
+        path.join(dir, HOST_FILES.launch),
+        JSON.stringify({
+          ...hostLaunchFor(`agt_files_${engine}`, cwd),
+          engine,
+          reportTurnActivity: true,
+          env: { DISPATCH_LOCAL_CA_CERTIFICATE: ca },
+          personaContext: await preparePromptContext(
+            dir,
+            "Persona rule\n".repeat(6000)
+          ),
+        })
+      );
+      const host = spawn("bun", [mainTs, "agent-host", "--state", dir], {
+        stdio: "ignore",
+      });
+      const closed = once(host, "exit");
+      let socket: net.Socket | undefined;
+      try {
+        await until(() => existsSync(path.join(dir, HOST_FILES.session)));
+        socket = net.createConnection(path.join(dir, HOST_FILES.socket));
+        const messages: HostMessage[] = [];
+        const decode = ndjsonDecoder<HostMessage>();
+        socket.on("data", (chunk) => messages.push(...decode(chunk)));
+        await once(socket, "connect");
+        socket.write(encodeMessage({ type: "hello", fromSeq: 0 }));
+        await until(() =>
+          messages.some((m) => m.type === "welcome" && m.running)
+        );
+        const { journalId } = messages.find((m) => m.type === "welcome")!;
+        socket.write(
+          encodeMessage({
+            type: "prompt",
+            id: "hold",
+            journalId,
+            text: "hold-turn",
+          })
+        );
+        // Sample with the turn open, while the transient files still exist.
+        await until(
+          () =>
+            existsSync(path.join(dir, HOST_FILES.turnActive)) &&
+            existsSync(path.join(dir, HOST_FILES.receipts))
+        );
+        for (const name of readdirSync(dir)) written.add(name);
+      } finally {
+        socket?.destroy();
+        host.kill();
+        await closed;
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+    // The launcher writes the log and the service CA; no host run does.
+    const { log, serviceMcpCa, ...byHost } = HOST_FILES;
+    expect([...written].sort()).toEqual(Object.values(byHost).sort());
+  }, 30_000);
+
+  it("keeps a runner attachment across a passive inventory connection", async () => {
+    const dir = mkdtempSync("/tmp/dispatch-acp-inventory-");
+    const instanceId = "01234567-89ab-4cde-8fab-0123456789ab";
+    writeFileSync(
+      path.join(dir, "launch.json"),
+      JSON.stringify({
+        ...hostLaunchFor("agt_inventory", cwd),
+        hostInstanceId: instanceId,
+      })
+    );
+    const host = spawn("bun", [mainTs, "agent-host", "--state", dir], {
+      stdio: "ignore",
+    });
+    const closed = once(host, "exit");
+    const socketPath = path.join(dir, "host.sock");
+    const clients: net.Socket[] = [];
+    async function attach() {
+      const messages: HostMessage[] = [];
+      const socket = net.createConnection(socketPath);
+      clients.push(socket);
+      const decode = ndjsonDecoder<HostMessage>();
+      socket.on("data", (chunk) => messages.push(...decode(chunk)));
+      await once(socket, "connect");
+      socket.write(encodeMessage({ type: "hello", fromSeq: 0 }));
+      await until(() =>
+        messages.some(
+          (message) => message.type === "welcome" && message.running
+        )
+      );
+      return { socket, messages };
+    }
+    try {
+      await until(() => {
+        try {
+          readFileSync(path.join(dir, "session.json"));
+          return true;
+        } catch {
+          return false;
+        }
+      });
+      const first = await attach();
+      const passive = net.createConnection(socketPath);
+      clients.push(passive);
+      await once(passive, "connect");
+      passive.end();
+      await once(passive, "close");
+
+      first.socket.write(encodeMessage({ type: "hello", fromSeq: 0 }));
+      await until(
+        () => first.messages.filter((m) => m.type === "welcome").length === 2
+      );
+
+      const second = await attach();
+      for (const message of [...first.messages, ...second.messages]) {
+        if (message.type !== "welcome") continue;
+        expect(message.hostInstanceId).toBe(instanceId);
+        expect(message.hostBuild).toEqual(embeddedBuild);
+      }
+    } finally {
+      for (const client of clients) client.destroy();
+      host.kill();
+      await closed;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("checks live host quiescence and invalidates the lease on lost attachment", async () => {
+    const dir = mkdtempSync("/tmp/dispatch-acp-quiesce-");
+    const folder = mkdtempSync(path.join(cwd, "quiesce-"));
+    const launch = launchFor("agt_quiesce", folder);
+    launch.fullAccess = false;
+    const adapter = {
+      bin: "bun",
+      args: [path.join(here, "helpers/recycle-acp-fixture.ts")],
+    };
+    writeFileSync(
+      path.join(dir, "launch.json"),
+      JSON.stringify({
+        ...launch,
+        bins: { ...launch.bins, adapter },
+        hostInstanceId: "01234567-89ab-4cde-8fab-0123456789ab",
+      })
+    );
+    const host = spawn("bun", [mainTs, "agent-host", "--state", dir], {
+      stdio: "ignore",
+    });
+    const exited = once(host, "exit");
+    const clients: net.Socket[] = [];
+    async function attach() {
+      const socket = net.createConnection(path.join(dir, "host.sock"));
+      clients.push(socket);
+      const messages: HostMessage[] = [];
+      const decode = ndjsonDecoder<HostMessage>();
+      socket.on("data", (chunk) => messages.push(...decode(chunk)));
+      await once(socket, "connect");
+      const send = (...commands: ClientMessage[]) =>
+        socket.write(commands.map(encodeMessage).join(""));
+      send({ type: "hello", fromSeq: 0 });
+      await until(() =>
+        messages.some(
+          (m) =>
+            m.type === "welcome" && m.running && m.quiesceSupported === true
+        )
+      );
+      const quiesce = async (id: string, state: "idle" | "busy") => {
+        send({ type: "quiesce", id });
+        await until(() =>
+          messages.some((m) => m.type === "quiesce_result" && m.id === id)
+        );
+        expect(messages).toContainEqual({ type: "quiesce_result", id, state });
+      };
+      const shutdown = async (id: string, accepted: boolean) => {
+        send({ type: "shutdown", quiesceId: id });
+        await until(() =>
+          messages.some(
+            (m) => m.type === "quiesce_shutdown_result" && m.id === id
+          )
+        );
+        expect(messages).toContainEqual({
+          type: "quiesce_shutdown_result",
+          id,
+          accepted,
+        });
+      };
+      return { socket, messages, send, quiesce, shutdown };
+    }
+    const controlFile = path.join(folder, "recycle-command");
+    async function control(value: unknown) {
+      const next = controlFile + ".next";
+      writeFileSync(next, value === "ask" ? "ask" : JSON.stringify(value));
+      renameSync(next, controlFile);
+      await until(() => !existsSync(controlFile));
+    }
+    try {
+      await until(() => existsSync(path.join(dir, "session.json")));
+      const a = await attach();
+      await a.quiesce("release", "idle");
+      a.send(
+        { type: "release_quiesce", id: "wrong" },
+        { type: "prompt", id: "deferred", text: "must not run" }
+      );
+      await until(() => a.messages.some((m) => m.type === "prompt_deferred"));
+      a.send(
+        { type: "release_quiesce", id: "release" },
+        { type: "prompt", id: "submitted", text: "hold-turn" },
+        { type: "quiesce", id: "during-pickup" }
+      );
+      await until(() =>
+        a.messages.some(
+          (m) => m.type === "quiesce_result" && m.id === "during-pickup"
+        )
+      );
+      expect(a.messages).toContainEqual({
+        type: "quiesce_result",
+        id: "during-pickup",
+        state: "busy",
+      });
+      await until(() =>
+        a.messages.some(
+          (m) =>
+            m.type === "event" &&
+            m.event.type === "turn" &&
+            m.event.state === "settled"
+        )
+      );
+
+      await control("ask");
+      await until(() =>
+        a.messages.some(
+          (m) => m.type === "permissions" && m.requests.length > 0
+        )
+      );
+      await a.quiesce("pending-permission", "busy");
+      const permissions = a.messages.find(
+        (m) => m.type === "permissions" && m.requests.length > 0
+      );
+      if (permissions?.type !== "permissions")
+        throw new Error("missing permission");
+      a.send({
+        type: "answer_permission",
+        id: "answer",
+        requestId: permissions.requests[0]!.id,
+        optionId: "allow",
+      });
+      await until(() => existsSync(controlFile + ".answered"));
+
+      // A state-only background entry is awaiting its metadata and cannot be
+      // shown yet. It must still keep the host alive.
+      await control({
+        sessionUpdate: "async_task_state_update",
+        asyncTaskId: "watch",
+        state: "running",
+      });
+      await a.quiesce("background", "busy");
+      await control({
+        sessionUpdate: "async_task_state_update",
+        asyncTaskId: "watch",
+        state: "completed",
+      });
+
+      await a.quiesce("before-background", "idle");
+      await control({
+        sessionUpdate: "async_task_state_update",
+        asyncTaskId: "new",
+        state: "running",
+      });
+      await a.shutdown("before-background", false);
+      await control({
+        sessionUpdate: "async_task_state_update",
+        asyncTaskId: "new",
+        state: "completed",
+      });
+
+      await a.quiesce("before-self-turn", "idle");
+      await control({
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "woke itself" },
+      });
+      await until(() =>
+        a.messages.some(
+          (m) =>
+            m.type === "event" &&
+            m.event.type === "turn" &&
+            m.event.state === "started" &&
+            m.event.source?.source === "engine"
+        )
+      );
+      await a.shutdown("before-self-turn", false);
+      await a.quiesce("self-turn", "busy");
+      await control({
+        sessionUpdate: "usage_update",
+        used: 1,
+        size: 10,
+        cost: { amount: 0, currency: "USD" },
+      });
+      await until(
+        () =>
+          a.messages.filter(
+            (m) =>
+              m.type === "event" &&
+              m.event.type === "turn" &&
+              m.event.state === "settled"
+          ).length === 2
+      );
+
+      await a.quiesce("lost", "idle");
+      const disconnected = once(a.socket, "close");
+      a.socket.destroy();
+      await disconnected;
+      const b = await attach();
+      await b.shutdown("lost", false);
+      await b.quiesce("replacement-lease", "idle");
+      await b.shutdown("replacement-lease", true);
+      await exited;
+    } finally {
+      for (const client of clients) client.destroy();
+      host.kill();
+      await exited;
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(folder, { recursive: true, force: true });
+    }
+  }, 20_000);
+
+  const uncertain =
+    "Runner connection dropped before acknowledgement; execution is unknown.";
+  const attempt = "11111111-1111-4111-8111-111111111111";
+
+  async function updateFixture(adapter?: { bin: string; args?: string[] }) {
+    const root = mkdtempSync("/tmp/dispatch-ack-");
+    const folder = mkdtempSync(path.join(cwd, "update-"));
+    const id = "agt_update_ack";
+    const input = launchFor(id, folder);
+    input.fullAccess = false;
+    const hostAdapter = adapter ?? {
+      bin: "bun",
+      args: [path.join(here, "helpers/remote-acp-fixture.ts")],
+    };
+    const hosts: ReturnType<typeof mainLocalHosts>[] = [];
+    async function launchHost(dir: string) {
+      const host = mainLocalHosts(dir);
+      const { cwd, bins, env, pathPrefix, ...launch } = input;
+      await host.requestSession(
+        { kind: "launch", agentId: id, launch },
+        { cwd, bins: { ...bins, adapter: hostAdapter }, env, pathPrefix }
+      );
+      hosts.push(host);
+      const socket = path.join(dir, id, "host.sock");
+      await until(() => existsSync(path.join(dir, id, "session.json")));
+      return socket;
+    }
+    let socketPath = await launchHost(root);
+    const holds = new RunnerUpdateHolds({
+      store: { read: async () => [], write: async () => {} },
+      logger,
+    });
+    const commands: ClientMessage[] = [];
+    const replies: HostMessage[] = [];
+    const links: Duplex[] = [];
+    const tap: {
+      outbound?: (message: ClientMessage, drop: () => void) => boolean | void;
+      inbound?: (
+        message: HostMessage,
+        drop: () => void
+      ) => HostMessage | false | void;
+      offline: boolean;
+    } = { offline: false };
+    let seq = 0;
+    let journal: string | null = null;
+    const { runtime, seen } = runtimeWith(root, () => seq, null, undefined, {
+      hostSeq: async () => ({ seq, journalId: journal }),
+      syncJournal: async (_agentId, next, reset) => {
+        journal = next;
+        if (reset) seq = 0;
+      },
+      holds,
+      placement: async () => "update-runner",
+      remote: {
+        available: () => true,
+        call: async (_runner, op) =>
+          op === "session.alive" ? { state: "live" } : {},
+        async openStream(_runner, op) {
+          expect(op).toBe("session.attach");
+          if (tap.offline) throw new RunnerUnavailable("swapping");
+          const host = net.createConnection(socketPath);
+          const outgoing = ndjsonDecoder<ClientMessage>();
+          const incoming = ndjsonDecoder<HostMessage>();
+          const link = new Duplex({
+            read() {},
+            write(chunk, _encoding, callback) {
+              for (const message of outgoing(chunk)) {
+                commands.push(message);
+                if (tap.outbound?.(message, drop) !== false)
+                  host.write(encodeMessage(message));
+              }
+              callback();
+            },
+            destroy(error, callback) {
+              host.destroy();
+              callback(error);
+            },
+          });
+          const drop = () => {
+            tap.offline = true;
+            link.destroy();
+          };
+          links.push(link);
+          host.on("close", () => link.destroy());
+          host.on("error", (error) => link.destroy(error));
+          host.on("data", (chunk) => {
+            for (const message of incoming(chunk)) {
+              if (link.destroyed) break;
+              replies.push(message);
+              const result = tap.inbound?.(message, drop);
+              if (result !== false && !link.destroyed)
+                link.push(encodeMessage(result ?? message));
+            }
+          });
+          return attachedHost(link, id);
+        },
+      },
+    });
+    runtime.onEvent((_id, _event, next) => {
+      if (next > 0) seq = next;
+    });
+    expect(await runtime.attach(id)).toBe(true);
+    const invocations = () => {
+      const file = path.join(folder, "provider-invocations");
+      return existsSync(file)
+        ? readFileSync(file, "utf8").trim().split("\n").length
+        : 0;
+    };
+    return {
+      id,
+      runtime,
+      seen,
+      holds,
+      commands,
+      replies,
+      tap,
+      folder,
+      invocations,
+      async rotate() {
+        const rotated = path.join(root, "rotated");
+        socketPath = await launchHost(rotated);
+      },
+      async close() {
+        await holds.release("update-runner", attempt, "cancelled");
+        await runtime.stop(id, true);
+        for (const link of links) link.destroy();
+        holds.close();
+        for (const host of hosts)
+          await host.requestSession({ kind: "stop", agentId: id, force: true });
+        rmSync(root, { recursive: true, force: true });
+      },
+    };
+  }
+
+  it.each([
+    "unclaimed",
+    "claimed",
+    "claimed-without-receipt",
+    "accepted",
+    "rotated",
+    "old-host",
+    "interrupted-replay",
+    "expired",
+    "unheld",
+    "wrong-receipt-journal",
+    "silent-receipt",
+    "receipt-channel-lost",
+    "aborted",
+  ] as const)(
+    "reconciles a lost prompt acknowledgement with a real host (%s)",
+    async (mode) => {
+      const f = await updateFixture();
+      const fifo = path.join(f.folder, "image.png");
+      const claimed = mode === "claimed" || mode === "claimed-without-receipt";
+      const unclaimed = [
+        "unclaimed",
+        "unheld",
+        "expired",
+        "wrong-receipt-journal",
+        "silent-receipt",
+        "receipt-channel-lost",
+        "aborted",
+      ].includes(mode);
+      const query = !["unheld", "old-host", "rotated", "expired"].includes(
+        mode
+      );
+      const controller = new AbortController();
+      let releaseImage: Promise<void> | undefined;
+      try {
+        if (claimed) execFileSync("mkfifo", [fifo]);
+        const begin = () => {
+          if (mode === "unheld") return;
+          void f.holds.begin("update-runner", attempt, {
+            ...(mode === "expired" ? { boundMs: 1000 } : {}),
+          });
+        };
+        f.tap.outbound = (message, drop) => {
+          if (
+            message.type !== "prompt" ||
+            f.commands.filter((m) => m.type === "prompt").length !== 1
+          )
+            return;
+          begin();
+          if (unclaimed) {
+            drop();
+            return false;
+          }
+        };
+        let dropped = false;
+        let replayInterrupted = false;
+        f.tap.inbound = (message, drop) => {
+          if (
+            mode === "interrupted-replay" &&
+            dropped &&
+            !replayInterrupted &&
+            message.type === "replay_complete"
+          ) {
+            replayInterrupted = true;
+            drop();
+            queueMicrotask(() => {
+              f.tap.offline = false;
+            });
+            return false;
+          }
+          if (message.type === "prompt_receipt_result") {
+            if (mode === "silent-receipt") return false;
+            if (mode === "receipt-channel-lost") queueMicrotask(drop);
+            if (
+              mode === "wrong-receipt-journal" ||
+              mode === "claimed-without-receipt"
+            )
+              return { ...message, journalId: "wrong" };
+          }
+          if (
+            message.type === "welcome" &&
+            dropped &&
+            (mode === "aborted" || mode === "rotated")
+          )
+            return {
+              ...message,
+              turn: { seq: 0, startedAt: new Date().toISOString() },
+            };
+          if (message.type === "welcome" && mode === "old-host")
+            return { ...message, promptReceiptSupported: undefined };
+          if (
+            !dropped &&
+            ((claimed &&
+              message.type === "event" &&
+              message.event.type === "turn" &&
+              message.event.state === "started") ||
+              message.type === "prompt_accepted")
+          ) {
+            dropped = true;
+            drop();
+            return false;
+          }
+        };
+        const turn = f.runtime.prompt(
+          f.id,
+          "proof-count",
+          undefined,
+          claimed
+            ? { images: [{ path: fifo, mimeType: "image/png" }] }
+            : { signal: controller.signal }
+        );
+        await until(
+          () => f.tap.offline && !f.runtime.getPermissions(f.id).connected
+        );
+        if (mode === "rotated") await f.rotate();
+        let outcome: string | undefined;
+        const result = turn.accepted
+          .then(
+            () => "accepted",
+            (error: Error) => error.message
+          )
+          .then((visible) => (outcome = visible));
+        if (mode === "unheld") {
+          await until(() => outcome !== undefined, 500);
+          expect(outcome).toBe(uncertain);
+        } else {
+          // Give the close handler and its rejection handlers a turn before
+          // allowing the new supervisor to attach.
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          expect(outcome).toBeUndefined();
+        }
+        if (unclaimed) dropped = true;
+        if (mode === "aborted") controller.abort();
+        if (mode !== "expired") f.tap.offline = false;
+        const accepted = [
+          "unclaimed",
+          "accepted",
+          "interrupted-replay",
+        ].includes(mode);
+        expect(await result).toBe(accepted ? "accepted" : uncertain);
+        await turn.settled;
+        const prompts = f.commands.filter((m) => m.type === "prompt");
+        const queries = f.commands.filter((m) => m.type === "prompt_receipt");
+        expect(prompts).toHaveLength(mode === "unclaimed" ? 2 : 1);
+        if (mode === "unclaimed") expect(prompts[1]).toEqual(prompts[0]);
+        if (query) {
+          expect(queries).toEqual([
+            {
+              type: "prompt_receipt",
+              id: prompts[0]?.id,
+              journalId: prompts[0]?.journalId,
+            },
+          ]);
+          expect(f.replies).toContainEqual({
+            ...queries[0],
+            type: "prompt_receipt_result",
+            state: unclaimed ? "unclaimed" : claimed ? "claimed" : "accepted",
+          });
+        } else expect(queries).toEqual([]);
+        const queued = [
+          "aborted",
+          "rotated",
+          "silent-receipt",
+          "claimed",
+          "claimed-without-receipt",
+        ].includes(mode)
+          ? f.runtime.prompt(f.id, "next prompt", undefined, {
+              delivery: "queue",
+            })
+          : undefined;
+        void queued?.accepted.catch(() => {});
+        const sentNext = () =>
+          f.commands.some(
+            (m) => m.type === "prompt" && m.text === "next prompt"
+          );
+        if (claimed) {
+          await f.holds.release("update-runner", attempt, "committed");
+          expect(f.runtime.hasOpenTurn(f.id)).toBe(true);
+          expect(sentNext()).toBe(false);
+          releaseImage = writeFile(fifo, "image");
+          await releaseImage;
+        }
+        if (mode === "unclaimed" || (!unclaimed && mode !== "rotated")) {
+          await until(() =>
+            f.seen.some(
+              ({ event }) => event.type === "turn" && event.state === "settled"
+            )
+          );
+          expect(
+            f.seen
+              .flatMap(({ event }) =>
+                event.type === "turn" ? [event.state] : []
+              )
+              .slice(0, claimed ? 2 : undefined)
+          ).toEqual(["started", "settled"]);
+        }
+        if (mode === "silent-receipt") {
+          expect(
+            f.replies.filter((m) => m.type === "welcome").at(-1)?.turn
+          ).toBeNull();
+        }
+        if (mode === "rotated") {
+          const welcomes = f.replies.filter((m) => m.type === "welcome");
+          expect(welcomes.at(-1)?.journalId).not.toBe(welcomes[0]?.journalId);
+          expect(
+            f.seen.filter(
+              ({ event }) => event.type === "turn" && event.state === "settled"
+            )
+          ).toHaveLength(0);
+        }
+        expect(f.invocations()).toBe(unclaimed && mode !== "unclaimed" ? 0 : 1);
+        if (queued) {
+          if (!claimed)
+            await f.holds.release("update-runner", attempt, "committed");
+          await until(sentNext);
+          await queued.accepted;
+          await queued.settled;
+          expect(f.runtime.isBusy(f.id)).toBe(false);
+        }
+      } finally {
+        if (claimed && !releaseImage)
+          void writeFile(fifo, "image").catch(() => {});
+        await f.close();
+      }
+    }
+  );
+
+  it.each([
+    "matches",
+    "changed",
+    "already-answered",
+    "different-session",
+    "different-journal",
+    "unlisted-option",
+  ] as const)(
+    "validates a pending permission answer on reconnect (%s)",
+    async (mode) => {
+      const f = await updateFixture();
+      try {
+        const turn = f.runtime.prompt(f.id, "proof-count prove-permission");
+        await turn.accepted;
+        await until(() => f.runtime.getPermissions(f.id).requests.length === 1);
+        const [request] = f.runtime.getPermissions(f.id).requests;
+        await f.holds.begin("update-runner", attempt);
+        f.tap.outbound = (message, drop) => {
+          if (
+            message.type === "answer_permission" &&
+            f.commands.filter((m) => m.type === "answer_permission").length ===
+              1 &&
+            mode !== "already-answered"
+          ) {
+            drop();
+            return false;
+          }
+        };
+        f.tap.inbound = (message, drop) => {
+          if (
+            mode === "already-answered" &&
+            message.type === "permission_answered"
+          ) {
+            drop();
+            return false;
+          }
+          if (mode === "different-session" && message.type === "welcome")
+            return { ...message, sessionId: "different" };
+          if (mode === "different-journal" && message.type === "welcome")
+            return { ...message, journalId: "different" };
+          if (mode === "changed" && message.type === "welcome")
+            return {
+              ...message,
+              permissions: message.permissions?.map((item) => ({
+                ...item,
+                details: "changed operation",
+              })),
+            };
+        };
+        const result = f.runtime
+          .answerPermission(
+            f.id,
+            request!.id,
+            mode === "unlisted-option" ? "absent" : "allow"
+          )
+          .then(
+            () => "answered",
+            (error: Error) => error.message
+          );
+        await until(
+          () => f.tap.offline && !f.runtime.getPermissions(f.id).connected
+        );
+        const pending = Symbol();
+        expect(await Promise.race([result, Promise.resolve(pending)])).toBe(
+          pending
+        );
+        if (mode !== "already-answered")
+          expect(f.runtime.getPermissions(f.id).requests).toEqual([request]);
+        f.tap.offline = false;
+        expect(await result).toBe(mode === "matches" ? "answered" : uncertain);
+        expect(
+          f.commands.filter((m) => m.type === "answer_permission")
+        ).toHaveLength(mode === "matches" ? 2 : 1);
+        const consumed = mode === "matches" || mode === "already-answered";
+        if (consumed) await turn.settled;
+        expect(existsSync(path.join(f.folder, "protected-action"))).toBe(
+          consumed
+        );
+      } finally {
+        await f.close();
+      }
+    }
+  );
+
+  it("keeps steering queued during the update and never resends an in-flight steer", async () => {
+    const f = await updateFixture({ bin: fakeAgent });
+    try {
+      const active = f.runtime.prompt(f.id, "permission-test");
+      await active.accepted;
+      await until(() => f.runtime.getPermissions(f.id).requests.length === 1);
+      const [permission] = f.runtime.getPermissions(f.id).requests;
+      let dropped = false;
+      f.tap.outbound = (message) => {
+        if (message.type === "steer" && !dropped)
+          void f.holds.begin("update-runner", attempt);
+      };
+      f.tap.inbound = (message, drop) => {
+        if (message.type === "steer_result" && !dropped) {
+          dropped = true;
+          drop();
+          return false;
+        }
+      };
+      const steer = f.runtime.prompt(
+        f.id,
+        "in flight",
+        { source: "chat", chatMessageId: "one" },
+        { delivery: "auto" }
+      );
+      await expect(steer.accepted).rejects.toThrow(uncertain);
+      const queued = f.runtime.prompt(
+        f.id,
+        "queue this",
+        { source: "chat", chatMessageId: "two" },
+        { delivery: "auto", alone: true }
+      );
+      const promoted = f.runtime.prompt(
+        f.id,
+        "send this",
+        { source: "chat", chatMessageId: "three" },
+        { alone: true }
+      );
+      expect(f.runtime.controlQueuedPrompt([f.id], "three", "send-now")).toBe(
+        true
+      );
+      f.tap.offline = false;
+      await until(() => f.runtime.getPermissions(f.id).connected);
+      expect(f.runtime.hasOpenTurn(f.id)).toBe(true);
+      await f.holds.release("update-runner", attempt, "committed");
+      await f.runtime.answerPermission(f.id, permission!.id, "once");
+      await active.settled;
+      await queued.accepted;
+      await queued.settled;
+      await promoted.accepted;
+      await promoted.settled;
+      expect(f.commands.filter((m) => m.type === "steer")).toHaveLength(1);
+      expect(f.commands.filter((m) => m.type === "prompt")).toHaveLength(3);
+      expect(
+        f.seen.filter(({ event }) => event.type === "steered")
+      ).toHaveLength(1);
+    } finally {
+      await f.close();
+    }
+  });
+
+  it("defers steering if the update hold begins during submission preparation", async () => {
+    const f = await updateFixture({ bin: fakeAgent });
+    try {
+      const active = f.runtime.prompt(f.id, "permission-test");
+      await active.accepted;
+      await until(() => f.runtime.getPermissions(f.id).requests.length === 1);
+      const [permission] = f.runtime.getPermissions(f.id).requests;
+      const preparing = Promise.withResolvers<void>();
+      const submit = Promise.withResolvers<boolean>();
+      const queued = f.runtime.prompt(
+        f.id,
+        "keep this queued",
+        { source: "chat", chatMessageId: "preparing" },
+        {
+          delivery: "auto",
+          async beforeSubmit() {
+            preparing.resolve();
+            return submit.promise;
+          },
+        }
+      );
+      await preparing.promise;
+      await f.holds.begin("update-runner", attempt);
+      submit.resolve(true);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      await f.holds.release("update-runner", attempt, "committed");
+      await f.runtime.answerPermission(f.id, permission!.id, "once");
+      await active.settled;
+      await queued.accepted;
+      await queued.settled;
+      expect(f.commands.filter((m) => m.type === "steer")).toEqual([]);
+      expect(f.commands.filter((m) => m.type === "prompt")).toHaveLength(2);
+    } finally {
+      await f.close();
+    }
+  });
+
+  it("replays a remote prompt receipt after a lost acknowledgement without invoking the provider again", async () => {
+    const id = "agt_host_receipt";
+    const { runtime } = runtimeWith(stateRoot, () => 0, null, {
+      bin: "bun",
+      args: [path.join(here, "helpers/remote-acp-fixture.ts")],
+    });
+    const launch = launchFor(id, cwd);
+    const token = "reauthentication-is-not-required-on-attach";
+    launch.mcp = { url: "https://127.0.0.1:1/service", token };
+    await runtime.launch(launch);
+    const dir = path.join(stateRoot, id);
+    async function attach() {
+      const messages: HostMessage[] = [];
+      const socket = net.createConnection(path.join(dir, "host.sock"));
+      const decode = ndjsonDecoder<HostMessage>();
+      socket.on("data", (chunk) => messages.push(...decode(chunk)));
+      await once(socket, "connect");
+      socket.write(
+        encodeMessage({ type: "hello", fromSeq: 0, replayComplete: true })
+      );
+      await until(() =>
+        messages.some((message) => message.type === "replay_complete")
+      );
+      return { socket, messages };
+    }
+    const first = await attach();
+    const welcome = first.messages.find(
+      (message) => message.type === "welcome"
+    )!;
+    expect(welcome.hostBuild).toBeUndefined();
+    expect(welcome.hostInstanceId).toBeUndefined();
+    // A prompt's source is the caller's opaque metadata (as on main); only
+    // the wire shape is the host's to reject.
+    for (const [id, fields] of [
+      ["malformed-image", { images: [{ path: true, mimeType: "image/png" }] }],
+    ] as const) {
+      first.socket.write(
+        encodeMessage({
+          type: "prompt",
+          id,
+          text: "proof-count",
+          journalId: welcome.journalId,
+          ...fields,
+        })
+      );
+      await until(() =>
+        first.messages.some(
+          (message) =>
+            message.type === "error" &&
+            message.id === id &&
+            message.message === "Invalid host command."
+        )
+      );
+    }
+    const command = {
+      type: "prompt",
+      id: "first-operation",
+      text: "proof-count proof-delay:150",
+      journalId: welcome.journalId,
+    };
+    // Keep the write but discard the response, as a transport that loses the ack.
+    first.socket.removeAllListeners("data");
+    first.socket.write(encodeMessage(command));
+    await until(() => {
+      try {
+        return readFileSync(path.join(dir, "journal.jsonl"), "utf8").includes(
+          '"state":"settled"'
+        );
+      } catch {
+        return false;
+      }
+    });
+    first.socket.destroy();
+
+    const second = await attach();
+    try {
+      second.socket.write(encodeMessage(command));
+      await until(() =>
+        second.messages.some((message) => message.type === "prompt_accepted")
+      );
+      expect(readFileSync(path.join(cwd, "provider-invocations"), "utf8")).toBe(
+        "called\n"
+      );
+      const turns = second.messages.flatMap((message) =>
+        message.type === "event" && message.event.type === "turn"
+          ? [message.event.state]
+          : []
+      );
+      expect(turns).toEqual(["started", "settled"]);
+      expect(JSON.stringify(second.messages)).not.toContain(token);
+    } finally {
+      second.socket.destroy();
+      await runtime.stop(id, true);
+    }
+  }, 15_000);
 
   it("reads structured inventory through the host and runtime without journalling a turn", async () => {
     const id = "agt_host_inventory";

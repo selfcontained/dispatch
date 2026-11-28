@@ -141,7 +141,7 @@ describe("registerPersonaInteractionTools", () => {
     registerPersonaInteractionTools(server as any, allowed, callbacks);
     const names = server.tools.map((t) => t.name);
     expect(names).toContain("list_personas");
-    // persona_upsert needs a workspace root.
+    // persona_upsert needs explicit authoring callbacks.
     expect(names).not.toContain("persona_upsert");
   });
 
@@ -204,6 +204,12 @@ describe("registerPersonaInteractionTools", () => {
       const callbacks: PersonaInteractionCallbacks = {
         agentId,
         worktreeRoot: "/workspace",
+        personaFiles: {
+          read: async () => null,
+          list: async () => [],
+          write: async () => {},
+        },
+        personaWrites: true,
       };
       registerPersonaInteractionTools(
         server as any,

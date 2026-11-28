@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { sessionCleanup } from "../src/terminal/process-session.js";
+import { sessionCleanup } from "../../../packages/runner/src/workload/terminal/process-session.js";
 
 describe("terminal kernel-session cleanup", () => {
   it("kills reparented jobs in their original session, excludes unrelated/server PIDs, and is idempotent", () => {

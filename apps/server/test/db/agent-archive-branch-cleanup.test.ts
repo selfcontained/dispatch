@@ -15,17 +15,50 @@ import {
   beforeEach,
   vi,
 } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import type { Pool } from "pg";
 
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./setup.js";
 
 // Silence shell side effects (git, hooks) from AgentManager.
+// A worktree is its own top level, as the local runner's removal checks.
+vi.mock(
+  "../../../../packages/runner/src/workload/shared/lib/run-command.js",
+  () => import("../../src/shared/lib/run-command.js")
+);
 vi.mock("../../src/shared/lib/run-command.js", () => ({
-  runCommand: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
+  runCommand: vi.fn(async (_command: string, args: string[] = []) => ({
+    exitCode: 0,
+    stdout:
+      args[0] === "-C" &&
+      args[2] === "rev-parse" &&
+      args[3] === "--show-toplevel"
+        ? args[1]
+        : "",
+    stderr: "",
+  })),
 }));
+
+vi.mock(
+  "../../../../packages/runner/src/workload/agents/checkout-inspection.js",
+  () => ({
+    observeGitCheckout: vi.fn(async (path: string) => ({
+      path,
+      branch: null,
+      stateId: "a".repeat(64),
+      unmerged: false,
+      changedFiles: [],
+      uncommittedFiles: [],
+    })),
+  })
+);
 
 // Stub the worktree helpers so we can (a) skip real git work during archive
 // and (b) observe what AgentManager asks us to do.
+let fixtureRoot: string;
+
 const cleanupGitWorktreeSpy = vi.fn(async () => ({
   repoRoot: "/tmp/repo",
   worktreePath: "/tmp/repo-wt",
@@ -36,30 +69,38 @@ const cleanupGitWorktreeSpy = vi.fn(async () => ({
   deletedBranch: false,
 }));
 
-vi.mock("../../src/shared/git/worktree.js", async () => {
-  const actual = await vi.importActual<
-    typeof import("../../src/shared/git/worktree.js")
-  >("../../src/shared/git/worktree.js");
-  return {
-    ...actual,
-    cleanupGitWorktree: cleanupGitWorktreeSpy,
-    createGitWorktree: vi.fn(async (input) => ({
-      repoRoot: "/tmp/repo",
-      worktreePath: "/tmp/repo-wt",
-      worktreeName: "repo-wt",
-      branchName:
-        input.createNewBranch === false
-          ? (input.baseBranch ?? "main")
-          : (input.branchName ?? "work"),
-      baseBranch: input.baseBranch ?? "main",
-      baseRef: `origin/${input.baseBranch ?? "main"}`,
-      baseSha: "deadbeef",
-    })),
-  };
-});
+vi.mock(
+  "../../../../packages/runner/src/workload/shared/git/worktree.js",
+  async () => {
+    const actual = await vi.importActual<
+      typeof import("../../../../packages/runner/src/workload/shared/git/worktree.js")
+    >("../../../../packages/runner/src/workload/shared/git/worktree.js");
+    return {
+      ...actual,
+      cleanupGitWorktree: cleanupGitWorktreeSpy,
+      createGitWorktree: vi.fn(async (input) => ({
+        repoRoot: "/tmp/repo",
+        worktreePath: await mkdtemp(path.join(fixtureRoot, "worktree-")),
+        worktreeName: "repo-wt",
+        branchName:
+          input.createNewBranch === false
+            ? (input.baseBranch ?? "main")
+            : (input.branchName ?? "work"),
+        baseBranch: input.baseBranch ?? "main",
+        baseRef: `origin/${input.baseBranch ?? "main"}`,
+        baseSha: "deadbeef",
+      })),
+    };
+  }
+);
 
-const { AgentManager, AgentError } =
+const { AgentManager: HostAgentManager, AgentError } =
   await import("../../src/agents/manager.js");
+const { withTestWorkspaceRunner } =
+  await import("../helpers/test-workspace-runner.js");
+const AgentManager = withTestWorkspaceRunner(HostAgentManager, {
+  recordedArchiveFixture: true,
+});
 
 let pool: Pool;
 
@@ -94,10 +135,17 @@ let manager: InstanceType<typeof AgentManager>;
 beforeAll(async () => {
   pool = await setupTestDb();
   await runTestMigrations();
-  manager = new AgentManager(pool, noopLogger, inertConfig);
+  fixtureRoot = await mkdtemp(
+    path.join(tmpdir(), "dispatch-archive-worktree-")
+  );
+  manager = new AgentManager(pool, noopLogger, {
+    ...inertConfig,
+    agentStateRoot: path.join(fixtureRoot, "hosts"),
+  });
 });
 
 afterAll(async () => {
+  if (fixtureRoot) await rm(fixtureRoot, { recursive: true, force: true });
   await teardownTestDb();
 });
 
@@ -263,7 +311,8 @@ describe("archive branch cleanup", () => {
   });
 
   it("fails the agent with a clear last_error when worktree creation fails on the inert path (review #1160)", async () => {
-    const worktreeMod = await import("../../src/shared/git/worktree.js");
+    const worktreeMod =
+      await import("../../../../packages/runner/src/workload/shared/git/worktree.js");
     vi.mocked(worktreeMod.createGitWorktree).mockRejectedValueOnce(
       new worktreeMod.GitWorktreeError(
         "branch 'feature/x' is already checked out at /tmp/other",

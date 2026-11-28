@@ -1,3 +1,8 @@
+import {
+  fixtureEngineActions,
+  type FixtureEngineDeps,
+  type RunnerEngineTransport,
+} from "./helpers/engine-actions.js";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -21,8 +26,21 @@ import {
   EngineLogins,
   loginScript,
   parseLoginOutput,
-} from "../src/agents/engine-login.js";
+} from "../../../packages/runner/src/workload/agents/engine-login.js";
 import { registerEngineLoginRoutes } from "../src/routes/engine-login.js";
+import { EngineManager as ActualEngineManager } from "../src/agents/remote/engine-manager.js";
+
+// T29 actions are supplied separately from legacy inventory/sign-in fixture transport.
+class EngineManager extends ActualEngineManager {
+  constructor(deps: FixtureEngineDeps) {
+    super({
+      ...deps,
+      engineActions: fixtureEngineActions(deps),
+    });
+  }
+}
+import { localEngineWorkload } from "../../../packages/runner/src/workload/agents/remote/engine-runner-executor.js";
+import { localEngineCalls } from "../src/runners/local.js";
 
 const CLAUDE_OUTPUT = `Opening browser to sign in…
 If the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true&client_id=abc&state=xyz
@@ -264,11 +282,28 @@ if (mode === "fail") {
 });
 
 describe("engine login routes", () => {
-  const logins = new EngineLogins({ resolveBin: async () => null });
+  // No CLI on the local runner: configured where nothing is.
+  const missing = path.join(os.tmpdir(), "dispatch-no-such-engine-cli");
   const app = Fastify();
 
   beforeAll(async () => {
-    await registerEngineLoginRoutes(app, logins);
+    await registerEngineLoginRoutes(
+      app,
+      new EngineManager({
+        local: {
+          engines: localEngineCalls(
+            () => undefined,
+            localEngineWorkload({
+              claude: missing,
+              codex: missing,
+              opencode: missing,
+            })
+          ),
+          updates: {} as never,
+        },
+        remote: { send: async () => ({ ok: false, error: "none" }) },
+      })
+    );
     await app.ready();
   });
   afterAll(() => app.close());

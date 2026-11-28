@@ -1,4 +1,4 @@
-import type { EngineBins } from "../agents/acp/engine-spec.js";
+import type { EngineBins } from "@dispatch/runner-protocol/host";
 
 export let startupAcpAdapter: EngineBins["adapter"];
 

@@ -48,15 +48,33 @@ export function ProjectLocation({
   rememberedProjectId,
   onChange,
   children,
+  projectPicker,
+  onModeChange,
 }: {
   projectId: string | null | undefined;
   rememberedProjectId?: string | null;
   onChange: (project: Project | null) => void;
   children: ReactNode;
+  projectPicker?: ReactNode;
+  onModeChange?: (projectMode: boolean) => void;
 }) {
   const { data: projects = [], isLoading, isError, refetch } = useProjects();
+  const [pickingProject, setPickingProject] = useState(false);
+  const projectMode = Boolean(projectId || (projectPicker && pickingProject));
   const lastProjectId = useRef(rememberedProjectId ?? projectId);
   const project = projects.find((p) => p.id === projectId);
+  const picker = projectPicker && (
+    <div className="relative">
+      {projectPicker}
+      {project?.repoRoot && (
+        <div className="absolute inset-x-0 top-full flex h-3 items-center justify-end text-label-xs leading-3 text-muted-foreground">
+          <span className="truncate" title={project.repoRoot}>
+            {project.repoRoot}
+          </span>
+        </div>
+      )}
+    </div>
+  );
   const select = (p: Project | null) => {
     if (p) lastProjectId.current = p.id;
     else if (projectId) lastProjectId.current = projectId;
@@ -67,23 +85,25 @@ export function ProjectLocation({
       <SegmentedControl
         layout="fill"
         aria-label="Launch location type"
-        value={projectId ? "project" : "folder"}
-        onValueChange={(next) =>
+        value={projectMode ? "project" : "folder"}
+        onValueChange={(next) => {
+          setPickingProject(next === "project");
+          onModeChange?.(next === "project");
           select(
             next === "folder"
               ? null
               : (projects.find((p) => p.id === lastProjectId.current) ??
                   projects[0] ??
                   null)
-          )
-        }
+          );
+        }}
       >
         <SegmentedControlItem
           value="project"
-          disabled={!projects.length}
+          disabled={!projectPicker && !projects.length}
           className="disabled:pointer-events-auto"
           hint={
-            !projects.length
+            !projectPicker && !projects.length
               ? "Create a project from the sidebar to use this option"
               : undefined
           }
@@ -92,77 +112,78 @@ export function ProjectLocation({
         </SegmentedControlItem>
         <SegmentedControlItem value="folder">Folder</SegmentedControlItem>
       </SegmentedControl>
-      {projectId && (
-        <div>
-          <Select
-            value={project?.id ?? ""}
-            disabled={!projects.length}
-            onValueChange={(id) => {
-              const next = projects.find((p) => p.id === id);
-              if (next) select(next);
-            }}
-          >
-            <SelectTrigger
-              aria-label="Choose project"
-              className="[&>span]:min-w-0"
+      {projectMode &&
+        (picker ?? (
+          <div>
+            <Select
+              value={project?.id ?? ""}
+              disabled={!projects.length}
+              onValueChange={(id) => {
+                const next = projects.find((p) => p.id === id);
+                if (next) select(next);
+              }}
             >
-              <SelectValue placeholder="Choose a project">
-                <span className="flex min-w-0 items-center gap-2">
-                  {project && (
-                    <ProjectIcon project={project} className="h-5 w-5" />
-                  )}
-                  <span className="truncate">
-                    {project?.name ??
-                      (isLoading ? "Loading projects…" : "Choose a project")}
-                  </span>
-                </span>
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent className="max-h-[clamp(4rem,var(--radix-select-content-available-height),18rem)] w-[var(--radix-select-trigger-width)]">
-              {projects.map((p) => (
-                <SelectItem
-                  key={p.id}
-                  value={p.id}
-                  textValue={p.name}
-                  className="min-w-0 [&>span:last-child]:min-w-0 [&>span:last-child]:flex-1"
-                >
-                  <span className="flex min-w-0 items-center gap-3">
-                    <ProjectIcon project={p} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate">{p.name}</span>
-                      <span
-                        className="block truncate text-body-sm text-muted-foreground"
-                        title={p.repoRoot}
-                      >
-                        {p.repoRoot}
-                      </span>
+              <SelectTrigger
+                aria-label="Choose project"
+                className="[&>span]:min-w-0"
+              >
+                <SelectValue placeholder="Choose a project">
+                  <span className="flex min-w-0 items-center gap-2">
+                    {project && (
+                      <ProjectIcon project={project} className="h-5 w-5" />
+                    )}
+                    <span className="truncate">
+                      {project?.name ??
+                        (isLoading ? "Loading projects…" : "Choose a project")}
                     </span>
                   </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {isError && (
-            <FieldError className="mt-1.5">
-              Couldn’t load projects.{" "}
-              <Button
-                type="button"
-                variant="link"
-                size="inline"
-                onClick={() => void refetch()}
-              >
-                Retry
-              </Button>
-            </FieldError>
-          )}
-          <div className="flex h-5 items-center justify-end text-body-sm text-muted-foreground">
-            <span className="truncate" title={project?.repoRoot}>
-              {project?.repoRoot}
-            </span>
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent className="max-h-[clamp(4rem,var(--radix-select-content-available-height),18rem)] w-[var(--radix-select-trigger-width)]">
+                {projects.map((p) => (
+                  <SelectItem
+                    key={p.id}
+                    value={p.id}
+                    textValue={p.name}
+                    className="min-w-0 [&>span:last-child]:min-w-0 [&>span:last-child]:flex-1"
+                  >
+                    <span className="flex min-w-0 items-center gap-3">
+                      <ProjectIcon project={p} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate">{p.name}</span>
+                        <span
+                          className="block truncate text-body-sm text-muted-foreground"
+                          title={p.repoRoot ?? undefined}
+                        >
+                          {p.repoRoot}
+                        </span>
+                      </span>
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {isError && (
+              <FieldError className="mt-1.5">
+                Couldn’t load projects.{" "}
+                <Button
+                  type="button"
+                  variant="link"
+                  size="inline"
+                  onClick={() => void refetch()}
+                >
+                  Retry
+                </Button>
+              </FieldError>
+            )}
+            <div className="flex h-5 items-center justify-end text-body-sm text-muted-foreground">
+              <span className="truncate" title={project?.repoRoot ?? undefined}>
+                {project?.repoRoot}
+              </span>
+            </div>
           </div>
-        </div>
-      )}
-      <div hidden={!!projectId}>{children}</div>
+        ))}
+      <div hidden={projectMode}>{children}</div>
     </div>
   );
 }

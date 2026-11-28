@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { ProviderPlansResponse } from "@dispatch/shared";
-import { CodexResetError, type CodexResetOutcome } from "./provider-plans.js";
+import {
+  CodexResetError,
+  type CodexResetOutcome,
+} from "@dispatch/runner-protocol/engine-plans";
+import { createProviderPlansReporter } from "./provider-plans-reporter.js";
 
 export type CodexResetResult = {
   outcome: CodexResetOutcome | null;
@@ -11,6 +15,9 @@ export type CodexResetResult = {
 export type RedeemCodexReset = (
   idempotencyKey?: string
 ) => Promise<CodexResetResult>;
+
+// Main has one active spend for the entire Dispatch process; replay maps stay scoped.
+const processSpend = { active: false };
 
 /** Process-local, account-wide protection shared by HTTP and MCP. Entries (including
  * ambiguous failures) live for ten minutes after completion. Never evict a live
@@ -33,7 +40,6 @@ export function createCodexResetCoordinator(deps: {
     string,
     { expiresAt: number; result: Promise<CodexResetResult> }
   >();
-  let active = false;
   return (idempotencyKey) => {
     const key = idempotencyKey ?? "legacy-ui";
     for (const [id, entry] of entries) {
@@ -41,12 +47,14 @@ export function createCodexResetCoordinator(deps: {
     }
     const previous = entries.get(key);
     if (previous) return previous.result;
-    if (active || entries.size >= maxEntries) {
+    if (processSpend.active || entries.size >= maxEntries) {
       return Promise.resolve({
         outcome: null,
         error: {
-          reason: active ? "reset_in_progress" : "idempotency_capacity",
-          message: active
+          reason: processSpend.active
+            ? "reset_in_progress"
+            : "idempotency_capacity",
+          message: processSpend.active
             ? "Another account-shared reset is in progress. Check usage before making a new request."
             : "Reset replay protection is full. Wait ten minutes before making a new request.",
           possiblyConsumed: false,
@@ -55,7 +63,7 @@ export function createCodexResetCoordinator(deps: {
         refreshError: null,
       });
     }
-    active = true;
+    processSpend.active = true;
     const entry = {
       expiresAt: Infinity,
       result: undefined! as Promise<CodexResetResult>,
@@ -110,10 +118,63 @@ export function createCodexResetCoordinator(deps: {
         return { outcome, error, usage, refreshError };
       })
       .finally(() => {
-        active = false;
+        processSpend.active = false;
         entry.expiresAt = now() + retentionMs;
       });
     entries.set(key, entry);
     return entry.result;
   };
+}
+
+/** Dispatch owns caches and replay protection; the runner performs host acts only. */
+export function createRunnerUsage(calls: {
+  call<K extends "engine.usage" | "engine.quota.reset">(
+    op: K,
+    request: import("@dispatch/runner-protocol/contract").Req<K>
+  ): Promise<import("@dispatch/runner-protocol/contract").Res<K>>;
+}) {
+  const providerPlans = createProviderPlansReporter({
+    load: async () => {
+      try {
+        return (await calls.call("engine.usage", {})) as ProviderPlansResponse;
+      } catch (failure) {
+        return {
+          checkedAt: new Date().toISOString(),
+          providers: (["claude", "codex"] as const).map((engine) => ({
+            engine,
+            plan: null,
+            observedAt: null,
+            windows: [],
+            unavailableReason:
+              failure instanceof Error
+                ? failure.message
+                : "Usage refresh failed.",
+          })),
+        };
+      }
+    },
+  });
+  const redeemCodexReset = createCodexResetCoordinator({
+    providerPlans,
+    consume: async (requestId) => {
+      const result = await calls.call("engine.quota.reset", {
+        engine: "codex",
+        account: "",
+        requestId,
+      });
+      if (result.error)
+        throw new CodexResetError(
+          result.error.reason as ConstructorParameters<
+            typeof CodexResetError
+          >[0],
+          result.error.message
+        );
+      return {
+        code: result.code,
+        windowsReset: result.windowsReset,
+        credit: result.credit ?? null,
+      };
+    },
+  });
+  return { providerPlans, redeemCodexReset };
 }

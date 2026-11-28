@@ -11,6 +11,7 @@ export const BUILD_VERSION: string = __DISPATCH_VERSION__;
 
 type Listener = () => void;
 const listeners = new Set<Listener>();
+const serverVersionListeners = new Set<Listener>();
 let serverVersion: string | null = null;
 let mismatch = false;
 let dismissed = false;
@@ -45,13 +46,24 @@ export function subscribeVersionMismatch(listener: Listener): () => void {
   };
 }
 
+export function subscribeServerVersion(listener: Listener): () => void {
+  serverVersionListeners.add(listener);
+  return () => {
+    serverVersionListeners.delete(listener);
+  };
+}
+
 function notify(): void {
   for (const listener of listeners) listener();
 }
 
 export function noteServerVersion(version: string | null | undefined): void {
   if (!version) return;
+  const changed = serverVersion !== version;
   serverVersion = version;
+  if (changed && (mismatch || version !== BUILD_VERSION)) {
+    for (const listener of serverVersionListeners) listener();
+  }
   if (mismatch) return;
   if (version === BUILD_VERSION) return;
   mismatch = true;

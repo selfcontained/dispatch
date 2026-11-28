@@ -1,3 +1,4 @@
+import type { EngineScope } from "@dispatch/runner-protocol/engine-management";
 import { useAtomValue } from "jotai";
 import { chatShowProgressTextAtom } from "@/lib/store";
 import { SystemEventEntry } from "./system-event-entry";
@@ -115,6 +116,7 @@ export type PeerInfo = {
   name: string;
   agentType: string | null;
   model?: string | null;
+  engineScope?: EngineScope;
   relation: AgentRelation;
   /** Its number in the tree (the root is 1); absent outside this tree. */
   seat?: number;
@@ -133,7 +135,7 @@ export type PeerDirectory = Readonly<Record<string, PeerInfo>>;
 export function peerDirectory(
   agentId: string,
   agents: readonly (Pick<Agent, "id" | "name" | "type" | "parentAgentId"> &
-    Partial<Pick<Agent, "model" | "createdAt" | "status">>)[]
+    Partial<Pick<Agent, "model" | "createdAt" | "status" | "engineScope">>)[]
 ): PeerDirectory {
   const byId = new Map(agents.map((agent) => [agent.id, agent]));
   const seats = lineageSeats(agentId, agents);
@@ -144,6 +146,9 @@ export function peerDirectory(
       name: agent.name,
       agentType: agent.type ?? null,
       model: agent.model ?? null,
+      ...(agent.engineScope !== undefined
+        ? { engineScope: agent.engineScope }
+        : {}),
       relation: agentRelation(agentId, agent.id, byId),
       ...(agent.parentAgentId == null && agent.status === "running"
         ? { mentionable: true }
@@ -174,6 +179,7 @@ export type FeedContext = {
   /** The agent's number in its tree, drawn as its avatar. */
   agentSeat?: number;
   agentType?: string | null;
+  engineScope?: EngineScope;
   /** Other agents, for a peer post's avatar and relation; absent until loaded. */
   peers?: PeerDirectory;
   /**

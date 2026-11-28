@@ -1,0 +1,36 @@
+{
+  "frozenLegacyPolicies": [
+    {
+      "commit": "fb86dd1deac121083015c6fb0ca1b7512448487d",
+      "sha256": "1b963d4fe149fff69325b18d6ec06bccb9980c7f9064eb2e72c9bad438b0293b"
+    },
+    {
+      "commit": "81662d1b82ff53be6fe27a7affd22a82a389f88c",
+      "sha256": "6f473503f44e2e5f3242d53879b2cde3ea8dcbe8f35e4fba7ddc3ab2d864a56c"
+    }
+  ],
+  "initialAdoption": {
+    "commit": "81662d1b82ff53be6fe27a7affd22a82a389f88c",
+    "reason": "Lead-approved T40 package move budget; approval e7d15a3e and input-seam approval a699c4af.",
+    "budget": 21,
+    "importers": [
+      "apps/server/src/agents/acp/host-search-path.ts",
+      "apps/server/src/agents/acp/local-host-entry.ts",
+      "apps/server/src/agents/acp/runtime.ts",
+      "apps/server/src/agents/checkout-command-executor.ts",
+      "apps/server/src/agents/checkout-worker.ts",
+      "apps/server/src/agents/engine-availability.ts",
+      "apps/server/src/agents/engine-login.ts",
+      "apps/server/src/agents/remote/engine-capability-worker.ts",
+      "apps/server/src/agents/remote/health.ts",
+      "apps/server/src/agents/remote/runner.ts",
+      "apps/server/src/agents/remote/session-supervisor.ts",
+      "apps/server/src/agents/remote/workload-tools.ts",
+      "apps/server/src/main.ts",
+      "apps/server/src/runners/local.ts",
+      "apps/server/src/shared/plugin-status.ts",
+      "apps/server/src/terminal/pty.ts"
+    ]
+  },
+  "reviewedIncreases": []
+}

@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import type { ProviderPlan } from "@dispatch/shared";
+import type { EngineScope } from "@dispatch/runner-protocol/engine-management";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -49,6 +51,10 @@ const plan: ProviderPlan = {
 function renderButton(providerPlan = plan) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  client.setQueryData(["usage-plans", "scope=local"], {
+    providers: [providerPlan],
+    codexResetAccount: "account",
   });
   return render(
     <QueryClientProvider client={client}>
@@ -197,7 +203,12 @@ describe("UseResetButton", () => {
   });
 
   it("asks for confirmation again after a result is closed with the button", async () => {
-    apiMock.mockResolvedValueOnce({ code: "ok", windowsReset: 1 });
+    apiMock.mockResolvedValueOnce({
+      ack: {
+        ok: true,
+        capability: { type: "codex_reset", code: "ok", windowsReset: 1 },
+      },
+    });
     renderButton();
 
     fireEvent.click(screen.getByTestId("usage-codex-reset"));
@@ -212,8 +223,13 @@ describe("UseResetButton", () => {
       ).toMatch(/Reset applied/)
     );
     expect(apiMock).toHaveBeenCalledTimes(1);
-    expect(apiMock).toHaveBeenCalledWith("/api/v1/usage/codex/resets/consume", {
-      method: "POST",
+    expect(apiMock).toHaveBeenCalledWith(
+      "/api/v1/engine-management/operations",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(JSON.parse(String(apiMock.mock.calls[0]![1]!.body))).toMatchObject({
+      scope: { kind: "local" },
+      operation: { type: "codex_reset", account: "account" },
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
@@ -247,29 +263,47 @@ describe("UseResetButton", () => {
 describe("Codex expiry reminder", () => {
   it("loads while closed and survives opening the panel and cancelling the dialog", async () => {
     const soon = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    apiMock.mockResolvedValue({
-      checkedAt: new Date().toISOString(),
-      providers: [
-        {
-          ...plan,
-          limitResets: {
-            ...plan.limitResets!,
-            oldestExpiresAt: soon,
-            items: [
-              { id: "a", title: "Soon", grantedAt: null, expiresAt: soon },
+    const answer = {
+      ack: {
+        ok: true,
+        capability: {
+          type: "provider_usage",
+          usage: {
+            checkedAt: new Date().toISOString(),
+            providers: [
               {
-                id: "b",
-                title: "Later",
-                grantedAt: null,
-                expiresAt: new Date(
-                  Date.now() + 14 * 24 * 60 * 60 * 1000
-                ).toISOString(),
+                ...plan,
+                limitResets: {
+                  ...plan.limitResets!,
+                  oldestExpiresAt: soon,
+                  items: [
+                    {
+                      id: "a",
+                      title: "Soon",
+                      grantedAt: null,
+                      expiresAt: soon,
+                    },
+                    {
+                      id: "b",
+                      title: "Later",
+                      grantedAt: null,
+                      expiresAt: new Date(
+                        Date.now() + 14 * 24 * 60 * 60 * 1000
+                      ).toISOString(),
+                    },
+                  ],
+                },
               },
             ],
           },
         },
-      ],
-    });
+      },
+    };
+    apiMock.mockImplementation(async (url) =>
+      url.startsWith("/api/v1/engine-management/inventory")
+        ? { entries: [{ id: "codex", installed: true, signedIn: true }] }
+        : answer
+    );
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -287,6 +321,11 @@ describe("Codex expiry reminder", () => {
     await screen.findByTestId("composer-usage-expiry-dot");
     expect(screen.queryByTestId("composer-usage-panel")).toBeNull();
     const closedCalls = apiMock.mock.calls.length;
+    expect(
+      apiMock.mock.calls.every(
+        ([url]) => url === "/api/v1/engine-management/operations"
+      )
+    ).toBe(true);
     await act(async () => {
       await client.invalidateQueries({
         queryKey: ["usage-plans"],
@@ -297,7 +336,11 @@ describe("Codex expiry reminder", () => {
     expect(apiMock.mock.calls.length).toBe(closedCalls);
     fireEvent.click(screen.getByTestId("composer-usage-chip"));
     await waitFor(() =>
-      expect(apiMock.mock.calls.length).toBe(closedCalls + 1)
+      expect(
+        apiMock.mock.calls.filter(
+          ([url]) => url === "/api/v1/engine-management/operations"
+        ).length
+      ).toBe(closedCalls + 1)
     );
     expect(screen.getByTestId("usage-codex-reset-expiry").className).toContain(
       "text-primary"
@@ -312,7 +355,134 @@ describe("Codex expiry reminder", () => {
     fireEvent.click(screen.getByTestId("composer-usage-chip"));
     expect(screen.getByTestId("composer-usage-expiry-dot")).toBeTruthy();
     expect(
-      apiMock.mock.calls.every(([url]) => url === "/api/v1/usage/plans")
+      apiMock.mock.calls.every(
+        ([url, init]) =>
+          url === "/api/v1/engine-management/inventory?scope=local" ||
+          (url === "/api/v1/engine-management/operations" &&
+            JSON.parse(String(init?.body)).operation.type === "provider_usage")
+      )
     ).toBe(true);
   });
+});
+
+function LocationProbe() {
+  const location = useLocation();
+  return (
+    <output data-testid="usage-setup-location">
+      {location.pathname + location.search + location.hash}
+    </output>
+  );
+}
+
+describe("the usage chip on a runner agent", () => {
+  async function openRunnerChip(
+    entries: object[],
+    scope: EngineScope = { kind: "runner", runnerId: "runner-1" }
+  ) {
+    apiMock.mockImplementation(async (url: string) => {
+      if (url.startsWith("/api/v1/engine-management/inventory"))
+        return { entries };
+      if (url === "/api/v1/engine-management/operations")
+        return {
+          ack: {
+            ok: true,
+            capability: {
+              type: "provider_usage",
+              usage: { providers: [plan], codexResetAccount: "acct" },
+            },
+          },
+        };
+      throw new Error(`Unexpected endpoint ${url}`);
+    });
+    const agent = {
+      id: "agent-1",
+      type: "codex",
+      engineScope: scope,
+    } as unknown as Parameters<typeof ComposerMeta>[0]["agent"];
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <MemoryRouter>
+          <LocationProbe />
+          <ComposerMeta
+            agentId="agent-1"
+            agent={agent}
+            active
+            liveUsage={null}
+            turnKey="idle"
+          />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    fireEvent.click(screen.getByTestId("composer-usage-chip"));
+  }
+
+  it("offers the runner's Codex reset as Settings does, without spending it", async () => {
+    await openRunnerChip([{ id: "codex", installed: true, signedIn: true }]);
+    expect(
+      await screen.findByRole("button", { name: "Use a reset…" })
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("link", { name: "Set up Claude or Codex" })
+    ).toBeNull();
+    expect(
+      apiMock.mock.calls.some(([, init]) =>
+        String((init as RequestInit | undefined)?.body).includes("codex_reset")
+      )
+    ).toBe(false);
+  });
+
+  it("reads usage only from the selected runner scope", async () => {
+    await openRunnerChip([{ id: "codex", installed: true, signedIn: true }]);
+    await screen.findByTestId("usage-plan-codex");
+    const calls = apiMock.mock.calls.filter(
+      ([url]) => url === "/api/v1/engine-management/operations"
+    );
+    expect(calls.length).toBeGreaterThan(0);
+    for (const [, init] of calls)
+      expect(JSON.parse(String(init?.body))).toEqual({
+        scope: { kind: "runner", runnerId: "runner-1" },
+        operation: { type: "provider_usage" },
+      });
+  });
+  it.each<EngineScope>([
+    { kind: "local" },
+    { kind: "runner", runnerId: "runner-1" },
+  ])(
+    "opens the $kind runner settings from unconfigured chat usage",
+    async (scope) => {
+      await openRunnerChip(
+        [
+          { id: "claude", installed: false },
+          { id: "codex", installed: true, signedIn: false },
+        ],
+        scope
+      );
+      const link = await screen.findByRole("link", {
+        name: "Set up Claude or Codex",
+      });
+      const runnerId = scope.kind === "local" ? "local" : scope.runnerId;
+      const destination = `/settings/runners?runner=${runnerId}#runner-agent-engines`;
+      expect(link.getAttribute("href")).toBe(destination);
+      expect(screen.queryByTestId("usage-plan-codex")).toBeNull();
+      fireEvent.click(link);
+      expect(screen.getByTestId("usage-setup-location").textContent).toBe(
+        destination
+      );
+      for (const [url, init] of apiMock.mock.calls) {
+        if (url.startsWith("/api/v1/engine-management/inventory")) {
+          const query = new URL(url, "http://fixture").searchParams;
+          expect(query.get("scope")).toBe(scope.kind);
+          expect(query.get("runnerId")).toBe(
+            scope.kind === "runner" ? runnerId : null
+          );
+        }
+        if (init?.method === "POST")
+          expect(JSON.parse(String(init.body)).scope).toEqual(scope);
+      }
+    }
+  );
 });

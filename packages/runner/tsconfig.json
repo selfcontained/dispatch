@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "src",
+    "types": ["node", "bun-types"],
+    "lib": ["ES2022", "ES2024.Promise"]
+  },
+  "include": ["src/**/*.ts"]
+}

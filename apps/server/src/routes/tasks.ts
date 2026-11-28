@@ -23,6 +23,7 @@ const USER: TaskActor = { kind: "user" };
 
 const TriggerSchema = z.object({
   templateId: z.string().min(1, "trigger.templateId is required."),
+  runner: z.string().min(1).optional(),
   agentType: z.enum(AGENT_TYPES).nullable().optional(),
   model: z.string().nullable().optional(),
   effort: z.string().min(1).max(128).nullable().optional(),
@@ -303,7 +304,12 @@ export async function registerTaskRoutes(
   app.get<{ Params: { id: string } }>(
     "/api/v1/tasks/:id/briefing",
     async (request, reply) =>
-      mapTaskErrors(reply, () => taskService.briefingFor(request.params.id))
+      mapTaskErrors(reply, async () => {
+        const { projectId, text, name } = await taskService.briefingFor(
+          request.params.id
+        );
+        return { projectId, name, text };
+      })
   );
 
   app.delete<{ Params: { id: string; agentId: string } }>(

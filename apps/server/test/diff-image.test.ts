@@ -15,7 +15,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { DIFF_IMAGE_MAX_BYTES } from "@dispatch/shared";
 
-import { getAgentDiff } from "../src/shared/git/agent-diff.js";
+import { getAgentDiff } from "../../../packages/runner/src/workload/shared/git/agent-diff.js";
 import {
   collectImageInfo,
   getAgentDiffImage,
@@ -23,7 +23,7 @@ import {
   isImageFile,
   readImageSide,
   resolveInsideWorktree,
-} from "../src/shared/git/diff-image.js";
+} from "../../../packages/runner/src/workload/shared/git/diff-image.js";
 import { runCommand } from "../src/shared/lib/run-command.js";
 
 /**

@@ -1,3 +1,33 @@
+import {
+  sameRunner,
+  sessionFromWire,
+} from "@dispatch/runner-protocol/contract";
+import {
+  engineScopeKey,
+  type EngineScope,
+} from "@dispatch/runner-protocol/engine-management";
+import { launchPersonaScope } from "./personas/persona-scope.js";
+import { localLaunchSettings } from "./agents/acp/launch-env.js";
+import {
+  controllerPlacement,
+  enrolledRunnerId,
+  placementForEnrolledId,
+  runnerIdForPlacement,
+} from "./runners/placement.js";
+import { runnerDirectory } from "./runners/directory.js";
+import {
+  scopedEngineCalls,
+  engineScopeForRunner,
+  inProcessEngines,
+  localEngineCalls,
+  localRunnerOf,
+  startLocalRunnerProcess,
+  type LocalRunnerProcess,
+} from "./runners/local.js";
+import { readLocalBindings } from "./runners/local-bindings.js";
+import { embeddedBuild } from "./agents/build-identity.js";
+import { CheckoutObservers } from "./agents/checkout-observers.js";
+import { readAgentStats } from "./agents/checkout-runner.js";
 import { discoverSlackLinkOrigins } from "./notifications/slack-link-origins.js";
 import { QuestionAlerts } from "./notifications/question-alerts.js";
 import { notifyForm } from "./notifications/notify-form.js";
@@ -7,6 +37,7 @@ import { SteeringDecisions } from "./chat/steering-decisions.js";
 import { RoutingSettings } from "./chat/routing-settings.js";
 import { RoutingShadow, RoutingShadowStore } from "./chat/routing-shadow.js";
 import { registerRoutingShadowRoutes } from "./routes/routing-shadow.js";
+import { createRunnerPullRequestReader } from "./agents/pull-request-reader.js";
 import { PullRequestRefresher } from "./agents/pull-request-refresher.js";
 import { MergeRiskAssessor } from "./agents/merge-risk/assessor.js";
 import {
@@ -14,8 +45,7 @@ import {
   registerPortfolioRoutes,
 } from "./routes/portfolio.js";
 import { installRequestLifecycle } from "./server/request-lifecycle.js";
-import { createCodexResetCoordinator } from "./agents/codex-reset.js";
-import { consumeCodexLimitReset } from "./agents/provider-plans.js";
+import { createRunnerUsage } from "./agents/codex-reset.js";
 import { TaskWatchNotifier } from "./tasks/watch-notifier.js";
 import { UsageWatchService } from "./agents/usage-watches.js";
 import { registerHumanTerminalRoutes } from "./routes/human-terminals.js";
@@ -30,16 +60,7 @@ import {
 } from "./multi-listener.js";
 import { watchLocalTls } from "./local-tls.js";
 import { registerLocalTrustRoutes } from "./routes/local-trust.js";
-import os from "node:os";
-import {
-  mkdir,
-  readFile,
-  readdir,
-  stat,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
-import { existsSync, readFileSync } from "node:fs";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
 
 import fastifyCookie from "@fastify/cookie";
 import fastifyMultipart from "@fastify/multipart";
@@ -50,11 +71,10 @@ import {
   httpLoggingOptions,
   registerHttpLogging,
 } from "./server/http-logging.js";
-import * as z from "zod/v4";
 
 import { AgentManager } from "./agents/manager.js";
 import type { AgentRecord } from "./agents/manager.js";
-import { agentTaskProject } from "./tasks/agent-scope.js";
+import { agentTaskProject, runnerTaskRootReader } from "./tasks/agent-scope.js";
 import {
   validateSession,
   getOrCreateAuthToken,
@@ -72,18 +92,16 @@ import { createPool, createServiceResourcesProbePool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { loadLearnedAgentModels } from "./agents/engine-models.js";
 import { loadModelAvailability } from "./agents/model-availability.js";
-import { deleteSetting, getSetting, setSetting } from "./db/settings.js";
+import { getSetting } from "./db/settings.js";
 import { detectFileType } from "./files/file-type.js";
 import { fileMetadataFromBuffer } from "./files/metadata.js";
 import { runCommand } from "./shared/lib/run-command.js";
-import { shouldSkipAutomaticMacPathProbe } from "./shared/mac-path-privacy.js";
 import {
   MAX_ENCODED_FILE_NAME_LENGTH,
   resolveFilesDir,
   sanitizeUploadedFileName,
   timestampedFileName,
 } from "./shared/files.js";
-import { handleMcpRequest } from "./shared/mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
 import { promoteHealthyReleaseCandidate } from "./release-candidate-store.js";
 import {
@@ -98,17 +116,20 @@ import { JobNotifier } from "./notifications/job-notifier.js";
 import { FocusTracker } from "./focus-tracker.js";
 import { PresenceTracker, toastRecipients } from "./presence-tracker.js";
 import { registerPresenceActivity } from "./server/presence-activity.js";
-import { AGENT_TYPES, setEnabledAgentTypes } from "./agent-type-settings.js";
+import { getEnabledAgentTypes } from "./agent-type-settings.js";
 import { JobService } from "./jobs/service.js";
 import { TemplateService } from "./templates/service.js";
 import { ReleaseLogStreamProcessor } from "./release-log-stream.js";
 import {
+  buildRevision,
+  gitSha,
   packageVersion,
   staticFiles as embeddedStaticFiles,
 } from "./generated/runtime-assets.js";
 import { BrainStore } from "./brain/store.js";
 import { registerActivityRoutes } from "./routes/activity/index.js";
-import { createProviderPlansReporter } from "./agents/provider-plans.js";
+import { loadCodeownersFromFiles } from "./personas/codeowners.js";
+import { createMergeRiskGitHubSource } from "./agents/merge-risk/github-source.js";
 import { RiskExplanations } from "./agents/merge-risk/explanations.js";
 import { registerAgentRoutes } from "./routes/agents/index.js";
 import { registerBrainRoutes } from "./routes/brain.js";
@@ -122,21 +143,53 @@ import { registerTemplateRoutes } from "./routes/templates.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerStreamRoutes } from "./routes/streams.js";
 import { StreamService, type TaskStreamRoot } from "./chat/service.js";
+import { configuredRunner } from "./agents/remote/service.js";
+import {
+  fileRunnerHoldStore,
+  RunnerUpdateHolds,
+} from "./agents/remote/update-hold.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
+import { backfillProjectRepositories } from "./projects/repository-backfill.js";
+import { ProjectStore } from "./projects/store.js";
 import { registerPersonaRoutes } from "./routes/personas.js";
 import { registerPersonalityRoutes } from "./routes/personalities.js";
 import { registerQuickPhraseRoutes } from "./routes/quick-phrases.js";
+import { registerRunnerGitHub } from "./routes/runner-github.js";
+import { registerRunnerInstaller } from "./routes/runner-installer.js";
+import { registerRunnerArtifacts } from "./routes/runner-artifacts.js";
+import {
+  fileRunnerUpdateStore,
+  RunnerUpdateCoordinator,
+} from "./agents/remote/update-coordinator.js";
+import type { RunnerArtifactSource } from "./server/runner-artifacts.js";
+import { registerRunnerRepositorySearch } from "./routes/runner-repositories.js";
+import { registerRunnerRoutes } from "./routes/runners.js";
 import { registerReleaseRoutes } from "./routes/release.js";
 import { registerMacAppRoutes } from "./routes/mac-app.js";
 import { MacAppUpdateBridge } from "./mac-app-update-bridge.js";
 import { isMacAppManaged } from "./update-owner.js";
 import { createAutoCheckRuntime } from "./release-auto-check.js";
 import { registerStaticRoutes } from "./routes/static.js";
+import { registerLaunchTargetRoutes } from "./routes/launch-targets.js";
 import { registerSystemRoutes } from "./routes/system.js";
 import { registerEngineLoginRoutes } from "./routes/engine-login.js";
-import { EngineLogins } from "./agents/engine-login.js";
-import { engineStatuses } from "./agents/engine-availability.js";
-import { registerPluginRoutes } from "./routes/plugin.js";
+import { registerEngineManagementRoutes } from "./routes/engine-management.js";
+import { engineUpdatePort } from "./agents/engine-update-operations.js";
+import {
+  EngineUpdateOperations,
+  engineOperationStore,
+  observeModelUpdates,
+} from "./agents/engine-update-operations.js";
+import { EngineManager } from "./agents/remote/engine-manager.js";
+import {
+  onStoredModelCatalogRead,
+  onModelCatalogValidation,
+  readStoredModelCatalog,
+} from "./shared/agent-models.js";
+import { ModelCatalogRefresh } from "./agents/model-catalog-refresh.js";
+import { placementForRunner } from "./runners/placement.js";
+import { CLI_AGENT_TYPES, type AgentType } from "./shared/agent-types.js";
+import { registerPluginRoutes, runnerPluginChecker } from "./routes/plugin.js";
 import { registerResourceRoutes } from "./routes/resources.js";
 import {
   dateTruncTz,
@@ -149,10 +202,7 @@ import { startRetentionSweep } from "./agents/retention.js";
 import { createPromptInjector } from "./server/agent-prompts.js";
 import { createAuthRuntime } from "./server/auth-runtime.js";
 import { getBearerToken, handleAgentError } from "./server/http-helpers.js";
-import {
-  createReleaseRuntime,
-  RELEASE_VERSION_TYPES,
-} from "./server/release-runtime.js";
+import { createReleaseRuntime } from "./server/release-runtime.js";
 import {
   createMcpHandlers,
   mcpMethodNotAllowed,
@@ -163,7 +213,7 @@ import {
   type IconColor,
   VALID_ICON_COLORS,
 } from "./server/static-theme.js";
-import { UiEventBroker, type UiEvent } from "./server/ui-events.js";
+import { UiEventBroker } from "./server/ui-events.js";
 import { DiffStatsRefresher } from "./agents/diff-stats-refresher.js";
 import { SubsystemTracker } from "./observability/subsystem-tracker.js";
 import {
@@ -172,7 +222,7 @@ import {
 } from "./observability/service-resources.js";
 import { readServiceResourcesCollectionEnabled } from "./observability/service-resources-settings.js";
 import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
-import { stateDir, statePath } from "./state-dir.js";
+import { statePath } from "./state-dir.js";
 import {
   createUpdateRecoveryRuntime,
   protectedLinuxUpdate,
@@ -205,9 +255,52 @@ const pool = createPool(config);
 const serviceResourcesProbePool = createServiceResourcesProbePool(config);
 const routingSettings = new RoutingSettings(pool);
 const steeringDecisions = new SteeringDecisions(pool, routingSettings);
+const remoteRunner = configuredRunner({
+  pool,
+  host: config.listenHosts?.[0] ?? config.host,
+  apiPort: config.port,
+  apiTls: Boolean(config.tls),
+  logger: app.log,
+  // authToken is resolved at startup; read it per request.
+  validAgentToken: (token, agentId) =>
+    validateAgentMcpToken(config.authToken, token, agentId),
+  validJobToken: (token, runId, agentId) =>
+    validateJobMcpToken(config.authToken, token, runId, agentId),
+});
+// Runner update holds: nothing is held until an update coordinator begins one.
+const runnerHolds = remoteRunner
+  ? new RunnerUpdateHolds({
+      store: fileRunnerHoldStore(
+        process.env.DISPATCH_RUNNER_HOLDS_PATH ??
+          statePath("runner-update", "holds.json"),
+        app.log
+      ),
+      logger: app.log,
+    })
+  : undefined;
 const agentManager = new AgentManager(pool, app.log, config, {
+  remote: remoteRunner,
+  holds: runnerHolds,
   classifySteering: steeringDecisions.classify,
 });
+// Set with the routes that serve it; the coordinator reads it per request.
+let runnerUpdateArtifacts: RunnerArtifactSource | undefined;
+const runnerUpdates =
+  remoteRunner && runnerHolds
+    ? new RunnerUpdateCoordinator({
+        service: remoteRunner,
+        holds: runnerHolds,
+        agents: agentManager,
+        store: fileRunnerUpdateStore(
+          process.env.DISPATCH_RUNNER_UPDATES_PATH ??
+            statePath("runner-update", "attempts.json"),
+          app.log
+        ),
+        artifacts: () => runnerUpdateArtifacts,
+        build: { version: packageVersion, revision: buildRevision },
+        logger: app.log,
+      })
+    : undefined;
 const focusTracker = new FocusTracker();
 const presenceTracker = new PresenceTracker();
 const slackNotifier = new SlackNotifier(pool, app.log);
@@ -342,22 +435,56 @@ const updateCheckTracker = new SubsystemTracker({
   description: "Checks the configured release channel for Dispatch updates.",
   expectedCadenceMs: 6 * 60 * 60 * 1000,
 });
+/** The runner that reads GitHub for an agent: its enrolled runner, else local. */
+const githubRunnerFor = (runnerId: string | null) =>
+  runnerDirectory({
+    remote: remoteRunner,
+    child: () => localRunnerOf(localRunnerProcess),
+  }).for(placementForEnrolledId(runnerId));
+const mergeRiskGitHub = createMergeRiskGitHubSource(githubRunnerFor);
 const mergeRiskAssessor = new MergeRiskAssessor({
   pool,
-  settings: routingSettings,
-  agentRoot: async (id) => {
+  github: mergeRiskGitHub,
+  owners: async (id, runnerId) => {
     const agent = await agentManager.getAgent(id);
-    return agent?.worktreePath ?? agent?.cwd ?? null;
+    if (
+      !agent ||
+      !sameRunner(agent.placement, placementForEnrolledId(runnerId))
+    )
+      return null;
+    const runner = runnerDirectory(
+      agentManager.checkoutReadRunners(),
+      agent
+    ).for(agent.placement);
+    const target = { session: sessionFromWire(id), checkout: "owned" as const };
+    return loadCodeownersFromFiles({
+      access: (path) => runner.call("checkout.access", { target, path }),
+      read: async (path) =>
+        (
+          await runner.call("checkout.read", {
+            target,
+            path,
+            mode: "native",
+            encoding: "utf8",
+            maxBytes: null,
+          })
+        )?.data ?? "",
+    });
   },
+  settings: routingSettings,
   warn: (error) => app.log.warn({ err: error }, "Merge-risk assessment failed"),
 });
 const pullRequests = new PullRequestRefresher({
   pool,
-  listAgentIds: async () =>
-    (await agentManager.listAgents()).map((agent) => agent.id),
+  listAgents: async () =>
+    (await agentManager.listAgents()).map((agent) => ({
+      id: agent.id,
+      runnerId: enrolledRunnerId(agent.placement) ?? null,
+    })),
+  read: createRunnerPullRequestReader(githubRunnerFor),
   publish: (event) => uiEventBroker.publish(event),
-  assess: (url, value, owners, onProgress) =>
-    mergeRiskAssessor.assess(url, value, owners, onProgress),
+  assess: (url, value, owners, onProgress, runnerId) =>
+    mergeRiskAssessor.assess(url, value, owners, onProgress, runnerId),
   notify: async (id, previous, current, commit) => {
     await streamService.pullRequestTransition(id, previous, current, commit);
   },
@@ -369,22 +496,28 @@ const pullRequests = new PullRequestRefresher({
   },
   warn: (error) => app.log.warn({ err: error }, "PR status refresh failed"),
 });
+remoteRunner?.onConnectionChange((id) => {
+  pullRequests.invalidateRunner(id);
+  if (remoteRunner.connectionEpoch(id) !== undefined)
+    agentManager.retryStopsOnReconnect();
+});
 const diffStatsRefresher = new DiffStatsRefresher({
-  getAgent: async (id) => {
-    const agent = await agentManager.getAgent(id);
-    if (!agent) return null;
-    return {
-      worktreePath: agent.worktreePath,
-      cwd: agent.cwd,
-      baseBranch: agent.baseBranch,
-      workspacePath: agent.workspacePath,
-      workspaceBaseBranch: agent.workspaceBaseBranch,
-    };
-  },
+  getAgent: (id) => agentManager.getAgent(id),
+  comparisonBase: (id, agent) =>
+    agentManager.comparisonBase({ ...agent, id }, "changes"),
+  computeAgentStats: (id, agent, base) =>
+    readAgentStats(id, agent, agentManager.checkoutReadRunners(), base),
   publishEvent: (event) => uiEventBroker.publish(event),
   logger: app.log,
   tracker: gitRefreshTracker,
 });
+const checkoutObservers = new CheckoutObservers(
+  () => agentManager.checkoutReadRunners(),
+  (id) => {
+    uiEventBroker.publish({ type: "agent.checkout_changed", agentId: id });
+    void diffStatsRefresher.signal(id);
+  }
+);
 agentManager.attachDiffStatsRefresher(diffStatsRefresher);
 const loginLinkStore = new LoginLinkStore();
 const jobService = new JobService(pool, agentManager, app.log, config);
@@ -507,17 +640,7 @@ const serviceResources = new ServiceResources({
   probePool: serviceResourcesProbePool,
   artifactProbePool: createServiceResourcesProbePool(config),
   artifactRoots: [config.filesRoot, config.agentStateRoot],
-  listAgentProcesses: async () => {
-    const agents = await agentManager.listAgents();
-    const running = agents.filter((agent) =>
-      ["creating", "running", "stopping"].includes(agent.status)
-    );
-    return Promise.all(
-      running.map(async (agent) => ({
-        hostPid: await agentManager.hostPid(agent.id),
-      }))
-    );
-  },
+  sampleAgentSessions: () => agentManager.sampleAgentSessions(),
   getWorkloads: () => {
     const streamMetrics = streamManager.getMetrics();
     const jobMetrics = jobService.getRuntimeMetrics();
@@ -637,6 +760,7 @@ const streamService = new StreamService({
       ).delivery,
     held: (agentId) => agentManager.isPromptHeld(agentId),
     activeTurn: (agentId) => agentManager.hasOpenTurn(agentId),
+    updateHeld: (agentId) => agentManager.isUpdateHeld(agentId),
     cancel: (agentId) => {
       routingShadow.cancel(agentId);
       return agentManager.cancelTurn(agentId);
@@ -655,8 +779,10 @@ const streamService = new StreamService({
   agentProject: async (agentId) => {
     const agent = await agentManager.getAgent(agentId);
     if (!agent) return null;
-    return agentTaskProject(agent, (input) =>
-      taskService.projectForAgent(input)
+    return agentTaskProject(
+      agent,
+      (input) => taskService.projectForAgent(input),
+      runnerTaskRootReader(() => agentManager.checkoutReadRunners())
     );
   },
   log: app.log,
@@ -688,6 +814,9 @@ agentManager.onStreamWrite((agentId) => {
 });
 jobService.setBrainStore(brainStore);
 const taskService: TaskService = new TaskService({
+  readRepositoryRoot: runnerTaskRootReader(() =>
+    agentManager.checkoutReadRunners()
+  ),
   watches: {
     schedule: (id) => taskWatches.schedule(id),
     cancel: (id, agentId) => taskWatches.cancel(id, agentId),
@@ -701,13 +830,18 @@ const taskService: TaskService = new TaskService({
   chat: streamService,
   publishUiEvent: (event) => uiEventBroker.publish(event),
   log: app.log,
+  personaScope: (target) => launchPersonaScope(agentManager, target),
 });
 const taskWatches = new TaskWatchNotifier({
   pool,
   projectForAgent: async (id) => {
     const agent = await agentManager.getAgent(id);
     return agent
-      ? agentTaskProject(agent, (input) => taskService.projectForAgent(input))
+      ? agentTaskProject(
+          agent,
+          (input) => taskService.projectForAgent(input),
+          runnerTaskRootReader(() => agentManager.checkoutReadRunners())
+        )
       : null;
   },
   deliver: async (agentId, text, options) => {
@@ -790,6 +924,7 @@ const updateRecoveryRuntime = createUpdateRecoveryRuntime({
   version: packageVersion,
   log: app.log,
   shutdown,
+  localRunner: () => localRunnerProcess,
   stopWriters: async () => {
     jobService.stopAllSchedulers();
     agentLifecycleRuntime.stopReconcileLoop();
@@ -920,13 +1055,26 @@ async function registerRoutes() {
     if (request.routeOptions.config.browserExtensionBearer) return;
     // The menu app's control routes check its per-launch token themselves.
     if (request.routeOptions.config.macAppBearer) return;
+    // Runner-initiated enrollment: the runner has no Dispatch credentials
+    // until an operator approves it. These routes gate themselves with a
+    // short, bounded-attempt code and a key-bound certificate; approval and
+    // denial are ordinary authenticated routes alongside them.
+    if (request.routeOptions.config.runnerConnectBootstrap) return;
+    if (request.routeOptions.config.publicRunnerArtifact) return;
     // The recovery helper authenticates with its enrollment key, loopback-only.
     if (request.routeOptions.config.updateRecovery) return;
-    // If no password is set, all routes are open (first-run mode).
-    if (!(await authRuntime.isPasswordSetCached())) return;
-
-    // Bearer token is accepted on all API routes (for MCP agents, scripts, etc.)
     const authHeader = request.headers.authorization;
+    // Passwordless operator access follows the normal first-run policy.
+    // Routes with this flag still validate explicitly supplied credentials.
+    if (
+      !(
+        request.routeOptions.config.validateSuppliedAuthorization &&
+        authHeader !== undefined
+      ) &&
+      !(await authRuntime.isPasswordSetCached())
+    )
+      return;
+
     if (authHeader?.startsWith("Bearer ")) {
       const token = authHeader.slice(7);
       if (shouldAcceptApiBearerToken(token, config.authToken)) {
@@ -969,7 +1117,7 @@ async function registerRoutes() {
   await registerHumanTerminalRoutes(app, {
     pool,
     sessionCookie: SESSION_COOKIE,
-    getAgent: (id) => agentManager.getAgent(id),
+    getBackend: (id) => agentManager.terminalBackend(id),
   });
 
   await registerBrowserExtensionRoutes(app, {
@@ -989,6 +1137,7 @@ async function registerRoutes() {
   await registerProjectRoutes(app, {
     pool,
     taskService,
+    agents: agentManager,
     publishUiEvent: (event) => uiEventBroker.publish(event),
   });
   await registerTemplateRoutes(app, {
@@ -997,16 +1146,98 @@ async function registerRoutes() {
     withStreamFlag,
   });
 
-  const providerPlans = createProviderPlansReporter({ log: app.log });
-  const redeemCodexReset = createCodexResetCoordinator({
-    providerPlans,
-    consume: (requestId) => consumeCodexLimitReset({ log: app.log, requestId }),
+  const localEnginesInProcess = inProcessEngines(
+    {
+      adapter: config.acpAdapter,
+      claudeBin: config.claudeBin,
+      codexBin: config.codexBin,
+      opencodeBin: config.opencodeBin,
+    },
+    () =>
+      localRunnerProcess?.frozen ??
+      updateRecoveryRuntime.localRunnerStartsFrozen()
+  );
+  app.addHook("onClose", async () => localEnginesInProcess.close());
+  const engineCalls = (scope: EngineScope, liveInventory = false) =>
+    scopedEngineCalls(
+      localEngineCalls(
+        () => localRunnerOf(localRunnerProcess),
+        localEnginesInProcess
+      ),
+      remoteRunner,
+      scope,
+      liveInventory
+    );
+  const catalogRefresh = new ModelCatalogRefresh({
+    pool,
+    resolve(runnerId, engine) {
+      const runner = runnerDirectory({
+        remote: remoteRunner,
+        child: () => localRunnerOf(localRunnerProcess),
+      }).for(placementForRunner(runnerId));
+      return {
+        settings: runner.settings,
+        online: runner.connection.state === "ready",
+        enabled: catalogSpecs.includes(engine),
+        blocked: runnerHolds?.isHeld(runnerId),
+        calls: engineCalls(engineScopeForRunner(runnerId)),
+      };
+    },
+    changed: (_runnerId, agentType) =>
+      uiEventBroker.publish({ type: "agent_models.changed", agentType }),
+    failed: (details) =>
+      app.log.debug(details, "Model catalog refresh deferred"),
   });
+  const stopCatalogReads = onStoredModelCatalogRead((runnerId, engine, model) =>
+    catalogRefresh.read(runnerId, engine, model)
+  );
+  const stopCatalogValidation = onModelCatalogValidation(
+    (runnerId, engine, request) =>
+      catalogRefresh.validate(runnerId, engine, request)
+  );
+  app.addHook("onClose", async () => {
+    stopCatalogValidation();
+    stopCatalogReads();
+    catalogRefresh.close();
+  });
+  const modelUpdateStore = (calls: ReturnType<typeof engineCalls>) =>
+    observeModelUpdates(engineOperationStore(pool, calls.settings), (engine) =>
+      catalogRefresh.invalidate(calls.settings.runnerId, engine)
+    );
+  const stopUsageReports: Array<() => void> = [];
+  const usageCoordinators = new Map<
+    string,
+    ReturnType<typeof createRunnerUsage>
+  >();
+  function usageForCalls(calls: ReturnType<typeof engineCalls>) {
+    const key = calls.settings.namespace;
+    let usage = usageCoordinators.get(key);
+    if (!usage) {
+      usage = createRunnerUsage(calls);
+      usageCoordinators.set(key, usage);
+      stopUsageReports.push(
+        usage.providerPlans.onReport(() => usageWatches.evaluate())
+      );
+    }
+    return usage;
+  }
+  const usageForRunner = (runnerId: string) =>
+    usageForCalls(engineCalls(engineScopeForRunner(runnerId)));
+  const { providerPlans, redeemCodexReset } = usageForRunner(
+    runnerIdForPlacement(controllerPlacement)
+  );
+  const usageForAgent = async (id: string) => {
+    const agent = await agentManager.getAgent(id);
+    if (!agent) throw new Error("Agent not found.");
+    return usageForRunner(runnerIdForPlacement(agent.placement));
+  };
   // One evaluator for every agent's usage watches, fed by every refresh of
   // the shared reporter plus its own bounded tick while live watches exist.
   const usageWatches = new UsageWatchService({
     pool,
     providerPlans,
+    providerPlansForAgent: async (id) =>
+      (await usageForAgent(id)).providerPlans(),
     deliver: async (agentId, text, options) => {
       await (
         await enqueueAgentPrompt(agentId, text, {
@@ -1018,19 +1249,17 @@ async function registerRoutes() {
     },
     warn: (err) => app.log.warn({ err }, "usage watch delivery deferred"),
   });
-  const stopUsageReports = providerPlans.onReport((report) =>
-    usageWatches.evaluate(report)
-  );
   // Archived agents never claim a notice; the tick sweeps their rows.
   await usageWatches
     .recover()
     .catch((err) => app.log.warn({ err }, "usage watch recovery failed"));
   usageWatches.start();
   app.addHook("onClose", async () => {
-    stopUsageReports();
+    for (const stop of stopUsageReports) stop();
     usageWatches.dispose();
   });
   await registerMcpRoutes(app, {
+    usageForAgent,
     usageWatches,
     providerPlans,
     redeemCodexReset,
@@ -1080,7 +1309,59 @@ async function registerRoutes() {
   });
 
   await registerScheduledMessageRoutes(app, scheduledMessages);
+  // The local placement's engines: the runner child, else this same port in
+  // process while the child is away (R3). One login tracker per process, so
+  // main's sign-in routes and the engine-management routes never diverge.
+  const engineUpdates = new EngineUpdateOperations(
+    modelUpdateStore(engineCalls(engineScopeForRunner("local"))),
+    {
+      ...engineUpdatePort(
+        localEngineCalls(
+          () => localRunnerOf(localRunnerProcess),
+          localEnginesInProcess
+        )
+      ),
+      onError: (error) =>
+        app.log.error({ err: error }, "Engine update persistence failed"),
+    }
+  );
+  const updateCoordinators = new Map<string, EngineUpdateOperations>([
+    ["local", engineUpdates],
+  ]);
+  const updatesFor = (scope: EngineScope) => {
+    const key = engineScopeKey(scope);
+    let coordinator = updateCoordinators.get(key);
+    if (!coordinator) {
+      coordinator = new EngineUpdateOperations(
+        modelUpdateStore(engineCalls(scope)),
+        {
+          ...engineUpdatePort(engineCalls(scope)),
+          onError: (error) =>
+            app.log.error({ err: error }, "Engine update persistence failed"),
+        }
+      );
+      updateCoordinators.set(key, coordinator);
+    }
+    return coordinator;
+  };
   await registerSystemRoutes(app, {
+    runners: {
+      remote: remoteRunner,
+      child: () => localRunnerOf(localRunnerProcess),
+    },
+    runnerEngines: (runnerId) => {
+      const scope = engineScopeForRunner(runnerId);
+      return {
+        engineCalls: engineCalls(scope),
+        engineUpdates: updatesFor(scope),
+      };
+    },
+    engineCalls: localEngineCalls(
+      () => localRunnerOf(localRunnerProcess),
+      localEnginesInProcess
+    ),
+    engineUpdates,
+    runnerBranches: remoteRunner?.listRepositoryBranches.bind(remoteRunner),
     publishModelsChanged: (agentType) =>
       uiEventBroker.publish({ type: "agent_models.changed", agentType }),
     slackAnswers,
@@ -1114,18 +1395,38 @@ async function registerRoutes() {
       opencode: config.opencodeBin,
     },
   });
-  await registerEngineLoginRoutes(
-    app,
-    new EngineLogins({
-      resolveBin: async (engine) =>
-        (
-          await engineStatuses({
-            claude: config.claudeBin,
-            codex: config.codexBin,
-          })
-        ).find((status) => status.id === engine)?.path ?? null,
-    })
-  );
+  const engineManager = new EngineManager({
+    onSignedIn: (scope, engine) =>
+      catalogRefresh.invalidate(engineCalls(scope).settings.runnerId, engine),
+    engineActions: {
+      calls: engineCalls,
+      models: (scope, engine, model) =>
+        readStoredModelCatalog(
+          engineCalls(scope).settings.runnerId,
+          engine,
+          model
+        ),
+      updates: updatesFor,
+      usage: (scope) => usageForCalls(engineCalls(scope)),
+    },
+    local: {
+      engines: localEngineCalls(
+        () => localRunnerOf(localRunnerProcess),
+        localEnginesInProcess
+      ),
+      updates: engineUpdates,
+      overrides: {
+        claude: config.claudeBin,
+        codex: config.codexBin,
+        opencode: config.opencodeBin,
+      },
+    },
+  });
+  await registerEngineLoginRoutes(app, engineManager);
+  await registerEngineManagementRoutes(app, engineManager, {
+    canManageEngineUpdates,
+    enabledAgentTypes: () => getEnabledAgentTypes(pool),
+  });
   await registerUpdateRecoveryRoutes(app, updateRecoveryRuntime.routeDeps);
   await registerResourceRoutes(app, { pool, resources: serviceResources });
   await registerRoutingShadowRoutes(
@@ -1171,7 +1472,17 @@ async function registerRoutes() {
     clearInterval(shadowRetention);
   });
 
-  await registerPluginRoutes(app, { pool, config, appLog: app.log });
+  await registerPluginRoutes(app, {
+    runnerPlugins: (runnerId) =>
+      runnerPluginChecker(engineCalls(engineScopeForRunner(runnerId))),
+    pool,
+    plugins: runnerPluginChecker(
+      localEngineCalls(
+        () => localRunnerOf(localRunnerProcess),
+        localEnginesInProcess
+      )
+    ),
+  });
 
   await registerBrainRoutes(app, {
     brainStore,
@@ -1251,6 +1562,8 @@ async function registerRoutes() {
   });
 
   await registerAgentRoutes(app, {
+    usageForRunner,
+    usageForAgent,
     providerPlans,
     redeemCodexReset,
     tasks: {
@@ -1281,9 +1594,11 @@ async function registerRoutes() {
     addStreamViewer: (agentId, stream) =>
       streamManager.addViewer(agentId, stream),
     diffStatsRefresher,
+    observeCheckout: (agent) => checkoutObservers.observe(agent),
     pullRequests,
     riskExplanations: new RiskExplanations({
       pool,
+      github: mergeRiskGitHub,
       settings: routingSettings,
     }),
     onArchivedAgentsDeleted: (deletedIds) =>
@@ -1300,6 +1615,7 @@ async function registerRoutes() {
   // --- Personas ---
   await registerPersonaRoutes(app, {
     agentManager,
+    projects: new ProjectStore(pool),
     streams: streamService,
     handleAgentError,
   });
@@ -1311,6 +1627,42 @@ async function registerRoutes() {
   // --- Quick Phrases ---
 
   await registerQuickPhraseRoutes(app, { pool });
+  const runnerArtifacts = registerRunnerArtifacts(app, {
+    revision: gitSha,
+    version: packageVersion,
+    compiled: import.meta.url.startsWith("file:///$bunfs/root/"),
+  });
+  runnerUpdateArtifacts = runnerArtifacts;
+  registerRunnerRepositorySearch(
+    app,
+    runnerDirectory(agentManager.checkoutReadRunners())
+  );
+  registerRunnerGitHub(
+    app,
+    runnerDirectory(agentManager.checkoutReadRunners()),
+    (id) => pullRequests.invalidateRunner(id)
+  );
+  if (remoteRunner) {
+    registerRunnerInstaller(app, {
+      runners: remoteRunner,
+      artifacts: runnerArtifacts,
+      build: { revision: gitSha, version: packageVersion },
+    });
+  }
+  await registerLaunchTargetRoutes(app, {
+    agents: agentManager,
+    runners: runnerDirectory({
+      remote: remoteRunner,
+      child: () => localRunnerOf(localRunnerProcess),
+    }),
+    templates: templateService,
+    tasks: taskService,
+  });
+  await registerRunnerRoutes(app, {
+    directory: runnerDirectory(agentManager.checkoutReadRunners()),
+    runners: remoteRunner,
+    updates: runnerUpdates,
+  });
 }
 
 async function waitForDatabase(maxAttempts = 15, delayMs = 2000) {
@@ -1328,12 +1680,28 @@ async function waitForDatabase(maxAttempts = 15, delayMs = 2000) {
 
 let routesRegistered = false;
 
+// Spawn/attach the child early, but its database callbacks need this build's
+// schema. A failed initialization leaves them parked; startup itself fails.
+const localRunnerDatabaseReady = Promise.withResolvers<void>();
+
+let catalogSpecs: readonly AgentType[] = [];
 export async function initializeApp(options?: {
+  /** Explicit engine specs; embeddings and tests default to no background processes. */
+  catalogSpecs?: readonly AgentType[];
   runMigrations?: boolean;
   reconcileState?: boolean;
+  /**
+   * Start the local runner child as `start` does, with this command instead
+   * of this executable's own `local-runner` mode (an embedding without
+   * `start`, such as a test harness).
+   */
+  localRunner?: { command: string[] };
 }): Promise<typeof app> {
+  catalogSpecs = options?.catalogSpecs ?? [];
   // Read before the database is touched: invalid probation fails closed.
   await updateRecoveryRuntime.loadProbation();
+  if (options?.localRunner && !localRunnerProcess)
+    startLocalRunnerChild(options.localRunner.command);
   await agentManager.maintainServerLogs();
   await waitForDatabase();
   const shouldRunMigrations =
@@ -1342,14 +1710,36 @@ export async function initializeApp(options?: {
     app.log.warn("SKIP_MIGRATIONS=1 — skipping database migrations");
   } else {
     await runMigrations();
+    void backfillProjectRepositories(
+      pool,
+      app.log,
+      () => uiEventBroker.publish({ type: "project.changed" }),
+      agentManager.checkoutReadRunners()
+    );
   }
+  localRunnerDatabaseReady.resolve();
   config.authToken = await getOrCreateAuthToken(pool);
+  // Enrolled runners reconnect before agents are restored and reconciled.
+  try {
+    await remoteRunner?.startEnrolled();
+  } catch (error) {
+    app.log.error({ err: error }, "Runner listener failed to start");
+  }
   // The model lists engines published in earlier sessions, for the pickers.
-  await loadLearnedAgentModels(pool);
-  await loadModelAvailability(pool);
+  const catalogRunners = runnerDirectory({ remote: remoteRunner });
+  for (const { placement } of await catalogRunners.list()) {
+    const runnerId = runnerIdForPlacement(placement);
+    const { settings } = catalogRunners.for(placement);
+    await loadLearnedAgentModels(pool, runnerId, settings);
+    await loadModelAvailability(pool, { runnerId, settings });
+  }
   serviceResources.setCollectionEnabled(
     await readServiceResourcesCollectionEnabled(pool)
   );
+  // Held launches and the bound survive a restart; read them before agents
+  // are restored so a held launch is not mistaken for a lost host.
+  await runnerHolds?.load();
+  await runnerUpdates?.load();
   // Probation never reconciles; only a normal start after commit does.
   const shouldReconcileState =
     recoveryMaintenance.mode !== "probation" &&
@@ -1373,6 +1763,10 @@ export async function initializeApp(options?: {
     await jobService.reconcileActiveRuns();
     await jobService.startSchedulers();
     await scheduledMessages.start();
+    // Arm each hold's bound only now: one that lapsed while Dispatch was down
+    // releases its launches into a fully started service.
+    runnerHolds?.start();
+    await runnerUpdates?.start();
     // Warm the diff-stats cache so the first sidebar expand doesn't get a
     // cold-cache `null`. Fire-and-forget per agent — the refresher's 3s
     // freshness window dedupes any overlap with SSE-driven signals from
@@ -1412,8 +1806,41 @@ export async function closeApp(): Promise<void> {
 let closeAdditionalListeners: (() => Promise<void>) | undefined;
 let stopLocalTlsWatch: (() => void) | undefined;
 
+let localRunnerProcess: LocalRunnerProcess | undefined;
+
+/** Start and attach this app's local runner child; it prepares local launches. */
+function startLocalRunnerChild(command?: string[]) {
+  localRunnerProcess = startLocalRunnerProcess({
+    stateRoot: config.agentStateRoot,
+    filesRoot: config.filesRoot,
+    launchEnvironment: JSON.stringify(localLaunchSettings(config)),
+    build: embeddedBuild,
+    log: app.log,
+    frozen: updateRecoveryRuntime.localRunnerStartsFrozen(),
+    bindings: async () => {
+      await localRunnerDatabaseReady.promise;
+      return readLocalBindings(pool);
+    },
+    onReady: () => {
+      void localRunnerDatabaseReady.promise.then(() =>
+        agentManager.retryStopsOnReconnect()
+      );
+    },
+    ...(command && { command }),
+  });
+  agentManager.attachLocalRunner(() => localRunnerOf(localRunnerProcess));
+}
+
 export async function start() {
-  await initializeApp();
+  // Probation is known before the child starts, so a probation child starts
+  // frozen and never serves a write before the update commits.
+  await updateRecoveryRuntime.loadProbation();
+  // Before agents are restored, probation included. Never awaited: the app
+  // starts and works as before whether or not the child comes up.
+  startLocalRunnerChild();
+  await initializeApp({
+    catalogSpecs: config.agentRuntime === "acp" ? CLI_AGENT_TYPES : [],
+  });
 
   const protocol = config.tls ? "https" : "http";
   await app.listen({
@@ -1484,6 +1911,10 @@ async function cleanupAppResources(): Promise<void> {
     return;
   }
   shuttingDown = true;
+  checkoutObservers.close();
+  remoteRunner?.close();
+  runnerUpdates?.close();
+  runnerHolds?.close();
   const stage = async (name: string, close: () => Promise<unknown>) => {
     app.log.info({ stage: name }, "Shutdown stage started");
     await close();
@@ -1524,6 +1955,9 @@ async function cleanupAppResources(): Promise<void> {
 
   await stage("database", () => pool.end().catch(() => null));
   await stage("http", () => app.close().catch(() => null));
+  // Closes the lifeline; detached hosts are untouched.
+  await stage("local-runner", async () => localRunnerProcess?.stop());
+  localRunnerProcess = undefined;
 }
 
 async function shutdown(code: number): Promise<void> {

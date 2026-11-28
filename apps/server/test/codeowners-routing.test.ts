@@ -1,10 +1,7 @@
 import { access } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  loadCodeowners,
-  resolveCodeowners,
-} from "../src/personas/codeowners.js";
+import { loadCodeowners, resolveCodeowners } from "./helpers/codeowners.js";
 
 const root = path.resolve(import.meta.dirname, "../../..");
 
@@ -34,7 +31,7 @@ const cases: [string, string[]][] = [
   ["apps/server/test/helpers/fake-acp-agent.ts", ["agent-runtime-owner"]],
   ["packages/shared/src/mcp-inventory-types.ts", ["mcp-contract-owner"]],
   [
-    "apps/server/src/agents/acp/mcp-inventory.ts",
+    "packages/runner/src/host/mcp-inventory.ts",
     ["agent-runtime-owner", "mcp-contract-owner"],
   ],
 
@@ -101,7 +98,10 @@ const cases: [string, string[]][] = [
     "apps/web/src/components/app/login-page.tsx",
     ["auth-trust-owner", "frontend-react-review"],
   ],
-  ["apps/server/src/files/workspace-directory.ts", ["workspace-files-owner"]],
+  [
+    "packages/runner/src/workload/files/workspace-directory.ts",
+    ["agent-runtime-owner", "workspace-files-owner"],
+  ],
   [
     "apps/web/src/components/app/file-lightbox.tsx",
     ["workspace-files-owner", "frontend-react-review"],

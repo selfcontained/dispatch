@@ -73,6 +73,19 @@ import { MAC_APP_UPDATE_QUERY_KEY } from "@/hooks/use-mac-app-update";
 const routingPendingKey = (streamId: string) =>
   ["routing-pending", streamId] as const;
 
+function invalidateCheckoutViews(client: QueryClient, agentId?: string) {
+  for (const key of [
+    "workspace-files",
+    "agent-diff-content",
+    "agent-diff-file",
+    "agent-diff",
+  ]) {
+    void client.invalidateQueries({
+      queryKey: agentId ? [key, agentId] : [key],
+    });
+  }
+}
+
 /** Backoff bounds for self-driven reconnects after a fatal EventSource error. */
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
@@ -570,6 +583,7 @@ export function useSSE(authState: AuthState): void {
             ["agents"],
             sortAgentsByCreatedAtDesc(payload.agents)
           );
+          invalidateCheckoutViews(queryClient);
           // A snapshot means a fresh SSE connection (initial or reconnect).
           // Invalidate the queries that aren't carried in the snapshot
           // payload — jobs and the cached release info — so they refetch.
@@ -764,6 +778,10 @@ export function useSSE(authState: AuthState): void {
           return;
         }
 
+        if (payload.type === "agent.checkout_changed") {
+          invalidateCheckoutViews(queryClient, payload.agentId);
+          return;
+        }
         if (payload.type === "agent.diff_state_changed") {
           applyDiffStateChanged(
             queryClient,

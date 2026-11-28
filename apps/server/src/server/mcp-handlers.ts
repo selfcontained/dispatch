@@ -1,13 +1,18 @@
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import path from "node:path";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import {
+  createPublishedFilesDirectory,
+  writePublishedFile,
+  unlinkPublishedFile,
+} from "./mcp-file-storage.js";
 
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import { AgentError } from "../agents/errors.js";
-import { agentWorkspaceDir } from "../agents/workspace-target.js";
+import { admitLaunch } from "../agents/launch-admission.js";
+import { mcpCheckoutRoots } from "./mcp-checkout.js";
 import { detectFileType } from "../files/file-type.js";
 import { fileMetadataFromBuffer } from "../files/metadata.js";
 import { removeImageVariants } from "../files/image-variants.js";
@@ -16,7 +21,10 @@ import {
   CLI_AGENT_TYPES,
   getEnabledAgentTypes,
 } from "../agent-type-settings.js";
-import { validateAgentModelChoice } from "../shared/agent-models.js";
+import {
+  modelScopeFor,
+  validateAgentModelChoice,
+} from "../shared/agent-models.js";
 import type { JobService } from "../jobs/service.js";
 import type { TemplateService } from "../templates/service.js";
 import { templateWorktreeConfig } from "../templates/worktree-config.js";
@@ -35,7 +43,6 @@ import {
   sanitizeAgentNameForPrompt,
   type AgentRelation,
 } from "../agents/lineage.js";
-import { resolveRepoRoot } from "../shared/git/git-context.js";
 import {
   assertValidStoredFileName,
   resolveFilesDir,
@@ -55,7 +62,26 @@ import type {
   PublishUiEvent,
   SendAgentPrompt,
 } from "./mcp-handler-types.js";
-import { resolveLaunchPersona } from "../personas/resolve.js";
+import {
+  launchPersonaScope,
+  personaScopeFor,
+} from "../personas/persona-scope.js";
+import { ProjectStore } from "../projects/store.js";
+import {
+  savedLaunchTarget,
+  targetPlacement,
+  sessionLaunchTarget,
+} from "../runners/saved-location.js";
+import { resolvePersona } from "../personas/resolve.js";
+import type { Placement } from "@dispatch/runner-protocol/contract";
+import { controllerPlacement } from "../runners/placement.js";
+import {
+  PROJECT_IDENTITY_SQL,
+  SESSION_REPOSITORY_SQL,
+  projectIdentities,
+  repositoryKey,
+  type ProjectIdentity,
+} from "../runners/repository-identity.js";
 import { createPersonaHandlers } from "./mcp-persona-handlers.js";
 import {
   activatePersonality,
@@ -163,12 +189,17 @@ async function addressableAgents<
     workspacePath?: string | null;
     parentAgentId?: string | null;
     launchedByAgentId?: string | null;
+    projectId?: string | null;
+    placement?: Placement;
   },
 >(
   all: T[],
   agentId: string,
   senderRepoRoot: string | null,
-  crossRepo: boolean
+  crossRepo: boolean,
+  project: (id: string | null | undefined) => Promise<ProjectIdentity | null>,
+  repository: (agentId: string) => Promise<string | null>,
+  repositoryRoot: (agent: T) => Promise<string | null>
 ): Promise<T[]> {
   const sender = all.find((a) => a.id === agentId);
   const senderParentId = sender?.parentAgentId ?? null;
@@ -193,12 +224,17 @@ async function addressableAgents<
       result.push(a);
       continue;
     }
-    try {
-      const aRoot = await resolveRepoRoot(a.workspacePath ?? a.cwd);
-      if (aRoot === senderRepoRoot) result.push(a);
-    } catch {
-      // agent cwd not in a git repo — skip
-    }
+    // The same repository key (D5, D8) the sender's own scope came from.
+    const aKey = await repositoryKey({
+      placement: a.placement ?? controllerPlacement,
+      moved: Boolean(a.workspacePath),
+      repositoryRoot: () =>
+        // agent cwd not in a git repo — skip
+        repositoryRoot(a).catch(() => null),
+      project: () => project(a.projectId),
+      repository: () => repository(a.id),
+    });
+    if (aKey !== null && aKey === senderRepoRoot) result.push(a);
   }
   return result;
 }
@@ -214,7 +250,9 @@ async function handleSendNotify(
 ): Promise<NotifyResult> {
   const agent = await deps.agentManager.getAgent(agentId);
   if (!agent) throw new Error("Agent not found.");
-  return deps.slackNotifier.sendNotification(agent, input);
+  return deps.slackNotifier.sendNotification(agent, input, (filePath) =>
+    deps.agentManager.collectSessionFile(agent, filePath)
+  );
 }
 
 type ReadableOwner = {
@@ -294,7 +332,7 @@ async function handleSetWorkspace(
 ): Promise<SetWorkspaceResult> {
   const agent = await deps.agentManager.setWorkspace(agentId, input);
   return {
-    workspacePath: agentWorkspaceDir(agent) ?? agent.cwd,
+    workspacePath: agent.workspacePath ?? sessionLaunchTarget(agent).directory,
     moved: agent.workspacePath !== null,
     repoRoot: agent.gitContext?.repoRoot ?? null,
     branch: agent.gitContext?.branch ?? null,
@@ -344,6 +382,12 @@ async function handleJobLog(
   return { runId: run.id, status: run.status };
 }
 
+/** A saved target's project and checkout; the cwd stays the template's. */
+function savedTarget(target: Parameters<typeof savedLaunchTarget>[0]) {
+  const { cwd: _cwd, ...rest } = savedLaunchTarget(target);
+  return rest;
+}
+
 async function handleLaunchAgent(
   deps: CreateMcpHandlersDeps,
   agentId: string,
@@ -357,13 +401,66 @@ async function handleLaunchAgent(
   if (input.templateId && !template) {
     throw new Error(`Template ${input.templateId} not found.`);
   }
+  const { directory: parentCwd, location } = sessionLaunchTarget(parent);
+  const child = input.child !== false;
+  let admissionInput = {
+    caller: child ? "mcpChild" : "mcpIndependent",
+    sourceWorkdir: parentCwd,
+    sourcePath: parent.workspacePath,
+    cwd: input.cwd,
+    template,
+  } as const;
+  let admission = admitLaunch({ phase: "mcpTarget", ...admissionInput });
+  if (
+    admission.ok &&
+    input.cwd !== undefined &&
+    admission.cwd !== parentCwd &&
+    "projectId" in location &&
+    !parent.workspacePath
+  ) {
+    // A session whose row records no folder and has not moved is in its
+    // checkout, as its runner reports: naming that folder is its own.
+    const roots = await mcpCheckoutRoots(deps.agentManager, parent);
+    if (roots?.checkoutRoot) {
+      admissionInput = { ...admissionInput, sourcePath: roots.checkoutRoot };
+      admission = admitLaunch({ phase: "mcpTarget", ...admissionInput });
+    }
+  }
+  if (!admission.ok)
+    throw new AgentError(admission.message, admission.statusCode);
+  const { cwd } = admission;
+  // A folder the caller named, other than its own: a folder on the
+  // caller's runner (D7), whatever its spelling.
+  const launcherFolder =
+    input.cwd !== undefined && cwd !== parentCwd ? cwd : undefined;
+  const persona = input.persona ?? template?.persona ?? undefined;
+  // A template launches at its saved location; a folder is a path on the
+  // caller's machine.
+  const templateTarget = input.cwd === undefined && template ? template : null;
+  const launchPlacement = templateTarget
+    ? targetPlacement(templateTarget)
+    : (parent.placement ?? controllerPlacement);
   const selectedPersona = input.persona
-    ? await resolveLaunchPersona(
-        input.cwd ??
-          template?.directory ??
-          agentWorkspaceDir(parent) ??
-          parent.cwd,
-        input.persona
+    ? await resolvePersona(
+        cwd === parentCwd
+          ? personaScopeFor({ manager: deps.agentManager, agent: parent })
+          : // The target's runner (D7): a folder on the caller's, else the
+            // template project's repository read on that runner.
+            launchPersonaScope(deps.agentManager, {
+              placement: launchPlacement,
+              cwd,
+              source: "workspace",
+              repository:
+                input.cwd === undefined && template?.projectId
+                  ? async () =>
+                      (
+                        await new ProjectStore(deps.pool).getRepository(
+                          template.projectId!
+                        )
+                      )?.url
+                  : null,
+            }),
+        persona!
       )
     : null;
   if (selectedPersona && (selectedPersona.type ?? "review") === "review") {
@@ -371,7 +468,7 @@ async function handleLaunchAgent(
       throw new Error(
         "Review personas cannot be combined with templateId. Launch the template directly or launch the review persona without a template."
       );
-    if (input.cwd && input.cwd !== (agentWorkspaceDir(parent) ?? parent.cwd)) {
+    if (input.cwd && input.cwd !== parentCwd) {
       throw new Error(
         "Review personas run in the parent workspace; omit cwd for a review launch."
       );
@@ -402,7 +499,6 @@ async function handleLaunchAgent(
       ...(launched.warnings ? { warnings: launched.warnings } : {}),
     };
   }
-  const child = input.child !== false;
   // Depth cap: the sidebar renders a child as a row inside its parent's card,
   // and that row has nowhere to render children of its own — a grandchild would
   // simply stop being visible. So a child may only launch outside the lineage.
@@ -449,7 +545,6 @@ async function handleLaunchAgent(
   // explicitly at the call site still wins.
   const fromTemplate = templateWorktreeConfig(template);
 
-  const parentCwd = agentWorkspaceDir(parent) ?? parent.cwd;
   const useWorktree = input.useWorktree ?? fromTemplate.useWorktree;
   // Templates have no createNewBranch column, so the decision keys off where
   // the worktree came from: a template-supplied one follows the template's
@@ -474,13 +569,28 @@ async function handleLaunchAgent(
   // this the MCP path silently forced "sibling".
   const worktreeLocation = await getWorktreeLocation(deps.pool);
 
+  // A named folder is on the caller's runner, so is its model catalog.
   const templateModel =
     template?.agentType === agentType ? template.model : undefined;
+  const scope = await modelScopeFor(
+    launchPlacement,
+    agentType as (typeof CLI_AGENT_TYPES)[number],
+    {
+      model: input.model !== undefined ? input.model : templateModel,
+      effort:
+        input.effort !== undefined
+          ? input.effort
+          : template?.agentType === agentType
+            ? template.effort
+            : null,
+    }
+  );
   // The template's own model is a saved choice; any other is a new one.
   const model = validateAgentModelChoice(
     agentType as (typeof CLI_AGENT_TYPES)[number],
     (input.model !== undefined ? input.model : templateModel) ?? undefined,
-    templateModel
+    templateModel,
+    scope
   );
   const effort = validateAgentEffort(
     agentType as (typeof CLI_AGENT_TYPES)[number],
@@ -490,7 +600,8 @@ async function handleLaunchAgent(
           (template.model ?? undefined) === model
         ? template.effort
         : null,
-    model
+    model,
+    scope
   );
 
   // Launching a template is a request for the template's own instructions —
@@ -510,14 +621,19 @@ async function handleLaunchAgent(
     unknownArgs = rendered.unknownArgs;
   }
 
-  if (template?.projectId && input.cwd && input.cwd !== template.directory) {
-    throw new Error("Project template directory cannot be overridden.");
-  }
+  const templateAdmission = admitLaunch({
+    phase: "mcpTemplate",
+    ...admissionInput,
+  });
+  if (!templateAdmission.ok) throw new Error(templateAdmission.message);
 
   const agent = await deps.agentManager.createAgent({
     name: input.name,
     type: agentType as (typeof CLI_AGENT_TYPES)[number],
-    cwd: input.cwd ?? template?.directory ?? parentCwd,
+    cwd,
+    placement: launchPlacement,
+    // As the UI launches a template: its project on its runner, if any.
+    ...(templateTarget && savedTarget({ ...templateTarget, useWorktree })),
     fullAccess,
     model,
     effort,
@@ -528,12 +644,13 @@ async function handleLaunchAgent(
     worktreeLocation,
     ...(child ? { parentAgentId: agentId } : {}),
     launchedByAgentId: agentId,
+    ...(launcherFolder !== undefined && { launcherFolder }),
     initialPrompt: buildLaunchedAgentInitialPrompt(agentId, prompt, child),
     // The feed shows the prompt as the launcher wrote it, not the rendered
     // template instructions or the launch header.
     launchContext: { prompt: input.prompt },
     templateId: input.templateId,
-    persona: input.persona ?? template?.persona ?? undefined,
+    persona,
     personaSource: "workspace",
   });
 
@@ -650,7 +767,10 @@ async function handleShareFile(
   if (!agent) throw new Error("Agent not found.");
 
   if (opts.update) assertValidStoredFileName(opts.update);
-  const buffer = await readFile(opts.filePath);
+  const buffer = await deps.agentManager.collectSessionFile(
+    agent,
+    opts.filePath
+  );
   // Typed against the name it will be stored and shown under.
   const type = detectFileType(
     buffer,
@@ -667,7 +787,7 @@ async function handleShareFile(
       : "screenshot";
 
   const filesDir = resolveFilesDir(agentId, agent.filesDir, deps.filesRoot);
-  await mkdir(filesDir, { recursive: true });
+  await createPublishedFilesDirectory(filesDir);
 
   // Derived from the bytes we are about to write, not from the file on disk.
   // The dimensions and the bytes are the same object, so the row cannot come to
@@ -696,7 +816,7 @@ async function handleShareFile(
     // write leave the row describing bytes that never landed; this way a
     // failure between the two leaves the row lagging its file until the next
     // replacement, which costs one image a stale reserved box and nothing else.
-    await writeFile(filePath, buffer);
+    await writePublishedFile(filePath, buffer);
     await deps.pool.query(
       `UPDATE files SET size_bytes = $1, description = $2, updated_at = NOW(),
               metadata = $5, mime_type = $6
@@ -735,7 +855,7 @@ async function handleShareFile(
     `shared-${timestamp}${fallbackExt}`;
   const fileName = timestampedFileName(safeName);
 
-  await writeFile(path.join(filesDir, fileName), buffer);
+  await writePublishedFile(path.join(filesDir, fileName), buffer);
   await deps.pool.query(
     `INSERT INTO files (agent_id, file_name, source, size_bytes, description,
                         metadata, mime_type)
@@ -785,7 +905,24 @@ async function handleListAgentsForAgent(
     allAgents,
     agentId,
     senderRepoRoot,
-    crossRepo
+    crossRepo,
+    projectIdentities(
+      async (id) =>
+        (await deps.pool.query<ProjectIdentity>(PROJECT_IDENTITY_SQL, [id]))
+          .rows[0] ?? null
+    ),
+    async (id) =>
+      (
+        await deps.pool.query<{ url: string | null }>(SESSION_REPOSITORY_SQL, [
+          id,
+        ])
+      ).rows[0]?.url ?? null,
+    async (agent) => {
+      const reply = await deps.agentManager.inspectCheckout(agent, {
+        kind: "roots",
+      });
+      return reply.kind === "roots" ? reply.repositoryRoot : null;
+    }
   );
   // Two different scopes, deliberately.
   //
@@ -849,8 +986,6 @@ async function handleListFiles(
 ): Promise<ListedFileItem[]> {
   const owner = await resolveReadableOwner(deps, agentId, opts.ownerAgentId);
 
-  // Files stay in the owner's directory; a family read hands back the owner's
-  // path and nothing is copied. Agents read files by path, never over HTTP.
   const filesDir = resolveFilesDir(owner.id, owner.filesDir, deps.filesRoot);
   const whereClause = opts.source
     ? `WHERE agent_id = $1 AND source = $2`
@@ -872,15 +1007,38 @@ async function handleListFiles(
     params
   );
 
-  return result.rows.map((row) => ({
-    ownerAgentId: owner.id,
-    fileName: row.file_name,
-    filePath: path.join(filesDir, row.file_name),
-    source: row.source,
-    description: row.description ?? null,
-    sizeBytes: row.size_bytes,
-    createdAt: row.created_at.toISOString(),
-  }));
+  if (!result.rows.length) return [];
+  const recipient = await deps.agentManager.getAgent(agentId);
+  if (!recipient) throw new Error("Agent not found.");
+
+  const files: ListedFileItem[] = [];
+  for (const row of result.rows) {
+    let filePath: string;
+    try {
+      filePath = await deps.agentManager.deliverSessionFile(
+        recipient,
+        path.join(filesDir, row.file_name),
+        row.file_name,
+        "reference"
+      );
+    } catch (err) {
+      deps.appLog.warn(
+        { err, agentId, ownerAgentId: owner.id, fileName: row.file_name },
+        "Shared file is unavailable"
+      );
+      continue;
+    }
+    files.push({
+      ownerAgentId: owner.id,
+      fileName: row.file_name,
+      filePath,
+      source: row.source,
+      description: row.description ?? null,
+      sizeBytes: row.size_bytes,
+      createdAt: row.created_at.toISOString(),
+    });
+  }
+  return files;
 }
 
 async function handleDeleteFile(
@@ -907,20 +1065,7 @@ async function handleDeleteFile(
     throw new Error("Invalid file path.");
   }
 
-  try {
-    await unlink(filePath);
-  } catch (error: unknown) {
-    if (
-      !(
-        error &&
-        typeof error === "object" &&
-        "code" in error &&
-        error.code === "ENOENT"
-      )
-    ) {
-      throw error;
-    }
-  }
+  await unlinkPublishedFile(filePath);
   await removeImageVariants(filePath);
 
   await deps.pool.query(

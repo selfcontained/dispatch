@@ -1,3 +1,5 @@
+import type { EngineScope } from "@dispatch/runner-protocol/engine-management";
+import { LOCAL_ENGINE_SCOPE } from "@/lib/engine-management";
 import { useState } from "react";
 import { ChevronDown, Download, RefreshCw } from "lucide-react";
 
@@ -67,10 +69,16 @@ function ManualCommand({ command }: { command: string }): JSX.Element {
   );
 }
 
-function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
+function PluginRow({
+  status,
+  scope,
+}: {
+  status: PluginStatus;
+  scope: EngineScope;
+}): JSX.Element {
   const [manualOpen, setManualOpen] = useState(false);
   const action = status.installed ? "update" : "install";
-  const { mutate, isPending, error } = useUpdatePlugin(action);
+  const { mutate, isPending, error } = useUpdatePlugin(action, scope);
   const label = AGENT_TYPE_LABELS[status.agentType];
   const manualCommands = MANUAL_COMMANDS[status.agentType][action];
   const canAct =
@@ -181,9 +189,11 @@ function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
 }
 
 /** Persistent plugin inventory for the enabled Claude Code and Codex CLIs. */
-export function PluginUpdateSettings(): JSX.Element {
-  const { data, isPending, isFetching, error } = usePluginStatus();
-  const refresh = useRefreshPluginStatus();
+export function PluginUpdateSettings({
+  scope = LOCAL_ENGINE_SCOPE,
+}: { scope?: EngineScope } = {}): JSX.Element {
+  const { data, isPending, isFetching, error } = usePluginStatus(scope);
+  const refresh = useRefreshPluginStatus(scope);
   const checking = isFetching || refresh.isPending;
   return (
     <SettingsGroup
@@ -218,7 +228,7 @@ export function PluginUpdateSettings(): JSX.Element {
         />
       ) : null}
       {data?.statuses.map((status) => (
-        <PluginRow key={status.agentType} status={status} />
+        <PluginRow key={status.agentType} status={status} scope={scope} />
       ))}
       {data?.statuses.length === 0 ? (
         <p className="text-body-md text-muted-foreground">

@@ -1,0 +1,1110 @@
+/*
+ * The runner interface: one table, the single source for request and
+ * response types, their validators, declared errors, retry rules, deadline
+ * classes and capabilities. A handler map, a client and the conformance
+ * coverage all derive from it.
+ */
+import { runnerDescription } from "./description.js";
+import { clientMessage, hostMessage } from "./host.js";
+import { op } from "./operation.js";
+import { runnerPath, sessionHandle } from "./opaque.js";
+import {
+  array,
+  boolean,
+  empty,
+  integer,
+  literal,
+  nullable,
+  number,
+  object,
+  optional,
+  record,
+  string,
+  union,
+} from "./schema.js";
+import {
+  blob,
+  commandResult,
+  checkoutReadTarget,
+  checkoutSelector,
+  engineComplete,
+  engineInstallation,
+  engineOperationState,
+  engineUpdateCommand,
+  engineInventoryEntry,
+  engineLogin,
+  engineModels,
+  enginePluginStatus,
+  engineProgress,
+  engineUsage,
+  envValue,
+  githubAccount,
+  githubChangedFile,
+  healthSample,
+  hostState,
+  mcpServer,
+  pullRequest,
+  pullRequestDetails,
+  pullRequestObservation,
+  target,
+  terminalControl,
+  terminalEvent,
+  terminalInfo,
+  updateStatus,
+  updateTarget,
+} from "./types.js";
+import {
+  binding,
+  branchList,
+  gitContext,
+  pathCompletion,
+  pathResolution,
+  sessionSummary,
+  sessionSample,
+  workspaceSource,
+  worktreeRequest,
+} from "./workspace.js";
+import {
+  changes,
+  defaultFiles,
+  diff,
+  directoryListing,
+  fileDiff,
+  fileIndex,
+  observation,
+  preview,
+  stats,
+} from "./views.js";
+
+const read = { kind: "read" } as const;
+const none = { kind: "none" } as const;
+const key = (...fields: string[]) => ({ kind: "key", key: fields }) as const;
+const session = { session: sessionHandle };
+const engine = { engine: string };
+const requestId = { requestId: string };
+/**
+ * Preparation steps in order: the checkout, the ignored files copied into
+ * it, its dependencies, then ready. `detail` is a step result's text.
+ */
+const launchProgress = object({
+  phase: literal("workspace", "copy", "dependencies", "ready"),
+  status: optional(literal("done", "failed")),
+  detail: optional(string),
+});
+const execOptions = {
+  argv: array(string),
+  env: record(string),
+  timeoutMs: nullable(integer),
+  maxOutput: nullable(integer),
+  shell: literal("direct", "login"),
+};
+/** A program and its leading arguments. */
+const program = object({ path: string, args: optional(array(string)) });
+const engineEvent = union(engineProgress, engineComplete);
+const loginOp = (
+  request: Parameters<typeof object>[0],
+  retry: typeof read | typeof none
+) =>
+  op({
+    scope: "runner",
+    kind: "call",
+    request: object(request),
+    response: engineLogin,
+    errors: ["not_found"],
+    retry,
+    timeout: "default",
+    capability: "baseline",
+  });
+
+export const operations = {
+  /* Runner */
+  "runner.describe": op({
+    scope: "runner",
+    kind: "call",
+    request: empty,
+    response: runnerDescription,
+    errors: [],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+  }),
+  "runner.health": op({
+    scope: "runner",
+    kind: "call",
+    request: empty,
+    response: healthSample,
+    errors: [],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+    events: healthSample,
+  }),
+
+  /* Sessions and hosts */
+  "session.launch": op({
+    scope: "session",
+    kind: "call",
+    request: object({
+      ...session,
+      launchId: string,
+      ...engine,
+      model: nullable(string),
+      effort: nullable(string),
+      access: literal("full", "default"),
+      resume: nullable(string),
+      systemText: nullable(string),
+      firstText: nullable(string),
+      overflowNotice: nullable(string),
+      env: record(envValue),
+      mcp: array(mcpServer),
+      owner: nullable(string),
+      /** Where the session starts; a runner that places sessions itself ignores it. */
+      directory: optional(runnerPath),
+      /**
+       * Programs the host runs, by name (null: none configured). A runner
+       * that resolves its own ignores them.
+       */
+      programs: optional(record(nullable(program))),
+      /** Directories put ahead of the session's PATH. */
+      pathPrefix: optional(array(runnerPath)),
+    }),
+    response: empty,
+    errors: ["conflict", "not_found", "unauthenticated", "unsupported"],
+    retry: key("launchId"),
+    timeout: "default",
+    capability: "baseline",
+  }),
+  "session.attach": op({
+    scope: "session",
+    kind: "open",
+    request: object(session),
+    response: empty,
+    errors: ["host_gone"],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+    channel: { toRunner: clientMessage, fromRunner: hostMessage },
+  }),
+  "session.alive": op({
+    scope: "session",
+    kind: "call",
+    request: object(session),
+    response: object({ state: hostState }),
+    errors: [],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+  }),
+  "session.stop": op({
+    scope: "session",
+    kind: "call",
+    request: object({
+      ...session,
+      force: boolean,
+      /**
+       * Stop only a host that exits by itself once asked to while idle: the
+       * runner waits the grace period and never signals it. A host still
+       * running answers `busy`.
+       */
+      idleOnly: optional(boolean),
+      /** A delayed stop applies only to this launch. */
+      expectedLaunchId: optional(string),
+      /** A sweep can only stop a launch belonging to this controller. */
+      expectedOwner: optional(string),
+    }),
+    response: empty,
+    errors: ["busy"],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+  }),
+  "session.discard": op({
+    scope: "session",
+    kind: "call",
+    request: object(session),
+    response: empty,
+    errors: ["busy"],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+  }),
+  /** Host retirement never removes its checkout. Unknown older peers fail closed. */
+  "session.retire": op({
+    scope: "session",
+    kind: "call",
+    request: object({
+      ...session,
+      /** Keep the durable checkout recovery records while release remains pending. */
+      checkoutPending: optional(boolean),
+    }),
+    response: empty,
+    errors: ["busy"],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+  }),
+  "session.logs": op({
+    scope: "session",
+    kind: "call",
+    request: object({ ...session, lines: integer }),
+    response: object({ text: string }),
+    errors: ["not_found"],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+  }),
+  "session.list": op({
+    scope: "runner",
+    kind: "call",
+    request: object({ owner: nullable(string) }),
+    response: object({ sessions: array(sessionSummary) }),
+    errors: [],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+  }),
+  "session.sample": op({
+    scope: "runner",
+    kind: "call",
+    request: object({ sessions: array(sessionHandle) }),
+    response: object({ samples: array(sessionSample) }),
+    errors: [],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+  }),
+
+  /* Terminals */
+  "terminal.open": op({
+    scope: "session",
+    kind: "open",
+    request: object({ target, cols: integer, rows: integer }),
+    response: terminalInfo,
+    errors: ["not_found", "busy"],
+    retry: none,
+    timeout: "default",
+    capability: "baseline",
+    channel: { toRunner: terminalControl, fromRunner: terminalEvent },
+  }),
+
+  /* Workspaces and checkouts */
+  "workspace.prepare": op({
+    scope: "session",
+    kind: "call",
+    request: object({
+      ...session,
+      source: workspaceSource,
+      worktree: optional(worktreeRequest),
+      copyIgnored: array(string),
+      installDependencies: boolean,
+    }),
+    response: binding,
+    errors: ["conflict", "not_found", "forbidden"],
+    retry: key("session"),
+    timeout: "long",
+    capability: "baseline",
+    events: launchProgress,
+  }),
+  "workspace.resume": op({
+    scope: "session",
+    kind: "call",
+    request: object(session),
+    response: nullable(binding),
+    errors: ["conflict", "not_found"],
+    retry: key("session"),
+    timeout: "long",
+    capability: "baseline",
+    events: launchProgress,
+  }),
+  "workspace.describe": op({
+    scope: "session",
+    kind: "call",
+    request: object(session),
+    response: binding,
+    errors: ["not_found"],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "workspace.select": op({
+    scope: "session",
+    kind: "call",
+    request: object({ ...session, path: nullable(runnerPath) }),
+    response: binding,
+    errors: ["not_found", "forbidden"],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "workspace.observe": op({
+    scope: "session",
+    kind: "call",
+    request: object({
+      ...session,
+      /**
+       * `ownership`: who owns the checkout and who borrows it, without its
+       * state (no Git status or fetch), for a removal already authorized.
+       * Absent: the checkout's state for the caller's decision.
+       */
+      policy: optional(literal("ownership")),
+    }),
+    response: observation,
+    errors: ["not_found"],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "workspace.release": op({
+    scope: "session",
+    kind: "call",
+    request: object({
+      ...session,
+      /** The caller decides: the session's checkout was created on its own branch. */
+      deleteBranch: boolean,
+      /** The branch the checkout was created on; deleted only if 0 ahead of its upstream. */
+      originalBranch: nullable(string),
+    }),
+    /** `removed` is also true when the checkout is already gone, so a repeat is safe. */
+    response: object({ removed: boolean }),
+    errors: [],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "path.resolve": op({
+    scope: "runner",
+    kind: "call",
+    request: object({
+      path: string,
+      /** Automatic launch-form probe of the typed path with privacy checks. */
+      automatic: optional(literal(true)),
+      /** False: no Git probe of `path` (`git` stays null). */
+      git: optional(literal(false)),
+      /** Also resolve `path`'s project root (`projectRoot` or `projectRootError`). */
+      projectRoot: optional(literal(true)),
+      /** Also canonicalise these paths, with no Git: `canonical`, in order. */
+      canonical: optional(array(string)),
+    }),
+    response: pathResolution,
+    errors: ["forbidden"],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+  }),
+  "path.complete": op({
+    scope: "runner",
+    kind: "call",
+    request: object({ prefix: string, limit: integer }),
+    response: pathCompletion,
+    errors: ["forbidden"],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+  }),
+
+  /* Checkout views */
+  "checkout.list": op({
+    scope: "session",
+    kind: "call",
+    request: object({
+      target,
+      path: string,
+      /** Folder/project definition readers only: enumerate native names lazily. */
+      mode: optional(literal("native")),
+      /** List regular files at the checkout root, following file and directory symlinks. */
+      filesOnly: optional(literal(true)),
+      /** List every entry, as the directory holds them: Git-ignored ones and `.git` included. */
+      unfiltered: optional(literal(true)),
+    }),
+    response: directoryListing,
+    errors: ["not_found", "forbidden"],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "checkout.access": op({
+    scope: "session",
+    kind: "call",
+    request: object({ target: checkoutReadTarget, path: string }),
+    response: boolean,
+    errors: [],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "checkout.read": op({
+    scope: "session",
+    kind: "call",
+    request: union(
+      object({
+        target: checkoutReadTarget,
+        path: string,
+        /** Folder/project definition readers and assessor configuration reads: native file/error semantics. */
+        mode: optional(literal("native")),
+        /** Include the directory identity for a command resolved from this read. */
+        bindRoot: optional(literal(true)),
+        /** `base64` returns the file's raw bytes, base64 encoded, inside the checkout. */
+        encoding: literal("utf8", "base64"),
+        maxBytes: nullable(integer),
+      }),
+      object({
+        target: object({
+          session: sessionHandle,
+          checkout: optional(literal("current", "launch", "moved")),
+        }),
+        mode: literal("command-manifest"),
+        path: string,
+        encoding: literal("utf8"),
+        maxBytes: nullable(integer),
+      })
+    ),
+    response: nullable(
+      object({
+        data: string,
+        digest: optional(string),
+        rootIdentity: optional(string),
+        root: optional(runnerPath),
+      })
+    ),
+    errors: ["forbidden", "too_large"],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "checkout.write": op({
+    scope: "session",
+    kind: "call",
+    request: object({
+      target,
+      path: string,
+      data: string,
+      expectedDigest: nullable(string),
+    }),
+    response: object({ digest: string }),
+    errors: ["forbidden", "stale"],
+    retry: { kind: "state", field: "expectedDigest" },
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "checkout.preview": op({
+    scope: "session",
+    kind: "call",
+    request: object({ target, path: string }),
+    response: preview,
+    errors: ["not_found", "too_large"],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "checkout.index": op({
+    scope: "session",
+    kind: "call",
+    request: object({ target, generation: string }),
+    response: fileIndex,
+    errors: [],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "checkout.stats": op({
+    scope: "session",
+    kind: "call",
+    request: object({
+      target,
+      base: nullable(string),
+      uncommitted: boolean,
+      /**
+       * Regular-expression literals (`/source/flags`), tested against each
+       * checkout-relative path. A path any of them matches is excluded.
+       */
+      exclude: array(string),
+    }),
+    response: stats,
+    errors: ["not_found"],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "checkout.diff": op({
+    scope: "session",
+    kind: "call",
+    request: object({
+      target,
+      base: nullable(string),
+      uncommitted: boolean,
+      whitespace: literal("show", "ignore"),
+      /** As `checkout.stats`: matched files are marked `excluded`. */
+      exclude: array(string),
+      path: optional(string),
+    }),
+    response: union(diff, nullable(fileDiff)),
+    errors: ["too_large"],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "checkout.image": op({
+    scope: "session",
+    kind: "call",
+    request: object({
+      target,
+      base: nullable(string),
+      uncommitted: boolean,
+      path: string,
+      side: literal("old", "new"),
+    }),
+    response: object({ bytes: blob }),
+    errors: ["not_found", "too_large"],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "checkout.changes": op({
+    scope: "session",
+    kind: "call",
+    request: object({
+      target,
+      base: nullable(string),
+      /** Refs tried, in order, when `base` and the checkout's own probes resolve none. */
+      fallback: optional(array(string)),
+    }),
+    response: changes,
+    errors: ["not_found"],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "checkout.defaultFiles": op({
+    scope: "session",
+    kind: "call",
+    request: object({ target, dirs: array(string), wait: boolean }),
+    response: defaultFiles,
+    errors: [],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "checkout.watch": op({
+    scope: "session",
+    kind: "open",
+    request: object({ target }),
+    response: empty,
+    errors: ["busy"],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+    // One pulse per change burst; the content carries no meaning.
+    channel: { toRunner: "bytes", fromRunner: "bytes" },
+  }),
+
+  /* Commands */
+  "checkout.exec": op({
+    scope: "session",
+    kind: "call",
+    request: union(
+      object({
+        target,
+        guard: object({ path: string, digest: string }),
+        ...execOptions,
+      }),
+      object({
+        target: object({
+          session: sessionHandle,
+          checkout: checkoutSelector,
+        }),
+        guard: object({ root: runnerPath, identity: string }),
+        ...execOptions,
+      })
+    ),
+    response: commandResult,
+    errors: ["stale", "busy"],
+    retry: none,
+    timeout: "request",
+    capability: "baseline",
+    cancellable: true,
+  }),
+
+  /* Session files */
+  "files.put": op({
+    scope: "session",
+    kind: "call",
+    request: object({
+      ...session,
+      name: string,
+      size: integer,
+      digest: string,
+      blob,
+    }),
+    response: object({ path: runnerPath }),
+    errors: ["not_found", "conflict"],
+    retry: key("name", "digest"),
+    timeout: "default",
+    capability: "baseline",
+  }),
+  "files.get": op({
+    scope: "session",
+    kind: "call",
+    request: object({ ...session, path: string }),
+    response: object({ name: string, size: integer, digest: string, blob }),
+    errors: ["not_found", "forbidden"],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+  }),
+
+  /* Git context */
+  "git.roots": op({
+    scope: "runner",
+    kind: "call",
+    request: object({
+      target,
+      /** Probe the checkout independently of common-directory discovery. */
+      checkoutOnly: optional(literal(true)),
+    }),
+    response: object({
+      repositoryRoot: nullable(runnerPath),
+      checkoutRoot: nullable(runnerPath),
+    }),
+    errors: [],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "git.origin": op({
+    scope: "runner",
+    kind: "call",
+    request: object({ path: string }),
+    response: object({ url: nullable(string) }),
+    errors: [],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "git.context": op({
+    scope: "session",
+    kind: "call",
+    request: object({ target }),
+    response: nullable(gitContext),
+    errors: [],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "git.defaultBranch": op({
+    scope: "session",
+    kind: "call",
+    request: object({ target }),
+    // `currentBranch` is the checkout's attached branch (null when detached,
+    // outside Git, or for a repository URL): the service's last fallback.
+    response: object({
+      branch: nullable(string),
+      currentBranch: nullable(string),
+    }),
+    errors: [],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+  }),
+  "git.remoteHeads": op({
+    scope: "runner",
+    kind: "call",
+    request: object({ path: string }),
+    response: object({ branches: array(string) }),
+    errors: [],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "git.branches": op({
+    scope: "session",
+    kind: "call",
+    request: object({ target }),
+    response: branchList,
+    errors: ["unauthenticated"],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+  }),
+  "git.base": op({
+    scope: "session",
+    kind: "call",
+    request: object({
+      target,
+      requested: nullable(string),
+      fallback: array(string),
+    }),
+    response: object({ base: nullable(string) }),
+    errors: [],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+  }),
+
+  /* GitHub */
+  "github.account": op({
+    scope: "runner",
+    kind: "call",
+    request: empty,
+    response: githubAccount,
+    errors: [],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+  }),
+  "github.login.start": op({
+    scope: "runner",
+    kind: "call",
+    request: object(requestId),
+    response: githubAccount,
+    errors: ["busy"],
+    retry: key("requestId"),
+    timeout: "default",
+    capability: "baseline",
+  }),
+  "github.login.cancel": op({
+    scope: "runner",
+    kind: "call",
+    request: object(requestId),
+    response: githubAccount,
+    errors: [],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+  }),
+  "github.logout": op({
+    scope: "runner",
+    kind: "call",
+    request: empty,
+    response: githubAccount,
+    errors: [],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+  }),
+  "github.repositories": op({
+    scope: "runner",
+    kind: "call",
+    request: object({ query: string }),
+    response: object({
+      repositories: array(object({ name: string, url: string })),
+    }),
+    errors: ["unauthenticated"],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+  }),
+  "github.branches": op({
+    scope: "runner",
+    kind: "call",
+    request: object({ owner: string, repo: string }),
+    response: branchList,
+    errors: ["unauthenticated"],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+  }),
+  "github.pr.head": op({
+    scope: "runner",
+    kind: "call",
+    request: object({ ...pullRequest, cwd: optional(runnerPath) }),
+    response: object({ url: string, branch: string }),
+    errors: ["unauthenticated", "not_found"],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+  }),
+  "github.pr.status": op({
+    scope: "runner",
+    kind: "call",
+    request: object(pullRequest),
+    response: pullRequestObservation,
+    errors: ["unauthenticated"],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+  }),
+  "github.pr.details": op({
+    scope: "runner",
+    kind: "call",
+    request: object(pullRequest),
+    response: nullable(pullRequestDetails),
+    errors: ["unauthenticated"],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+  }),
+  "github.pr.diff": op({
+    scope: "runner",
+    kind: "call",
+    // Without `base`, the PR's current base. `context` is the credential
+    // the details named; a platform that scopes reads refuses without it.
+    request: object({
+      ...pullRequest,
+      base: optional(string),
+      head: string,
+      context: optional(string),
+    }),
+    // `base` names the commit compared from when the request left it out.
+    response: nullable(
+      object({ base: optional(string), files: array(githubChangedFile) })
+    ),
+    errors: ["unauthenticated", "stale"],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+  }),
+
+  /* Engines */
+  "engine.list": op({
+    scope: "runner",
+    kind: "call",
+    // `include` asks for less: absent means everything. A row always says
+    // whether its engine is installed; what is left out reads as unknown
+    // (`version` null, `signedIn` null, no `actions`).
+    request: object({
+      refresh: boolean,
+      /** A periodic sample. A protected update can defer its workload probes. */
+      background: optional(literal(true)),
+      include: optional(array(literal("version", "actions", "signIn"))),
+    }),
+    response: object({
+      entries: array(engineInventoryEntry),
+      available: optional(boolean),
+    }),
+    errors: [],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "engine.install": op({
+    scope: "runner",
+    kind: "call",
+    request: object({ ...engine, ...requestId }),
+    response: object({ operationId: string, message: optional(string) }),
+    errors: ["busy", "unsupported"],
+    retry: key("requestId"),
+    timeout: "long",
+    capability: "baseline",
+    events: engineEvent,
+  }),
+  "engine.update": op({
+    scope: "runner",
+    kind: "call",
+    request: object({ ...engine, ...requestId }),
+    response: object({ operationId: string, message: optional(string) }),
+    errors: ["busy", "unsupported"],
+    retry: key("requestId"),
+    timeout: "long",
+    capability: "baseline",
+    events: engineEvent,
+  }),
+  "engine.update.inspect": op({
+    scope: "runner",
+    kind: "call",
+    request: object({
+      ...engine,
+      action: optional(literal("install", "update")),
+      presentation: optional(boolean),
+    }),
+    response: engineInstallation,
+    errors: ["unsupported"],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "engine.update.spawn": op({
+    scope: "runner",
+    kind: "call",
+    request: object({
+      ...requestId,
+      command: engineUpdateCommand,
+      timeoutMs: integer,
+    }),
+    response: object({ operationId: string, pid: integer }),
+    errors: ["busy"],
+    retry: key("requestId"),
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "engine.update.release": op({
+    scope: "runner",
+    kind: "call",
+    request: object({ operationId: string, abort: optional(boolean) }),
+    response: empty,
+    errors: ["not_found"],
+    retry: key("operationId", "abort"),
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "engine.update.probe": op({
+    scope: "runner",
+    kind: "call",
+    request: object({
+      pids: array(integer),
+      groups: optional(boolean),
+      bin: optional(string),
+    }),
+    response: object({ alive: array(boolean), version: nullable(string) }),
+    errors: [],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "engine.operation": op({
+    scope: "runner",
+    kind: "call",
+    request: object({ operationId: string }),
+    response: union(engineProgress, engineComplete, engineOperationState),
+    errors: ["not_found"],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+  }),
+  "engine.login.start": op({
+    scope: "runner",
+    kind: "call",
+    request: object({ ...engine, restart: boolean, ...requestId }),
+    response: engineLogin,
+    errors: ["unsupported", "busy"],
+    retry: key("requestId"),
+    timeout: "long",
+    capability: "baseline",
+    events: object({ type: literal("login_update"), login: engineLogin }),
+  }),
+  "engine.login.submit": loginOp({ loginId: string, code: string }, none),
+  "engine.login.status": loginOp({ loginId: string }, read),
+  "engine.login.cancel": loginOp({ loginId: string }, read),
+  "engine.models": op({
+    scope: "runner",
+    kind: "call",
+    request: object({ ...engine, model: optional(string) }),
+    response: engineModels,
+    errors: ["unauthenticated"],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "engine.usage": op({
+    scope: "runner",
+    kind: "call",
+    request: empty,
+    response: engineUsage,
+    errors: [],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "engine.quota.reset": op({
+    scope: "runner",
+    kind: "call",
+    request: object({ ...engine, account: string, ...requestId }),
+    response: object({
+      code: string,
+      windowsReset: number,
+      credit: optional(
+        nullable(
+          object({ id: string, title: string, expiresAt: nullable(string) })
+        )
+      ),
+      error: optional(object({ reason: string, message: string })),
+    }),
+    errors: ["stale"],
+    retry: key("requestId"),
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "engine.plugin.status": op({
+    scope: "runner",
+    kind: "call",
+    request: object({ ...engine, plugin: string, refresh: optional(boolean) }),
+    response: enginePluginStatus,
+    errors: ["unsupported"],
+    retry: read,
+    timeout: "long",
+    capability: "baseline",
+  }),
+  "engine.plugin.apply": op({
+    scope: "runner",
+    kind: "call",
+    request: object({
+      ...engine,
+      plugin: string,
+      action: literal("install", "update"),
+      ...requestId,
+    }),
+    response: enginePluginStatus,
+    errors: ["unsupported", "busy"],
+    retry: key("requestId"),
+    timeout: "long",
+    capability: "baseline",
+  }),
+
+  /* Ports */
+  "port.connect": op({
+    scope: "session",
+    kind: "open",
+    request: object({ ...session, port: integer }),
+    response: empty,
+    errors: ["not_found"],
+    retry: none,
+    timeout: "default",
+    capability: "baseline",
+    channel: { toRunner: "bytes", fromRunner: "bytes" },
+  }),
+
+  /* Updates (optional `selfUpdate` capability) */
+  "update.offer": op({
+    scope: "runner",
+    kind: "call",
+    request: object({ attempt: string, target: updateTarget, retry: boolean }),
+    response: updateStatus,
+    errors: ["unsupported", "conflict"],
+    retry: key("attempt"),
+    timeout: "default",
+    capability: "selfUpdate",
+    events: updateStatus,
+  }),
+  "update.fence": op({
+    scope: "runner",
+    kind: "call",
+    request: object({ attempt: string, retained: boolean }),
+    response: updateStatus,
+    errors: ["stale"],
+    retry: key("attempt"),
+    timeout: "default",
+    capability: "selfUpdate",
+  }),
+  "update.activate": op({
+    scope: "runner",
+    kind: "call",
+    request: object({ attempt: string }),
+    response: updateStatus,
+    errors: ["stale"],
+    retry: key("attempt"),
+    timeout: "default",
+    capability: "selfUpdate",
+  }),
+  "update.confirm": op({
+    scope: "runner",
+    kind: "call",
+    request: object({ attempt: string, revision: string, sha256: string }),
+    response: updateStatus,
+    errors: ["stale"],
+    retry: key("attempt"),
+    timeout: "default",
+    capability: "selfUpdate",
+  }),
+  "update.cancel": op({
+    scope: "runner",
+    kind: "call",
+    request: object({
+      attempt: string,
+      reason: literal("policy_changed", "quiesce_timeout", "trial_failed"),
+    }),
+    response: updateStatus,
+    errors: [],
+    retry: read,
+    timeout: "default",
+    capability: "selfUpdate",
+  }),
+} as const;

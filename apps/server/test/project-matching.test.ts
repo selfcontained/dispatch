@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { matchingProjects } from "../src/projects/matching.js";
+import { matchingProjects } from "./helpers/project-matching.js";
 
 describe("starting directory project matching", () => {
   let root: string;
@@ -63,5 +63,26 @@ describe("starting directory project matching", () => {
     mkdirSync(join(worktree, "nested"));
     const p = project(repo);
     expect(await matchingProjects(join(worktree, "nested"), [p])).toEqual([p]);
+  });
+
+  it("matches extra roots by path without matching another clone's origin", async () => {
+    const primary = join(root, "primary");
+    const extra = join(root, "extra");
+    const unrelated = join(root, "unrelated");
+    const repository = "https://example.test/team/repo.git";
+    for (const checkout of [primary, extra, unrelated]) {
+      execFileSync("git", ["init", "-q", checkout]);
+      execFileSync("git", [
+        "-C",
+        checkout,
+        "remote",
+        "add",
+        "origin",
+        repository,
+      ]);
+    }
+    const p = { ...project(primary), extraRoots: [extra], repository };
+    expect(await matchingProjects(extra, [p])).toEqual([p]);
+    expect(await matchingProjects(unrelated, [p])).toEqual([]);
   });
 });

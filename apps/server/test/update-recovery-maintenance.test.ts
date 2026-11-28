@@ -858,6 +858,24 @@ describe("resume receipt", () => {
     expect(await takeResumeReceipt(file)).toEqual({ status: "none" });
   });
 
+  it("has none of a runner attempt's progress, and refuses it", async () => {
+    const file = path.join(await tempDir(), "update-recovery", "r.json");
+    const local = receipt();
+    for (const progress of [
+      { turns: [{ id: 1, seq: 2 }] },
+      { launching: true },
+      { resumed: true },
+      { continuationSent: true },
+      { failedAt: 1 },
+    ])
+      await expect(
+        writeResumeReceipt(file, {
+          ...local,
+          agents: [{ ...local.agents[0]!, ...progress }],
+        } as ResumeReceipt)
+      ).rejects.toThrow();
+  });
+
   it("sets aside expired, malformed and unsafe receipts without resuming", async () => {
     const dir = await tempDir();
     const now = Date.parse("2026-10-02T00:00:00Z");

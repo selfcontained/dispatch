@@ -1,8 +1,5 @@
-import { access, readFile } from "node:fs/promises";
-import path from "node:path";
 import * as z from "zod/v4";
 
-import type { CommandRunner } from "../shared/lib/run-command.js";
 import { validatePersonaSlug } from "./authoring.js";
 import { LEGACY_OWNERS_PATH, OWNERS_PATH } from "./paths.js";
 
@@ -65,33 +62,39 @@ export type OwnerReviewResult = OwnerReviewPlan & {
   failures: Array<{ persona: string; error: string; files: string[] }>;
 };
 
+export type CodeownersFiles = {
+  access(path: string): Promise<boolean>;
+  read(path: string): Promise<string>;
+};
+
 /** The owners map in use: `.agents/owners.json`, else the legacy location. */
-async function findOwnersPath(root: string): Promise<string | null> {
+async function findOwnersPath(
+  probe: CodeownersFiles["access"]
+): Promise<string | null> {
   for (const candidate of [OWNERS_PATH, LEGACY_OWNERS_PATH]) {
-    try {
-      await access(path.join(root, candidate));
-      return candidate;
-    } catch (error) {
-      // Only a missing map falls through to the legacy location.
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
+    if (await probe(candidate)) return candidate;
   }
   return null;
 }
 
 /** Whether the checkout has an ownership map at all; validity is checked at launch. */
-export async function hasCodeowners(root: string): Promise<boolean> {
-  return (await findOwnersPath(root)) !== null;
+export async function hasCodeowners(
+  files: Pick<CodeownersFiles, "access">
+): Promise<boolean> {
+  return (await findOwnersPath(files.access)) !== null;
 }
 
-export async function loadCodeowners(root: string): Promise<CodeownersConfig> {
-  const ownersPath = await findOwnersPath(root);
+/** Select with F_OK first, then read only that file; a read failure never selects legacy. */
+export async function loadCodeownersFromFiles(
+  files: CodeownersFiles
+): Promise<CodeownersConfig> {
+  const ownersPath = await findOwnersPath(files.access);
   if (!ownersPath) {
     throw new Error(
       `No ${OWNERS_PATH} found in this workspace. Add ownership rules before launching owner reviews.`
     );
   }
-  const content = await readFile(path.join(root, ownersPath), "utf8");
+  const content = await files.read(ownersPath);
   return parseCodeowners(content, ownersPath);
 }
 
@@ -165,41 +168,6 @@ export function resolveCodeowners(
   };
 }
 
-export async function collectOwnerReviewFiles(
-  cwd: string,
-  baseRef: string,
-  run: CommandRunner
-): Promise<string[]> {
-  // --no-renames represents a rename as deletion + addition, so both owners
-  // are selected. NUL delimiters preserve whitespace and unusual filenames.
-  const results = await Promise.all([
-    run(
-      "git",
-      ["diff", "--name-only", "--no-renames", "-z", `${baseRef}...HEAD`, "--"],
-      { cwd, trimOutput: false }
-    ),
-    // Index and working-tree edits can cancel in diff HEAD. Collect both.
-    run(
-      "git",
-      ["diff", "--cached", "--name-only", "--no-renames", "-z", "HEAD", "--"],
-      { cwd, trimOutput: false }
-    ),
-    run("git", ["diff", "--name-only", "--no-renames", "-z", "--"], {
-      cwd,
-      trimOutput: false,
-    }),
-    run("git", ["ls-files", "--others", "--exclude-standard", "-z"], {
-      cwd,
-      trimOutput: false,
-    }),
-  ]);
-  return [
-    ...new Set(
-      results.flatMap((result) => result.stdout.split("\0").filter(Boolean))
-    ),
-  ].sort();
-}
-
 export async function launchOwnerReviewPlan(
   plan: OwnerReviewPlan,
   context: string,
@@ -208,7 +176,11 @@ export async function launchOwnerReviewPlan(
     context: string
   ) => Promise<{ agentId: string; warnings?: string[] }>
 ): Promise<OwnerReviewResult> {
-  const result: OwnerReviewResult = { ...plan, launched: [], failures: [] };
+  const result: OwnerReviewResult = {
+    ...plan,
+    launched: [],
+    failures: [],
+  };
   // Launch sequentially to preserve normal lifecycle ordering. Review agents
   // run concurrently once started. A failure must not hide successful launches.
   for (const owner of plan.owners) {

@@ -1,5 +1,12 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  cleanup,
+  fireEvent,
+  render as renderWithTestingLibrary,
+  screen,
+} from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { WorktreeSection } from "./create-agent-worktree-section";
@@ -33,6 +40,15 @@ const defaultProps = {
 
 afterEach(cleanup);
 
+function render(ui: ReactElement) {
+  const client = new QueryClient();
+  return renderWithTestingLibrary(ui, {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    ),
+  });
+}
+
 function checkbox(testId: string): HTMLButtonElement {
   return screen.getByTestId(testId) as HTMLButtonElement;
 }
@@ -46,6 +62,13 @@ function baseBranch(): HTMLButtonElement {
 }
 
 describe("WorktreeSection", () => {
+  it("keeps the local starting branch label when opening an existing branch", () => {
+    render(<WorktreeSection {...defaultProps} createNewBranch={false} />);
+    expect(screen.getByRole("combobox", { name: "Starting branch" })).toBe(
+      baseBranch()
+    );
+  });
+
   it("renders saved true values unchecked and collapses branch controls outside a git repo", () => {
     render(<WorktreeSection {...defaultProps} worktreeAvailable={false} />);
 

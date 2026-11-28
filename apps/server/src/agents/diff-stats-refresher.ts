@@ -1,16 +1,14 @@
-import {
-  getDiffStatsComputation as defaultGetDiffStatsComputation,
-  type DiffStats,
-  type DiffStatsComputation,
-  type GetDiffStatsOptions,
-} from "../shared/git/diff-stats.js";
+import type { DiffStats } from "@dispatch/shared";
+import type { DiffStatsComputation } from "./checkout-result.js";
 import type { SubsystemTracker } from "../observability/subsystem-tracker.js";
 import {
-  agentDiffTarget,
-  type WorkspaceTargetAgent,
-} from "./workspace-target.js";
+  agentComparisonBase,
+  type ComparisonBaseAgent,
+} from "./effective-base.js";
+import { sessionFolderLocation } from "../runners/saved-location.js";
+import { recordedDiffDirectory } from "./workspace-target.js";
 
-export type DiffStatsAgent = WorkspaceTargetAgent;
+export type DiffStatsAgent = ComparisonBaseAgent;
 
 export type DiffStatsChangedEvent = {
   type: "agent.diff_state_changed";
@@ -27,16 +25,33 @@ type WarnLogger = {
   warn: (...args: unknown[]) => void;
 };
 
+type ComputeAgentStats = (
+  id: string,
+  agent: DiffStatsAgent,
+  comparisonBase: string | null
+) => Promise<DiffStatsComputation>;
+
 export type DiffStatsRefresherOptions = {
   getAgent: (id: string) => Promise<DiffStatsAgent | null>;
   publishEvent: (event: DiffStatsChangedEvent) => void;
-  computeDiffStats?: ComputeDiffStats;
-  /** Override Git command execution while retaining the default adapter. */
-  runGitCommand?: GetDiffStatsOptions["runCommand"];
+  /** The service's effective base; defaults to the agent's local rule. */
+  comparisonBase?: (
+    id: string,
+    agent: DiffStatsAgent
+  ) => Promise<string | null>;
   freshnessMs?: number;
   logger?: WarnLogger;
   tracker?: SubsystemTracker;
-};
+} & (
+  | {
+      computeAgentStats: ComputeAgentStats;
+      computeDiffStats?: ComputeDiffStats;
+    }
+  | {
+      computeAgentStats?: ComputeAgentStats;
+      computeDiffStats: ComputeDiffStats;
+    }
+);
 
 const DEFAULT_FRESHNESS_MS = 3_000;
 
@@ -60,17 +75,21 @@ export class DiffStatsRefresher {
 
   private readonly getAgent: (id: string) => Promise<DiffStatsAgent | null>;
   private readonly publishEvent: (event: DiffStatsChangedEvent) => void;
-  private readonly computeDiffStats: (
+  private readonly computeDiffStats?: (
     worktreePath: string,
     baseRef: string | null
   ) => Promise<DiffStatsComputation>;
   private readonly freshnessMs: number;
+  private readonly computeAgentStats: DiffStatsRefresherOptions["computeAgentStats"];
+  private readonly comparisonBase: DiffStatsRefresherOptions["comparisonBase"];
   private readonly logger: WarnLogger | null;
   private readonly tracker: SubsystemTracker | null;
   private signals = 0;
   private dedupedSignals = 0;
 
   constructor(options: DiffStatsRefresherOptions) {
+    this.computeAgentStats = options.computeAgentStats;
+    this.comparisonBase = options.comparisonBase;
     this.getAgent = options.getAgent;
     this.publishEvent = options.publishEvent;
     const customComputeDiffStats = options.computeDiffStats;
@@ -81,10 +100,7 @@ export class DiffStatsRefresher {
             ? { kind: "success", stats }
             : { kind: "no-data", stats: null };
         }
-      : (worktreePath, baseRef) =>
-          defaultGetDiffStatsComputation(worktreePath, baseRef, {
-            runCommand: options.runGitCommand,
-          });
+      : undefined;
     this.freshnessMs = options.freshnessMs ?? DEFAULT_FRESHNESS_MS;
     this.logger = options.logger ?? null;
     this.tracker = options.tracker ?? null;
@@ -159,11 +175,18 @@ export class DiffStatsRefresher {
     try {
       const agent = await this.getAgent(agentId);
       // `getDiffStats` returns null when the path isn't inside a repo.
-      const target = agent ? agentDiffTarget(agent) : null;
-      if (!target) {
-        nextStats = null;
-      } else {
-        computation = await this.computeDiffStats(target.path, target.baseRef);
+      const recorded =
+        agent && !this.computeAgentStats ? recordedDiffDirectory(agent) : null;
+      const location =
+        agent && recorded ? sessionFolderLocation(agent, recorded) : null;
+      const target = location && "path" in location ? location.path : null;
+      if (agent && (this.computeAgentStats || target)) {
+        const base = this.comparisonBase
+          ? await this.comparisonBase(agentId, agent)
+          : await agentComparisonBase(agent, "changes");
+        computation = this.computeAgentStats
+          ? await this.computeAgentStats(agentId, agent, base)
+          : await this.computeDiffStats!(target!, base);
         if (computation.kind === "failure") throw computation.error;
         nextStats = computation.stats;
       }

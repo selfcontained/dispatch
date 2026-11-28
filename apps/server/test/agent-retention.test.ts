@@ -124,6 +124,22 @@ describe("purgeExpiredArchivedAgents", () => {
     expect(await count("blocks", "stream_id", "live")).toBe(1);
   });
 
+  it("holds archived rows while their runner cleanup is pending", async () => {
+    await seedAgent("offline", { archivedDaysAgo: 40 });
+    await pool.query(
+      "UPDATE agents SET runner_cleanup_pending = true WHERE id = 'offline'"
+    );
+    expect(
+      await purgeExpiredArchivedAgents({ pool, logger, filesRoot })
+    ).toEqual([]);
+    await pool.query(
+      "UPDATE agents SET runner_cleanup_pending = false WHERE id = 'offline'"
+    );
+    expect(
+      await purgeExpiredArchivedAgents({ pool, logger, filesRoot })
+    ).toEqual(["offline"]);
+  });
+
   it("purges a child home while retaining its parent's conversation and legacy child history", async () => {
     await seedAgent("parent");
     await seedAgent("expired-child", { archivedDaysAgo: 40, parent: "parent" });

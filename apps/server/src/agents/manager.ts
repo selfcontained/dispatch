@@ -1,19 +1,55 @@
 import {
+  displayPath,
+  pathFromWire,
+  RunnerCallError,
+  sessionFromWire,
+  sessionToWire,
+  sameRunner,
+  type Req,
+  type Res,
+  type Placement,
+} from "@dispatch/runner-protocol/contract";
+import { checkoutRunners, runnerDirectory } from "../runners/directory.js";
+import type { LocalRunner } from "../runners/local.js";
+import {
+  controllerPlacement,
+  enrolledRunnerId,
+  isOnEnrolledRunner,
+  sessionLocation,
+  placementForRunner,
+  placementFromRow,
+  runnerIdForPlacement,
+} from "../runners/placement.js";
+import { requestCheckoutCommand } from "./checkout-commands.js";
+import { REPO_TOOL_MANIFEST_PATH } from "../shared/mcp/repo-tools.js";
+import { isPromptImageMimeType } from "./acp/prompt-source.js";
+import { getSessionFile, putSessionFile } from "../files/session-file.js";
+import { readAgentView } from "./checkout-runner.js";
+import {
+  agentComparisonBase,
+  type ComparisonBaseAgent,
+  type ComparisonUse,
+} from "./effective-base.js";
+import type { CheckoutView } from "@dispatch/runner-protocol";
+import {
   namingContext,
   nameNewSession,
   persistSessionName,
 } from "./session-naming.js";
 import { AttentionHistory } from "../notifications/attention-history.js";
-import { matchingProjects } from "../projects/matching.js";
+import { matchProjectIdentity } from "../projects/matching.js";
 import {
   attentionPreview,
   type AgentArchivePreview,
-  type AgentWorktreeStatus,
   type Effort,
+  type FileDiffResponse,
 } from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, stat, unlink } from "node:fs/promises";
+import {
+  ensureDeliveryDirectory,
+  removeDeliveryDirectory,
+} from "../files/session-directories.js";
 import path from "node:path";
 
 import type { FastifyBaseLogger } from "fastify";
@@ -24,29 +60,30 @@ import {
   createDiagnosticsRecorder,
   type DiagnosticsRecorder,
 } from "../diagnostics.js";
-import {
-  assertSafeRefName,
-  createGitWorktree,
-  GitWorktreeError,
-  normalizeBaseBranch,
-  worktreePathSlug,
-} from "../shared/git/worktree.js";
-import { readWorktreeStatus } from "../shared/git/worktree-status.js";
+import { GitWorktreeError } from "@dispatch/runner-protocol";
 import { resolveFilesDir } from "../shared/files.js";
-import { getDirectoryIconPath } from "../shared/directory-icon-cache.js";
-import {
-  buildGitContextForWorktree,
-  probeGitContext,
-} from "../shared/git/git-context.js";
+import { agentIconPath, folderIconPath } from "./checkout-icon.js";
 import { getActivePersonality } from "../db/personalities.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import {
+  archiveCheckout,
   beginArchive as beginArchiveImpl,
   executeArchive as executeArchiveImpl,
   previewArchive,
   type ArchiveDeps,
 } from "./archive.js";
-import { AgentError } from "./errors.js";
+import {
+  archiveRunner,
+  retainsPreparationLocator,
+  observeArchiveCheckout,
+  type ArchiveCheckoutAgent,
+} from "./archive-checkout.js";
+import {
+  AgentError,
+  CheckoutStatusUnavailable,
+  LifecycleSuperseded,
+} from "./errors.js";
+import { admitLaunch } from "./launch-admission.js";
 import { type AgentEventBus, createAgentEventBus } from "./events.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
 import {
@@ -63,6 +100,8 @@ import {
   type AgentRuntime,
   type QueuedPromptAction,
   type QueuedPromptControl,
+  type RunnerHostIdentity,
+  type RunnerHostRecycleHold,
   createAgentRuntime,
 } from "./runtime.js";
 import {
@@ -70,12 +109,25 @@ import {
   type ChatLaunchPost,
   shouldSuggestSessionRename,
 } from "./launch-guidance.js";
-import { prepareWorkspace } from "./workspace.js";
-import { resolveWorkspace } from "./workspace-target.js";
+import type { TerminalBackend } from "../terminal/manager.js";
+import { terminalBackendFor } from "../runners/directory.js";
+import {
+  prepareLocalWorkspace,
+  resumeLocalWorkspace,
+  worktreeRefusal,
+  type LaunchDirectory,
+  type PrepareProgress,
+  type PreparedWorkspace,
+  type WorktreeRequest,
+  launchDirectory,
+  localPreparation,
+  prepareRecordedWorkspace,
+  runnerWorktree,
+} from "./workspace-launch.js";
 import { createAgentMcpToken, createJobMcpToken } from "../auth.js";
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { AvailableCommand } from "@agentclientprotocol/sdk";
-import type { DriverEvent } from "./acp/driver.js";
+import type { DriverEvent } from "@dispatch/runner-protocol/host";
 import { recordEngineModels, recordEngineEffort } from "./engine-models.js";
 import { syncTurnUsage } from "./usage-recorder.js";
 import type {
@@ -83,8 +135,51 @@ import type {
   PromptOptions,
   PromptImage,
 } from "./acp/prompt-source.js";
-import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
-import { buildLaunchEnv } from "./acp/launch-env.js";
+import { isAcpEngine } from "@dispatch/runner-protocol/host";
+import {
+  agentStreamDirectory,
+  settleWorkspace,
+  type WorkspaceProbes,
+} from "./workspace-target.js";
+import { inspectAgentCheckout, reviewerWorkspace } from "./checkout-runner.js";
+import {
+  resolveCheckoutIntent,
+  CheckoutIntentError,
+  pullRequestTarget,
+  toLocalWorktreeRequest,
+  toRunnerCheckout,
+  type PullRequestTarget,
+  type ResolvedCheckout,
+} from "./checkout-intent.js";
+import { RemoteEventInbox } from "./remote/event-inbox.js";
+import {
+  type RunnerRepository,
+  type LaunchProgress,
+  type CheckoutQuery,
+  type CheckoutReply,
+} from "@dispatch/runner-protocol";
+import { repositoryRecord } from "../runners/repository-identity.js";
+import { WORKTREE_LOCAL_CONFIG_FILES } from "./worktree-local-config-files.js";
+import {
+  parseRepository,
+  parseRepositoryTarget,
+  projectRepositoryUrl,
+} from "./remote/repository.js";
+import {
+  RunnerResumeRefused,
+  RunnerRevoked,
+  RunnerUpdateFenced,
+  type RemoteRunnerService,
+} from "./remote/service.js";
+import { isStopDeferred } from "./acp/runtime.js";
+import {
+  RunnerHostRecycler,
+  type ConfirmedRunnerUpdate,
+  type RunnerHostRecycleProgress,
+} from "./remote/host-recycler.js";
+import { RunnerForceSessions } from "./remote/force-sessions.js";
+import type { HeldLaunch, RunnerUpdateHolds } from "./remote/update-hold.js";
+import type { RunnerResumeAgent } from "../update-recovery/resume-receipt.js";
 import { dispatchMcpUrl } from "./acp/mcp-url.js";
 import {
   INTERRUPTED_BY_RESTART,
@@ -93,13 +188,12 @@ import {
   type TurnBlocks,
 } from "./acp/stream-recorder.js";
 import { OPEN_INPUT_SQL } from "../chat/store.js";
-import {
-  engineStatuses,
-  engineVersion,
-  missingEngineMessage,
-} from "./engine-availability.js";
 import { StreamStore } from "./acp/stream-store.js";
-import { resolveLaunchPersona } from "../personas/resolve.js";
+import {
+  launchPersonaScope,
+  personaScopeFor,
+} from "../personas/persona-scope.js";
+import { resolvePersona } from "../personas/resolve.js";
 import {
   PERSONA_CONTEXT_ARG,
   extractPersonaContext,
@@ -116,6 +210,7 @@ import type {
   AgentTerminalAccess,
   SetupPhase,
   WorktreeCleanupMode,
+  WorktreeStatus,
 } from "./types.js";
 import { StreamWriteThrottle } from "./stream-write-throttle.js";
 import * as telemetry from "./telemetry.js";
@@ -149,6 +244,7 @@ export type AttentionTarget = {
 };
 
 type CreateAgentInput = {
+  placement?: Placement;
   name?: string;
   type?: AgentType;
   role?: AgentRole;
@@ -166,6 +262,8 @@ type CreateAgentInput = {
   createNewBranch?: boolean;
   worktreeBranch?: string;
   baseBranch?: string;
+  /** Open this pull request's source branch (URL or number). */
+  pullRequest?: string;
   worktreeLocation?: WorktreeLocation;
   persona?: string;
   /** Existing agents use workspace overrides; UI/templates/jobs use the catalog. */
@@ -173,6 +271,12 @@ type CreateAgentInput = {
   parentAgentId?: string;
   /** Launcher of this agent, recorded even when it is not the parent. */
   launchedByAgentId?: string;
+  /**
+   * A folder the launcher named, other than its own: a path on the
+   * launcher's runner, resolved and checked there as its account (D7). Its
+   * placement is the launcher's, whatever the path says.
+   */
+  launcherFolder?: string;
   personaContext?: string;
   reviewAgentType?: AgentType | null;
   cliSessionId?: string;
@@ -190,9 +294,31 @@ type CreateAgentInput = {
     links?: string[];
   };
   initialFiles?: SeedFileInput[];
+  /**
+   * Files on this machine that `initialPrompt` names by path (a task's
+   * attachments). Each is handed to the session when it starts, and the
+   * first turn names the path the agent opens instead.
+   */
+  startupReferences?: StartupReference[];
   templateId?: string;
   projectId?: string | null;
+  repository?: unknown;
 };
+
+/** A file on this machine that a launch's first turn names by path. */
+export type StartupReference = { source: string; name: string };
+
+type CreateAgentOptions = {
+  detachLaunch?: boolean;
+  /** Trusted shared-checkout launch, never accepted from an HTTP payload. */
+  useWorktreeOf?: string;
+  taskPersonaBody?: string;
+  /** Commit owner state before the engine can discover tools or run a turn. */
+  beforeLaunch?: (agentId: string) => Promise<void>;
+};
+
+type WorkspacePreparation = Omit<Req<"workspace.prepare">, "session">;
+type RecordedPreparation = WorkspacePreparation & { pending?: true };
 
 type StopAgentInput = {
   force?: boolean;
@@ -209,11 +335,8 @@ type PreparedCreateInputs = {
   model: string | undefined;
   effort: Effort | null;
   fullAccess: boolean;
-  useWorktree: boolean;
-  createNewBranch: boolean;
   normalizedBaseBranch: string | undefined;
-  worktreeBranchName: string | undefined;
-  worktreePathOverride: string | undefined;
+  checkout: ResolvedCheckout | null;
   cliSessionId: string | null;
   initialSetupPhase: SetupPhase;
 };
@@ -299,6 +422,9 @@ export const LAUNCH_CONTEXT_RESOLVE_TIMEOUT_MS = 5_000;
 /** Sentinel for a promise that outlived its bound. */
 const TIMED_OUT = Symbol("timed-out");
 
+class RecycleSuperseded extends Error {}
+type RecycleRestart = { mayStart(): boolean; drain?: true };
+
 /** Resolve with the promise's value, or `TIMED_OUT` after `ms`. */
 function withTimeout<T>(
   promise: Promise<T>,
@@ -316,7 +442,61 @@ function withTimeout<T>(
 export const UPDATE_RESUME_MESSAGE =
   "Dispatch stopped this idle agent for an update. Start it to continue if automatic resume did not finish.";
 
+const RUNNER_RESUME_FAILED =
+  "Dispatch couldn't resume this agent after the runner update. Start it to continue.";
+
+type AgentRow = Omit<AgentRecord, "placement"> & { runner_id: string };
+
+/** A refusal the local runner answered with main's worktree status, as main's error. */
+function asWorktreeError(error: unknown): never {
+  const refusal = worktreeRefusal(error);
+  throw refusal ? new GitWorktreeError(refusal.message, refusal.status) : error;
+}
+
+type PendingAgentStop = {
+  agent_id: string;
+  runner_id: string | null;
+  launch_id: string | null;
+  force: boolean;
+};
+
 export class AgentManager {
+  /** A forced runner update's steps on this manager's sessions. */
+  readonly runnerForce: RunnerForceSessions;
+  private readonly runnerDrainReceipts = new Map<string, Set<string>>();
+  private readonly drainedHostHolds = new Map<string, RunnerHostRecycleHold>();
+  private readonly hostRecycler: RunnerHostRecycler;
+  private readonly recycleDeferrals = new Map<string, string>();
+  private readonly recyclingHosts = new Set<string>();
+  private readonly preparingRepositories = new Set<string>();
+  private readonly stoppingOrArchiving = new Map<string, number>();
+  private endRunnerResume?: (id: string) => Promise<void>;
+
+  private async terminateLifecycle<T>(
+    id: string,
+    action: () => Promise<T>,
+    serialize = true
+  ): Promise<T> {
+    this.stoppingOrArchiving.set(
+      id,
+      (this.stoppingOrArchiving.get(id) ?? 0) + 1
+    );
+    const terminate = async () => {
+      // Recorded now: once it is started again, the row looks like the receipt.
+      if (this.hasRunnerDrainReceipt(id)) await this.endRunnerResume?.(id);
+      return action();
+    };
+    try {
+      return await (serialize || this.preparingRepositories.has(id)
+        ? this.serializeLifecycle(id, terminate)
+        : terminate());
+    } finally {
+      const remaining = this.stoppingOrArchiving.get(id)! - 1;
+      if (remaining) this.stoppingOrArchiving.set(id, remaining);
+      else this.stoppingOrArchiving.delete(id);
+    }
+  }
+
   private readonly lifecycleOperations = new Map<string, Promise<void>>();
   private async serializeLifecycle<T>(
     id: string,
@@ -347,6 +527,10 @@ export class AgentManager {
   }
   private readonly logger: FastifyBaseLogger;
   private readonly config: AppConfig;
+  private readonly remote?: RemoteRunnerService;
+  private readonly holds?: RunnerUpdateHolds;
+  private readonly recoveredLaunchWaitMs: number;
+  private readonly recoveredLaunchPollMs: number;
   private readonly diagnostics: DiagnosticsRecorder;
   private readonly eventBus: AgentEventBus;
   private readonly runtime: AgentRuntime;
@@ -399,6 +583,12 @@ export class AgentManager {
     /** Tests inject a fake runtime; the server takes the configured one. */
     options: {
       runtime?: AgentRuntime;
+      remote?: RemoteRunnerService;
+      /** Runner update holds; absent, nothing is ever held. */
+      holds?: RunnerUpdateHolds;
+      /** How long a launch recovered at startup waits for its runner. */
+      recoveredLaunchWaitMs?: number;
+      recoveredLaunchPollMs?: number;
       classifySteering?: import("./steering.js").ClassifySteering;
     } = {}
   ) {
@@ -408,14 +598,60 @@ export class AgentManager {
     });
     this.logger = logger;
     this.config = config;
+    this.remote = options.remote;
+    this.holds = options.holds;
+    this.recoveredLaunchWaitMs = options.recoveredLaunchWaitMs ?? 10 * 60_000;
+    this.recoveredLaunchPollMs = options.recoveredLaunchPollMs ?? 1_000;
     this.diagnostics = createDiagnosticsRecorder(logger);
     this.eventBus = createAgentEventBus(logger);
     this.streamStore = new StreamStore(pool);
     this.streamRecorder = new StreamRecorder(this.streamStore, logger);
+    const remoteInbox = new RemoteEventInbox(pool);
+    let owner =
+      process.env.DISPATCH_INSTANCE_ID || process.env.DISPATCH_MAC_INSTANCE_ID;
+    const sessionOwner = async () => {
+      if (owner) return owner;
+      // A database-backed identity survives controller restarts and is
+      // distinct across databases even if their host state root is shared.
+      const { rows } = await pool.query<{ value: string }>(
+        `INSERT INTO settings (key, value) VALUES ('runner_session_owner', $1)
+         ON CONFLICT (key) DO UPDATE SET value = settings.value RETURNING value`,
+        [randomUUID()]
+      );
+      owner = rows[0]!.value;
+      return owner;
+    };
     this.runtime =
       options.runtime ??
       createAgentRuntime(config, logger, {
         classifySteering: options.classifySteering,
+        sessionOwner,
+        // Read when used: the child is attached after construction.
+        localRunner: () => this.localRunnerChild(),
+        remote: this.remote,
+        holds: this.holds,
+        remoteInbox,
+        preparePromptFiles: (id, images, text) =>
+          this.preparePromptFiles(id, images, text),
+        recoverRemoteEvent: (agentId) =>
+          remoteInbox.recover(agentId, (event) =>
+            this.handleRuntimeEvent(agentId, event, 0, true)
+          ),
+        placement: async (id) => {
+          const row = (
+            await pool.query<Pick<AgentRow, "cwd" | "runner_id">>(
+              "SELECT cwd, runner_id FROM agents WHERE id = $1",
+              [id]
+            )
+          ).rows[0];
+          return row ? sessionLocation(placementFromRow(row)) : null;
+        },
+        recordLaunch: async (id, launchId) => {
+          await pool.query(
+            "UPDATE agents SET host_launch_id = $2 WHERE id = $1",
+            [id, launchId]
+          );
+        },
         hostSeq: async (agentId) => {
           const result = await pool.query<{
             host_seq: number;
@@ -437,8 +673,27 @@ export class AgentManager {
           );
         },
       });
-    this.runtime.onEvent((agentId, event, seq) =>
-      this.handleRuntimeEvent(agentId, event, seq)
+    this.hostRecycler = new RunnerHostRecycler({
+      hosts: (runnerId) => this.runtime.runnerHosts?.(runnerId) ?? [],
+      recycle: (update, host, active) =>
+        this.recycleRunnerHost(update, host, active),
+      logger,
+    });
+    this.runnerForce = new RunnerForceSessions({
+      runtime: this.runtime,
+      recorder: this.streamRecorder,
+      turns: this.streamStore,
+      getAgent: (id) => this.getAgent(id),
+      leaving: (id) => this.stoppingOrArchiving.has(id),
+      rowClaims: (ids) => this.updateResumeSnapshot(ids),
+      resolveSource: async (id, source) =>
+        (await this.launchContextRecorder?.resolvePromptSource?.(id, source)) ??
+        source,
+      streamChanged: (id) => this.notifyStreamWrite(id, true),
+      logger,
+    });
+    this.runtime.onEvent((agentId, event, seq, receivedRemotely) =>
+      this.handleRuntimeEvent(agentId, event, seq, receivedRemotely)
     );
     this.reconciler = createReconciler({
       pool,
@@ -446,14 +701,104 @@ export class AgentManager {
       runtime: this.runtime,
       diagnostics: this.diagnostics,
       getAgent: (id) => this.getAgent(id),
-      setAgentStatus: (id, status, lastError) =>
-        this.setAgentStatus(id, status, lastError),
+      setAgentStatus: async (id, status, lastError) => {
+        await this.setAgentStatus(id, status, lastError);
+      },
       notifyBlocked: (id, message) =>
         this.emitAttention(id, "blocked", message),
       setReconnectProgress: (id, phase) => this.setReconnectProgress(id, phase),
       settleStream: async (id, reason) =>
         (await this.streamStore.settleInterrupted(id, reason)).length,
+      ...(this.holds && {
+        launchHeld: (id: string) => this.holds!.hasLaunch(id),
+        updateResumePending: (id: string) => this.hasRunnerDrainReceipt(id),
+      }),
     });
+    this.holds?.onRelease((release) => {
+      this.retryStopsOnReconnect();
+      return this.resumeHeldLaunches(release.launches);
+    });
+    // Released before a restart but never settled: drive the same attempt.
+    this.holds?.onResume((launches) =>
+      this.resumeHeldLaunches(launches, { recovered: true })
+    );
+  }
+
+  /**
+   * A held runner opened: run its launches in the order they were held.
+   * Each re-reads its agent first; a stopped, archived or moved agent wins
+   * over the launch. A launch onto a runner held again is held again there.
+   * Each keeps its launch ID, so a runner that already saw it reconciles it.
+   * A recovered launch waits (bounded) for its runner to reconnect first.
+   */
+  private async resumeHeldLaunches(
+    launches: HeldLaunch[],
+    { recovered = false }: { recovered?: boolean } = {}
+  ): Promise<void> {
+    for (const launch of launches) {
+      const { agentId, launchId } = launch;
+      const resume = async () => {
+        if (recovered) await this.waitForRunner(agentId);
+        const agent = await this.getAgent(agentId);
+        if (agent?.status !== "creating") {
+          this.logger.info(
+            { agentId, status: agent?.status ?? null },
+            "held launch no longer wanted"
+          );
+          return;
+        }
+        if (launch.kind === "start" || !launch.create)
+          return void (await this.startAgentClaimed(agentId, launchId));
+        const create = launch.create;
+        await this.continueLaunch(agentId, {
+          workspace: null,
+          originalCwd: agent.cwd,
+          initialPrompt: create.initialPrompt,
+          initialFiles: create.initialFiles,
+          startupReferences: create.startupReferences,
+          chatLaunchPost: create.chatLaunchPost,
+          jobRunId: create.jobRunId,
+          launchId,
+        });
+      };
+      // A start ran under the lifecycle lock when it was held, and does so
+      // again, so a stop queued meanwhile is seen. A create never was.
+      void (
+        launch.kind === "start"
+          ? this.serializeLifecycle(agentId, resume)
+          : resume()
+      )
+        .catch((error: unknown) =>
+          this.logger.warn({ err: error, agentId }, "Held agent launch failed")
+        )
+        // Reached an outcome, or was held again under a new record.
+        .finally(() => this.holds?.settleLaunch(launch.id))
+        .catch((error: unknown) =>
+          this.logger.warn(
+            { err: error, agentId },
+            "could not record a resumed launch as settled"
+          )
+        );
+    }
+  }
+
+  /** Bounded wait for a recovered launch's runner to reconnect. */
+  private async waitForRunner(agentId: string): Promise<void> {
+    const agent = await this.getAgent(agentId);
+    const placement = agent ? sessionLocation(agent.placement) : null;
+    if (!placement || !this.remote) return;
+    const deadline = Date.now() + this.recoveredLaunchWaitMs;
+    while (!this.remote.available(placement) && Date.now() < deadline)
+      await new Promise((resolve) =>
+        setTimeout(resolve, this.recoveredLaunchPollMs)
+      );
+  }
+
+  /** The runner this agent is placed on is held for an update. */
+  async isUpdateHeld(id: string): Promise<boolean> {
+    if (!this.holds) return false;
+    const agent = await this.getAgent(id);
+    return this.holds.isHeld(agent && enrolledRunnerId(agent.placement));
   }
 
   /** Register a callback told, coalesced, whenever an agent's stream changed. */
@@ -473,7 +818,8 @@ export class AgentManager {
   private async handleRuntimeEvent(
     agentId: string,
     event: DriverEvent,
-    seq: number
+    seq: number,
+    receivedRemotely = false
   ): Promise<void> {
     if (event.type === "update" || event.type === "turn") {
       this.jobActivity.set(agentId, Date.now());
@@ -507,6 +853,7 @@ export class AgentManager {
     if (event.type === "turn" && event.state !== "settled")
       this.attentionHistory.settleBlocked(agentId);
     await this.streamRecorder.handle(event);
+    if (receivedRemotely) await this.streamRecorder.flush(agentId);
     if (event.type === "turn" && event.state === "settled" && event.usage) {
       await this.recordUsage(agentId);
     }
@@ -515,13 +862,14 @@ export class AgentManager {
       void this.diffStatsRefresher?.signal(agentId);
     }
     if (event.type === "turn" && event.state === "settled") {
+      this.hostRecycler.settled(agentId);
       // The turn may have switched branches; the sidebar reads git_context.
       void this.populateGitContext(agentId, { publishIfChanged: true }).catch(
         (err) =>
           this.logger.warn({ err, agentId }, "Git context refresh failed")
       );
     }
-    if (seq > 0) {
+    if (seq > 0 && !receivedRemotely) {
       await this.pool.query(
         "UPDATE agents SET host_seq = GREATEST(host_seq, $2) WHERE id = $1",
         [agentId, seq]
@@ -546,7 +894,12 @@ export class AgentManager {
         event.catalogSource === "engine"
       );
     }
-    if (event.type === "exit" && !event.expected) {
+    // A host an update takes down still has its session to resume.
+    if (
+      event.type === "exit" &&
+      !event.expected &&
+      !this.hasRunnerDrainReceipt(agentId)
+    ) {
       const how =
         event.code === null
           ? event.signal
@@ -554,7 +907,12 @@ export class AgentManager {
             : "unexpectedly"
           : `with code ${event.code}`;
       const tail = event.stderrTail ? `: ${event.stderrTail}` : "";
-      await this.markHostExited(agentId, `The agent exited ${how}${tail}`);
+      await this.markHostExited(
+        agentId,
+        event.stderrTail === RunnerRevoked.reason
+          ? RunnerRevoked.reason
+          : `The agent exited ${how}${tail}`
+      );
     }
     this.notifyStreamWrite(
       agentId,
@@ -583,7 +941,13 @@ export class AgentManager {
       { pool: this.pool, logger: this.logger },
       { id: agent.id, type: agent.type, model: agent.model ?? null },
       options,
-      learnCatalog
+      learnCatalog,
+      {
+        runnerId: runnerIdForPlacement(agent.placement),
+        settings: runnerDirectory(this.checkoutReadRunners()).for(
+          agent.placement
+        ).settings,
+      }
     );
     const effortChanged = await recordEngineEffort(this.pool, agent, options);
     if (modelChanged || effortChanged)
@@ -689,6 +1053,93 @@ export class AgentManager {
     this.cancelSchedules = cancel;
   }
 
+  /** `files.get`: a file in the agent's session, read through its runner. */
+  async collectSessionFile(
+    agent: AgentRecord,
+    filePath: string
+  ): Promise<Buffer> {
+    return getSessionFile(
+      this.sessionRunner(agent),
+      sessionFromWire(agent.id),
+      filePath
+    );
+  }
+
+  /**
+   * `files.put`: hand one file to the agent through its runner and return
+   * the path it opens. A local runner hands it over where it is.
+   */
+  async deliverSessionFile(
+    agent: AgentRecord,
+    source: string,
+    name: string,
+    purpose: "prompt" | "reference" = "prompt"
+  ) {
+    return putSessionFile(
+      this.sessionRunner(agent),
+      sessionFromWire(agent.id),
+      source,
+      name,
+      purpose
+    );
+  }
+
+  /** The runner an agent's session is on, bound to that session. */
+  private sessionRunner(agent: AgentRecord) {
+    const { directory, placement } = checkoutRunners(
+      this.checkoutReadRunners(),
+      agent
+    );
+    return directory.for(placement);
+  }
+
+  /**
+   * Put a prompt's files and point its text at where the agent opens them.
+   * A file that cannot be handed over is left out with a warning, and the
+   * text keeps its reference, as main does for a missing image.
+   */
+  private async preparePromptFiles(
+    id: string,
+    images: PromptImage[],
+    text: string
+  ): Promise<{ images: PromptImage[]; text: string }> {
+    if (!images.some((image) => image.runnerName !== undefined))
+      return { images, text };
+    const agent = await this.getRequiredAgent(id);
+    const prepared: PromptImage[] = [];
+    const delivered = new Map<string, string | null>();
+    for (const { path: source, mimeType, runnerName } of images) {
+      if (runnerName === undefined) {
+        prepared.push({ path: source, mimeType });
+        continue;
+      }
+      let destination = delivered.get(source);
+      if (destination === undefined) {
+        try {
+          destination = await this.deliverSessionFile(
+            agent,
+            source,
+            runnerName
+          );
+        } catch (error) {
+          if (isUpdateFenced(error)) throw error;
+          this.logger.warn(
+            { err: error, agentId: id },
+            "Native prompt file is unavailable"
+          );
+          destination = null;
+        }
+        delivered.set(source, destination);
+      }
+      if (destination !== null && isPromptImageMimeType(mimeType))
+        prepared.push({ path: destination, mimeType });
+    }
+    for (const [source, destination] of delivered)
+      if (destination !== null && destination !== source)
+        text = text.split(source).join(destination);
+    return { images: prepared, text };
+  }
+
   /** Queue one turn; see AgentRuntime.prompt. */
   promptAgent(
     id: string,
@@ -787,9 +1238,44 @@ export class AgentManager {
     }
   }
 
-  /** The agent host's pid when it is alive (resource sampling). */
-  hostPid(id: string): Promise<number | null> {
-    return this.runtime.hostPid(id);
+  /** Sample the hosts of agents counted as running in Service Resources. */
+  async sampleAgentSessions(): Promise<{
+    runningAgentCount: number;
+    samples: Res<"session.sample">["samples"];
+    samplingFailed?: boolean;
+  }> {
+    const groups = new Map<
+      string,
+      { placement: ReturnType<typeof sessionLocation>; ids: string[] }
+    >();
+    let runningAgentCount = 0;
+    for (const agent of await this.listAgents()) {
+      if (!["creating", "running", "stopping"].includes(agent.status)) continue;
+      runningAgentCount++;
+      const placement = sessionLocation(agent.placement);
+      if (!placement && !sameRunner(agent.placement, controllerPlacement))
+        continue;
+      const key = JSON.stringify(placement);
+      let group = groups.get(key);
+      if (!group) {
+        group = { placement, ids: [] };
+        groups.set(key, group);
+      }
+      group.ids.push(agent.id);
+    }
+    const results = await Promise.allSettled(
+      [...groups.values()].map(
+        async ({ placement, ids }) =>
+          (await this.runtime.sampleSessions?.(placement, ids)) ?? []
+      )
+    );
+    return {
+      runningAgentCount,
+      samples: results.flatMap((result) =>
+        result.status === "fulfilled" ? result.value : []
+      ),
+      samplingFailed: results.some((result) => result.status === "rejected"),
+    };
   }
 
   /**
@@ -995,18 +1481,69 @@ export class AgentManager {
     const attached: string[] = [];
     const lost: string[] = [];
     const pending: string[] = [];
-    const result = await this.pool.query<{ id: string; cwd: string }>(
-      `SELECT id, COALESCE(workspace_path, cwd) AS cwd FROM agents
+    const isAlive =
+      this.runtime.inventoryLiveness?.() ??
+      this.runtime.isAlive.bind(this.runtime);
+    const result = await this.pool.query<{
+      id: string;
+      cwd: string;
+      workspacePath: string | null;
+      worktreePath: string | null;
+      gitContext: AgentRecord["gitContext"];
+      preparationPending: boolean | null;
+      runner_id: string;
+    }>(
+      `SELECT id, cwd, runner_id, workspace_path AS "workspacePath",
+              worktree_path AS "worktreePath", git_context AS "gitContext",
+              (status = 'creating' AND runner_preparation->'pending' = 'true'::jsonb) AS "preparationPending" FROM agents
         WHERE status IN ('running', 'creating') AND deleted_at IS NULL
         ORDER BY created_at`
     );
     for (const row of result.rows) {
-      this.streamRecorder.setCwd(row.id, row.cwd);
-      if (await this.runtime.attach(row.id)) {
+      // Set for a receipt's agent too: the reconciler attaches it if the
+      // update gives up resuming it.
+      this.streamRecorder.setCwd(row.id, agentStreamDirectory(row));
+      // Its launch is held for a runner update and runs when that opens.
+      if (this.holds?.hasLaunch(row.id) || this.hasRunnerDrainReceipt(row.id))
+        continue;
+      // One agent's runner answering with an error must not stop the rest
+      // from being restored. Its state is unknown, not exited: the
+      // reconciler checks it again, as for an agent still pending.
+      let attachedToHost: boolean;
+      let alive: boolean;
+      try {
+        attachedToHost =
+          !row.preparationPending && (await this.runtime.attach(row.id));
+        alive =
+          !row.preparationPending &&
+          (attachedToHost || (await isAlive(row.id)));
+      } catch (err) {
+        this.logger.warn(
+          { err, agentId: row.id },
+          "Could not read the agent host during recovery; checking it again later"
+        );
+        pending.push(row.id);
+        continue;
+      }
+      if (
+        !enrolledRunnerId(placementFromRow(row)) &&
+        this.runtime.inspectNativeHost
+      ) {
+        try {
+          const host = await this.runtime.inspectNativeHost(row.id);
+          this.logger.info({ host }, "Observed native host during recovery");
+        } catch (err) {
+          this.logger.warn(
+            { err, agentId: row.id },
+            "Native host inspection failed"
+          );
+        }
+      }
+      if (attachedToHost) {
         attached.push(row.id);
         continue;
       }
-      if (await this.runtime.isAlive(row.id)) {
+      if (alive) {
         pending.push(row.id);
         continue;
       }
@@ -1125,6 +1662,24 @@ export class AgentManager {
     this.diffStatsRefresher = refresher;
   }
 
+  private localRunnerChild: () => LocalRunner | undefined = () => undefined;
+
+  /**
+   * The local runner child, once started: checkout reads and local hosts'
+   * attaches and reads go through it.
+   */
+  attachLocalRunner(child: () => LocalRunner | undefined): void {
+    this.localRunnerChild = child;
+  }
+
+  /** The runners an agent's checkout reads and commands go through. */
+  checkoutReadRunners() {
+    return {
+      remote: this.remote ?? undefined,
+      child: this.localRunnerChild,
+    };
+  }
+
   /**
    * Inject the Chat feed's launch-context recorder. Wired post-construction
    * because the chat service reads agents through this manager.
@@ -1148,21 +1703,32 @@ export class AgentManager {
   }
 
   async listAgents(): Promise<AgentRecord[]> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<AgentRow>(
       `${this.baseAgentSelectSql()} ORDER BY created_at DESC`
     );
-    return (result.rows as AgentRecord[]).map((row) =>
-      this.withLiveActivity(row)
-    );
+    return result.rows.map((row) => this.agentFromRow(row));
+  }
+
+  async terminalBackend(id: string): Promise<TerminalBackend | null> {
+    const agent = await this.getAgent(id);
+    if (!agent) return null;
+    return terminalBackendFor(this.checkoutReadRunners(), agent);
   }
 
   async getAgent(id: string): Promise<AgentRecord | null> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<AgentRow>(
       `${this.baseAgentSelectSql()} AND id = $1`,
       [id]
     );
-    const row = result.rows[0] as AgentRecord | undefined;
-    return row ? this.withLiveActivity(row) : null;
+    const [row] = result.rows;
+    return row ? this.agentFromRow(row) : null;
+  }
+
+  private agentFromRow({ runner_id, ...agent }: AgentRow): AgentRecord {
+    return this.withLiveActivity({
+      ...agent,
+      placement: placementFromRow({ runner_id }),
+    });
   }
 
   /**
@@ -1222,13 +1788,8 @@ export class AgentManager {
 
   /**
    * Populate `git_context` for an agent at lifecycle boundaries (creation,
-   * setup-complete, restart). For dispatch-managed worktrees we already
-   * know the branch + path from row columns and only need a single git
-   * call to resolve the parent repo root; for other agents (no
-   * `worktree_path`) we run a full probe against `cwd`. Probe failures
-   * are logged and persisted as `stale = true` so the existing value
-   * (if any) stays visible in the UI rather than disappearing. A moved
-   * workspace is probed in place of either.
+   * setup-complete, restart). Probe the runner's current checkout. Failures
+   * mark the stored context stale so the existing value stays visible.
    *
    * With `publishIfChanged`, an unchanged probe writes nothing, and a
    * changed one is published — for refreshes between lifecycle boundaries,
@@ -1241,20 +1802,41 @@ export class AgentManager {
     const agent = await this.getAgent(id);
     if (!agent) return;
 
-    const result = agent.workspacePath
-      ? await probeGitContext(agent.workspacePath)
-      : agent.worktreePath && agent.worktreeBranch
-        ? await buildGitContextForWorktree({
-            worktreePath: agent.worktreePath,
-            worktreeBranch: agent.worktreeBranch,
-          })
-        : await probeGitContext(agent.cwd);
+    const { directory, placement } = checkoutRunners(
+      this.checkoutReadRunners(),
+      agent
+    );
+    let value: AgentRecord["gitContext"];
+    try {
+      const context = await directory.for(placement).call("git.context", {
+        target: { session: sessionFromWire(id) },
+      });
+      value = context && {
+        repoRoot: displayPath(context.repoRoot),
+        worktreePath: displayPath(context.worktreePath),
+        worktreeName: context.worktreeName,
+        isWorktree: context.isWorktree,
+        branch: context.branch,
+        repoIconPath: context.repoIconPath ?? null,
+      };
+    } catch (err) {
+      this.logger.warn(
+        { agentId: id, err },
+        "Git context probe failed; marking stale and continuing."
+      );
+      // A concurrent workspace change probes its own checkout.
+      await this.pool.query(
+        `UPDATE agents SET git_context_stale = true, git_context_updated_at = NOW()
+         WHERE id = $1 AND workspace_path IS NOT DISTINCT FROM $2`,
+        [id, agent.workspacePath]
+      );
+      return;
+    }
 
     if (
       opts.publishIfChanged &&
-      result.status === "ok" &&
       !agent.gitContextStale &&
-      sameGitContext(agent.gitContext, result.value)
+      sameGitContext(agent.gitContext, value)
     ) {
       return;
     }
@@ -1262,19 +1844,6 @@ export class AgentManager {
     // The probe ran against the workspace read above; a set_workspace that
     // landed meanwhile has probed its own, so this result no longer applies.
     const probedWorkspace = agent.workspacePath;
-
-    if (result.status === "error") {
-      this.logger.warn(
-        { agentId: id },
-        "Git context probe failed; marking stale and continuing."
-      );
-      await this.pool.query(
-        `UPDATE agents SET git_context_stale = true, git_context_updated_at = NOW()
-         WHERE id = $1 AND workspace_path IS NOT DISTINCT FROM $2`,
-        [id, probedWorkspace]
-      );
-      return;
-    }
 
     const written = await this.pool.query(
       `
@@ -1284,11 +1853,14 @@ export class AgentManager {
           git_context_updated_at = NOW()
       WHERE id = $1 AND workspace_path IS NOT DISTINCT FROM $3
       `,
-      [id, result.value ? JSON.stringify(result.value) : null, probedWorkspace]
+      [id, value ? JSON.stringify(value) : null, probedWorkspace]
     );
-    if (opts.publishIfChanged && (written.rowCount ?? 0) > 0) {
+    if ((written.rowCount ?? 0) > 0) {
       const updated = await this.getAgent(id);
-      if (updated) this.eventBus.publish(updated);
+      if (updated) {
+        this.streamRecorder.updateCwd(id, agentStreamDirectory(updated));
+        if (opts.publishIfChanged) this.eventBus.publish(updated);
+      }
     }
   }
 
@@ -1341,33 +1913,136 @@ export class AgentManager {
 
   /**
    * Point the agent's workspace at the directory it now works in, or back at
-   * its launch worktree/cwd with `path: null`. Everything that reads its
-   * files follows the workspace; the engine's cwd (resume) and the managed
-   * worktree (archive cleanup) are left as they were.
+   * its launch worktree/cwd with `path: null`. The agent's runner validates
+   * the folder as the agent's account and records it in its binding
+   * (`workspace.select`), so its reads, commands and Git context follow;
+   * the comparison base is settled here by one policy. Archive ownership
+   * stays with the launch checkout.
    */
   async setWorkspace(
     id: string,
     input: { path: string | null; baseBranch?: string | null }
   ): Promise<AgentRecord> {
-    const agent = await this.getRequiredAgent(id);
-    const resolved = await resolveWorkspace(agent, input);
+    return this.serializeLifecycle(id, async () => {
+      const agent = await this.getRequiredAgent(id);
+      const resolved = await settleWorkspace(
+        agent,
+        input,
+        this.workspaceProbes(agent)
+      ).catch((error: unknown) => {
+        throw selectionError(error);
+      });
+      await this.pool.query(
+        `UPDATE agents
+         SET workspace_path = $2, workspace_base_branch = $3, updated_at = NOW()
+         WHERE id = $1`,
+        [id, resolved.path, resolved.baseBranch]
+      );
+      await this.populateGitContext(id);
+      this.diffStatsRefresher?.clear(id);
+      void this.diffStatsRefresher?.signal(id);
 
-    await this.pool.query(
-      `UPDATE agents
-       SET workspace_path = $2, workspace_base_branch = $3, updated_at = NOW()
-       WHERE id = $1`,
-      [id, resolved.path, resolved.baseBranch]
+      // Read back rather than trusting `resolved`: an overlapping call may
+      // have landed after this one's UPDATE, and the recorder follows the row.
+      const updated = await this.getRequiredAgent(id);
+      this.streamRecorder.setCwd(id, agentStreamDirectory(updated));
+      this.eventBus.publish(updated);
+      return updated;
+    });
+  }
+
+  /** `set_workspace`'s machine questions, asked of the agent's runner. */
+  private workspaceProbes(agent: AgentRecord): WorkspaceProbes {
+    const { directory, placement } = checkoutRunners(
+      this.checkoutReadRunners(),
+      agent
     );
-    await this.populateGitContext(id);
-    this.diffStatsRefresher?.clear(id);
-    void this.diffStatsRefresher?.signal(id);
+    const runner = directory.for(placement);
+    const session = sessionFromWire(agent.id);
+    return {
+      async select(path) {
+        const selected = await runner.call("workspace.select", {
+          session,
+          path: path === null ? null : pathFromWire(path),
+        });
+        // Enrolled runners answer without `git`, with the repository root;
+        // older builds with neither.
+        const repoRoot =
+          selected.git !== undefined
+            ? (selected.git?.repoRoot ?? null)
+            : selected.repositoryRoot;
+        return {
+          path: displayPath(selected.path),
+          moved: selected.moved,
+          repoRoot: repoRoot ? displayPath(repoRoot) : repoRoot,
+        };
+      },
+      async launchRepoRoot() {
+        const context = await runner.call("git.context", {
+          target: { session, checkout: "launch" },
+        });
+        return context && displayPath(context.repoRoot);
+      },
+      async defaultBranch(dir) {
+        const { branch } = await runner.call("git.defaultBranch", {
+          target: { path: pathFromWire(dir) },
+        });
+        return branch;
+      },
+    };
+  }
 
-    // Read back rather than trusting `resolved`: an overlapping call may
-    // have landed after this one's UPDATE, and the recorder follows the row.
-    const updated = await this.getRequiredAgent(id);
-    this.streamRecorder.setCwd(id, updated.workspacePath ?? updated.cwd);
-    this.eventBus.publish(updated);
-    return updated;
+  /**
+   * The agent's effective comparison base (see `agentComparisonBase`), sent
+   * explicitly to the local and runner executors. Runner sessions read their
+   * launch checkout; a borrowed checkout inherits its owner's.
+   */
+  async comparisonBase(
+    agent: ComparisonBaseAgent & { id: string },
+    use: ComparisonUse
+  ): Promise<string | null> {
+    let launch: RunnerRepository["checkout"] | null = null;
+    if (
+      enrolledRunnerId(agent.placement ?? controllerPlacement) &&
+      !agent.workspacePath
+    ) {
+      const { rows } = await this.pool.query<{
+        runner_repository: RunnerRepository | null;
+      }>(
+        "SELECT owner.runner_repository FROM agents a JOIN agents owner ON owner.id = COALESCE(a.runner_worktree_owner, a.id) WHERE a.id = $1",
+        [agent.id]
+      );
+      launch = rows[0]?.runner_repository?.checkout ?? null;
+    }
+    return agentComparisonBase(agent, use, launch, this.checkoutReadRunners());
+  }
+
+  viewCheckout(
+    agent: AgentRecord,
+    query: Extract<CheckoutView, { kind: "fileDiff" }>
+  ): Promise<FileDiffResponse | null>;
+  viewCheckout(agent: AgentRecord, query: CheckoutView): Promise<unknown>;
+  async viewCheckout(
+    agent: AgentRecord,
+    query: CheckoutView
+  ): Promise<unknown> {
+    const base =
+      "baseBranch" in query && query.baseBranch === null
+        ? await this.comparisonBase(agent, "changes")
+        : null;
+    return readAgentView(agent, query, this.checkoutReadRunners(), base);
+  }
+
+  async inspectCheckout(
+    agent: AgentRecord,
+    query: CheckoutQuery
+  ): Promise<CheckoutReply> {
+    if (query.kind === "changes" && query.baseBranch === null)
+      query = {
+        ...query,
+        baseBranch: await this.comparisonBase(agent, "review"),
+      };
+    return inspectAgentCheckout(agent, query, this.checkoutReadRunners());
   }
 
   /**
@@ -1380,93 +2055,25 @@ export class AgentManager {
    */
   async createAgent(
     input: CreateAgentInput,
-    options: {
-      detachLaunch?: boolean;
-      /** Commit owner state before the engine can discover tools or run a turn. */
-      beforeLaunch?: (agentId: string) => Promise<void>;
-    } = {}
+    options: CreateAgentOptions = {}
   ): Promise<AgentRecord> {
     input = { ...input };
-    if (input.templateId) {
-      const template = (
-        await this.pool.query("SELECT project_id FROM templates WHERE id=$1", [
-          input.templateId,
-        ])
-      ).rows[0];
-      if (!template) throw new AgentError("Template not found.", 404);
-      if (!input.parentAgentId) {
-        // A projectless template may launch into a project; a project's
-        // template only into its own.
-        if (
-          template.project_id !== null &&
-          input.projectId !== undefined &&
-          input.projectId !== template.project_id
-        )
-          throw new AgentError("Template and project must match.", 400);
-        input.projectId = template.project_id ?? input.projectId ?? null;
-      }
-    }
-    if (input.parentAgentId) {
-      input.projectId =
-        (await this.getAgent(input.parentAgentId))?.projectId ?? null;
-    }
-    if (input.projectId) {
-      const project = (
-        await this.pool.query("SELECT repo_root FROM projects WHERE id=$1", [
-          input.projectId,
-        ])
-      ).rows[0];
-      if (!project) throw new AgentError("Project not found.", 404);
-      // A child can use its parent's worktree while retaining explicit membership.
-      if (!input.parentAgentId) {
-        input.cwd = project.repo_root;
-        // Plain-folder projects have no Git to branch from; only an explicit
-        // useWorktree: true should attempt (and fail) a worktree there.
-        if (input.useWorktree === undefined) {
-          const git = await probeGitContext(project.repo_root);
-          if (git.status === "ok" && git.value === null)
-            input.useWorktree = false;
-        }
-      }
-    }
-    // Resolve only new, unscoped launches. Membership inherited from a parent
-    // (including no project) and explicit/template selections remain authoritative.
-    if (!input.projectId && !input.parentAgentId) {
-      const projects = (
-        await this.pool.query(
-          'SELECT id, name, repo_root AS "repoRoot" FROM projects'
-        )
-      ).rows;
-      const cwd = await this.validateWorkingDirectory(input.cwd);
-      const matches = await matchingProjects(cwd, projects);
-      if (matches.length > 1)
-        throw new AgentError(
-          `Multiple projects match this directory. Choose a project: ${matches.map((p) => `${p.name} (${p.id})`).join(", ")}.`,
-          409
-        );
-      // Do not replace cwd with the primary checkout: it may be a worktree
-      // or a deliberately selected subdirectory.
-      if (matches.length === 1) input.projectId = matches[0]!.id;
-    }
-    const taskPersona = Boolean(input.persona && input.role !== "review");
-    if (taskPersona && !options.detachLaunch) {
-      const persona = await resolveLaunchPersona(
-        input.cwd,
-        input.persona!,
-        "task",
-        input.personaSource ?? "catalog"
-      );
-      input = {
-        ...input,
-        agentArgs: [
-          ...(input.agentArgs ?? []),
-          PERSONA_CONTEXT_ARG,
-          persona.body,
-        ],
-      };
-    }
-    const p = await this.prepareCreateInputs(input);
-    await this.insertAgentRecord(p, input);
+    const target = await this.resolveCreateTarget(input, options);
+    const admission = this.admitCreateTarget(input, target);
+    const { p, prepared, taskPersona, taskPersonaBody } =
+      await this.prepareCreate(input, options, target, admission);
+    const { directory, worktree, repository, preparation, owner } = prepared;
+    // A local worktree request commits with its row, without touching Git,
+    // so Start can finish it after a restart; as the enrolled runner's.
+    await this.insertAgentRecord(
+      p,
+      input,
+      target.placement,
+      repository,
+      preparation,
+      owner,
+      directory && worktree ? localPreparation(directory, worktree) : null
+    );
 
     const createdAgent = await this.getAgent(p.id);
     if (createdAgent) {
@@ -1492,7 +2099,7 @@ export class AgentManager {
         await this.pool
           .query("DELETE FROM agents WHERE id = $1", [p.id])
           .catch(() => {});
-        await rm(p.filesDir, { recursive: true, force: true }).catch(() => {});
+        await removeDeliveryDirectory(p.filesDir).catch(() => {});
         throw error;
       }
     }
@@ -1534,37 +2141,26 @@ export class AgentManager {
 
     const launch = this.launchAgent({
       id: p.id,
-      name: p.name,
       type: p.type,
       originalCwd: p.originalCwd,
-      useWorktree: p.useWorktree,
-      createNewBranch: p.createNewBranch,
-      worktreeBranchName: p.worktreeBranchName,
-      normalizedBaseBranch: p.normalizedBaseBranch,
-      worktreePathOverride: p.worktreePathOverride,
+      directory,
+      worktree,
+      preparation,
       initialPrompt: input.initialPrompt,
       initialFiles,
+      startupReferences: input.startupReferences ?? [],
       resolveLaunchPost,
       jobRunId: input.jobRunId,
       beforeLaunch: options.beforeLaunch,
       preparePersona:
         taskPersona && options.detachLaunch
           ? async () => {
-              const persona = await resolveLaunchPersona(
-                input.cwd,
-                input.persona!,
-                "task",
-                input.personaSource ?? "catalog"
-              );
+              const body = await taskPersonaBody();
               const result = await this.pool.query(
                 "UPDATE agents SET agent_args = $2::jsonb, updated_at = NOW() WHERE id = $1 AND status = 'creating' RETURNING id",
                 [
                   p.id,
-                  JSON.stringify([
-                    ...p.agentArgs,
-                    PERSONA_CONTEXT_ARG,
-                    persona.body,
-                  ]),
+                  JSON.stringify([...p.agentArgs, PERSONA_CONTEXT_ARG, body]),
                 ]
               );
               if (!result.rowCount)
@@ -1717,16 +2313,552 @@ export class AgentManager {
     );
   }
 
+  private async resolveCreateTarget(
+    input: CreateAgentInput,
+    options: CreateAgentOptions
+  ) {
+    const { useWorktreeOf } = options;
+    const hasPersonaBody = Boolean(options.taskPersonaBody);
+    let checkoutOwner: AgentRecord | null = null;
+    if (useWorktreeOf !== undefined) {
+      const candidate = await this.getAgent(useWorktreeOf);
+      const ownerWorkdir = candidate ? reviewerWorkspace(candidate) : undefined;
+      const decision = admitLaunch({
+        phase: "sharedBinding",
+        input,
+        owner:
+          candidate &&
+          (!input.placement || sameRunner(input.placement, candidate.placement))
+            ? candidate
+            : null,
+        ownerWorkdir,
+        hasPersonaBody,
+      });
+      if (!decision.ok)
+        throw new AgentError(decision.message, decision.statusCode);
+      const { owner, parentId } = decision;
+      checkoutOwner = owner;
+      const displayParent =
+        parentId === undefined || parentId === owner.id
+          ? owner
+          : await this.getAgent(parentId);
+      if (!displayParent || displayParent.projectId !== owner.projectId)
+        throw new AgentError(
+          "Display parent must belong to the requester's project.",
+          400
+        );
+      input.cwd = reviewerWorkspace(owner);
+      input.useWorktree = false;
+      input.projectId = owner.projectId;
+    }
+    let projectRoot: string | undefined;
+    let projectRepository: string | null = null;
+    if (input.templateId) {
+      const template = (
+        await this.pool.query("SELECT project_id FROM templates WHERE id=$1", [
+          input.templateId,
+        ])
+      ).rows[0];
+      if (!template) throw new AgentError("Template not found.", 404);
+      if (!input.parentAgentId) {
+        // A projectless template may launch into a project; a project's
+        // template only into its own.
+        if (
+          template.project_id !== null &&
+          input.projectId !== undefined &&
+          input.projectId !== template.project_id
+        )
+          throw new AgentError("Template and project must match.", 400);
+        input.projectId = template.project_id ?? input.projectId ?? null;
+      }
+    }
+    const parent = input.parentAgentId
+      ? await this.getAgent(input.parentAgentId)
+      : null;
+    if (input.parentAgentId) input.projectId = parent?.projectId ?? null;
+    // A folder the launcher named is on the launcher's runner: the launch
+    // takes the launcher's session location, never one the path implies.
+    let folder: string | undefined;
+    if (
+      input.launcherFolder !== undefined &&
+      input.launchedByAgentId &&
+      !checkoutOwner
+    ) {
+      const by =
+        input.launchedByAgentId === parent?.id
+          ? parent
+          : await this.getAgent(input.launchedByAgentId);
+      if (!by) throw new AgentError("Launching agent not found.", 404);
+      if (sessionLocation(by.placement)) {
+        input.placement = by.placement;
+        folder = input.launcherFolder;
+        input.cwd = by.cwd;
+      }
+    }
+    const placement =
+      checkoutOwner?.placement ??
+      input.placement ??
+      parent?.placement ??
+      controllerPlacement;
+    let location = sessionLocation(placement);
+    // The launcher's folder is its session's, a child's or not; a template's
+    // own checkout (it names a repository) is not (T36).
+    const launcherId = input.launchedByAgentId ?? input.parentAgentId;
+    const launcher =
+      launcherId &&
+      !(input.templateId !== undefined && input.repository !== undefined)
+        ? launcherId === parent?.id
+          ? parent
+          : await this.getAgent(launcherId)
+        : null;
+    // Repository-source Local launches share the same session binding model
+    // as enrolled launches. Plain directory receipts stay on the native path.
+    const localOwner = !location
+      ? (checkoutOwner ??
+        (input.launcherFolder === undefined &&
+        launcher &&
+        (!input.cwd ||
+          input.cwd === launcher.cwd ||
+          input.cwd === reviewerWorkspace(launcher)) &&
+        sameRunner(placement, launcher.placement)
+          ? launcher
+          : null))
+      : null;
+    const localOwnerPreparation = localOwner
+      ? await this.localPreparation(localOwner.id)
+      : null;
+    const localSessionSource = Boolean(
+      localOwnerPreparation &&
+      ("repository" in localOwnerPreparation.source ||
+        "session" in localOwnerPreparation.source)
+    );
+    if (
+      (location || localSessionSource) &&
+      launcher &&
+      folder === undefined &&
+      sameRunner(placement, launcher.placement)
+    ) {
+      checkoutOwner ??= launcher;
+      // An independent agent belongs to its folder's project.
+      if (!input.parentAgentId) input.projectId = checkoutOwner.projectId;
+      const parentLocation = sessionLocation(placement);
+      if (parentLocation) location = parentLocation;
+      input.cwd = checkoutOwner.cwd;
+    }
+    // The named folder, resolved on that runner as its account with main's
+    // rules and errors, before anything is recorded.
+    const launcherDirectory =
+      folder === undefined
+        ? undefined
+        : launchDirectory(await this.resolveLaunchPath(placement, folder));
+    // A launch that names a repository and no project joins that
+    // repository's project, as a local folder joins the project it matches;
+    // a named folder joins its checkout's repository's project (D8).
+    if (location && !input.projectId && !input.parentAgentId && !checkoutOwner)
+      input.projectId =
+        (await this.repositoryProject(
+          launcherDirectory
+            ? launcherDirectory.origin && { url: launcherDirectory.origin }
+            : input.repository
+        )) ?? undefined;
+    if (input.projectId) {
+      const project = (
+        await this.pool.query<{
+          repo_root: string | null;
+          repository: string | null;
+        }>("SELECT repo_root, repository FROM projects WHERE id=$1", [
+          input.projectId,
+        ])
+      ).rows[0];
+      if (!project) throw new AgentError("Project not found.", 404);
+      projectRoot = project.repo_root ?? undefined;
+      projectRepository = project.repository;
+
+      // A direct project launch starts at the project root. Children keep
+      // the folder selected by the parent launch.
+      if (!location && !input.parentAgentId && projectRoot) {
+        input.cwd = projectRoot;
+      }
+    }
+    const repositorySource =
+      localSessionSource ||
+      Boolean(
+        !location &&
+        input.projectId &&
+        projectRepository &&
+        !projectRoot &&
+        !input.cwd &&
+        !input.parentAgentId
+      );
+    const unscoped = !input.projectId && !input.parentAgentId;
+    // Membership inherited from a parent (including no project) and
+    // explicit/template selections remain authoritative.
+    let directory: LaunchDirectory | null | undefined =
+      location || repositorySource ? null : undefined;
+    if (!location && unscoped) {
+      const projects = (
+        await this.pool.query(
+          'SELECT id, name, repo_root AS "repoRoot", extra_roots AS "extraRoots" FROM projects'
+        )
+      ).rows;
+      // One call on the launch's runner: the folder, and with projects its
+      // project root and each root's canonical path (no Git for roots).
+      const roots: string[] = projects.flatMap(
+        (project: { repoRoot: string | null; extraRoots?: string[] | null }) =>
+          [project.repoRoot, ...(project.extraRoots ?? [])].filter(
+            (root): root is string => Boolean(root)
+          )
+      );
+      const resolved = await this.resolveLaunchPath(
+        placement,
+        input.cwd,
+        projects.length ? { projectRoot: true, canonical: roots } : {}
+      );
+      directory = launchDirectory(resolved);
+      // Git's own failure, as main's project matching lets it escape.
+      if (resolved.projectRootError !== undefined)
+        throw new Error(resolved.projectRootError);
+      const canonical = new Map(
+        roots.map((root, at) => {
+          const found = resolved.canonical?.[at];
+          return [root, found ? displayPath(found) : null] as const;
+        })
+      );
+      const matches = await matchProjectIdentity(
+        directory.canonicalPath,
+        resolved.projectRoot
+          ? displayPath(resolved.projectRoot)
+          : directory.canonicalPath,
+        projects,
+        async (candidate) => canonical.get(candidate) ?? null
+      );
+      if (matches.length > 1)
+        throw new AgentError(
+          `Multiple projects match this directory. Choose a project: ${matches.map((p) => `${p.name} (${p.id})`).join(", ")}.`,
+          409
+        );
+      // Do not replace cwd with the primary checkout: it may be a worktree
+      // or a deliberately selected subdirectory.
+      if (matches.length === 1) input.projectId = matches[0]!.id;
+    }
+    return {
+      placement,
+      location,
+      directory,
+      launcherDirectory,
+      projectRoot,
+      projectRepository,
+      repositorySource,
+      checkoutOwner,
+    };
+  }
+
+  /** The project for a launch's repository URL; at most one (unique index). */
+  private async repositoryProject(repository: unknown) {
+    let url: string | undefined;
+    try {
+      url = parseRepositoryTarget(repository ?? {}).url;
+    } catch {
+      return null; // Admission reports an invalid repository.
+    }
+    if (!url) return null;
+    const { rows } = await this.pool.query<{ id: string }>(
+      "SELECT id FROM projects WHERE repository = $1",
+      [projectRepositoryUrl(url)]
+    );
+    return rows[0]?.id ?? null;
+  }
+
+  private admitCreateTarget(
+    input: CreateAgentInput,
+    {
+      placement,
+      location,
+      checkoutOwner,
+      projectRepository,
+      repositorySource,
+      launcherDirectory,
+    }: Awaited<ReturnType<AgentManager["resolveCreateTarget"]>>
+  ) {
+    const remote = this.remote;
+    const held = Boolean(
+      location &&
+      this.holds?.isHeld(location) &&
+      remote?.lastConnectionEpoch(location) !== undefined &&
+      remote.permitsAgentMcp(location)
+    );
+    const projectSource = Boolean(
+      (location || repositorySource) && !checkoutOwner && !launcherDirectory
+    );
+    const borrowed = Boolean(
+      (location || repositorySource) &&
+      checkoutOwner &&
+      input.useWorktree === false
+    );
+    const admission = admitLaunch({
+      phase: "manager",
+      remote: location !== null || repositorySource,
+      input: checkoutOwner
+        ? { ...input, repository: undefined }
+        : projectSource
+          ? {
+              ...input,
+              repository:
+                input.repository &&
+                typeof input.repository === "object" &&
+                "checkout" in input.repository
+                  ? { checkout: input.repository.checkout }
+                  : {},
+            }
+          : input,
+      available:
+        !location ||
+        ((remote?.available(location) || held) &&
+          this.config.agentRuntime === "acp"),
+    });
+    if (!admission.ok)
+      throw new AgentError(admission.message, admission.statusCode);
+    if (projectSource && !projectRepository)
+      throw new AgentError(
+        input.projectId
+          ? "The project has no linked repository."
+          : "Choose a project to launch on this runner.",
+        400
+      );
+    const repository = admission.repository;
+    if (repository && !repository.url && projectRepository)
+      repository.url = projectRepository;
+    if (repository && !repository.url && !checkoutOwner)
+      throw new AgentError(
+        "Enter a repository URL or select a project with a repository origin.",
+        400
+      );
+    if (repository?.checkout) input.useWorktree = false;
+    return {
+      projectSource,
+      repository,
+      borrowed,
+    };
+  }
+
+  private async prepareCreate(
+    input: CreateAgentInput,
+    options: CreateAgentOptions,
+    {
+      directory: resolvedDirectory,
+      launcherDirectory,
+      location,
+      placement,
+      projectRoot,
+      projectRepository,
+      repositorySource,
+      checkoutOwner,
+    }: Awaited<ReturnType<AgentManager["resolveCreateTarget"]>>,
+    {
+      projectSource,
+      repository,
+      borrowed,
+    }: ReturnType<AgentManager["admitCreateTarget"]>
+  ) {
+    const taskPersona = Boolean(input.persona && input.role !== "review");
+    const taskPersonaBody = async () =>
+      options.taskPersonaBody ??
+      (
+        await resolvePersona(
+          // An agent's launch from its session reads that checkout, as main
+          // reads the folder.
+          checkoutOwner && location && input.launchedByAgentId
+            ? personaScopeFor({ manager: this, agent: checkoutOwner })
+            : launchPersonaScope(this, {
+                placement,
+                cwd: input.cwd,
+                projectRoot,
+                repository: projectRepository,
+                source: input.personaSource,
+              }),
+          input.persona!,
+          "task"
+        )
+      ).body;
+    if (taskPersona && !options.detachLaunch) {
+      const body = await taskPersonaBody();
+      input = {
+        ...input,
+        agentArgs: [...(input.agentArgs ?? []), PERSONA_CONTEXT_ARG, body],
+      };
+    }
+    const directory =
+      resolvedDirectory === undefined
+        ? await this.launchDirectory(placement, input.cwd)
+        : resolvedDirectory;
+    // An explicitly selected plain-folder project does not default to a worktree.
+    if (
+      directory?.git.status === "ok" &&
+      directory.git.value === null &&
+      projectRoot &&
+      !input.parentAgentId &&
+      input.useWorktree === undefined
+    )
+      input.useWorktree = false;
+    const sourceCheckout =
+      checkoutOwner &&
+      (location || repositorySource) &&
+      input.useWorktree !== false &&
+      input.pullRequest
+        ? await runnerDirectory(this.checkoutReadRunners(), checkoutOwner)
+            .for(checkoutOwner.placement)
+            .call("workspace.describe", {
+              session: sessionFromWire(checkoutOwner.id),
+            })
+            .catch((error: unknown) => {
+              throw selectionError(error);
+            })
+        : undefined;
+    const origin =
+      sourceCheckout?.origin ??
+      repository?.url ??
+      projectRepository ??
+      undefined;
+    const pullRequestHead = (target: PullRequestTarget, cwd?: string) =>
+      runnerDirectory(this.checkoutReadRunners())
+        .for(placement)
+        .call("github.pr.head", {
+          ...target,
+          ...(cwd !== undefined && { cwd: pathFromWire(cwd) }),
+        });
+    const selectedDirectory = launcherDirectory ?? directory;
+    const defaultCheckoutBranch = async () => {
+      const target = checkoutOwner
+        ? {
+            session: sessionFromWire(checkoutOwner.id),
+            checkout: "current" as const,
+          }
+        : selectedDirectory
+          ? { path: pathFromWire(selectedDirectory.canonicalPath) }
+          : null;
+      if (!target) return undefined;
+      const result = await runnerDirectory(
+        this.checkoutReadRunners(),
+        checkoutOwner ?? undefined
+      )
+        .for(placement)
+        .call("git.defaultBranch", { target });
+      return result.branch ?? result.currentBranch ?? undefined;
+    };
+    const checkoutContext = selectedDirectory
+      ? {
+          defaultBranch: defaultCheckoutBranch,
+          ...(selectedDirectory.git.status === "ok" &&
+            selectedDirectory.git.value && {
+              repository: async () => selectedDirectory.origin ?? undefined,
+              pullRequestHead: (target: PullRequestTarget) =>
+                pullRequestHead(target, selectedDirectory.canonicalPath),
+              forkPullRequests: false,
+            }),
+        }
+      : {
+          ...(checkoutOwner &&
+            (location || repositorySource) && {
+              defaultBranch: defaultCheckoutBranch,
+            }),
+          ...(origin &&
+            (location || repositorySource) && {
+              repository: async () => origin,
+              pullRequestHead,
+              ...(checkoutOwner && { forkPullRequests: false }),
+            }),
+        };
+    // Remember the icon of the folder the launch reads, before a managed
+    // worktree can change the agent's effective cwd (main's warm-up). A
+    // launch with no folder to read yet warms up once its session exists.
+    if (directory)
+      await folderIconPath(
+        this.pool,
+        this.checkoutReadRunners(),
+        placement,
+        directory.cwd
+      );
+    const p = await this.prepareCreateInputs(
+      input,
+      directory?.cwd ?? input.cwd,
+      checkoutContext,
+      !directory
+    );
+    const worktree = p.checkout
+      ? toLocalWorktreeRequest(p.checkout, p.name, input.worktreeLocation)
+      : null;
+    let runnerRepository =
+      repository?.url && repository.checkout
+        ? { url: repository.url, checkout: repository.checkout }
+        : null;
+    let preparation: WorkspacePreparation | null = null;
+    if (launcherDirectory) {
+      // The request a local launch from that folder records, prepared on
+      // the child's own session before its host starts.
+      preparation = localPreparation(launcherDirectory, worktree);
+    } else if (checkoutOwner && (location || repositorySource)) {
+      preparation = {
+        source: { session: sessionFromWire(checkoutOwner.id) },
+        ...(worktree && { worktree: runnerWorktree(worktree) }),
+        copyIgnored: [...WORKTREE_LOCAL_CONFIG_FILES],
+        installDependencies: true,
+      };
+    } else if (
+      origin &&
+      (location || repositorySource) &&
+      !borrowed &&
+      (p.checkout || projectSource || input.projectId)
+    ) {
+      const checkout =
+        p.checkout?.source === "pullRequest"
+          ? {
+              kind: "pr" as const,
+              branch: p.checkout.branch,
+              number: pullRequestTarget(input.pullRequest!, origin).number,
+            }
+          : p.checkout
+            ? toRunnerCheckout(p.checkout)
+            : (runnerRepository?.checkout ?? { kind: "default" as const });
+      runnerRepository = { url: origin, checkout };
+      preparation = {
+        source: { repository: origin, checkout },
+        copyIgnored: [...WORKTREE_LOCAL_CONFIG_FILES],
+        installDependencies: true,
+      };
+    }
+    await ensureDeliveryDirectory(p.filesDir);
+    return {
+      p,
+      taskPersona,
+      taskPersonaBody,
+      prepared: {
+        directory,
+        worktree,
+        preparation,
+        repository: runnerRepository,
+        owner: borrowed ? checkoutOwner?.id : undefined,
+      },
+    };
+  }
+
   private async prepareCreateInputs(
-    input: CreateAgentInput
+    input: CreateAgentInput,
+    originalCwd: string,
+    checkoutContext: Omit<
+      Parameters<typeof resolveCheckoutIntent>[1],
+      "id" | "name"
+    >,
+    runnerEngine: boolean
   ): Promise<PreparedCreateInputs> {
-    const originalCwd = await this.validateWorkingDirectory(input.cwd);
-    // Remember the icon of the directory the user chose, before a managed
-    // worktree can change the agent's effective cwd.
-    await getDirectoryIconPath(this.pool, originalCwd);
     const id = this.newAgentId();
     const type: AgentType = input.type ?? "claude";
-    const effort = validateAgentEffort(type, input.effort, input.model);
+    // Callers checked the target's catalog; a runner engine rechecks at launch.
+    const effort = validateAgentEffort(
+      type,
+      input.effort,
+      input.model,
+      runnerEngine ? { kind: "engine" } : undefined
+    );
     const role: AgentRole = input.role ?? "standard";
     const fullAccess = type === "opencode" || (input.fullAccess ?? false);
     const fullAccessArg =
@@ -1741,66 +2873,29 @@ export class AgentManager {
         : (input.agentArgs ?? []);
     const name = input.name?.trim() || `agent-${id.slice(-6)}`;
     const filesDir = path.join(this.config.filesRoot, id);
-    await mkdir(filesDir, { recursive: true });
-
-    const useWorktree = input.useWorktree !== false;
-    const createNewBranch = input.createNewBranch ?? true;
-
-    // Sanitize ref names: rejects chars that would allow injection in the
-    // bash setup script and gives us a canonical form for archive cleanup.
-    let normalizedBaseBranch: string | undefined;
-    let normalizedWorktreeBranch: string | undefined;
+    let intent: Awaited<ReturnType<typeof resolveCheckoutIntent>>;
     try {
-      if (input.baseBranch !== undefined && input.baseBranch.trim() !== "") {
-        normalizedBaseBranch = normalizeBaseBranch(input.baseBranch);
-      }
-      if (
-        input.worktreeBranch !== undefined &&
-        input.worktreeBranch.trim() !== ""
-      ) {
-        normalizedWorktreeBranch = assertSafeRefName(
-          input.worktreeBranch,
-          "worktreeBranch"
-        );
-      }
+      intent = await resolveCheckoutIntent(input, {
+        id,
+        name,
+        ...checkoutContext,
+      });
     } catch (err) {
-      if (err instanceof GitWorktreeError) {
+      if (
+        err instanceof GitWorktreeError ||
+        err instanceof CheckoutIntentError
+      ) {
         throw new AgentError(err.message, err.statusCode);
       }
       throw err;
-    }
-    if (useWorktree) {
-      normalizedBaseBranch = normalizedBaseBranch ?? "main";
-    }
-
-    let worktreeBranchName: string | undefined;
-    let worktreePathOverride: string | undefined;
-    if (useWorktree) {
-      if (createNewBranch) {
-        const slugName = name
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-+|-+$/g, "");
-        worktreeBranchName =
-          normalizedWorktreeBranch || `${id}/${slugName || "work"}`;
-      } else {
-        worktreeBranchName = normalizedBaseBranch || "main";
-      }
-      const worktreeLocation = input.worktreeLocation ?? "sibling";
-      if (worktreeLocation === "nested") {
-        worktreePathOverride = path.join(
-          originalCwd,
-          ".dispatch",
-          "worktrees",
-          worktreePathSlug(worktreeBranchName, { createNewBranch })
-        );
-      }
     }
 
     // The engine mints the ACP session id at launch; a caller-supplied one
     // is a session to resume.
     const cliSessionId = input.cliSessionId ?? null;
-    const initialSetupPhase: SetupPhase = useWorktree ? "worktree" : "session";
+    const initialSetupPhase: SetupPhase = intent.checkout
+      ? "worktree"
+      : "session";
 
     return {
       id,
@@ -1813,11 +2908,7 @@ export class AgentManager {
       model: input.model,
       effort,
       fullAccess,
-      useWorktree,
-      createNewBranch,
-      normalizedBaseBranch,
-      worktreeBranchName,
-      worktreePathOverride,
+      ...intent,
       cliSessionId,
       initialSetupPhase,
     };
@@ -1825,12 +2916,18 @@ export class AgentManager {
 
   private async insertAgentRecord(
     p: PreparedCreateInputs,
-    input: CreateAgentInput
+    input: CreateAgentInput,
+    placement: Placement,
+    repository: RunnerRepository | null,
+    preparation: WorkspacePreparation | null,
+    useWorktreeOf?: string,
+    /** A local launch's worktree request: no `pending`, the local child prepares it. */
+    local?: WorkspacePreparation | null
   ): Promise<void> {
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, role, status, cwd, launch_cwd, files_dir, agent_args, model, full_access, setup_phase, persona, parent_agent_id, launched_by_agent_id, persona_context, review_agent_type, cli_session_id, base_branch, template_id, project_id, effort, updated_at)
-      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, NOW())
+      INSERT INTO agents (id, name, type, role, status, cwd, launch_cwd, files_dir, agent_args, model, full_access, setup_phase, persona, parent_agent_id, launched_by_agent_id, persona_context, review_agent_type, cli_session_id, base_branch, template_id, project_id, effort, runner_repository, runner_worktree_owner, runner_id, runner_preparation, updated_at)
+      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22::jsonb, $23, $24, $25::jsonb, NOW())
       `,
       [
         p.id,
@@ -1854,6 +2951,16 @@ export class AgentManager {
         input.templateId ?? null,
         input.projectId ?? null,
         p.effort,
+        repository
+          ? JSON.stringify(repositoryRecord(placement, repository))
+          : null,
+        useWorktreeOf ?? null,
+        runnerIdForPlacement(placement),
+        preparation
+          ? JSON.stringify({ ...preparation, pending: true })
+          : local
+            ? JSON.stringify(local)
+            : null,
       ]
     );
   }
@@ -1864,16 +2971,14 @@ export class AgentManager {
    */
   private async launchAgent(opts: {
     id: string;
-    name: string;
     type: AgentType;
     originalCwd: string;
-    useWorktree: boolean;
-    createNewBranch: boolean;
-    worktreeBranchName: string | undefined;
-    normalizedBaseBranch: string | undefined;
-    worktreePathOverride: string | undefined;
+    directory: LaunchDirectory | null;
+    worktree: WorktreeRequest | null;
+    preparation: WorkspacePreparation | null;
     initialPrompt: string | undefined;
     initialFiles: SeededFile[];
+    startupReferences: StartupReference[];
     /** Writes the launch post once the workspace is ready; see createAgent. */
     resolveLaunchPost: () => Promise<ChatLaunchPost | null>;
     jobRunId: string | undefined;
@@ -1882,65 +2987,210 @@ export class AgentManager {
     preparePersona?: () => Promise<void>;
   }): Promise<void> {
     const { id } = opts;
+    let prepared: {
+      agent: AgentRecord;
+      workspace: { effectiveCwd: string } | null;
+      chatLaunchPost: ChatLaunchPost | null;
+      runnerPrepared: boolean;
+    };
     try {
-      await opts.preparePersona?.();
-      const workspace = await prepareWorkspace(
-        {
-          agentName: opts.name,
-          originalCwd: opts.originalCwd,
-          useWorktree: opts.useWorktree,
-          createNewBranch: opts.createNewBranch,
-          worktreeBranchName: opts.worktreeBranchName,
-          baseBranch: opts.normalizedBaseBranch,
-          worktreePathOverride: opts.worktreePathOverride,
-          onStepResult: async (progress) => {
-            await this.recordStartup(() =>
-              this.launchContextRecorder?.recordStartupStep?.({
-                agentId: id,
-                label: "Installing dependencies",
-                ...progress,
-              })
-            );
-          },
-          onPhase: async (phase) => {
-            await this.setSetupPhase(id, phase);
-            await this.reportStartupPhase(id, phase, opts.type);
-          },
-        },
-        this.logger
-      );
-      await this.pool.query(
-        `UPDATE agents SET cwd = $2, worktree_path = $3, worktree_branch = $4, updated_at = NOW() WHERE id = $1`,
-        [
+      const prepare = async () => {
+        await opts.preparePersona?.();
+        const progress = this.workspaceProgress(id, opts.type);
+        // Prepared by the local runner, which binds the session to it.
+        const workspace = opts.directory
+          ? await prepareLocalWorkspace(
+              this.localRunnerChild(),
+              id,
+              opts.directory,
+              opts.worktree,
+              progress
+            ).catch(asWorktreeError)
+          : null;
+        if (workspace) await this.storePreparedWorkspace(id, workspace);
+        const agent = await this.getRequiredAgent(id);
+        const runnerId = enrolledRunnerId(agent.placement);
+        let runnerPrepared = false;
+        if (opts.preparation && !(runnerId && this.holds?.isHeld(runnerId))) {
+          try {
+            const steps = this.runnerWorkspaceProgress(agent, true);
+            try {
+              await this.prepareRunnerWorkspace(
+                agent,
+                opts.preparation,
+                false,
+                steps.onEvent
+              );
+              runnerPrepared = true;
+            } finally {
+              await steps.settled();
+            }
+          } catch (error) {
+            if (
+              !(
+                isUpdateFenced(error) &&
+                runnerId &&
+                this.holds?.isHeld(runnerId)
+              )
+            )
+              throw error;
+          }
+        }
+        const chatLaunchPost = await opts.resolveLaunchPost();
+        await opts.beforeLaunch?.(id);
+        return { agent, workspace, chatLaunchPost, runnerPrepared };
+      };
+      if (opts.preparation && "repository" in opts.preparation.source) {
+        this.preparingRepositories.add(id);
+        try {
+          prepared = await this.serializeLifecycle(id, async () => {
+            const current = await this.getRequiredAgent(id);
+            if (current.status !== "creating")
+              throw new LifecycleSuperseded(
+                "The agent was archived before workspace preparation."
+              );
+            return prepare();
+          });
+        } finally {
+          this.preparingRepositories.delete(id);
+        }
+      } else {
+        prepared = await prepare();
+      }
+    } catch (error) {
+      return this.failLaunch(id, error);
+    }
+    await this.continueLaunch(id, {
+      agent: prepared.agent,
+      workspace: prepared.workspace,
+      runnerPrepared: prepared.runnerPrepared,
+      originalCwd: opts.originalCwd,
+      initialPrompt: opts.initialPrompt,
+      initialFiles: opts.initialFiles,
+      startupReferences: opts.startupReferences,
+      chatLaunchPost: prepared.chatLaunchPost,
+      jobRunId: opts.jobRunId,
+      sessionIcon: !opts.directory,
+    });
+  }
+
+  /**
+   * The rest of a create from starting the host: what a held launch runs on
+   * release. Takes the launch post already written, never writes one again.
+   */
+  private async continueLaunch(
+    id: string,
+    opts: {
+      /** The row as the create read it; a released launch reads it again. */
+      agent?: AgentRecord;
+      runnerPrepared?: boolean;
+      workspace: { effectiveCwd: string } | null;
+      originalCwd: string;
+      initialPrompt: string | undefined;
+      initialFiles: SeededFile[];
+      startupReferences?: StartupReference[];
+      chatLaunchPost: ChatLaunchPost | null;
+      jobRunId: string | undefined;
+      /** A released launch keeps the attempt's ID. */
+      launchId?: string;
+      /** Warm the icon up through the session: there was no folder to read at create. */
+      sessionIcon?: boolean;
+    }
+  ): Promise<void> {
+    const { workspace, chatLaunchPost } = opts;
+    // One ID for this attempt, wherever it is held or retried.
+    const launchId = opts.launchId ?? randomUUID();
+    try {
+      const agent = opts.agent ?? (await this.getRequiredAgent(id));
+      if (await this.holdLaunch(agent, "create", launchId, opts)) return;
+      let started: { sessionId: string };
+      try {
+        started = await this.startHost(agent, {
+          resumeSessionId: null,
+          jobRunId: opts.jobRunId,
+          recordWorkspaceProgress: true,
+          runnerPrepared: opts.runnerPrepared,
+          launchId,
+        });
+      } catch (error) {
+        // Refused by the runner's update fence: nothing started.
+        if (
+          await this.holdRefusedLaunch(agent, error, "create", launchId, opts)
+        )
+          return;
+        throw error;
+      }
+      const { sessionId } = started;
+      // A launch that had no folder to read at create warms up now that its
+      // launch checkout exists (a released create had none to read).
+      if (opts.sessionIcon ?? true)
+        await agentIconPath(this.pool, this.checkoutReadRunners(), agent).catch(
+          () => null
+        );
+      const images = chatLaunchPost?.images;
+      if (opts.initialFiles.length) {
+        const filesDir = resolveFilesDir(
           id,
-          workspace.effectiveCwd,
-          workspace.worktreePath,
-          workspace.worktreeBranch,
-        ]
-      );
-      const agent = await this.getRequiredAgent(id);
-      const chatLaunchPost = await opts.resolveLaunchPost();
-      await opts.beforeLaunch?.(id);
-      const { sessionId } = await this.startHost(agent, {
-        resumeSessionId: null,
-        jobRunId: opts.jobRunId,
-      });
+          agent.filesDir,
+          this.config.filesRoot
+        );
+        // The first turn's own files go with it; the rest are put here.
+        const sources = new Set(images?.map((image) => image.path));
+        for (const file of opts.initialFiles) {
+          const source = path.join(filesDir, file.fileName);
+          if (sources.has(source)) continue;
+          try {
+            await this.whileFenced(agent, () =>
+              this.deliverSessionFile(agent, source, file.fileName)
+            );
+          } catch (error) {
+            if (error instanceof LifecycleSuperseded) throw error;
+            this.logger.warn(
+              { err: error, agentId: id },
+              "Startup file is unavailable"
+            );
+          }
+        }
+      }
+      // The first turn names each reference where the agent opens it: the
+      // same path on this machine, so the text is unchanged there.
+      const referenced = new Map<string, string>();
+      for (const { source, name } of opts.startupReferences ?? []) {
+        if (referenced.has(source)) continue;
+        try {
+          const destination = await this.whileFenced(agent, () =>
+            this.deliverSessionFile(agent, source, name, "reference")
+          );
+          referenced.set(source, destination);
+        } catch (error) {
+          if (error instanceof LifecycleSuperseded) throw error;
+          this.logger.warn(
+            { err: error, agentId: id },
+            "Startup reference is unavailable"
+          );
+        }
+      }
       await this.pool.query(
         `UPDATE agents SET status = 'running', cli_session_id = $2, setup_phase = NULL, updated_at = NOW() WHERE id = $1`,
         [id, sessionId]
       );
-      await this.populateGitContext(id);
       await this.recordStartup(() =>
         this.launchContextRecorder?.recordStartupDone?.({
           agentId: id,
-          cwd: workspace.effectiveCwd,
+          cwd: workspace?.effectiveCwd ?? agent.cwd,
         })
       );
 
+      // A prepared checkout already supplied its initial probe.
+      if (!workspace) await this.populateGitContext(id);
       this.eventBus.publish(await this.getRequiredAgent(id));
+      let initialPrompt = opts.initialPrompt;
+      for (const [source, destination] of referenced)
+        if (initialPrompt !== undefined && destination !== source)
+          initialPrompt = initialPrompt.split(source).join(destination);
       const firstTurn = buildStartupTurn(
         {
-          initialPrompt: opts.initialPrompt,
+          initialPrompt,
           initialFiles: opts.initialFiles,
           chatLaunchPost,
         },
@@ -1951,30 +3201,173 @@ export class AgentManager {
           id,
           firstTurn,
           "first turn",
-          chatLaunchPost?.images?.length
-            ? { images: chatLaunchPost.images }
-            : undefined,
+          images?.length ? { images } : undefined,
           chatLaunchPost
             ? { source: "chat", chatMessageId: chatLaunchPost.messageId }
             : undefined
         );
     } catch (error) {
-      if (error instanceof GitWorktreeError) {
-        const lastError = `Worktree creation failed: ${error.message}`;
+      if (!(error instanceof LifecycleSuperseded))
+        await this.failLaunch(id, error);
+    }
+  }
+
+  /** Put a launch that failed into its terminal state and rethrow. */
+  private async failLaunch(id: string, error: unknown): Promise<never> {
+    if (error instanceof GitWorktreeError) {
+      const lastError = `Worktree creation failed: ${error.message}`;
+      await this.recordStartup(() =>
+        this.launchContextRecorder?.recordStartupDone?.({
+          agentId: id,
+          error: lastError,
+        })
+      );
+      await this.setAgentStatus(id, "stopped", lastError);
+      await this.setSetupPhase(id, null);
+      await this.emitAttention(id, "blocked", lastError);
+
+      throw new AgentError(lastError, error.statusCode);
+    }
+    return this.failCreate(id, error);
+  }
+
+  /**
+   * Before a launch or start reaches a held runner: persist it to run on
+   * release instead. The agent stays `creating`; nothing was attempted.
+   */
+  private async holdLaunch(
+    agent: AgentRecord,
+    kind: "create" | "start",
+    launchId: string,
+    create?: {
+      initialPrompt: string | undefined;
+      initialFiles: SeededFile[];
+      startupReferences?: StartupReference[];
+      chatLaunchPost: ChatLaunchPost | null;
+      jobRunId: string | undefined;
+    }
+  ): Promise<boolean> {
+    const runnerId = enrolledRunnerId(agent.placement);
+    if (!runnerId || !this.holds?.isHeld(runnerId)) return false;
+    const held = await this.holds.holdLaunch(runnerId, {
+      agentId: agent.id,
+      kind,
+      launchId,
+      ...(kind === "create" && create
+        ? {
+            create: {
+              ...(create.initialPrompt !== undefined && {
+                initialPrompt: create.initialPrompt,
+              }),
+              initialFiles: create.initialFiles,
+              chatLaunchPost: create.chatLaunchPost,
+              ...(create.jobRunId !== undefined && {
+                jobRunId: create.jobRunId,
+              }),
+              ...(create.startupReferences?.length && {
+                startupReferences: create.startupReferences,
+              }),
+            },
+          }
+        : {}),
+    });
+    if (held)
+      this.logger.info(
+        { agentId: agent.id, runnerId, kind },
+        "launch held for a runner update"
+      );
+    return held;
+  }
+
+  /** An `update-fenced` refusal under a hold is held again, not failed. */
+  private async holdRefusedLaunch(
+    agent: AgentRecord,
+    error: unknown,
+    kind: "create" | "start",
+    launchId: string,
+    create?: Parameters<AgentManager["holdLaunch"]>[3]
+  ): Promise<boolean> {
+    return (
+      isUpdateFenced(error) &&
+      (await this.holdLaunch(agent, kind, launchId, create))
+    );
+  }
+
+  /**
+   * A step the fence refused partway through work that was admitted before
+   * it: nothing of the step started, so wait for the hold in place and try
+   * the same step again.
+   */
+  private async whileFenced<T>(
+    agent: AgentRecord,
+    step: () => Promise<T>,
+    kind: "stop" | "other" = "other"
+  ): Promise<T> {
+    const runnerId = enrolledRunnerId(agent.placement);
+    for (;;) {
+      try {
+        return await step();
+      } catch (error) {
+        if (
+          !isUpdateFenced(error) ||
+          !runnerId ||
+          !this.holds?.isHeld(runnerId)
+        )
+          throw error;
+        await this.holds.wait(
+          runnerId,
+          this.holds.isResuming(runnerId) ? "other" : kind
+        );
+        await this.assertLifecycleCurrent(agent);
+      }
+    }
+  }
+
+  private async assertLifecycleCurrent(agent: AgentRecord): Promise<void> {
+    const current = await this.getAgent(agent.id);
+    if (current?.status !== agent.status || current.cwd !== agent.cwd)
+      throw new LifecycleSuperseded(
+        "The agent changed while its runner was held."
+      );
+  }
+
+  private workspaceProgress(id: string, type: AgentType): PrepareProgress {
+    return async (step) => {
+      if ("status" in step && step.status) {
         await this.recordStartup(() =>
-          this.launchContextRecorder?.recordStartupDone?.({
+          this.launchContextRecorder?.recordStartupStep?.({
             agentId: id,
-            error: lastError,
+            label: "Installing dependencies",
+            ...step,
           })
         );
-        await this.setAgentStatus(id, "stopped", lastError);
-        await this.setSetupPhase(id, null);
-        await this.emitAttention(id, "blocked", lastError);
-
-        throw new AgentError(lastError, error.statusCode);
+      } else {
+        await this.setSetupPhase(id, step.phase);
+        await this.reportStartupPhase(id, step.phase, type);
       }
-      await this.failCreate(id, error);
-    }
+    };
+  }
+
+  private async storePreparedWorkspace(
+    id: string,
+    workspace: PreparedWorkspace
+  ) {
+    const git = workspace.git;
+    await this.pool.query(
+      `UPDATE agents SET cwd = $2, worktree_path = $3, worktree_branch = $4,
+        base_branch = COALESCE($5, base_branch), git_context = $6::jsonb,
+        git_context_stale = $7, git_context_updated_at = NOW(), updated_at = NOW()
+       WHERE id = $1`,
+      [
+        id,
+        workspace.effectiveCwd,
+        workspace.worktreePath,
+        workspace.worktreeBranch,
+        workspace.baseBranch,
+        git.status === "ok" && git.value ? JSON.stringify(git.value) : null,
+        git.status === "error",
+      ]
+    );
   }
 
   /** Record setup progress in the stream's workspace block. */
@@ -2019,6 +3412,101 @@ export class AgentManager {
     }
   }
 
+  private runnerWorkspaceProgress(agent: AgentRecord, usesCheckout: boolean) {
+    let progressWrites = Promise.resolve();
+    const onEvent = (step: LaunchProgress) => {
+      const write = this.workspaceProgress(agent.id, agent.type);
+      progressWrites = progressWrites
+        .then(async () => {
+          if (step.phase === "workspace") {
+            if (usesCheckout) await write({ phase: "worktree" });
+          } else if (step.phase === "copy") {
+            await write({ phase: "env" });
+          } else if (step.phase === "ready") {
+            await write({ phase: "session" });
+          } else if ("status" in step) {
+            await write({
+              phase: "deps",
+              status: step.status,
+              ...(step.detail
+                ? { detail: step.detail }
+                : step.status === "failed"
+                  ? {
+                      detail:
+                        "The runner could not install dependencies. Launch is continuing.",
+                    }
+                  : {}),
+            });
+          } else {
+            await write({ phase: "deps" });
+          }
+        })
+        .catch((err) =>
+          this.logger.warn(
+            { err, agentId: agent.id },
+            "Could not record runner preparation"
+          )
+        );
+    };
+    return { onEvent, settled: () => progressWrites };
+  }
+
+  private async prepareRunnerWorkspace(
+    agent: AgentRecord,
+    preparation: WorkspacePreparation,
+    resume: boolean,
+    onEvent?: (step: LaunchProgress) => void
+  ) {
+    const { directory, placement } = checkoutRunners(
+      this.checkoutReadRunners(),
+      { ...agent, repositorySource: "repository" in preparation.source }
+    );
+    const runner = directory.for(placement);
+    const session = sessionFromWire(agent.id);
+    const existing = resume
+      ? await runner.call("workspace.resume", { session })
+      : null;
+    const prepared =
+      existing ??
+      (await runner.call(
+        "workspace.prepare",
+        { ...preparation, session },
+        { onEvent }
+      ));
+    const cwd = displayPath(prepared.path);
+    const worktree = prepared.worktree;
+    const recorded = await this.pool.query(
+      `UPDATE agents SET cwd = $2, launch_cwd = COALESCE(NULLIF(launch_cwd, ''), $2), worktree_branch = $3, base_branch = COALESCE(base_branch, $4),
+       worktree_path = $5, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL RETURNING id`,
+      [
+        agent.id,
+        cwd,
+        worktree?.branch ?? null,
+        worktree?.base ?? null,
+        worktree ? displayPath(worktree.path) : null,
+      ]
+    );
+    if (recorded.rowCount === 0) {
+      // Archive may have won while preparation was in flight. Release through
+      // the same receipt-aware runner operation; recovery retries a lost reply.
+      await runner.call("workspace.release", {
+        session,
+        deleteBranch: Boolean(worktree && worktree.branch !== worktree.base),
+        originalBranch: worktree?.branch ?? null,
+      });
+      throw new LifecycleSuperseded(
+        "The agent was archived during workspace preparation."
+      );
+    }
+    agent.cwd = cwd;
+    agent.launchCwd ||= cwd;
+    if (worktree) {
+      agent.worktreeBranch = worktree.branch;
+      agent.worktreePath = displayPath(worktree.path);
+      agent.baseBranch ??= worktree.base;
+    }
+  }
+
   /**
    * Start (or resume) the agent's host. Builds everything the engine needs
    * (system prompt, MCP credentials, environment) from the agent record and
@@ -2030,6 +3518,11 @@ export class AgentManager {
       resumeSessionId: string | null;
       jobRunId: string | undefined;
       previousJobFinished?: boolean;
+      recordWorkspaceProgress?: boolean;
+      runnerPrepared?: boolean;
+      /** This attempt's durable ID; only a runner launch carries it. */
+      launchId?: string;
+      recycle?: RecycleRestart;
     }
   ): Promise<{ sessionId: string; resumed: boolean }> {
     if (!isAcpEngine(agent.type)) {
@@ -2038,12 +3531,6 @@ export class AgentManager {
         400
       );
     }
-    const filesDir = resolveFilesDir(
-      agent.id,
-      agent.filesDir,
-      this.config.filesRoot
-    );
-    await mkdir(filesDir, { recursive: true });
     const personality =
       agent.role === "review" || opts.jobRunId
         ? null
@@ -2073,78 +3560,109 @@ export class AgentManager {
         "could not record the agent's system prompt"
       );
     }
-    const { env, pathPrefix } = buildLaunchEnv({
-      agentId: agent.id,
-      filesDir,
-      engine: agent.type,
-      config: this.config,
-    });
-    // The adapter ships in this binary, but the engine itself is the
-    // person's: say so plainly here rather than letting the spawn fail with
-    // ENOENT once the host is already up. The inert runtime spawns nothing,
-    // so it needs no engine.
-    const engine = this.runtime.tracksProcesses()
-      ? (
-          await engineStatuses({
-            claude: this.config.claudeBin,
-            codex: this.config.codexBin ?? undefined,
-            opencode: this.config.opencodeBin,
-          })
-        ).find((status) => status.id === agent.type)
-      : undefined;
-    if (engine && !engine.installed) {
-      throw new AgentError(missingEngineMessage(engine), 422);
-    }
-    // The engine this agent runs takes the path we just resolved (a
-    // service's PATH rarely has it); the other keeps its configured value.
-    const bins: EngineBins = {
-      opencodeBin:
-        agent.type === "opencode"
-          ? (engine?.path ?? this.config.opencodeBin ?? "opencode")
-          : this.config.opencodeBin,
-      claudeBin:
-        agent.type === "claude"
-          ? (engine?.path ?? this.config.claudeBin)
-          : this.config.claudeBin,
-      codexBin:
-        agent.type === "codex" ? (engine?.path ?? null) : this.config.codexBin,
-    };
-    if (engine?.path) {
-      this.logger.info(
-        {
-          agentId: agent.id,
-          engine: agent.type,
-          cli: engine.path,
-          version: await engineVersion(engine.path),
-        },
-        "launching agent on engine CLI"
-      );
-    }
-    this.streamRecorder.setCwd(agent.id, agent.workspacePath ?? agent.cwd);
+    const placement = sessionLocation(agent.placement) ?? undefined;
+    this.streamRecorder.setCwd(agent.id, agentStreamDirectory(agent));
     // Rows a previous host left open (a crash mid-turn) settle first, so the
     // feed never shows a turn that can no longer finish.
     await this.streamRecorder.reconcile(agent.id);
-    const token = opts.jobRunId
-      ? createJobMcpToken(this.config.authToken, opts.jobRunId, agent.id)
-      : createAgentMcpToken(this.config.authToken, agent.id);
-    return this.runtime.launch({
-      agentId: agent.id,
-      cwd: agent.cwd,
-      engine: agent.type,
-      fullAccess: agent.type === "opencode" || agent.fullAccess,
-      bins,
-      model: agent.model ?? null,
-      effort: agent.effort ?? null,
-      systemPrompt,
-      personaContext: extractPersonaContext(agent.agentArgs ?? []),
-      mcp: {
-        url: dispatchMcpUrl(this.config, agent.id, opts.jobRunId),
-        token,
-      },
-      env,
-      pathPrefix,
-      resumeSessionId: opts.resumeSessionId,
-    });
+    const remoteMcpOrigin = placement
+      ? this.remote?.originFor(placement)
+      : undefined;
+    const mcpUrl = placement
+      ? remoteMcpOrigin &&
+        (opts.jobRunId
+          ? `${remoteMcpOrigin}/api/mcp/jobs/${opts.jobRunId}/${agent.id}`
+          : `${remoteMcpOrigin}/api/mcp/${agent.id}`)
+      : dispatchMcpUrl(this.config, agent.id, opts.jobRunId);
+    const recordedBinding = (
+      await this.pool.query<{ runner_preparation: RecordedPreparation | null }>(
+        "SELECT runner_preparation FROM agents WHERE id = $1",
+        [agent.id]
+      )
+    ).rows[0];
+    const binding =
+      recordedBinding?.runner_preparation &&
+      (placement ||
+        "repository" in recordedBinding.runner_preparation.source ||
+        "session" in recordedBinding.runner_preparation.source)
+        ? recordedBinding
+        : undefined;
+    const steps = this.runnerWorkspaceProgress(
+      agent,
+      Boolean(binding?.runner_preparation)
+    );
+    const onWorkspaceProgress =
+      placement && opts.recordWorkspaceProgress ? steps.onEvent : undefined;
+    try {
+      if (opts.recycle && !opts.recycle.mayStart())
+        throw new RecycleSuperseded();
+      if (binding?.runner_preparation) {
+        const { pending, ...preparation } = binding.runner_preparation;
+        if (!opts.runnerPrepared) {
+          await this.prepareRunnerWorkspace(
+            agent,
+            preparation,
+            !opts.recordWorkspaceProgress,
+            onWorkspaceProgress
+          );
+          await steps.settled();
+        }
+        // Until this point a reboot can prove that no host launch was sent,
+        // even if the prepared runner is offline when Dispatch comes back.
+        if (pending) {
+          const claimed = await this.pool.query(
+            "UPDATE agents SET runner_preparation = runner_preparation - 'pending' WHERE id = $1 AND status = 'creating' AND deleted_at IS NULL",
+            [agent.id]
+          );
+          if (!claimed.rowCount)
+            throw new LifecycleSuperseded(
+              "The agent changed during workspace preparation."
+            );
+        }
+      }
+      return await this.runtime.launch({
+        agentId: agent.id,
+        cwd: agent.cwd,
+        placement,
+        engine: agent.type,
+        fullAccess: agent.type === "opencode" || agent.fullAccess,
+        model: agent.model ?? null,
+        effort: agent.effort ?? null,
+        systemPrompt,
+        personaContext: extractPersonaContext(agent.agentArgs ?? []),
+        mcp: mcpUrl
+          ? {
+              url: mcpUrl,
+              token: opts.jobRunId
+                ? createJobMcpToken(
+                    this.config.authToken,
+                    opts.jobRunId,
+                    agent.id
+                  )
+                : createAgentMcpToken(this.config.authToken, agent.id),
+            }
+          : undefined,
+        // Retain the recorded directory for sessions created under older files roots.
+        ...(agent.filesDir != null && {
+          env: {
+            DISPATCH_FILES_DIR: resolveFilesDir(
+              agent.id,
+              agent.filesDir,
+              this.config.filesRoot
+            ),
+          },
+        }),
+        resumeSessionId: opts.resumeSessionId,
+        ...(placement &&
+          opts.launchId && {
+            launchId: opts.launchId,
+            beforeLaunchReconcile: () => this.assertLifecycleCurrent(agent),
+            ...(opts.recycle?.drain && { requireResume: true }),
+          }),
+      });
+    } finally {
+      await steps.settled();
+    }
   }
 
   /**
@@ -2194,47 +3712,131 @@ export class AgentManager {
   async startAgent(id: string): Promise<AgentRecord> {
     return this.serializeLifecycle(id, () => this.claimAndStartAgent(id));
   }
-  private async claimAndStartAgent(id: string): Promise<AgentRecord> {
+  private async claimAndStartAgent(
+    id: string,
+    recycle?: RecycleRestart
+  ): Promise<AgentRecord> {
     const claimed = await this.pool.query(
       `UPDATE agents SET status = 'creating', last_error = NULL, updated_at = NOW()
        WHERE id = $1 AND status NOT IN ('creating', 'stopping', 'archiving') AND deleted_at IS NULL RETURNING id`,
       [id]
     );
     if (claimed.rows.length === 0) return this.getRequiredAgent(id);
-    return this.startAgentClaimed(id);
+    return this.startAgentClaimed(id, undefined, recycle);
   }
 
-  private async startAgentClaimed(id: string): Promise<AgentRecord> {
-    const agent = await this.getRequiredAgent(id);
-    if (await this.runtime.attach(id)) {
-      this.streamRecorder.setCwd(id, agent.workspacePath ?? agent.cwd);
+  /** A launch folder, resolved by the runner the launch goes to. */
+  private async launchDirectory(placement: Placement, cwd: string) {
+    return launchDirectory(await this.resolveLaunchPath(placement, cwd));
+  }
+
+  /** `path.resolve` on the runner the launch goes to. */
+  private resolveLaunchPath(
+    placement: Placement,
+    cwd: string,
+    options: Omit<Req<"path.resolve">, "path"> = {}
+  ) {
+    return runnerDirectory(this.checkoutReadRunners())
+      .for(placement)
+      .call("path.resolve", { path: cwd, ...options });
+  }
+
+  /** The worktree request a local launch recorded on its row, if any. */
+  private async localPreparation(
+    id: string
+  ): Promise<WorkspacePreparation | null> {
+    const { rows } = await this.pool.query<{
+      runner_preparation: RecordedPreparation | null;
+    }>("SELECT runner_preparation FROM agents WHERE id = $1", [id]);
+    const recorded = rows[0]?.runner_preparation;
+    if (!recorded) return null;
+    const { pending: _pending, ...request } = recorded;
+    return request;
+  }
+
+  private async startAgentClaimed(
+    id: string,
+    /** A released start keeps the attempt's ID. */
+    heldLaunchId?: string,
+    recycle?: RecycleRestart
+  ): Promise<AgentRecord> {
+    const launchId = heldLaunchId ?? randomUUID();
+    let agent = await this.getRequiredAgent(id);
+    if (!(await this.pendingStop(id)) && (await this.runtime.attach(id))) {
+      this.streamRecorder.setCwd(id, agentStreamDirectory(agent));
       await this.setAgentStatus(id, "running", null);
 
       return (await this.getAgent(id)) as AgentRecord;
     }
 
-    await this.setAgentStatus(id, "creating", null);
+    if (!recycle?.drain) await this.setAgentStatus(id, "creating", null);
     try {
+      // A stopped host must never be adopted as the result of Start.
+      await this.retryPendingStop(id);
+      if (!enrolledRunnerId(agent.placement) && !agent.worktreePath) {
+        // A worktree launch a restart interrupted: the local runner finishes
+        // it from its receipt or from the request the row recorded.
+        const recorded = await this.localPreparation(id);
+        if (recorded) {
+          const child = this.localRunnerChild();
+          const progress = this.workspaceProgress(id, agent.type);
+          const workspace = await resumeLocalWorkspace(child, id, progress)
+            .then(
+              (resumed) =>
+                resumed ??
+                prepareRecordedWorkspace(child, id, recorded, progress)
+            )
+            .catch(asWorktreeError);
+          if (workspace) {
+            await this.storePreparedWorkspace(id, workspace);
+            agent = await this.getRequiredAgent(id);
+          }
+        }
+      }
       // A stopped job still needs its run-scoped tools and launch rules when
       // its host is recreated. Reattaching above keeps the existing context.
+      if (recycle && !recycle.mayStart()) throw new RecycleSuperseded();
+      if (!recycle?.drain && (await this.holdLaunch(agent, "start", launchId)))
+        return (await this.getAgent(id)) as AgentRecord;
       const jobRun = await this.pool.query<{ id: string }>(
         "SELECT id FROM job_runs WHERE agent_id = $1 AND status IN ('started', 'running', 'needs_input') ORDER BY started_at DESC LIMIT 1",
         [id]
       );
-      const { sessionId } = await this.startHost(agent, {
-        resumeSessionId: agent.cliSessionId ?? null,
-        jobRunId: jobRun.rows[0]?.id,
-        previousJobFinished: Boolean(agent.jobRun) && !jobRun.rows.length,
-      });
+      let started: { sessionId: string };
+      try {
+        started = await this.startHost(agent, {
+          resumeSessionId: agent.cliSessionId ?? null,
+          jobRunId: jobRun.rows[0]?.id,
+          previousJobFinished: Boolean(agent.jobRun) && !jobRun.rows.length,
+          launchId,
+          recycle,
+        });
+      } catch (error) {
+        // Refused by the runner's update fence: nothing started.
+        if (
+          !recycle?.drain &&
+          (await this.holdRefusedLaunch(agent, error, "start", launchId))
+        )
+          return (await this.getAgent(id)) as AgentRecord;
+        throw error;
+      }
+      const { sessionId } = started;
       await this.pool.query(
-        `UPDATE agents SET status = 'running', cli_session_id = $2, last_error = NULL, updated_at = NOW() WHERE id = $1`,
-        [id, sessionId]
+        `UPDATE agents SET status = 'running', cli_session_id = $2, last_error = NULL, setup_phase = NULL, runner_resume_attempt_id = $3, updated_at = NOW() WHERE id = $1`,
+        [id, sessionId, recycle?.drain ? launchId : null]
       );
       // Re-populate gitContext on every restart so drift from external git
       // activity gets picked up at start time.
       await this.populateGitContext(id);
       this.eventBus.publish(await this.getRequiredAgent(id));
     } catch (error) {
+      if (error instanceof LifecycleSuperseded)
+        return this.getRequiredAgent(id);
+      if (recycle?.drain) throw error;
+      if (error instanceof RecycleSuperseded) {
+        await this.setAgentStatus(id, "stopped", null);
+        return this.getRequiredAgent(id);
+      }
       const message = errorMessage(error);
       await this.setAgentStatus(id, "error", message);
       await this.emitAttention(
@@ -2256,39 +3858,503 @@ export class AgentManager {
    * A host that is not running is just started.
    */
   async restartHost(id: string): Promise<AgentRecord> {
-    return this.serializeLifecycle(id, async () => {
-      const agent = await this.getRequiredAgent(id);
-      if (agent.status === "running") {
-        await this.setAgentStatus(id, "stopping", null);
-        try {
-          this.streamRecorder.beginStop(id);
-          await this.runtime.stop(id, false);
-          await this.streamRecorder.settleStopped(id);
+    let waited = false;
+    for (;;) {
+      let heldRunner: string | undefined;
+      const result = await this.serializeLifecycle(id, async () => {
+        const agent = await this.getRequiredAgent(id);
+        if (agent.status === "running") {
+          const runner = enrolledRunnerId(agent.placement);
+          if (runner && this.holds?.isHeld(runner)) {
+            heldRunner = runner;
+            return agent;
+          }
+        } else if (waited) return agent;
+        return this.restartHostLocked(agent);
+      });
+      if (!heldRunner) return result;
+      // A restart can't come back until the hold opens, so unlike a stop it
+      // waits, and outside the lock so a stop or archive can still win.
+      await this.holds!.wait(heldRunner);
+      waited = true;
+    }
+  }
+
+  private async restartHostLocked(
+    agent: AgentRecord,
+    recycle?: RecycleRestart
+  ): Promise<AgentRecord> {
+    const { id } = agent;
+    if (agent.status === "running") {
+      // A recycled host already accepted shutdown. Keep admitting chat and
+      // schedules to the held Dispatch queue while its binding is cleaned up.
+      if (!recycle) await this.setAgentStatus(id, "stopping", null);
+      try {
+        this.streamRecorder.beginStop(id);
+        await this.runtime.stop(id, false);
+        await this.streamRecorder.settleStopped(id);
+        if (!recycle || !recycle.mayStart()) {
           await this.setAgentStatus(id, "stopped", null);
-          this.notifyStreamWrite(id, true);
-        } catch (error) {
-          const message = errorMessage(error);
-          await this.setAgentStatus(id, "error", message);
-          throw new AgentError(`Failed to restart agent: ${message}`, 500);
+          if (recycle) return this.getRequiredAgent(id);
         }
+        this.notifyStreamWrite(id, true);
+      } catch (error) {
+        const message = errorMessage(error);
+        await this.setAgentStatus(id, "error", message);
+        throw new AgentError(`Failed to restart agent: ${message}`, 500);
       }
-      return this.claimAndStartAgent(id);
+    }
+    return this.claimAndStartAgent(id, recycle);
+  }
+
+  /** Called once the update coordinator has confirmed this exact target. */
+  startRunnerHostRecycling(update: ConfirmedRunnerUpdate): void {
+    this.hostRecycler.start(update);
+  }
+
+  runnerHostRecycleProgress(
+    runnerId: string
+  ): RunnerHostRecycleProgress | null {
+    return this.hostRecycler.progress(runnerId);
+  }
+
+  /** Cancel future leases. A host that accepted shutdown still needs cleanup. */
+  stopRunnerHostRecycling(runnerId: string): void {
+    this.clearRecycleDeferrals(runnerId);
+    this.hostRecycler.stop(runnerId);
+  }
+
+  /** Before a new update holds the runner: stop and finish what is in flight. */
+  settleRunnerHostRecycling(runnerId: string): Promise<void> {
+    this.clearRecycleDeferrals(runnerId);
+    return this.hostRecycler.stopAndSettle(runnerId);
+  }
+
+  private clearRecycleDeferrals(runnerId: string) {
+    for (const key of this.recycleDeferrals.keys())
+      if (key.startsWith(`${runnerId}:`)) this.recycleDeferrals.delete(key);
+  }
+
+  /**
+   * Whether this exact host instance completed an ACP attach over that
+   * runner connection. A connected runner alone never satisfies it.
+   */
+  isRunnerSessionAttached(
+    runnerId: string,
+    session: { sessionId: string; instanceId: string },
+    epoch: number
+  ): boolean {
+    return (this.runtime.runnerHosts?.(runnerId) ?? []).some(
+      (host) =>
+        host.agentId === session.sessionId &&
+        host.instanceId === session.instanceId &&
+        host.attachedEpoch === epoch
+    );
+  }
+
+  /** Reattach a session a runner retains; only an agent placed on it. */
+  async attachRunnerSession(runnerId: string, agentId: string): Promise<void> {
+    const agent = await this.getAgent(agentId);
+    if (!agent || !isOnEnrolledRunner(agent.placement, runnerId)) return;
+    this.streamRecorder.setCwd(agentId, agentStreamDirectory(agent));
+    await this.runtime.attach(agentId);
+  }
+
+  setRunnerDrainReceipt(runnerId: string, ids: string[]): void {
+    const next = new Set(ids);
+    for (const id of this.runnerDrainReceipts.get(runnerId) ?? []) {
+      if (next.has(id)) continue;
+      this.drainedHostHolds.get(id)?.release();
+      this.drainedHostHolds.delete(id);
+      this.runtime.releaseRunnerHost?.(id);
+    }
+    if (ids.length) this.runnerDrainReceipts.set(runnerId, next);
+    else this.runnerDrainReceipts.delete(runnerId);
+  }
+
+  /** Told of each stop, archive or delete of an agent with a resume receipt. */
+  onRunnerResumeEnded(listener: (id: string) => Promise<void>): () => void {
+    this.endRunnerResume = listener;
+    return () => {
+      if (this.endRunnerResume === listener) this.endRunnerResume = undefined;
+    };
+  }
+
+  private hasRunnerDrainReceipt(id: string): boolean {
+    return [...this.runnerDrainReceipts.values()].some((ids) => ids.has(id));
+  }
+
+  /** Resume entries a stop, archive or delete has ended. */
+  async endedRunnerResumes(ids: string[]): Promise<string[]> {
+    const running = new Set(
+      (await this.updateResumeSnapshot(ids)).map(({ id }) => id)
+    );
+    return ids.filter(
+      (id) => !running.has(id) || this.stoppingOrArchiving.has(id)
+    );
+  }
+
+  /**
+   * The runner's live inventory, with attachment state from its channels.
+   * On older runners, legacy identities can be
+   * absent from its retained list. A waiting drain passes its connection and
+   * what the runner last answered: a host attached on that connection needs
+   * no question, and any other is asked only when it has no answer yet.
+   */
+  async runnerDrainHosts(
+    runnerId: string,
+    retainedIds: string[],
+    waiting?: { epoch: number; answers: Map<string, boolean> }
+  ) {
+    this.runtime.wakeRunnerDrain?.(runnerId);
+    const hosts = new Map(
+      (this.runtime.runnerHosts?.(runnerId) ?? []).map((host) => [
+        host.agentId,
+        host,
+      ])
+    );
+    const sessionList = await this.runtime.listRunnerSessions?.(runnerId);
+    if (sessionList) {
+      return sessionList.sessions
+        .filter((session) => session.state === "live")
+        .map((session) => {
+          const id = sessionToWire(session.session);
+          const attached = hosts.get(id);
+          const host =
+            session.instanceId === attached?.instanceId ? attached : undefined;
+          if (waiting) {
+            if (host?.attachedEpoch === waiting.epoch)
+              waiting.answers.delete(id);
+            else waiting.answers.set(id, true);
+          }
+          return { id, host };
+        });
+    }
+    const selectedRunner = enrolledRunnerId(placementForRunner(runnerId));
+    const { rows } = await this.pool.query<{ id: string }>(
+      `SELECT id FROM agents
+        WHERE status IN ('running', 'creating', 'stopping', 'archiving')
+          AND runner_id = $1 AND deleted_at IS NULL`,
+      [selectedRunner ?? null]
+    );
+    const ids = new Set([
+      ...retainedIds,
+      ...hosts.keys(),
+      ...rows
+        .filter(({ id }) => !this.holds?.hasLaunch(id))
+        .map(({ id }) => id),
+    ]);
+    const inventory = await Promise.all(
+      [...ids].map(async (id) => {
+        const host = hosts.get(id);
+        if (waiting && host?.attachedEpoch === waiting.epoch) {
+          waiting.answers.delete(id);
+          return { id, host };
+        }
+        const answer = waiting?.answers.get(id);
+        if (answer !== undefined) return answer ? { id, host } : null;
+        try {
+          const alive =
+            (await this.runtime.runnerHostAlive?.(runnerId, id)) !== false;
+          waiting?.answers.set(id, alive);
+          return alive ? { id, host } : null;
+        } catch {
+          waiting?.answers.set(id, true);
+          return { id, host: undefined };
+        }
+      })
+    );
+    return inventory.filter((entry) => entry !== null);
+  }
+
+  /** Persist the running-row receipt before asking an idle host to exit. */
+  async stopRunnerHostForDrain(
+    runnerId: string,
+    host: RunnerHostIdentity,
+    epoch: number,
+    mayStop: () => boolean,
+    record: (entry: RunnerResumeAgent) => Promise<void>
+  ): Promise<void> {
+    const id = host.agentId;
+    if (this.lifecycleOperations.has(id) || this.drainedHostHolds.has(id))
+      return;
+    await this.serializeLifecycle(id, async () => {
+      const agent = await this.getAgent(id);
+      if (
+        agent?.status !== "running" ||
+        !agent.cliSessionId ||
+        !isOnEnrolledRunner(agent.placement, runnerId) ||
+        this.stoppingOrArchiving.has(id)
+      )
+        return;
+      const hold = this.runtime.holdForRecycle?.(runnerId, host, epoch);
+      if (!hold) return;
+      let keep = false;
+      try {
+        if (!(await hold.quiesce())) return;
+        const [entry] = await this.updateResumeSnapshot([id]);
+        if (!entry || this.stoppingOrArchiving.has(id) || !mayStop()) return;
+        await record({ ...entry, sessionId: agent.cliSessionId });
+        if (this.stoppingOrArchiving.has(id) || !hold.current() || !mayStop())
+          return;
+        keep = await hold.shutdown();
+        if (keep) this.drainedHostHolds.set(id, hold);
+      } finally {
+        if (!keep) hold.release();
+      }
     });
+  }
+
+  /**
+   * The running session remains the claim across unrelated row edits. An
+   * already resumed host is attached in place after a controller restart. False when there is nothing to resume.
+   */
+  async resumeRunnerDrainHost(
+    runnerId: string,
+    attemptId: string,
+    entry: RunnerResumeAgent,
+    /** Records that the launch is about to happen. */
+    beforeLaunch?: () => Promise<void>
+  ): Promise<boolean> {
+    const id = entry.id;
+    const release = () => {
+      this.drainedHostHolds.get(id)?.release();
+      this.drainedHostHolds.delete(id);
+    };
+    const dropped = () => {
+      release();
+      return false;
+    };
+    // Stop or restart can be inside the lifecycle lock waiting for the hold.
+    if (
+      this.stoppingOrArchiving.has(id) ||
+      (await this.getAgent(id))?.status !== "running"
+    )
+      return dropped();
+    return this.serializeLifecycle(id, async () => {
+      if (!(await this.runnerResumeWanted(runnerId, entry))) return dropped();
+      const unchanged =
+        entry.sessionId !== undefined ||
+        (await this.eligibleUpdateResumes([entry])).has(id);
+      if (!unchanged && !entry.launching) return dropped();
+      if (await this.runtime.runnerHostAlive?.(runnerId, id)) {
+        if (this.drainedHostHolds.has(id))
+          throw new Error("The quiesced runner host is still exiting.");
+        release();
+        this.runtime.reattachRunnerHost?.(id);
+        if (!(await this.runtime.attach(id)))
+          throw new Error("The runner host has not reattached.");
+        const session = this.runtime.runnerHostSession?.(id);
+        if (!session)
+          throw new Error("The runner host has not reported its session.");
+        const claimed =
+          entry.sessionId ?? (await this.getRequiredAgent(id)).cliSessionId;
+        if (session === claimed) return true;
+        // Alive is not resumed: a refused resume's host can outlive its stop.
+        try {
+          await this.runnerForce.stop(runnerId, id);
+        } catch (err) {
+          this.logger.warn(
+            { err, agentId: id, runnerId },
+            "could not stop a host that resumed another session"
+          );
+        }
+        await this.failRunnerResume(id);
+        this.runtime.disownRunnerHost?.(id);
+        return dropped();
+      }
+      if (!unchanged || this.stoppingOrArchiving.has(id)) return dropped();
+      if (entry.launching && entry.sessionId !== undefined) {
+        const { rowCount } = await this.pool.query(
+          "SELECT 1 FROM agents WHERE id = $1 AND runner_resume_attempt_id = $2",
+          [id, attemptId]
+        );
+        // A completed launch died before its progress was saved to the file.
+        if (rowCount) return dropped();
+      }
+      await beforeLaunch?.();
+      if (!(await this.runnerResumeWanted(runnerId, entry))) return dropped();
+      try {
+        await this.startAgentClaimed(id, attemptId, {
+          drain: true,
+          mayStart: () => !this.stoppingOrArchiving.has(id),
+        });
+      } catch (error) {
+        if (!(error instanceof RunnerResumeRefused)) throw error;
+        await this.failRunnerResume(id);
+        this.runtime.disownRunnerHost?.(id);
+        return dropped();
+      }
+      release();
+      return true;
+    });
+  }
+
+  private async runnerResumeWanted(runnerId: string, entry: RunnerResumeAgent) {
+    const agent = await this.getAgent(entry.id);
+    return (
+      agent?.status === "running" &&
+      !this.stoppingOrArchiving.has(entry.id) &&
+      isOnEnrolledRunner(agent.placement, runnerId) &&
+      Boolean(agent.cliSessionId) &&
+      // A resume never moves the row's ID, so the receipt's stays good. Claude
+      // and Codex can open a new session when a resume fails, but this launch
+      // passes `requireResume`: the runtime refuses a host that didn't resume
+      // the same ID, before `startAgentClaimed` writes the row.
+      (entry.sessionId === undefined || agent.cliSessionId === entry.sessionId)
+    );
+  }
+
+  /**
+   * A resume that kept failing ends as a failed start, so it does not keep
+   * the runner's other work held. False while a host may still be alive.
+   */
+  async abandonRunnerResume(
+    runnerId: string,
+    entry: RunnerResumeAgent
+  ): Promise<boolean> {
+    const { id } = entry;
+    if (!(await this.runnerResumeWanted(runnerId, entry))) return true;
+    if ((await this.runtime.runnerHostAlive?.(runnerId, id)) !== false)
+      return false;
+    if (await this.runnerResumeWanted(runnerId, entry))
+      await this.failRunnerResume(id);
+    return true;
+  }
+
+  private async failRunnerResume(id: string) {
+    if (
+      await this.setAgentStatus(
+        id,
+        "error",
+        RUNNER_RESUME_FAILED,
+        undefined,
+        "running"
+      )
+    )
+      await this.emitAttention(id, "blocked", RUNNER_RESUME_FAILED);
+  }
+
+  private async recycleRunnerHost(
+    update: ConfirmedRunnerUpdate,
+    host: RunnerHostIdentity,
+    active: () => boolean
+  ): Promise<boolean> {
+    const id = host.agentId;
+    const key = `${update.runnerId}:${id}`;
+    const defer = (reason: string) => {
+      const state = `${update.attemptId}:${host.instanceId}:${reason}`;
+      if (this.recycleDeferrals.get(key) !== state) {
+        this.recycleDeferrals.set(key, state);
+        this.logger.info(
+          {
+            runnerId: update.runnerId,
+            agentId: id,
+            attemptId: update.attemptId,
+            hostInstanceId: host.instanceId,
+            hostBuild: host.build,
+            reason,
+          },
+          "Runner host recycle deferred"
+        );
+      }
+      return false;
+    };
+    const eligible = () => !this.stoppingOrArchiving.has(id);
+    const targetOnline = () => {
+      const advert = this.remote?.selfUpdate(update.runnerId)?.advert;
+      return (
+        advert?.revision === update.revision &&
+        advert.installedSha256 === update.sha256
+      );
+    };
+    if (!eligible()) return defer("lifecycle_ended");
+    if (this.lifecycleOperations.has(id)) return defer("lifecycle_in_progress");
+    if (!targetOnline()) return defer("runner_build_changed");
+    let refusal = "host_hold_unavailable";
+    const hold = this.runtime.holdForRecycle?.(
+      update.runnerId,
+      host,
+      undefined,
+      (reason) => {
+        refusal = reason;
+      }
+    );
+    if (!hold) return defer(refusal);
+    this.recyclingHosts.add(id);
+    try {
+      if (!(await hold.quiesce())) return defer("host_not_quiescent");
+      if (!eligible()) return defer("lifecycle_ended");
+      if (!active()) return defer("recycle_pass_superseded");
+      return await this.serializeLifecycle(id, async () => {
+        const agent = await this.getAgent(id);
+        if (agent?.status !== "running") return defer("agent_not_running");
+        if (!agent.cliSessionId) return defer("missing_cli_session");
+        if (!isOnEnrolledRunner(agent.placement, update.runnerId))
+          return defer("placement_changed");
+        const location = sessionLocation(agent.placement);
+        if (!location || !this.remote?.available(location))
+          return defer("runner_unavailable");
+
+        // There is no engine-side wait token for Dispatch children. A live
+        // child (including a reviewer) can still owe this session a reply.
+        const children = await this.pool.query(
+          `SELECT 1 FROM agents
+           WHERE (parent_agent_id = $1 OR (role = 'review' AND launched_by_agent_id = $1))
+             AND deleted_at IS NULL AND status IN ('creating', 'running', 'stopping')
+           LIMIT 1`,
+          [id]
+        );
+        if (children.rows.length) return defer("live_dependents");
+        if (!eligible()) return defer("lifecycle_ended");
+        if (!active()) return defer("recycle_pass_superseded");
+        if (!targetOnline()) return defer("runner_build_changed");
+        if (this.holds?.isHeld(update.runnerId))
+          return defer("runner_update_hold");
+        if (!hold.current()) return defer("quiesce_lease_lost");
+        if (!(await hold.shutdown())) return defer("shutdown_refused");
+
+        const restarted = await this.restartHostLocked(agent, {
+          mayStart: () => eligible() && targetOnline(),
+        });
+        const confirmed =
+          restarted.status === "running" &&
+          restarted.cliSessionId === agent.cliSessionId &&
+          this.runtime
+            .runnerHosts?.(update.runnerId)
+            .some(
+              (replacement) =>
+                replacement.agentId === id &&
+                replacement.instanceId !== host.instanceId &&
+                replacement.build?.revision === update.revision
+            ) === true;
+        if (!confirmed) return defer("replacement_not_confirmed");
+        this.recycleDeferrals.delete(key);
+        return true;
+      });
+    } finally {
+      this.recyclingHosts.delete(id);
+      hold.release();
+    }
   }
 
   async stopAgent(
     id: string,
     input: StopAgentInput = {}
   ): Promise<AgentRecord> {
-    return this.serializeLifecycle(id, () =>
+    return this.terminateLifecycle(id, () =>
       this.stopAgentSerialized(id, input)
     );
   }
+
   private async stopAgentSerialized(
     id: string,
     input: StopAgentInput
   ): Promise<AgentRecord> {
-    const agent = await this.getRequiredAgent(id);
+    let agent = await this.getRequiredAgent(id);
+    const location = sessionLocation(agent.placement);
+    const runnerId = enrolledRunnerId(agent.placement);
+    const guard = runnerId && this.holds ? agent.status : undefined;
     await this.cancelSchedules?.(id).catch((err) =>
       this.logger.warn(
         { err, agentId: id },
@@ -2296,6 +4362,15 @@ export class AgentManager {
       )
     );
     const force = input.force ?? false;
+    if (guard === "archiving") return agent;
+
+    // A launch still held for a runner update never reached the runner:
+    // cancelling it is the whole stop.
+    if (await this.holds?.takeLaunch(id)) {
+      if (await this.setAgentStatus(id, "stopped", null, undefined, guard))
+        await this.setSetupPhase(id, null);
+      return this.getRequiredAgent(id);
+    }
 
     if (agent.status === "stopped") {
       // A user Stop cancels pending update resume even while already stopped.
@@ -2306,26 +4381,105 @@ export class AgentManager {
       return this.getRequiredAgent(id);
     }
 
-    await this.setAgentStatus(id, "stopping", null);
+    const hasResume = runnerId && this.hasRunnerDrainReceipt(id);
+    if (
+      hasResume &&
+      (await this.runtime.runnerHostAlive?.(runnerId, id).catch(() => true)) ===
+        false
+    ) {
+      await this.setAgentStatus(id, "stopped", null, undefined, guard);
+      return this.getRequiredAgent(id);
+    }
 
-    // Run repo-defined stop hook (best-effort, non-blocking)
-    await runLifecycleHook("stop", agent, this.logger).catch((err) =>
+    // The stop hook and the stop run on the runner; its update fence would
+    // refuse both. Wait for it first, with the agent untouched. A drain that
+    // is waiting or resuming lets both through.
+    if (
+      runnerId &&
+      this.holds &&
+      location &&
+      this.remote?.available(location)
+    ) {
+      await this.holds.wait(runnerId, "stop");
+      agent = await this.getRequiredAgent(id);
+      if (agent.status === "archiving" || agent.status === "stopped")
+        return agent;
+    }
+
+    if (
+      !(await this.setAgentStatus(
+        id,
+        "stopping",
+        null,
+        undefined,
+        guard && agent.status
+      ))
+    )
+      return this.getRequiredAgent(id);
+
+    try {
+      await runLifecycleHook(
+        "stop",
+        agent,
+        this.logger,
+        this.checkoutReadRunners(),
+        (request) =>
+          this.whileFenced({ ...agent, status: "stopping" }, request, "stop")
+      );
+    } catch (err) {
+      if (err instanceof LifecycleSuperseded) return this.getRequiredAgent(id);
       this.logger.warn(
         { err, agentId: id },
         "Stop hook failed; continuing shutdown"
-      )
-    );
+      );
+    }
 
     try {
+      const result = await this.pool.query<{ launch_id: string | null }>(
+        `INSERT INTO pending_agent_stops (agent_id, runner_id, launch_id, force)
+         SELECT id, $2::text, host_launch_id, $3 FROM agents WHERE id = $1
+         ON CONFLICT (agent_id) DO UPDATE SET
+           runner_id = EXCLUDED.runner_id, launch_id = EXCLUDED.launch_id,
+           force = EXCLUDED.force RETURNING launch_id`,
+        [id, location, force]
+      );
+      const launchId = result.rows[0]?.launch_id;
       this.streamRecorder.beginStop(id);
-      await this.runtime.stop(id, force);
+      let deferred = false;
+      try {
+        if (launchId) await this.runtime.stop(id, force, launchId);
+        else await this.runtime.stop(id, force);
+      } catch (error) {
+        if (!isStopDeferred(error)) {
+          await this.clearPendingStop(id);
+          throw error;
+        }
+        deferred = true;
+      }
       await this.streamRecorder.settleStopped(id);
-      await this.setAgentStatus(id, "stopped", null);
+      await this.setAgentStatus(
+        id,
+        "stopped",
+        null,
+        undefined,
+        guard && "stopping"
+      );
+
+      if (!deferred) await this.clearPendingStop(id);
 
       this.notifyStreamWrite(id, true);
     } catch (error) {
       const message = errorMessage(error);
-      await this.setAgentStatus(id, "error", message);
+      if (
+        !(await this.setAgentStatus(
+          id,
+          "error",
+          message,
+          undefined,
+          guard && "stopping"
+        ))
+      )
+        return this.getRequiredAgent(id);
       await this.emitAttention(
         id,
         "blocked",
@@ -2338,17 +4492,117 @@ export class AgentManager {
     return (await this.getAgent(id)) as AgentRecord;
   }
 
+  private async pendingStop(id: string): Promise<PendingAgentStop | undefined> {
+    return (
+      await this.pool.query<PendingAgentStop>(
+        "SELECT agent_id, runner_id, launch_id, force FROM pending_agent_stops WHERE agent_id = $1",
+        [id]
+      )
+    ).rows[0];
+  }
+
+  private async clearPendingStop(id: string): Promise<void> {
+    await this.pool.query(
+      "DELETE FROM pending_agent_stops WHERE agent_id = $1",
+      [id]
+    );
+  }
+
+  /** Called under the same lifecycle lock as Start and Stop. */
+  private async retryPendingStop(id: string): Promise<void> {
+    const intent = await this.pendingStop(id);
+    if (!intent || !this.runtime.retryStop) return;
+
+    // If Dispatch restarted mid-Stop, finish the user-facing transition even
+    // if the runner is still unavailable. An already newer launch owns its
+    // own status and stream.
+    const agent = await this.getAgent(id);
+    if (agent?.status === "stopping") {
+      this.streamRecorder.beginStop(id);
+      await this.streamRecorder.settleStopped(id);
+      await this.setAgentStatus(id, "stopped", null, undefined, "stopping");
+      this.notifyStreamWrite(id, true);
+    }
+    if (!intent.launch_id) {
+      // Legacy hosts have no persisted launch identity. Start drains their
+      // stop first; if the row has moved on, an unscoped retry is unsafe.
+      const current = await this.pool.query<{ host_launch_id: string | null }>(
+        "SELECT host_launch_id FROM agents WHERE id = $1",
+        [id]
+      );
+      if (current.rows[0]?.host_launch_id || agent?.status === "running") {
+        await this.clearPendingStop(id);
+        return;
+      }
+    }
+    await this.runtime.retryStop(
+      id,
+      intent.force,
+      intent.runner_id,
+      intent.launch_id ?? undefined
+    );
+    await this.clearPendingStop(id);
+  }
+
+  private retryingStops = false;
+
+  private async retryPendingStops(): Promise<void> {
+    if (this.retryingStops || !this.runtime.retryStop) return;
+    this.retryingStops = true;
+    try {
+      const { rows } = await this.pool.query<{ agent_id: string }>(
+        "SELECT agent_id FROM pending_agent_stops"
+      );
+      await Promise.all(
+        rows.map(async ({ agent_id: id }) => {
+          if (this.lifecycleOperations.has(id)) return;
+          await this.serializeLifecycle(id, () =>
+            this.retryPendingStop(id)
+          ).catch((err) => {
+            if (!isStopDeferred(err))
+              this.logger.warn(
+                { err, agentId: id },
+                "Could not retry agent stop"
+              );
+          });
+        })
+      );
+    } finally {
+      this.retryingStops = false;
+    }
+  }
+
+  retryStopsOnReconnect(): void {
+    void this.retryPendingStops().catch((err) =>
+      this.logger.warn({ err }, "Could not load pending agent stops")
+    );
+  }
+
   async beginArchive(
     id: string,
-    cleanupWorktree: WorktreeCleanupMode = "auto"
+    cleanupWorktree: WorktreeCleanupMode = "auto",
+    checkoutState: string | null = null
   ): Promise<AgentRecord> {
-    await this.cancelSchedules?.(id).catch((err) =>
-      this.logger.warn(
-        { err, agentId: id },
-        "could not cancel scheduled messages"
-      )
+    return this.terminateLifecycle(
+      id,
+      async () => {
+        await this.cancelSchedules?.(id).catch((err) =>
+          this.logger.warn(
+            { err, agentId: id },
+            "could not cancel scheduled messages"
+          )
+        );
+        // Archive wins over a launch held for a runner update.
+        await this.holds?.takeLaunch(id);
+        return beginArchiveImpl(
+          this.archiveDeps(),
+          id,
+          cleanupWorktree,
+          checkoutState
+        );
+      },
+      this.recyclingHosts.has(id) || this.hasRunnerDrainReceipt(id)
     );
-    return beginArchiveImpl(this.archiveDeps(), id, cleanupWorktree);
   }
 
   async executeArchive(
@@ -2363,25 +4617,56 @@ export class AgentManager {
   }
 
   async checkArchivePreview(id: string): Promise<AgentArchivePreview> {
-    return previewArchive(this.archiveDeps(), id);
+    return previewArchive(this.archiveDeps(), id, (agent) =>
+      this.worktreeStatus(agent)
+    );
   }
 
-  async checkWorktreeStatus(id: string): Promise<AgentWorktreeStatus> {
-    const agent = await this.getRequiredAgent(id);
+  async checkWorktreeStatus(id: string): Promise<WorktreeStatus> {
+    return this.worktreeStatus(await this.getRequiredAgent(id));
+  }
 
-    if (!agent.worktreePath) {
+  private async worktreeStatus(agent: AgentRecord): Promise<WorktreeStatus> {
+    let observation;
+    try {
+      observation = await observeArchiveCheckout(
+        this.pool,
+        agent,
+        this.remote,
+        this.localRunnerChild
+      );
+    } catch {
+      throw new CheckoutStatusUnavailable();
+    }
+    const { checkout, ownership, borrowers } = observation;
+    if (ownership === "owned" && !checkout) {
+      // The runner answered that its checkout is gone. Return the answer for the row's
+      // recorded worktree, or its no-worktree answer when none is recorded.
+      const worktreePath = agent.worktreePath ?? null;
       return {
-        hasWorktree: false,
+        ownership,
+        borrowers,
+        hasWorktree: worktreePath !== null,
         hasUnmergedCommits: false,
         hasUncommittedChanges: false,
-        worktreePath: null,
+        worktreePath,
         branchName: null,
         changedFiles: [],
         uncommittedFiles: [],
       };
     }
-
-    return readWorktreeStatus(agent.worktreePath);
+    return {
+      ownership,
+      borrowers,
+      checkoutState: checkout?.stateId,
+      hasWorktree: checkout !== null,
+      hasUnmergedCommits: checkout?.unmerged ?? false,
+      hasUncommittedChanges: Boolean(checkout?.uncommittedFiles.length),
+      worktreePath: checkout?.path ?? null,
+      branchName: checkout?.branch ?? null,
+      changedFiles: checkout?.changedFiles ?? [],
+      uncommittedFiles: checkout?.uncommittedFiles ?? [],
+    };
   }
 
   /** Run the existing recorder before DB startup as well as on reconcile ticks. */
@@ -2390,6 +4675,7 @@ export class AgentManager {
   }
 
   async reconcileAgents(): Promise<void> {
+    this.retryStopsOnReconnect();
     // Two passes: status reconciliation + orphan-session cleanup. The
     // SSE broadcaster doesn't need the changed-record list at this
     // entry point, so we drop the return value.
@@ -2398,39 +4684,127 @@ export class AgentManager {
   }
 
   /**
-   * Status-only reconciliation pass — the historical contract. Returns
-   * the records whose status the reconciler changed. Callers that want
-   * the orphan-session cleanup too should call `reconcileAgents()`.
+   * Periodic reconciliation returns the changed records for broadcast.
+   * Enrolled runners can connect after startup, so also retry their sweep.
    */
   async reconcileAgentStatuses(): Promise<AgentRecord[]> {
-    return this.reconciler.reconcileAgentStatuses();
+    this.retryStopsOnReconnect();
+    const changed = await this.reconciler.reconcileAgentStatuses();
+    if (this.remote?.connectedRunnerIds?.().length)
+      await this.reconciler.cleanupOrphanedHosts("enrolled");
+    void this.retryRunnerCleanup().catch((err) =>
+      this.logger.warn({ err }, "Could not retry runner cleanup")
+    );
+    return changed;
+  }
+
+  private runnerCleanupRunning = false;
+
+  private async retryRunnerCleanup(): Promise<void> {
+    if (this.runnerCleanupRunning) return;
+    // Offline cleanup must never delay the status reconciliation loop.
+    this.runnerCleanupRunning = true;
+    try {
+      const { rows } = await this.pool.query<
+        ArchiveCheckoutAgent & {
+          mode: WorktreeCleanupMode | null;
+          runner_id: string;
+        }
+      >(
+        `SELECT id, cwd, worktree_path AS "worktreePath", base_branch AS "baseBranch",
+                worktree_branch AS "worktreeBranch", archive_cleanup_mode AS mode, runner_id,
+                COALESCE((runner_preparation->'source' ? 'repository') OR (runner_preparation->'source' ? 'session'), false) AS "repositorySource",
+                COALESCE(runner_preparation->'pending' = 'true'::jsonb, false) AS "preparationPending",
+                COALESCE(runner_preparation #>> '{source,checkout,kind}' = 'new', false) AS "repositoryBranchCreated"
+         FROM agents WHERE deleted_at IS NOT NULL AND
+           (runner_cleanup_pending OR runner_preparation->'pending' = 'true'::jsonb) ORDER BY id`
+      );
+      for (const agent of rows) {
+        const { id, mode } = agent;
+        try {
+          const archive = archiveRunner(
+            { child: this.localRunnerChild, remote: this.remote },
+            agent,
+            placementFromRow(agent)
+          );
+          if (archive.archive.awaitsStoppedHost) {
+            if (enrolledRunnerId(placementFromRow(agent)) && !this.remote)
+              continue;
+            await this.runtime.stop(id, true);
+            await this.streamRecorder.settleStopped(id);
+            if (enrolledRunnerId(placementFromRow(agent)))
+              await this.runtime.clearRemoteState?.(id);
+          }
+          const outcome = await archiveCheckout(
+            this.pool,
+            this.logger,
+            agent,
+            mode ?? "auto",
+            true,
+            undefined,
+            archive
+          );
+          const retainMetadata =
+            outcome.kind === "pending" ||
+            retainsPreparationLocator(agent, outcome);
+          await archive.call("session.retire", {
+            session: sessionFromWire(id),
+            ...(retainMetadata && { checkoutPending: true }),
+          });
+          if (outcome.kind === "pending") continue;
+          if (!retainMetadata) await this.runtime.clearRemoteState?.(id);
+          await this.pool.query(
+            `UPDATE agents SET runner_cleanup_pending = false, archive_cleanup_mode = NULL, archive_checkout_state = NULL,
+             runner_preparation = runner_preparation - 'pending' WHERE id = $1`,
+            [id]
+          );
+        } catch (err) {
+          this.logger.warn(
+            { err, agentId: id },
+            "Runner cleanup remains pending"
+          );
+        }
+      }
+    } finally {
+      this.runnerCleanupRunning = false;
+    }
+  }
+
+  permitsRemoteAgentMcp(runnerId: string): boolean {
+    return this.remote?.permitsAgentMcp(runnerId) ?? false;
+  }
+
+  readRepoManifest(agent: AgentRecord) {
+    return requestCheckoutCommand(this.checkoutReadRunners(), agent, {
+      kind: "read",
+      checkout: "effective",
+      path: REPO_TOOL_MANIFEST_PATH,
+    });
+  }
+
+  runRepoCommand(
+    agent: AgentRecord,
+    state: string,
+    argv: string[],
+    signal?: AbortSignal
+  ) {
+    return requestCheckoutCommand(
+      this.checkoutReadRunners(),
+      agent,
+      {
+        kind: "run",
+        checkout: "effective",
+        path: REPO_TOOL_MANIFEST_PATH,
+        state,
+        argv,
+      },
+      signal
+    );
   }
 
   /** The agent's working directory: the worktree when it has one. */
   async resolveRuntimeCwd(agent: AgentRecord): Promise<string> {
     return agent.cwd;
-  }
-
-  private async validateWorkingDirectory(rawCwd: string): Promise<string> {
-    const cwd = rawCwd.startsWith("~/")
-      ? path.join(process.env.HOME ?? "/", rawCwd.slice(2))
-      : rawCwd === "~"
-        ? (process.env.HOME ?? "/")
-        : rawCwd;
-
-    if (!path.isAbsolute(cwd)) {
-      throw new AgentError("Working directory must be an absolute path.", 400);
-    }
-
-    const directory = await stat(cwd).catch(() => null);
-    if (!directory || !directory.isDirectory()) {
-      throw new AgentError(
-        "Working directory does not exist or is not a directory.",
-        400
-      );
-    }
-
-    return cwd;
   }
 
   private async getRequiredAgent(id: string): Promise<AgentRecord> {
@@ -2446,8 +4820,9 @@ export class AgentManager {
     id: string,
     status: AgentStatus,
     lastError: string | null,
-    onUpdated?: (updatedAt: string) => void
-  ): Promise<void> {
+    onUpdated?: (updatedAt: string) => void,
+    expectedStatus?: AgentStatus
+  ): Promise<boolean> {
     if (status !== "error") this.attentionHistory.settleBlocked(id);
     if (status === "stopped" || status === "archiving")
       this.attentionHistory.permissions(id, []);
@@ -2458,12 +4833,16 @@ export class AgentManager {
           last_error = $3,
           updated_at = NOW()
       WHERE id = $1
+      ${expectedStatus === undefined ? "" : "AND deleted_at IS NULL AND status = $4"}
       RETURNING updated_at::text AS updated_at
       `,
-      [id, status, lastError]
+      expectedStatus === undefined
+        ? [id, status, lastError]
+        : [id, status, lastError, expectedStatus]
     );
 
     if (result.rowCount !== 1) {
+      if (expectedStatus !== undefined) return false;
       this.logger.warn(
         { id, status },
         "Agent status update skipped because row was missing."
@@ -2472,6 +4851,7 @@ export class AgentManager {
       onUpdated?.(result.rows[0].updated_at);
       this.eventBus.publish(await this.getRequiredAgent(id));
     }
+    return true;
   }
 
   // --- Files ---
@@ -2500,6 +4880,7 @@ export class AgentManager {
         role,
         status,
         cwd,
+        runner_id,
         launch_cwd AS "launchCwd",
         worktree_path AS "worktreePath",
         worktree_branch AS "worktreeBranch",
@@ -2578,14 +4959,34 @@ export class AgentManager {
       pool: this.pool,
       logger: this.logger,
       runtime: this.runtime,
+      remote: this.remote,
+      localRunnerChild: () => this.localRunnerChild(),
       diffStatsRefresher: this.diffStatsRefresher,
       getAgent: (id) => this.getAgent(id),
       getRequiredAgent: (id) => this.getRequiredAgent(id),
-      setAgentStatus: (id, status, lastError) =>
-        this.setAgentStatus(id, status, lastError),
+      setAgentStatus: async (id, status, lastError) => {
+        await this.setAgentStatus(id, status, lastError);
+      },
       beginStopStream: (id) => this.streamRecorder.beginStop(id),
       settleStream: (id) => this.streamRecorder.settleStopped(id),
       setArchivePhase: (id, phase) => this.setArchivePhase(id, phase),
+      claimArchive: (id, claim) =>
+        this.terminateLifecycle(
+          id,
+          claim,
+          this.recyclingHosts.has(id) || this.hasRunnerDrainReceipt(id)
+        ),
+      ...(this.holds && {
+        waitForRunner: async (agent: AgentRecord) => {
+          const runnerId = enrolledRunnerId(agent.placement);
+          if (!runnerId || !this.holds!.isHeld(runnerId)) return true;
+          await this.holds!.wait(runnerId, "stop");
+          const current = await this.getAgent(agent.id);
+          return current?.status === "archiving" && current.cwd === agent.cwd;
+        },
+        whileFenced: <T>(agent: AgentRecord, request: () => Promise<T>) =>
+          this.whileFenced(agent, request, "stop"),
+      }),
     };
   }
 }
@@ -2645,4 +5046,26 @@ function sameGitContext(
     a.isWorktree === b.isWorktree &&
     (a.repoIconPath ?? null) === (b.repoIconPath ?? null)
   );
+}
+
+function isUpdateFenced(error: unknown) {
+  return (
+    error instanceof RunnerUpdateFenced ||
+    (error instanceof RunnerCallError && error.code === "fenced")
+  );
+}
+
+/**
+ * A refused `set_workspace` as the app answers it: a status the runner
+ * recorded (main's 400s), 403 for a revoked runner, else 409 as before.
+ */
+function selectionError(error: unknown): Error {
+  if (error instanceof AgentError) return error;
+  if (error instanceof RunnerRevoked) return new AgentError(error.message, 403);
+  const message = errorMessage(error);
+  if (error instanceof RunnerCallError) {
+    const status = (error.details as { status?: unknown } | undefined)?.status;
+    if (typeof status === "number") return new AgentError(message, status);
+  }
+  return new AgentError(message, 409);
 }

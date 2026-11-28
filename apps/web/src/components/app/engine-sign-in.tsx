@@ -1,10 +1,11 @@
+import type { EngineScope } from "@dispatch/runner-protocol/engine-management";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { CheckCircle2, Loader2 } from "lucide-react";
 
 import type { EngineLogin, EngineLoginEngine } from "@dispatch/shared";
 
 import { Button } from "@/components/ui/button";
-import { CopyButton } from "@/components/ui/copy-button";
+import { CommandBlock } from "@/components/ui/command-block";
 import { Input } from "@/components/ui/input";
 import { isLoginActive, useEngineLogin } from "@/hooks/use-engine-login";
 
@@ -21,12 +22,14 @@ import { isLoginActive, useEngineLogin } from "@/hooks/use-engine-login";
  */
 export function EngineSignIn({
   engine,
+  scope,
   since,
   onSignedIn,
   extra,
   primary = false,
 }: {
   engine: EngineLoginEngine;
+  scope?: EngineScope;
   /**
    * Only a login that ended after this shows how it ended (and fires
    * `onSignedIn`); an older one leaves the Sign in button. ISO time.
@@ -41,7 +44,7 @@ export function EngineSignIn({
   /** Sign in is the one primary action, as in a failed turn's Alert. */
   primary?: boolean;
 }): JSX.Element {
-  const flow = useEngineLogin(engine);
+  const flow = useEngineLogin(engine, scope);
   const { login } = flow;
   const [code, setCode] = useState("");
   const recent =
@@ -156,17 +159,21 @@ export function EngineSignIn({
         <p className="text-body-sm text-foreground">
           1. Copy this link and open it in a browser.
         </p>
-        <CopyBlock text={login.url} testId="engine-sign-in-url" />
+        <CommandBlock
+          text={login.url}
+          testId="engine-sign-in-url"
+          textClassName="break-all"
+        />
       </div>
       {login.userCode ? (
         <div className="space-y-1.5">
           <p className="text-body-sm text-foreground">
             2. Sign in, then enter this code when asked.
           </p>
-          <CopyBlock
+          <CommandBlock
             text={login.userCode}
             testId="engine-sign-in-user-code"
-            large
+            textClassName="text-body-lg leading-7 tracking-widest"
           />
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="flex items-center gap-2 text-label-sm text-muted-foreground">
@@ -212,38 +219,6 @@ export function EngineSignIn({
           <div className="flex justify-end">{cancel}</div>
         </div>
       )}
-    </div>
-  );
-}
-
-/** Text to copy, as plain monospace (not a link), with its copy button. */
-function CopyBlock({
-  text,
-  testId,
-  large,
-}: {
-  text: string;
-  testId: string;
-  large?: boolean;
-}): JSX.Element {
-  return (
-    <div className="flex min-w-0 items-start gap-1 rounded-sm border border-border bg-background/veil p-2">
-      <code
-        className={
-          large
-            ? "min-w-0 flex-1 select-all px-1 font-mono text-body-lg tracking-widest text-foreground"
-            : "min-w-0 flex-1 select-all break-all px-1 font-mono text-label-sm leading-relaxed text-foreground"
-        }
-        data-testid={testId}
-      >
-        {text}
-      </code>
-      <CopyButton
-        text={text}
-        label="Copy"
-        className="shrink-0"
-        data-testid={`${testId}-copy`}
-      />
     </div>
   );
 }

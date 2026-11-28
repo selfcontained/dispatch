@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
+import { ArrowRight } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useCopyText } from "@/hooks/use-copy";
 
@@ -51,6 +54,13 @@ export function BrowserExtensionSettings(): JSX.Element {
   return (
     <SettingsGroup
       title="Browser feedback"
+      actions={
+        <Button asChild size="sm" variant="ghost">
+          <Link to="/settings/runners">
+            Manage runners <ArrowRight aria-hidden="true" />
+          </Link>
+        </Button>
+      }
       data-testid="browser-extension-settings"
     >
       <div className="space-y-4">

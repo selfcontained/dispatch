@@ -27,7 +27,8 @@ const directoryField = z
 
 const AddTemplateBodySchema = z.object({
   name: z.string().trim().min(1, "Template name is required."),
-  directory: directoryField,
+  directory: z.string().transform(resolveTilde),
+  runner: z.string().min(1).optional(),
   projectId: z.string().min(1).nullable().optional(),
   description: z.string().nullable().optional(),
   prompt: z.string().nullable().optional(),
@@ -46,7 +47,8 @@ const AddTemplateBodySchema = z.object({
 
 const UpdateTemplateBodySchema = z.object({
   name: z.string().min(1).optional(),
-  directory: directoryField.optional(),
+  directory: z.string().transform(resolveTilde).optional(),
+  runner: z.string().min(1).optional(),
   projectId: z.string().min(1).nullable().optional(),
   description: z.string().nullable().optional(),
   prompt: z.string().nullable().optional(),
@@ -89,6 +91,7 @@ function classifyErrorCode(message: string): number {
   if (message.includes("already exists") || message.includes("referenced by"))
     return 409;
   if (
+    message === "Template directory is required." ||
     message.includes("cannot be overridden") ||
     message.includes("Missing required") ||
     message.includes("template argument") ||

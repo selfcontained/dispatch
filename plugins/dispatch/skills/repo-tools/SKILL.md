@@ -106,8 +106,8 @@ logged and never blocks the stop.
 
 The tools manifest is re-read from disk on **every** MCP request — there is no
 caching — so an edited command, description, or param takes effect on the next
-tool listing with no server restart. (The mtime cache in Dispatch applies only to
-`hooks`, not to `tools`.)
+tool listing with no server restart. Dispatch reads each checkout’s stop hook
+when it tears down the session.
 
 The catch is on the client side: an agent's CLI fetches its tool list once at
 session start and holds it. So an edit to an **existing** tool is picked up by

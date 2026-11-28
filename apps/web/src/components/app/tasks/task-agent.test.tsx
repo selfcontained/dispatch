@@ -1,3 +1,4 @@
+import { localAgentPlacement } from "@/test-utils/__fixtures__/agent-placement";
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
@@ -22,6 +23,7 @@ function agent(overrides: Partial<Agent> = {}): Agent {
     name: "builder",
     type: "codex",
     status: "running",
+    placement: localAgentPlacement,
     cwd: "/repo",
     worktreePath: null,
     worktreeBranch: null,

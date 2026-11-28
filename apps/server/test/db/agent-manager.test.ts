@@ -1,7 +1,25 @@
+import {
+  RunnerCallError,
+  sessionFromWire,
+} from "@dispatch/runner-protocol/contract";
+import { withTestWorkspaceRunner } from "../helpers/test-workspace-runner.js";
+import { createMcpHandlers } from "../../src/server/mcp-handlers.js";
+import { sessionFilesWorkload } from "../../../../packages/runner/src/workload/agents/checkout-worker.js";
+import { TemplateService } from "../../src/templates/service.js";
 import { personaCatalog } from "../../src/personas/catalog.js";
-import * as gitContext from "../../src/shared/git/git-context.js";
-import { upsertPersona } from "../../src/personas/authoring.js";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import * as gitContext from "../../../../packages/runner/src/workload/shared/git/git-context.js";
+import { upsertPersona } from "../helpers/native-persona-authoring.js";
+import { execFileSync } from "node:child_process";
+import {
+  link,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { observeGitCheckout } from "../../../../packages/runner/src/workload/agents/checkout-inspection.js";
 import os from "node:os";
 import path from "node:path";
 
@@ -15,6 +33,13 @@ import {
   vi,
 } from "vitest";
 import type { Pool } from "pg";
+import {
+  enrolledTarget,
+  seedEnrolledProject,
+  managerEnrolledRunner,
+} from "../helpers/manager-enrolled-runner.js";
+import { placementForRunner } from "../../src/runners/placement.js";
+import type { RemoteRunnerService } from "../../src/agents/remote/service.js";
 
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./setup.js";
 import type {
@@ -24,30 +49,43 @@ import type {
 } from "../../src/agents/runtime.js";
 
 // Git context and lifecycle hooks shell out; keep them off the host.
+vi.mock(
+  "../../../../packages/runner/src/workload/shared/lib/run-command.js",
+  () => import("../../src/shared/lib/run-command.js")
+);
 vi.mock("../../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
 }));
 
 // Worktree creation is mocked per test; the rest of the module is real.
-vi.mock("../../src/shared/git/worktree.js", async () => {
-  const actual = await vi.importActual<
-    typeof import("../../src/shared/git/worktree.js")
-  >("../../src/shared/git/worktree.js");
-  return { ...actual, createGitWorktree: vi.fn() };
-});
+vi.mock(
+  "../../../../packages/runner/src/workload/shared/git/worktree.js",
+  async () => {
+    const actual = await vi.importActual<
+      typeof import("../../../../packages/runner/src/workload/shared/git/worktree.js")
+    >("../../../../packages/runner/src/workload/shared/git/worktree.js");
+    return { ...actual, createGitWorktree: vi.fn() };
+  }
+);
 
-vi.mock("../../src/agents/workspace-prep.js", () => ({
-  setupAgentWorkspace: vi.fn(async () => {}),
-}));
+vi.mock(
+  "../../../../packages/runner/src/workload/agents/workspace-prep.js",
+  () => ({
+    installWorkspaceDependencies: vi.fn(async () => {}),
+  })
+);
 
 // We need to dynamically import AgentManager AFTER the mocks are in place
 const {
-  AgentManager,
+  AgentManager: HostAgentManager,
   AgentError,
   LAUNCH_CONTEXT_RESOLVE_TIMEOUT_MS,
   LAUNCH_CONTEXT_WRITE_TIMEOUT_MS,
   UPDATE_RESUME_MESSAGE,
 } = await import("../../src/agents/manager.js");
+const AgentManager = withTestWorkspaceRunner(HostAgentManager, {
+  recordedArchiveFixture: true,
+});
 const { StreamService, launchBlockId } =
   await import("../../src/chat/service.js");
 const { createAgentMcpToken } = await import("../../src/auth.js");
@@ -57,7 +95,7 @@ const { createInertRuntime } = await import("../../src/agents/runtime.js");
 const { forgetLearnedAgentModels } =
   await import("../../src/shared/agent-models.js");
 const { createGitWorktree, GitWorktreeError } =
-  await import("../../src/shared/git/worktree.js");
+  await import("../../../../packages/runner/src/workload/shared/git/worktree.js");
 
 let pool: Pool;
 
@@ -81,7 +119,6 @@ const testConfig = {
   authToken: "test-token",
   filesRoot: "/tmp/dispatch-test-files",
   dispatchBinDir: "/tmp/dispatch-test-bin",
-  // Real executables: the launch path checks the engine CLI is installed.
   codexBin: "/bin/echo",
   claudeBin: "/bin/echo",
   opencodeBin: "/bin/opencode",
@@ -203,11 +240,17 @@ function promptsFor(agentId: string, spy: SpyRuntime = runtime): string[] {
 }
 
 beforeAll(async () => {
+  testConfig.agentStateRoot = await mkdtemp(
+    path.join(os.tmpdir(), "dispatch-agent-manager-")
+  );
+  inertTestConfig.agentStateRoot = testConfig.agentStateRoot;
   pool = await setupTestDb();
   await runTestMigrations();
+  await seedEnrolledProject(pool);
 });
 
 afterAll(async () => {
+  await rm(testConfig.agentStateRoot, { recursive: true, force: true });
   await teardownTestDb();
 });
 
@@ -239,8 +282,162 @@ beforeEach(async () => {
   );
 });
 
+const testRunner = "runner-test";
+const runnerPlacement = placementForRunner(testRunner);
+const target = enrolledTarget(testRunner);
+function enrolledFixture(
+  handlers: Record<string, (input: any) => unknown> = {},
+  online = () => true
+) {
+  const base = managerEnrolledRunner({ online });
+  const call = vi.fn(async (runner: string, op: string, input: any) => {
+    if (!online())
+      throw new RunnerCallError({
+        code: "unavailable",
+        message: "Runner is offline.",
+      });
+    return handlers[op]
+      ? await handlers[op](input)
+      : base.call(runner, op, input);
+  });
+  return {
+    remote: { ...base.remote, call } as unknown as RemoteRunnerService,
+    call,
+  };
+}
+
 describe("AgentManager", () => {
+  it.each([
+    { name: "another agent's file", source: null },
+    { name: "a hard link", source: "linked.txt", hardLink: true },
+    { name: "a 21 MiB file", source: "large.txt", size: 21 * 1024 * 1024 },
+    { name: "a path with dot-dot", source: "files/../note.txt" },
+    { name: "a backslash name", source: "back\\slash.txt" },
+    { name: "a file under the state root", source: "hosts/note.txt" },
+  ])("collects $name from the local filesystem", async (fixture) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "dispatch-local-file-"));
+    const filesRoot = path.join(root, "files");
+    const agentStateRoot = path.join(root, "hosts");
+    const localManager = new AgentManager(
+      pool,
+      noopLogger,
+      { ...testConfig, filesRoot, agentStateRoot },
+      { runtime }
+    );
+    try {
+      const agent = await localManager.createAgent({
+        cwd: root,
+        useWorktree: false,
+      });
+      await mkdir(agentStateRoot, { recursive: true });
+
+      // Keep the original path so the dot-dot case reaches the filesystem.
+      let source: string;
+      if (fixture.source === null) {
+        const other = await localManager.createAgent({
+          cwd: root,
+          useWorktree: false,
+        });
+        source = path.join(other.filesDir!, "note.txt");
+      } else {
+        source = `${root}/${fixture.source}`;
+      }
+      const bytes = Buffer.alloc(fixture.size ?? 32, "a");
+      if (fixture.hardLink) {
+        const original = path.join(root, "original.txt");
+        await writeFile(original, bytes);
+        await link(original, source);
+      } else {
+        await writeFile(source, bytes);
+      }
+
+      const collected = await localManager.collectSessionFile(agent, source);
+      expect(collected.equals(bytes)).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("collects a local session file with one read and no copy, as main", async () => {
+    const agent = await manager.createAgent({
+      cwd: "/tmp",
+      useWorktree: false,
+    });
+    const file = path.join(testConfig.agentStateRoot, "collect-once.bin");
+    await writeFile(file, Buffer.from([0, 1, 2, 255]));
+    const read = vi.spyOn(sessionFilesWorkload, "get");
+    read.mockClear();
+    try {
+      const collected = await manager.collectSessionFile(agent, file);
+      expect(read).toHaveBeenCalledExactlyOnceWith(file);
+      // The very Buffer the read returned: never encoded and decoded.
+      expect(collected).toBe(await read.mock.results[0]!.value);
+    } finally {
+      read.mockRestore();
+      await rm(file, { force: true });
+    }
+  });
+
+  it("delivers a registered native composer text file through the built-in runner", async () => {
+    const agent = await manager.createAgent({
+      cwd: "/tmp",
+      useWorktree: false,
+    });
+    const file = path.join(agent.filesDir!, "composer.txt");
+    const deliver = vi.spyOn(sessionFilesWorkload, "put");
+    deliver.mockClear();
+    const submitted = vi.fn();
+    const chat = new StreamService({
+      pool,
+      publishUiEvent: () => {},
+      getAgent: (id) => manager.getAgent(id),
+      filesRoot: testConfig.filesRoot,
+      delivery: {
+        access: async () => ({ mode: "live" }),
+        held: () => false,
+        activeTurn: () => false,
+        cancel: async () => {},
+        inject: async (id, text, opts) => {
+          const prepared = await manager["preparePromptFiles"](
+            id,
+            opts?.images ?? [],
+            text
+          );
+          submitted(prepared.text, prepared.images);
+        },
+      },
+    });
+    try {
+      await writeFile(file, "composer text");
+      const {
+        rows: [attachment],
+      } = await pool.query<{ id: number }>(
+        `INSERT INTO files (agent_id, file_name, source, size_bytes, mime_type)
+         VALUES ($1, 'composer.txt', 'user', 13, 'text/plain') RETURNING id`,
+        [agent.id]
+      );
+      await chat.sendUserPost(agent.id, {
+        text: "Read the attachment",
+        attachments: [{ type: "file", fileId: attachment.id }],
+      });
+      await chat.waitForInFlightDeliveries(2_000);
+      expect(deliver).toHaveBeenCalledExactlyOnceWith(file, "prompt");
+      expect(submitted).toHaveBeenCalledExactlyOnceWith(
+        expect.stringContaining(`- file: ${file} (text/plain,`),
+        []
+      );
+    } finally {
+      await rm(file, { force: true });
+    }
+  });
+
   describe("setProject", () => {
+    afterAll(async () => {
+      await pool.query(
+        "DELETE FROM projects WHERE id IN ('project-a', 'project-b')"
+      );
+    });
+
     it("moves an agent's children with it and keeps child: false launches put", async () => {
       await pool.query(
         "INSERT INTO projects (id, name, repo_root) VALUES ('project-a', 'A', '/tmp'), ('project-b', 'B', '/var/tmp') ON CONFLICT DO NOTHING"
@@ -306,6 +503,1295 @@ describe("AgentManager", () => {
   });
 
   describe("createAgent", () => {
+    it("uses the project folder for direct and template launches and retains the child's folder", async () => {
+      const root = await mkdtemp(path.join(os.tmpdir(), "dispatch-project-"));
+      try {
+        const projectId = "local-create-project";
+        const childCwd = path.join(root, "child");
+        await mkdir(childCwd);
+        await pool.query(
+          "INSERT INTO projects (id, name, repo_root) VALUES ($1, 'Local', $2)",
+          [projectId, root]
+        );
+        const parent = await manager.createAgent({ cwd: childCwd, projectId });
+        expect(parent).toMatchObject({
+          cwd: root,
+          projectId,
+          worktreePath: null,
+        });
+        const child = await manager.createAgent({
+          cwd: childCwd,
+          parentAgentId: parent.id,
+          useWorktree: false,
+        });
+        expect(child).toMatchObject({ cwd: childCwd, projectId });
+        const templateId = "local-create-template";
+        await pool.query(
+          "INSERT INTO templates (id, name, directory, project_id) VALUES ($1, 'Local', $2, $3)",
+          [templateId, root, projectId]
+        );
+        const templated = await manager.createAgent({
+          cwd: childCwd,
+          templateId,
+        });
+        expect(templated).toMatchObject({ cwd: root, projectId, templateId });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    it.each([
+      [{ templateId: "missing" }, 404, "Template not found."],
+      [{ projectId: "missing" }, 404, "Project not found."],
+      [{}, 400, "Working directory must be an absolute path."],
+    ] as const)(
+      "validates local launch inputs in main's order (%j)",
+      async (input, statusCode, message) => {
+        await expect(
+          manager.createAgent({ cwd: "relative", ...input })
+        ).rejects.toMatchObject({ statusCode, message });
+        expect(runtime.launch).not.toHaveBeenCalled();
+        expect(await manager.listAgents()).toEqual([]);
+      }
+    );
+
+    it("publishes the creating row before preparing an existing branch", async () => {
+      const created = vi.fn();
+      manager.onAgentCreated(created);
+      vi.mocked(createGitWorktree).mockImplementationOnce(async () => {
+        expect(created).toHaveBeenCalledWith(
+          expect.objectContaining({
+            status: "creating",
+            setupPhase: "worktree",
+          })
+        );
+        expect(runtime.launch).not.toHaveBeenCalled();
+        return { worktreePath: "/tmp", branchName: "develop" } as never;
+      });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: true,
+        createNewBranch: false,
+        baseBranch: "develop",
+      });
+      expect(createGitWorktree).toHaveBeenCalledWith(
+        expect.objectContaining({
+          baseBranch: "develop",
+          createNewBranch: false,
+        })
+      );
+      expect(agent).toMatchObject({
+        status: "running",
+        setupPhase: null,
+        worktreeBranch: "develop",
+      });
+    });
+
+    it("persists managed placement across restart and retries archive when the original runner returns", async () => {
+      const available = vi.fn(() => true);
+      const stateId = "2".repeat(64);
+      const cwd = "/runner/checkout";
+      const prepared = {
+        path: cwd,
+        moved: false,
+        origin: "https://example.test/fixture",
+        worktree: { path: cwd, branch: "agent-work", base: "develop" },
+      };
+      const { remote, call } = enrolledFixture(
+        {
+          "workspace.prepare": () => prepared,
+          "workspace.resume": () => prepared,
+          "workspace.observe": ({ session }) => ({
+            ownership: "owned",
+            owner: session,
+            borrowers: [],
+            checkout: {
+              path: cwd,
+              branch: "agent-work",
+              stateId,
+              unmerged: false,
+              changedFiles: [],
+              uncommittedFiles: [],
+            },
+          }),
+        },
+        available
+      );
+      const first = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      const projectId = "managed-runner-project";
+      await pool.query(
+        "INSERT INTO projects (id, name, repo_root,repository) VALUES ($1, 'Runner', '/tmp/remote-project','https://example.test/fixture')",
+        [projectId]
+      );
+      const repository = {
+        url: "https://example.test/fixture.git",
+        checkout: { kind: "new", branch: "agent-work", base: "develop" },
+      };
+      const agent = await first.createAgent({
+        ...target,
+        projectId,
+        repository,
+      });
+      expect(agent).toMatchObject({ cwd, projectId });
+      expect(runtime.launch).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          placement: testRunner,
+          cwd,
+        })
+      );
+
+      const resumedRuntime = createSpyRuntime();
+      const discard = vi.fn(async () => {});
+      const resumed = new AgentManager(pool, noopLogger, testConfig, {
+        runtime: { ...resumedRuntime, discard },
+        remote,
+      });
+      await resumed.stopAgent(agent.id);
+      await resumed.startAgent(agent.id);
+      expect(resumedRuntime.launch).toHaveBeenCalledWith(
+        expect.objectContaining({ placement: testRunner, cwd })
+      );
+      const observed = await resumed.checkWorktreeStatus(agent.id);
+      expect(observed).toMatchObject({
+        ownership: "owned",
+        checkoutState: stateId,
+      });
+      await resumed.beginArchive(agent.id, "auto", stateId);
+      available.mockReturnValue(false);
+      await expect(resumed.checkWorktreeStatus(agent.id)).rejects.toMatchObject(
+        { statusCode: 503 }
+      );
+      resumedRuntime.stop.mockRejectedValueOnce(new Error("offline"));
+      await resumed.executeArchive(agent.id, {
+        onPhaseChange: vi.fn(),
+        onComplete: vi.fn(),
+        onError: vi.fn(),
+      });
+      expect(await resumed.getAgent(agent.id)).toMatchObject({
+        status: "archiving",
+      });
+      expect(call.mock.calls.some(([, op]) => op === "workspace.release")).toBe(
+        false
+      );
+      const reconnected = new AgentManager(pool, noopLogger, testConfig, {
+        runtime: { ...createSpyRuntime(), discard },
+        remote,
+      });
+      available.mockReturnValue(true);
+      await reconnected.executeArchive(agent.id, {
+        onPhaseChange: vi.fn(),
+        onComplete: vi.fn(),
+        onError: vi.fn(),
+      });
+      expect(await reconnected.getAgent(agent.id)).toBeNull();
+      expect(
+        call.mock.calls.filter(([, op]) => op === "workspace.release")
+      ).toHaveLength(1);
+      expect(
+        call.mock.calls
+          .find(([, op]) => op === "workspace.release")
+          ?.slice(0, 3)
+      ).toEqual([
+        testRunner,
+        "workspace.release",
+        {
+          session: agent.id,
+          deleteBranch: Boolean(
+            agent.worktreeBranch && agent.worktreeBranch !== agent.baseBranch
+          ),
+          originalBranch: agent.worktreeBranch,
+        },
+      ]);
+      expect(discard).not.toHaveBeenCalled();
+    });
+
+    it("refreshes a runner branch after a turn and keeps the last context if the probe fails", async () => {
+      const root = "/runner/checkout";
+      let branch = "main";
+      const { remote, call } = enrolledFixture({
+        "git.context": () => ({
+          repoRoot: root,
+          worktreePath: root,
+          worktreeName: "checkout",
+          isWorktree: false,
+          branch,
+          repoIconPath: "favicon.svg",
+        }),
+      });
+      const first = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      const agent = await first.createAgent({
+        ...target,
+      });
+      expect(agent.gitContext).toMatchObject({
+        branch,
+        repoIconPath: "favicon.svg",
+      });
+
+      const settle = () =>
+        runtime.emit(
+          agent.id,
+          {
+            type: "turn",
+            agentId: agent.id,
+            state: "settled",
+          },
+          0
+        );
+
+      branch = "after-turn";
+      await settle();
+      await vi.waitFor(async () => {
+        expect(await first.getAgent(agent.id)).toMatchObject({
+          gitContext: { branch },
+          gitContextStale: false,
+        });
+      });
+
+      call.mockRejectedValueOnce(new Error("runner offline"));
+      await settle();
+      await vi.waitFor(async () => {
+        expect(await first.getAgent(agent.id)).toMatchObject({
+          gitContext: { branch },
+          gitContextStale: true,
+        });
+      });
+    });
+
+    it("records a runner selection only after acknowledgement and binds independent children to the selected origin", async () => {
+      const cwd = "/runner/checkout";
+      const projectId = "managed-runner-project";
+      await pool.query(
+        "INSERT INTO projects (id, name, repo_root,repository) VALUES ($1, 'Runner', '/tmp/remote-project','https://example.test/fixture') ON CONFLICT DO NOTHING",
+        [projectId]
+      );
+      const selection = {
+        path: "/workload/moved",
+        moved: true,
+        origin: "https://example.test/moved.git",
+      };
+      const prepared = {
+        path: cwd,
+        moved: false,
+        origin: "https://example.test/fixture",
+        worktree: null,
+      };
+      const { remote, call } = enrolledFixture({
+        "workspace.select": () => selection,
+        "workspace.describe": () => selection,
+        "workspace.prepare": () => prepared,
+        "workspace.resume": () => prepared,
+      });
+      const first = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      const parent = await first.createAgent({ ...target, projectId });
+      expect(parent).toMatchObject({ cwd, projectId, workspacePath: null });
+      call.mockClear();
+      const move = { path: "/workload/moved/src", baseBranch: "develop" };
+      call.mockRejectedValueOnce(new Error("runner offline"));
+      await expect(first.setWorkspace(parent.id, move)).rejects.toThrow(
+        "runner offline"
+      );
+      expect(await first.getAgent(parent.id)).toMatchObject({
+        workspacePath: null,
+      });
+      await expect(
+        first.setWorkspace(parent.id, { path: "relative/path" })
+      ).rejects.toThrow("Workspace path must be absolute.");
+      expect(call).toHaveBeenCalledTimes(1);
+      await expect(first.setWorkspace(parent.id, move)).resolves.toMatchObject({
+        cwd,
+        projectId,
+        workspacePath: "/workload/moved",
+        workspaceBaseBranch: "develop",
+      });
+      expect(call.mock.calls).toContainEqual([
+        testRunner,
+        "workspace.select",
+        { session: parent.id, path: move.path },
+        undefined,
+        undefined,
+      ]);
+
+      const childInput = {
+        cwd,
+        launchedByAgentId: parent.id,
+        parentAgentId: parent.id,
+        useWorktree: true,
+        baseBranch: "develop",
+      };
+      // The launcher's folder is its session's (T36): no binding option.
+      const child = await first.createAgent(childInput);
+      expect(child).toMatchObject({ cwd, projectId, parentAgentId: parent.id });
+      expect(call.mock.calls.map((args) => args.slice(0, 3))).toContainEqual([
+        testRunner,
+        "workspace.prepare",
+        expect.objectContaining({
+          session: child.id,
+          source: { session: parent.id },
+          worktree: expect.objectContaining({ base: "develop" }),
+        }),
+      ]);
+      const launch = expect.objectContaining({
+        agentId: child.id,
+        placement: testRunner,
+        cwd,
+      });
+      expect(runtime.launch).toHaveBeenLastCalledWith(launch);
+      const restarted = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      await restarted.stopAgent(child.id);
+      await restarted.startAgent(child.id);
+      expect(runtime.launch).toHaveBeenLastCalledWith(launch);
+      expect(await restarted.getAgent(parent.id)).toMatchObject({
+        cwd,
+        projectId,
+        workspacePath: "/workload/moved",
+      });
+    });
+
+    it("records the branch from a runner's prepared worktree and resumes it on restart", async () => {
+      const cwd = "/workload/prepared";
+      const projectId = "capable-runner-project";
+      const repository = "https://example.test/project";
+      await pool.query(
+        "INSERT INTO projects (id, name, repo_root, repository) VALUES ($1, 'Runner', '/tmp/capable-runner-project', $2)",
+        [projectId, repository]
+      );
+      const prepared = {
+        path: cwd,
+        moved: false,
+        origin: repository,
+        worktree: { path: cwd, branch: "prepared-feature", base: "trunk" },
+      };
+      const { remote, call } = enrolledFixture({
+        "workspace.prepare": () => prepared,
+        "workspace.resume": () => prepared,
+      });
+      const manager = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      await expect(
+        manager.createAgent({ cwd, placement: runnerPlacement })
+      ).rejects.toThrow("Choose a project to launch on this runner.");
+      const agent = await manager.createAgent({
+        ...target,
+        projectId,
+        repository: { url: "https://other.test/ignored" },
+        baseBranch: "trunk",
+        worktreeBranch: "feature",
+      });
+      expect(agent.worktreeBranch).toBe("prepared-feature");
+      expect(call.mock.calls.map((args) => args.slice(0, 3))).toContainEqual([
+        testRunner,
+        "workspace.prepare",
+        expect.objectContaining({
+          session: agent.id,
+          source: {
+            repository,
+            checkout: { kind: "new", branch: "feature", base: "trunk" },
+          },
+        }),
+      ]);
+      expect(runtime.launch.mock.calls.at(-1)?.[0].repository).toBeUndefined();
+      await manager.stopAgent(agent.id);
+      call.mockClear();
+      expect(await manager.startAgent(agent.id)).toMatchObject({
+        worktreeBranch: "prepared-feature",
+      });
+      expect(call.mock.calls.map((args) => args.slice(0, 3))).toContainEqual([
+        testRunner,
+        "workspace.resume",
+        { session: agent.id },
+      ]);
+      expect(call.mock.calls.some(([, op]) => op === "workspace.prepare")).toBe(
+        false
+      );
+    });
+    describe("a runner launch from a bare repository URL", () => {
+      const joined = "https://example.test/joined";
+      const runnerManager = () =>
+        new AgentManager(pool, noopLogger, testConfig, {
+          runtime,
+          remote: enrolledFixture().remote,
+        });
+      beforeAll(async () => {
+        await pool.query(
+          `INSERT INTO projects (id, name, repository) VALUES
+             ('url-joined', 'Joined', $1), ('url-explicit', 'Explicit', 'https://example.test/explicit')
+           ON CONFLICT DO NOTHING`,
+          [joined]
+        );
+      });
+
+      it("keeps today's outcome for a URL no project has", async () => {
+        const repository = { url: "https://example.test/nomatch" };
+        await expect(
+          runnerManager().createAgent({
+            cwd: "",
+            placement: runnerPlacement,
+            repository,
+          })
+        ).rejects.toThrow("Choose a project to launch on this runner.");
+      });
+
+      it("starts in the project for its repository", async () => {
+        {
+          const agent = await runnerManager().createAgent({
+            cwd: "",
+            placement: runnerPlacement,
+            repository: { url: `${joined}.git` },
+          });
+          expect(agent.projectId).toBe("url-joined");
+        }
+      });
+
+      it("keeps an explicit project and a parent's project", async () => {
+        const repository = { url: `${joined}.git` };
+        const manager = runnerManager();
+        const explicit = await manager.createAgent({
+          cwd: "",
+          placement: runnerPlacement,
+          projectId: "url-explicit",
+          repository,
+        });
+        expect(explicit.projectId).toBe("url-explicit");
+        const child = await manager.createAgent({
+          cwd: "",
+          placement: runnerPlacement,
+          parentAgentId: explicit.id,
+          launchedByAgentId: explicit.id,
+          repository,
+        });
+        expect(child.projectId).toBe("url-explicit");
+      });
+
+      it("leaves a local launch to main's folder matching", async () => {
+        const folder = await mkdtemp(path.join(os.tmpdir(), "url-local-"));
+        try {
+          const launch = () =>
+            runnerManager().createAgent({
+              cwd: folder,
+              repository: { url: joined },
+            });
+          expect((await launch()).projectId).toBeNull();
+          await pool.query(
+            "INSERT INTO projects (id, name, repo_root) VALUES ('url-local-folder', 'Local Folder', $1)",
+            [folder]
+          );
+          expect((await launch()).projectId).toBe("url-local-folder");
+        } finally {
+          await pool.query("DELETE FROM projects WHERE id='url-local-folder'");
+          await rm(folder, { recursive: true, force: true });
+        }
+      });
+    });
+
+    it("shows a runner's prepared checkout on the row, keeping its placement and worktree status", async () => {
+      const cwd = "/workload/displayed";
+      const projectId = "displayed-runner-project";
+      const repository = "https://example.test/displayed";
+      await pool.query(
+        "INSERT INTO projects (id, name, repository) VALUES ($1, 'Runner', $2)",
+        [projectId, repository]
+      );
+      let observed: unknown = null;
+      const { remote } = enrolledFixture({
+        "workspace.observe": () => observed,
+        "workspace.prepare": () => ({
+          path: cwd,
+          moved: false,
+          origin: repository,
+          worktree: { path: cwd, branch: "displayed", base: "main" },
+        }),
+      });
+      const manager = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      const agent = await manager.createAgent({
+        ...target,
+        projectId,
+        worktreeBranch: "displayed",
+      });
+      expect(await manager.getAgent(agent.id)).toMatchObject({
+        cwd,
+        worktreePath: "/workload/displayed",
+        worktreeBranch: "displayed",
+        workspacePath: null,
+      });
+
+      // The archive dialog answers as it did when the row had no path.
+      const status = async (worktreePath: string | null) => {
+        await pool.query("UPDATE agents SET worktree_path = $2 WHERE id = $1", [
+          agent.id,
+          worktreePath,
+        ]);
+        return manager.checkWorktreeStatus(agent.id).then(
+          (value) => ({ value }),
+          (error: { statusCode?: number; message: string }) => ({
+            error: [error.statusCode, error.message],
+          })
+        );
+      };
+      observed = {
+        ownership: "owned",
+        owner: agent.id,
+        borrowers: [],
+        checkout: {
+          path: "/workload/displayed",
+          branch: "displayed",
+          stateId: "3".repeat(64),
+          unmerged: false,
+          changedFiles: [],
+          uncommittedFiles: [],
+        },
+      };
+      expect(await status("/workload/displayed")).toEqual(await status(null));
+      // A gone checkout answers as main does: the recorded worktree, or no
+      // worktree when the row records none.
+      observed = { ...observed, checkout: null };
+      expect(await status("/workload/displayed")).toMatchObject({
+        value: { hasWorktree: true, worktreePath: "/workload/displayed" },
+      });
+      expect(await status(null)).toMatchObject({
+        value: { hasWorktree: false, worktreePath: null },
+      });
+      observed = {
+        ...observed,
+        checkout: {
+          path: "/workload/displayed",
+          branch: "displayed",
+          stateId: "3".repeat(64),
+          unmerged: false,
+          changedFiles: [],
+          uncommittedFiles: [],
+        },
+      };
+      expect(await status("/workload/displayed")).toMatchObject({
+        value: { hasWorktree: true, worktreePath: "/workload/displayed" },
+      });
+    });
+
+    it("passes the parent session for both remote checkout modes", async () => {
+      const cwd = "/runner/current";
+      const projectId = "session-source-project";
+      await pool.query(
+        "INSERT INTO projects (id, name, repository) VALUES ($1, 'Runner', 'https://example.test/session-source')",
+        [projectId]
+      );
+      const { call, remote } = enrolledFixture({
+        "workspace.prepare": () => ({
+          path: cwd,
+          moved: false,
+          origin: null,
+          worktree: null,
+        }),
+      });
+      const manager = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      const parent = await manager.createAgent({
+        ...target,
+        projectId,
+        useWorktree: false,
+      });
+
+      for (const useWorktree of [false, true]) {
+        call.mockClear();
+        const child = await manager.createAgent({
+          cwd,
+          parentAgentId: parent.id,
+          useWorktree,
+          ...(useWorktree && { baseBranch: "develop", createNewBranch: false }),
+        });
+        expect(child).toMatchObject({
+          projectId,
+          parentAgentId: parent.id,
+          status: "running",
+        });
+        expect(call.mock.calls.map((args) => args.slice(0, 3))).toContainEqual([
+          testRunner,
+          "workspace.prepare",
+          expect.objectContaining({
+            session: child.id,
+            source: { session: parent.id },
+            ...(useWorktree && {
+              worktree: expect.objectContaining({
+                base: "develop",
+                create: false,
+              }),
+            }),
+            copyIgnored: expect.any(Array),
+            installDependencies: true,
+          }),
+        ]);
+        expect(lastLaunch().agentId).toBe(child.id);
+        expect(lastLaunch().placement).toBe(testRunner);
+      }
+    });
+
+    it("launches a runner caller's child in a folder it names on that runner (D7)", async () => {
+      const cwd = "/srv/other";
+      const projectId = "named-folder-project";
+      await pool.query(
+        "INSERT INTO projects (id, name, repository) VALUES ($1, 'Runner', 'https://example.test/named-folder')",
+        [projectId]
+      );
+      let prepareError: object | null = null;
+      // The runner's own answer, as its workload worker resolves the path.
+      const resolveRunnerPath = vi.fn(
+        async (_runner: string, { path: raw }: { path: string }) => ({
+          resolvedPath: raw,
+          canonicalPath: raw === "/srv/missing" ? null : raw,
+          exists: raw !== "/srv/missing",
+          isDirectory: raw !== "/srv/missing",
+          isGitRepo: false,
+          privacyRestricted: false,
+          projectRoot: null,
+          git: null,
+        })
+      );
+      const { call, remote } = enrolledFixture({
+        "path.resolve": (input) => resolveRunnerPath(testRunner, input),
+        "workspace.prepare": () => {
+          if (prepareError) throw new RunnerCallError(prepareError as never);
+          return { path: cwd, moved: false, origin: null, worktree: null };
+        },
+      });
+      const manager = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      const parent = await manager.createAgent({
+        ...target,
+        projectId,
+        useWorktree: false,
+      });
+      const named = (folder: string, more: object = {}) =>
+        manager.createAgent({
+          cwd: folder,
+          launcherFolder: folder,
+          parentAgentId: parent.id,
+          launchedByAgentId: parent.id,
+          useWorktree: false,
+          ...more,
+        });
+
+      for (const useWorktree of [false, true]) {
+        call.mockClear();
+        resolveRunnerPath.mockClear();
+        const child = await named("/srv/other", {
+          useWorktree,
+          ...(useWorktree && { baseBranch: "develop", createNewBranch: false }),
+        });
+        // Resolved on the caller's runner, never on this machine.
+        expect(resolveRunnerPath).toHaveBeenCalledWith("runner-test", {
+          path: "/srv/other",
+        });
+        expect(child).toMatchObject({
+          cwd,
+          projectId,
+          parentAgentId: parent.id,
+          status: "running",
+        });
+        expect(call.mock.calls.map((args) => args.slice(0, 3))).toContainEqual([
+          testRunner,
+          "workspace.prepare",
+          expect.objectContaining({
+            session: child.id,
+            source: { directory: "/srv/other" },
+            ...(useWorktree && {
+              worktree: expect.objectContaining({
+                base: "develop",
+                create: false,
+              }),
+            }),
+            copyIgnored: expect.any(Array),
+            installDependencies: true,
+          }),
+        ]);
+        // Its own session: it borrows nothing of its launcher's.
+        expect(lastLaunch().agentId).toBe(child.id);
+        expect(lastLaunch().useWorktreeOf).toBeUndefined();
+        const { rows } = await pool.query(
+          "SELECT runner_id, runner_worktree_owner, runner_preparation FROM agents WHERE id = $1",
+          [child.id]
+        );
+        expect(rows[0]).toMatchObject({
+          runner_id: "runner-test",
+          runner_worktree_owner: null,
+          runner_preparation: { source: { directory: "/srv/other" } },
+        });
+      }
+
+      // A folder that does not exist there: main's 400, before any record.
+      call.mockClear();
+      const before = (await pool.query("SELECT count(*) FROM agents")).rows[0]
+        .count;
+      await expect(named("/srv/missing")).rejects.toMatchObject({
+        statusCode: 400,
+        message: "Working directory does not exist or is not a directory.",
+      });
+      expect(
+        (await pool.query("SELECT count(*) FROM agents")).rows[0].count
+      ).toBe(before);
+      expect(call.mock.calls.map(([, op]) => op)).toEqual(["path.resolve"]);
+
+      // A preparation the runner refuses fails the launch; the launcher's
+      // checkout is never asked for or released.
+      call.mockClear();
+      prepareError = {
+        code: "not_found",
+        message: "Working directory does not exist or is not a directory.",
+      };
+      const failed = await named("/srv/other").catch((error) => error);
+      const sessions = call.mock.calls.map(([, , request]) => request.session);
+      expect(sessions).not.toContain(parent.id);
+      const failedId =
+        failed?.id ??
+        (
+          await pool.query(
+            "SELECT id FROM agents WHERE parent_agent_id = $1 ORDER BY created_at DESC LIMIT 1",
+            [parent.id]
+          )
+        ).rows[0].id;
+      expect((await manager.getAgent(failedId))?.status).not.toBe("running");
+      expect(await manager.getAgent(parent.id)).toMatchObject({
+        cwd,
+        status: "running",
+      });
+    });
+
+    it("settles an unattempted remote launch while offline and prepares once on Start", async () => {
+      const cwd = "/runner/checkout";
+      const projectId = "remote-create-crash-project";
+      await pool.query(
+        "INSERT INTO projects (id, name, repo_root, repository) VALUES ($1, 'Runner', '/tmp/remote-crash-root', 'https://example.test/create-crash')",
+        [projectId]
+      );
+      let online = true;
+      // The launch reads its persona from the repository on the runner; the
+      // first read never answers, so the create stops before preparing.
+      const personaFiles = vi
+        .fn()
+        .mockImplementationOnce(() => new Promise(() => {}))
+        .mockImplementation(() => ({
+          hasOrigin: true,
+          files: [
+            {
+              path: ".agents/personas/builder.md",
+              content: "---\ntype: task\n---\nbuild",
+            },
+          ],
+          warnings: [],
+          refreshing: false,
+          updatedAt: 1,
+          truncated: false,
+        }));
+      const { call, remote } = enrolledFixture(
+        {
+          "checkout.defaultFiles": personaFiles,
+          "workspace.resume": () => null,
+          "workspace.prepare": () => ({
+            path: cwd,
+            moved: false,
+            origin: null,
+            worktree: null,
+          }),
+        },
+        () => online
+      );
+      const first = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      const created = await first.createAgent(
+        {
+          ...target,
+          projectId,
+          persona: "builder",
+          useWorktree: true,
+          worktreeBranch: "recover/remote",
+        },
+        { detachLaunch: true }
+      );
+      expect(created.status).toBe("creating");
+      await vi.waitFor(() => expect(personaFiles).toHaveBeenCalled());
+      expect(call.mock.calls.map(([, op]) => op)).not.toContain(
+        "workspace.prepare"
+      );
+      expect(runtime.launch).not.toHaveBeenCalled();
+
+      call.mockClear();
+      online = false;
+      const retryRuntime = createSpyRuntime();
+      retryRuntime.isAlive.mockResolvedValue(true);
+      const restarted = new AgentManager(pool, noopLogger, testConfig, {
+        runtime: retryRuntime,
+        remote,
+      });
+      expect(await restarted.restoreRunningAgents()).toMatchObject({
+        lost: [created.id],
+      });
+      expect(await restarted.getAgent(created.id)).toMatchObject({
+        status: "stopped",
+      });
+      expect(retryRuntime.isAlive).not.toHaveBeenCalled();
+      expect(call).not.toHaveBeenCalled();
+
+      online = true;
+      expect(await restarted.startAgent(created.id)).toMatchObject({
+        status: "running",
+      });
+      expect(call.mock.calls.map(([, op]) => op)).toContain("workspace.resume");
+      expect(
+        call.mock.calls.filter(([, op]) => op === "workspace.prepare")
+      ).toHaveLength(1);
+      expect(retryRuntime.launch).toHaveBeenCalledTimes(1);
+    });
+
+    it("carries MCP new and existing checkout intent to the runner launch request", async () => {
+      const { call, remote } = enrolledFixture();
+      const manager = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      const parent = await manager.createAgent({
+        ...target,
+      });
+      const mcp = createMcpHandlers({
+        pool,
+        agentManager: manager,
+        publishUiEvent: vi.fn(),
+        withStreamFlag: (agent) => ({ ...agent, hasStream: false }),
+      } as Parameters<typeof createMcpHandlers>[0]);
+      const input = {
+        name: "existing",
+        prompt: "Work independently",
+        useWorktree: true,
+      };
+      for (const [refs, checkout] of [
+        [
+          { baseBranch: "origin/feature/x" },
+          { kind: "branch", branch: "feature/x", allowDefault: true },
+        ],
+        [
+          { baseBranch: "origin/feature/x", worktreeBranch: "ignored" },
+          { kind: "branch", branch: "feature/x", allowDefault: true },
+        ],
+        [
+          { baseBranch: "main" },
+          { kind: "branch", branch: "main", allowDefault: true },
+        ],
+        [{}, { kind: "default" }],
+        [
+          {
+            createNewBranch: true,
+            worktreeBranch: "origin/new-topic",
+            baseBranch: "origin/develop",
+          },
+          { kind: "new", branch: "origin/new-topic", base: "develop" },
+        ],
+        [
+          { createNewBranch: true },
+          { kind: "new", branch: expect.stringMatching(/^agt_.+\/existing$/) },
+        ],
+      ] as const) {
+        const child = await mcp.launchAgent(parent.id, { ...input, ...refs });
+        await vi.waitFor(() =>
+          expect(
+            call.mock.calls.some(
+              ([, op, input]) =>
+                op === "workspace.prepare" && input.session === child.agentId
+            )
+          ).toBe(true)
+        );
+        expect(call.mock.calls.map((args) => args.slice(0, 3))).toContainEqual([
+          testRunner,
+          "workspace.prepare",
+          expect.objectContaining({
+            session: child.agentId,
+            source: { session: parent.id },
+            worktree: expect.objectContaining({
+              create: checkout.kind === "new",
+              branch: "branch" in checkout ? checkout.branch : "main",
+              ...("base" in checkout && { base: checkout.base }),
+            }),
+          }),
+        ]);
+        expect(runtime.launch).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            agentId: child.agentId,
+            placement: testRunner,
+          })
+        );
+      }
+    });
+
+    it("resolves a web repository launch from worktree intent like the old raw checkout", async () => {
+      const url = "https://example.test/r.git";
+      const github = "https://github.com/owner/repo.git";
+      await pool.query(
+        "INSERT INTO projects(id,name,repository) VALUES ('web-topic','Web',$1),('web-gh','GitHub',$2)",
+        [url, github]
+      );
+      const { call, remote } = enrolledFixture({
+        "git.branches": () => ({
+          branches: ["main", "trunk"],
+          defaultBranch: "trunk",
+        }),
+      });
+      const manager = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      const cwd = "";
+      const launched = async (input: Record<string, unknown>) => {
+        const agent = await manager.createAgent({
+          cwd,
+          placement: runnerPlacement,
+          projectId: "web-topic",
+          name: "Web Topic",
+          ...input,
+        });
+        const sent = call.mock.calls.find(
+          ([, op, request]) =>
+            op === "workspace.prepare" && request.session === agent.id
+        );
+        const source = sent?.[2].source;
+        expect(source).toBeDefined();
+        return {
+          agent,
+          repository: { url: source.repository, checkout: source.checkout },
+        };
+      };
+      for (const [raw, intent, checkout] of [
+        [
+          { kind: "new", branch: "topic", base: "develop" },
+          {
+            createNewBranch: true,
+            worktreeBranch: "topic",
+            baseBranch: "develop",
+          },
+          { kind: "new", branch: "topic", base: "develop" },
+        ],
+        [
+          { kind: "new", branch: "topic" },
+          { createNewBranch: true, worktreeBranch: "topic" },
+          { kind: "new", branch: "topic" },
+        ],
+        // The shared resolver also lets an existing branch be the default
+        // branch, as MCP and local launches already do.
+        [
+          { kind: "branch", branch: "feature/x" },
+          { createNewBranch: false, baseBranch: "feature/x" },
+          { kind: "branch", branch: "feature/x", allowDefault: true },
+        ],
+      ] as const) {
+        // An older client's raw checkout is still launched unchanged.
+        expect(
+          (await launched({ repository: { url, checkout: raw } })).repository
+        ).toEqual({ url, checkout: raw });
+        expect(
+          (
+            await launched({
+              repository: { url },
+              useWorktree: true,
+              ...intent,
+            })
+          ).repository
+        ).toEqual({ url, checkout });
+      }
+      // A blank new-branch name gets the same auto name as MCP launches.
+      const auto = await launched({
+        repository: { url },
+        useWorktree: true,
+        createNewBranch: true,
+      });
+      expect(auto.repository).toEqual({
+        url,
+        checkout: { kind: "new", branch: `${auto.agent.id}/web-topic` },
+      });
+      // Project launches carry the base chosen in the launch form.
+      const known = await launched({
+        projectId: "web-gh",
+        baseBranch: "trunk",
+      });
+      expect(known.agent.baseBranch).toBe("trunk");
+      expect(known.repository.checkout).toMatchObject({
+        kind: "new",
+        base: "trunk",
+      });
+      await expect(
+        manager.comparisonBase(known.agent, "changes")
+      ).resolves.toBe("trunk");
+      await expect(
+        manager.createAgent({
+          cwd,
+          placement: runnerPlacement,
+          repository: {},
+          useWorktree: true,
+        })
+      ).rejects.toThrow("Choose a project");
+      await expect(
+        manager.createAgent({
+          cwd,
+          placement: runnerPlacement,
+          repository: { url },
+          createNewBranch: true,
+          worktreeBranch: "bad..name",
+        })
+      ).rejects.toThrow();
+    });
+
+    it("places project templates and scheduled jobs on their saved runner", async () => {
+      const cwd = "/runner/project";
+      const projectId = `repository-only-runner-project-typed`;
+      const repository = `https://example.test/owner/repo-typed`;
+      await pool.query(
+        "INSERT INTO projects (id, name, repository) VALUES ($1, 'Runner', $2)",
+        [projectId, repository]
+      );
+      const { call, remote } = enrolledFixture({
+        "workspace.prepare": () => ({
+          path: cwd,
+          moved: false,
+          origin: repository,
+          worktree: null,
+        }),
+      });
+      const manager = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      const templates = new TemplateService(pool, manager, noopLogger);
+      const template = await templates.addTemplate({
+        name: `Run remote template (prepared=typed)`,
+        projectId,
+        directory: "",
+        runner: testRunner,
+        prompt: "Work",
+        useWorktree: false,
+      });
+      const { agent } = await templates.launchTemplate({
+        templateId: template.id,
+      });
+      expect(agent).toMatchObject({
+        cwd,
+        projectId,
+        templateId: template.id,
+      });
+      const jobs = new JobService(pool, manager, noopLogger, testConfig);
+      try {
+        const job = await jobs.addJob({
+          name: `Run remote job (prepared=typed)`,
+          projectId,
+          directory: "",
+          runner: testRunner,
+          prompt: "Work on the schedule",
+          schedule: "0 * * * *",
+          enabled: true,
+          useWorktree: false,
+        });
+        const run = await jobs.runJob({
+          jobId: job.id,
+          triggerSource: "scheduled",
+          wait: false,
+        });
+        expect(await manager.getAgent(run.agentId!)).toMatchObject({
+          cwd,
+          projectId,
+        });
+        for (const session of [agent.id, run.agentId])
+          expect(
+            call.mock.calls.map((args) => args.slice(0, 3))
+          ).toContainEqual([
+            testRunner,
+            "workspace.prepare",
+            expect.objectContaining({
+              session,
+              source: { repository, checkout: { kind: "default" } },
+            }),
+          ]);
+        expect(runtime.launch).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            agentId: run.agentId,
+            placement: testRunner,
+            mcp: expect.objectContaining({
+              url: `https://example.test/api/mcp/jobs/${run.runId}/${run.agentId}`,
+            }),
+          })
+        );
+      } finally {
+        await jobs.shutdown();
+      }
+    });
+
+    it("persists the actual reviewer checkout owner on the same runner and reuses it on restart", async () => {
+      const { remote, call } = enrolledFixture({
+        "checkout.changes": () => ({
+          kind: "changes",
+          head: "a".repeat(40),
+          baseRef: "origin/develop",
+          stateId: "b".repeat(64),
+          files: ["src/test.ts"],
+        }),
+        "checkout.stats": () => null,
+      });
+      const first = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      const parent = await first.createAgent({
+        ...target,
+        repository: {
+          url: "https://example.test/r.git",
+          checkout: { kind: "new", branch: "topic", base: "develop" },
+        },
+      });
+      const cwd = parent.cwd;
+      const launch = {
+        cwd,
+        role: "review" as const,
+        parentAgentId: parent.id,
+        launchedByAgentId: parent.id,
+        useWorktree: false,
+        persona: "code-review",
+      };
+      await expect(
+        first.createAgent(
+          { ...launch, placement: placementForRunner("unrelated") },
+          { useWorktreeOf: parent.id }
+        )
+      ).rejects.toThrow("Invalid shared checkout binding");
+      await expect(
+        first.createAgent(
+          {
+            cwd,
+            parentAgentId: parent.id,
+            launchedByAgentId: parent.id,
+            fullAccess: true,
+          },
+          { useWorktreeOf: parent.id }
+        )
+      ).rejects.toThrow("Invalid child checkout binding");
+      const child = await first.createAgent(launch, {
+        useWorktreeOf: parent.id,
+      });
+      const expected = expect.objectContaining({
+        agentId: child.id,
+        placement: testRunner,
+      });
+      expect(runtime.launch).toHaveBeenLastCalledWith(expected);
+      await first.stopAgent(child.id);
+      const resumed = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      await resumed.startAgent(child.id);
+      expect(runtime.launch).toHaveBeenLastCalledWith(expected);
+      await resumed.inspectCheckout(child, {
+        kind: "changes",
+        baseBranch: null,
+      });
+      expect(call.mock.calls.map((args) => args.slice(0, 3))).toContainEqual([
+        testRunner,
+        "checkout.changes",
+        expect.objectContaining({
+          target: expect.objectContaining({ session: child.id }),
+          base: "develop",
+        }),
+      ]);
+      await resumed
+        .viewCheckout(child, {
+          kind: "stats",
+          baseBranch: null,
+          includeUncommitted: true,
+        })
+        .catch(() => null);
+      expect(call.mock.calls.map((args) => args.slice(0, 3))).toContainEqual([
+        testRunner,
+        "checkout.stats",
+        expect.objectContaining({
+          target: expect.objectContaining({ session: child.id }),
+          base: "develop",
+          uncommitted: true,
+        }),
+      ]);
+    });
+
+    it("binds a child:false launch without a worktree to its launcher's runner checkout", async () => {
+      const { remote, call } = enrolledFixture({
+        "checkout.changes": () => ({
+          kind: "changes",
+          head: "a".repeat(40),
+          baseRef: "origin/develop",
+          stateId: "b".repeat(64),
+          files: ["src/test.ts"],
+        }),
+        "checkout.stats": () => null,
+      });
+      const first = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      const launcher = await first.createAgent({
+        ...target,
+        repository: {
+          url: "https://example.test/r.git",
+          checkout: { kind: "new", branch: "topic", base: "develop" },
+        },
+      });
+      // What MCP launch_agent sends for child:false with no worktree.
+      const cwd = launcher.cwd;
+      const launch = {
+        cwd,
+        launchedByAgentId: launcher.id,
+        useWorktree: false,
+      };
+      const independent = await first.createAgent(launch, {
+        useWorktreeOf: launcher.id,
+      });
+      expect(independent).toMatchObject({
+        placement: runnerPlacement,
+        parentAgentId: null,
+        launchedByAgentId: launcher.id,
+      });
+      const expected = expect.objectContaining({
+        agentId: independent.id,
+        placement: testRunner,
+      });
+      expect(runtime.launch).toHaveBeenLastCalledWith(expected);
+      expect(runtime.launch.mock.calls.at(-1)?.[0].repository).toBeUndefined();
+      const { rows } = await pool.query(
+        "SELECT runner_worktree_owner, runner_repository FROM agents WHERE id = $1",
+        [independent.id]
+      );
+      expect(rows[0]).toEqual({
+        runner_worktree_owner: launcher.id,
+        runner_repository: null,
+      });
+      await first.stopAgent(independent.id);
+      const resumed = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      await resumed.startAgent(independent.id);
+      expect(runtime.launch).toHaveBeenLastCalledWith(expected);
+    });
+
     it.each([null, "project-b"])(
       "inherits parent membership with template project %s",
       async (templateProject) => {
@@ -357,7 +1843,7 @@ describe("AgentManager", () => {
       expect(runtime.launch).toHaveBeenCalledTimes(1);
     });
 
-    it("should hand the runtime the engine, cwd, bins and an agent-scoped MCP endpoint", async () => {
+    it("should hand the runtime the engine, cwd and an agent-scoped MCP endpoint", async () => {
       const agent = await manager.createAgent({
         type: "claude",
         cwd: "/tmp",
@@ -369,23 +1855,15 @@ describe("AgentManager", () => {
         agentId: agent.id,
         cwd: "/tmp",
         engine: "claude",
-        bins: {
-          claudeBin: "/bin/echo",
-          codexBin: "/bin/echo",
-        },
         mcp: {
           url: `http://127.0.0.1:6767/api/mcp/${agent.id}`,
           token: createAgentMcpToken("test-token", agent.id),
         },
         resumeSessionId: null,
       });
-      expect(launch.env).toMatchObject({
-        DISPATCH_AGENT_ID: agent.id,
+      expect(launch.env).toEqual({
         DISPATCH_FILES_DIR: path.join(testConfig.filesRoot, agent.id),
-        DISPATCH_PORT: "6767",
-        DISPATCH_SCHEME: "http",
       });
-      expect(launch.pathPrefix[0]).toBe(testConfig.dispatchBinDir);
       expect(launch.systemPrompt).toContain(agent.id);
     });
 
@@ -395,10 +1873,11 @@ describe("AgentManager", () => {
         useWorktree: false,
         jobRunId: "run_1",
       });
-      expect(lastLaunch().mcp.url).toBe(
+      expect(lastLaunch().mcp?.url).toBe(
         `http://127.0.0.1:6767/api/mcp/jobs/run_1/${agent.id}`
       );
-      expect(lastLaunch().mcp.token).not.toBe(
+      expect(lastLaunch().mcp?.token).toEqual(expect.any(String));
+      expect(lastLaunch().mcp?.token).not.toBe(
         createAgentMcpToken("test-token", agent.id)
       );
     });
@@ -1130,7 +2609,7 @@ describe("AgentManager", () => {
       expect(agent.baseBranch).toBeNull();
     });
 
-    it("should default baseBranch to main for worktree agents when not provided", async () => {
+    it("uses the fixture repository default for worktree agents when not provided", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
         useWorktree: true,
@@ -1266,6 +2745,137 @@ describe("AgentManager", () => {
         catalog.mockRestore();
         root.mockRestore();
         await rm(cwd, { recursive: true, force: true });
+      }
+    });
+
+    it("restarts a native worktree launch after persona setup fails before checkout preparation", async () => {
+      const root = await mkdtemp(
+        path.join(os.tmpdir(), "dispatch-worktree-intent-")
+      );
+      const cwd = path.join(root, "source");
+      const worktreePath = path.join(root, "worktree");
+      const config = {
+        ...testConfig,
+        agentStateRoot: path.join(root, "hosts"),
+        filesRoot: path.join(root, "files"),
+      };
+      const firstRuntime = createSpyRuntime();
+      const firstManager = new AgentManager(pool, noopLogger, config, {
+        runtime: firstRuntime,
+      });
+      const catalog = vi
+        .spyOn(personaCatalog, "get")
+        .mockRejectedValueOnce(new Error("Persona lookup interrupted"));
+      try {
+        await Promise.all([mkdir(cwd), mkdir(worktreePath)]);
+        const agent = await firstManager.createAgent(
+          {
+            cwd,
+            persona: "builder",
+            useWorktree: true,
+            baseBranch: "develop",
+            worktreeBranch: "session/retry",
+          },
+          { detachLaunch: true }
+        );
+        await vi.waitFor(async () =>
+          expect(await firstManager.getAgent(agent.id)).toMatchObject({
+            status: "error",
+            lastError: "Persona lookup interrupted",
+            cwd,
+            worktreePath: null,
+          })
+        );
+        expect(createGitWorktree).not.toHaveBeenCalled();
+        expect(firstRuntime.launch).not.toHaveBeenCalled();
+
+        vi.mocked(createGitWorktree).mockResolvedValueOnce({
+          worktreePath,
+          branchName: "session/retry",
+        } as never);
+        const retryRuntime = createSpyRuntime();
+        const restartedManager = new AgentManager(pool, noopLogger, config, {
+          runtime: retryRuntime,
+        });
+        expect(await restartedManager.startAgent(agent.id)).toMatchObject({
+          status: "running",
+          cwd: worktreePath,
+          worktreePath,
+          worktreeBranch: "session/retry",
+        });
+        expect(createGitWorktree).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({
+            cwd,
+            baseBranch: "develop",
+            branchName: "session/retry",
+          })
+        );
+        expect(retryRuntime.launch).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({ cwd: worktreePath })
+        );
+      } finally {
+        catalog.mockRestore();
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    it("settles a create interrupted after insert and prepares its checkout once on Start", async () => {
+      const root = await mkdtemp(
+        path.join(os.tmpdir(), "dispatch-create-crash-")
+      );
+      const cwd = path.join(root, "source");
+      const worktreePath = path.join(root, "worktree");
+      const config = {
+        ...testConfig,
+        agentStateRoot: path.join(root, "hosts"),
+        filesRoot: path.join(root, "files"),
+      };
+      const firstRuntime = createSpyRuntime();
+      const first = new AgentManager(pool, noopLogger, config, {
+        runtime: firstRuntime,
+      });
+      // Suspend the old process at the last await before checkout preparation.
+      const catalog = vi
+        .spyOn(personaCatalog, "get")
+        .mockImplementationOnce(() => new Promise(() => {}));
+      try {
+        await Promise.all([mkdir(cwd), mkdir(worktreePath)]);
+        const agent = await first.createAgent(
+          { cwd, persona: "builder", worktreeBranch: "recover/create" },
+          { detachLaunch: true }
+        );
+        expect(agent).toMatchObject({ status: "creating", worktreePath: null });
+        expect(createGitWorktree).not.toHaveBeenCalled();
+        expect(firstRuntime.launch).not.toHaveBeenCalled();
+
+        const retryRuntime = createSpyRuntime();
+        retryRuntime.isAlive.mockResolvedValue(false);
+        const restarted = new AgentManager(pool, noopLogger, config, {
+          runtime: retryRuntime,
+        });
+        expect(await restarted.restoreRunningAgents()).toMatchObject({
+          lost: [agent.id],
+        });
+        expect(await restarted.getAgent(agent.id)).toMatchObject({
+          status: "stopped",
+          worktreePath: null,
+        });
+        expect(createGitWorktree).not.toHaveBeenCalled();
+
+        vi.mocked(createGitWorktree).mockResolvedValueOnce({
+          worktreePath,
+          branchName: "recover/create",
+        } as never);
+        expect(await restarted.startAgent(agent.id)).toMatchObject({
+          status: "running",
+          worktreePath,
+          worktreeBranch: "recover/create",
+        });
+        expect(createGitWorktree).toHaveBeenCalledTimes(1);
+        expect(retryRuntime.launch).toHaveBeenCalledTimes(1);
+      } finally {
+        catalog.mockRestore();
+        await rm(root, { recursive: true, force: true });
       }
     });
 
@@ -1857,6 +3467,58 @@ describe("AgentManager", () => {
       );
       expect((await manager.getAgent(agent.id))!.status).toBe("running");
     });
+
+    it("keeps tool locations absolute after an exit, even when the Git context refreshes, like main", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      const file = path.join(agent.cwd, "README.md");
+      const readTool = (toolCallId: string) =>
+        runtime.emit(
+          agent.id,
+          {
+            type: "update",
+            agentId: agent.id,
+            update: {
+              sessionUpdate: "tool_call",
+              toolCallId,
+              title: "Read README.md",
+              kind: "read",
+              status: "completed",
+              locations: [{ path: file }],
+            },
+          } as never,
+          0
+        );
+      const located = async (toolCallId: string) =>
+        (
+          await pool.query<{ payload: { locations: { path: string }[] } }>(
+            `SELECT payload FROM agent_stream_events
+              WHERE agent_id = $1 AND kind = 'tool_call' AND key = $2`,
+            [agent.id, toolCallId]
+          )
+        ).rows[0]?.payload.locations;
+
+      await readTool("before-exit");
+      expect(await located("before-exit")).toEqual([{ path: "README.md" }]);
+
+      await runtime.emit(
+        agent.id,
+        {
+          type: "exit",
+          agentId: agent.id,
+          code: 0,
+          signal: null,
+          stderrTail: "",
+          expected: true,
+        },
+        0
+      );
+      await manager.populateGitContext(agent.id);
+      await readTool("after-exit");
+      expect(await located("after-exit")).toEqual([{ path: file }]);
+    });
   });
 
   describe("activity", () => {
@@ -2126,6 +3788,100 @@ describe("AgentManager", () => {
       });
     }
 
+    it.each(["standard", "review"] as const)(
+      "reconciles an old borrower-deferred local archive with a live %s agent",
+      async (role) => {
+        const repo = await realpath(
+          await mkdtemp(path.join(os.tmpdir(), "archive-retry-"))
+        );
+        const tree = path.join(repo, "linked");
+        const git = (...args: string[]) =>
+          execFileSync("git", args, {
+            cwd: repo,
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "pipe"],
+          }).trim();
+        try {
+          git("init", "-b", "main");
+          git(
+            "-c",
+            "user.name=Dispatch Test",
+            "-c",
+            "user.email=test@example.test",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "Initial"
+          );
+          git("worktree", "add", "-b", "feature", tree);
+          await pool.query(
+            `INSERT INTO agents
+              (id, name, cwd, status, worktree_path, worktree_branch, base_branch,
+               deleted_at, runner_cleanup_pending, archive_cleanup_mode, archive_checkout_state)
+             VALUES ('pending-owner', 'Owner', $1, 'stopped', $2, 'feature', 'main',
+               NOW(), true, 'force', $3)`,
+            [repo, tree, "1".repeat(64)]
+          );
+          await pool.query(
+            `INSERT INTO agents (id, name, cwd, status, role)
+             VALUES ('active-borrower', 'Borrower', $1, 'stopped', $2)`,
+            [tree, role]
+          );
+          const commandModule = "../../src/shared/lib/run-command.js";
+          const { runCommand } =
+            await import("../../src/shared/lib/run-command.js");
+          const actual = await vi.importActual<{
+            runCommand: typeof runCommand;
+          }>(commandModule);
+          const original = vi.mocked(runCommand).getMockImplementation()!;
+          await vi.mocked(runCommand).withImplementation(
+            (command, args, options) =>
+              command === "git" &&
+              args[0] === "-C" &&
+              [repo, tree].includes(args[1] ?? "")
+                ? actual.runCommand(command, args, options)
+                : original(command, args, options),
+            async () => {
+              await manager.reconcileAgentStatuses();
+              await vi.waitFor(async () => {
+                const {
+                  rows: [row],
+                } = await pool.query(
+                  `SELECT runner_cleanup_pending, archive_cleanup_mode, archive_checkout_state
+                   FROM agents WHERE id = 'pending-owner'`
+                );
+                expect(row).toEqual({
+                  runner_cleanup_pending: true,
+                  archive_cleanup_mode: "force",
+                  archive_checkout_state: "1".repeat(64),
+                });
+              });
+              // The hold is retryable, rather than a permanent keep decision.
+              await pool.query(
+                "UPDATE agents SET deleted_at=NOW() WHERE id='active-borrower'"
+              );
+              await manager.reconcileAgentStatuses();
+              await vi.waitFor(async () => {
+                expect(
+                  (
+                    await pool.query(
+                      "SELECT runner_cleanup_pending FROM agents WHERE id='pending-owner'"
+                    )
+                  ).rows[0].runner_cleanup_pending
+                ).toBe(false);
+              });
+            }
+          );
+          expect(Boolean(await realpath(tree).catch(() => null))).toBe(false);
+          expect(Boolean(git("branch", "--list", "feature"))).toBe(false);
+        } finally {
+          await rm(repo, { recursive: true, force: true });
+        }
+      }
+    );
+
     it("should soft-delete an agent", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
@@ -2262,7 +4018,7 @@ describe("AgentManager", () => {
       await archiveAgent(agent.id);
 
       expect(runtime.stop).toHaveBeenCalledWith(agent.id, true);
-      expect(discard).toHaveBeenCalledWith(agent.id);
+      expect(discard).not.toHaveBeenCalled();
       expect(await manager.getAgent(agent.id)).toBeNull();
     });
 
@@ -2481,10 +4237,11 @@ describe("AgentManager", () => {
       );
       runtime.prompt.mockClear();
       await manager.startAgent(agent.id);
-      expect(lastLaunch().mcp.url).toBe(
+      expect(lastLaunch().mcp?.url).toBe(
         `http://127.0.0.1:6767/api/mcp/jobs/run_resume/${agent.id}`
       );
-      expect(lastLaunch().mcp.token).not.toBe(
+      expect(lastLaunch().mcp?.token).toEqual(expect.any(String));
+      expect(lastLaunch().mcp?.token).not.toBe(
         createAgentMcpToken("test-token", agent.id)
       );
       expect(lastLaunch().systemPrompt).toContain(
@@ -2523,10 +4280,10 @@ describe("AgentManager", () => {
         );
         runtime.prompt.mockClear();
         await manager.startAgent(agent.id);
-        expect(lastLaunch().mcp.url).toBe(
+        expect(lastLaunch().mcp?.url).toBe(
           `http://127.0.0.1:6767/api/mcp/${agent.id}`
         );
-        expect(lastLaunch().mcp.token).toBe(
+        expect(lastLaunch().mcp?.token).toBe(
           createAgentMcpToken("test-token", agent.id)
         );
         expect(lastLaunch().systemPrompt).not.toContain("job_complete");
@@ -2627,7 +4384,7 @@ describe("AgentManager", () => {
 
         await manager.startAgent(agent.id);
 
-        expect(lastLaunch().env.DISPATCH_FILES_DIR).toBe(
+        expect(lastLaunch().env?.DISPATCH_FILES_DIR).toBe(
           path.join(fakeHome, ".dispatch", `legacy-files-${agent.id}`)
         );
       } finally {
@@ -2669,6 +4426,69 @@ describe("AgentManager", () => {
       const lost = await manager.getAgent(gone.id);
       expect(lost!.status).toBe("stopped");
       expect(lost!.lastError).toContain("not running when Dispatch restarted");
+    });
+
+    it("keeps restoring the other agents when one agent's runner answers with an error", async () => {
+      const broken = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      const alive = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      const gone = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      runtime.attach.mockImplementation(async (id) => {
+        if (id === broken.id) throw new Error("Unsupported operation");
+        return id === alive.id;
+      });
+      runtime.isAlive.mockImplementation(async (id) => id !== gone.id);
+
+      const result = await manager.restoreRunningAgents();
+
+      expect(result).toEqual({
+        attached: [alive.id],
+        lost: [gone.id],
+        resumes: [],
+      });
+      // Unknown, not exited: left for the reconciler to check again.
+      expect((await manager.getAgent(broken.id))!.status).toBe("running");
+      expect((await manager.getAgent(gone.id))!.status).toBe("stopped");
+    });
+
+    it("stops a running row when its native host PID belongs to another process", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      const agentStateRoot = await mkdtemp(
+        path.join(os.tmpdir(), "dispatch-stale-host-")
+      );
+      const dir = path.join(agentStateRoot, agent.id);
+      try {
+        await mkdir(dir);
+        await writeFile(path.join(dir, "host.pid"), String(process.pid));
+        const recovering = new AgentManager(pool, noopLogger, {
+          ...testConfig,
+          agentStateRoot,
+        });
+        await expect(recovering.restoreRunningAgents()).resolves.toEqual({
+          attached: [],
+          lost: [agent.id],
+          resumes: [],
+        });
+        expect(await recovering.getAgent(agent.id)).toMatchObject({
+          status: "stopped",
+          lastError: expect.stringContaining(
+            "not running when Dispatch restarted"
+          ),
+        });
+      } finally {
+        await rm(agentStateRoot, { recursive: true, force: true });
+      }
     });
 
     it("does not lose, or let boot cleanup kill, a host that is alive but missed its first attach — and recovers once a later attach succeeds", async () => {
@@ -2739,6 +4559,20 @@ describe("AgentManager", () => {
         [agent.id]
       );
       expect(after.rows).toEqual(before.rows);
+    });
+
+    it("never plain-stops a host that the idle-only stop refused at the fence", async () => {
+      const agent = await running();
+      const stopIdle = vi.fn(async () => false);
+      Object.assign(runtime, { stopIdleHostForRecovery: stopIdle });
+      runtime.listHosted.mockResolvedValue([agent.id]);
+
+      expect(await manager.stopIdleHostsForRecovery(1_000)).toEqual({
+        stopped: [],
+        remaining: [agent.id],
+      });
+      expect(stopIdle).toHaveBeenCalledExactlyOnceWith(agent.id);
+      expect(runtime.stop).not.toHaveBeenCalled();
     });
 
     it("resumes an untouched idle agent exactly once, resuming its session without replaying prompts", async () => {
@@ -2986,19 +4820,70 @@ describe("AgentManager", () => {
       expect((await manager.getAgent(agent.id))!.status).toBe("running");
     });
 
+    it("uses the enrolled runner inventory for update drain", async () => {
+      const winner = {
+        agentId: "agt_live",
+        instanceId: "live-instance",
+        quiesceSupported: true,
+        attachedEpoch: 2,
+      };
+      runtime.runnerHosts = vi.fn(() => [
+        winner,
+        { ...winner, agentId: "agt_newer", instanceId: "older-instance" },
+      ]);
+      runtime.listRunnerSessions = vi.fn(async () => ({
+        sessions: [
+          {
+            session: sessionFromWire("agt_live"),
+            state: "live",
+            instanceId: "live-instance",
+          },
+          {
+            session: sessionFromWire("agt_newer"),
+            state: "live",
+            instanceId: "new-instance",
+          },
+          { session: sessionFromWire("agt_unknown"), state: "live" },
+          { session: sessionFromWire("agt_exited"), state: "gone" },
+        ],
+      }));
+      runtime.runnerHostAlive = vi.fn(async () => true);
+      expect(
+        await manager.runnerDrainHosts("runner-1", ["agt_exited"])
+      ).toEqual([
+        { id: "agt_live", host: winner },
+        { id: "agt_newer", host: undefined },
+        { id: "agt_unknown", host: undefined },
+      ]);
+      expect(runtime.runnerHostAlive).not.toHaveBeenCalled();
+    });
+
     it("should stop hosts left behind by stopped agents", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
         useWorktree: false,
       });
-      await pool.query(`UPDATE agents SET status = 'stopped' WHERE id = $1`, [
-        agent.id,
-      ]);
-      runtime.listHosted.mockResolvedValue([agent.id]);
+      const launchId = "6f1c2d3e-4a5b-4c6d-8e7f-8091a2b3c4d5";
+      await pool.query(
+        `UPDATE agents SET status = 'stopped', host_launch_id = $2 WHERE id = $1`,
+        [agent.id, launchId]
+      );
+      runtime.listSessions = vi.fn(async () => ({
+        sessions: [
+          { session: sessionFromWire(agent.id), state: "live", launchId },
+        ],
+      }));
+      runtime.retryStop = vi.fn(async () => {});
 
       await manager.reconcileAgents();
 
-      expect(runtime.stop).toHaveBeenCalledWith(agent.id, true);
+      expect(runtime.retryStop).toHaveBeenCalledExactlyOnceWith(
+        agent.id,
+        true,
+        null,
+        launchId,
+        true
+      );
     });
   });
 
@@ -3124,6 +5009,315 @@ describe("AgentManager", () => {
   });
 
   describe("checkWorktreeStatus", () => {
+    describe("a local borrower (no worktree of its own) answers what main answers", () => {
+      const mainNoWorktree = {
+        hasWorktree: false,
+        hasUnmergedCommits: false,
+        hasUncommittedChanges: false,
+        worktreePath: null,
+        branchName: null,
+        changedFiles: [],
+        uncommittedFiles: [],
+      };
+      async function ownerAndBorrower() {
+        const root = await realpath(
+          await mkdtemp(path.join(os.tmpdir(), "borrowed-checkout-"))
+        );
+        const git = (...args: string[]) =>
+          execFileSync("git", args, { cwd: root, stdio: "pipe" });
+        git("init", "-b", "main");
+        git(
+          "-c",
+          "user.name=Dispatch Test",
+          "-c",
+          "user.email=test@example.test",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "Initial"
+        );
+        vi.mocked(createGitWorktree).mockResolvedValueOnce({
+          worktreePath: root,
+          branchName: "main",
+        } as never);
+        const owner = await manager.createAgent({
+          cwd: root,
+          useWorktree: true,
+          baseBranch: "main",
+        });
+        const borrower = await manager.createAgent({
+          cwd: root,
+          parentAgentId: owner.id,
+          useWorktree: false,
+        });
+        return { root, git, owner, borrower };
+      }
+
+      it.each(["clean", "dirty", "unmerged", "gone"] as const)(
+        "owner %s",
+        async (state) => {
+          const { root, git, owner, borrower } = await ownerAndBorrower();
+          try {
+            if (state === "dirty")
+              await writeFile(path.join(root, "dirty.txt"), "x\n");
+            if (state === "unmerged") {
+              await writeFile(path.join(root, "work.txt"), "x\n");
+              git("add", "work.txt");
+              git(
+                "-c",
+                "user.name=Dispatch Test",
+                "-c",
+                "user.email=test@example.test",
+                "commit",
+                "-m",
+                "Work"
+              );
+            }
+            if (state === "gone")
+              await rm(root, { recursive: true, force: true });
+            const ownerStatus = await manager.checkWorktreeStatus(owner.id);
+            // The owner's own answer is its checkout's (unchanged).
+            expect(ownerStatus.hasWorktree).toBe(true);
+            if (state === "dirty")
+              expect(ownerStatus.uncommittedFiles).toEqual(["?? dirty.txt"]);
+            const status = await manager.checkWorktreeStatus(borrower.id);
+            expect(status).toMatchObject(mainNoWorktree);
+            // No owner state to carry into an archive (absent on the wire).
+            expect(status.checkoutState).toBeUndefined();
+          } finally {
+            await rm(root, { recursive: true, force: true });
+          }
+        }
+      );
+
+      it("skips the owner's hook for a borrower and shows the keep warning on an unreadable owner checkout", async () => {
+        const { root, owner, borrower } = await ownerAndBorrower();
+        try {
+          const config = path.join(root, ".dispatch");
+          await mkdir(config, { recursive: true });
+          await writeFile(
+            path.join(config, "tools.json"),
+            JSON.stringify({
+              hooks: {
+                archive: {
+                  command: ["sh", "-c", "echo invoked >> invoked"],
+                  description: "Clean up",
+                },
+              },
+            })
+          );
+          expect(
+            (await manager.checkArchivePreview(borrower.id)).cleanupDescriptions
+          ).toEqual([]);
+          await writeFile(
+            path.join(root, ".git", "index"),
+            Buffer.from("invalid index")
+          );
+          // A failed status read must not launch a fetch that writes into the checkout.
+          const fetchHead = path.join(root, ".git", "FETCH_HEAD");
+          await writeFile(fetchHead, "previous fetch\n");
+          const preview = await manager.checkArchivePreview(owner.id);
+          expect(preview).toMatchObject({
+            worktreeStatus: null,
+            worktreeStatusUnreadable: true,
+            cleanupDescriptions: ["Clean up"],
+          });
+          await expect(
+            manager.checkWorktreeStatus(owner.id)
+          ).rejects.toMatchObject({ statusCode: 503 });
+          await manager.beginArchive(borrower.id, "force");
+          await manager.executeArchive(borrower.id, {
+            onPhaseChange: vi.fn(),
+            onComplete: vi.fn(),
+            onError: vi.fn(),
+          });
+          expect(await readFile(fetchHead, "utf8")).toBe("previous fetch\n");
+          await expect(
+            readFile(path.join(root, "invoked"))
+          ).rejects.toMatchObject({ code: "ENOENT" });
+        } finally {
+          await rm(root, { recursive: true, force: true });
+        }
+      });
+
+      it("a forced archive carrying the owner's remembered state leaves the owner's checkout alone", async () => {
+        const { root, owner, borrower } = await ownerAndBorrower();
+        try {
+          await writeFile(path.join(root, "dirty.txt"), "x\n");
+          const { checkoutState } = await manager.checkWorktreeStatus(owner.id);
+          expect(checkoutState).toMatch(/^[0-9a-f]{64}$/);
+          await manager.beginArchive(borrower.id, "force", checkoutState!);
+          await manager.executeArchive(borrower.id, {
+            onPhaseChange: vi.fn(),
+            onComplete: vi.fn(),
+            onError: vi.fn(),
+          });
+          expect(await readFile(path.join(root, "dirty.txt"), "utf8")).toBe(
+            "x\n"
+          );
+          expect(await manager.getAgent(owner.id)).not.toBeNull();
+        } finally {
+          await rm(root, { recursive: true, force: true });
+        }
+      });
+    });
+
+    it("reports main's no-worktree answer for a borrower, local or on a runner", async () => {
+      const root = await mkdtemp(path.join(os.tmpdir(), "shared-checkout-"));
+      try {
+        const checkoutPath = await realpath(root);
+        const git = (...args: string[]) =>
+          execFileSync("git", args, { cwd: checkoutPath });
+        git("init", "-b", "main");
+        git(
+          "-c",
+          "user.name=Dispatch Test",
+          "-c",
+          "user.email=test@example.test",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "Initial"
+        );
+        await writeFile(path.join(checkoutPath, "dirty.txt"), "uncommitted\n");
+
+        vi.mocked(createGitWorktree).mockResolvedValueOnce({
+          worktreePath: checkoutPath,
+          branchName: "main",
+        } as never);
+        const owner = await manager.createAgent({
+          cwd: checkoutPath,
+          useWorktree: true,
+          baseBranch: "main",
+        });
+        const child = await manager.createAgent({
+          cwd: checkoutPath,
+          parentAgentId: owner.id,
+          useWorktree: false,
+        });
+        const ownerStatus = await manager.checkWorktreeStatus(owner.id);
+        expect(ownerStatus).toMatchObject({
+          ownership: "owned",
+          borrowers: [child.id],
+          checkoutState: expect.stringMatching(/^[0-9a-f]{64}$/),
+          uncommittedFiles: ["?? dirty.txt"],
+        });
+
+        const runnerCwd = "/runner/checkout";
+        const checkout = await observeGitCheckout(checkoutPath);
+        const call = vi.fn(async () => ({
+          ownership: "borrowed",
+          owner: owner.id,
+          borrowers: [child.id],
+          checkout,
+        }));
+        const runnerManager = new AgentManager(pool, noopLogger, testConfig, {
+          runtime,
+          remote: {
+            call,
+            connectionEpoch: () => 1,
+          } as unknown as RemoteRunnerService,
+        });
+        const localStatus = await manager.checkWorktreeStatus(child.id);
+        // Keep the native path and switch the persisted placement.
+        await pool.query(
+          "UPDATE agents SET cwd = $2, runner_id = 'runner-test' WHERE id = $1",
+          [child.id, runnerCwd]
+        );
+        const runnerStatus = await runnerManager.checkWorktreeStatus(child.id);
+        expect(call).toHaveBeenCalledWith(
+          testRunner,
+          "workspace.observe",
+          { session: child.id },
+          undefined,
+          1
+        );
+        // A borrower answers what main answers for a row without a worktree
+        // of its own, on every runner (347eb0c3's owner's checkout reverted).
+        expect(runnerStatus).toEqual(localStatus);
+        expect(localStatus).toEqual({
+          ownership: "borrowed",
+          borrowers: [child.id],
+          hasWorktree: false,
+          hasUnmergedCommits: false,
+          hasUncommittedChanges: false,
+          worktreePath: null,
+          branchName: null,
+          changedFiles: [],
+          uncommittedFiles: [],
+        });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    it("does not count a child whose own worktree was never created as a borrower", async () => {
+      const root = await mkdtemp(path.join(os.tmpdir(), "failed-borrower-"));
+      try {
+        const checkoutPath = await realpath(root);
+        execFileSync("git", ["init", "-b", "main"], { cwd: checkoutPath });
+        execFileSync(
+          "git",
+          [
+            "-c",
+            "user.name=Dispatch Test",
+            "-c",
+            "user.email=test@example.test",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "Initial",
+          ],
+          { cwd: checkoutPath }
+        );
+        vi.mocked(createGitWorktree).mockResolvedValueOnce({
+          worktreePath: checkoutPath,
+          branchName: "main",
+        } as never);
+        const owner = await manager.createAgent({
+          cwd: checkoutPath,
+          useWorktree: true,
+          baseBranch: "main",
+        });
+        vi.mocked(createGitWorktree).mockRejectedValueOnce(
+          new GitWorktreeError("branch is already checked out", 409)
+        );
+        await expect(
+          manager.createAgent({
+            cwd: checkoutPath,
+            parentAgentId: owner.id,
+            worktreeBranch: "feat/x",
+          })
+        ).rejects.toMatchObject({ statusCode: 409 });
+        const borrower = await manager.createAgent({
+          cwd: checkoutPath,
+          parentAgentId: owner.id,
+          useWorktree: false,
+        });
+        await manager.stopAgent(borrower.id);
+
+        expect(await manager.checkWorktreeStatus(owner.id)).toMatchObject({
+          ownership: "owned",
+          borrowers: [borrower.id],
+        });
+        const failed = await pool.query<{ id: string }>(
+          "SELECT id FROM agents WHERE parent_agent_id = $1 AND id <> $2",
+          [owner.id, borrower.id]
+        );
+        const failedId = failed.rows[0].id;
+        await manager.setWorkspace(failedId, {
+          path: checkoutPath,
+          baseBranch: "main",
+        });
+        expect(await manager.checkWorktreeStatus(owner.id)).toMatchObject({
+          ownership: "owned",
+          borrowers: [borrower.id, failedId].sort(),
+        });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
     it("should return hasWorktree false for agents without a worktree", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
@@ -3136,6 +5330,388 @@ describe("AgentManager", () => {
       expect(status.branchName).toBeNull();
       expect(status.changedFiles).toEqual([]);
       expect(status.uncommittedFiles).toEqual([]);
+    });
+
+    it("answers like main when the recorded worktree is gone", async () => {
+      const root = await mkdtemp(path.join(os.tmpdir(), "missing-checkout-"));
+      const worktreePath = path.join(await realpath(root), "gone");
+      try {
+        await mkdir(worktreePath);
+        vi.mocked(createGitWorktree).mockResolvedValueOnce({
+          worktreePath,
+          branchName: "feature",
+        } as never);
+        const agent = await manager.createAgent({
+          cwd: root,
+          useWorktree: true,
+          baseBranch: "main",
+        });
+        await rm(worktreePath, { recursive: true });
+        expect(await manager.checkWorktreeStatus(agent.id)).toEqual({
+          ownership: "owned",
+          borrowers: [],
+          hasWorktree: true,
+          hasUnmergedCommits: false,
+          hasUncommittedChanges: false,
+          worktreePath,
+          branchName: null,
+          changedFiles: [],
+          uncommittedFiles: [],
+        });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    describe("a runner agent whose owned checkout is gone", () => {
+      const runnerCwd = "/runner/checkout";
+      const owned = {
+        ownership: "owned",
+        owner: "self",
+        borrowers: [],
+        checkout: null,
+      };
+      async function runnerAgent(worktreePath: string | null) {
+        const agent = await manager.createAgent({
+          cwd: "/tmp",
+          useWorktree: false,
+        });
+        await pool.query(
+          "UPDATE agents SET cwd = $2, worktree_path = $3, runner_id = 'runner-test' WHERE id = $1",
+          [agent.id, runnerCwd, worktreePath]
+        );
+        return agent;
+      }
+      function runnerManager(call: ReturnType<typeof vi.fn>) {
+        return new AgentManager(pool, noopLogger, testConfig, {
+          runtime,
+          remote: {
+            call,
+            connectionEpoch: () => 1,
+          } as unknown as RemoteRunnerService,
+        });
+      }
+
+      it("answers like main with the recorded checkout path", async () => {
+        const agent = await runnerAgent("/srv/checkouts/gone");
+        const status = await runnerManager(
+          vi.fn(async () => owned)
+        ).checkWorktreeStatus(agent.id);
+        expect(status).toEqual({
+          ownership: "owned",
+          borrowers: [],
+          hasWorktree: true,
+          hasUnmergedCommits: false,
+          hasUncommittedChanges: false,
+          worktreePath: "/srv/checkouts/gone",
+          branchName: null,
+          changedFiles: [],
+          uncommittedFiles: [],
+        });
+      });
+
+      it("answers main's no-worktree status when no path was recorded", async () => {
+        const agent = await runnerAgent(null);
+        const status = await runnerManager(
+          vi.fn(async () => owned)
+        ).checkWorktreeStatus(agent.id);
+        expect(status).toEqual({
+          ownership: "owned",
+          borrowers: [],
+          hasWorktree: false,
+          hasUnmergedCommits: false,
+          hasUncommittedChanges: false,
+          worktreePath: null,
+          branchName: null,
+          changedFiles: [],
+          uncommittedFiles: [],
+        });
+      });
+
+      it.each([
+        ["offline", new Error("Runner runner-test is not connected.")],
+        ["an error reply", new Error("Checkout observation failed.")],
+      ])(
+        "stays unavailable, not gone, when the runner is %s",
+        async (_, error) => {
+          const agent = await runnerAgent("/srv/checkouts/kept");
+          await expect(
+            runnerManager(
+              vi.fn(async () => {
+                throw error;
+              })
+            ).checkWorktreeStatus(agent.id)
+          ).rejects.toMatchObject({
+            statusCode: 503,
+            message: "Checkout status is unavailable on the owning runner.",
+          });
+        }
+      );
+
+      it("stays unavailable when the runner's reply is not an observation", async () => {
+        const agent = await runnerAgent("/srv/checkouts/kept");
+        await expect(
+          runnerManager(
+            vi.fn(async () => ({ value: "not json" }))
+          ).checkWorktreeStatus(agent.id)
+        ).rejects.toMatchObject({ statusCode: 503 });
+      });
+    });
+
+    describe("the status read on a runner that releases bound checkouts", () => {
+      const runnerCwd = "/runner/checkout";
+      const replies = {
+        owned: {
+          ownership: "owned",
+          owner: "self",
+          borrowers: ["agt_review"],
+          checkout: {
+            path: "/srv/checkouts/kept",
+            branch: "feature",
+            stateId: "0".repeat(64),
+            unmerged: false,
+            changedFiles: ["a.ts"],
+            uncommittedFiles: ["?? b.ts"],
+          },
+        },
+        borrowed: {
+          ownership: "borrowed",
+          owner: "agt_owner",
+          borrowers: [],
+          checkout: null,
+        },
+        external: {
+          ownership: "external",
+          owner: null,
+          borrowers: [],
+          checkout: null,
+        },
+        gone: {
+          ownership: "owned",
+          owner: "self",
+          borrowers: [],
+          checkout: null,
+        },
+      };
+      async function runnerAgent() {
+        const agent = await manager.createAgent({
+          cwd: "/tmp",
+          useWorktree: false,
+        });
+        await pool.query(
+          "UPDATE agents SET cwd = $2, worktree_path = $3, runner_id = 'runner-test' WHERE id = $1",
+          [agent.id, runnerCwd, "/srv/checkouts/kept"]
+        );
+        return agent;
+      }
+      function managerFor(call: ReturnType<typeof vi.fn>) {
+        return new AgentManager(pool, noopLogger, testConfig, {
+          runtime,
+          remote: {
+            call,
+            connectionEpoch: () => 3,
+          } as unknown as RemoteRunnerService,
+        });
+      }
+      const outcome = (work: Promise<unknown>) =>
+        work.then(
+          (status) => ({ status }),
+          (error: { statusCode?: number; message?: string }) => ({
+            error: { statusCode: error.statusCode, message: error.message },
+          })
+        );
+
+      const unavailable = {
+        error: {
+          statusCode: 503,
+          message: "Checkout status is unavailable on the owning runner.",
+        },
+      };
+      const json = (reply: unknown) => async () => reply;
+      // Each reply's own expected outcome, asserted on both paths before
+      // they are compared: a shared wrong answer cannot pass.
+      it.each([
+        [
+          "owned and dirty",
+          json(replies.owned),
+          {
+            status: expect.objectContaining({
+              ownership: "owned",
+              borrowers: ["agt_review"],
+              checkoutState: "0".repeat(64),
+              hasWorktree: true,
+              hasUnmergedCommits: false,
+              hasUncommittedChanges: true,
+              worktreePath: "/srv/checkouts/kept",
+              branchName: "feature",
+              changedFiles: ["a.ts"],
+              uncommittedFiles: ["?? b.ts"],
+            }),
+          },
+        ],
+        [
+          "borrowed",
+          json(replies.borrowed),
+          {
+            status: expect.objectContaining({
+              ownership: "borrowed",
+              hasWorktree: false,
+            }),
+          },
+        ],
+        [
+          "external",
+          json(replies.external),
+          {
+            status: expect.objectContaining({
+              ownership: "external",
+              hasWorktree: false,
+            }),
+          },
+        ],
+        [
+          "gone",
+          json(replies.gone),
+          {
+            status: expect.objectContaining({
+              ownership: "owned",
+              hasWorktree: true,
+              hasUncommittedChanges: false,
+              worktreePath: "/srv/checkouts/kept",
+            }),
+          },
+        ],
+        [
+          "offline",
+          async () => {
+            throw new Error("Runner runner-test is not connected.");
+          },
+          unavailable,
+        ],
+        [
+          "an error reply",
+          async () => {
+            throw new Error("Checkout observation failed.");
+          },
+          unavailable,
+        ],
+        [
+          "not an observation",
+          async () => ({ value: "not json" }),
+          unavailable,
+        ],
+      ] as const)(
+        "%s: the expected status (or 503 body)",
+        async (_name, reply, expected) => {
+          const agent = await runnerAgent();
+          const call = vi.fn(reply);
+          const result = await outcome(
+            managerFor(call).checkWorktreeStatus(agent.id)
+          );
+          expect(result).toEqual(expected);
+          expect(call).toHaveBeenCalledOnce();
+          expect(call.mock.calls[0]!.slice(0, 3)).toEqual([
+            testRunner,
+            "workspace.observe",
+            { session: agent.id },
+          ]);
+        }
+      );
+
+      it.each([
+        ["clean", { unmerged: false, changedFiles: [], uncommittedFiles: [] }],
+        [
+          "dirty",
+          { unmerged: false, changedFiles: [], uncommittedFiles: ["?? d.ts"] },
+        ],
+        [
+          "unmerged",
+          { unmerged: true, changedFiles: ["w.ts"], uncommittedFiles: [] },
+        ],
+        ["gone", null],
+      ] as const)(
+        "an enrolled borrower whose owner is %s answers main's no-worktree status",
+        async (_state, owner) => {
+          const agent = await runnerAgent();
+          const reply = {
+            ownership: "borrowed",
+            owner: "agt_owner",
+            borrowers: ["agt_other"],
+            checkout: owner && {
+              path: "/srv/checkouts/owner",
+              branch: "owner-branch",
+              stateId: "2".repeat(64),
+              ...owner,
+            },
+          };
+          const call = vi.fn(async () => reply);
+          const status = await managerFor(call).checkWorktreeStatus(agent.id);
+          expect(status).toEqual({
+            ownership: "borrowed",
+            borrowers: ["agt_other"],
+            checkoutState: undefined,
+            hasWorktree: false,
+            hasUnmergedCommits: false,
+            hasUncommittedChanges: false,
+            worktreePath: null,
+            branchName: null,
+            changedFiles: [],
+            uncommittedFiles: [],
+          });
+          const preview = await managerFor(call).checkArchivePreview(agent.id);
+          expect(preview.worktreeStatus?.hasWorktree ?? false).toBe(false);
+          expect(preview.cleanupDescriptions).toEqual([]);
+          // What the runner is asked is unchanged.
+          expect(call.mock.calls[0]!.slice(0, 3)).toEqual([
+            testRunner,
+            "workspace.observe",
+            { session: agent.id },
+          ]);
+        }
+      );
+
+      it("without an enrolled service: today's 503", async () => {
+        const agent = await runnerAgent();
+        await expect(
+          new AgentManager(pool, noopLogger, testConfig, {
+            runtime,
+          }).checkWorktreeStatus(agent.id)
+        ).rejects.toMatchObject({
+          statusCode: 503,
+          message: "Checkout status is unavailable on the owning runner.",
+        });
+      });
+
+      it("beginArchive drops the preview state for a bound release", async () => {
+        const agent = await runnerAgent();
+        await managerFor(vi.fn()).beginArchive(
+          agent.id,
+          "auto",
+          "1".repeat(64)
+        );
+        const { rows } = await pool.query(
+          "SELECT archive_checkout_state FROM agents WHERE id = $1",
+          [agent.id]
+        );
+        expect(rows[0]?.archive_checkout_state).toBeNull();
+      });
+
+      it("beginArchive uses the same bound release decision on Local", async () => {
+        const agent = await manager.createAgent({
+          cwd: "/tmp",
+          useWorktree: false,
+        });
+        await managerFor(vi.fn()).beginArchive(
+          agent.id,
+          "auto",
+          "1".repeat(64)
+        );
+        const { rows } = await pool.query(
+          "SELECT archive_checkout_state FROM agents WHERE id = $1",
+          [agent.id]
+        );
+        expect(rows[0]?.archive_checkout_state).toBeNull();
+      });
     });
 
     it("should throw 404 for a non-existent agent", async () => {

@@ -27,18 +27,28 @@ vi.mock("./use-create-agent-form", async () => {
       return {
         step: "config",
         createType: createType.value,
+        agentTypes: enabledAgentTypes,
         setCreateType: vi.fn(),
         createModel: null,
         createEffort: null,
         setCreateEffort: vi.fn(),
         setCreateModel: vi.fn(),
         modelOptions: models.options,
+        defaultModel: models.defaultModel,
         modelCatalogLoading: models.loading,
         createName: "",
         setCreateName: vi.fn(),
         createCwd: "/repo",
         createFullAccess: true,
         locationReady: true,
+        launch: {
+          list: { data: [], isError: false },
+          projection: { isError: false },
+          target: undefined,
+        },
+        targetData: { isError: false },
+        engines,
+        chooseTarget: vi.fn(),
         creating: false,
       };
     },
@@ -120,7 +130,26 @@ beforeAll(() => {
 });
 beforeEach(() => {
   api.mockImplementation(async (path: string) => {
-    if (path === "/api/v1/system/engines") return { engines };
+    if (path === "/api/v1/launch-targets")
+      return {
+        targets: [
+          {
+            key: "fixture",
+            dataUrl: "/fixture/data",
+            location: { folders: true },
+          },
+        ],
+      };
+    if (path.startsWith("/api/v1/launch-targets/saved/"))
+      return { targetKey: "fixture" };
+    if (path.startsWith("/fixture/data"))
+      return {
+        catalog: { models },
+        agentTypes: enabledAgentTypes,
+        engineOptions: engines,
+      };
+    if (path === "/api/v1/engine-management/status?scope=local")
+      return { engines };
     if (path === "/api/v1/agent-models") return { models };
     return [];
   });
@@ -177,11 +206,14 @@ const renderHost = (host: "create" | "trigger") => {
 /**
  * The block the Type picker sits in, with the host's ids made neutral. Radix
  * adds a hidden native select only inside a <form>, which Create Agent is.
+ * The trigger dialog omits the catalog default prop.
  */
 const engineBlock = () => {
-  const type = screen.getByRole("combobox", { name: "Type" });
+  const type = screen.getByRole("combobox", { name: /^(Agent|Type)$/ });
   const block = type.parentElement!.parentElement!.parentElement!;
   return block.outerHTML
+    .replace(">Agent</label>", ">Type</label>")
+    .replace(">Use engine setting</span>", ">Default</span>")
     .replace(/task-trigger-type/g, "agent-type-select")
     .replace(/task-trigger-(model|engine|effort)/g, "create-agent-$1")
     .replace(/radix-[^"]*/g, "radix")
@@ -189,22 +221,22 @@ const engineBlock = () => {
     .replace(/:r[0-9a-z]+:/g, "id");
 };
 
-const settle = async (expectModel: boolean) => {
+const settle = async (expectModel: boolean, missing = false) => {
   await waitFor(() => {
-    expect(screen.queryByText(/Loading models/)).toBeNull();
+    expect(screen.queryByText("Loading models…")).toBeNull();
     expect(screen.queryAllByText("Model")).toHaveLength(expectModel ? 1 : 0);
   });
-  // Engines arrive on their own query: the summary line or the install hint.
-  await waitFor(() =>
-    expect(
-      screen.queryAllByTestId(/-engine$|^agent-type-missing-note$/)
-    ).not.toHaveLength(0)
-  );
+  // Engines arrive on their own query; only a missing one says anything.
+  if (missing) await screen.findByTestId("agent-type-missing-note");
 };
 
-const blockIn = async (host: "create" | "trigger", expectModel: boolean) => {
+const blockIn = async (
+  host: "create" | "trigger",
+  expectModel: boolean,
+  missing = false
+) => {
   renderHost(host);
-  await settle(expectModel);
+  await settle(expectModel, missing);
   const html = engineBlock();
   cleanup();
   return html;
@@ -214,7 +246,10 @@ it("renders the installed engine's block the same in both hosts", async () => {
   createType.value = templateType.value = "codex";
   renderHost("trigger");
   await settle(true);
-  await screen.findByText("Codex 0.155.1 · /opt/homebrew/bin/codex");
+  // Main names the installed engine under the shared configuration row.
+  expect(screen.getByTestId("task-trigger-engine").textContent).toContain(
+    "/opt/homebrew/bin/codex"
+  );
   expect(screen.getByRole("combobox", { name: "Type" }).textContent).toContain(
     "Codex"
   );
@@ -232,23 +267,22 @@ it("renders the installed engine's block the same in both hosts", async () => {
 it("says what to install for a missing engine in both hosts", async () => {
   createType.value = templateType.value = "claude";
   renderHost("trigger");
-  await settle(true);
-  await screen.findByTestId("agent-type-missing-note");
+  await settle(true, true);
   expect(screen.getByTestId("agent-type-missing-note").textContent).toContain(
     "npm i -g @anthropic-ai/claude-code"
   );
   cleanup();
 
-  const create = await blockIn("create", true);
-  const trigger = await blockIn("trigger", true);
+  const create = await blockIn("create", true, true);
+  const trigger = await blockIn("trigger", true, true);
   expect(trigger).toBe(create);
 });
 
-it("hides the model picker without a catalog in both hosts", async () => {
+it("keeps the Model field in Create Agent without a catalog", async () => {
   createType.value = templateType.value = "opencode";
-  const create = await blockIn("create", false);
+  const create = await blockIn("create", true);
   const trigger = await blockIn("trigger", false);
-  expect(trigger).toBe(create);
+  expect(create).toContain("create-agent-model");
   expect(trigger).toContain("grid-cols-[minmax(0,1fr)_4.75rem]");
-  expect(trigger).toContain("OpenCode · /usr/local/bin/opencode");
+  expect(trigger).toContain("/usr/local/bin/opencode");
 });

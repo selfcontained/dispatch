@@ -59,6 +59,7 @@ vi.mock(
 );
 vi.mock("@/components/app/ide-settings", stubModule("IdeSettings"));
 vi.mock("./routing-settings", stubModule("RoutingSettings"));
+vi.mock("./runner-settings", stubModule("RunnerSettings"));
 vi.mock(
   "@/components/app/instance-name-settings",
   stubModule("InstanceNameSettings")
@@ -276,6 +277,7 @@ describe("SettingsContent", () => {
     ["security", ["SecuritySettings"]],
     ["notifications", ["NotificationSettings"]],
     ["connections", ["BrowserExtensionSettings"]],
+    ["runners", ["RunnerSettings"]],
     ["resources", ["ServiceResourcesSettings"]],
     ["updates", ["UpdatesSection", "PluginUpdateSettings"]],
     ["help", ["DocsContent"]],

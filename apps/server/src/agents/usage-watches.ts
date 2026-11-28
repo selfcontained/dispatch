@@ -216,6 +216,7 @@ export type UsageWatchDelivery = {
 
 type Deps = {
   pool: Pick<Pool, "query">;
+  providerPlansForAgent?: (agentId: string) => Promise<ProviderPlansResponse>;
   providerPlans: (request?: {
     force?: boolean;
   }) => Promise<ProviderPlansResponse>;
@@ -304,7 +305,8 @@ export class UsageWatchService {
     )
       throw new UsageWatchError("remainingPercent must be between 0 and 100.");
     const reading = usageReading(
-      await this.deps.providerPlans(),
+      await (this.deps.providerPlansForAgent?.(agentId) ??
+        this.deps.providerPlans()),
       type,
       this.now()
     );
@@ -398,11 +400,30 @@ export class UsageWatchService {
     if (!rows.length) return;
     // The reporter's cache and in-flight join decide whether this asks the
     // provider. Evaluate even a cached report: a resumed agent may be owed it.
-    await this.evaluate(await this.deps.providerPlans());
+    await this.evaluate();
   }
 
   /** Apply one report to every watch. Safe to call concurrently and repeatedly. */
-  async evaluate(report: ProviderPlansResponse): Promise<void> {
+  async evaluate(report?: ProviderPlansResponse): Promise<void> {
+    if (this.deps.providerPlansForAgent) {
+      const { rows } = await this.deps.pool.query<{ agent_id: string }>(
+        `SELECT DISTINCT w.agent_id FROM usage_watches w JOIN agents a ON a.id = w.agent_id WHERE a.deleted_at IS NULL AND a.status = 'running'`
+      );
+      for (const { agent_id } of rows) {
+        await this.evaluateScoped(
+          await this.deps.providerPlansForAgent(agent_id),
+          agent_id
+        );
+      }
+      return;
+    }
+    await this.evaluateScoped(report ?? (await this.deps.providerPlans()));
+  }
+
+  private async evaluateScoped(
+    report: ProviderPlansResponse,
+    agentId?: string
+  ): Promise<void> {
     if (this.disposed) return;
     const now = this.now();
     for (const type of USAGE_WATCH_TYPES) {
@@ -421,26 +442,27 @@ export class UsageWatchService {
                 delivered_at = NULL, last_observed_at = $2, last_headroom = $3
            FROM agents a
           WHERE a.id = w.agent_id AND a.status = 'running' AND a.deleted_at IS NULL
+            AND ($5::text IS NULL OR w.agent_id = $5)
             AND w.engine = $1 AND w.armed AND NOT (w.id = ANY($4::text[]))
             AND (w.last_observed_at IS NULL OR w.last_observed_at <= $2)
             AND ((w.comparison = 'at_or_below' AND $3 <= w.threshold)
               OR (w.comparison = 'at_or_above' AND $3 >= w.threshold))
           RETURNING w.*`,
-        [...params, backingOff]
+        [...params, backingOff, agentId ?? null]
       );
       await this.deps.pool.query(
         `UPDATE usage_watches
             SET armed = true, last_observed_at = $2, last_headroom = $3
-          WHERE engine = $1 AND NOT armed
+          WHERE ($5::text IS NULL OR agent_id = $5) AND engine = $1 AND NOT armed
             AND (last_observed_at IS NULL OR last_observed_at <= $2)
             AND ((comparison = 'at_or_below' AND $3 > threshold AND $3 >= LEAST(threshold + $4, 100))
               OR (comparison = 'at_or_above' AND $3 < threshold AND $3 <= GREATEST(threshold - $4, 0)))`,
-        [...params, REARM_MARGIN]
+        [...params, REARM_MARGIN, agentId ?? null]
       );
       await this.deps.pool.query(
         `UPDATE usage_watches SET last_observed_at = $2, last_headroom = $3
-          WHERE engine = $1 AND (last_observed_at IS NULL OR last_observed_at < $2)`,
-        params
+          WHERE ($4::text IS NULL OR agent_id = $4) AND engine = $1 AND (last_observed_at IS NULL OR last_observed_at < $2)`,
+        [...params, agentId ?? null]
       );
       for (const row of claimed) this.track(this.notify(row, reading));
     }

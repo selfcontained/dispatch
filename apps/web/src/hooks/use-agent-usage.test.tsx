@@ -43,7 +43,9 @@ afterEach(() => {
 describe("useProviderPlans", () => {
   it("opens on the last stored answer, then stores the fresh one", async () => {
     const fresh = { ...stored, checkedAt: "2026-09-24T12:00:00Z" };
-    apiMock.mockResolvedValue(fresh);
+    apiMock.mockResolvedValue({
+      ack: { ok: true, capability: { type: "provider_usage", usage: fresh } },
+    });
     const { result, rerender } = renderHook(
       ({ enabled }) => useProviderPlans(enabled),
       { wrapper, initialProps: { enabled: false } }
@@ -53,7 +55,16 @@ describe("useProviderPlans", () => {
 
     rerender({ enabled: true });
     await waitFor(() => expect(result.current.data).toEqual(fresh));
-    expect(apiMock).toHaveBeenCalledWith("/api/v1/usage/plans");
+    expect(apiMock).toHaveBeenCalledWith(
+      "/api/v1/engine-management/operations",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          scope: { kind: "local" },
+          operation: { type: "provider_usage" },
+        }),
+      }
+    );
     expect(
       JSON.parse(window.localStorage.getItem("dispatch:usage-plans")!)
     ).toEqual(fresh);
@@ -64,5 +75,31 @@ describe("useProviderPlans", () => {
     const { result } = renderHook(() => useProviderPlans(true), { wrapper });
     await waitFor(() => expect(result.current.error?.message).toBe("offline"));
     expect(result.current.data?.providers[0]?.engine).toBe("codex");
+  });
+  it("never seeds or persists an enrolled report in Local's saved cache", async () => {
+    const localBefore = window.localStorage.getItem("dispatch:usage-plans");
+    const report = {
+      ...stored,
+      checkedAt: "2026-09-24T13:00:00Z",
+      providers: [],
+    };
+    apiMock.mockResolvedValue({
+      ack: { ok: true, capability: { type: "provider_usage", usage: report } },
+    });
+    const { result, rerender } = renderHook(
+      ({ enabled }) =>
+        useProviderPlans(enabled, { kind: "runner", runnerId: "r1" }),
+      { wrapper, initialProps: { enabled: false } }
+    );
+    expect(result.current.data).toBeUndefined();
+    rerender({ enabled: true });
+    await waitFor(() => expect(result.current.data).toEqual(report));
+    expect(window.localStorage.getItem("dispatch:usage-plans")).toBe(
+      localBefore
+    );
+    expect(JSON.parse(String(apiMock.mock.calls[0]![1]!.body)).scope).toEqual({
+      kind: "runner",
+      runnerId: "r1",
+    });
   });
 });

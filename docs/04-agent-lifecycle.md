@@ -181,6 +181,15 @@ the error and stays available so archive can be retried. If that agent
 still depends on another agent's worktree, archive preserves the shared
 checkout for the retry.
 
+For the built-in runner and enrolled runners with checkout command support,
+Dispatch reads the `stop` hook from the launch checkout, then from the selected
+workspace if it differs. The session runner invokes each command under its
+workload identity before teardown. Dispatch logs nonzero exits and execution errors and continues
+stopping the session. Selecting a workspace only changes the checkout
+selection, so retrying the selection cannot invoke a hook. A retry after
+failed teardown can invoke both hooks again. Stop on an already stopped
+session skips the hooks. Keep cleanup idempotent.
+
 ## Idempotency Rules
 
 - `start` on a `running` agent is a no-op (returns the agent at `running` with HTTP 200). The handler reattaches to a live host if one is found instead of spawning a new one.

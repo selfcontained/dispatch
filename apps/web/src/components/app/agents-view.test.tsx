@@ -1,3 +1,4 @@
+import { localAgentPlacement } from "@/test-utils/__fixtures__/agent-placement";
 vi.mock("./chat/pending-inputs-button", () => ({
   PendingInputsButton: () => null,
 }));
@@ -321,6 +322,7 @@ function makeAgent(overrides: Partial<Agent> & { id: string }): Agent {
   return {
     name: `agent ${overrides.id}`,
     status: "running",
+    placement: localAgentPlacement,
     cwd: `/repos/${overrides.id}`,
     worktreePath: null,
     worktreeBranch: null,
@@ -698,6 +700,20 @@ describe("AgentsView dialogs", () => {
     const resolve = propsOf("AgentsViewDialogs")
       .resolveCreateDefaultCwd as () => string;
     expect(resolve()).toBe("/repos/selected");
+  });
+
+  it("passes main’s selected-agent default to the dialog; projection owns its target", () => {
+    const remote = makeAgent({ id: "r1", cwd: "/srv/linux/checkout" });
+    window.localStorage.setItem("dispatch:lastUsedAgentCwd", remote.cwd);
+    Object.assign(H.state, {
+      agents: [remote, makeAgent({ id: "a1", cwd: "/repos/local" })],
+      validatedSelectedAgentId: "r1",
+      selectedAgent: remote,
+    });
+    mount();
+    expect(
+      (propsOf("AgentsViewDialogs").resolveCreateDefaultCwd as () => string)()
+    ).toBe("/srv/linux/checkout");
   });
 
   it("falls back to the newest agent, then nothing", () => {

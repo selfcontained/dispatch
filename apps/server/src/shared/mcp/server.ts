@@ -38,7 +38,8 @@ import {
   registerPersonaInteractionTools,
   type LaunchPersonaAgentType,
 } from "./persona-interaction-tools.js";
-import { loadRepoTools, type RepoToolParam } from "./repo-tools.js";
+import { type RepoToolDefinition, type RepoToolParam } from "./repo-tools.js";
+import type { PersonaFiles } from "../../personas/authoring.js";
 import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 import { registerStreamTools } from "./stream-tools.js";
@@ -280,7 +281,15 @@ export type McpRequestContext = UsageCallbacks & {
   scheduledMessages?: ScheduledMessageService;
   agent: McpAgent | null;
   repoRoot: string | null;
+  discoverRepoTools?: () => Promise<RepoToolDefinition[]>;
+  toolsRoot?: string;
+  brainRepoRoot?: string | null;
   worktreeRoot: string | null;
+  /** Current workspace when it can identify a project on the controller. */
+  taskWorkspaceKey?: string | null;
+  /** Persona authoring through the caller's checkout on its runner. */
+  personaFiles?: PersonaFiles;
+  personaWrites?: boolean;
   /**
    * Publishes `agent.tool_invoked` for every tool call on this server
    * (dynamic repo tools included). Optional so
@@ -323,6 +332,7 @@ export type McpRequestContext = UsageCallbacks & {
       personas?: string[];
     }
   ) => Promise<import("../../personas/codeowners.js").OwnerReviewResult>;
+  listSessionPersonas?: boolean;
   listPersonas?: (agentCwd: string) => Promise<
     | Array<{ slug: string; name: string; description: string }>
     | {
@@ -525,7 +535,10 @@ export async function createDispatchMcpServer(
       parentAgentId: context.agent.parentAgentId,
       worktreeRoot: context.worktreeRoot,
       repoRoot: context.repoRoot,
+      personaFiles: context.personaFiles,
+      personaWrites: context.personaWrites,
       listPersonas: context.listPersonas,
+      listSessionPersonas: context.listSessionPersonas,
       launchOwnerReviews: context.launchOwnerReviews,
     });
   }
@@ -575,8 +588,11 @@ export async function createDispatchMcpServer(
   }
 
   // ── Brain tools (shared memory for agents) ────────────────────────
-  if (context.agent && context.repoRoot && context.brainStore) {
-    const brainRepoRoot = context.repoRoot;
+  const brainRepoRoot =
+    context.brainRepoRoot === undefined
+      ? context.repoRoot
+      : context.brainRepoRoot;
+  if (context.agent && brainRepoRoot && context.brainStore) {
     registerBrainTools(server, allowed, {
       repoRoot: brainRepoRoot,
       agentId: context.agent.id,
@@ -600,7 +616,13 @@ export async function createDispatchMcpServer(
       resolveProject: () =>
         taskService.projectForAgent(
           // The routes set the agent's cwd to its current workspace.
-          taskScopeInput(agent.projectId, agent.cwd, context.repoRoot)
+          taskScopeInput(
+            agent.projectId,
+            context.taskWorkspaceKey === undefined
+              ? agent.cwd
+              : context.taskWorkspaceKey,
+            context.repoRoot
+          )
         ),
       service: taskService,
     });
@@ -628,9 +650,10 @@ export async function createDispatchMcpServer(
     registerJobTools(server, context.agent.id, context.jobTools);
   }
 
-  const toolsRoot = context.worktreeRoot ?? context.repoRoot;
-  if (context.agent && toolsRoot) {
-    const allRepoTools = await loadRepoTools(toolsRoot);
+  const toolsRoot =
+    context.toolsRoot ?? context.worktreeRoot ?? context.repoRoot;
+  if (context.agent && toolsRoot && context.discoverRepoTools) {
+    const allRepoTools = await context.discoverRepoTools();
     const scope = context.toolScope ?? "agent";
     const repoTools = allRepoTools.filter(
       (tool) => !tool.scope || tool.scope.includes(scope)
@@ -643,12 +666,13 @@ export async function createDispatchMcpServer(
           description: tool.description,
           inputSchema,
         },
-        async (args) => {
+        async (args, { signal }) => {
           try {
             const result = await tool.run({
               agentId: context.agent!.id,
               repoRoot: toolsRoot,
               params: args as Record<string, unknown>,
+              signal,
             });
             // `message` is the command's stdout, which is already the text
             // content — carrying it in the structured payload too sent every

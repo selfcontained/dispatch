@@ -1,0 +1,157 @@
+import { spawn } from "node:child_process";
+import { childProcessEnv } from "../process/child-environment.js";
+
+type RunCommandOptions = {
+  cwd?: string;
+  /** Explicit overrides for the filtered inherited environment. */
+  env?: NodeJS.ProcessEnv;
+  allowedExitCodes?: number[];
+  timeoutMs?: number;
+  /** Preserve NUL-delimited filenames and other whitespace-sensitive output. */
+  trimOutput?: boolean;
+};
+
+export type RunCommandResult = {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+};
+
+const stderrTailLength = 8 * 1024;
+
+/** Injectable runner shape used by git/gh helpers so tests can fake commands. */
+export type CommandRunner = (
+  command: string,
+  args: string[],
+  options?: {
+    cwd?: string;
+    env?: NodeJS.ProcessEnv;
+    allowedExitCodes?: number[];
+    timeoutMs?: number;
+    trimOutput?: boolean;
+  }
+) => Promise<RunCommandResult>;
+
+export async function runCommand(
+  command: string,
+  args: string[],
+  options: RunCommandOptions = {}
+): Promise<RunCommandResult> {
+  return await new Promise<RunCommandResult>((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: { ...childProcessEnv(), ...options.env },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let settled = false;
+    let stdout = "";
+    let stderr = "";
+    let timeout: NodeJS.Timeout | null = null;
+    // SIGTERM is a request, not a guarantee — a child that's mid-syscall (a
+    // hung `git fetch`, for instance) can simply not act on it. Escalate to
+    // SIGKILL if it hasn't exited shortly after. This only reaches the
+    // direct child (no process-group kill) — a grandchild process the child
+    // itself spawned can still outlive us, which a `detached: true` +
+    // group-kill would close, but that changes kill semantics for every
+    // caller of this shared utility, not just the timeout path, so it's left
+    // out here deliberately.
+    let hardKill: NodeJS.Timeout | null = null;
+
+    const stopListening = (): void => {
+      child.stdout.removeAllListeners("data");
+      child.stderr.removeAllListeners("data");
+    };
+
+    const fail = (error: Error): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      stopListening();
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
+      reject(
+        Object.assign(error, {
+          stderrTail: stderr.trim().slice(-stderrTailLength),
+        })
+      );
+    };
+
+    const succeed = (result: RunCommandResult): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      stopListening();
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
+      if (hardKill) {
+        clearTimeout(hardKill);
+        hardKill = null;
+      }
+      resolve(result);
+    };
+
+    if (typeof options.timeoutMs === "number" && options.timeoutMs > 0) {
+      timeout = setTimeout(() => {
+        try {
+          child.kill("SIGTERM");
+        } catch {}
+        hardKill = setTimeout(() => {
+          try {
+            child.kill("SIGKILL");
+          } catch {}
+        }, 5_000);
+        hardKill.unref();
+        fail(
+          Object.assign(
+            new Error(
+              `Command timed out (${command} ${args.join(" ")}), timeoutMs=${options.timeoutMs}`
+            ),
+            { timedOut: true, timeoutMs: options.timeoutMs }
+          )
+        );
+      }, options.timeoutMs);
+    }
+
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+
+    child.on("error", (error) => {
+      fail(error);
+    });
+
+    child.on("close", (code, signal) => {
+      const exitCode = code ?? 1;
+      const allowedExitCodes = options.allowedExitCodes ?? [0];
+
+      if (!allowedExitCodes.includes(exitCode)) {
+        fail(
+          Object.assign(
+            new Error(
+              `Command failed (${command} ${args.join(" ")}), exitCode=${exitCode}, stderr=${stderr.trim()}`
+            ),
+            { timedOut: false, exitCode, signal }
+          )
+        );
+        return;
+      }
+
+      succeed({
+        exitCode,
+        stdout: options.trimOutput === false ? stdout : stdout.trim(),
+        stderr: stderr.trim(),
+      });
+    });
+  });
+}

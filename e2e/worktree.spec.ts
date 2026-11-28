@@ -125,7 +125,6 @@ test.describe("Safe worktree archive", () => {
 
     await loadApp(page);
 
-    const sidebar = page.getByTestId("agent-sidebar");
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await expect(agentCard).toBeVisible({ timeout: 5_000 });
 
@@ -139,11 +138,23 @@ test.describe("Safe worktree archive", () => {
     await page.getByTestId("delete-agent-confirm").click();
 
     // Second step: worktree choice dialog should appear
-    await expect(
-      page.getByRole("alertdialog", { name: /with outstanding changes\?$/ })
-    ).toBeVisible({ timeout: 5_000 });
+    const choice = page.getByRole("alertdialog", {
+      name: /with outstanding changes\?$/,
+    });
+    await expect(choice).toBeVisible({ timeout: 5_000 });
     await expect(page.getByTestId("delete-agent-keep-worktree")).toBeVisible();
     await expect(page.getByTestId("delete-agent-force-worktree")).toBeVisible();
+
+    for (const width of [page.viewportSize()!.width, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await expect(
+        choice.getByText("ui-file.txt", { exact: true })
+      ).toBeVisible();
+      await testInfo.attach(`archive choice at ${width}px`, {
+        body: await page.screenshot(),
+        contentType: "image/png",
+      });
+    }
 
     // Choose "Leave worktree"
     const wtPath = agent.worktreePath!;
@@ -164,5 +175,78 @@ test.describe("Safe worktree archive", () => {
     execSync(`git -C "${repoPath}" worktree remove --force "${wtPath}"`, {
       stdio: "ignore",
     });
+  });
+
+  test("removes a clean switched checkout and its current branch through Archive", async ({
+    page,
+    request,
+  }, testInfo) => {
+    const agent = await createAgentViaAPI(request, {
+      name: "clean checkout archive",
+      cwd: repoPath,
+      useWorktree: true,
+    });
+    execSync("git branch user-owned main", { cwd: repoPath });
+    execSync("git switch user-owned", {
+      cwd: agent.worktreePath!,
+      stdio: "ignore",
+    });
+    expect(
+      execSync("git branch --show-current", {
+        cwd: agent.worktreePath!,
+        encoding: "utf8",
+      }).trim()
+    ).toBe("user-owned");
+    await loadApp(page);
+    await page.getByTestId(`agent-expand-toggle-${agent.id}`).click();
+    await page.getByTestId(`agent-archive-${agent.id}`).click();
+    const dialog = page.getByRole("alertdialog", {
+      name: "Archive “clean checkout archive”?",
+    });
+    await expect(dialog).toContainText(
+      "This removes the agent record and all files."
+    );
+    await testInfo.attach("clean checkout confirmation", {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    });
+    await dialog.getByTestId("delete-agent-confirm").click();
+    await expect(page.getByTestId(`agent-card-${agent.id}`)).toHaveCount(0);
+    expect(existsSync(agent.worktreePath!)).toBe(false);
+    expect(
+      execSync("git branch --list user-owned", {
+        cwd: repoPath,
+        encoding: "utf8",
+      }).trim()
+    ).toBe("");
+  });
+
+  test("force-removes a local checkout edited while the archive confirmation is open", async ({
+    page,
+    request,
+  }, testInfo) => {
+    const agent = await createAgentViaAPI(request, {
+      name: "changed checkout archive",
+      cwd: repoPath,
+      useWorktree: true,
+    });
+    const file = path.join(agent.worktreePath!, "draft.txt");
+    writeFileSync(file, "seen");
+    await loadApp(page);
+    await page.getByTestId(`agent-expand-toggle-${agent.id}`).click();
+    await page.getByTestId(`agent-archive-${agent.id}`).click();
+    await page.getByTestId("delete-agent-confirm").click();
+    const choice = page.getByRole("alertdialog", {
+      name: "Archive “changed checkout archive” with outstanding changes?",
+    });
+    await expect(choice.getByText(/^\?\? draft\.txt$/)).toBeVisible();
+    writeFileSync(file, "edited while the dialog was open");
+    await testInfo.attach("force-removal confirmation", {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    });
+    await choice.getByTestId("delete-agent-force-worktree").click();
+    await expect(page.getByTestId(`agent-card-${agent.id}`)).toHaveCount(0);
+    expect(existsSync(agent.worktreePath!)).toBe(false);
   });
 });

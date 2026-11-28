@@ -1,6 +1,11 @@
 import type { Effort } from "@dispatch/shared";
 import { randomUUID } from "node:crypto";
-import path from "node:path";
+import {
+  mapSavedLocation,
+  normalizeSavedDirectory,
+  storedLocation,
+  type Location,
+} from "../runners/saved-location.js";
 
 import type { Pool } from "pg";
 
@@ -34,6 +39,7 @@ export type JobRunStatus =
 export type JobAgentType = CliAgentType;
 
 export type JobRecord = {
+  [storedLocation]?: Location;
   projectId?: string | null;
   id: string;
   directory: string;
@@ -124,6 +130,7 @@ export type JobWithLatestRun = JobRecord & {
 };
 
 export type JobRunConfig = {
+  [storedLocation]?: Location;
   directory: string;
   name: string;
   schedule: string | null;
@@ -142,6 +149,7 @@ export type JobRunConfig = {
 };
 
 export type AddJobInput = {
+  runner?: string;
   projectId?: string | null;
   name: string;
   directory: string;
@@ -176,6 +184,7 @@ export type UpdateJobInput = Partial<Omit<AddJobInput, "displayName">> & {
 };
 
 export type JobConfigUpdate = {
+  [storedLocation]?: Location;
   directory?: string;
   name?: string;
   prompt?: string | null;
@@ -209,6 +218,7 @@ export class JobStore {
   constructor(private readonly pool: Pool) {}
 
   async createJob(input: {
+    [storedLocation]?: Location;
     name: string;
     directory: string;
     prompt: string | null;
@@ -241,13 +251,13 @@ export class JobStore {
     try {
       const result = await this.pool.query(
         `
-        INSERT INTO jobs (id, directory, name, schedule, timeout_ms, needs_input_timeout_ms, prompt, full_access, agent_type, model, use_worktree, base_branch, branch_name, auto_archive, callable, singleton, webhook_enabled, webhook_secret, template_id, default_args, enabled, self_improve, continuation_enabled, max_iterations, completion_criteria, recovery_instructions, persona, effort)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb, $21, $22, $23, $24, $25, $26, $27, $28)
+        INSERT INTO jobs (id, directory, name, schedule, timeout_ms, needs_input_timeout_ms, prompt, full_access, agent_type, model, use_worktree, base_branch, branch_name, auto_archive, callable, singleton, webhook_enabled, webhook_secret, template_id, default_args, enabled, self_improve, continuation_enabled, max_iterations, completion_criteria, recovery_instructions, persona, effort, location)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb, $21, $22, $23, $24, $25, $26, $27, $28, $29)
         RETURNING ${this.jobColumns()}
         `,
         [
           id,
-          path.resolve(input.directory),
+          normalizeSavedDirectory(input.directory, input[storedLocation]),
           input.name,
           input.schedule,
           input.timeoutMs,
@@ -274,6 +284,7 @@ export class JobStore {
           input.recoveryInstructions ?? null,
           input.persona ?? null,
           input.effort ?? null,
+          input[storedLocation],
         ]
       );
       return mapJob(result.rows[0]);
@@ -400,14 +411,15 @@ export class JobStore {
       }
       const predecessor = mapRun(predecessorResult.rows[0]);
       const successorResult = await client.query(
-        `INSERT INTO job_runs (id, job_id, status, config, chain_id, chain_iteration)
-         VALUES ($1, $2, 'started', $3::jsonb, $4, $5) RETURNING ${this.runColumns()}`,
+        `INSERT INTO job_runs (id, job_id, status, config, chain_id, chain_iteration, location)
+         VALUES ($1, $2, 'started', $3::jsonb, $4, $5, $6) RETURNING ${this.runColumns()}`,
         [
           randomUUID(),
           predecessor.jobId,
           JSON.stringify(config),
           config.chainId ?? null,
           config.iteration ?? null,
+          config[storedLocation],
         ]
       );
       await client.query(
@@ -528,8 +540,8 @@ export class JobStore {
       }
       const result = await client.query(
         `
-        INSERT INTO job_runs (id, job_id, status, config, chain_id, chain_iteration)
-        VALUES ($1, $2, 'started', $3::jsonb, $4, $5)
+        INSERT INTO job_runs (id, job_id, status, config, chain_id, chain_iteration, location)
+        VALUES ($1, $2, 'started', $3::jsonb, $4, $5, $6)
         RETURNING ${this.runColumns()}
         `,
         [
@@ -538,6 +550,7 @@ export class JobStore {
           JSON.stringify(config),
           config.chainId ?? null,
           config.iteration ?? null,
+          config[storedLocation],
         ]
       );
       await client.query("COMMIT");
@@ -787,7 +800,7 @@ export class JobStore {
   async listJobs(): Promise<JobWithLatestRun[]> {
     const result = await this.pool.query(`
       SELECT
-        j.id, j.directory, j.name,
+        j.id, j.directory, j.location, j.name,
         j.schedule,
         j.timeout_ms AS "timeoutMs",
         j.needs_input_timeout_ms AS "needsInputTimeoutMs",
@@ -955,11 +968,16 @@ export class JobStore {
 
   async getJobByDirectoryAndName(
     directory: string,
-    name: string
+    name: string,
+    runner = "local"
   ): Promise<JobRecord | null> {
     const result = await this.pool.query(
-      `SELECT ${this.jobColumns()} FROM jobs WHERE directory = $1 AND name = $2`,
-      [path.resolve(directory), name]
+      `SELECT ${this.jobColumns()} FROM jobs WHERE directory = $1 AND name = $2 AND COALESCE(location->>'runner', 'local') = $3`,
+      [
+        directory === "" ? "" : normalizeSavedDirectory(directory, runner),
+        name,
+        runner,
+      ]
     );
     return result.rows[0] ? mapJob(result.rows[0]) : null;
   }
@@ -1026,6 +1044,7 @@ export class JobStore {
             recovery_instructions = CASE WHEN $35 THEN $36 ELSE recovery_instructions END,
             persona = CASE WHEN $37 THEN $38 ELSE persona END,
             directory = COALESCE($39, directory),
+            location = COALESCE($42, location),
             effort = CASE WHEN $40 THEN $41 ELSE effort END,
             updated_at = NOW()
         WHERE id = $1
@@ -1072,9 +1091,10 @@ export class JobStore {
           input.persona ?? null,
           input.directory === undefined
             ? undefined
-            : path.resolve(input.directory),
+            : normalizeSavedDirectory(input.directory, input[storedLocation]),
           input.effort !== undefined,
           input.effort ?? null,
+          input[storedLocation],
         ]
       );
       if (!result.rows[0]) throw new Error(`Job ${jobId} not found.`);
@@ -1171,6 +1191,7 @@ export class JobStore {
     return `
       id,
       directory,
+      location,
       name,
       schedule,
       timeout_ms AS "timeoutMs",
@@ -1212,6 +1233,7 @@ export class JobStore {
       ${prefix}status,
       ${prefix}report,
       ${prefix}config,
+      ${prefix}location,
       ${prefix}pending_question AS "pendingQuestion",
       ${prefix}started_at AS "startedAt",
       ${prefix}status_updated_at AS "statusUpdatedAt",
@@ -1277,13 +1299,20 @@ function validateContinuationStatus(value: unknown): ContinuationStatus | null {
 }
 
 function mapJob(row: Record<string, unknown>): JobRecord {
-  return row as JobRecord;
+  return mapSavedLocation<JobRecord>(row);
 }
 
 function mapRun(row: Record<string, unknown>): JobRunRecord {
-  return row as JobRunRecord;
+  const { location, config, ...run } = row;
+  return {
+    ...run,
+    config: mapSavedLocation<JobRunConfig>({
+      ...(config as Record<string, unknown>),
+      location,
+    }),
+  } as JobRunRecord;
 }
 
 function mapJobWithLatestRun(row: Record<string, unknown>): JobWithLatestRun {
-  return row as JobWithLatestRun;
+  return mapSavedLocation<JobWithLatestRun>(row);
 }

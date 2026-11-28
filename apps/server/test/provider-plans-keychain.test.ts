@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import os from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { loadProviderPlans } from "../src/agents/provider-plans.js";
+import { loadProviderPlans } from "../../../packages/runner/src/workload/agents/provider-plans.js";
 
 vi.mock("node:child_process", () => ({ execFile: vi.fn() }));
 vi.mock("node:fs/promises", async (importOriginal) => ({

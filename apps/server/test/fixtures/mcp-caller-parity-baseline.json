@@ -1,0 +1,8 @@
+{
+  "call/task_list/no-project": {
+    "rule": "N18",
+    "task": "T34",
+    "local": "accepted",
+    "runner": "tool:You are not in a Dispatch project (no project's repo holds your workspace), so there is no task board for you."
+  }
+}

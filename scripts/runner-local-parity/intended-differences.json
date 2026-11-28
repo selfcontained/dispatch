@@ -1,0 +1,156 @@
+[
+  {
+    "field": "placement",
+    "decision": "Owner 2026-11-22: placement on agent records is intended"
+  },
+  {
+    "field": "ownership",
+    "decision": "Owner 2026-11-22: worktree status ownership, borrowers and checkoutState are intended"
+  },
+  {
+    "field": "borrowers",
+    "decision": "Owner 2026-11-22: worktree status ownership, borrowers and checkoutState are intended"
+  },
+  {
+    "field": "checkoutState",
+    "decision": "Owner 2026-11-22: worktree status ownership, borrowers and checkoutState are intended"
+  },
+  {
+    "field": "runner",
+    "decision": "Owner 2026-11-22: jobs and templates accept an optional runner selection (T08)."
+  },
+  {
+    "field": "extraRoots",
+    "decision": "Owner 2026-11-22: one project per repository; a merged project keeps its other folders (T17), exposed as an added field"
+  },
+  {
+    "consequence": "migrations",
+    "decision": "Owner 2026-11-22: the branch's own migrations are a direct consequence of the feature"
+  },
+  {
+    "scenario": "model-catalog-refresh",
+    "path": "discovered OpenCode > defaultModel",
+    "main": "null",
+    "head": "\"default-model\"",
+    "decision": "Owner 2026-11-25: stale-while-revalidate model discovery on every runner"
+  },
+  {
+    "scenario": "model-catalog-refresh",
+    "path": "discovered OpenCode > models",
+    "main": "[]",
+    "head": "[{\"effort\":[],\"id\":\"default-model\",\"label\":\"Default model\"},{\"id\":\"other-model\",\"label\":\"Other model\"}]",
+    "decision": "Owner 2026-11-25: stale-while-revalidate model discovery on every runner"
+  },
+  {
+    "scenario": "model-catalog-refresh",
+    "path": "unseeded OpenCode validation",
+    "main": "400",
+    "head": "200",
+    "decision": "Owner 2026-11-25: stale-while-revalidate model discovery on every runner; validation awaits its first observation."
+  },
+  {
+    "scenario": "audit-4-learned-models",
+    "path": "keys written",
+    "main": "[{\"key\":\"agent_models:claude\"}]",
+    "head": "[{\"key\":\"agent_models:claude\"},{\"key\":\"agent_models:opencode\"}]",
+    "decision": "Owner 2026-11-25: stale-while-revalidate model discovery on every runner"
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "git > branchConfig > branch.case-7.merge",
+    "main": "<absent>",
+    "head": "\"refs/heads/main\"",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "git > branchConfig > branch.case-7.remote",
+    "main": "<absent>",
+    "head": "\"origin\"",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "git > refs > refs/heads/case-7",
+    "main": "<absent>",
+    "head": "\"c484f011a9da02965bf4c49ced8c0002b18b01ba\"",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "git > worktrees > <root>/work/repo-case-7",
+    "main": "<absent>",
+    "head": "[\"HEAD c484f011a9da02965bf4c49ced8c0002b18b01ba\",\"branch refs/heads/case-7\"]",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "status fails: directory remains",
+    "main": "false",
+    "head": "true",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "status fails: status > body > branchName",
+    "main": "\"case-7\"",
+    "head": "<absent>",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "status fails: status > body > changedFiles",
+    "main": "[]",
+    "head": "<absent>",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "status fails: status > body > error",
+    "main": "<absent>",
+    "head": "\"Checkout status is unavailable on the owning runner.\"",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "status fails: status > body > hasUncommittedChanges",
+    "main": "false",
+    "head": "<absent>",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "status fails: status > body > hasUnmergedCommits",
+    "main": "false",
+    "head": "<absent>",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "status fails: status > body > hasWorktree",
+    "main": "true",
+    "head": "<absent>",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "status fails: status > body > uncommittedFiles",
+    "main": "[]",
+    "head": "<absent>",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "status fails: status > body > worktreePath",
+    "main": "\"<root>/work/repo-case-7\"",
+    "head": "<absent>",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  },
+  {
+    "scenario": "worktree-archive",
+    "path": "status fails: status > status",
+    "main": "200",
+    "head": "503",
+    "decision": "Owner 2026-11-26: unreadable Git status keeps the checkout and branch on every runner and reports cleanup skipped."
+  }
+]

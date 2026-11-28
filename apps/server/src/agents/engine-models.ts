@@ -2,6 +2,11 @@ import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
+import {
+  localRunnerSettings,
+  namespaced,
+  type RunnerSettings,
+} from "../runners/settings-namespace.js";
 import { getSetting, setSetting } from "../db/settings.js";
 import {
   getAgentModelOptions,
@@ -10,10 +15,51 @@ import {
   type AgentModelOption,
 } from "../shared/agent-models.js";
 import { AGENT_TYPES, type AgentType } from "../shared/agent-types.js";
-import { recordListedModels } from "./model-availability.js";
+import {
+  prepareListedModels,
+  commitModelChanges,
+} from "./model-availability.js";
+import type { Res } from "@dispatch/runner-protocol/contract";
 
 /** The settings key an engine's learned list lives under. */
-const settingKey = (agentType: AgentType) => `agent_models:${agentType}`;
+const settingKey = (agentType: AgentType, settings = localRunnerSettings) =>
+  namespaced(settings, `agent_models:${agentType}`);
+
+/** Durable ordering and ages, separate from main's catalog bytes. */
+export type ModelObservation = {
+  revision: number;
+  observedAt?: string;
+  effort: Record<string, string>;
+};
+export class SupersededModelObservation extends Error {}
+export async function readModelObservation(
+  pool: Pool,
+  settings: RunnerSettings,
+  type: AgentType
+): Promise<ModelObservation> {
+  const raw = await getSetting(
+    pool,
+    namespaced(settings, `agent_models_observation:${type}`)
+  );
+  try {
+    const value = raw ? JSON.parse(raw) : {};
+    return {
+      revision:
+        Number.isSafeInteger(value.revision) && value.revision >= 0
+          ? value.revision
+          : 0,
+      observedAt:
+        typeof value.observedAt === "string" ? value.observedAt : undefined,
+      effort: Object.fromEntries(
+        Object.entries(value.effort ?? {}).filter(
+          (entry) => typeof entry[1] === "string"
+        )
+      ) as Record<string, string>,
+    };
+  } catch {
+    return { revision: 0, effort: {} };
+  }
+}
 
 type StoredEngineModels = {
   models: AgentModelOption[];
@@ -21,64 +67,25 @@ type StoredEngineModels = {
   seenAt: string;
 };
 
-export type EngineModelReport = {
-  /** The model the engine is running now. */
-  current: string;
-  /** Everything it offers, groups flattened, in the engine's order. */
-  choices: AgentModelOption[];
-};
-
-/**
- * An engine's name for a model as a person would say it. codex-acp strips
- * the family off its GPT models ("gpt-5.6-sol" is published as "5.6 Sol")
- * because its own picker shows them under a "GPT" heading; the flat list
- * here has no heading, so the family goes back on.
- */
-function modelLabel(value: string, name: string): string {
-  // Only a bare version ("5.6 Sol") is a stripped name; anything else is
-  // the engine's own wording and stays as it is.
-  if (/^gpt-/i.test(value) && /^\d/.test(name)) return `GPT-${name}`;
-  return name;
-}
-
-/**
- * The model option among an engine's session config options, or null when
- * it publishes none. Engines name it `model` or file it under the `model`
- * category; either counts, and the first match wins.
- */
-export function modelOptionOf(
-  options: readonly SessionConfigOption[]
-): EngineModelReport | null {
-  const option = options.find(
-    (o) => o.type === "select" && (o.id === "model" || o.category === "model")
-  );
-  if (!option || option.type !== "select") return null;
-  const choices: AgentModelOption[] = [];
-  const add = (o: { value: string; name: string }, group?: string) => {
-    // The picker has its own "Default" (no override); the engine's entry
-    // for the same thing would be a second one.
-    if (o.value === "default") return;
-    // A grouped choice is named within its group ("GPT" › "6 Astra"); the
-    // flat list needs the whole name.
-    const name = modelLabel(o.value, o.name);
-    const label =
-      group && !name.toLowerCase().startsWith(group.toLowerCase())
-        ? `${group} ${name}`
-        : name;
-    choices.push({ id: o.value, label });
-  };
-  for (const entry of option.options) {
-    if ("group" in entry) entry.options.forEach((o) => add(o, entry.name));
-    else add(entry);
-  }
-  const current = String(option.currentValue);
-  return { current, choices };
-}
+import {
+  modelOptionOf,
+  engineEffortOption,
+  type EngineModelReport,
+} from "@dispatch/runner-protocol/engine-options";
+export {
+  modelOptionOf,
+  engineEffortOption,
+  type EngineModelReport,
+} from "@dispatch/runner-protocol/engine-options";
 
 /** At boot: what earlier sessions taught, so the pickers are right before any engine runs again. */
-export async function loadLearnedAgentModels(pool: Pool): Promise<void> {
+export async function loadLearnedAgentModels(
+  pool: Pool,
+  runnerId = "local",
+  settings: RunnerSettings = localRunnerSettings
+): Promise<void> {
   for (const agentType of AGENT_TYPES) {
-    const raw = await getSetting(pool, settingKey(agentType));
+    const raw = await getSetting(pool, settingKey(agentType, settings));
     if (!raw) continue;
     try {
       // Ignore the old E2E fixture catalog until a real engine reports.
@@ -91,7 +98,12 @@ export async function loadLearnedAgentModels(pool: Pool): Promise<void> {
           stored.models.some((model) => model?.id === "other-model")
         )
       ) {
-        setLearnedAgentModels(agentType, stored.models, stored.defaultModel);
+        setLearnedAgentModels(
+          agentType,
+          stored.models,
+          stored.defaultModel,
+          runnerId
+        );
       }
     } catch {
       // A corrupt entry is replaced the next time the engine reports.
@@ -110,13 +122,17 @@ export async function recordEngineModels(
   deps: { pool: Pool; logger: FastifyBaseLogger },
   agent: { id: string; type: AgentType; model: string | null },
   options: readonly SessionConfigOption[],
-  learnCatalog = true
+  learnCatalog = true,
+  catalog: { runnerId: string; settings: RunnerSettings } = {
+    runnerId: "local",
+    settings: localRunnerSettings,
+  }
 ): Promise<{ modelChanged: boolean; modelsChanged: boolean }> {
   const report = modelOptionOf(options);
   if (!report) return { modelChanged: false, modelsChanged: false };
   const modelsChanged =
     learnCatalog &&
-    (await learnEngineCatalog(deps.pool, agent, options, report));
+    (await learnEngineCatalog(deps.pool, agent, options, report, catalog));
   if (report.current === agent.model)
     return { modelChanged: false, modelsChanged };
   await deps.pool.query(
@@ -134,54 +150,136 @@ async function learnEngineCatalog(
   pool: Pool,
   agent: { type: AgentType; model: string | null },
   options: readonly SessionConfigOption[],
-  report: EngineModelReport
+  report: EngineModelReport,
+  catalog: { runnerId: string; settings: RunnerSettings },
+  refresh?: {
+    refreshedAt: string;
+    expectedRevision?: number;
+  }
 ): Promise<boolean> {
-  if (report.choices.length === 0) return false;
-  // Before the list is published, so a model that starts off is never offered.
-  const filterChanged = await recordListedModels(
-    pool,
-    agent.type,
-    report.choices.map(({ id }) => id)
-  );
-  const previous = getAgentModelOptions(agent.type);
-  const effortOption = options.find(
-    (o) =>
-      o.type === "select" &&
-      (o.category === "thought_level" ||
-        /effort|reasoning|thinking/i.test(o.id))
-  );
-  const effort =
-    effortOption?.type === "select"
-      ? effortOption.options
-          .flatMap((entry) => ("options" in entry ? entry.options : [entry]))
-          .filter((choice) => choice.value !== "default")
-          .map((choice) => ({
-            value: choice.value,
-            name: choice.name,
-            ...(choice.description ? { description: choice.description } : {}),
-          }))
-      : [];
-  report.choices = report.choices.map((choice) => {
-    const known =
-      choice.id === report.current
-        ? effort
-        : previous.find((old) => old.id === choice.id)?.effort;
-    return known === undefined ? choice : { ...choice, effort: known };
+  if (report.choices.length === 0 && !refresh) return false;
+  return commitModelChanges(pool, async (client) => {
+    const observation = await readModelObservation(
+      client,
+      catalog.settings,
+      agent.type
+    );
+    if (
+      refresh?.expectedRevision !== undefined &&
+      observation.revision !== refresh.expectedRevision
+    )
+      throw new SupersededModelObservation(
+        "A newer model observation committed during discovery."
+      );
+    const observedAt = refresh?.refreshedAt ?? new Date().toISOString();
+    const effortTimes = new Map(Object.entries(observation.effort));
+    // Retained effort is not a new observation of that model.
+    for (const choice of report.choices)
+      if (choice.id === report.current || choice.effort !== undefined)
+        effortTimes.set(choice.id, observedAt);
+    await setSetting(
+      client,
+      namespaced(catalog.settings, `agent_models_observation:${agent.type}`),
+      JSON.stringify({
+        revision: observation.revision + 1,
+        observedAt,
+        effort: Object.fromEntries(effortTimes),
+      })
+    );
+    await setSetting(
+      client,
+      namespaced(catalog.settings, `agent_models_refresh:${agent.type}`),
+      JSON.stringify({ refreshedAt: observedAt })
+    );
+    if (report.choices.length === 0) {
+      return { result: false, publish() {} };
+    }
+    // Before the list is published, so a model that starts off is never offered.
+    const availability = await prepareListedModels(
+      client,
+      agent.type,
+      report.choices.map(({ id }) => id),
+      catalog
+    );
+    const previous = getAgentModelOptions(agent.type, catalog.runnerId);
+    const effort = engineEffortOption(options);
+    report.choices = report.choices.map((choice) => {
+      const known =
+        choice.id === report.current
+          ? effort
+          : (choice.effort ??
+            previous.find((old) => old.id === choice.id)?.effort);
+      return known === undefined ? choice : { ...choice, effort: known };
+    });
+    const defaultModel =
+      agent.model === null
+        ? report.current
+        : agentModelDefaults(catalog.runnerId)[agent.type];
+    const modelsChanged =
+      availability.changed ||
+      !sameModels(previous, report.choices) ||
+      defaultModel !== agentModelDefaults(catalog.runnerId)[agent.type];
+    const stored: StoredEngineModels = {
+      models: report.choices,
+      defaultModel,
+      seenAt: new Date().toISOString(),
+    };
+    for (const write of availability.writes)
+      await setSetting(client, write.key, write.value);
+    await setSetting(
+      client,
+      settingKey(agent.type, catalog.settings),
+      JSON.stringify(stored)
+    );
+    return {
+      result: modelsChanged,
+      publish() {
+        availability.publish();
+        setLearnedAgentModels(
+          agent.type,
+          report.choices,
+          defaultModel,
+          catalog.runnerId
+        );
+      },
+    };
   });
-  const defaultModel =
-    agent.model === null ? report.current : agentModelDefaults()[agent.type];
-  const modelsChanged =
-    filterChanged ||
-    !sameModels(previous, report.choices) ||
-    defaultModel !== agentModelDefaults()[agent.type];
-  setLearnedAgentModels(agent.type, report.choices, defaultModel);
-  const stored: StoredEngineModels = {
-    models: report.choices,
-    defaultModel,
-    seenAt: new Date().toISOString(),
-  };
-  await setSetting(pool, settingKey(agent.type), JSON.stringify(stored));
-  return modelsChanged;
+}
+
+/** Live listing and agent observations share the same durable learning path. */
+export function recordDiscoveredModels(
+  pool: Pool,
+  type: AgentType,
+  result: Res<"engine.models">,
+  catalog: { runnerId: string; settings: RunnerSettings },
+  refreshedAt: string,
+  selectedModel?: string,
+  expectedRevision?: number
+): Promise<boolean> {
+  const current = result.current ?? result.defaultModel ?? "default";
+  const effort =
+    result.models.find((model) => model.id === current)?.effort ?? [];
+  const options: SessionConfigOption[] = [
+    {
+      id: "effort",
+      name: "Effort",
+      type: "select",
+      category: "thought_level",
+      currentValue: effort[0]?.value ?? "default",
+      options: effort,
+    },
+  ];
+  return learnEngineCatalog(
+    pool,
+    { type, model: selectedModel ?? null },
+    options,
+    { current, choices: result.models },
+    catalog,
+    {
+      refreshedAt,
+      expectedRevision,
+    }
+  );
 }
 
 function sameModels(
@@ -220,3 +318,11 @@ export async function recordEngineEffort(
   );
   return true;
 }
+
+// An SDK upgrade must keep every field read by the neutral parsers assignable.
+type AssertOptionCompatibility<T extends true> = T;
+export type EngineOptionCompatibility = AssertOptionCompatibility<
+  SessionConfigOption extends import("@dispatch/runner-protocol/engine-options").EngineConfigOption
+    ? true
+    : false
+>;

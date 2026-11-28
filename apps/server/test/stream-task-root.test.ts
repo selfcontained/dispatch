@@ -1,3 +1,5 @@
+import { readRepositoryRoot } from "./helpers/task-scope.js";
+import { launchPersonaScope } from "../src/personas/persona-scope.js";
 import {
   afterAll,
   beforeAll,
@@ -188,6 +190,7 @@ beforeEach(async () => {
     throw new Error("no launches here");
   };
   tasks = new TaskService({
+    readRepositoryRoot,
     pool,
     watches,
     getAgent: async (id) =>
@@ -202,6 +205,8 @@ beforeEach(async () => {
     chat: streams,
     publishUiEvent: () => {},
     log: { warn: vi.fn(), info: vi.fn() },
+    personaScope: (target) =>
+      launchPersonaScope({ checkoutReadRunners: () => ({}) } as never, target),
   });
   await app?.close();
   app = Fastify();

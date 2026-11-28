@@ -1,0 +1,193 @@
+{
+  "adapter": {
+    "argv": ["--golden-arg", "--dangerously-skip-permissions"],
+    "env": {
+      "DISPATCH_ACP_ADAPTER_COMMAND": null,
+      "DISPATCH_LOCAL_CA_CERTIFICATE": null,
+      "DISPATCH_GOLDEN_LAUNCH_VALUE": "kept",
+      "FAKE_ACP_ENGINE": "claude",
+      "RECORD_DIR": "<record>",
+      "CLAUDE_CODE_EXECUTABLE": "/opt/golden/claude",
+      "CLAUDE_CODE_ARTIFACT": "1"
+    },
+    "ca": {
+      "NODE_EXTRA_CA_CERTS": {
+        "file": "<state>/node-ca.pem",
+        "withPublicRoots": true,
+        "endsWithLocalCa": true
+      },
+      "CURL_CA_BUNDLE": {
+        "file": "<state>/curl-ca.pem",
+        "withPublicRoots": true,
+        "endsWithLocalCa": true
+      }
+    },
+    "pathHead": ["/opt/golden/prefix-bin"],
+    "pathHasEngineDir": true
+  },
+  "requests": [
+    {
+      "jsonrpc": "2.0",
+      "id": 0,
+      "method": "initialize",
+      "params": {
+        "protocolVersion": 1,
+        "clientCapabilities": {
+          "fs": {
+            "readTextFile": false,
+            "writeTextFile": false
+          },
+          "session": {
+            "notices": {},
+            "compaction": {}
+          },
+          "_meta": {
+            "subagent-transcript": true,
+            "jetbrains": {
+              "air": {
+                "version": 1,
+                "capabilities": ["asyncTasks"]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "session/new",
+      "params": {
+        "cwd": "<cwd>",
+        "mcpServers": [
+          {
+            "type": "http",
+            "name": "dispatch",
+            "url": "http://127.0.0.1:1/api/mcp/agt_golden",
+            "headers": [
+              {
+                "name": "Authorization",
+                "value": "Bearer tok"
+              }
+            ]
+          }
+        ],
+        "_meta": {
+          "systemPrompt": {
+            "append": "Be brief.\nÜnïcode ✓ — \"quoted\" and\ttabbed."
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session/prompt",
+      "params": {
+        "sessionId": "fake_claude_<id>",
+        "_meta": {
+          "dispatch/steering": {
+            "id": "<uuid>"
+          }
+        },
+        "prompt": [
+          {
+            "type": "text",
+            "text": "Persona: review only the parent's diff."
+          },
+          {
+            "type": "text",
+            "text": "first prompt ✓"
+          }
+        ]
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "session/prompt",
+      "params": {
+        "sessionId": "fake_claude_<id>",
+        "_meta": {
+          "dispatch/steering": {
+            "id": "<uuid>"
+          }
+        },
+        "prompt": [
+          {
+            "type": "text",
+            "text": "second prompt"
+          }
+        ]
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "session/close",
+      "params": {
+        "sessionId": "fake_claude_<id>"
+      }
+    }
+  ],
+  "turnStarts": [
+    {
+      "text": "first prompt ✓",
+      "source": {
+        "source": "chat",
+        "chatMessageId": "msg_first",
+        "userMessage": true,
+        "conversation": {
+          "streamId": "stream_1",
+          "threadId": null
+        }
+      }
+    },
+    {
+      "text": "second prompt",
+      "source": null
+    }
+  ],
+  "files": [
+    "curl-ca.pem",
+    "host.log",
+    "journal.id",
+    "journal.jsonl",
+    "launch.json",
+    "node-ca.pem",
+    "session.json"
+  ],
+  "contents": {
+    "launch.json": {
+      "agentId": "agt_golden_claude",
+      "cwd": "<cwd>",
+      "engine": "claude",
+      "bins": {
+        "claudeBin": "/opt/golden/claude",
+        "codexBin": "/opt/golden/codex",
+        "opencodeBin": "/opt/golden/opencode",
+        "adapter": {
+          "bin": "<recorder>",
+          "args": ["--golden-arg"]
+        }
+      },
+      "model": null,
+      "effort": null,
+      "fullAccess": true,
+      "systemPrompt": "Be brief.\nÜnïcode ✓ — \"quoted\" and\ttabbed.",
+      "personaContext": "Persona: review only the parent's diff.",
+      "mcp": {
+        "url": "http://127.0.0.1:1/api/mcp/agt_golden",
+        "token": "tok"
+      },
+      "env": {
+        "RECORD_DIR": "<record>",
+        "DISPATCH_LOCAL_CA_CERTIFICATE": "<ca>",
+        "DISPATCH_GOLDEN_LAUNCH_VALUE": "kept",
+        "FAKE_ACP_ENGINE": "claude"
+      },
+      "pathPrefix": ["/opt/golden/prefix-bin"],
+      "resumeSessionId": null
+    }
+  }
+}

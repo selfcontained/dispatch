@@ -1,19 +1,32 @@
+import { pathFromWire, sameRunner } from "@dispatch/runner-protocol/contract";
+import { runnerDirectory } from "../runners/directory.js";
+import { controllerPlacement } from "../runners/placement.js";
 import type { Effort } from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
-import { discoverPersonas } from "../personas/resolve.js";
+import { listPersonas } from "../personas/resolve.js";
+import {
+  launchPersonaScope,
+  personaCheckoutRoot,
+  personaScopeFor,
+} from "../personas/persona-scope.js";
+import { requestedRunnerPlacement } from "../runners/saved-location.js";
+import type { ProjectStore } from "../projects/store.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
 
 import type { AgentManager } from "../agents/manager.js";
 import { StreamServiceError, type StreamService } from "../chat/service.js";
 import { CLI_AGENT_TYPES } from "../agent-type-settings.js";
-import { validateAgentModelChoice } from "../shared/agent-models.js";
+import {
+  modelScopeFor,
+  validateAgentModelChoice,
+} from "../shared/agent-models.js";
+import { readSessionOwnerRules } from "../server/mcp-persona-handlers.js";
 import { hasCodeowners } from "../personas/codeowners.js";
-import { supportsPersonaType } from "../personas/loader.js";
-import { resolveWorktreeRoot } from "../shared/git/git-context.js";
 
 type PersonaRouteDeps = {
   agentManager: AgentManager;
+  projects: Pick<ProjectStore, "get" | "getRepository">;
   /**
    * The request reaches the agent as a post in its stream: the agent
    * launches the persona itself, with its own briefing of the work.
@@ -91,10 +104,11 @@ const PERSONAS_REQUIRED_ERROR =
   "persona (string), personas (non-empty array of strings), or codeowners: true is required.";
 
 async function resolveOptionalWorktreeRoot(
-  cwd: string
+  cwd: string,
+  manager: Pick<AgentManager, "checkoutReadRunners">
 ): Promise<string | null> {
   try {
-    return await resolveWorktreeRoot(cwd);
+    return await personaCheckoutRoot(cwd, manager.checkoutReadRunners());
   } catch {
     return null;
   }
@@ -105,27 +119,80 @@ export async function registerPersonaRoutes(
   deps: PersonaRouteDeps
 ): Promise<void> {
   app.get("/api/v1/personas", async (request, reply) => {
-    const query = request.query as { cwd?: unknown; type?: unknown };
-    if (typeof query.cwd !== "string") {
-      return reply
-        .code(400)
-        .send({ error: "cwd query parameter is required." });
-    }
+    const query = request.query as {
+      agentId?: unknown;
+      cwd?: unknown;
+      runner?: unknown;
+      projectId?: unknown;
+      type?: unknown;
+    };
+    const type = query.type === "task" ? "task" : "review";
     try {
-      const worktreeRoot = await resolveOptionalWorktreeRoot(query.cwd);
-      const type = query.type === "task" ? "task" : "review";
-      const { personas, warnings, refreshing, updatedAt } =
-        await discoverPersonas(
-          query.cwd,
-          type === "task" ? "catalog" : "workspace"
-        );
+      if (typeof query.agentId === "string") {
+        const agent = await deps.agentManager.getAgent(query.agentId);
+        if (!agent) return reply.code(404).send({ error: "Agent not found." });
+        const [{ personas, warnings, refreshing, updatedAt }, owners] =
+          await Promise.all([
+            listPersonas(
+              personaScopeFor({ manager: deps.agentManager, agent }),
+              type
+            ),
+            // Difference from main (recorded, T35): main's access() also offers
+            // owner reviews for an owners.json that is a directory or unreadable,
+            // and answers 400 on other access errors; this reads the file.
+            readSessionOwnerRules(deps.agentManager, agent).catch(() => null),
+          ]);
+        // Main's answer for the agent's workspace folder, field for field.
+        return {
+          personas,
+          codeowners: owners !== null,
+          refreshing,
+          updatedAt,
+          ...(warnings.length ? { warnings } : {}),
+        };
+      }
+      const cwd = typeof query.cwd === "string" ? query.cwd : undefined;
+      const projectId =
+        typeof query.projectId === "string" ? query.projectId : undefined;
+      if (cwd === undefined && !projectId)
+        return reply
+          .code(400)
+          .send({ error: "cwd or projectId query parameter is required." });
+      const project = projectId ? await deps.projects.get(projectId) : null;
+      if (projectId && !project)
+        return reply.code(404).send({ error: "Project not found." });
+      const placement = requestedRunnerPlacement(query) ?? controllerPlacement;
+      const worktreeRoot =
+        cwd && sameRunner(placement, controllerPlacement)
+          ? await resolveOptionalWorktreeRoot(cwd, deps.agentManager)
+          : null;
+      const { personas, warnings, refreshing, updatedAt } = await listPersonas(
+        launchPersonaScope(deps.agentManager, {
+          placement,
+          cwd,
+          projectRoot: project?.repoRoot ?? undefined,
+          repository: projectId
+            ? async () => (await deps.projects.getRepository(projectId))?.url
+            : null,
+          source: type === "task" ? "catalog" : "workspace",
+        }),
+        type
+      );
       // Owner reviews read the map from the checkout being reviewed, so only
       // the worktree decides whether the option is offered.
       const codeowners = worktreeRoot
-        ? await hasCodeowners(worktreeRoot)
+        ? await hasCodeowners({
+            access: (file) =>
+              runnerDirectory(deps.agentManager.checkoutReadRunners())
+                .for(controllerPlacement)
+                .call("checkout.access", {
+                  target: { path: pathFromWire(worktreeRoot) },
+                  path: file,
+                }),
+          })
         : false;
       return {
-        personas: personas.filter((p) => supportsPersonaType(p, type)),
+        personas,
         codeowners,
         refreshing,
         updatedAt,
@@ -224,32 +291,33 @@ export async function registerPersonaRoutes(
         error: `note must be at most ${MAX_LAUNCH_NOTE_LENGTH} characters.`,
       });
     }
-    // Validate the model against this runtime's catalog before launching.
-    let model: string | undefined;
-    let effort: Effort | null;
-    try {
-      model = validateAgentModelChoice(
-        body.agentType as (typeof CLI_AGENT_TYPES)[number],
-        typeof body.model === "string" ? body.model : undefined
-      );
-      effort = validateAgentEffort(
-        body.agentType as (typeof CLI_AGENT_TYPES)[number],
-        body.effort,
-        model
-      );
-    } catch (error) {
-      return reply.code(400).send({
-        error: error instanceof Error ? error.message : "Invalid model.",
-      });
-    }
-
     try {
       const parent = await deps.agentManager.getAgent(agentId);
       if (!parent) return reply.code(404).send({ error: "Agent not found." });
+      const agentType = body.agentType as (typeof CLI_AGENT_TYPES)[number];
+      const scope = await modelScopeFor(parent.placement, agentType, {
+        model: body.model,
+        effort: body.effort,
+      });
+      let model: string | undefined;
+      let effort: Effort | null;
+      try {
+        model = validateAgentModelChoice(
+          agentType,
+          typeof body.model === "string" ? body.model : undefined,
+          undefined,
+          scope
+        );
+        effort = validateAgentEffort(agentType, body.effort, model, scope);
+      } catch (error) {
+        return reply.code(400).send({
+          error: error instanceof Error ? error.message : "Invalid model.",
+        });
+      }
       const text = personaLaunchRequest({
         personas,
         codeowners,
-        agentType: body.agentType as string,
+        agentType,
         ...(model !== undefined ? { model } : {}),
         effort,
         ...(typeof body.note === "string" ? { note: body.note } : {}),

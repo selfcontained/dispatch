@@ -174,9 +174,18 @@ export function createFakeAcpAgent(
     },
     async setSessionConfigOption(params) {
       seen.setConfig.push(params);
-      const options = (opts.configOptions ?? []).map((o) =>
-        o.id === params.configId ? { ...o, currentValue: params.value } : o
-      );
+      // A value applies to the option of its own kind: a toggle takes a
+      // boolean, a select a value id.
+      const options = (opts.configOptions ?? []).map((o) => {
+        if (o.id !== params.configId) return o;
+        if (o.type === "boolean")
+          return typeof params.value === "boolean"
+            ? { ...o, currentValue: params.value }
+            : o;
+        return typeof params.value === "string"
+          ? { ...o, currentValue: params.value }
+          : o;
+      });
       return { configOptions: options };
     },
     async prompt(params) {
@@ -230,6 +239,17 @@ export function createFakeAcpAgent(
           params: { sessionId, update },
         }) + "\n"
       ),
+    ask: (sessionId: string) =>
+      connection.requestPermission({
+        sessionId,
+        toolCall: {
+          toolCallId: "outside-turn",
+          title: "permission outside a turn",
+        },
+        options: [
+          { kind: "allow_once", name: "Allow once", optionId: "allow" },
+        ],
+      }),
     seen,
     signals,
     emit: (sessionId: string, update: acp.SessionUpdate) =>

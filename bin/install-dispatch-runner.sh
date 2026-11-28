@@ -1,0 +1,1047 @@
+#!/usr/bin/env bash
+# Install and maintain the Linux system service from attested Dispatch releases.
+set -euo pipefail
+
+error() { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  install-dispatch-runner.sh install --tag vX.Y.Z[-PRERELEASE] [--user USER | --dedicated-user] [SOURCE]
+  install-dispatch-runner.sh update --tag vX.Y.Z[-PRERELEASE] [SOURCE]
+  install-dispatch-runner.sh recover
+  install-dispatch-runner.sh uninstall
+
+Add --allow-downgrade to install or update to permit replacing a newer runner.
+It also sets the self-update version floor to the installed release.
+
+SOURCE takes the release from a Dispatch controller instead of GitHub:
+  --source URL [--cacert FILE]
+      URL ends in /api/v1/runner-artifacts/<revision>. FILE is the pinned
+      runner CA for an https URL. Release provenance is verified as usual.
+  --allow-unverified-dev-build --sha256 HEX
+      Accept a controller's dev build, checked only against this digest.
+
+Run as root on Linux with systemd and unified cgroup v2.
+Install verifies the release and prepares the runner for the connect command.
+On a runner this script already manages, install updates it and keeps its
+enrollment and workload account.
+The workload uses SUDO_USER by default. Use --user for another existing
+non-root account, or --dedicated-user to create the dispatch-runner account.
+Update preserves idle sessions on compatible runners. Exit 75 means retry after the reported activity finishes.
+Add --clear-unreadable-fence to update, or to install on a managed runner, to set
+aside a damaged fence when no trial is active.
+Recover restores the previous binary after an interrupted update.
+Uninstall removes the managed service and binaries and retains enrollment and session data.
+USAGE
+}
+
+# A controller source serves the same release files under its own revision.
+# Its bytes are verified exactly like GitHub's before anything uses them.
+fetch_asset() {
+  local name="$1" scheme
+  if [[ -n "${source_url:-}" ]]; then
+    scheme=${source_url%%://*}
+    local tls=()
+    if [[ -n "${source_ca:-}" ]]; then
+      tls=(--cacert "$stage/ca.pem")
+    fi
+    curl -qfsSL --proto "=$scheme" --proto-redir "=$scheme" ${tls[@]+"${tls[@]}"} \
+      "$source_url/$name" -o "$stage/$name"
+  else
+    curl -qfsSL --proto '=https' --proto-redir '=https' \
+      "https://github.com/selfcontained/dispatch/releases/download/$tag/$name" -o "$stage/$name"
+  fi
+}
+
+release_fetch() {
+  local asset="$1" digest
+  fetch_asset "$asset" || error "Could not download $asset for $tag. Releases without native runner payloads are unsupported"
+  if [[ "${allow_dev:-0}" == 1 ]]; then
+    digest=$(sha256sum "$stage/$asset")
+    [[ "${digest%% *}" == "$dev_sha256" ]] ||
+      error "The dev build from $source_url does not match the copied digest. Copy the command again"
+    return
+  fi
+  fetch_asset "$asset.sigstore.json" || error "Could not download the attestation for $asset ($tag)"
+  if [[ ${#release_account[@]} -gt 0 ]]; then
+    chmod 0711 "$stage"
+    chmod 0644 "$stage/$asset" "$stage/$asset.sigstore.json"
+  fi
+  run_release_gh attestation verify "$stage/$asset" --hostname github.com \
+    --bundle "$stage/$asset.sigstore.json" --repo selfcontained/dispatch \
+    --signer-workflow selfcontained/dispatch/.github/workflows/release.yml
+}
+
+# Options may name a source without GitHub. Check them before any download.
+validate_source() {
+  local pattern='^https?://[][A-Za-z0-9.:-]+/api/v1/runner-artifacts/[a-f0-9]{7,40}$'
+  if [[ -n "${source_url:-}" ]]; then
+    [[ "$source_url" =~ $pattern ]] ||
+      error "Use a Dispatch runner artifact URL with --source"
+    if [[ -n "${source_ca:-}" ]]; then
+      [[ "$source_url" == https://* ]] || error "--cacert applies only to an https source"
+      [[ -f "$source_ca" && -s "$source_ca" ]] || error "Cannot read the runner CA at $source_ca"
+    fi
+  elif [[ -n "${source_ca:-}" || "${allow_dev:-0}" == 1 ]]; then
+    error "--cacert and --allow-unverified-dev-build need --source"
+  fi
+  if [[ "${allow_dev:-0}" == 1 ]]; then
+    [[ "${dev_sha256:-}" =~ ^[0-9a-f]{64}$ ]] ||
+      error "An unverified dev build needs its --sha256 digest"
+    printf 'WARNING: This is an unverified dev build of Dispatch from %s.\n' "$source_url" >&2
+    printf 'WARNING: No release provenance is checked; only the copied SHA-256 digest is.\n' >&2
+  elif [[ -n "${dev_sha256:-}" ]]; then
+    error "--sha256 applies only with --allow-unverified-dev-build"
+  fi
+}
+
+# Use the same login profile and ~/.dispatch/env the runner's sessions load.
+account_command() {
+  local account=$1 uid=$2 gid=$3 home=$4 shell=$5 command=$6
+  shift 6
+  case "${shell##*/}" in
+    bash|zsh|sh|dash) [[ -x "$shell" ]] || shell=/bin/bash ;;
+    *) shell=/bin/bash ;;
+  esac
+  setpriv --reuid="$uid" --regid="$gid" --init-groups \
+    env -i HOME="$home" USER="$account" LOGNAME="$account" PATH="${account_base_path:-/usr/local/bin:/usr/bin:/bin}" \
+    "$shell" -lc '[ -f "$HOME/.dispatch/env" ] && . "$HOME/.dispatch/env"; export PATH="${PATH:+$PATH:}$HOME/.local/bin"; '"$command" \
+    dispatch-account-command "$@" < /dev/null
+}
+
+account_tool() {
+  account_command "${@:1:5}" 'command -v "$1"' "$6" 2> /dev/null | grep '^/' | tail -n 1 || :
+}
+
+release_account=()
+resolve_release_gh() {
+  local sudo_entry uid gid home shell
+  release_account=()
+  gh_bin=
+  if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != root ]]; then
+    sudo_entry=$(getent -- passwd "$SUDO_USER") || error "Cannot look up $SUDO_USER for release verification"
+    IFS=: read -r _ _ uid gid _ home shell <<< "$sudo_entry"
+    [[ "$uid" =~ ^[1-9][0-9]*$ && "$gid" =~ ^[0-9]+$ && "$home" == /* ]] ||
+      error "Invalid invoking account for release verification"
+    release_account=("$SUDO_USER" "$uid" "$gid" "$home" "$shell")
+    gh_bin=$(account_tool "${release_account[@]}" gh)
+  else
+    gh_bin=$(command -v gh) || gh_bin=
+  fi
+}
+
+run_release_gh() {
+  if [[ ${#release_account[@]} -gt 0 ]]; then
+    account_command "${release_account[@]}" 'exec "$@"' "$gh_bin" "$@"
+  else
+    "${gh_bin:-gh}" "$@"
+  fi
+}
+
+# Report each dependency the installer itself uses. Nothing is installed or
+# upgraded here: a present tool is used as it is, a missing one is named.
+check_dependencies() {
+  local command found missing=()
+  for command in curl tar ps find; do
+    if found=$(command -v "$command"); then
+      printf 'Found %s: %s\n' "$command" "$found"
+    else
+      printf 'Missing %s\n' "$command"
+      missing+=("$command")
+    fi
+  done
+  if [[ "${allow_dev:-0}" != 1 ]]; then
+    resolve_release_gh
+  fi
+  if [[ "${allow_dev:-0}" == 1 ]]; then
+    # A dev build is checked by digest alone; gh is not needed for it.
+    if found=$(command -v sha256sum); then
+      printf 'Found sha256sum: %s\n' "$found"
+    else
+      printf 'Missing sha256sum\n'
+      missing+=(sha256sum)
+    fi
+  elif [[ -n "$gh_bin" ]]; then
+    printf 'Found gh: %s\n' "$gh_bin"
+  else
+    printf 'Missing gh\n'
+    missing+=(gh)
+  fi
+  [[ ${#missing[@]} -eq 0 ]] || error "Install ${missing[*]}. The installer does not install or upgrade packages"
+  [[ "${allow_dev:-0}" == 1 ]] || run_release_gh attestation verify --help > /dev/null 2>&1 ||
+    error "GitHub CLI at $gh_bin cannot verify release attestations (needs gh 2.49 or newer). Update that gh; the installer will not install another one"
+}
+
+# Report the workload account's own git and gh, which the runner uses.
+check_workload_tools() {
+  local account=$1 uid=$2 gid=$3 home=$4 shell=$5 tool found
+  for tool in git gh; do
+    found=$(account_tool "$account" "$uid" "$gid" "$home" "$shell" "$tool")
+    if [[ -n "$found" ]]; then
+      printf 'Found %s for %s: %s\n' "$tool" "$account" "$found"
+    elif [[ -x "/usr/bin/$tool" ]]; then
+      printf 'Found %s for %s: /usr/bin/%s\n' "$tool" "$account" "$tool"
+    elif [[ "$tool" == git ]]; then
+      error "Install git for $account. The installer does not install or upgrade packages"
+    else
+      printf 'Missing gh for %s. GitHub sign-in on this runner needs it\n' "$account"
+    fi
+  done
+}
+
+stage_release() {
+  local archive="dispatch-runner-linux-$arch.tar.gz" member="dist/bun/dispatch-${tag#v}-bun-linux-$arch"
+  if [[ -n "${source_ca:-}" && ! -s "$stage/ca.pem" ]]; then
+    cp -- "$source_ca" "$stage/ca.pem"
+  fi
+  release_fetch "$archive"
+  tar -xOzf "$stage/$archive" "$member" > "$stage/dispatch"
+  [[ -s "$stage/dispatch" ]] || error "Missing Linux executable for $tag ($arch)"
+  if tar -xOzf "$stage/$archive" "bin/$update_unit" > "$stage/$update_unit" 2>/dev/null &&
+     [[ -s "$stage/$update_unit" ]]; then
+    runner_probe_available || error "Install systemd with /usr/bin/systemd-run for runner updates"
+  else
+    : > "$stage/$update_unit"
+  fi
+  local unit_asset
+  for unit_asset in dispatch-runner-trial.service 50-dispatch-trial.conf; do
+    if ! tar -xOzf "$stage/$archive" "bin/$unit_asset" > "$stage/$unit_asset" 2>/dev/null; then
+      : > "$stage/$unit_asset"
+    fi
+  done
+  if [[ -s "$stage/dispatch-runner-trial.service" || -s "$stage/50-dispatch-trial.conf" ]]; then
+    [[ -s "$stage/dispatch-runner-trial.service" && -s "$stage/50-dispatch-trial.conf" ]] ||
+      error "Incomplete runner trial unit in $tag"
+  fi
+}
+
+stable_start() {
+  local pid
+  systemctl start "$unit" || return 1
+  pid=$(systemctl show -p MainPID --value "$unit") || return 1
+  [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+  # Detect startup failure and rapid restart loops. Settings reports connectivity.
+  sleep 5
+  systemctl is-active --quiet "$unit" &&
+    [[ "$pid" == "$(systemctl show -p MainPID --value "$unit")" ]]
+}
+
+start_enabled_runner() {
+  local enabled
+  if [[ -f "$runtime/previous" && -f "$runtime/previous-active" ]]; then
+    stable_start
+    return
+  fi
+  enabled=$(systemctl is-enabled "$unit") || {
+    [[ "$enabled" == disabled ]] && return 0
+    return 1
+  }
+  stable_start
+}
+
+# HOME comes from passwd and is inserted into JSON strings.
+json_path() {
+  local value=$1
+  [[ "$value" != *[[:cntrl:]]* ]] || error "Invalid workload home"
+  value=${value//\\/\\\\}
+  printf '%s' "${value//\"/\\\"}"
+}
+
+# The standalone runner doubles as Bun's package installer under the workload UID.
+engine_commands() {
+  local package="$1" command
+  printf -v command '{"executable":"%s/dispatch","args":["add","--global","--trust","%s@latest"],"env":{"BUN_BE_BUN":"1","BUN_INSTALL":"%s/.local"}}' \
+    "$runtime" "$package" "$home_json"
+  printf '{"install":%s,"update":%s}' "$command" "$command"
+}
+
+write_config() {
+  local uid=$1 gid=$2 home_json
+  home_json=$(json_path "$3")
+  cat > "$stage/runner.json" <<CONFIG
+{
+  "state": "$state/runner",
+  "uid": $uid,
+  "gid": $gid,
+  "home": "$home_json",
+  "path": "$home_json/.local/bin:/usr/local/bin:/usr/bin:/bin",
+  "bins": {
+    "claudeBin": "$home_json/.local/bin/claude",
+    "codexBin": "$home_json/.local/bin/codex",
+    "opencodeBin": "$home_json/.local/bin/opencode"
+  },
+  "engines": {
+    "claude": $(engine_commands @anthropic-ai/claude-code),
+    "codex": $(engine_commands @openai/codex),
+    "opencode": $(engine_commands opencode-ai)
+  }
+}
+CONFIG
+  install -m 0600 "$stage/runner.json" "$config"
+}
+
+# Replace only the exact prototype unit. Administrator customizations and
+# drop-ins keep their usual systemd precedence.
+install_service_unit() {
+  local replacement
+  tar -xOzf "$stage/dispatch-runner-linux-$arch.tar.gz" bin/dispatch-runner.service > "$stage/$unit"
+  [[ -s "$stage/$unit" ]] || error "Missing systemd service template from $tag"
+  if [[ -e "$unit_path" ]]; then
+    cmp -s "$stage/$unit" "$unit_path" && return 0
+    sed 's/^KillMode=process$/KillMode=control-group/' "$stage/$unit" > "$stage/legacy-unit"
+    if ! cmp -s "$stage/legacy-unit" "$unit_path"; then
+      printf 'Keeping customized %s. Check its KillMode before testing daemon recovery.\n' "$unit_path" >&2
+      return 0
+    fi
+  fi
+  replacement=$(mktemp "${unit_path}.XXXXXX")
+  if ! install -m 0644 "$stage/$unit" "$replacement" || ! mv -fT "$replacement" "$unit_path"; then
+    rm -f -- "$replacement"
+    error "Could not install runner unit"
+  fi
+}
+
+# The root updater stages signed builds through this fixed template unit. It
+# always matches the installed release: replaced from the verified archive,
+# removed when that release has none. Its two private directories hold the
+# candidate on the executable's filesystem and the updater's own state.
+runner_probe_available() {
+  [[ -x /usr/bin/systemd-run ]]
+}
+
+install_unit_asset() {
+  local source=$1 path=$2 replacement
+  if [[ ! -s "$source" ]]; then
+    rm -f -- "$path"
+    return
+  fi
+  replacement=$(mktemp "${path}.XXXXXX")
+  if ! install -o root -g root -m 0644 "$source" "$replacement" || ! mv -fT "$replacement" "$path"; then
+    rm -f -- "$replacement"
+    error "Could not install $path"
+  fi
+}
+
+install_update_unit() {
+  local dir="${unit_path%/*}" dropin="${unit_path}.d"
+  install -o root -g root -d -m 0700 "$runtime/update" "$state/update"
+  install_unit_asset "$stage/$update_unit" "$dir/$update_unit"
+  if [[ -s "$stage/dispatch-runner-trial.service" ]]; then
+    if [[ -L "$runtime/update/activate-helper" || ! "$runtime/update/activate-helper" -ef "$runtime/dispatch" ]]; then
+      ln "$runtime/dispatch" "$stage/activate-helper"
+      mv -fT "$stage/activate-helper" "$runtime/update/activate-helper"
+      sync -f "$runtime/update"
+    fi
+    install -o root -g root -d -m 0755 "$dropin"
+    install_unit_asset "$stage/dispatch-runner-trial.service" "$dir/dispatch-runner-trial.service"
+    install_unit_asset "$stage/50-dispatch-trial.conf" "$dropin/50-dispatch-trial.conf"
+  else
+    rm -f -- "$dropin/50-dispatch-trial.conf" "$dir/dispatch-runner-trial.service" "$runtime/update/activate-helper"
+  fi
+}
+
+# Keep the loaded unit files and helper with the previous executable until
+# the replacement has passed startup. recover can also restore them later
+# if the installer was interrupted while applying the new files.
+snapshot_update_units() {
+  local dir="${unit_path%/*}" relative
+  mkdir "$stage/previous-units"
+  for relative in "$unit" "$update_unit" dispatch-runner-trial.service "$unit.d/50-dispatch-trial.conf"; do
+    if [[ -e "$dir/$relative" || -L "$dir/$relative" ]]; then
+      mkdir -p "$stage/previous-units/$(dirname "$relative")"
+      cp -pP "$dir/$relative" "$stage/previous-units/$relative"
+    fi
+  done
+  if [[ -e "$runtime/update/activate-helper" ]]; then
+    ln "$runtime/update/activate-helper" "$stage/previous-units/activate-helper"
+  fi
+  [[ -d "$runtime/update" ]] || touch "$stage/previous-units/no-runtime-update"
+  [[ -d "$state/update" ]] || touch "$stage/previous-units/no-state-update"
+  [[ -d "$unit_path.d" ]] || touch "$stage/previous-units/no-dropin"
+  sync -f "$stage/previous-units"
+  mv -fT "$stage/previous-units" "$runtime/previous-units"
+  sync -f "$runtime"
+}
+
+restore_update_units() {
+  local saved="$runtime/previous-units" dir="${unit_path%/*}" relative replacement
+  [[ -d "$saved" ]] || return 0
+  for relative in "$unit" "$update_unit" dispatch-runner-trial.service "$unit.d/50-dispatch-trial.conf"; do
+    if [[ -e "$saved/$relative" || -L "$saved/$relative" ]]; then
+      replacement=$(mktemp "$dir/$relative.restore.XXXXXX")
+      rm -f -- "$replacement"
+      cp -pP "$saved/$relative" "$replacement"
+      mv -fT "$replacement" "$dir/$relative"
+    else
+      rm -f -- "$dir/$relative"
+    fi
+  done
+  if [[ -e "$saved/activate-helper" ]]; then
+    if [[ ! "$saved/activate-helper" -ef "$runtime/update/activate-helper" ]]; then
+      rm -f -- "$stage/restore-helper"
+      ln "$saved/activate-helper" "$stage/restore-helper"
+      mv -fT "$stage/restore-helper" "$runtime/update/activate-helper"
+    fi
+  else
+    rm -f -- "$runtime/update/activate-helper"
+  fi
+  # Keep any state written while the candidate was running.
+  if [[ -e "$saved/no-runtime-update" ]]; then rmdir "$runtime/update" 2>/dev/null || :; fi
+  if [[ -e "$saved/no-state-update" ]]; then rmdir "$state/update" 2>/dev/null || :; fi
+  if [[ -e "$saved/no-dropin" ]]; then rmdir "$unit_path.d" 2>/dev/null || :; fi
+  sync -f "$dir"
+  sync -f "$runtime"
+  systemctl daemon-reload
+}
+
+# The shared ancestor contains account directories. Their private files and
+# the separate settings directory keep their own access restrictions.
+repair_install_root() {
+  [[ -d "$state" && ! -L "$state" && -O "$state" ]] ||
+    error "Untrusted runner install state directory"
+  chmod 0755 "$state"
+}
+
+install_runner() {
+  local account account_entry uid gid account_home account_shell
+  if [[ -e "$command_path" || -L "$command_path" ]]; then
+    [[ -L "$command_path" && "$(readlink "$command_path")" == "$runtime/runner-cli" ]] ||
+      error "Another dispatch-runner command already occupies $command_path"
+  fi
+  if [[ ! -f "$runtime/managed-install" ]]; then
+    [[ ! -e "$config" && ! -e "$unit_path" && ! -e "$runtime/dispatch" ]] ||
+      error "An unmanaged runner already occupies the install paths"
+    if [[ "$dedicated" == 1 ]] && getent passwd dispatch-runner >/dev/null; then
+      error "Workload account dispatch-runner already exists. Use --user dispatch-runner to select it."
+    fi
+  fi
+  if [[ -e "$runtime/dispatch" ]]; then
+    cmp -s "$stage/dispatch" "$runtime/dispatch" || error "Use update to change the installed release"
+  fi
+  if [[ ! -f "$config" ]]; then
+    if [[ "$dedicated" == 1 ]]; then
+      account=dispatch-runner
+      : > "$runtime/managed-install"
+      if ! getent passwd "$account" >/dev/null; then
+        useradd --system --user-group --no-create-home --home-dir "$state/home" \
+          --shell /usr/sbin/nologin "$account"
+      fi
+    else
+      account=${requested_user:-${SUDO_USER:-}}
+      [[ -n "$account" ]] || error "Use sudo as the installing user, or supply --user or --dedicated-user"
+    fi
+    account_entry=$(getent -- passwd "$account") || error "Workload account $account does not exist"
+    IFS=: read -r _ _ uid gid _ account_home account_shell <<< "$account_entry"
+    [[ "$uid" =~ ^[1-9][0-9]*$ && "$gid" =~ ^[1-9][0-9]*$ && "$account_home" == /* ]] ||
+      error "Invalid workload account or home"
+    check_workload_tools "$account" "$uid" "$gid" "$account_home" "$account_shell"
+    : > "$runtime/managed-install"
+    install -d -m 0755 "$state"
+    if [[ "$dedicated" == 1 ]]; then
+      [[ "$account_home" == "$state/home" && "$account_shell" == /usr/sbin/nologin ]] ||
+        error "Unexpected dedicated workload account configuration"
+      if [[ ! -d "$account_home" ]]; then
+        install -d -m 0700 -o "$uid" -g "$gid" "$account_home"
+      fi
+    fi
+    if [[ ! -d "$state/runner" ]]; then
+      install -d -m 0751 -g "$gid" "$state/runner"
+    fi
+    # The workload needs traversal to ca.pem. Settings and private key stay 0600.
+    install -d -m 0711 "$settings"
+    write_config "$uid" "$gid" "$account_home"
+  elif [[ "$dedicated" == 1 || -n "$requested_user" ]]; then
+    printf 'Keeping the configured workload account. Account options apply only to the first install.\n' >&2
+  fi
+  repair_install_root
+  if [[ ! -e "$runtime/dispatch" ]]; then
+    install -m 0755 "$stage/dispatch" "$stage/initial"
+    record_release "$stage/initial"
+    mv -fT "$stage/initial" "$runtime/dispatch"
+  fi
+  install_service_unit
+  install_update_unit
+  install_managed_tools
+  if [[ ! -L "$command_path" ]]; then
+    if [[ ! -d "$(dirname "$command_path")" ]]; then
+      install -d -m 0755 "$(dirname "$command_path")"
+    fi
+    ln -s "$runtime/runner-cli" "$command_path"
+  fi
+  systemctl daemon-reload
+  if [[ "${allow_downgrade:-0}" == 1 ]]; then set_update_floor; fi
+  printf 'Runner installed. Use the connect command from Dispatch Settings to enroll.\n'
+}
+
+# On-host maintenance runs these copies, so they follow the verified release.
+install_managed_tools() {
+  tar -xOzf "$stage/dispatch-runner-linux-$arch.tar.gz" bin/install-dispatch-runner.sh > "$stage/updater"
+  [[ -s "$stage/updater" ]] || error "Missing updater from $tag"
+  chmod 0755 "$stage/updater"
+  mv -fT "$stage/updater" "$runtime/install-dispatch-runner.sh"
+  tar -xOzf "$stage/dispatch-runner-linux-$arch.tar.gz" bin/dispatch-runner > "$stage/runner-cli"
+  [[ -s "$stage/runner-cli" ]] || error "Missing runner command from $tag"
+  chmod 0755 "$stage/runner-cli"
+  mv -fT "$stage/runner-cli" "$runtime/runner-cli"
+}
+
+defer() {
+  printf 'Runner update deferred: %s.\n' "${1:-could not verify the service is ready for an update}" >&2
+  exit 75
+}
+
+thaw() {
+  if [[ "$frozen" == 1 ]]; then
+    systemctl thaw "$unit" || return 1
+    frozen=0
+  fi
+}
+
+# A verified target opts into the v1 host-binding format by shipping the
+# checker. Keep a copy with the rollback record for interrupted maintenance.
+preserves_session_processes() {
+  local mode stop post
+  # --value yields an empty string for both omitted and printed empty hooks.
+  mode=$(systemctl show -p KillMode --value "$unit") &&
+    stop=$(systemctl show -p ExecStop --value "$unit") &&
+    post=$(systemctl show -p ExecStopPost --value "$unit") &&
+    [[ "$mode" == process && -z "$stop" && -z "$post" ]]
+}
+
+check_session_handoff() {
+  local pids=$1 main_pid=$2
+  [[ -s "$stage/handoff.py" ]] || defer "target release cannot reattach open sessions"
+  preserves_session_processes ||
+    defer "the service stop policy cannot preserve open sessions"
+  command -v python3 >/dev/null || defer "python3 is needed to verify open sessions"
+  python3 -I "$stage/handoff.py" "$config" "$pids" "$main_pid" ||
+    defer "retry after the reported activity finishes"
+}
+
+# The last step before the old supervisor is stopped: nothing after it
+# refuses, so a fence set aside here always gets the restart that rereads it.
+record_previous() {
+  if [[ "${clearing_fence:-0}" == 1 ]]; then
+    clear_unreadable_update_fence
+    assert_no_update_fence
+  fi
+  install -m 0600 "$stage/handoff.py" "$runtime/previous-handoff.py"
+  ln "$runtime/dispatch" "$runtime/previous"
+  sync -f "$runtime"
+}
+
+# Once frozen, the supervisor cannot accept another launch or fork a child
+# between the process check and delivery of SIGKILL to its main process.
+stop_runner_for_update() {
+  local before_stop=${1:-:} cgroup main_pid process_file frozen_line
+  if ! systemctl is-active --quiet "$unit"; then
+    if [[ -f "$runtime/previous" && -s "$runtime/previous-handoff.py" &&
+          "$(systemctl show -p SubState --value "$unit")" == auto-restart* ]] &&
+       preserves_session_processes; then
+      systemctl stop "$unit"
+    fi
+    [[ "$(systemctl show -p ActiveState --value "$unit")" =~ ^(inactive|failed)$ ]] || defer
+    cgroup=$(systemctl show -p ControlGroup --value "$unit")
+    if [[ -n "$cgroup" && -d "$cgroup_root$cgroup" ]]; then
+      frozen_line=$(<"$cgroup_root$cgroup/cgroup.events")
+      if [[ $'\n'"$frozen_line"$'\n' != *$'\npopulated 0\n'* ]]; then
+        # KillMode=process leaves the original hosts here when a trial fails.
+        [[ -f "$runtime/previous" && -s "$stage/handoff.py" ]] || defer
+        # Already inactive. Leave the processes in place for the restored daemon.
+        return
+      fi
+    fi
+    "$before_stop"
+    systemctl stop "$unit"
+    return
+  fi
+  frozen=1
+  systemctl freeze "$unit" || error "Could not freeze the runner service"
+  cgroup=$(systemctl show -p ControlGroup --value "$unit")
+  main_pid=$(systemctl show -p MainPID --value "$unit")
+  [[ "$cgroup" == /* && "$main_pid" =~ ^[1-9][0-9]*$ ]] || defer
+  frozen_line=$(<"$cgroup_root$cgroup/cgroup.events")
+  [[ $'\n'"$frozen_line"$'\n' == *$'\nfrozen 1\n'* ]] || defer
+  [[ -r "$cgroup_root$cgroup/cgroup.procs" ]] || defer
+  find "$cgroup_root$cgroup" -name cgroup.procs -print0 > "$stage/process-files"
+  : > "$stage/service-pids"
+  while IFS= read -r -d '' process_file; do
+    cat "$process_file" >> "$stage/service-pids"
+  done < "$stage/process-files"
+  grep -Fxq "$main_pid" "$stage/service-pids" || defer
+  if [[ "$(<"$stage/service-pids")" != "$main_pid" ]]; then
+    check_session_handoff "$stage/service-pids" "$main_pid"
+  fi
+  # Keep the daemon stopped across the thaw. Some systemd releases refuse
+  # both stop and thaw after a frozen unit's main process has already exited.
+  # Probe the option parser without signaling a unit. Older systemctl uses
+  # --kill-who, and an actual signal failure must abort the update.
+  local target=--kill-whom=main
+  if ! systemctl "$target" --version >/dev/null 2>&1; then
+    target=--kill-who=main
+  fi
+  if [[ "$before_stop" == record_previous ]]; then
+    touch "$runtime/previous-active"
+  fi
+  "$before_stop"
+  maintenance_step=signal
+  paused_target=$target
+  systemctl kill "$target" --signal=SIGSTOP "$unit"
+  thaw
+  systemctl kill "$target" --signal=SIGKILL "$unit"
+  paused_target=
+  maintenance_step=stop
+  systemctl stop "$unit"
+  frozen=0
+}
+
+recover_runner() {
+  # A killed updater may have left its cgroup frozen.
+  systemctl thaw "$unit" 2>/dev/null || true
+  if [[ -f "$runtime/previous" ]]; then
+    if [[ -s "$runtime/previous-handoff.py" ]]; then
+      cp "$runtime/previous-handoff.py" "$stage/handoff.py"
+    fi
+    stop_runner_for_update
+    # Keep the recovery record until the restored service passes startup.
+    if [[ ! "$runtime/previous" -ef "$runtime/dispatch" ]]; then
+      ln "$runtime/previous" "$stage/restore"
+      mv -fT "$stage/restore" "$runtime/dispatch"
+    fi
+    sync -f "$runtime"
+    restore_update_units
+  fi
+  start_enabled_runner || error "Runner recovery could not start. See journalctl -u $unit"
+  rm -f -- "$runtime/previous" "$runtime/previous-handoff.py" "$runtime/previous-active"
+  rm -rf -- "$runtime/previous-units"
+  sync -f "$runtime"
+}
+
+# Track both inodes during an update so recovery selects the previous record
+# automatically when it restores the previous executable.
+installed_release() {
+  local inode recorded version
+  inode=$(stat -c '%d:%i' "$runtime/dispatch") || return
+  [[ -f "$runtime/installed-release" ]] || return 0
+  while read -r recorded version; do
+    # Trial helpers up to 98cb679dd recorded the inode without its device. The
+    # incumbent helper writes the commit, so such records outlive its update.
+    if [[ ( "$recorded" == "$inode" || "$recorded" == "${inode#*:}" ) &&
+          -n "$version" ]] && valid_release_tag "$version"; then
+      printf '%s\n' "$version"
+      return
+    fi
+  done < "$runtime/installed-release"
+}
+
+record_release() {
+  local binary=$1 installed=${2:-} inode
+  inode=$(stat -c '%d:%i' "$binary")
+  printf '%s %s\n' "$inode" "$tag" > "$stage/installed-release"
+  if [[ -n "$installed" ]]; then
+    inode=$(stat -c '%d:%i' "$runtime/dispatch")
+    printf '%s %s\n' "$inode" "$installed" >> "$stage/installed-release"
+  fi
+  mv -fT "$stage/installed-release" "$runtime/installed-release"
+  sync -f "$runtime"
+}
+
+# vX.Y.Z with an optional SemVer prerelease, the form the controller copies:
+# numeric parts without leading zeros, then `-` and dot-separated identifiers
+# of [0-9A-Za-z-] (a numeric one without a leading zero). No build metadata.
+valid_release_tag() {
+  local LC_ALL=C id prerelease
+  local pattern='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?$'
+  local -a ids
+  [[ "$1" =~ $pattern ]] || return 1
+  prerelease=${BASH_REMATCH[5]}
+  [[ -n "$prerelease" ]] || return 0
+  IFS=. read -r -a ids <<< "$prerelease"
+  for id in "${ids[@]}"; do
+    if [[ "$id" =~ ^[0-9]+$ && "$id" == 0?* ]]; then return 1; fi
+  done
+  return 0
+}
+
+# Prints -1, 0 or 1 for two digit strings, without shell integer overflow.
+compare_digits() {
+  local left=${1#"${1%%[!0]*}"} right=${2#"${2%%[!0]*}"} LC_ALL=C
+  if [[ "$left" == "$right" ]]; then
+    printf '0'
+  elif [[ ${#left} -lt ${#right} || ( ${#left} -eq ${#right} && "$left" < "$right" ) ]]; then
+    printf -- '-1'
+  else
+    printf '1'
+  fi
+}
+
+# Prints -1, 0 or 1 by SemVer precedence, as the runner orders its updates:
+# a prerelease sorts before its release, numeric identifiers before others.
+release_order() {
+  local LC_ALL=C left=${1#v} right=${2#v} left_pre='' right_pre='' order i a b
+  local -a left_core right_core left_ids right_ids
+  [[ "$left" == *-* ]] && left_pre=${left#*-}
+  [[ "$right" == *-* ]] && right_pre=${right#*-}
+  IFS=. read -r -a left_core <<< "${left%%-*}"
+  IFS=. read -r -a right_core <<< "${right%%-*}"
+  for i in 0 1 2; do
+    order=$(compare_digits "${left_core[i]:-0}" "${right_core[i]:-0}")
+    if [[ "$order" != 0 ]]; then printf '%s' "$order"; return; fi
+  done
+  if [[ -z "$left_pre" || -z "$right_pre" ]]; then
+    if [[ "$left_pre" == "$right_pre" ]]; then printf '0'
+    elif [[ -n "$left_pre" ]]; then printf -- '-1'
+    else printf '1'; fi
+    return
+  fi
+  IFS=. read -r -a left_ids <<< "$left_pre"
+  IFS=. read -r -a right_ids <<< "$right_pre"
+  for ((i = 0; i < ${#left_ids[@]} || i < ${#right_ids[@]}; i++)); do
+    if ((i >= ${#left_ids[@]})); then printf -- '-1'; return; fi
+    if ((i >= ${#right_ids[@]})); then printf '1'; return; fi
+    a=${left_ids[i]}
+    b=${right_ids[i]}
+    if [[ "$a" =~ ^[0-9]+$ && "$b" =~ ^[0-9]+$ ]]; then
+      order=$(compare_digits "$a" "$b")
+    elif [[ "$a" =~ ^[0-9]+$ ]]; then
+      order=-1
+    elif [[ "$b" =~ ^[0-9]+$ ]]; then
+      order=1
+    elif [[ "$a" == "$b" ]]; then
+      order=0
+    elif [[ "$a" < "$b" ]]; then
+      order=-1
+    else
+      order=1
+    fi
+    if [[ "$order" != 0 ]]; then printf '%s' "$order"; return; fi
+  done
+  printf '0'
+}
+
+version_is_lower() {
+  [[ "$(release_order "$1" "$2")" == -1 ]]
+}
+
+assert_no_update_fence() {
+  [[ ! -e "$state/update/fence.json" && ! -L "$state/update/fence.json" ]] ||
+    error "A runner update fence or trial is in progress"
+}
+
+retain_previous_verified() {
+  local previous_sha previous_version='' previous_revision='' previous_compatibility previous_record
+  # The replaced binary names itself, whether or not its release was indexed.
+  if previous_compatibility=$("$runtime/previous" runner-update-compatibility 2>/dev/null); then
+    previous_version=$(sed -nE 's/.*"version":"([0-9][0-9A-Za-z.+-]{0,63})".*/\1/p' <<< "$previous_compatibility")
+    previous_revision=$(sed -nE 's/.*"revision":"([0-9a-f]{40})".*/\1/p' <<< "$previous_compatibility")
+  fi
+  if [[ -n "$previous_version" && -n "$previous_revision" ]]; then
+    previous_sha=$(sha256sum "$runtime/previous")
+    previous_record=$(mktemp "$state/update/.previous-verified.XXXXXX")
+    printf '{"version":"%s","revision":"%s","sha256":"%s"}\n' \
+      "$previous_version" "$previous_revision" "${previous_sha%% *}" > "$previous_record"
+    sync -f "$previous_record"
+    mv -fT "$previous_record" "$state/update/previous-verified.json"
+  else
+    # A build from before that command cannot be named. The record would
+    # otherwise describe whichever build was retained before it.
+    rm -f -- "$state/update/previous-verified.json"
+    printf 'Not recording previous-verified.json: the replaced runner cannot report its identity.\n'
+  fi
+  sync -f "$state/update"
+  if [[ ! "$runtime/previous" -ef "$runtime/previous-verified" ]]; then
+    mv -fT "$runtime/previous" "$runtime/previous-verified"
+  fi
+}
+
+# Only the operator's --allow-downgrade reaches this. Self-update has no path
+# that lowers the floor.
+set_update_floor() {
+  local sha record
+  sha=$(sha256sum "$runtime/dispatch")
+  record=$(mktemp "$state/update/.floor.XXXXXX")
+  printf '{"version":"%s","sha256":"%s"}\n' "${tag#v}" "${sha%% *}" > "$record"
+  sync -f "$record"
+  mv -fT "$record" "$state/update/floor.json"
+  sync -f "$state/update"
+  printf 'Self-update version floor set to %s (--allow-downgrade).\n' "$tag"
+}
+
+clear_unreadable_update_fence() {
+  chmod 0700 "$stage/dispatch"
+  "$stage/dispatch" runner-update-trial clear-unreadable-fence
+}
+
+update_runner() {
+  local installed clearing_fence=0
+  maintenance_step=prepare
+  if [[ "${clear_unreadable_fence:-0}" != 1 ]]; then assert_no_update_fence; fi
+  # Keep the original tool error on the runner. Only the bounded status record
+  # goes to Dispatch. The lock serializes writers, and tee must not inherit it.
+  install -m 0600 /dev/null "$runtime/last-maintenance.log"
+  exec 2> >(exec 9>&-; tee "$runtime/last-maintenance.log" >&2)
+  [[ -f "$runtime/managed-install" && -x "$runtime/dispatch" && -f "$config" ]] ||
+    error "No managed Dispatch runner is installed"
+  if [[ "${clear_unreadable_fence:-0}" == 1 &&
+        ( -e "$state/update/fence.json" || -L "$state/update/fence.json" ) ]]; then
+    clearing_fence=1
+  fi
+  if [[ "$action" == recover || -f "$runtime/previous" ]]; then
+    maintenance_step=restore
+    recover_runner
+    [[ "$action" != recover ]] || return 0
+  fi
+  installed=$(installed_release)
+  if [[ -n "$installed" && "${allow_downgrade:-0}" != 1 ]] && version_is_lower "$tag" "$installed"; then
+    error "Refusing to downgrade Dispatch runner from $installed to $tag. Use --allow-downgrade to proceed"
+  fi
+  maintenance_step=stage
+  stage_release
+  if [[ -z "$installed" && "${allow_downgrade:-0}" != 1 ]] && ! cmp -s "$stage/dispatch" "$runtime/dispatch"; then
+    # Every installer with this guard writes the record, so a missing one
+    # means the runner predates it and is older than any offered build.
+    [[ ! -e "$runtime/installed-release" ]] ||
+      error "Cannot determine the installed Dispatch runner version. Use --allow-downgrade to replace this runner"
+    printf 'Installed runner version is unknown. Replacing it with %s.\n' "$tag"
+  fi
+  repair_install_root
+  if ! tar -xOzf "$stage/dispatch-runner-linux-$arch.tar.gz" bin/runner-handoff-v1.py > "$stage/handoff.py" 2>/dev/null; then
+    : > "$stage/handoff.py"
+  fi
+  if [[ "$clearing_fence" == 0 ]] && cmp -s "$stage/dispatch" "$runtime/dispatch"; then
+    record_release "$runtime/dispatch"
+    maintenance_step=unit
+    install_service_unit
+    install_update_unit
+    install_managed_tools
+    systemctl daemon-reload
+    if [[ "${allow_downgrade:-0}" == 1 ]]; then set_update_floor; fi
+    printf 'Runner already has the requested release.\n'
+    return
+  fi
+  install -m 0755 "$stage/dispatch" "$stage/next"
+  # Record the old inode before any change that could interrupt the service.
+  # Create the record only after the idle check, so a deferred update leaves
+  # no transaction to recover.
+  maintenance_step=stop
+  rm -f -- "$runtime/previous-active"
+  rm -rf -- "$runtime/previous-units"
+  stop_runner_for_update record_previous
+  # A fence may have arrived while we were downloading or stopping. Restore
+  # the old service before giving the self-updater the installer lock.
+  if [[ -e "$state/update/fence.json" || -L "$state/update/fence.json" ]]; then
+    recover_runner
+    assert_no_update_fence
+    error "A runner update fence interrupted manual maintenance"
+  fi
+  maintenance_step=unit
+  snapshot_update_units
+  maintenance_step=replace
+  record_release "$stage/next" "$installed"
+  mv -fT "$stage/next" "$runtime/dispatch"
+  sync -f "$runtime"
+  maintenance_step=unit
+  install_service_unit
+  install_update_unit
+  systemctl daemon-reload
+  maintenance_step=start
+  if ! start_enabled_runner; then
+    maintenance_step=restore
+    recover_runner
+    maintenance_step=start
+    error "New runner failed to start. Restored the previous release"
+  fi
+  install -o root -g root -d -m 0700 "$state/update"
+  # A repair replaces the build with itself. The last distinct verified build
+  # stays the rollback target.
+  if ! cmp -s "$runtime/previous" "$runtime/dispatch"; then
+    retain_previous_verified
+  fi
+  # The same command finishes an interrupted downgrade: it either recovers and
+  # repeats the update, or finds the release installed and sets the floor.
+  if [[ "${allow_downgrade:-0}" == 1 ]]; then set_update_floor; fi
+  rm -f -- "$runtime/previous" "$runtime/previous-handoff.py" "$runtime/previous-active"
+  rm -rf -- "$runtime/previous-units"
+  sync -f "$runtime"
+  maintenance_step=unit
+  install_managed_tools
+  printf 'Runner updated to %s.\n' "$tag"
+}
+
+cleanup() {
+  local status=$?
+  thaw || printf 'Could not thaw %s. Run the recovery command.\n' "$unit" >&2
+  if [[ -n "${paused_target:-}" ]]; then
+    systemctl kill "$paused_target" --signal=SIGCONT "$unit" || :
+  fi
+  if [[ "${action:-}" == update || "${action:-}" == recover ]]; then
+    if [[ "$status" == 0 ]]; then
+      rm -f -- "$runtime/last-maintenance-failure.json" || :
+    else
+      # Persist only the failed step and exit status. Command output can contain
+      # credentials. The lock is held until after this atomic replacement.
+      if printf '{"step":"%s","exitCode":%d,"at":"%s"}\n' "${maintenance_step:-prepare}" "$status" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$stage/failure.json"; then
+        mv -fT "$stage/failure.json" "$runtime/last-maintenance-failure.json" || :
+      fi
+      printf 'Runner maintenance stopped at step %s (exit %d).\n' "${maintenance_step:-prepare}" "$status" >&2
+    fi
+  fi
+  rm -rf -- "$stage"
+  return "$status"
+}
+
+# Account options belong to install. Source options apply to install and update.
+parse_install_options() {
+  local value
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --user)
+        [[ "${action:-install}" == install ]] || error "Update takes only --tag and source options"
+        [[ "$dedicated" == 0 && -z "$requested_user" && -n "${2:-}" && "$2" != -* ]] ||
+          error "Supply one workload account with --user or --dedicated-user"
+        requested_user=$2
+        shift 2
+        ;;
+      --dedicated-user)
+        [[ "${action:-install}" == install ]] || error "Update takes only --tag and source options"
+        [[ "$dedicated" == 0 && -z "$requested_user" ]] ||
+          error "Supply one workload account with --user or --dedicated-user"
+        dedicated=1
+        shift
+        ;;
+      --source|--cacert|--sha256)
+        value=${2:-}
+        [[ -n "$value" && "$value" != -* ]] || error "Supply a value with $1"
+        case "$1" in
+          --source) [[ -z "${source_url:-}" ]] || error "Supply one --source"; source_url=$value ;;
+          --cacert) [[ -z "${source_ca:-}" ]] || error "Supply one --cacert"; source_ca=$value ;;
+          --sha256) [[ -z "${dev_sha256:-}" ]] || error "Supply one --sha256"; dev_sha256=$value ;;
+        esac
+        shift 2
+        ;;
+      --clear-unreadable-fence)
+        clear_unreadable_fence=1
+        shift
+        ;;
+      --allow-downgrade)
+        allow_downgrade=1
+        shift
+        ;;
+      --allow-unverified-dev-build)
+        allow_dev=1
+        shift
+        ;;
+      *) error "Unknown $action option: $1" ;;
+    esac
+  done
+}
+
+uninstall_runner() {
+  assert_no_update_fence
+  managed_runner_installed || error "No managed Dispatch runner is installed"
+  [[ ! -e "$runtime/previous" ]] || error "Recover the interrupted manual update first"
+  # Without a handoff probe this refuses to stop a unit with agent processes.
+  local was_running=0
+  if systemctl is-active --quiet "$unit"; then was_running=1; fi
+  stop_runner_for_update
+  if [[ -e "$state/update/fence.json" || -L "$state/update/fence.json" ]]; then
+    if [[ "$was_running" == 1 ]]; then stable_start; fi
+    assert_no_update_fence
+  fi
+  systemctl disable "$unit"
+  if [[ -L "$command_path" && "$(readlink "$command_path")" == "$runtime/runner-cli" ]]; then
+    rm -f -- "$command_path"
+  fi
+  rm -f -- "$unit_path" "${unit_path}.d/50-dispatch-trial.conf" \
+    "${unit_path%/*}/$update_unit" "${unit_path%/*}/dispatch-runner-trial.service"
+  rm -f -- "$runtime/update/activate-helper" "$runtime/runner-cli" \
+    "$runtime/install-dispatch-runner.sh" "$runtime/previous-verified" \
+    "$runtime/installed-release" "$runtime/dispatch"
+  systemctl daemon-reload
+  printf 'Runner uninstalled. Enrollment and session data were retained.\n'
+}
+
+managed_runner_installed() {
+  [[ -f "$runtime/managed-install" && -x "$runtime/dispatch" && -f "$config" ]]
+}
+
+# One entry point for a first install and for every later one. A managed
+# runner goes through the update transaction, which keeps its enrollment.
+run_action() {
+  if [[ "$action" == install ]] && managed_runner_installed; then
+    if [[ "$dedicated" == 1 || -n "$requested_user" ]]; then
+      printf 'Keeping the configured workload account. Account options apply only to the first install.\n' >&2
+    fi
+    action=update
+  fi
+  if [[ "$action" == install && "${clear_unreadable_fence:-0}" == 1 ]]; then
+    error "--clear-unreadable-fence requires an installed runner"
+  fi
+  case "$action" in
+    install) stage_release; install_runner ;;
+    uninstall) uninstall_runner ;;
+    *) update_runner ;;
+  esac
+}
+
+main() {
+  dedicated=0
+  requested_user=
+  source_url=
+  source_ca=
+  dev_sha256=
+  allow_dev=0
+  allow_downgrade=0
+  action=${1:-}
+  case "$action" in
+    -h|--help) usage; return ;;
+    install|update|recover|uninstall) shift ;;
+    *) usage >&2; error "Choose install, update, recover, or uninstall" ;;
+  esac
+  if [[ "$action" == recover || "$action" == uninstall ]]; then
+    [[ $# -eq 0 ]] || error "$action takes no options"
+  else
+    [[ $# -ge 2 && "$1" == --tag ]] || error "Supply --tag vX.Y.Z"
+    tag=$2
+    shift 2
+    parse_install_options "$@"
+    valid_release_tag "$tag" || error "Use an exact release tag (vX.Y.Z or vX.Y.Z-PRERELEASE)"
+    validate_source
+  fi
+  [[ "$EUID" == 0 && "$(uname -s)" == Linux ]] || error "Run as root on Linux"
+  case "$(uname -m)" in
+    x86_64) arch=x64 ;;
+    aarch64) arch=arm64 ;;
+    *) error "Unsupported Linux architecture" ;;
+  esac
+  cgroup_root=/sys/fs/cgroup
+  [[ -r "$cgroup_root/cgroup.controllers" && -d /run/systemd/system ]] ||
+    error "The managed runner needs systemd and cgroup v2"
+  [[ -x /usr/bin/setpriv ]] || error "Install util-linux with /usr/bin/setpriv"
+  if [[ "$action" == install || "$action" == update ]]; then
+    check_dependencies
+  fi
+  umask 077
+  unit=dispatch-runner.service
+  unit_path="/etc/systemd/system/$unit"
+  update_unit=dispatch-runner-update@.service
+  command_path=/usr/local/bin/dispatch-runner
+  runtime=/opt/dispatch-runner
+  settings=/etc/dispatch-runner
+  config="$settings/runner.json"
+  state=/var/lib/dispatch-runner
+  install -d -m 0755 "$runtime"
+  exec 9>"$runtime/install.lock"
+  flock -n 9 || error "Another runner install or update is running"
+  stage=$(mktemp -d "$runtime/.stage.XXXXXX")
+  frozen=0
+  trap cleanup EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  run_action
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

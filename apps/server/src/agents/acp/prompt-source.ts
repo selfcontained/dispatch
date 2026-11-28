@@ -1,4 +1,13 @@
-import type { PromptConversation } from "@dispatch/shared";
+import type { PromptImage as WirePromptImage } from "@dispatch/runner-protocol";
+
+/** Host-side attachment reference. A runner name marks an input to stage before ACP submission. */
+export type PromptImage = WirePromptImage & { runnerName?: string };
+
+export function isPromptImageMimeType(mimeType: string): boolean {
+  return ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(
+    mimeType
+  );
+}
 
 /**
  * What a prompt sent to the harness was, for the prompt a turn entry
@@ -8,7 +17,7 @@ import type { PromptConversation } from "@dispatch/shared";
 export type PromptSource = {
   /** Source discussion for batching and steering, retained through the host journal.
    * User-thread turns use their validated source discussion for output at turn start. */
-  conversation?: PromptConversation;
+  conversation?: { streamId: string; threadId: string | null };
   /**
    * A person's post. With a conversation, a prompt steers only that
    * conversation; another agent's post without one steers any open turn.
@@ -16,6 +25,8 @@ export type PromptSource = {
   userMessage?: boolean;
   /** Structured answers and commands retain their dedicated delivery policy. */
   steeringExcluded?: boolean;
+  /** An answer to a specific question or form in the source conversation. */
+  correlatedReply?: true;
   /** Agent-authored scheduled content, explicitly eligible for steering. */
   scheduleId?: string;
   scheduleDeliveryId?: string;
@@ -54,6 +65,66 @@ export type PromptSource = {
   | { source: "engine"; text: string; after?: string }
 );
 
+type DispatchPromptSource = PromptSource;
+
+/** The host carries a source opaquely; within Dispatch it is this one. */
+declare module "@dispatch/runner-protocol/host" {
+  interface CallerSourceRegistry {
+    source: DispatchPromptSource;
+  }
+}
+
+export function isPromptSource(value: unknown): value is PromptSource {
+  if (!isSourceRecord(value)) return false;
+  const { conversation } = value;
+  if (
+    conversation !== undefined &&
+    (!isSourceRecord(conversation) ||
+      typeof conversation.streamId !== "string" ||
+      (conversation.threadId !== null &&
+        typeof conversation.threadId !== "string"))
+  )
+    return false;
+  if (
+    ![value.userMessage, value.steeringExcluded, value.awaited].every(
+      (flag) => flag === undefined || typeof flag === "boolean"
+    ) ||
+    ![value.scheduleId, value.scheduleDeliveryId].every(
+      (id) => id === undefined || typeof id === "string"
+    )
+  )
+    return false;
+  switch (value.source) {
+    case "chat":
+      return (
+        typeof value.chatMessageId === "string" &&
+        (value.chatMessageIds === undefined ||
+          (Array.isArray(value.chatMessageIds) &&
+            value.chatMessageIds.every((id) => typeof id === "string"))) &&
+        (value.answerIn === undefined || typeof value.answerIn === "string")
+      );
+    case "agent":
+      return (
+        typeof value.senderId === "string" &&
+        typeof value.senderName === "string" &&
+        typeof value.text === "string"
+      );
+    case "system":
+      return typeof value.text === "string";
+    case "engine":
+      return (
+        typeof value.text === "string" &&
+        (value.after === undefined || typeof value.after === "string")
+      );
+    default:
+      return false;
+  }
+}
+
+function isSourceRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 const SYSTEM_MAX = 500;
 
 /** An internal prompt's turn source; never infer a chat post from its text. */
@@ -69,8 +140,6 @@ export type QueuedPrompt = {
   createdAt: string;
 };
 
-/** Server-resolved files, kept out of turn journals and encoded only for ACP. */
-export type PromptImage = { path: string; mimeType: string };
 export type PromptOptions = {
   alone?: boolean;
   /** Checked immediately before submission, including queued release. */
@@ -80,4 +149,9 @@ export type PromptOptions = {
   signal?: AbortSignal;
   images?: PromptImage[];
   delivery?: "auto" | "queue" | "interrupt";
+  /**
+   * A stable host prompt ID for the one prompt that may pass a runner update
+   * hold, ahead of the work it holds. The host claims each ID only once.
+   */
+  continuationId?: string;
 };

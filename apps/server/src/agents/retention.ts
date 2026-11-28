@@ -56,6 +56,7 @@ export async function purgeExpiredArchivedAgents(
     `SELECT id, files_dir
        FROM agents
       WHERE deleted_at IS NOT NULL
+        AND NOT runner_cleanup_pending
         AND deleted_at < now() - ($1::int * interval '1 day')
       ORDER BY deleted_at
       LIMIT $2`,

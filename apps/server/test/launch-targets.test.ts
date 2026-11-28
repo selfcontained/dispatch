@@ -1,0 +1,560 @@
+import { sameRunner } from "@dispatch/runner-protocol/contract";
+import {
+  controllerPlacement,
+  placementForRunner,
+} from "../src/runners/placement.js";
+import { vi } from "vitest";
+import Fastify from "fastify";
+import { afterEach, describe, expect, it } from "vitest";
+import { registerLaunchTargetRoutes } from "../src/routes/launch-targets.js";
+import { resolveSavedTarget } from "../src/runners/saved-location.js";
+import {
+  setAgentModelAvailability,
+  forgetLearnedAgentModels,
+  onStoredModelCatalogRead,
+} from "../src/shared/agent-models.js";
+
+const catalog = {
+  models: {
+    claude: [
+      {
+        id: "retained",
+        label: "Retained",
+        effort: [{ value: "high", name: "High" }],
+      },
+    ],
+  },
+  defaults: { claude: "retained" },
+  availability: {
+    claude: { autoEnable: true, disabled: ["retained"], unseen: [] },
+  },
+};
+const template = {
+  id: "template",
+  directory: "/repo",
+  projectId: "project",
+  ...resolveSavedTarget("/repo", { runner: "fixture", projectId: "project" }),
+};
+const apps: ReturnType<typeof Fastify>[] = [];
+afterEach(async () => {
+  for (const app of apps.splice(0)) await app.close();
+  forgetLearnedAgentModels();
+});
+async function setup(
+  projectFailure = false,
+  projectRoot: string | null = "/repo"
+) {
+  setAgentModelAvailability("claude", {
+    autoEnable: true,
+    disabled: ["retained"],
+    unseen: [],
+    known: null,
+  });
+  const app = Fastify();
+  apps.push(app);
+  let catalogFailure = false;
+  let enabledAgentTypes = ["claude", "codex"];
+  let inventory: Array<{
+    id: string;
+    installed: boolean;
+    signedIn: boolean;
+  }> | null = [{ id: "codex", installed: false, signedIn: false }];
+  const operations = vi.fn();
+  const legacyReads = vi.fn();
+  const historyReads = vi.fn();
+  const localSources = {
+    directory: true,
+    repository: true,
+    defaultBaseBranch: "main",
+  };
+  const runnerSources = {
+    directory: false,
+    repository: true,
+    defaultBaseBranch: "",
+  };
+  app.addHook("onRequest", async (request) => {
+    if (
+      ["/api/v1/agent-models", "/api/v1/system/engines"].includes(request.url)
+    )
+      legacyReads(request.url);
+  });
+  app.addHook("onRequest", async (req, reply) => {
+    if (req.headers.authorization !== "Bearer fixture")
+      return reply.code(401).send({ error: "Unauthorized" });
+  });
+  const runnerRows = [
+    { id: "local", name: "Local", kind: "local", repositoryPicker: true },
+    {
+      id: "fixture",
+      name: "Fixture",
+      repositoryPicker: true,
+      status: "offline",
+    },
+    { id: "gone", name: "Gone", status: "revoked" },
+  ].map((runner) => ({
+    ...runner,
+    engineScope:
+      runner.id === "local"
+        ? { kind: "local" }
+        : { kind: "runner", runnerId: runner.id },
+    launchFields: runner.id === "local" ? {} : { runner: runner.id },
+  }));
+  app.get("/api/runners", async () => ({ runners: runnerRows }));
+  app.get("/api/v1/app/settings/agent-types", async () => ({
+    enabledAgentTypes,
+  }));
+  app.get("/api/v1/agent-models", async () => catalog);
+  app.get("/api/v1/history/projects", async (request) => {
+    historyReads(request.query);
+    return {
+      projects: ["/saved/folder"],
+      projectOptions: [{ path: "/saved/folder", iconUrl: "/folder-icon" }],
+    };
+  });
+  app.get("/api/v1/system/engines", async (req) => ({
+    canManage: req.ip === "192.0.2.4",
+    engines: [
+      { id: "claude", installed: false, install: "existing command" },
+      { id: "codex", installed: true, install: "existing codex command" },
+    ],
+  }));
+  app.get("/api/v1/projects", async (_request, reply) =>
+    projectFailure
+      ? reply.code(503).send({ error: "Fixture projects unavailable" })
+      : [{ id: "project", repoRoot: projectRoot }]
+  );
+  app.get("/api/v1/projects/:id", async () => ({
+    id: "project",
+    repoRoot: projectRoot,
+  }));
+  app.get("/api/v1/projects/:id/repository", async () => ({
+    url: "https://github.com/fixture/repo",
+  }));
+  app.get("/api/v1/git/branches", async (req) => ({
+    branches: ["main", "develop"],
+    defaultBranch: "develop",
+    query: req.query,
+  }));
+  app.get("/api/v1/personas", async (req) => ({
+    personas: [{ slug: "review", name: "Review" }],
+    query: req.query,
+  }));
+  app.get("/api/v1/engine-management/inventory", async (request) => ({
+    entries:
+      (request.query as { scope: string }).scope === "local"
+        ? [
+            {
+              id: "claude",
+              installed: false,
+              install: "existing command",
+              path: "/claude",
+            },
+            { id: "codex", installed: true, install: "existing codex command" },
+          ]
+        : (inventory?.map((entry) => ({
+            ...entry,
+            install:
+              entry.id === "codex"
+                ? "existing codex command"
+                : "existing command",
+          })) ?? null),
+  }));
+  app.post("/api/v1/engine-management/operations", async (request) => {
+    operations(request.body);
+    return {
+      ack: catalogFailure
+        ? { ok: false, error: "Fixture unavailable" }
+        : {
+            ok: true,
+            capability: {
+              type: "model_catalog",
+              catalog:
+                (request.body as { scope: { kind: string } }).scope.kind ===
+                "local"
+                  ? { models: catalog.models.claude, defaultModel: "retained" }
+                  : {
+                      models: [
+                        { id: "runner-model", effort: [{ value: "medium" }] },
+                      ],
+                      defaultModel: "runner-model",
+                    },
+            },
+          },
+    };
+  });
+  app.get("/api/v1/templates", async () => [template]);
+  const branches = vi.fn(async (placement, op, input) => ({
+    branches: ["develop", "main"],
+    defaultBranch: "develop",
+  }));
+  await registerLaunchTargetRoutes(app, {
+    agents: {
+      getAgent: async (id: string) => ({
+        id,
+        placement: id.startsWith("controller")
+          ? controllerPlacement
+          : placementForRunner(id === "missing-target" ? "missing" : "fixture"),
+        cwd: id.startsWith("controller") ? "/cwd" : "/srv/fixture/checkout",
+        projectId: id === "unscoped" ? null : "project",
+        ...(id === "controller-moved"
+          ? {
+              workspacePath: "/moved",
+              gitContext: { repoRoot: " /moved/root " },
+            }
+          : { launchCwd: " /launch " }),
+      }),
+    } as never,
+    runners: {
+      managementList: async () => runnerRows,
+      for: (placement) => ({
+        describe: () => ({
+          capabilities: {
+            sources: sameRunner(placement, controllerPlacement)
+              ? localSources
+              : runnerSources,
+          },
+        }),
+        settings: {
+          modelReports: sameRunner(placement, controllerPlacement)
+            ? "availability"
+            : "history",
+        },
+        call: (op, input) => branches(placement, op, input),
+      }),
+    } as never,
+    templates: { getTemplate: async () => template } as never,
+    tasks: {
+      store: {
+        getColumn: async (id: string) => ({
+          projectId: "project",
+          trigger: {
+            templateId: "template",
+            ...(id === "explicit" && { location: { runner: "fixture" } }),
+          },
+        }),
+      },
+    } as never,
+  });
+  const get = async (url: string) =>
+    app.inject({
+      url,
+      headers: { authorization: "Bearer fixture" },
+      remoteAddress: "192.0.2.4",
+    });
+  const targets = (await get("/api/v1/launch-targets")).json().targets;
+  return {
+    app,
+    get,
+    targets,
+    branches,
+    operations,
+    legacyReads,
+    historyReads,
+    localSources,
+    runnerSources,
+    enableAgentTypes: (types: string[]) => {
+      enabledAgentTypes = types;
+    },
+    setInventory: (entries: typeof inventory) => {
+      inventory = entries;
+    },
+    failCatalog: () => {
+      catalogFailure = true;
+    },
+  };
+}
+
+describe("launch target adapter", () => {
+  it("passes only the selected effort model into stored reads on either target", async () => {
+    const { get, targets } = await setup();
+    const scheduled = vi.fn();
+    const stop = onStoredModelCatalogRead(scheduled);
+    try {
+      for (const [index, id, engine] of [
+        [0, "local", "claude"],
+        [1, "fixture", "codex"],
+      ] as const) {
+        const response = await get(
+          `${targets[index].dataUrl}?agentType=${engine}&model=selected`
+        );
+        expect(response.statusCode).toBe(200);
+        expect(scheduled).toHaveBeenCalledWith(id, engine, "selected");
+      }
+      expect(scheduled).toHaveBeenCalledTimes(2);
+    } finally {
+      stop();
+    }
+  });
+  it("requires the existing authentication and uses opaque keys with offline choices retained", async () => {
+    const { app, targets } = await setup();
+    expect(
+      (await app.inject({ url: "/api/v1/launch-targets" })).statusCode
+    ).toBe(401);
+    expect(targets.map((t: any) => t.location.folders)).toEqual([true, false]);
+    expect(targets[1].status).toBe("offline");
+    expect(targets[1].location.projects).toHaveLength(1);
+    expect(targets[1].location.repositorySearchUrl).toBe(
+      "/api/v1/runners/fixture/repository-search"
+    );
+    expect(targets[0].location.repositorySearchUrl).toBe(
+      "/api/v1/runners/local/repository-search"
+    );
+    expect(targets[1].key).not.toContain("fixture");
+    expect(targets[0].key).not.toBe("local");
+    expect(targets[0].selectionFields).toEqual({ runner: "local" });
+    expect(targets[0].launchFields).toEqual({});
+    expect(targets[0].name).toBe("Local");
+  });
+  it("preserves the controller catalog, availability, defaults and missing engines", async () => {
+    const { get, targets } = await setup();
+    const before = (await get("/api/v1/agent-models")).body;
+    const response = await get(
+      `${targets[0].dataUrl}?directory=%2Frepo&agentType=claude`
+    );
+    expect(response.statusCode).toBe(200);
+    const data = response.json();
+    expect(data.catalog).toEqual(catalog);
+    expect(data.engineOptions).toEqual(
+      (await get("/api/v1/engine-management/inventory?scope=local")).json()
+        .entries
+    );
+    expect(data.agentTypes).toEqual(["claude", "codex"]);
+    expect(data.defaults.launchFields).toEqual({});
+    expect(data.defaults.baseBranch).toBe("main");
+    expect((await get(data.branchesUrl)).json()).toEqual({
+      branches: ["develop", "main"],
+      defaultBranch: "develop",
+    });
+    expect((await get("/api/v1/agent-models")).body).toBe(before);
+    expect((await get(data.personasUrl)).statusCode).toBe(200);
+  });
+  it("reads the runner's catalog and project's repository without install/sign-in gates", async () => {
+    const { get, targets, branches } = await setup();
+    const response = await get(
+      `${targets[1].dataUrl}?projectId=project&agentType=codex`
+    );
+    expect(response.statusCode).toBe(200);
+    const data = response.json();
+    expect(data.agentTypes).toEqual(["codex"]);
+    expect(data.engineOptions[0].installed).toBe(false);
+    expect(data.defaults.templateFields).toEqual({
+      directory: "",
+    });
+    expect(data.engineOptions[0].install).toBe("existing codex command");
+    expect(data.catalog.models.codex[0].id).toBe("runner-model");
+    expect(data.effort).toEqual([{ value: "medium" }]);
+    expect(data.defaults.launchFields).toEqual({ runner: "fixture" });
+    expect(data.directory).toBe("");
+    await get(data.branchesUrl);
+    expect(branches).toHaveBeenCalledWith(expect.anything(), "git.branches", {
+      target: { repository: "https://github.com/fixture/repo" },
+    });
+    const personas = (await get(data.personasUrl)).json();
+    expect(personas.query.projectId).toBe("project");
+    expect(personas.query.runner).toBe("fixture");
+  });
+  it("applies enabled agent types to runner choices and catalog selection", async () => {
+    const { get, targets, operations, enableAgentTypes, setInventory } =
+      await setup();
+    enableAgentTypes(["codex"]);
+    setInventory([
+      { id: "claude", installed: true, signedIn: true },
+      { id: "codex", installed: false, signedIn: false },
+    ]);
+    const local = await get(
+      `${targets[0].dataUrl}?directory=%2Frepo&agentType=codex`
+    );
+    const runner = await get(
+      `${targets[1].dataUrl}?projectId=project&agentType=claude`
+    );
+    expect(local.json().agentTypes).toEqual(["codex"]);
+    expect(runner.statusCode).toBe(200);
+    expect(runner.json().agentTypes).toEqual(["codex"]);
+    expect(runner.json().catalog.models.codex[0].id).toBe("runner-model");
+    expect(operations).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: { type: "model_catalog", engine: "codex" },
+      })
+    );
+  });
+  it("keeps the enabled types when the runner inventory has not arrived", async () => {
+    const { get, targets, enableAgentTypes, setInventory } = await setup();
+    enableAgentTypes(["codex"]);
+    setInventory(null);
+    const response = await get(
+      `${targets[1].dataUrl}?projectId=project&agentType=codex`
+    );
+    expect(response.statusCode).toBe(200);
+    expect(response.json().agentTypes).toEqual(["codex"]);
+  });
+  it("projects saved targets separately without altering existing template bytes", async () => {
+    const { get, targets } = await setup();
+    const before = (await get("/api/v1/templates")).body;
+    for (const [kind, id, inherited] of [
+      ["template", "template", false],
+      ["trigger", "implicit", true],
+      ["trigger", "explicit", false],
+    ]) {
+      const response = await get(`/api/v1/launch-targets/saved/${kind}/${id}`);
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        targetKey: targets[1].key,
+        projectId: "project",
+        directory: "",
+        inherited,
+        locationLabel: "Fixture",
+      });
+    }
+    expect((await get("/api/v1/templates")).body).toBe(before);
+  });
+  it("keeps the controller selectable when project choices fail", async () => {
+    const { get, targets } = await setup(true);
+    expect(targets[1].location.error).toBe("Fixture projects unavailable");
+    expect((await get(targets[0].dataUrl)).statusCode).toBe(200);
+  });
+  it("surfaces a target data error without removing the target", async () => {
+    const { get, targets, failCatalog } = await setup();
+    failCatalog();
+    expect((await get(targets[1].dataUrl)).statusCode).toBe(503);
+    expect((await get("/api/v1/launch-targets")).json().targets).toEqual(
+      targets
+    );
+  });
+});
+
+it.each([
+  ["controller", 0, "/launch", "project"],
+  ["controller-moved", 0, "/moved/root", "project"],
+  ["enrolled", 1, "", "project"],
+  ["unscoped", 1, "", null],
+])(
+  "projects agent %s without exposing another target’s path",
+  async (id, index, directory, projectId) => {
+    const { get, targets } = await setup();
+    const result = (
+      await get(`/api/v1/launch-targets/saved/agent/${id}`)
+    ).json();
+    expect(result).toMatchObject({
+      targetKey: targets[index as number].key,
+      directory,
+      projectId,
+    });
+  }
+);
+
+it("derives a supported engine when changing targets from another engine", async () => {
+  const { get, targets } = await setup();
+  const result = (
+    await get(`${targets[1].dataUrl}?projectId=project&agentType=claude`)
+  ).json();
+  expect(result.agentTypes).toEqual(["codex"]);
+  expect(result.catalog.models.codex[0].id).toBe("runner-model");
+});
+
+it("does not project an unlisted agent target as the controller", async () => {
+  const { get } = await setup();
+  expect(
+    (await get("/api/v1/launch-targets/saved/agent/missing-target")).statusCode
+  ).toBe(404);
+});
+
+it("offers Local repository search and reads repository-only branches without a folder", async () => {
+  const { get, targets, branches } = await setup(false, null);
+  const local = targets[0];
+  expect(local.location.projects).toHaveLength(1);
+  const data = (
+    await get(
+      `${local.dataUrl}?projectId=project&directory=%2Fstale&agentType=claude`
+    )
+  ).json();
+  expect(data.directory).toBe("");
+  expect(data.defaults.baseBranch).toBe("");
+  expect((await get(data.branchesUrl)).statusCode).toBe(200);
+  expect(branches).toHaveBeenCalledWith(controllerPlacement, "git.branches", {
+    target: { repository: "https://github.com/fixture/repo" },
+  });
+});
+
+it("lists Local once when the directory already contains the Local runner", async () => {
+  const { targets } = await setup();
+  expect(targets.map((target) => target.name)).toEqual(["Local", "Fixture"]);
+  expect(new Set(targets.map((target) => target.key)).size).toBe(
+    targets.length
+  );
+  expect(new Set(targets.map((target) => target.name)).size).toBe(
+    targets.length
+  );
+  expect(new Set(targets.map((target) => target.branchesUrl)).size).toBe(
+    targets.length
+  );
+  expect(targets[0].location.folders).toBe(true);
+});
+
+it("uses reported source capabilities and defaults independently of identity and engine scope", async () => {
+  const { get, localSources, runnerSources, operations } = await setup();
+  Object.assign(localSources, { directory: false, defaultBaseBranch: "" });
+  Object.assign(runnerSources, {
+    directory: true,
+    defaultBaseBranch: "develop",
+  });
+  const targets = (await get("/api/v1/launch-targets")).json().targets;
+  expect(targets.map((target: any) => target.location.folders)).toEqual([
+    false,
+    true,
+  ]);
+  const local = (
+    await get(`${targets[0].dataUrl}?projectId=project&agentType=claude`)
+  ).json();
+  const enrolled = (
+    await get(`${targets[1].dataUrl}?directory=%2Frepo&agentType=codex`)
+  ).json();
+  expect(local.defaults.baseBranch).toBe("");
+  expect(enrolled.defaults.baseBranch).toBe("develop");
+  expect(operations).toHaveBeenCalledWith(
+    expect.objectContaining({ scope: { kind: "local" } })
+  );
+  expect(operations).toHaveBeenCalledWith(
+    expect.objectContaining({ scope: { kind: "runner", runnerId: "fixture" } })
+  );
+});
+
+it("uses engine-management for both targets without the legacy model/engine routes", async () => {
+  const { get, targets, legacyReads } = await setup();
+  for (const target of targets) {
+    const response = await get(
+      `${target.dataUrl}?projectId=project&agentType=claude`
+    );
+    expect(response.statusCode).toBe(200);
+  }
+  expect(legacyReads).not.toHaveBeenCalled();
+  const local = (
+    await get(`${targets[0].dataUrl}?directory=%2Frepo&agentType=claude`)
+  ).json();
+  expect(local.engineOptions[0].path).toBe("/claude");
+});
+
+it("reads folder history through the same target adapter only when supported", async () => {
+  const { get, targets, localSources, runnerSources, historyReads } =
+    await setup();
+  expect((await get(targets[0].historyUrl)).json()).toEqual({
+    projects: ["/saved/folder"],
+    projectOptions: [{ path: "/saved/folder", iconUrl: "/folder-icon" }],
+  });
+  expect(historyReads).toHaveBeenLastCalledWith({ runnerId: "local" });
+  expect((await get(targets[1].historyUrl)).json()).toEqual({
+    projects: [],
+    projectOptions: [],
+  });
+  expect(historyReads).toHaveBeenCalledTimes(1);
+  runnerSources.directory = true;
+  expect((await get(targets[1].historyUrl)).json().projects).toEqual([
+    "/saved/folder",
+  ]);
+  expect(historyReads).toHaveBeenLastCalledWith({ runnerId: "fixture" });
+  localSources.directory = false;
+  expect((await get(targets[0].historyUrl)).json()).toEqual({
+    projects: [],
+    projectOptions: [],
+  });
+  expect(historyReads).toHaveBeenCalledTimes(2);
+});

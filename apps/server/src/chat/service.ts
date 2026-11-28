@@ -28,7 +28,7 @@ import {
   qualifyExternalMentions,
 } from "@dispatch/shared";
 import { createHash, randomUUID } from "node:crypto";
-import type { DriverEvent } from "../agents/acp/driver.js";
+import type { DriverEvent } from "@dispatch/runner-protocol/host";
 import path from "node:path";
 
 import type { Pool, PoolClient } from "pg";
@@ -219,6 +219,8 @@ export type StreamDeliveryAdapter = {
   held: (agentId: string) => boolean;
   /** Whether an active turn, rather than queued prompts, blocks delivery. */
   activeTurn: (agentId: string) => boolean;
+  /** Whether a runner update holds this agent's deliveries in its queue. */
+  updateHeld?: (agentId: string) => Promise<boolean>;
   /** Cut the agent's running turn, for a post sent to interrupt it. */
   cancel: (agentId: string) => Promise<void>;
   controlQueuedPrompt?: (
@@ -235,7 +237,8 @@ export type StreamDeliveryAdapter = {
 export type StreamAgent = Pick<
   AgentRecord,
   "id" | "name" | "filesDir" | "status"
->;
+> &
+  Partial<Pick<AgentRecord, "cwd">>;
 
 export type StreamServiceDeps = {
   routingShadow?: {
@@ -1414,13 +1417,15 @@ export class StreamService {
   ): Promise<{ held: boolean }> {
     await this.requireAgent(agentId);
     await this.canDeliver(agentId, false);
-    return this.injectDetached({
+    const logContext = { agentId, reason: "dispatch-prompt" };
+    const { held } = this.injectDetached({
       agentId,
       envelope: input.text,
       record: async () => undefined,
-      logContext: { agentId, reason: "dispatch-prompt" },
+      logContext,
       source: { source: "system", text: input.description },
     });
+    return { held: held || (await this.updateHeld(agentId, logContext)) };
   }
 
   /**
@@ -2051,7 +2056,10 @@ export class StreamService {
         // runtime queues a prompt with no delivery given.
         delivery: "auto",
       });
-      held = held || result.held;
+      held =
+        held ||
+        result.held ||
+        (await this.updateHeld(agentId, { blockId: finding.id }));
     }
     return { held };
   }
@@ -3607,7 +3615,7 @@ export class StreamService {
     return {
       id,
       attachmentLines,
-      images: await this.promptImages(attachments, input.agentId),
+      images: await this.promptFiles(attachments, input.agentId, input.agentId),
       postText,
       record: async () => {
         const block = await this.store.writeLaunchBriefing({
@@ -4368,7 +4376,6 @@ export class StreamService {
   ): Promise<{ held: boolean }> {
     const finding = await this.findingOf(block);
     const task = await this.taskRoot(block.streamId);
-    const images = await this.promptImages(block.attachments, block.streamId);
     const outcomes = new Map<string, boolean>();
     // A post to several agents keeps each outcome of its own, so one
     // recipient that never took it can be seen, and sent again, without
@@ -4405,6 +4412,9 @@ export class StreamService {
     let held = false;
     for (const agentId of recipients) {
       const own = perRecipient(agentId);
+      const images = own.rawPrompt
+        ? []
+        : await this.promptFiles(block.attachments, block.streamId, agentId);
       // A cancellation closes the ask the same way an answer does: it
       // resumes the work the ask came from rather than opening a thread.
       const closes = own.answers ?? own.cancels;
@@ -4418,6 +4428,7 @@ export class StreamService {
         ...(structuredAnswer || block.kind !== "text" || own.rawPrompt
           ? { steeringExcluded: true }
           : {}),
+        ...(structuredAnswer && { correlatedReply: true as const }),
         // A review, or a word under one of its findings, is what the agent
         // on the other side is waiting for: it reaches a busy agent now.
         ...(block.kind === "review" || finding ? { awaited: true } : {}),
@@ -4556,7 +4567,10 @@ export class StreamService {
             ? "queue"
             : (own.delivery ?? block.data?.delivery ?? "auto"),
       });
-      held = held || result.held;
+      held =
+        held ||
+        result.held ||
+        (await this.updateHeld(agentId, { blockId: block.id }));
     }
     return { held };
   }
@@ -4673,6 +4687,8 @@ export class StreamService {
         // Still queued behind the agent's own work: that is the queue
         // doing its job, so keep waiting.
         if (this.delivery().activeTurn(agentId)) continue;
+        // Held for a runner update, which is bounded: the queue again.
+        if (await this.updateHeld(agentId, logContext)) continue;
         this.log.warn(
           { agentId, ...logContext },
           "stream: the engine never took this prompt; marking it undelivered"
@@ -4688,6 +4704,25 @@ export class StreamService {
         return;
       }
     })();
+  }
+
+  /**
+   * A runner update can defer a prompt before it reaches any queue, so the
+   * agent's own busy state alone doesn't say it is held.
+   */
+  private async updateHeld(
+    agentId: string,
+    logContext: Record<string, string>
+  ): Promise<boolean> {
+    try {
+      return (await this.delivery().updateHeld?.(agentId)) === true;
+    } catch (error) {
+      this.log.warn(
+        { err: error, agentId, ...logContext },
+        "stream: could not check runner update hold"
+      );
+      return false;
+    }
   }
 
   async recoverPendingDeliveries(): Promise<string[]> {
@@ -5242,36 +5277,44 @@ export class StreamService {
     return out;
   }
 
-  /** Native image references come only from resolved attachment metadata. */
-  private async promptImages(
+  /**
+   * The files a prompt hands to the receiving session, with the name each is
+   * put under there. Delivery leaves non-images out of the ACP prompt.
+   */
+  private async promptFiles(
     attachments: ChatAttachment[],
-    fallbackOwnerId: string
+    fallbackOwnerId: string,
+    recipientId: string
   ): Promise<PromptImage[]> {
-    const images: PromptImage[] = [];
+    const files: PromptImage[] = [];
     for (const attachment of attachments) {
-      if (
-        attachment.type !== "file" ||
-        !attachment.mimeType ||
-        !["image/png", "image/jpeg", "image/webp", "image/gif"].includes(
-          attachment.mimeType
-        )
-      )
-        continue;
+      if (attachment.type !== "file") continue;
       // Attachment metadata was resolved against the file registry on posting.
       // Use its owner, even when the post is addressed to another agent.
       if (path.basename(attachment.fileName) !== attachment.fileName) continue;
       const owner = await this.requireAgent(
         attachment.ownerAgentId ?? fallbackOwnerId
       );
-      images.push({
+      files.push({
         path: path.join(
           resolveFilesDir(owner.id, owner.filesDir, this.deps.filesRoot),
           attachment.fileName
         ),
-        mimeType: attachment.mimeType,
+        mimeType: attachment.mimeType ?? "application/octet-stream",
+        runnerName: this.runnerInputName(attachment, owner, recipientId),
       });
     }
-    return images;
+    return files;
+  }
+
+  private runnerInputName(
+    attachment: Extract<ChatAttachment, { type: "file" }>,
+    owner: StreamAgent,
+    recipientId: string
+  ): string {
+    return owner.id === recipientId
+      ? attachment.fileName
+      : `attachment-${attachment.fileId}${path.extname(attachment.fileName).slice(0, 32)}`;
   }
 
   /** Keep file-tool fallback paths aligned with the actual attachment owner. */
@@ -5293,6 +5336,7 @@ export class StreamService {
             this.deps.filesRoot
           );
           const mime = attachment.mimeType ?? "application/octet-stream";
+          // Delivery points this path at where the agent opens the file.
           lines.push(
             `- file: ${path.join(filesDir, attachment.fileName)} (${mime}, ${formatAttachmentSize(attachment.sizeBytes)})${attachment.caption ? ` caption: ${JSON.stringify(attachment.caption)}` : ""}`
           );

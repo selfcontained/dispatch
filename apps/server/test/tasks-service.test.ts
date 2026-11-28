@@ -1,3 +1,10 @@
+import { resolveSavedTarget } from "../src/runners/saved-location.js";
+import { placementForRunner } from "../src/runners/placement.js";
+import { readRepositoryRoot } from "./helpers/task-scope.js";
+import { teachKnownSeedCatalogs } from "./helpers/model-catalog-validation.js";
+import { beforeEach as beforeKnownCatalog } from "vitest";
+beforeKnownCatalog(teachKnownSeedCatalogs);
+import { launchPersonaScope } from "../src/personas/persona-scope.js";
 import Fastify from "fastify";
 import fastifyMultipart from "@fastify/multipart";
 import { registerTaskRoutes } from "../src/routes/tasks.js";
@@ -9,6 +16,7 @@ import {
   readFile,
   readdir,
   realpath,
+  stat,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -45,9 +53,9 @@ import {
   forgetLearnedAgentModels,
   setAgentModelAvailability,
 } from "../src/shared/agent-models.js";
-import { agentTaskProject, taskScopeInput } from "../src/tasks/agent-scope.js";
+import { agentTaskProject, taskScopeInput } from "./helpers/task-scope.js";
 import { chatUrlSchema } from "../src/chat/validation.js";
-import { resolveRepoRoot } from "../src/shared/git/git-context.js";
+import { resolveRepoRoot } from "../../../packages/runner/src/workload/shared/git/git-context.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 let pool: Pool;
@@ -110,6 +118,7 @@ function build(
   overrides: Partial<ConstructorParameters<typeof TaskService>[0]> = {}
 ): TaskService {
   return new TaskService({
+    readRepositoryRoot,
     pool,
     filesRoot: storageRoot,
     getAgent: async (id) => agents.get(id) ?? null,
@@ -163,6 +172,8 @@ function build(
     },
     publishUiEvent: (event) => published.push(event),
     log: { warn: vi.fn(), info: vi.fn() },
+    personaScope: (target) =>
+      launchPersonaScope({ checkoutReadRunners: () => ({}) } as never, target),
     ...overrides,
   });
 }
@@ -1295,10 +1306,225 @@ describe("triggers", () => {
     }
   );
 
+  it("legacy triggers without a location preserve the template runner through manual and triggered launches", async () => {
+    const cwd = "";
+    const saved = template({
+      id: TEMPLATE_ID,
+      ...resolveSavedTarget(cwd, { runner: "runner-test", projectId }),
+      useWorktree: false,
+    });
+    const createAgent = vi.fn(async () => {
+      const id = `agt_launch_${++agentSeq}`;
+      await insertAgent(id, "running", "Builder");
+      return { id } as AgentRecord;
+    });
+    const templates = new TemplateService(
+      pool,
+      { createAgent } as never,
+      { info: vi.fn() } as never
+    );
+    service = build(filesRoot, {
+      getTemplate: async (id) => (id === TEMPLATE_ID ? saved : null),
+      launchTemplate: async (input) =>
+        (await templates.launchTemplate(input)).agent,
+    });
+    const ready = await columnId("ready");
+    await service.store.updateColumn(ready, {
+      trigger: {
+        templateId: TEMPLATE_ID,
+        agentType: null,
+        model: null,
+        assign: false,
+        fireOnCreate: false,
+      },
+    });
+    const task = await service.createTask(
+      { projectId, title: "Run on the enrolled runner" },
+      USER
+    );
+    await service.updateTask(task.id, { columnId: ready }, USER);
+    await service.launchAgent(task.id, { templateId: TEMPLATE_ID }, USER);
+    expect(createAgent).toHaveBeenCalledTimes(2);
+    for (const args of createAgent.mock.calls)
+      expect(args).toEqual([
+        expect.objectContaining({
+          cwd,
+          placement: placementForRunner("runner-test"),
+          projectId,
+          templateId: TEMPLATE_ID,
+        }),
+      ]);
+  });
+
+  it.each(["local", "runner-test"])(
+    "launches a repository-only task project through its %s template and column trigger",
+    async (runner) => {
+      await pool.query(
+        "UPDATE projects SET repo_root = NULL, repository = $2 WHERE id = $1",
+        [projectId, "https://github.com/tasks/repository-only"]
+      );
+      const saved = template({
+        id: TEMPLATE_ID,
+        ...resolveSavedTarget("", { runner, projectId }),
+        useWorktree: true,
+        baseBranch: "main",
+        branchName: "feature/task-repository",
+      });
+      const createAgent = vi.fn(async () => {
+        const id = `agt_repository_${++agentSeq}`;
+        await insertAgent(id, "running", "Repository builder");
+        return { id } as AgentRecord;
+      });
+      const templates = new TemplateService(
+        pool,
+        { createAgent } as never,
+        { info: vi.fn() } as never
+      );
+      service = build(filesRoot, {
+        getTemplate: async (id) => (id === TEMPLATE_ID ? saved : null),
+        launchTemplate: async (input) =>
+          (await templates.launchTemplate(input)).agent,
+      });
+      const ready = await columnId("ready");
+      await service.updateColumn(ready, {
+        trigger: { templateId: TEMPLATE_ID, assign: false, runner },
+      });
+      const task = await service.createTask(
+        { projectId, title: "Launch from repository task" },
+        USER
+      );
+      await service.updateTask(task.id, { columnId: ready }, USER);
+      await service.launchAgent(task.id, { templateId: TEMPLATE_ID }, USER);
+      expect(createAgent).toHaveBeenCalledTimes(2);
+      for (const args of createAgent.mock.calls)
+        expect(args).toEqual([
+          expect.objectContaining({
+            cwd: "",
+            projectId,
+            placement: placementForRunner(runner),
+            templateId: TEMPLATE_ID,
+            useWorktree: true,
+            baseBranch: "main",
+            worktreeBranch: "feature/task-repository",
+          }),
+        ]);
+    }
+  );
+
+  it.each(["local", "offline-fixture"])(
+    "stores only runner %s and resolves its project folder at launch",
+    async (runner) => {
+      const ready = await columnId("ready");
+      const saved = await service.updateColumn(ready, {
+        trigger: { templateId: TEMPLATE_ID, assign: false, runner },
+      });
+      expect(saved.trigger?.location).toEqual({ runner });
+      const task = await service.createTask(
+        { projectId, title: "Own runner" },
+        USER
+      );
+      await service.updateTask(task.id, { columnId: ready }, USER);
+      expect(launches[0]!.resolvedTemplate?.directory).toBe(
+        runner === "local" ? REPO : ""
+      );
+    }
+  );
+
+  it("ignores old branch-only directory and location path fields when launching and drops them on save", async () => {
+    const ready = await columnId("ready");
+    await pool.query(
+      "UPDATE task_columns SET trigger = $2::jsonb WHERE id = $1",
+      [
+        ready,
+        JSON.stringify({
+          templateId: TEMPLATE_ID,
+          agentType: null,
+          model: null,
+          assign: false,
+          fireOnCreate: false,
+          directory: "/obsolete-directory",
+          location: { runner: "local", path: "/obsolete-path" },
+        }),
+      ]
+    );
+    const task = await service.createTask(
+      { projectId, title: "Read old location" },
+      USER
+    );
+    await service.updateTask(task.id, { columnId: ready }, USER);
+    expect(launches[0]!.resolvedTemplate?.directory).toBe(REPO);
+    const saved = await service.updateColumn(ready, {
+      trigger: { templateId: TEMPLATE_ID, assign: false },
+    });
+    expect(saved.trigger).not.toHaveProperty("directory");
+    expect(saved.trigger?.location).toEqual({ runner: "local" });
+  });
+
+  it("a new untargeted trigger follows its template after the template directory changes", async () => {
+    let directory = "/template-before-trigger-save";
+    service = build(filesRoot, {
+      getTemplate: async (id) => template({ id, directory }),
+    });
+    const ready = await columnId("ready");
+    const saved = await service.updateColumn(ready, {
+      trigger: { templateId: TEMPLATE_ID, assign: false },
+    });
+    expect(saved.trigger).not.toHaveProperty("location");
+    directory = "/template-moved-after-trigger-save";
+    const task = await service.createTask(
+      { projectId, title: "Follow the template" },
+      USER
+    );
+    await service.updateTask(task.id, { columnId: ready }, USER);
+    expect(launches[0]!.resolvedTemplate?.directory).toBe(directory);
+    expect((await service.requireColumn(ready)).trigger).not.toHaveProperty(
+      "location"
+    );
+  });
+
+  it("an explicit trigger target survives an edit without target fields", async () => {
+    const ready = await columnId("ready");
+    const saved = await service.updateColumn(ready, {
+      trigger: { templateId: TEMPLATE_ID, runner: "offline-fixture" },
+    });
+    const edited = await service.updateColumn(ready, {
+      trigger: { templateId: TEMPLATE_ID, assign: false },
+    });
+    expect(edited.trigger?.location).toEqual(saved.trigger?.location);
+  });
+
+  it("HTTP accepts the optional runner and ignores the removed directory input", async () => {
+    const ready = await columnId("ready");
+    const app = Fastify();
+    await registerTaskRoutes(app, {
+      taskService: service,
+      withStreamFlag: (agent) => ({ ...agent, hasStream: false }),
+    });
+    try {
+      const result = await app.inject({
+        method: "PATCH",
+        url: `/api/v1/task-columns/${ready}`,
+        payload: {
+          trigger: {
+            templateId: TEMPLATE_ID,
+            runner: "offline-http-fixture",
+            directory: "~",
+          },
+        },
+      });
+      expect(result.statusCode, result.body).toBe(200);
+      expect(result.json().trigger.location).toEqual({
+        runner: "offline-http-fixture",
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
   it("launches a prompt-less persona template with the briefing as its prompt", async () => {
     // This test isolates prompt composition; discovery is validated separately.
     const persona = vi
-      .spyOn(personaResolution, "resolveLaunchPersona")
+      .spyOn(personaResolution, "resolvePersona")
       .mockResolvedValue({ body: "Build" } as never);
     const prompted: Array<string | undefined> = [];
     const promptless = template({
@@ -3040,6 +3266,7 @@ describe("tool project scope", () => {
       );
     };
     const base = {
+      id: "agt_project_scope",
       projectId: null,
       cwd: path.join(root, "elsewhere"),
       worktreePath: null,
@@ -3195,6 +3422,18 @@ it("stores task attachments and links, briefs agents, and cleans up on deletion"
   const attachment = await service.attachmentFile(
     task.id,
     detail.attachments[0]!.id
+  );
+  expect(path.dirname(attachment.path)).toBe(
+    path.resolve(filesRoot, "tasks", task.id)
+  );
+  expect(path.basename(attachment.path)).toMatch(
+    /^context-\d{4}(?:-\d{2}){5}-\d{3}-1\.md$/
+  );
+  expect((await stat(attachment.path)).mode & 0o777).toBe(
+    0o666 & ~process.umask()
+  );
+  expect((await stat(path.dirname(attachment.path))).mode & 0o777).toBe(
+    0o777 & ~process.umask()
   );
   expect(await readFile(attachment.path)).toEqual(buffer);
   expect((await service.briefingFor(task.id)).text).toContain(
@@ -4068,6 +4307,8 @@ describe("task runtime overrides", () => {
   );
 
   it("keeps the pair explicit: no stranded model, no cleared model under a runtime", async () => {
+    // A local launch target, so models are checked against this Mac's catalog.
+    await withTrigger("ready", { assign: false });
     const task = await service.createTask(
       {
         projectId,

@@ -82,7 +82,32 @@ beforeAll(() => {
 const template = (id: string, name: string, directory = "/repo") =>
   ({ id, name, directory, projectId: "p1", agentType: "claude" }) as Template;
 beforeEach(() => {
-  api.mockResolvedValue([]);
+  api.mockImplementation(async (url: string) => {
+    if (url === "/api/v1/launch-targets")
+      return {
+        targets: [
+          {
+            key: "fixture-target",
+            name: "Local",
+            dataUrl: "/fixture/data",
+            location: { folders: true },
+          },
+        ],
+      };
+    if (url.startsWith("/api/v1/launch-targets/saved"))
+      return { targetKey: "fixture-target", inherited: true };
+    if (url.startsWith("/fixture/data"))
+      return {
+        catalog: { models: {} },
+        effort: effortFixture(
+          new URL(url, "http://fixture").searchParams.get("agentType") ??
+            "claude"
+        ),
+        defaults: { baseBranch: "main" },
+        directory: "/repo",
+      };
+    return [];
+  });
   templates.splice(0, templates.length, template("tpl_1", "Builder"));
   addTemplate.mockImplementation(async (input: Partial<Template>) => {
     // Stands in for the refetch the real mutation's invalidation triggers.
@@ -112,7 +137,7 @@ const column = {
   },
 } as unknown as TaskColumn;
 
-const renderDialog = (targetColumn = column) => {
+const renderDialog = async (targetColumn = column) => {
   const onOpenChange = vi.fn();
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -141,6 +166,14 @@ const renderDialog = (targetColumn = column) => {
     );
   };
   render(<Harness />);
+  await waitFor(() =>
+    expect(
+      client
+        .getQueryCache()
+        .findAll({ queryKey: ["agent-models", "launch-target"] })
+        .some((query) => query.state.status === "success")
+    ).toBe(true)
+  );
   return { onOpenChange };
 };
 // The stacked create dialog aria-hides the trigger dialog behind it.
@@ -152,7 +185,7 @@ const openNewTemplate = () => {
 };
 
 it("creates a template from the picker and selects it", async () => {
-  const { onOpenChange } = renderDialog();
+  const { onOpenChange } = await renderDialog();
   expect(templatePicker().textContent).toBe("Builder");
   openNewTemplate();
   await screen.findByRole("heading", { name: "New template" });
@@ -192,7 +225,7 @@ it("creates a template from the picker and selects it", async () => {
 });
 
 it("cancel returns to the trigger unchanged", async () => {
-  const { onOpenChange } = renderDialog();
+  const { onOpenChange } = await renderDialog();
   openNewTemplate();
   fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
   await waitFor(() =>
@@ -204,9 +237,9 @@ it("cancel returns to the trigger unchanged", async () => {
   expect(onOpenChange).not.toHaveBeenCalled();
 });
 
-it("tells same-named templates apart by directory", () => {
+it("tells same-named templates apart by directory", async () => {
   templates.push(template("tpl_2", "Builder", "/repo/apps/web"));
-  renderDialog();
+  await renderDialog();
   fireEvent.keyDown(templatePicker(), { key: "Enter" });
   expect(
     screen.getAllByRole("option").map((option) => option.textContent)
@@ -214,7 +247,7 @@ it("tells same-named templates apart by directory", () => {
 });
 
 it("keeps the template's engine until another is picked", async () => {
-  renderDialog();
+  await renderDialog();
   const type = screen.getByRole("combobox", { name: "Type" });
   // Null resolves to the template's engine, shown beside the model.
   expect(type.textContent).toBe("Claude");
@@ -236,7 +269,7 @@ it("keeps the template's engine until another is picked", async () => {
 });
 
 it("picking the template's engine again goes back to following it", async () => {
-  renderDialog();
+  await renderDialog();
   const type = screen.getByRole("combobox", { name: "Type" });
   fireEvent.click(type);
   fireEvent.click(screen.getByRole("option", { name: "Codex" }));
@@ -261,7 +294,7 @@ it.each(["add", "edit"] as const)(
     // Keep this exact object across close/reopen to catch identity-only resets.
     const targetColumn = { ...column, trigger: persisted } as TaskColumn;
     templates.push(template("tpl_2", "Reviewer"));
-    const { onOpenChange } = renderDialog(targetColumn);
+    const { onOpenChange } = await renderDialog(targetColumn);
     const pick = (name: string, option: string) => {
       fireEvent.keyDown(screen.getByRole("combobox", { name }), {
         key: "Enter",
@@ -325,7 +358,7 @@ it.each(["add", "edit"] as const)(
 );
 
 it("saves an effort override and can reset it to inheritance", async () => {
-  renderDialog();
+  await renderDialog();
   fireEvent.click(screen.getByTestId("task-trigger-effort"));
   fireEvent.click(screen.getByRole("radio", { name: "Medium" }));
   fireEvent.click(screen.getByRole("button", { name: /save/i }));
@@ -360,11 +393,13 @@ it.each([
       agentType,
       effort: null,
     });
-    renderDialog({ ...column, trigger: { ...column.trigger!, effort } });
+    await renderDialog({ ...column, trigger: { ...column.trigger!, effort } });
     fireEvent.keyDown(templatePicker(), { key: "Enter" });
     fireEvent.click(screen.getByRole("option", { name: "Other runtime" }));
-    expect(screen.getByTestId("task-trigger-effort").textContent).toContain(
-      "Default"
+    await waitFor(() =>
+      expect(screen.getByTestId("task-trigger-effort").textContent).toContain(
+        "Default"
+      )
     );
     expect(screen.getByRole("button", { name: "Save trigger" })).toHaveProperty(
       "disabled",
@@ -390,11 +425,16 @@ it("preserves compatible explicit effort across template runtime changes", async
     agentType: "codex",
     effort: null,
   });
-  renderDialog({ ...column, trigger: { ...column.trigger!, effort: "high" } });
+  await renderDialog({
+    ...column,
+    trigger: { ...column.trigger!, effort: "high" },
+  });
   fireEvent.keyDown(templatePicker(), { key: "Enter" });
   fireEvent.click(screen.getByRole("option", { name: "Codex builder" }));
-  expect(screen.getByTestId("task-trigger-effort").textContent).toContain(
-    "High"
+  await waitFor(() =>
+    expect(screen.getByTestId("task-trigger-effort").textContent).toContain(
+      "High"
+    )
   );
   fireEvent.click(screen.getByRole("button", { name: "Save trigger" }));
   await waitFor(() =>
@@ -408,7 +448,7 @@ it("preserves compatible explicit effort across template runtime changes", async
 
 it("uses CLI effort when the trigger overrides the template runtime", async () => {
   templates[0] = { ...templates[0]!, effort: "high" };
-  renderDialog();
+  await renderDialog();
   fireEvent.click(screen.getByRole("combobox", { name: "Type" }));
   fireEvent.click(screen.getByRole("option", { name: "OpenCode" }));
   expect(screen.queryByRole("alert")).toBeNull();
@@ -427,7 +467,7 @@ it("uses CLI effort when the trigger overrides the template runtime", async () =
 
 it("resolves inherited Codex max conflict with an explicit compatible override", async () => {
   templates[0] = { ...templates[0]!, effort: "max" };
-  renderDialog({
+  await renderDialog({
     ...column,
     trigger: { ...column.trigger!, agentType: "codex" },
   });
@@ -454,7 +494,7 @@ it("keeps max when an explicit Claude runtime overrides the newly selected Codex
     agentType: "codex",
     effort: null,
   });
-  renderDialog({
+  await renderDialog({
     ...column,
     trigger: { ...column.trigger!, agentType: "claude", effort: "max" },
   });
@@ -477,5 +517,52 @@ it("keeps max when an explicit Claude runtime overrides the newly selected Codex
         }),
       })
     )
+  );
+});
+
+it("saves only an explicitly chosen runner and keeps inheritance implicit", async () => {
+  const fallback = api.getMockImplementation()!;
+  api.mockImplementation(async (url: string) => {
+    if (url === "/api/v1/launch-targets")
+      return {
+        targets: [
+          {
+            key: "fixture-target",
+            name: "Local",
+            status: "online",
+            dataUrl: "/fixture/data",
+            location: { folders: true },
+            selectionFields: { runner: "controller" },
+          },
+          {
+            key: "offered-target",
+            name: "Fixture runner",
+            status: "offline",
+            dataUrl: "/fixture/data",
+            location: { folders: false },
+            selectionFields: { runner: "fixture" },
+          },
+        ],
+      };
+    return fallback(url);
+  });
+  await renderDialog();
+  fireEvent.click(screen.getByRole("button", { name: "Save trigger" }));
+  await waitFor(() => expect(updateColumn).toHaveBeenCalledTimes(1));
+  expect(updateColumn.mock.calls[0]![0].trigger).not.toHaveProperty("runner");
+  fireEvent.click(screen.getByRole("button", { name: "Open trigger" }));
+  fireEvent.keyDown(screen.getByTestId("create-agent-runner"), {
+    key: "Enter",
+  });
+  fireEvent.click(
+    await screen.findByRole("option", { name: /Fixture runner/ })
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Save trigger" }));
+  await waitFor(() => expect(updateColumn).toHaveBeenCalledTimes(2));
+  expect(updateColumn.mock.calls[1]![0].trigger).toMatchObject({
+    runner: "fixture",
+  });
+  expect(updateColumn.mock.calls[1]![0].trigger).not.toHaveProperty(
+    "directory"
   );
 });

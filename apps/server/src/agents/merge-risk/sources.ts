@@ -1,15 +1,12 @@
 /**
  * Evidence sources shared by the live assessor and the offline backfill:
- * review blocks addressed to the agents that own a pull request, the launch
- * briefing, and PR details from `gh`. Read-only everywhere.
+ * review blocks addressed to the agents that own a pull request and the
+ * launch briefing. PR details come from the agent's runner
+ * (`github-source.ts`). Read-only everywhere.
  */
 import { createHash } from "node:crypto";
 import type { Pool } from "pg";
-import {
-  runCommand,
-  type CommandRunner,
-} from "../../shared/lib/run-command.js";
-import type { MergeRiskFile, MergeRiskReview } from "./evidence.js";
+import type { MergeRiskReview } from "./evidence.js";
 
 type ReviewRow = {
   id: string;
@@ -117,76 +114,4 @@ export function reviewFingerprint(reviews: MergeRiskReview[]): string {
 
 export function allFindingsResolved(reviews: MergeRiskReview[]): boolean {
   return reviews.every((r) => r.findings.every((f) => f.status !== "open"));
-}
-
-export type PullRequestDetails = {
-  number: number;
-  title: string;
-  body: string;
-  state: string;
-  isDraft: boolean;
-  mergedAt: string | null;
-  additions: number;
-  deletions: number;
-  baseRefName: string;
-  headRefName: string;
-  headRefOid: string;
-  files: MergeRiskFile[];
-  statusCheckRollup: unknown;
-};
-
-/** `gh pr view` for one canonical GitHub PR URL; null when gh cannot read it. */
-export async function readPullRequestDetails(
-  url: string,
-  run: CommandRunner = runCommand
-): Promise<PullRequestDetails | null> {
-  const match = new URL(url).pathname.match(
-    /^\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)\/?$/
-  );
-  if (!match) return null;
-  const result = await run(
-    "gh",
-    [
-      "pr",
-      "view",
-      match[3]!,
-      "--repo",
-      `${match[1]}/${match[2]}`,
-      "--json",
-      "number,title,body,state,isDraft,mergedAt,additions,deletions,baseRefName,headRefName,headRefOid,files,statusCheckRollup",
-    ],
-    { timeoutMs: 30_000, allowedExitCodes: [0, 1] }
-  );
-  if (result.exitCode !== 0) return null;
-  const parsed = JSON.parse(result.stdout) as Record<string, unknown>;
-  const num = (v: unknown) => (typeof v === "number" ? v : 0);
-  const str = (v: unknown) => (typeof v === "string" ? v : "");
-  return {
-    number: num(parsed.number),
-    title: str(parsed.title),
-    body: str(parsed.body),
-    state: str(parsed.state),
-    isDraft: parsed.isDraft === true,
-    mergedAt: typeof parsed.mergedAt === "string" ? parsed.mergedAt : null,
-    additions: num(parsed.additions),
-    deletions: num(parsed.deletions),
-    baseRefName: str(parsed.baseRefName),
-    headRefName: str(parsed.headRefName),
-    headRefOid: str(parsed.headRefOid),
-    files: Array.isArray(parsed.files)
-      ? parsed.files.flatMap((f: unknown) => {
-          const file = f as Record<string, unknown>;
-          return typeof file?.path === "string"
-            ? [
-                {
-                  path: file.path,
-                  additions: num(file.additions),
-                  deletions: num(file.deletions),
-                },
-              ]
-            : [];
-        })
-      : [],
-    statusCheckRollup: parsed.statusCheckRollup,
-  };
 }

@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readServiceResourcesCollectionEnabled } from "../src/observability/service-resources-settings.js";
 import { useInjectApp } from "./helpers/inject-app.js";
 
+vi.mock(
+  "../../../packages/runner/src/workload/shared/lib/run-command.js",
+  () => import("../src/shared/lib/run-command.js")
+);
 vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
 }));
@@ -19,6 +23,32 @@ describe("GET /ping", () => {
     const res = await ctx.app.inject({ method: "GET", url: "/ping" });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ status: "ok" });
+  });
+});
+
+describe("GET /api/v1/agent-models main envelope", () => {
+  it("returns models/defaults/availability without changing the existing route shape", async () => {
+    const res = await ctx.app.inject({
+      method: "GET",
+      url: "/api/v1/agent-models",
+      headers: { cookie: sessionCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(Object.keys(body).sort()).toEqual([
+      "availability",
+      "defaults",
+      "models",
+    ]);
+    expect(body.models).toEqual(expect.any(Object));
+    expect(body.defaults).toEqual(expect.any(Object));
+    expect(body.availability).toEqual(expect.any(Object));
+    for (const value of Object.values(body.availability))
+      expect(Object.keys(value as object).sort()).toEqual([
+        "autoEnable",
+        "disabled",
+        "unseen",
+      ]);
   });
 });
 

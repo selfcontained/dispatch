@@ -17,7 +17,7 @@ export type AgentModelOption = {
   markSeen?: () => void;
   effort?: import("@dispatch/shared").AgentConfigChoice[];
 };
-type CatalogResponse = {
+export type CatalogResponse = {
   models: AgentModelCatalog;
   defaults?: Partial<Record<AgentType, string>>;
   availability?: Partial<Record<AgentType, ModelAvailability>>;
@@ -32,7 +32,11 @@ export type AgentModelCatalog = Partial<Record<AgentType, AgentModelOption[]>>;
  * the cache. A list an engine publishes later reaches an open picker through
  * the `agent_models.changed` event, which invalidates this key (use-sse.ts).
  */
-export function useAgentModelCatalog(agentType: AgentType): {
+export function useAgentModelCatalog(
+  agentType: AgentType,
+  enabled = true,
+  provided?: { data?: CatalogResponse; loading: boolean }
+): {
   /** The models turned on: what can be chosen. */
   options: AgentModelOption[];
   /** Every model the engine offers: what a saved choice may still hold. */
@@ -55,13 +59,16 @@ export function useAgentModelCatalog(agentType: AgentType): {
    * untouched so a failed fetch never wipes a saved model. */
   normalizeModel: (value: string | null) => string | null;
 } {
-  const { data, isLoading } = useQuery<CatalogResponse>({
+  const query = useQuery<CatalogResponse>({
     queryKey: ["agent-models"],
+    enabled: provided ? false : enabled,
     queryFn: () => api("/api/v1/agent-models"),
     staleTime: 5 * 60 * 1000,
     gcTime: Infinity,
   });
 
+  const data = provided ? provided.data : query.data;
+  const isLoading = provided ? provided.loading : query.isLoading;
   const loaded = data !== undefined;
   const { mutate } = useUpdateModelAvailability();
   const availability = data?.availability?.[agentType];
@@ -144,9 +151,10 @@ export function useAgentModelCatalogData(): AgentModelCatalog | undefined {
 }
 
 /** Shares the model catalog cache: no separate hardcoded effort list. */
-export function useAgentEffortCatalog() {
+export function useAgentEffortCatalog(enabled = true) {
   const { data } = useQuery<CatalogResponse>({
     queryKey: ["agent-models"],
+    enabled,
     queryFn: () => api("/api/v1/agent-models"),
     staleTime: 5 * 60 * 1000,
     gcTime: Infinity,
@@ -160,7 +168,8 @@ export function useAgentEffortCatalog() {
 
 export function useAgentEffortChoices(
   agentType: AgentType,
-  model: string | null
+  model: string | null,
+  enabled = true
 ) {
-  return useAgentEffortCatalog()(agentType, model);
+  return useAgentEffortCatalog(enabled)(agentType, model);
 }

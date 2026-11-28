@@ -138,6 +138,7 @@ Server-Sent Events stream. Used by the frontend for real-time UI updates. Event 
 | ----------------------------- | ----------------------------------------------------------------- |
 | `snapshot`                    | Full agent list (sent on initial connection)                      |
 | `agent.upsert`                | Single agent record (created or updated)                          |
+| `agent.checkout_changed`      | Reread open Files and Changes views for this agent ID             |
 | `agent.diff_state_changed`    | Diff stats for an agent (or `null` when cleared)                  |
 | `agent.deleted`               | Agent ID that was deleted                                         |
 | `files.changed`               | Agent ID whose file list changed                                  |

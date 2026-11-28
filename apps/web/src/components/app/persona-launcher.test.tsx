@@ -1,3 +1,8 @@
+import {
+  placementOf,
+  runnerIdFromWire,
+} from "@dispatch/runner-protocol/contract";
+import { localAgentPlacement } from "@/test-utils/__fixtures__/agent-placement";
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -16,6 +21,7 @@ const agent: Agent = {
   type: "claude",
   role: "standard",
   status: "running",
+  placement: localAgentPlacement,
   cwd: "/repo",
   worktreePath: null,
   worktreeBranch: null,
@@ -58,20 +64,93 @@ function launchRequestBody(): Record<string, unknown> {
   return JSON.parse(call![1].body);
 }
 
-function renderLauncher() {
+function renderLauncher(parent = agent) {
+  const original = api.getMockImplementation()!;
+  api.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url === "/api/v1/launch-targets")
+      return {
+        targets: [
+          {
+            key: "opaque-target",
+            dataUrl: "/fixture/data",
+            location: { folders: true },
+          },
+        ],
+      };
+    if (url.startsWith("/api/v1/launch-targets/saved/agent/"))
+      return {
+        targetKey: "opaque-target",
+        directory: parent.cwd,
+        projectId: parent.projectId,
+        reviewPreferenceKey:
+          parent.workspacePath ?? parent.worktreePath ?? parent.cwd,
+      };
+    if (url.startsWith("/fixture/data")) {
+      const response = await original(url, init);
+      return response.catalog ? response : { catalog: response };
+    }
+    return original(url, init);
+  });
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   render(
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <PersonaLauncher agent={agent} enabledAgentTypes={["claude"]} />
+        <PersonaLauncher agent={parent} enabledAgentTypes={["claude"]} />
       </TooltipProvider>
     </QueryClientProvider>
   );
 }
 
 describe("PersonaLauncher", () => {
+  it("offers and submits models from the parent agent's runner", async ({
+    onTestFinished,
+  }) => {
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      value: vi.fn(),
+      configurable: true,
+    });
+    onTestFinished(() => {
+      Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+    });
+    const runnerId = "rnr_test";
+    const model = { id: "claude-haiku-5-5", label: "Haiku 5.5" };
+    api.mockImplementation(async (path: string, _init?: RequestInit) => {
+      if (path.startsWith("/fixture/data"))
+        return {
+          catalog: { models: { claude: [model] } },
+          agentTypes: ["claude"],
+        };
+      if (path.startsWith("/api/v1/personas")) return { personas: PERSONAS };
+      if (path.includes("/launch-persona"))
+        return { ok: true, block: { id: "blk_1" } };
+      return { models: { claude: [{ id: "opus", label: "Opus" }] } };
+    });
+    renderLauncher({
+      ...agent,
+      cwd: "/srv/linux/checkout",
+      placement: placementOf(runnerIdFromWire(runnerId)),
+      workspacePath: "/remote/repo",
+      reviewAgentType: "claude",
+    });
+
+    fireEvent.click(await screen.findByTestId("launch-reviewer-button"));
+    const trigger = await screen.findByTestId("launch-reviewer-model");
+    await vi.waitFor(() =>
+      expect(trigger.hasAttribute("disabled")).toBe(false)
+    );
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    const option = await screen.findByRole("option", { name: model.label });
+    expect(screen.queryByRole("option", { name: "Opus" })).toBeNull();
+    fireEvent.click(option);
+    fireEvent.click(screen.getByTestId("launch-reviewer-persona-ux-review"));
+    fireEvent.click(screen.getByTestId("launch-reviewer-submit"));
+    await vi.waitFor(() => {
+      expect(launchRequestBody()).toMatchObject({ model: model.id });
+    });
+  });
+
   it("holds the launch button disabled while the model catalog loads", async () => {
     // The catalog never settles: launching now would send model: null and
     // silently drop the preference the select is about to show.

@@ -135,15 +135,29 @@ describe("PluginUpdateSettings", () => {
     apiMock.mockResolvedValueOnce({
       statuses: [fixture({ currentVersion: "0.4.0", updateAvailable: true })],
     });
-    apiMock.mockResolvedValueOnce({ status: fixture() });
+    apiMock.mockResolvedValueOnce({
+      ack: {
+        ok: true,
+        capability: { type: "plugin_status", status: fixture() },
+      },
+    });
     setup();
     fireEvent.click(
       await screen.findByRole("button", { name: "Update Claude Code plugin" })
     );
     expect(await screen.findByText("Installed v0.5.0")).toBeTruthy();
     expect(apiMock).toHaveBeenCalledWith(
-      "/api/v1/plugin/update",
-      expect.objectContaining({ body: JSON.stringify({ agentType: "claude" }) })
+      "/api/v1/engine-management/operations",
+      expect.objectContaining({
+        body: JSON.stringify({
+          scope: { kind: "local" },
+          operation: {
+            type: "plugin_update",
+            engine: "claude",
+            plugin: "dispatch@dispatch",
+          },
+        }),
+      })
     );
   });
   it("installs a missing plugin and shows the installed version", async () => {
@@ -157,15 +171,29 @@ describe("PluginUpdateSettings", () => {
         }),
       ],
     });
-    apiMock.mockResolvedValueOnce({ status: fixture() });
+    apiMock.mockResolvedValueOnce({
+      ack: {
+        ok: true,
+        capability: { type: "plugin_status", status: fixture() },
+      },
+    });
     setup();
     fireEvent.click(
       await screen.findByRole("button", { name: "Install Claude Code plugin" })
     );
     expect(await screen.findByText("Installed v0.5.0")).toBeTruthy();
     expect(apiMock).toHaveBeenCalledWith(
-      "/api/v1/plugin/install",
-      expect.objectContaining({ body: JSON.stringify({ agentType: "claude" }) })
+      "/api/v1/engine-management/operations",
+      expect.objectContaining({
+        body: JSON.stringify({
+          scope: { kind: "local" },
+          operation: {
+            type: "plugin_install",
+            engine: "claude",
+            plugin: "dispatch@dispatch",
+          },
+        }),
+      })
     );
   });
   it("does not offer installation when detection failed and allows a fresh check", async () => {
@@ -186,7 +214,9 @@ describe("PluginUpdateSettings", () => {
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Check again" }));
     expect(await screen.findByText("Up to date")).toBeTruthy();
-    expect(apiMock).toHaveBeenCalledWith("/api/v1/plugin/status?refresh=true");
+    expect(apiMock).toHaveBeenCalledWith(
+      "/api/v1/engine-management/plugins?scope=local&refresh=true"
+    );
   });
   it("shows installation failures in the row", async () => {
     apiMock.mockResolvedValueOnce({

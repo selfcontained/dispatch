@@ -1,3 +1,14 @@
+import { sameRunner } from "@dispatch/runner-protocol/contract";
+import {
+  controllerPlacement,
+  runnerIdForPlacement,
+} from "../runners/placement.js";
+import {
+  resolveSavedTarget,
+  storedLocation,
+  savedLaunchTarget,
+  targetPlacement,
+} from "../runners/saved-location.js";
 import { TASK_LABEL_NAME_MAX_LENGTH } from "@dispatch/shared";
 import { taskLabelsSchema } from "./labels.js";
 import type { Effort } from "@dispatch/shared";
@@ -5,7 +16,12 @@ import { validateAgentEffort } from "../shared/agent-effort.js";
 import { taskAgentName } from "@dispatch/shared";
 import { SESSION_RENAME_ASK } from "../shared/lib/agent-strings.js";
 import path from "node:path";
-import { mkdir, writeFile, rm } from "node:fs/promises";
+import {
+  createTaskAttachmentDirectory,
+  removeTaskAttachments,
+  taskAttachmentPath,
+  writeTaskAttachment,
+} from "./attachment-storage.js";
 import { timestampFileName } from "../agents/file-seed.js";
 import { fileMetadataFromBuffer } from "../files/metadata.js";
 import {
@@ -24,14 +40,15 @@ import type { StreamService, TaskStreamRoot } from "../chat/service.js";
 import { ProjectStore, type ProjectRecord } from "../projects/store.js";
 import {
   assertModelSelectable,
+  modelScopeFor,
   validateAgentModel,
-  validateAgentModelChoice,
 } from "../shared/agent-models.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import { resolveTemplateLaunch } from "../templates/resolve-launch.js";
-import { resolveLaunchPersona } from "../personas/resolve.js";
+import type { LaunchPersonaScope } from "../personas/persona-scope.js";
+import { resolvePersona } from "../personas/resolve.js";
 import type { TemplateRecord } from "../templates/store.js";
-import { agentTaskProject } from "./agent-scope.js";
+import { agentTaskProject, type TaskRootReader } from "./agent-scope.js";
 import {
   GOAL_REQUEST_ID_MAX_LENGTH,
   GoalInputError,
@@ -150,12 +167,15 @@ export type TaskLaunchRequest = {
   args: Record<string, string>;
   /** Appended after the rendered template, the way launch_agent appends free text. */
   appendix?: string;
+  /** The attachments the appendix names, handed to the agent's session. */
+  startupReferences?: TaskBriefingReference[];
   agentType?: AgentType;
   model?: string | null;
   effort?: Effort | null;
 };
 
 export type TaskServiceDeps = {
+  readRepositoryRoot: TaskRootReader;
   pool: Pool;
   watches?: {
     schedule(taskId: string): void;
@@ -180,11 +200,14 @@ export type TaskServiceDeps = {
     taskId?: string;
   }) => void;
   log: Pick<FastifyBaseLogger, "warn" | "info">;
+  /** Where a trigger's persona is read before launch, on its target's runner (D7). */
+  personaScope: LaunchPersonaScope;
 };
 
 /** A trigger as callers send it: everything but the template defaults. */
 export type TaskColumnTriggerInput = Partial<TaskColumnTrigger> & {
   templateId: string;
+  runner?: string;
 };
 
 type ColumnInput = Omit<CreateTaskColumnInput, "trigger"> & {
@@ -233,6 +256,9 @@ function columnsLine(columns: BriefingColumn[], currentKey: string): string {
     })
     .join(" → ");
 }
+
+/** A task attachment a briefing names by its path on this machine. */
+export type TaskBriefingReference = { source: string; name: string };
 
 export function buildTaskBriefing(input: {
   task: Pick<Task, "id" | "title" | "body" | "links">;
@@ -335,7 +361,8 @@ export class TaskService {
         worktreePath: agent.worktreePath ?? null,
         baseBranch: agent.baseBranch ?? null,
       },
-      (input) => this.projectForAgent(input)
+      (input) => this.projectForAgent(input),
+      this.deps.readRepositoryRoot
     );
     if (projectId !== expectedProjectId)
       throw new TaskError("You can only watch your own project's board.", 403);
@@ -415,7 +442,8 @@ export class TaskService {
         worktreePath: agent.worktreePath ?? null,
         baseBranch: agent.baseBranch ?? null,
       },
-      (input) => this.projectForAgent(input)
+      (input) => this.projectForAgent(input),
+      this.deps.readRepositoryRoot
     );
     if (projectId !== task.projectId)
       throw new TaskError("Task belongs to another project.", 403);
@@ -602,6 +630,17 @@ export class TaskService {
     ) {
       throw invalid(`Template "${template.name}" belongs to another project.`);
     }
+    // An implicit target follows the template. Explicit targets store only
+    // their runner; folders come from the template or the current project.
+    const selection = "runner" in trigger ? trigger : previous?.location;
+    const target = selection
+      ? resolveSavedTarget(template.directory, {
+          ...selection,
+          projectId: project.id,
+          projectRoot: project.repoRoot ?? undefined,
+        })
+      : null;
+    const locatedTemplate = target ? { ...template, ...target } : template;
     const agentType = trigger.agentType ?? null;
     if (agentType !== null && !AGENT_TYPES.includes(agentType)) {
       throw invalid(
@@ -611,10 +650,16 @@ export class TaskService {
     let model: string | null = null;
     let effort: Effort | null = null;
     try {
+      const scope = await modelScopeFor(
+        targetPlacement(locatedTemplate),
+        agentType ?? template.agentType,
+        { model: trigger.model, effort: trigger.effort }
+      );
       model =
         validateAgentModel(
           agentType ?? template.agentType,
-          trigger.model ?? undefined
+          trigger.model ?? undefined,
+          scope
         ) ?? null;
       if (model) {
         const type = agentType ?? template.agentType;
@@ -626,21 +671,29 @@ export class TaskService {
                 (await this.deps.getTemplate(previous.templateId))?.agentType));
         if (!saved) assertModelSelectable(type, model);
       }
-      const resolved = resolveTemplateLaunch(template, {
-        agentType: agentType ?? undefined,
-        model: model ?? undefined,
-        effort: trigger.effort ?? undefined,
-      });
+      const resolved = await resolveTemplateLaunch(
+        locatedTemplate,
+        {
+          agentType: agentType ?? undefined,
+          model: model ?? undefined,
+          effort: trigger.effort ?? undefined,
+        },
+        targetPlacement(locatedTemplate)
+      );
       effort = validateAgentEffort(
         agentType ?? template.agentType,
         trigger.effort,
-        resolved.model
+        resolved.model,
+        scope
       );
     } catch (error) {
       throw invalid(errorMessage(error));
     }
     return {
       templateId: template.id,
+      ...(target && {
+        location: { runner: runnerIdForPlacement(targetPlacement(target)) },
+      }),
       agentType,
       model,
       effort,
@@ -656,6 +709,7 @@ export class TaskService {
       agentType?: AgentType | null;
       model?: string | null;
       effort?: Effort | null;
+      location?: TaskColumnTrigger["location"];
     },
     caller?: TaskCaller
   ): Promise<TemplateRecord> {
@@ -667,20 +721,46 @@ export class TaskService {
       !(stored.projectId === null && stored.directory === project.repoRoot)
     )
       throw invalid(`Template "${stored.name}" belongs to another project.`);
-    const template = resolveTemplateLaunch(stored, {
-      ...(launch.agentType ? { agentType: launch.agentType } : {}),
-      ...(launch.model ? { model: launch.model } : {}),
-      ...(launch.effort ? { effort: launch.effort } : {}),
-    });
+    // Older branch-only records may carry path/directory fields. The saved
+    // target resolver ignores them and uses the current template/project.
+    const located = launch.location
+      ? {
+          ...stored,
+          ...resolveSavedTarget(stored.directory, {
+            ...launch.location,
+            projectId: project.id,
+            projectRoot: project.repoRoot ?? undefined,
+          }),
+        }
+      : stored;
+    const target = launch.location
+      ? savedLaunchTarget(located).cwd
+      : located.directory;
+    const template = await resolveTemplateLaunch(
+      { ...located, directory: target },
+      {
+        ...(launch.agentType ? { agentType: launch.agentType } : {}),
+        ...(launch.model ? { model: launch.model } : {}),
+        ...(launch.effort ? { effort: launch.effort } : {}),
+      }
+    );
     if (caller && template.fullAccess && isRestricted(caller))
       throw invalid(RESTRICTED_LAUNCH_REASON);
-    if (template.persona)
-      await resolveLaunchPersona(
-        template.directory,
+    if (template.persona) {
+      const placement = targetPlacement(template);
+      await resolvePersona(
+        this.deps.personaScope({
+          placement,
+          cwd: savedLaunchTarget(template).cwd,
+          projectRoot: project?.repoRoot ?? undefined,
+          repository: project
+            ? async () => (await this.projects.getRepository(project.id))?.url
+            : null,
+        }),
         template.persona,
-        "task",
-        "catalog"
+        "task"
       );
+    }
     return template;
   }
 
@@ -700,10 +780,17 @@ export class TaskService {
     agentType: AgentType | null;
     model: string | null;
     effort?: Effort | null;
+    location?: TaskColumnTrigger["location"];
   }> {
     const templateId = task.launchTemplateId;
     const base = templateId
-      ? { templateId, agentType: null, model: null, effort: null }
+      ? {
+          templateId,
+          agentType: null,
+          model: null,
+          effort: null,
+          ...(column.trigger.location && { location: column.trigger.location }),
+        }
       : column.trigger;
     if (!task.launchAgentType || !task.launchModel) return base;
     const template = await this.deps.getTemplate(base.templateId);
@@ -717,6 +804,7 @@ export class TaskService {
       task.launchAgentType === inherited && task.launchModel === inheritedModel;
     return {
       templateId: base.templateId,
+      ...(base.location && { location: base.location }),
       agentType: task.launchAgentType,
       model: task.launchModel,
       effort: unchanged ? (base.effort ?? null) : null,
@@ -730,12 +818,19 @@ export class TaskService {
    * for the new runtime); a model is never cleared under an active runtime,
    * and `launchAgentType: null` clears both. Nothing is ever substituted.
    */
-  private launchRuntimePatch(
-    current: Pick<Task, "launchAgentType" | "launchModel"> | null,
-    input: Pick<UpdateTaskInput, "launchAgentType" | "launchModel">
-  ): Pick<TaskPatch, "launchAgentType" | "launchModel"> {
+  private async launchRuntimePatch(
+    projectId: string,
+    current: Pick<
+      Task,
+      "launchAgentType" | "launchModel" | "launchTemplateId"
+    > | null,
+    input: Pick<
+      UpdateTaskInput,
+      "launchAgentType" | "launchModel" | "launchTemplateId"
+    >
+  ): Promise<Pick<TaskPatch, "launchAgentType" | "launchModel">> {
     if (input.launchAgentType === undefined && input.launchModel === undefined)
-      return {};
+      return this.recheckStoredLaunchModel(projectId, current, input);
     if (input.launchAgentType === null) {
       if (input.launchModel != null)
         throw invalid(
@@ -766,12 +861,20 @@ export class TaskService {
         "launchModel must be a model id; send launchAgentType: null to clear the override."
       );
     try {
-      const model = validateAgentModelChoice(
+      const model = await this.validateTaskLaunchModel(
+        projectId,
+        input.launchTemplateId !== undefined
+          ? input.launchTemplateId
+          : (current?.launchTemplateId ?? null),
         agentType,
-        requested,
-        current?.launchAgentType === agentType ? current.launchModel : null
+        requested
       );
       if (!model) throw new Error(`Model "${requested}" is not supported.`);
+      assertModelSelectable(
+        agentType,
+        model,
+        current?.launchAgentType === agentType ? current.launchModel : null
+      );
       return { launchAgentType: agentType, launchModel: model };
     } catch (error) {
       // A runtime change keeps the stored model; say how to resolve it.
@@ -781,6 +884,82 @@ export class TaskService {
           : errorMessage(error)
       );
     }
+  }
+
+  /**
+   * A launch template change moves the task to another machine, so a stored
+   * model override is checked against the new target's catalog.
+   */
+  private async recheckStoredLaunchModel(
+    projectId: string,
+    current: Pick<
+      Task,
+      "launchAgentType" | "launchModel" | "launchTemplateId"
+    > | null,
+    input: Pick<UpdateTaskInput, "launchTemplateId">
+  ): Promise<Pick<TaskPatch, "launchAgentType" | "launchModel">> {
+    if (
+      input.launchTemplateId === undefined ||
+      input.launchTemplateId === current?.launchTemplateId ||
+      !current?.launchAgentType ||
+      !current.launchModel
+    )
+      return {};
+    try {
+      const model = await this.validateTaskLaunchModel(
+        projectId,
+        input.launchTemplateId,
+        current.launchAgentType,
+        current.launchModel
+      );
+      if (!model)
+        throw new Error(`Model "${current.launchModel}" is not supported.`);
+      return { launchAgentType: current.launchAgentType, launchModel: model };
+    } catch (error) {
+      throw invalid(errorMessage(error));
+    }
+  }
+
+  /**
+   * A task's model override is checked against the machines the task can
+   * launch on: its launch template's, else its project's trigger templates'.
+   * It passes when any of them accepts it; the launch itself checks the
+   * actual target again. With no target yet, any well-formed id passes.
+   */
+  private async validateTaskLaunchModel(
+    projectId: string,
+    launchTemplateId: string | null,
+    agentType: AgentType,
+    model: string
+  ): Promise<string | undefined> {
+    const templateIds = launchTemplateId
+      ? [launchTemplateId]
+      : (await this.store.listColumns(projectId)).flatMap((column) =>
+          column.trigger ? [column.trigger.templateId] : []
+        );
+    if (templateIds.length === 0)
+      return validateAgentModel(agentType, model, { kind: "engine" });
+    const targets = new Map<string, typeof controllerPlacement>();
+    for (const id of templateIds) {
+      const template = await this.deps.getTemplate(id);
+      const placement = template
+        ? targetPlacement(template)
+        : controllerPlacement;
+      targets.set(runnerIdForPlacement(placement), placement);
+    }
+    let rejection: unknown;
+    for (const target of targets.values()) {
+      try {
+        return validateAgentModel(
+          agentType,
+          model,
+          await modelScopeFor(target, agentType, { model })
+        );
+      } catch (error) {
+        rejection ??= error;
+      }
+    }
+    throw rejection;
   }
 
   private async validateLaunchPreference(
@@ -1272,7 +1451,7 @@ export class TaskService {
         input.launchTemplateId,
         caller
       );
-    const runtime = this.launchRuntimePatch(null, input);
+    const runtime = await this.launchRuntimePatch(input.projectId, null, input);
     const column = await this.store.transaction(async (db) => {
       if (!(await this.store.lockColumn(initialColumn.id, db)))
         throw notFound("Column");
@@ -1320,11 +1499,11 @@ export class TaskService {
           links: links.map((url) => ({ kind: "url", url, label: url })),
         });
       if (files.length)
-        await mkdir(this.attachmentDir(id), { recursive: true });
+        await createTaskAttachmentDirectory(this.deps.filesRoot, id);
       const now = new Date();
       for (const [index, file] of files.entries()) {
         const name = timestampFileName(file.fileName, now, index);
-        await writeFile(path.join(this.attachmentDir(id), name), file.buffer);
+        await writeTaskAttachment(this.deps.filesRoot, id, name, file.buffer);
         await this.store.insertAttachment({
           taskId: id,
           fileName: name,
@@ -1444,7 +1623,7 @@ export class TaskService {
       patch.launchTemplateId = input.launchTemplateId;
       changed.push("launchTemplateId");
     }
-    const runtime = this.launchRuntimePatch(task, input);
+    const runtime = await this.launchRuntimePatch(task.projectId, task, input);
     if (
       runtime.launchAgentType !== undefined &&
       runtime.launchAgentType !== task.launchAgentType
@@ -1693,16 +1872,10 @@ export class TaskService {
     await Promise.all(taskIds.map((id) => this.cleanupAttachments(id)));
   }
 
-  private attachmentDir(id: string): string {
-    if (!this.deps.filesRoot)
-      throw new Error("Task file storage is unavailable.");
-    return path.resolve(this.deps.filesRoot, "tasks", id);
-  }
-
   private async cleanupAttachments(id: string): Promise<void> {
     if (!this.deps.filesRoot) return;
     try {
-      await rm(this.attachmentDir(id), { recursive: true, force: true });
+      await removeTaskAttachments(this.deps.filesRoot, id);
     } catch (err) {
       this.deps.log.warn(
         { err, taskId: id },
@@ -1728,7 +1901,7 @@ export class TaskService {
     const row = await this.store.getAttachment(id, attachmentId);
     if (!row) throw notFound("Attachment");
     return {
-      path: path.join(this.attachmentDir(id), row.file_name),
+      path: taskAttachmentPath(this.deps.filesRoot, id, row.file_name),
       mimeType: row.mime_type,
     };
   }
@@ -1737,7 +1910,21 @@ export class TaskService {
     return (await this.store.listAttachments(id)).map((row) => ({
       name: row.display_name,
       mimeType: row.mime_type,
-      path: path.join(this.attachmentDir(id), row.file_name),
+      path: taskAttachmentPath(this.deps.filesRoot, id, row.file_name),
+      fileName: row.file_name,
+    }));
+  }
+
+  /**
+   * The files a briefing names, for the launch to hand to the agent's
+   * session: the agent opens each where its runner puts it.
+   */
+  private briefingReferences(
+    attachments: Awaited<ReturnType<TaskService["briefingAttachments"]>>
+  ): TaskBriefingReference[] {
+    return attachments.map(({ path, fileName }) => ({
+      source: path,
+      name: fileName,
     }));
   }
 
@@ -1766,6 +1953,7 @@ export class TaskService {
     if (template.fullAccess && isRestricted(caller))
       throw new Error(RESTRICTED_LAUNCH_REASON);
     const project = await this.requireProject(task.projectId);
+    const attachments = await this.briefingAttachments(task.id);
     return await this.deps.launchTemplate({
       templateId: template.id,
       resolvedTemplate: template,
@@ -1785,8 +1973,9 @@ export class TaskService {
         project,
         column,
         columns: await this.briefingColumns(task.projectId),
-        attachments: await this.briefingAttachments(task.id),
+        attachments,
       }),
+      startupReferences: this.briefingReferences(attachments),
       ...(launch.agentType ? { agentType: launch.agentType } : {}),
       ...(launch.model ? { model: launch.model } : {}),
       ...(launch.effort ? { effort: launch.effort } : {}),
@@ -1913,15 +2102,20 @@ export class TaskService {
    * it belongs in; `POST /api/v1/agents` with `taskId` uses it, then
    * assigns the new agent with `assignCreated`.
    */
-  async briefingFor(
-    id: string
-  ): Promise<{ projectId: string; text: string; name: string }> {
+  async briefingFor(id: string): Promise<{
+    projectId: string;
+    text: string;
+    name: string;
+    /** The files the text names, for the created agent's session. */
+    references: TaskBriefingReference[];
+  }> {
     const task = await this.requireTask(id);
     const [project, column, columns] = await Promise.all([
       this.requireProject(task.projectId),
       this.requireColumn(task.columnId),
       this.briefingColumns(task.projectId),
     ]);
+    const attachments = await this.briefingAttachments(task.id);
     return {
       projectId: task.projectId,
       name: taskAgentName(task.title),
@@ -1930,8 +2124,9 @@ export class TaskService {
         project,
         column,
         columns,
-        attachments: await this.briefingAttachments(task.id),
+        attachments,
       }),
+      references: this.briefingReferences(attachments),
     };
   }
 
@@ -2093,12 +2288,15 @@ export class TaskService {
   }): Promise<string | null> {
     if (agent.projectId) return agent.projectId;
     const paths = agent.paths.filter((p): p is string => !!p);
-    let best: ProjectRecord | null = null;
-    for (const project of await this.projects.list()) {
-      const root = project.repoRoot.replace(/\/+$/, "");
-      const holds = paths.some((p) => p === root || p.startsWith(`${root}/`));
-      if (holds && (!best || root.length > best.repoRoot.length))
-        best = project;
+    let best: { id: string; length: number } | null = null;
+    for (const project of await this.projects.listRoots()) {
+      for (const candidate of [project.repoRoot, ...project.extraRoots]) {
+        if (candidate === null) continue;
+        const root = candidate.replace(/\/+$/, "");
+        const holds = paths.some((p) => p === root || p.startsWith(`${root}/`));
+        if (holds && (!best || root.length > best.length))
+          best = { id: project.id, length: candidate.length };
+      }
     }
     return best?.id ?? null;
   }

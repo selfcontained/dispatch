@@ -8,7 +8,7 @@ import type { RunCommandResult } from "../src/shared/lib/run-command.js";
 import {
   getAgentDiff,
   getAgentFileDiff,
-} from "../src/shared/git/agent-diff.js";
+} from "../../../packages/runner/src/workload/shared/git/agent-diff.js";
 
 const WORKTREE = "/fake/worktree";
 const BASE_REF = "main";
@@ -476,6 +476,7 @@ describe("getAgentFileDiff (force load)", () => {
         const joined = args.join(" ");
         if (joined.includes("rev-parse --verify")) return ok(BASE_REF);
         if (joined.includes("merge-base")) return ok(MERGE_BASE_SHA);
+        if (args.includes("ls-files")) return ok("new.ts\0");
         if (joined.includes("--numstat")) return ok("");
         if (joined.includes("--name-status")) return ok("");
         if (joined.includes("-U3")) return ok("");

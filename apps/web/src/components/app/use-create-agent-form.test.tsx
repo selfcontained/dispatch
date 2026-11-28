@@ -1,3 +1,4 @@
+import { localAgentPlacement } from "@/test-utils/__fixtures__/agent-placement";
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
@@ -40,6 +41,7 @@ const createdAgent = {
   name: "created",
   type: "claude",
   status: "creating",
+  placement: localAgentPlacement,
   cwd: "/repo/app",
   worktreePath: null,
   worktreeBranch: null,
@@ -71,6 +73,7 @@ function wrapper({ children }: { children: ReactNode }) {
 }
 
 type SetupOverrides = Partial<{
+  sourceAgentId: string;
   enabledAgentTypes: AgentType[];
   initialAgentType: AgentType | null;
   initialProjectId: string | null;
@@ -79,23 +82,23 @@ type SetupOverrides = Partial<{
   onCreated: (agent: Agent, agentType: AgentType) => Promise<void>;
 }>;
 
+type SetupProps = Required<Omit<SetupOverrides, "sourceAgentId">> &
+  Pick<SetupOverrides, "sourceAgentId">;
 async function setup(overrides: SetupOverrides = {}) {
   const onCreated = overrides.onCreated ?? vi.fn().mockResolvedValue(undefined);
-  const view = renderHook(
-    (props: Required<SetupOverrides>) => useCreateAgentForm(props),
-    {
-      wrapper,
-      initialProps: {
-        enabledAgentTypes: ["claude", "codex"] as AgentType[],
-        initialAgentType: null,
-        initialProjectId: null,
-        task: null,
-        resolveDefaultCwd: () => "/repo/app",
-        onCreated,
-        ...overrides,
-      },
-    }
-  );
+  const view = renderHook((props: SetupProps) => useCreateAgentForm(props), {
+    wrapper,
+    initialProps: {
+      sourceAgentId: undefined,
+      enabledAgentTypes: ["claude", "codex"] as AgentType[],
+      initialAgentType: null,
+      initialProjectId: null,
+      task: null,
+      resolveDefaultCwd: () => "/repo/app",
+      onCreated,
+      ...overrides,
+    } as SetupProps,
+  });
   // Flush the mount-time queries (system defaults, cwd history) so their
   // resolutions don't fire outside act() mid-test. This relies on async act
   // yielding macrotasks — react-query v5 notifies via setTimeout(0), not
@@ -151,6 +154,34 @@ function pasteEvent(options: {
   } as unknown as ClipboardEvent<HTMLElement>;
 }
 
+const controller = {
+  key: "opaque-controller",
+  name: "Local",
+  status: "online",
+  location: { folders: true },
+  dataUrl: "/fixture/controller",
+  launchFields: {},
+  selectionFields: { runner: "controller" },
+};
+const repositoryTarget = {
+  key: "opaque-repository",
+  name: "Fixture",
+  status: "offline",
+  location: {
+    folders: false,
+    projects: [
+      {
+        id: "project-a",
+        repoRoot: "/repo/a",
+        repository: "https://github.com/org/repo",
+      },
+    ],
+  },
+  dataUrl: "/fixture/repository",
+  launchFields: { runner: "fixture" },
+  selectionFields: { runner: "fixture" },
+};
+
 beforeEach(() => {
   window.localStorage.clear();
   queryClient = new QueryClient({
@@ -158,6 +189,23 @@ beforeEach(() => {
   });
   jotaiStore = createStore();
   apiMock.mockImplementation(async (path: string) => {
+    if (path === "/api/v1/launch-targets") return { targets: [controller] };
+    if (path.startsWith("/fixture/")) {
+      const q = new URL(path, "http://fixture").searchParams;
+      return {
+        agentTypes: ["claude", "codex"],
+        catalog: queryClient.getQueryData(["agent-models"]) ?? { models: {} },
+        engineOptions: [],
+        branchesUrl: "/fixture/branches",
+        personasUrl: "/api/v1/personas?fixture",
+        defaults: {
+          baseBranch: path.startsWith(repositoryTarget.dataUrl) ? "" : "main",
+          preferenceKey: path.startsWith(repositoryTarget.dataUrl)
+            ? q.get("projectId")
+            : q.get("directory"),
+        },
+      };
+    }
     if (path.startsWith("/api/v1/personas?")) return { personas: [] };
     if (path.startsWith("/api/v1/history/projects")) return { projects: [] };
     if (path === "/api/v1/system/defaults") return { homeDir: "/home/srv" };
@@ -207,7 +255,60 @@ describe("launch location preference", () => {
   beforeEach(() => {
     queryClient.setQueryDefaults(["projects"], { staleTime: Infinity });
     queryClient.setQueryData(["projects"], projects);
+    queryClient.setQueryDefaults(["runner-project-origin"], {
+      staleTime: Infinity,
+    });
+    queryClient.setQueryData(["runner-project-origin", "project-a"], {
+      url: "https://github.com/org/repo",
+    });
+    queryClient.setQueryData(["runner-project-origin", "project-b"], {
+      url: null,
+    });
   });
+
+  it.each(["release", "main"])(
+    "uses target data and keeps the explicit branch %s without forcing a worktree",
+    async (branch) => {
+      const fallback = apiMock.getMockImplementation()!;
+      apiMock.mockImplementation((url, opts) =>
+        url === "/api/v1/launch-targets"
+          ? Promise.resolve({ targets: [controller, repositoryTarget] })
+          : fallback(url, opts)
+      );
+      const { result } = await setup({ initialProjectId: "project-a" });
+      act(() => result.current.chooseTarget("opaque-repository"));
+      await waitFor(() =>
+        expect(result.current.targetData.isSuccess).toBe(true)
+      );
+      expect(result.current.locationReady).toBe(true);
+      expect(result.current.worktreeAvailable).toBe(true);
+      expect(result.current.createBaseBranch).toBe("");
+      await act(async () => result.current.handleSubmit(submitEvent()));
+      expect(agentsPostJson()).not.toHaveProperty("baseBranch");
+      apiMock.mockClear();
+      act(() => {
+        result.current.setCreateBaseBranch(branch);
+        result.current.setCreateUseWorktree(true);
+      });
+      await act(async () => result.current.handleSubmit(submitEvent()));
+      expect(agentsPostJson()).toMatchObject({
+        runner: "fixture",
+        projectId: "project-a",
+        baseBranch: branch,
+        useWorktree: true,
+      });
+      act(() => result.current.setCreateUseWorktree(false));
+      apiMock.mockClear();
+      await act(async () => result.current.handleSubmit(submitEvent()));
+      expect(agentsPostJson()).toMatchObject({
+        runner: "fixture",
+        useWorktree: false,
+      });
+      expect(agentsPostJson()).not.toHaveProperty("baseBranch");
+      act(() => result.current.setCreateProjectId("project-b"));
+      expect(result.current.locationReady).toBe(false);
+    }
+  );
 
   it("allows a folder choice but reopens with the latest concrete scope", async () => {
     const first = await setup({ initialProjectId: "project-a" });
@@ -314,7 +415,7 @@ describe("launch location preference", () => {
     act(() => result.current.setCreateProjectId("project-b"));
     expect(result.current.createCwd).toBe("/repo/b");
     expect(result.current.createPersona).toBeNull();
-    expect(result.current.createBaseBranch).toBe("main");
+    expect(result.current.createBaseBranch).toBe("");
   });
 
   it("preserves a manual choice made before project data and preferences arrive", async () => {
@@ -438,7 +539,14 @@ describe("agent type seeding", () => {
     });
     expect(result.current.createType).toBe("codex");
 
+    act(() => {
+      queryClient.setQueriesData<{ agentTypes: AgentType[] }>(
+        { queryKey: ["agent-models", "launch-target"] },
+        (old) => (old ? { ...old, agentTypes: ["claude"] } : old)
+      );
+    });
     rerender({
+      sourceAgentId: undefined as unknown as string,
       enabledAgentTypes: ["claude"] as AgentType[],
       initialAgentType: "codex",
       initialProjectId: null,
@@ -456,6 +564,17 @@ describe("cwd seeding", () => {
       resolveDefaultCwd: () => "  /repo/spaced  ",
     });
     expect(result.current.createCwd).toBe("/repo/spaced");
+  });
+
+  it("keeps main’s accepted directory inputs unchanged", async () => {
+    const locator = "/srv/linux/checkout";
+    window.localStorage.setItem(LAST_USED_CWD_KEY, locator);
+    const { result } = await setup({ resolveDefaultCwd: () => locator });
+    expect(result.current.createCwd).toBe(locator);
+    act(() => result.current.setCreateCwd(locator));
+    expect(result.current.locationReady).toBe(true);
+    act(() => result.current.setCreateCwd("/local/folder"));
+    expect(result.current.locationReady).toBe(true);
   });
 
   it("falls back to the stored last-used cwd, then to ~/", async () => {
@@ -640,6 +759,41 @@ describe("handleSubmit", () => {
     expect(body).not.toHaveProperty("baseBranch");
   });
 
+  it.each([undefined, "", "main"])(
+    "omits an implicit base and preserves an explicit branch for %j",
+    async (base) => {
+      const { result } = await setup();
+      act(() => result.current.handlePathInfoChange(REPO_INFO));
+      if (base !== undefined)
+        act(() => result.current.setCreateBaseBranch(base));
+      expect(result.current.createBaseBranch).toBe(base ?? "");
+
+      await act(async () => result.current.handleSubmit(submitEvent()));
+      expect(agentsPostJson().baseBranch).toBe(base || undefined);
+    }
+  );
+
+  it.each([false, true])(
+    "keeps main's custom base string in the payload (multipart=%j)",
+    async (multipart) => {
+      const { result } = await setup();
+      act(() => {
+        result.current.handlePathInfoChange(REPO_INFO);
+        result.current.setCreateBaseBranch(" develop ");
+        if (multipart) {
+          result.current.enterContextStep();
+          result.current.handleAddLink("https://example.com");
+        }
+      });
+      await act(async () => result.current.handleSubmit(submitEvent()));
+      expect(
+        multipart
+          ? (agentsPost()![1].body as FormData).get("baseBranch")
+          : agentsPostJson().baseBranch
+      ).toBe(" develop ");
+    }
+  );
+
   it("sends branch fields when a worktree is requested off main", async () => {
     const { result } = await setup();
     act(() => result.current.handlePathInfoChange(REPO_INFO));
@@ -732,6 +886,22 @@ describe("handleSubmit", () => {
     expect(agentsPostJson().model).toBeUndefined();
   });
 
+  it("retains the stored model through an empty catalog and restores it when it returns", async () => {
+    const pref = createAgentModelPrefAtom("claude:/repo/app");
+    jotaiStore.set(pref, "saved-model");
+    queryClient.setQueryData(["agent-models"], { models: { claude: [] } });
+    const { result } = await setup({ initialAgentType: "claude" });
+    expect(jotaiStore.get(pref)).toBe("saved-model");
+    act(() => {
+      queryClient.setQueryData(["agent-models"], {
+        models: { claude: [{ id: "saved-model", label: "Saved model" }] },
+      });
+    });
+    await waitFor(() => expect(result.current.modelOptions).toHaveLength(1));
+    await act(async () => result.current.handleSubmit(submitEvent()));
+    expect(agentsPostJson().model).toBe("saved-model");
+  });
+
   it("records last-used values and hands the created agent to onCreated", async () => {
     const { result, onCreated } = await setup({
       initialAgentType: "codex",
@@ -753,9 +923,10 @@ describe("handleSubmit", () => {
 
   it("keeps an API failure for the dialog and resets the creating flag", async () => {
     const { result, onCreated } = await setup();
-    apiMock.mockImplementation(async (path: string) => {
+    const read = apiMock.getMockImplementation()!;
+    apiMock.mockImplementation(async (path, options) => {
       if (path === "/api/v1/agents") throw new Error("boom");
-      return { projects: [], homeDir: "/home/srv" };
+      return read(path, options);
     });
 
     await act(async () => result.current.handleSubmit(submitEvent()));
@@ -768,9 +939,10 @@ describe("handleSubmit", () => {
 
   it("keeps a non-Error failure too", async () => {
     const { result } = await setup();
-    apiMock.mockImplementation(async (path: string) => {
+    const read = apiMock.getMockImplementation()!;
+    apiMock.mockImplementation(async (path, options) => {
       if (path === "/api/v1/agents") throw "string failure";
-      return { projects: [], homeDir: "/home/srv" };
+      return read(path, options);
     });
 
     await act(async () => result.current.handleSubmit(submitEvent()));
@@ -926,4 +1098,422 @@ describe("repo-specific launch personas", () => {
       name: "",
     });
   });
+});
+
+describe("agent launch projection", () => {
+  it.each([
+    ["opaque-controller", "project-a", "/repo/a"],
+    ["opaque-repository", "project-a", ""],
+    ["opaque-repository", null, ""],
+  ] as const)(
+    "seeds %s from projected inputs (%s)",
+    async (targetKey, projectId, directory) => {
+      const fallback = apiMock.getMockImplementation()!;
+      apiMock.mockImplementation((url, opts) =>
+        url === "/api/v1/launch-targets"
+          ? Promise.resolve({ targets: [controller, repositoryTarget] })
+          : url.startsWith("/api/v1/launch-targets/saved/agent/")
+            ? Promise.resolve({ targetKey, projectId, directory })
+            : fallback(url, opts)
+      );
+      const { result } = await setup({
+        sourceAgentId: "selected",
+        resolveDefaultCwd: () => "/srv/fixture/checkout",
+      });
+      await waitFor(() => expect(result.current.launch.key).toBe(targetKey));
+      await waitFor(() =>
+        expect(result.current.createCwd).toBe(
+          directory || (projectId ? "/repo/a" : "")
+        )
+      );
+      if (targetKey === "opaque-repository") {
+        expect(result.current.createProjectId).toBe(projectId);
+        act(() => result.current.chooseTarget(controller.key));
+        expect(result.current.createCwd).toBe("");
+        expect(result.current.createProjectId).toBe(null);
+      }
+    }
+  );
+});
+
+it("keeps main's saved-model payload while a new folder's location data loads", async () => {
+  const destination = "/repo/location-switch-pin";
+  window.localStorage.setItem(
+    `dispatch:model:claude:${destination}`,
+    JSON.stringify("retained")
+  );
+  queryClient.setQueryData(["agent-models"], {
+    models: { claude: [{ id: "retained", label: "Retained" }] },
+  });
+  const fallback = apiMock.getMockImplementation()!;
+  apiMock.mockImplementation((url, init) =>
+    url.startsWith("/fixture/controller?") &&
+    new URL(url, "http://fixture").searchParams.get("directory") === destination
+      ? new Promise(() => {})
+      : fallback(url, init)
+  );
+  const { result } = await setup();
+  await waitFor(() =>
+    expect(
+      result.current.modelOptions.some((option) => option.id === "retained")
+    ).toBe(true)
+  );
+  act(() => result.current.setCreateCwd(destination));
+  expect(result.current.targetData.data).toBeUndefined();
+  await act(async () => result.current.handleSubmit(submitEvent()));
+  expect(agentsPostJson()).toMatchObject({
+    cwd: destination,
+    model: "retained",
+  });
+});
+
+it.each(["pending", "failed"])(
+  "never exposes a selected runner directory while its projection is %s",
+  async (state) => {
+    const fallback = apiMock.getMockImplementation()!;
+    apiMock.mockImplementation((url, opts) =>
+      url === "/api/v1/launch-targets"
+        ? Promise.resolve({ targets: [controller, repositoryTarget] })
+        : url.startsWith("/api/v1/launch-targets/saved/agent/")
+          ? state === "failed"
+            ? Promise.reject(new Error("fixture projection failure"))
+            : new Promise(() => {})
+          : fallback(url, opts)
+    );
+    const { result } = await setup({
+      sourceAgentId: "selected",
+      resolveDefaultCwd: () => "/srv/fixture/checkout",
+    });
+    expect(result.current.createCwd).toBe("");
+    expect(result.current.cwdHistory).toEqual([]);
+    if (state === "failed")
+      await waitFor(() =>
+        expect(result.current.launch.projection.isError).toBe(true)
+      );
+    act(() => result.current.chooseTarget(controller.key));
+    expect(result.current.createCwd).toBe("");
+    expect(result.current.cwdHistory).toEqual([]);
+  }
+);
+
+it("offers only server-validated folder history, including after a projection failure", async () => {
+  window.localStorage.setItem(
+    CWD_HISTORY_KEY,
+    JSON.stringify(["/srv/fixture/checkout", "/repo/prior"])
+  );
+  const fallback = apiMock.getMockImplementation()!;
+  apiMock.mockImplementation((url, opts) =>
+    url === "/api/v1/launch-targets"
+      ? Promise.resolve({
+          targets: [{ ...controller, historyUrl: "/fixture-safe-history" }],
+        })
+      : url.startsWith("/fixture-safe-history?")
+        ? Promise.resolve({ projects: ["/repo/prior"] })
+        : url.startsWith("/api/v1/launch-targets/saved/agent/")
+          ? Promise.reject(new Error("fixture projection failure"))
+          : fallback(url, opts)
+  );
+  const { result } = await setup({
+    sourceAgentId: "selected",
+    resolveDefaultCwd: () => "/srv/fixture/checkout",
+  });
+  await waitFor(() =>
+    expect(result.current.launch.projection.isError).toBe(true)
+  );
+  expect(result.current.createCwd).toBe("");
+  act(() => result.current.chooseTarget(controller.key));
+  await waitFor(() =>
+    expect(result.current.cwdHistory).toEqual(["/repo/prior"])
+  );
+  expect(result.current.createCwd).toBe("");
+  expect(
+    apiMock.mock.calls.some(([url]) =>
+      url.includes(encodeURIComponent("/srv/fixture/checkout"))
+    )
+  ).toBe(true);
+});
+
+it("takes folder list, counts and icons from the selected target response", async () => {
+  const fallback = apiMock.getMockImplementation()!;
+  apiMock.mockImplementation((url, opts) => {
+    if (url === "/api/v1/launch-targets")
+      return Promise.resolve({
+        targets: [{ ...controller, historyUrl: "/fixture-target-history" }],
+      });
+    if (url.startsWith("/fixture-target-history?"))
+      return Promise.resolve({
+        projects: ["/work/alpha"],
+        projectOptions: [
+          {
+            path: "/work/alpha",
+            usageCount: 2,
+            latestCreatedAt: "2026-01-01",
+            iconUrl: "/local-alpha.png",
+          },
+        ],
+      });
+    if (url.startsWith("/api/v1/history/projects"))
+      return Promise.resolve({
+        projects: ["/work/alpha"],
+        projectOptions: [
+          {
+            path: "/work/alpha",
+            usageCount: 3,
+            latestCreatedAt: "2026-01-02",
+            iconUrl: "/runner-alpha.png",
+          },
+        ],
+      });
+    return fallback(url, opts);
+  });
+  const { result } = await setup();
+  await waitFor(() =>
+    expect(result.current.cwdHistory).toEqual(["/work/alpha"])
+  );
+  expect(result.current.cwdHistoryMetadata["/work/alpha"]).toEqual({
+    usageCount: 2,
+    iconUrl: "/local-alpha.png",
+  });
+  expect(
+    apiMock.mock.calls.some(([url]) =>
+      url.startsWith("/api/v1/history/projects")
+    )
+  ).toBe(false);
+});
+
+it.each([false, true])(
+  "launches a repository-only project without a folder (Local: %s)",
+  async (local) => {
+    const original = apiMock.getMockImplementation()!;
+    const target = {
+      ...(local ? controller : repositoryTarget),
+      location: {
+        folders: local,
+        projects: [
+          {
+            id: "repo-only",
+            name: "Repo",
+            repoRoot: null,
+            repository: "https://github.com/org/repo",
+          },
+        ],
+      },
+    };
+    apiMock.mockImplementation(async (path, init) => {
+      if (path === "/api/v1/launch-targets") return { targets: [target] };
+      if (path === "/api/v1/projects") return target.location.projects;
+      return original(path, init);
+    });
+    const { result } = await setup();
+    act(() => {
+      result.current.setCreateProjectId("repo-only");
+      result.current.setCreateCwd("");
+    });
+    await waitFor(() => expect(result.current.locationReady).toBe(true));
+    await act(async () => {
+      await result.current.handleSubmit(submitEvent());
+    });
+    expect(agentsPostJson()).toMatchObject({
+      projectId: "repo-only",
+      ...(local ? {} : { runner: "fixture" }),
+    });
+    expect(agentsPostJson()).not.toHaveProperty("cwd");
+  }
+);
+
+it("keeps a source Local agent's repository-only project instead of turning its managed checkout into a Folder launch", async () => {
+  const project = {
+    id: "repository-project",
+    repoRoot: null,
+    repository: "https://github.com/source/repository",
+  };
+  queryClient.setQueryData(["projects"], [project]);
+  queryClient.setQueryDefaults(["projects"], { staleTime: Infinity });
+  const fallback = apiMock.getMockImplementation()!;
+  apiMock.mockImplementation((url, init) =>
+    url === "/api/v1/launch-targets"
+      ? Promise.resolve({
+          targets: [
+            {
+              ...controller,
+              location: { folders: true, projects: [project] },
+            },
+          ],
+        })
+      : url.startsWith("/api/v1/launch-targets/saved/agent/")
+        ? Promise.resolve({
+            targetKey: controller.key,
+            projectId: project.id,
+            directory: "/managed/repository/worktree",
+          })
+        : fallback(url, init)
+  );
+  const { result } = await setup({ sourceAgentId: "source" });
+  await waitFor(() => expect(result.current.createProjectId).toBe(project.id));
+  expect(result.current.createCwd).toBe("");
+  expect(result.current.worktreeAvailable).toBe(true);
+  await act(async () => result.current.handleSubmit(submitEvent()));
+  expect(agentsPostJson()).toMatchObject({ projectId: project.id });
+  expect(agentsPostJson()).not.toHaveProperty("cwd");
+});
+
+it("still probes Git for a folder-backed project without a repository origin", async () => {
+  const project = {
+    id: "folder-no-origin",
+    repoRoot: "/folder/no-origin",
+    repository: null,
+  };
+  queryClient.setQueryData(["projects"], [project]);
+  queryClient.setQueryDefaults(["projects"], { staleTime: Infinity });
+  const fallback = apiMock.getMockImplementation()!;
+  apiMock.mockImplementation((url, init) =>
+    url === "/api/v1/launch-targets"
+      ? Promise.resolve({
+          targets: [
+            {
+              ...controller,
+              location: { folders: true, projects: [project] },
+            },
+          ],
+        })
+      : url.includes("/path-info?path=")
+        ? Promise.resolve(REPO_INFO)
+        : fallback(url, init)
+  );
+  const { result } = await setup({ initialProjectId: project.id });
+  await waitFor(() => expect(result.current.worktreeAvailable).toBe(true));
+  expect(result.current.createCwd).toBe(project.repoRoot);
+});
+
+it.each([controller, repositoryTarget])(
+  "keeps explicit type, model and effort through a project change on $name",
+  async (target) => {
+    const projects = [
+      {
+        id: "choice-a",
+        repoRoot: null,
+        repository: "https://github.com/org/a",
+      },
+      {
+        id: "choice-b",
+        repoRoot: null,
+        repository: "https://github.com/org/b",
+      },
+    ];
+    const catalog = {
+      models: {
+        claude: [
+          {
+            id: "haiku",
+            label: "Haiku",
+            effort: [{ value: "high", name: "High" }],
+          },
+          { id: "sonnet", label: "Sonnet" },
+        ],
+      },
+      defaults: { claude: "sonnet" },
+    };
+    const fallback = apiMock.getMockImplementation()!;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    apiMock.mockImplementation(async (url, init) => {
+      if (url === "/api/v1/launch-targets")
+        return {
+          targets: [
+            { ...target, location: { ...target.location, projects } },
+            {
+              ...repositoryTarget,
+              key: "second-host",
+              dataUrl: "/fixture/second-host",
+              location: { folders: false, projects },
+            },
+          ],
+        };
+      if (url === "/api/v1/projects") return projects;
+      if (url.startsWith("/fixture/") && !url.includes("branches")) {
+        const data = (await fallback(url, init)) as Record<string, unknown>;
+        const projectId = new URL(url, "http://fixture").searchParams.get(
+          "projectId"
+        );
+        if (projectId === "choice-b") await pending;
+        return {
+          ...data,
+          catalog,
+          defaults: { baseBranch: "", preferenceKey: projectId ?? "initial" },
+        };
+      }
+      return fallback(url, init);
+    });
+    jotaiStore.set(createAgentModelPrefAtom("claude:choice-b"), "sonnet");
+    const { result } = await setup({ initialProjectId: "choice-a" });
+    await waitFor(() => expect(result.current.modelOptions).toHaveLength(2));
+    act(() => {
+      result.current.setCreateModel("haiku");
+    });
+    await waitFor(() => expect(result.current.workloadEffort).toBeDefined());
+    act(() => {
+      result.current.setCreateEffort("high");
+      result.current.setCreateProjectId("choice-b");
+    });
+    expect(result.current.createModel).toBe("haiku");
+    expect(result.current.createType).toBe("claude");
+    expect(result.current.createEffort).toBe("high");
+    await act(async () => {
+      release();
+    });
+    await waitFor(() =>
+      expect(result.current.targetData.data?.defaults.preferenceKey).toBe(
+        "choice-b"
+      )
+    );
+    act(() => result.current.chooseTarget("second-host"));
+    expect(result.current.createModel).toBe("haiku");
+    expect(result.current.createEffort).toBe("high");
+    await waitFor(() => expect(result.current.targetData.isSuccess).toBe(true));
+    expect(result.current.createModel).toBe("haiku");
+    expect(result.current.createType).toBe("claude");
+    expect(result.current.createEffort).toBe("high");
+    await act(async () => result.current.handleSubmit(submitEvent()));
+    expect(agentsPostJson()).toMatchObject({
+      model: "haiku",
+      effort: "high",
+      type: "claude",
+      projectId: "choice-b",
+    });
+  }
+);
+
+it("clears an explicit model only after the new target confirms it is unavailable", async () => {
+  const fallback = apiMock.getMockImplementation()!;
+  apiMock.mockImplementation(async (url, init) => {
+    if (url === "/api/v1/launch-targets")
+      return { targets: [controller, repositoryTarget] };
+    if (url.startsWith("/fixture/")) {
+      const data = (await fallback(url, init)) as Record<string, unknown>;
+      return {
+        ...data,
+        catalog: {
+          models: {
+            claude: [
+              {
+                id: url.startsWith(controller.dataUrl) ? "haiku" : "sonnet",
+                label: "Model",
+              },
+            ],
+          },
+        },
+      };
+    }
+    return fallback(url, init);
+  });
+  const { result } = await setup();
+  await waitFor(() => expect(result.current.modelOptions).toHaveLength(1));
+  act(() => {
+    result.current.setCreateModel("haiku");
+    result.current.chooseTarget(repositoryTarget.key);
+  });
+  expect(result.current.createModel).toBe("haiku");
+  await waitFor(() => expect(result.current.createModel).toBeNull());
 });

@@ -1,0 +1,183 @@
+import { loginShellCommand } from "@dispatch/runner/host/host-command";
+import { realpath, stat } from "node:fs/promises";
+import {
+  RunnerCallError,
+  displayPath,
+  type Req,
+} from "@dispatch/runner-protocol/contract";
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import {
+  type CheckoutCommand,
+  type CheckoutExecution,
+} from "@dispatch/runner-protocol";
+import { Writable, type Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { repoCommandEnvironment } from "../shared/lib/tool-environment.js";
+
+/** A child's output, trimmed, and cut at `limit` bytes when one is given. */
+export function capture(stream: Readable, limit: number | null) {
+  const max = limit ?? Infinity;
+  const chunks: Buffer[] = [];
+  let used = 0;
+  let truncated = false;
+  stream.on("data", (chunk: Buffer) => {
+    const kept = chunk.subarray(0, max - used);
+    if (kept.length < chunk.length) truncated = true;
+    used += kept.length;
+    chunks.push(kept);
+  });
+  return () => {
+    const text = Buffer.concat(chunks).toString("utf8").trim();
+    const encoded = Buffer.from(text);
+    if (encoded.length <= max) return { text, truncated };
+    return {
+      text: new TextDecoder().decode(encoded.subarray(0, max), {
+        stream: true,
+      }),
+      truncated: true,
+    };
+  };
+}
+
+/**
+ * The workload's base environment for a command: main's repo command
+ * environment without its agent identity, which the caller adds.
+ */
+export function commandBaseEnvironment(): NodeJS.ProcessEnv {
+  const { DISPATCH_AGENT_ID: _agent, ...base } = repoCommandEnvironment("");
+  return base;
+}
+
+export async function checkoutCommandGuard(
+  cwd: string,
+  session: string,
+  operation: CheckoutCommand,
+  read: (path: string) => Promise<{ root: string; content: string | null }>
+) {
+  const { root, content } = await read(operation.path);
+  const state = createHash("sha256")
+    .update(
+      JSON.stringify([
+        session,
+        operation.checkout,
+        cwd,
+        root,
+        operation.path,
+        content,
+      ])
+    )
+    .digest("hex");
+  if (
+    operation.kind === "run" &&
+    (content === null || operation.state !== state)
+  )
+    throw new RunnerCallError({
+      code: "stale",
+      message:
+        "Checkout command authorization is stale. Read the checkout file again.",
+    });
+  return { root, content, state };
+}
+
+export async function directoryIdentity(directory: string) {
+  const { dev, ino } = await stat(directory, { bigint: true });
+  return `${dev}:${ino}`;
+}
+
+export async function resolvedCommandDirectory(
+  directory: string,
+  guard: Extract<Req<"checkout.exec">["guard"], { identity: string }>
+) {
+  const resolved = await realpath(directory).catch(() => null);
+  if (
+    displayPath(guard.root) !== directory ||
+    resolved === null ||
+    (await directoryIdentity(resolved).catch(() => null)) !== guard.identity
+  )
+    throw new RunnerCallError({
+      code: "stale",
+      message: "The resolved checkout directory changed.",
+    });
+  return resolved;
+}
+
+export async function executeStreamedCheckoutCommand(
+  root: string,
+  session: string,
+  argv: string[],
+  execution: Pick<CheckoutExecution, "env" | "shell">,
+  loginPath: string | undefined
+) {
+  const inherited = loginPath
+    ? { ...process.env, PATH: loginPath }
+    : process.env;
+  const env = {
+    ...repoCommandEnvironment(session, inherited),
+    ...execution.env,
+  };
+  const [command, ...args] = argv;
+  const launch =
+    execution.shell === "login"
+      ? loginShellCommand(argv, process.env.SHELL || "/bin/bash", env.PATH)
+      : { bin: command!, args };
+  const child = spawn(launch.bin, launch.args, {
+    cwd: root,
+    env,
+    // Inherited Bun descriptors can be nonblocking. Give the program its own
+    // blocking pipe ends and forward bytes from the worker with backpressure.
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const exited = new Promise<number>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code) => resolve(code ?? 1));
+  });
+  const forward = (input: Readable, output: Writable) =>
+    pipeline(
+      input,
+      new Writable({
+        write(chunk: Buffer, _encoding, done) {
+          output.write(chunk, done);
+        },
+      })
+    );
+  const [code] = await Promise.all([
+    exited,
+    forward(child.stdout, process.stdout),
+    forward(child.stderr, process.stderr),
+  ]);
+  return code;
+}
+
+// Bun may close the parent end of an extra stdio pipe while the worker
+// still needs it. Send status on the worker's stderr after command output.
+const STATUS_TRAILER_BYTES = 8192;
+
+export function reportCheckoutWorkerStatus(
+  status: { exitCode: number } | { error: string; code?: "stale" }
+) {
+  const trailer = Buffer.alloc(STATUS_TRAILER_BYTES);
+  trailer.write(JSON.stringify(status));
+  return new Promise<void>((resolve, reject) => {
+    process.stderr.write(trailer, (error) =>
+      error ? reject(error) : resolve()
+    );
+  });
+}
+
+/** Forward stderr, holding only the final status trailer off the wire. */
+export async function* checkoutWorkerStderr(
+  source: AsyncIterable<Buffer>,
+  report: (status: string) => void
+) {
+  let tail = Buffer.alloc(0);
+  for await (const chunk of source) {
+    const bytes = Buffer.concat([tail, chunk]);
+    const length = Math.max(0, bytes.length - STATUS_TRAILER_BYTES);
+    if (length > 0) yield bytes.subarray(0, length);
+    tail = bytes.subarray(length);
+  }
+  const end = tail.indexOf(0);
+  if (tail.length === STATUS_TRAILER_BYTES && end >= 0)
+    report(tail.toString("utf8", 0, end));
+}

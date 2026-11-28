@@ -8,7 +8,7 @@
     "dev": "bun run prepare:runtime-assets && bun --no-env-file --watch src/main.ts",
     "build": "bun run prepare:runtime-assets && tsc -p tsconfig.json",
     "start": "bun run prepare:runtime-assets && bun --no-env-file src/main.ts",
-    "check": "bun run prepare:runtime-assets && tsc --noEmit",
+    "check": "bun run prepare:runtime-assets && tsc --noEmit && tsc -p tsconfig.test-support.json",
     "test": "bun run prepare:runtime-assets && bash ../../scripts/server-tests-isolated.sh run",
     "test:coverage": "bun run prepare:runtime-assets && mkdir -p coverage/.tmp && bash ../../scripts/server-tests-isolated.sh run --coverage",
     "test:watch": "bun run prepare:runtime-assets && bash ../../scripts/server-tests-isolated.sh",
@@ -19,6 +19,9 @@
     "@agentclientprotocol/claude-agent-acp": "0.108.0",
     "@agentclientprotocol/codex-acp": "2.7.0",
     "@agentclientprotocol/sdk": "1.8.0",
+    "@dispatch/runner": "workspace:*",
+    "@dispatch/runner-client": "workspace:*",
+    "@dispatch/runner-protocol": "workspace:*",
     "@dispatch/shared": "workspace:*",
     "@fastify/compress": "^9.2.0",
     "@fastify/cookie": "^11.0.2",
@@ -39,6 +42,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@dispatch/runner-conformance": "workspace:*",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^24.10.0",
     "@types/pg": "^8.18.0",

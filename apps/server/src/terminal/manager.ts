@@ -1,105 +1,47 @@
 import { createHash, randomUUID } from "node:crypto";
-import { hostname, userInfo } from "node:os";
-import { captureTerminalSession } from "./process-session.js";
 import type { WebSocket } from "ws";
+import {
+  isTerminalControl,
+  MAX_TERMINAL_INPUT_BYTES,
+  TERMINAL_REPLAY_BYTES,
+  type TerminalInfo,
+} from "@dispatch/runner-protocol";
 
-export const REPLAY_BYTES = 256 * 1024;
+export const REPLAY_BYTES = TERMINAL_REPLAY_BYTES;
 export const DISCONNECT_GRACE_MS = 60_000;
-const MAX_INPUT_BYTES = 16 * 1024;
 
 export function terminalOwner(session: string): string {
   return createHash("sha256").update(session).digest("hex");
 }
 
-/** Start from a small allowlist: never inherit Dispatch/agent tokens or hooks. */
-export function terminalEnvironment(
-  source = process.env
-): Record<string, string> {
-  const env: Record<string, string> = {
-    TERM: "xterm-256color",
-    COLORTERM: "truecolor",
-  };
-  for (const key of [
-    "HOME",
-    "USER",
-    "LOGNAME",
-    "SHELL",
-    "PATH",
-    "LANG",
-    "LC_ALL",
-    "LC_CTYPE",
-    "TZ",
-    "TMPDIR",
-  ]) {
-    if (source[key]) env[key] = source[key]!;
-  }
-  return env;
-}
-
-export type PtyProcess = {
-  pid: number;
+type TerminalProcess = TerminalInfo & {
   terminal: {
     write(data: string): number;
     resize(cols: number, rows: number): void;
     close(): void;
+    detach?(): void;
+    resume?(): void;
   };
-  exited: Promise<number>;
+  exited: Promise<number | null>;
+  /**
+   * Why it ended without an exit code. The panel drops its screen on close,
+   * so only the socket's close reason is seen. At most 123 bytes.
+   */
+  endReason?(): string | undefined;
   kill(): void;
 };
-export type SpawnTerminal = (
-  cwd: string,
-  output: (data: Uint8Array) => void
-) => PtyProcess;
 
-export const spawnTerminal: SpawnTerminal = (cwd, output) => {
-  if (
-    typeof Bun === "undefined" ||
-    typeof Bun.Terminal !== "function" ||
-    process.platform === "win32"
-  ) {
-    throw new Error(
-      "Human terminals require Bun 1.3.13 or newer on macOS or Linux."
-    );
-  }
-  if (process.getuid?.() === 0)
-    throw new Error(
-      "Human terminals require Dispatch to run as an ordinary OS user."
-    );
-  const shell = userInfo().shell || "/bin/sh";
-  const proc = Bun.spawn([shell, "-l"], {
-    cwd,
-    env: terminalEnvironment(),
-    terminal: { cols: 80, rows: 24, data: (_terminal, data) => output(data) },
-  });
-  let cleanup: () => void;
-  try {
-    cleanup = captureTerminalSession(proc.pid);
-  } catch (error) {
-    proc.terminal?.close();
-    proc.kill("SIGKILL");
-    throw error;
-  }
-  return {
-    pid: proc.pid,
-    terminal: proc.terminal!,
-    exited: proc.exited,
-    kill() {
-      try {
-        cleanup();
-      } finally {
-        proc.terminal?.close();
-      }
-    },
-  };
-};
+export type TerminalBackend = (
+  output: (data: Uint8Array) => void,
+  inputFull: () => void
+) => Promise<TerminalProcess>;
 
 type TerminalSession = {
   id: string;
   owner: string;
   clientId: string;
   agentId: string;
-  cwd: string;
-  process: PtyProcess;
+  process: TerminalProcess;
   replay: Buffer;
   socket?: WebSocket;
   expiry?: ReturnType<typeof setTimeout>;
@@ -107,36 +49,41 @@ type TerminalSession = {
 
 export class HumanTerminalManager {
   private sessions = new Map<string, TerminalSession>();
-  constructor(
-    private spawn: SpawnTerminal = spawnTerminal,
-    private graceMs = DISCONNECT_GRACE_MS
-  ) {}
+  constructor(private graceMs = DISCONNECT_GRACE_MS) {}
 
-  open(owner: string, clientId: string, agentId: string, cwd: string) {
-    const existing = [...this.sessions.values()].find(
+  private pending = new Map<
+    string,
+    {
+      owner: string;
+      opened: Promise<ReturnType<HumanTerminalManager["describe"]>>;
+    }
+  >();
+
+  private existing(owner: string, clientId: string, agentId: string) {
+    return [...this.sessions.values()].find(
       (s) =>
         s.owner === owner && s.clientId === clientId && s.agentId === agentId
     );
-    if (existing) return this.describe(existing);
+  }
+
+  private reserve(owner: string, clientId: string, agentId: string) {
+    const active = [...this.sessions.values(), ...this.pending.values()];
     if (
-      this.sessions.size >= 16 ||
-      [...this.sessions.values()].filter((s) => s.owner === owner).length >= 4
-    ) {
+      active.length >= 16 ||
+      active.filter((s) => s.owner === owner).length >= 4
+    )
       throw new Error(
         "Terminal limit reached. End an existing terminal first."
       );
-    }
-    const id = randomUUID();
     const session: TerminalSession = {
-      id,
+      id: randomUUID(),
       owner,
       clientId,
       agentId,
-      cwd,
-      process: undefined as unknown as PtyProcess,
+      process: undefined as unknown as TerminalProcess,
       replay: Buffer.alloc(0),
     };
-    session.process = this.spawn(cwd, (data) => {
+    const output = (data: Uint8Array) => {
       const bytes = Buffer.from(data);
       session.replay = Buffer.concat([session.replay, bytes]).subarray(
         -REPLAY_BYTES
@@ -147,25 +94,68 @@ export class HumanTerminalManager {
           socket.close(1013, "Terminal output overflow; reconnect to resume.");
         else socket.send(bytes);
       }
-    });
+    };
+    const inputFull = () =>
+      session.socket?.close(1013, "Terminal input buffer full.");
+    return { session, output, inputFull };
+  }
+
+  async open(
+    owner: string,
+    clientId: string,
+    agentId: string,
+    open: TerminalBackend
+  ) {
+    const existing = this.existing(owner, clientId, agentId);
+    if (existing) return this.describe(existing);
+    const key = JSON.stringify([owner, clientId, agentId]);
+    const pending = this.pending.get(key);
+    if (pending) return pending.opened;
+    const { session, output, inputFull } = this.reserve(
+      owner,
+      clientId,
+      agentId
+    );
+    const opened = open(output, inputFull)
+      .then((terminal) => {
+        if (this.pending.get(key)?.opened !== opened) {
+          terminal.kill();
+          throw new Error("Terminal was closed before it could open.");
+        }
+        return this.activate(session, terminal);
+      })
+      .finally(() => {
+        if (this.pending.get(key)?.opened === opened) this.pending.delete(key);
+      });
+    this.pending.set(key, { owner, opened });
+    return opened;
+  }
+
+  private activate(session: TerminalSession, process: TerminalProcess) {
+    const { id, owner } = session;
+    session.process = process;
     this.sessions.set(id, session);
     this.expire(session);
-    void session.process.exited.then((code) => {
+    void process.exited.then((code) => {
       if (this.sessions.get(id) !== session) return;
-      session.socket?.send(JSON.stringify({ type: "exit", code }));
-      this.end(id, owner);
+      if (code === null) {
+        this.end(
+          id,
+          owner,
+          process.endReason?.() ?? "Runner terminal connection ended."
+        );
+      } else {
+        if (session.socket?.readyState === 1)
+          session.socket.send(JSON.stringify({ type: "exit", code }));
+        this.end(id, owner);
+      }
     });
     return this.describe(session);
   }
 
   private describe(s: TerminalSession) {
-    return {
-      id: s.id,
-      agentId: s.agentId,
-      cwd: s.cwd,
-      host: hostname(),
-      user: userInfo().username,
-    };
+    const { cwd, host, user } = s.process;
+    return { id: s.id, agentId: s.agentId, cwd, host, user };
   }
   resume(id: string, owner: string, clientId: string, agentId: string) {
     const s = this.sessions.get(id);
@@ -192,6 +182,12 @@ export class HumanTerminalManager {
     s.socket = socket;
     socket.send(JSON.stringify({ type: "connected" }));
     if (s.replay.length) socket.send(s.replay);
+    try {
+      s.process.terminal.resume?.();
+    } catch {
+      this.end(id, owner, "Runner terminal connection ended.");
+      return true;
+    }
     let budget = 64 * 1024;
     let last = Date.now();
     socket.on("message", (data, binary) => {
@@ -204,26 +200,22 @@ export class HumanTerminalManager {
         last = Date.now();
       }
       budget -= size;
-      if (binary || size > MAX_INPUT_BYTES || budget < 0) {
+      if (binary || size > MAX_TERMINAL_INPUT_BYTES || budget < 0) {
         socket.close(1008, "Terminal input limit exceeded.");
         return;
       }
       try {
         const message = JSON.parse(data.toString());
-        if (message.type === "input" && typeof message.data === "string") {
+        if (!isTerminalControl(message)) {
+          socket.close(1008, "Invalid terminal message.");
+          return;
+        }
+        if (message.type === "input") {
           const written = s.process.terminal.write(message.data);
           // Bun's write returns accepted bytes; don't silently lose keystrokes.
           if (written < Buffer.byteLength(message.data))
             socket.close(1013, "Terminal input buffer full.");
-        } else if (
-          message.type === "resize" &&
-          Number.isInteger(message.cols) &&
-          Number.isInteger(message.rows) &&
-          message.cols >= 2 &&
-          message.cols <= 500 &&
-          message.rows >= 1 &&
-          message.rows <= 200
-        ) {
+        } else if (message.type === "resize") {
           s.process.terminal.resize(message.cols, message.rows);
         } else socket.close(1008, "Invalid terminal message.");
       } catch {
@@ -233,20 +225,26 @@ export class HumanTerminalManager {
     socket.on("close", () => {
       if (s.socket === socket) {
         s.socket = undefined;
-        this.expire(s);
+        try {
+          s.process.terminal.detach?.();
+          this.expire(s);
+        } catch {
+          this.end(id, owner);
+        }
       }
     });
     socket.on("error", () => socket.close());
     return true;
   }
 
-  end(id: string, owner: string): boolean {
+  end(id: string, owner: string, reason = "Terminal ended."): boolean {
     const s = this.sessions.get(id);
     if (!s || s.owner !== owner) return false;
     this.sessions.delete(id);
     clearTimeout(s.expiry);
-    s.socket?.close(1000, "Terminal ended.");
-    // The adapter retains the kernel session identity even after shell exit.
+    const socket = s.socket;
+    s.socket = undefined;
+    socket?.close(1000, reason);
     try {
       s.process.kill();
     } catch {
@@ -261,6 +259,7 @@ export class HumanTerminalManager {
     return true;
   }
   shutdown() {
+    this.pending.clear();
     for (const s of this.sessions.values()) this.end(s.id, s.owner);
   }
 }

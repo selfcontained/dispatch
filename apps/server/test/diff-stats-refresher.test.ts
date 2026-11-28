@@ -5,7 +5,10 @@ import {
   type DiffStatsAgent,
   type DiffStatsChangedEvent,
 } from "../src/agents/diff-stats-refresher.js";
-import type { DiffStats } from "../src/shared/git/diff-stats.js";
+import {
+  getDiffStatsComputation,
+  type DiffStats,
+} from "../../../packages/runner/src/workload/shared/git/diff-stats.js";
 import type { RunCommandResult } from "../src/shared/lib/run-command.js";
 import { SubsystemTracker } from "../src/observability/subsystem-tracker.js";
 
@@ -342,7 +345,7 @@ describe("DiffStatsRefresher", () => {
     });
 
     await refresher.signal("a1");
-    expect(compute).toHaveBeenCalledWith("/actual/worktree", "main");
+    expect(compute).toHaveBeenCalledWith("/actual/worktree", null);
   });
 
   it("publishes null when both worktreePath and cwd are missing", async () => {
@@ -364,7 +367,7 @@ describe("DiffStatsRefresher", () => {
     expect(refresher.getStats("a1")).toBeNull();
   });
 
-  it("defaults worktree-backed agents to main when baseBranch is missing", async () => {
+  it("leaves an unresolved worktree base for the runner to determine", async () => {
     const agents = setupAgents([
       [
         "with-base",
@@ -395,7 +398,7 @@ describe("DiffStatsRefresher", () => {
     expect(compute).toHaveBeenCalledWith("/tmp/wt", "trunk");
 
     await refresher.signal("no-base");
-    expect(compute).toHaveBeenCalledWith("/tmp/wt", "main");
+    expect(compute).toHaveBeenCalledWith("/tmp/wt", null);
 
     await refresher.signal("repo-no-base");
     expect(compute).toHaveBeenCalledWith("/tmp/repo", null);
@@ -475,7 +478,10 @@ describe("DiffStatsRefresher", () => {
     const refresher = new DiffStatsRefresher({
       getAgent: async (id) => agents.get(id) ?? null,
       publishEvent: (event) => events.push(event),
-      runGitCommand,
+      computeAgentStats: (_id, agent, base) =>
+        getDiffStatsComputation(agent.worktreePath!, base, {
+          runCommand: runGitCommand,
+        }),
       tracker,
     });
 
@@ -524,7 +530,10 @@ describe("DiffStatsRefresher", () => {
     const refresher = new DiffStatsRefresher({
       getAgent: async (id) => agents.get(id) ?? null,
       publishEvent: (event) => events.push(event),
-      runGitCommand,
+      computeAgentStats: (_id, agent, base) =>
+        getDiffStatsComputation(agent.worktreePath!, base, {
+          runCommand: runGitCommand,
+        }),
       logger: { warn },
       tracker,
     });

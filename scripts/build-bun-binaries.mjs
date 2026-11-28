@@ -170,6 +170,10 @@ function writeChecksums() {
 }
 
 const targets = parseTargets(process.env.DISPATCH_BUN_TARGETS);
+const devPublicKey =
+  process.env.DISPATCH_RUNNER_UPDATE_DEV_BUILD === "1"
+    ? (await import("./runner-dev-key.mjs")).loadRunnerDevKey().publicKey
+    : undefined;
 
 function run(command, args) {
   const result = spawnSync(command, args, {
@@ -185,8 +189,20 @@ function run(command, args) {
 rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 
-run("pnpm", ["run", "build:web"]);
-run("bun", ["scripts/generate-server-runtime-assets.mjs"]);
+if (process.env.DISPATCH_BUN_REUSE_WEB_DIST === "1") {
+  const webDist = path.join(repoRoot, "apps", "web", "dist");
+  for (const file of ["index.html", "dispatch-browser-feedback.zip"]) {
+    if (!existsSync(path.join(webDist, file))) {
+      throw new Error(`Missing ${file} in the existing web build`);
+    }
+  }
+} else {
+  run("pnpm", ["run", "build:web"]);
+}
+run("bun", [
+  "scripts/generate-server-runtime-assets.mjs",
+  "--write-build-identity",
+]);
 
 for (const target of targets) {
   const outfile = path.join(outDir, `dispatch-${version}-${target}`);
@@ -196,6 +212,12 @@ for (const target of targets) {
     // The server loads config explicitly and the host starts in a checkout.
     "--no-compile-autoload-dotenv",
     `--target=${target}`,
+    ...(devPublicKey
+      ? [
+          "--define",
+          `DISPATCH_COMPILED_RUNNER_DEV_KEY=${JSON.stringify(devPublicKey)}`,
+        ]
+      : []),
     entrypoint,
     "--outfile",
     outfile,

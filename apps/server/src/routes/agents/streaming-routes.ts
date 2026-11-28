@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 
+import { enrolledRunnerId } from "../../runners/placement.js";
 import { errorMessage } from "../../shared/lib/error-message.js";
 import { escapeHtml, type AgentRouteDeps } from "./shared.js";
 
@@ -28,6 +29,12 @@ export async function registerAgentStreamingRoutes(
     }
 
     if (body?.type === "playwright") {
+      // The screencast opens a CDP port on this machine's loopback interface.
+      if (enrolledRunnerId(agent.placement) !== undefined) {
+        return reply.code(409).send({
+          error: "Playwright screencasts are unavailable for runner sessions.",
+        });
+      }
       if (
         typeof body.port !== "number" ||
         !Number.isFinite(body.port) ||

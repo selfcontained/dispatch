@@ -215,7 +215,11 @@ export type {
 export type { ScheduledMessagePresentation } from "./scheduled-messages.js";
 
 export { scheduledMessageCadence } from "./scheduled-messages.js";
-export { AUTHENTICATION_REQUIRED } from "./engine-login-types.js";
+export {
+  AUTHENTICATION_REQUIRED,
+  LOGIN_ENGINES,
+  isLoginEngine,
+} from "./engine-login-types.js";
 export type {
   EngineAuthStatus,
   EngineLogin,
@@ -259,3 +263,11 @@ export {
   ATTENTION_PREVIEW_MAX,
   attentionPreview,
 } from "./attention-preview.js";
+export { RUNNER_UPDATE_RESULT_REASONS } from "./runner-update-types.js";
+export type {
+  RunnerUpdateAction,
+  RunnerUpdatePhaseView,
+  RunnerUpdateResultReason,
+  RunnerUpdateResultState,
+  RunnerUpdateView,
+} from "./runner-update-types.js";

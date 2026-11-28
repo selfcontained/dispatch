@@ -1,0 +1,37 @@
+{
+  "name": "@dispatch/runner-protocol",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./update-format": "./src/update-format.ts",
+    "./engine-version-cache": "./src/engine-version-cache.ts",
+    "./engine-management": "./src/engine-management.ts",
+    "./in-process": "./src/in-process.ts",
+    "./contract": "./src/contract/index.ts",
+    "./host": "./src/host.ts",
+    "./engine-options": "./src/engine-options.ts",
+    "./build-identity": "./src/build-identity.ts",
+    "./github-pr-observation": "./src/github-pr-observation.ts",
+    "./plugin-engines": "./src/plugin-engines.ts",
+    "./engine-sign-in": "./src/engine-sign-in.ts",
+    "./engine-plans": "./src/engine-plans.ts",
+    "./diff-types": "./src/diff-types.ts",
+    "./git-context": "./src/git-context.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "check": "tsc -p tsconfig.json && tsc -p tsconfig.portable.json && tsc -p tsconfig.test.json",
+    "test": "vitest run --root .",
+    "surface": "tsx scripts/write-surface.ts"
+  },
+  "peerDependencies": {
+    "@agentclientprotocol/sdk": "1.8.0"
+  },
+  "devDependencies": {
+    "@agentclientprotocol/sdk": "1.8.0"
+  }
+}

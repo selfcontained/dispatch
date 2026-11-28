@@ -13,8 +13,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { runLifecycleHook } from "../src/agents/lifecycle-hooks.js";
 import type { AgentRecord } from "../src/agents/types.js";
+import { controllerPlacement } from "../src/runners/placement.js";
 import { repoCommandEnvironment } from "../src/shared/lib/tool-environment.js";
-import { loadRepoTools } from "../src/shared/mcp/repo-tools.js";
+import { loadRepoTools } from "./helpers/local-repo-tools.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -100,11 +101,20 @@ describe("repo command environment", () => {
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("agt_probe");
+    // No `warn`: a hook that failed would throw here instead of being logged.
+    const logger = {
+      info: vi.fn(),
+    } as unknown as import("fastify").FastifyBaseLogger;
     await expect(
       runLifecycleHook(
         "stop",
-        { id: "agt_probe", cwd: root } as AgentRecord,
-        { info: vi.fn() } as unknown as import("fastify").FastifyBaseLogger
+        {
+          id: "agt_probe",
+          cwd: root,
+          placement: controllerPlacement,
+        } as AgentRecord,
+        logger,
+        {}
       )
     ).resolves.toBeUndefined();
   });
@@ -194,17 +204,22 @@ describe("repo command environment", () => {
 
   it("gives the stop hook the same discovery environment", async () => {
     const { root } = await fixture();
-    const logger = { info: vi.fn(), warn: vi.fn() };
+    const logger = {
+      info: vi.fn(),
+      warn: vi.fn(),
+    } as unknown as import("fastify").FastifyBaseLogger;
     await expect(
       runLifecycleHook(
         "stop",
         {
           id: "agt_path",
           cwd: root,
+          placement: controllerPlacement,
           worktreePath: null,
           workspacePath: null,
         } as AgentRecord,
-        logger as unknown as import("fastify").FastifyBaseLogger
+        logger,
+        {}
       )
     ).resolves.toBeUndefined();
     expect(logger.info).toHaveBeenCalled();

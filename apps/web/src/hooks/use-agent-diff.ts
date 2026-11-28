@@ -55,6 +55,7 @@ export function useAgentDiff(
     },
     enabled: enabled && !!agentId,
     refetchOnWindowFocus: true,
+    refetchInterval: 30_000,
     staleTime: 5_000,
   });
 
@@ -104,6 +105,7 @@ export function useAgentFileDiff(
       );
     },
     enabled: enabled && !!agentId && !!filePath,
+    refetchInterval: 30_000,
     staleTime: 10_000,
   });
 

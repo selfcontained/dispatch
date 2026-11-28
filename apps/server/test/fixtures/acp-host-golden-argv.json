@@ -1,0 +1,152 @@
+{
+  "selfCommand": ["<execPath>", "<script>", "agent-host"],
+  "override": {
+    "json": ["bun", "main.ts", "agent-host"],
+    "words": ["bun", "main.ts", "agent-host"]
+  },
+  "shells": {
+    "/bin/zsh": {
+      "plain": {
+        "bin": "/bin/zsh",
+        "args": [
+          "-lc",
+          "[ -f \"$HOME/.dispatch/env\" ] && . \"$HOME/.dispatch/env\"; exec \"$@\"",
+          "dispatch-agent-host",
+          "<exec>",
+          "<main>",
+          "agent-host",
+          "--state",
+          "<dir>"
+        ]
+      },
+      "fallback": {
+        "bin": "/bin/zsh",
+        "args": [
+          "-lc",
+          "[ -f \"$HOME/.dispatch/env\" ] && . \"$HOME/.dispatch/env\"; export PATH=\"${PATH:+$PATH:}$1\"; shift; exec \"$@\"",
+          "dispatch-agent-host",
+          "/opt/fallback/bin",
+          "<exec>",
+          "<main>",
+          "agent-host",
+          "--state",
+          "<dir>"
+        ]
+      }
+    },
+    "/bin/bash": {
+      "plain": {
+        "bin": "/bin/bash",
+        "args": [
+          "-lc",
+          "[ -f \"$HOME/.dispatch/env\" ] && . \"$HOME/.dispatch/env\"; exec \"$@\"",
+          "dispatch-agent-host",
+          "<exec>",
+          "<main>",
+          "agent-host",
+          "--state",
+          "<dir>"
+        ]
+      },
+      "fallback": {
+        "bin": "/bin/bash",
+        "args": [
+          "-lc",
+          "[ -f \"$HOME/.dispatch/env\" ] && . \"$HOME/.dispatch/env\"; export PATH=\"${PATH:+$PATH:}$1\"; shift; exec \"$@\"",
+          "dispatch-agent-host",
+          "/opt/fallback/bin",
+          "<exec>",
+          "<main>",
+          "agent-host",
+          "--state",
+          "<dir>"
+        ]
+      }
+    },
+    "/bin/sh": {
+      "plain": {
+        "bin": "/bin/sh",
+        "args": [
+          "-lc",
+          "[ -f \"$HOME/.dispatch/env\" ] && . \"$HOME/.dispatch/env\"; exec \"$@\"",
+          "dispatch-agent-host",
+          "<exec>",
+          "<main>",
+          "agent-host",
+          "--state",
+          "<dir>"
+        ]
+      },
+      "fallback": {
+        "bin": "/bin/sh",
+        "args": [
+          "-lc",
+          "[ -f \"$HOME/.dispatch/env\" ] && . \"$HOME/.dispatch/env\"; export PATH=\"${PATH:+$PATH:}$1\"; shift; exec \"$@\"",
+          "dispatch-agent-host",
+          "/opt/fallback/bin",
+          "<exec>",
+          "<main>",
+          "agent-host",
+          "--state",
+          "<dir>"
+        ]
+      }
+    },
+    "/usr/bin/fish": {
+      "plain": {
+        "bin": "/usr/bin/fish",
+        "args": [
+          "-lc",
+          "test -f \"$HOME/.dispatch/env\"; and source \"$HOME/.dispatch/env\"; exec $argv",
+          "<exec>",
+          "<main>",
+          "agent-host",
+          "--state",
+          "<dir>"
+        ]
+      },
+      "fallback": {
+        "bin": "/usr/bin/fish",
+        "args": [
+          "-lc",
+          "test -f \"$HOME/.dispatch/env\"; and source \"$HOME/.dispatch/env\"; set -gx PATH $PATH (string split : -- \"$argv[1]\"); set -e argv[1]; exec $argv",
+          "/opt/fallback/bin",
+          "<exec>",
+          "<main>",
+          "agent-host",
+          "--state",
+          "<dir>"
+        ]
+      }
+    },
+    "/bin/tcsh": {
+      "plain": {
+        "bin": "/bin/bash",
+        "args": [
+          "-lc",
+          "[ -f \"$HOME/.dispatch/env\" ] && . \"$HOME/.dispatch/env\"; exec \"$@\"",
+          "dispatch-agent-host",
+          "<exec>",
+          "<main>",
+          "agent-host",
+          "--state",
+          "<dir>"
+        ]
+      },
+      "fallback": {
+        "bin": "/bin/bash",
+        "args": [
+          "-lc",
+          "[ -f \"$HOME/.dispatch/env\" ] && . \"$HOME/.dispatch/env\"; export PATH=\"${PATH:+$PATH:}$1\"; shift; exec \"$@\"",
+          "dispatch-agent-host",
+          "/opt/fallback/bin",
+          "<exec>",
+          "<main>",
+          "agent-host",
+          "--state",
+          "<dir>"
+        ]
+      }
+    }
+  }
+}

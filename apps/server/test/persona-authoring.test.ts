@@ -14,13 +14,15 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   loadPersonaBySlug,
   supportsPersonaType,
-} from "../src/personas/loader.js";
+} from "./helpers/persona-loader.js";
 import {
   PERSONA_TEMPLATES,
-  upsertPersona,
   validatePersonaSlug,
-  validatePersonas,
 } from "../src/personas/authoring.js";
+import {
+  upsertPersona,
+  validatePersonas,
+} from "./helpers/native-persona-authoring.js";
 
 describe("persona authoring", () => {
   const roots: string[] = [];

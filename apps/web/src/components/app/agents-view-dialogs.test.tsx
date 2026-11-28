@@ -1,3 +1,4 @@
+import { localAgentPlacement } from "@/test-utils/__fixtures__/agent-placement";
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -33,6 +34,7 @@ function makeAgent(id: string, name: string): Agent {
     name,
     type: "claude",
     status: "running",
+    placement: localAgentPlacement,
     cwd: "/repo",
     worktreePath: null,
     worktreeBranch: null,
@@ -160,7 +162,8 @@ describe("AgentsViewDialogs", () => {
       if (path.startsWith("/api/v1/history/projects")) return { projects: [] };
       if (path === "/api/v1/system/defaults") return { homeDir: "/home/test" };
       if (path === "/api/v1/agent-models") return { models: {} };
-      if (path === "/api/v1/system/engines") return { engines: [] };
+      if (path === "/api/v1/engine-management/status?scope=local")
+        return { engines: [] };
       if (path.includes("/path-info?"))
         return { exists: true, isDirectory: true, isGitRepo: false };
       return [];

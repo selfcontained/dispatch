@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   AGENT_MODEL_OPTIONS,
   agentModelCatalog,
+  agentModelDefaults,
   applyAgentConfigDefaults,
   describeAgentModelCatalog,
   forgetLearnedAgentModels,
@@ -194,4 +195,44 @@ describe("learned models", () => {
     setLearnedAgentModels("claude", []);
     expect(getAgentModelOptions("claude")).toEqual(AGENT_MODEL_OPTIONS.claude);
   });
+});
+
+it("isolates each runner's learned catalog and default over the same seeds", () => {
+  forgetLearnedAgentModels();
+  const seed = getAgentModelOptions("codex");
+  setLearnedAgentModels(
+    "codex",
+    [{ id: "local-model", label: "Local" }],
+    "local-model"
+  );
+  setLearnedAgentModels("codex", [{ id: "a", label: "A" }], "a", "runner-a");
+  setLearnedAgentModels("codex", [{ id: "b", label: "B" }], "b", "runner-b");
+  expect(getAgentModelOptions("codex").map((m) => m.id)).toEqual([
+    "local-model",
+  ]);
+  expect(agentModelCatalog("runner-a").codex).toEqual([
+    { id: "a", label: "A" },
+  ]);
+  expect(agentModelDefaults("runner-a").codex).toBe("a");
+  expect(agentModelDefaults("runner-b").codex).toBe("b");
+  expect(getAgentModelOptions("codex", "fresh-runner")).toEqual(seed);
+  expect(agentModelDefaults("fresh-runner")).toEqual({});
+  forgetLearnedAgentModels();
+});
+
+it("clears an implicit cross-type model when the target catalog is unavailable, while explicit choices defer to the engine", () => {
+  const base = {
+    inputAgentType: "codex" as const,
+    existingAgentType: "claude" as const,
+    existingModel: "opus",
+    inputModel: undefined,
+    scope: { kind: "engine" as const },
+  };
+  expect(resolveAgentModelForUpdate(base)).toBeNull();
+  expect(
+    resolveAgentModelForUpdate({ ...base, inputModel: "provider/model" })
+  ).toBe("provider/model");
+  expect(
+    resolveAgentModelForUpdate({ ...base, inputAgentType: "claude" })
+  ).toBe("opus");
 });

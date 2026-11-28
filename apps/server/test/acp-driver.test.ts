@@ -1,5 +1,9 @@
-import { firstPromptContext } from "../src/agents/acp/persona-context.js";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import {
+  ownedEnvironment,
+  killOwnedProcesses,
+} from "../src/shared/process/owned-processes.js";
+import { firstPromptContext } from "@dispatch/runner/host/first-prompt";
+import { chmod, mkdir, mkdtemp, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
@@ -8,14 +12,16 @@ import { describe, expect, it, vi } from "vitest";
 import {
   engineSpecFor,
   type EngineBins,
-} from "../src/agents/acp/engine-spec.js";
+} from "@dispatch/runner/host/engine-spec";
 import {
   AcpDriver,
   type DriverEvent,
   type DriverLaunch,
+  resolveExecutable,
   unstableSessionCapabilities,
-} from "../src/agents/acp/driver.js";
-import { selfCommand } from "../src/agents/acp/runtime.js";
+} from "@dispatch/runner/host/driver";
+import { isPackageBinDir } from "../../../packages/runner/src/host/package-bin-dir.js";
+import { selfCommand } from "@dispatch/runner/host/host-command";
 import { createFakeAcpAgent } from "./helpers/fake-acp-agent.js";
 
 const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
@@ -47,7 +53,15 @@ function launch(
 
 function driverWith(fake: ReturnType<typeof createFakeAcpAgent>) {
   const spawn = vi.fn(() => fake.child);
-  return { spawn, driver: new AcpDriver({ spawn, resolveBinary, logger }) };
+  return {
+    spawn,
+    driver: new AcpDriver({
+      ownership: { ownedEnvironment, killOwnedProcesses },
+      spawn,
+      resolveBinary,
+      logger,
+    }),
+  };
 }
 
 describe("AcpDriver", () => {
@@ -151,7 +165,12 @@ describe("AcpDriver", () => {
         .fn()
         .mockReturnValueOnce(bad.child)
         .mockReturnValue(good.child);
-      const driver = new AcpDriver({ spawn, resolveBinary, logger });
+      const driver = new AcpDriver({
+        ownership: { ownedEnvironment, killOwnedProcesses },
+        spawn,
+        resolveBinary,
+        logger,
+      });
       const request = launch({ sessionId }, "codex");
       await driver.start(request);
       try {
@@ -204,7 +223,12 @@ describe("AcpDriver", () => {
     );
     let index = 0;
     const spawn = vi.fn(() => fakes[index++]!.child);
-    const driver = new AcpDriver({ spawn, resolveBinary, logger });
+    const driver = new AcpDriver({
+      ownership: { ownedEnvironment, killOwnedProcesses },
+      spawn,
+      resolveBinary,
+      logger,
+    });
     const err = await driver
       .start(launch({}, "codex"))
       .catch((error: unknown) => error);
@@ -239,7 +263,12 @@ describe("AcpDriver", () => {
       }),
     };
     const spawn = vi.fn(() => fake.child);
-    const driver = new AcpDriver({ spawn, resolveBinary, logger: localLogger });
+    const driver = new AcpDriver({
+      ownership: { ownedEnvironment, killOwnedProcesses },
+      spawn,
+      resolveBinary,
+      logger: localLogger,
+    });
     await expect(driver.start(launch({}, "codex"))).rejects.toThrow();
     expect(localLogger.warn).toHaveBeenCalledTimes(1);
     expect(spawn).toHaveBeenCalledTimes(1);
@@ -783,6 +812,7 @@ describe("AcpDriver", () => {
       },
     });
     const driver = new AcpDriver({
+      ownership: { ownedEnvironment, killOwnedProcesses },
       spawn: () => fake.child,
       resolveBinary,
       logger,
@@ -809,6 +839,7 @@ describe("AcpDriver", () => {
   it("stop closes the session and reaps the child", async () => {
     const fake = createFakeAcpAgent();
     const driver = new AcpDriver({
+      ownership: { ownedEnvironment, killOwnedProcesses },
       spawn: () => fake.child,
       resolveBinary,
       logger,
@@ -829,6 +860,7 @@ describe("AcpDriver", () => {
   it("refuses to start twice for one agent", async () => {
     const fake = createFakeAcpAgent();
     const driver = new AcpDriver({
+      ownership: { ownedEnvironment, killOwnedProcesses },
       spawn: () => fake.child,
       resolveBinary,
       logger,
@@ -845,6 +877,7 @@ describe("AcpDriver", () => {
       },
     });
     const driver = new AcpDriver({
+      ownership: { ownedEnvironment, killOwnedProcesses },
       spawn: () => fake.child,
       resolveBinary,
       logger,
@@ -871,6 +904,7 @@ describe("AcpDriver", () => {
       },
     });
     const driver = new AcpDriver({
+      ownership: { ownedEnvironment, killOwnedProcesses },
       spawn: () => fake.child,
       resolveBinary,
       logger,
@@ -891,6 +925,7 @@ describe("AcpDriver", () => {
 
   it("prompting an agent that is not running throws", async () => {
     const driver = new AcpDriver({
+      ownership: { ownedEnvironment, killOwnedProcesses },
       spawn: () => createFakeAcpAgent().child,
       resolveBinary,
       logger,
@@ -899,7 +934,11 @@ describe("AcpDriver", () => {
   });
 
   it("fails the start, not the process, when the binary cannot be spawned", async () => {
-    const driver = new AcpDriver({ resolveBinary, logger });
+    const driver = new AcpDriver({
+      ownership: { ownedEnvironment, killOwnedProcesses },
+      resolveBinary,
+      logger,
+    });
     await expect(
       driver.start(
         launch({
@@ -916,7 +955,11 @@ describe("AcpDriver", () => {
   });
 
   it("names the missing binary before spawning", async () => {
-    const driver = new AcpDriver({ logger });
+    const driver = new AcpDriver({
+      ownership: { ownedEnvironment, killOwnedProcesses },
+      logger,
+      resolveBinary: (bin, env) => resolveExecutable(bin, env, isPackageBinDir),
+    });
     await expect(
       driver.start(
         launch({
@@ -934,6 +977,7 @@ describe("AcpDriver", () => {
   it("falls back to a new session when the stored one cannot be resumed", async () => {
     const fake = createFakeAcpAgent({ resumeFails: true });
     const driver = new AcpDriver({
+      ownership: { ownedEnvironment, killOwnedProcesses },
       spawn: () => fake.child,
       resolveBinary,
       logger,
@@ -948,6 +992,7 @@ describe("AcpDriver", () => {
   it("preserves OpenCode context when resume fails", async () => {
     const fake = createFakeAcpAgent({ resumeFails: true });
     const driver = new AcpDriver({
+      ownership: { ownedEnvironment, killOwnedProcesses },
       spawn: () => fake.child,
       resolveBinary,
       logger,
@@ -962,6 +1007,7 @@ describe("AcpDriver", () => {
   it("fails OpenCode startup when it cannot verify the requested model", async () => {
     const fake = createFakeAcpAgent();
     const driver = new AcpDriver({
+      ownership: { ownedEnvironment, killOwnedProcesses },
       spawn: () => fake.child,
       resolveBinary,
       logger,
@@ -988,6 +1034,7 @@ describe("AcpDriver", () => {
       ],
     });
     const driver = new AcpDriver({
+      ownership: { ownedEnvironment, killOwnedProcesses },
       spawn: () => fake.child,
       resolveBinary,
       logger,
@@ -1016,6 +1063,7 @@ describe("AcpDriver", () => {
   it("reports an unexpected child death as a crash", async () => {
     const fake = createFakeAcpAgent();
     const driver = new AcpDriver({
+      ownership: { ownedEnvironment, killOwnedProcesses },
       spawn: () => fake.child,
       resolveBinary,
       logger,
@@ -1041,6 +1089,7 @@ describe("AcpDriver", () => {
       },
     });
     const driver = new AcpDriver({
+      ownership: { ownedEnvironment, killOwnedProcesses },
       spawn: () => fake.child,
       resolveBinary,
       logger,
@@ -1377,6 +1426,7 @@ describe("self-started turns", () => {
       ...opts,
     });
     const driver = new AcpDriver({
+      ownership: { ownedEnvironment, killOwnedProcesses },
       spawn: () => fake.child,
       resolveBinary,
       logger,
@@ -1564,6 +1614,7 @@ describe("self-started turns", () => {
       },
     });
     const driver = new AcpDriver({
+      ownership: { ownedEnvironment, killOwnedProcesses },
       spawn: () => fake.child,
       resolveBinary,
       logger,
@@ -1613,6 +1664,7 @@ describe("self-started turns", () => {
         },
       });
       const driver = new AcpDriver({
+        ownership: { ownedEnvironment, killOwnedProcesses },
         spawn: () => fake.child,
         resolveBinary,
         logger,
@@ -1642,6 +1694,7 @@ describe("self-started turns", () => {
       },
     });
     const driver = new AcpDriver({
+      ownership: { ownedEnvironment, killOwnedProcesses },
       spawn: () => fake.child,
       resolveBinary,
       logger,
@@ -1769,5 +1822,33 @@ describe("read-only MCP driver extension", () => {
     await driver.stop("agt_1");
     finish({ version: 1, servers: [] });
     expect((await request).status).not.toBe("ok");
+  });
+});
+
+describe("engine CLI lookup", () => {
+  it("skips relative and package-manager bin directories on PATH, as main does", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "dispatch-resolve-"));
+    try {
+      const packageBin = path.join(root, "project/node_modules/.bin");
+      const installed = path.join(root, "installed/bin");
+      for (const dir of [packageBin, installed]) {
+        await mkdir(dir, { recursive: true });
+        await writeFile(path.join(dir, "engine-cli"), "#!/bin/sh\n");
+        await chmod(path.join(dir, "engine-cli"), 0o755);
+      }
+      const env = {
+        PATH: ["relative/bin", `${packageBin}/`, installed].join(
+          path.delimiter
+        ),
+      };
+      await expect(
+        resolveExecutable("engine-cli", env, isPackageBinDir)
+      ).resolves.toBe(path.join(installed, "engine-cli"));
+      await expect(
+        resolveExecutable("engine-cli", { PATH: packageBin }, isPackageBinDir)
+      ).rejects.toThrow(/engine-cli was not found on PATH/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

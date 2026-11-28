@@ -27,20 +27,7 @@ import {
   sanitizeUploadedFileName,
   toFileKey,
 } from "../shared/files.js";
-import { hostClipboardImageCapable } from "../shared/lib/clipboard-capability.js";
-import { writeImageToClipboard } from "../shared/lib/clipboard-write.js";
-import { runCommand } from "../shared/lib/run-command.js";
 import type { PublishUiEvent } from "../server/ui-events.js";
-
-// Per-agent [File #N] sequence counter for terminal injection. In-memory,
-// resets on server restart — N is a cosmetic prompt label, not a stable ID.
-const fileSeqByAgent = new Map<string, number>();
-
-function nextFileSeq(agentId: string): number {
-  const seq = (fileSeqByAgent.get(agentId) ?? 0) + 1;
-  fileSeqByAgent.set(agentId, seq);
-  return seq;
-}
 
 function fileContentUrl(agentId: string, fileName: string): string {
   return `/api/v1/agents/${agentId}/files/${encodeURIComponent(fileName)}`;
@@ -254,8 +241,8 @@ export async function registerFileRoutes(
 
     deps.publishUiEvent({ type: "files.changed", agentId: id });
 
-    // Uploads no longer type into a pane; the agent reads shared files
-    // through its tools, and Chat attachments carry the reference.
+    // Uploads store bytes for the session. Clipboard access belongs to the
+    // operator's browser and never runs as a side effect of an upload.
     const delivery: "none" = "none";
 
     return reply.code(201).send({

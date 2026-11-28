@@ -1,3 +1,5 @@
+import { projectPullRequest } from "../src/agents/pull-request-reader.js";
+import { RiskExplanations } from "../src/agents/merge-risk/explanations.js";
 import {
   afterAll,
   beforeAll,
@@ -26,10 +28,10 @@ import {
   MERGE_RISK_QUESTIONS,
 } from "../src/agents/merge-risk/policy.js";
 import { MergeRiskAssessor } from "../src/agents/merge-risk/assessor.js";
+import type { MergeRiskGitHubSource } from "../src/agents/merge-risk/github-source.js";
 import {
   reviewFingerprint,
   loadReviewEvidence,
-  type PullRequestDetails,
 } from "../src/agents/merge-risk/sources.js";
 import { RoutingSettings } from "../src/chat/routing-settings.js";
 import {
@@ -540,7 +542,12 @@ describe("merge-risk assessor", () => {
   const reviewer = "agt_reviewer";
   const url = "https://github.com/acme/widgets/pull/9";
   const transport = vi.fn<typeof fetch>();
-  const details = vi.fn<(url: string) => Promise<PullRequestDetails | null>>();
+  const details =
+    vi.fn<
+      (
+        url: string
+      ) => Promise<Awaited<ReturnType<MergeRiskGitHubSource["details"]>> | null>
+    >();
   const pr = (patch: Partial<AgentPullRequest> = {}): AgentPullRequest => ({
     url,
     title: "Add thing",
@@ -603,10 +610,171 @@ describe("merge-risk assessor", () => {
     new MergeRiskAssessor({
       pool,
       settings,
-      agentRoot: async () => null,
-      readDetails: details,
+      owners: async () => null,
+      github: { details: (_runner, url) => details(url) },
       transport,
     });
+  it("isolates PR evidence, reservations and explanations by runner and active credential", async () => {
+    const url = pr().url;
+    const head = "1".repeat(40);
+    const base = "2".repeat(40);
+    const alpha = "a".repeat(64);
+    const beta = "b".repeat(64);
+    const placement = new Map([
+      ["first", alpha],
+      ["second", beta],
+    ]);
+    const observe = (credentialContext?: string) =>
+      projectPullRequest(url, "PR", {
+        title: "PR",
+        state: "OPEN",
+        draft: false,
+        head,
+        rollup: [],
+        credentialContext,
+      });
+    const github = {
+      details: vi.fn(async (runnerId: string | null) => {
+        const credentialContext =
+          runnerId === null ? alpha : placement.get(runnerId);
+        if (!credentialContext) return null;
+        return {
+          credentialContext,
+          number: 9,
+          title: "PR",
+          body:
+            credentialContext === alpha
+              ? "Alpha private evidence"
+              : "Beta private evidence",
+          baseRefName: "main",
+          headRefName: "topic",
+          baseRefOid: base,
+          headRefOid: head,
+          additions: 2,
+          deletions: 0,
+          files: [],
+        };
+      }),
+      diff: vi.fn(async () => null),
+    };
+    const assessor = new MergeRiskAssessor({
+      pool,
+      settings,
+      github,
+      owners: async () => null,
+      transport,
+    });
+    const explanationTransport = vi.fn<typeof fetch>(async () =>
+      Response.json({
+        status: "completed",
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "Private explanation" }],
+          },
+        ],
+      })
+    );
+    const explanations = new RiskExplanations({
+      pool,
+      settings,
+      github,
+      transport: explanationTransport,
+    });
+    const legacy = (
+      await pool.query(
+        "INSERT INTO merge_risk_decision_records(url,head_sha,review_fingerprint,status,prompt_version) VALUES($1,$2,$3,'ok','v') RETURNING id",
+        [url, head, reviewFingerprint([])]
+      )
+    ).rows[0].id;
+    const first = await assessor.assess(
+      url,
+      observe(alpha),
+      [],
+      undefined,
+      "first"
+    );
+    const second = await assessor.assess(
+      url,
+      observe(beta),
+      [],
+      undefined,
+      "second"
+    );
+    expect(first?.status).toBe("ok");
+    expect(second?.status).toBe("ok");
+    expect(first?.assessmentId).not.toBe(second?.assessmentId);
+    expect(first?.assessmentId).not.toBe(legacy);
+    expect(transport).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(transport.mock.calls[0][1]?.body)).toContain(
+      "Alpha private evidence"
+    );
+    expect(JSON.stringify(transport.mock.calls[1][1]?.body)).toContain(
+      "Beta private evidence"
+    );
+    expect(
+      (
+        await pool.query(
+          "SELECT count(*)::int AS count FROM merge_risk_evidence_snapshots"
+        )
+      ).rows[0].count
+    ).toBe(2);
+
+    const explain = (assessmentId: string, runnerId: string | null) =>
+      explanations.explain({ assessmentId, runnerId, url });
+    const denied = { state: "unavailable", reason: "not_found" };
+    expect(await explain(first!.assessmentId!, "first")).toMatchObject({
+      state: "ready",
+    });
+    expect(github.diff).toHaveBeenCalledWith(
+      "first",
+      url,
+      base,
+      head,
+      alpha,
+      expect.anything()
+    );
+    expect(await explain(first!.assessmentId!, "second")).toEqual(denied);
+    expect(await explain(legacy, "first")).toEqual(denied);
+    expect(await explain(first!.assessmentId!, null)).toEqual(denied);
+    expect(explanationTransport).toHaveBeenCalledTimes(1);
+    expect(await explain(legacy, null)).toMatchObject({ state: "ready" });
+
+    placement.set("first", beta);
+    expect(await explain(first!.assessmentId!, "first")).toEqual(denied);
+    // A stored record is reused under the credential the status read
+    // observed, without another GitHub read.
+    github.details.mockClear();
+    expect(
+      await assessor.assess(url, observe(alpha), [], undefined, "first")
+    ).toMatchObject({ assessmentId: first!.assessmentId });
+    expect(github.details).not.toHaveBeenCalled();
+    // Evidence read with another credential than observed is never recorded.
+    placement.set("third", beta);
+    expect(
+      await assessor.assess(url, observe(alpha), [], undefined, "third")
+    ).toMatchObject({ displayState: "unavailable" });
+    expect(github.details).toHaveBeenCalledTimes(1);
+    const switched = await assessor.assess(
+      url,
+      observe(beta),
+      [],
+      undefined,
+      "first"
+    );
+    expect(switched?.status).toBe("ok");
+    expect(switched?.assessmentId).not.toBe(first?.assessmentId);
+    expect(switched?.assessmentId).not.toBe(second?.assessmentId);
+    expect(transport).toHaveBeenCalledTimes(3);
+    placement.delete("second");
+    expect(await explain(second!.assessmentId!, "second")).toEqual(denied);
+    expect(
+      await assessor.assess(url, observe(), [], undefined, "older-runner")
+    ).toMatchObject({ displayState: "unavailable" });
+    expect(transport).toHaveBeenCalledTimes(3);
+    expect(explanationTransport).toHaveBeenCalledTimes(2);
+  });
   async function review(findings: { resolved: boolean }[]) {
     const posted = await blocks.insert({
       streamId: reviewer,

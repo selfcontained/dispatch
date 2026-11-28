@@ -1,3 +1,4 @@
+import { useTemplateTarget } from "./use-template-target";
 import { useProjects } from "@/hooks/use-projects";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -12,7 +13,6 @@ import {
   useTemplateDraft,
 } from "@/components/app/automations-template-draft";
 import { useCwdHistory } from "@/components/app/create-agent-dialog-utils";
-import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import type { AgentType } from "@/lib/agent-types";
 import { shortPath } from "@/lib/format";
 import { Alert } from "@/components/ui/alert";
@@ -106,7 +106,19 @@ function TemplateDetail({
           },
     [hasLocationEdit, locationEdit, template.projectId, template.directory]
   );
-  const { normalizeModel } = useAgentModelCatalog(draft.agentType);
+  const target = useTemplateTarget(
+    draft,
+    setDraft,
+    template.id,
+    location,
+    (directory) =>
+      setLocationEdit({
+        id: template.id,
+        projectId: location.projectId,
+        directory,
+      })
+  );
+  const { normalizeModel } = target.models;
   const [saveError, setSaveError] = useState<unknown>();
   const [saved, setSaved] = useState(false);
   const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
@@ -132,7 +144,12 @@ function TemplateDetail({
     setLaunchDialogOpen(true);
   }, []);
 
-  const canSave = !!draft.name.trim() && !!location.directory.trim();
+  const canSave =
+    !!draft.name.trim() &&
+    target.launch.selectionReady &&
+    (target.launch.target?.location.folders === false || location.projectId
+      ? Boolean(location.projectId)
+      : !!location.directory.trim());
 
   const handleSave = useCallback(() => {
     setSaveError(undefined);
@@ -143,8 +160,13 @@ function TemplateDetail({
         name: draft.name.trim(),
         model: normalizeModel(draft.model),
         ...templateConfigFromDraft(draft),
+        ...target.launch.fields,
         projectId: hasLocationEdit ? location.projectId : undefined,
-        directory: hasLocationEdit ? location.directory.trim() : undefined,
+        directory:
+          hasLocationEdit || target.launch.changed
+            ? (target.data.data?.defaults.templateFields?.directory ??
+              location.directory.trim())
+            : undefined,
       })
       .then(() => {
         addCwdHistory(location.directory);
@@ -160,6 +182,9 @@ function TemplateDetail({
     addCwdHistory,
     hasLocationEdit,
     location,
+    target.launch.fields,
+    target.launch.changed,
+    target.data.data?.defaults.templateFields,
   ]);
 
   const handleDelete = useCallback(async () => {
@@ -174,8 +199,14 @@ function TemplateDetail({
       <PageHeader
         title={template.name}
         description={
-          <span title={template.description || template.directory}>
-            {template.description || shortPath(template.directory)}
+          <span
+            title={
+              template.description ||
+              target.launch.projection.data?.locationLabel
+            }
+          >
+            {template.description ||
+              shortPath(target.launch.projection.data?.locationLabel ?? "")}
           </span>
         }
         actions={
@@ -199,7 +230,7 @@ function TemplateDetail({
       <PageContent className="space-y-4">
         {template.description ? (
           <p className="break-all font-mono text-body-sm text-muted-foreground">
-            {shortPath(template.directory)}
+            {shortPath(target.launch.projection.data?.locationLabel ?? "")}
           </p>
         ) : null}
         {savedArgs.length > 0 ? (
@@ -228,6 +259,7 @@ function TemplateDetail({
           <div className="mt-4">
             <TemplateConfigFields
               {...fieldProps}
+              target={target}
               projectId={location.projectId}
               directory={location.directory}
               onProjectChange={(projectId, directory) =>

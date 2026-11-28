@@ -1,0 +1,22 @@
+{
+  "name": "@dispatch/runner-conformance",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./reference-client": "./src/reference-client.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "dependencies": {
+    "@dispatch/runner-client": "workspace:*",
+    "@dispatch/runner-protocol": "workspace:*"
+  },
+  "scripts": {
+    "check": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
+    "test": "vitest run --root .",
+    "lane": "tsx src/cli.ts"
+  }
+}

@@ -1,4 +1,5 @@
 import * as React from "react";
+import { Loader2 } from "lucide-react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 
@@ -183,4 +184,27 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 );
 Button.displayName = "Button";
 
-export { Button };
+function LoadingButton({
+  loading,
+  disabled,
+  children,
+  ...props
+}: Omit<ButtonProps, "asChild"> & { loading: boolean }) {
+  return (
+    <Button
+      {...props}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+    >
+      {loading && (
+        <Loader2
+          className="mr-1.5 size-3.5 shrink-0 animate-spin"
+          aria-hidden="true"
+        />
+      )}
+      {children}
+    </Button>
+  );
+}
+
+export { Button, LoadingButton };

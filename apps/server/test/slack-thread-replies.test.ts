@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 import type { PromptSource } from "../src/agents/acp/prompt-source.js";
@@ -8,6 +9,8 @@ import {
 } from "../src/notifications/slack-answers.js";
 import { QuestionAlerts } from "../src/notifications/question-alerts.js";
 import { notifyForm } from "../src/notifications/notify-form.js";
+import { SlackNotifier } from "../src/notifications/slack.js";
+import { PNG_BYTES } from "./helpers/file-bytes.js";
 import type { AgentRecord } from "../src/agents/manager.js";
 import {
   SlackDeliveryUnknownError,
@@ -353,7 +356,7 @@ const replyWith = (
 ) =>
   lastReplies!.reply(
     { id: agentId, name: agentId === A ? "builder-7" : "reviewer-2" },
-    { replyTo, message, images }
+    { replyTo, message, images, readSessionImage: readFile }
   );
 let lastReplies: SlackThreadReplies | null = null;
 
@@ -402,6 +405,41 @@ describe("notify({ replyTo }): the agent answers in the Slack thread", () => {
     expect(
       (await pool.query(`SELECT 1 FROM slack_thread_replies`)).rowCount
     ).toBe(1);
+  });
+
+  it("uses the session reader for explicit and current-turn thread notifications", async () => {
+    const { answers, calls, replies } = build();
+    const { parent, post } = await followUp(answers, A, "screenshot?");
+    const notifier = new SlackNotifier(pool, null as never);
+    Object.assign(notifier, { app: { settings: async () => ({ binding }) } });
+    notifier.setThreadReply((agent, input) => replies.reply(agent, input));
+    notifier.setTurnPost(async () => post.id);
+    const agent = { id: A, name: "builder-7" } as AgentRecord;
+    const missingOnRunner = await notifier.sendNotification(
+      agent,
+      { message: "Screenshot", replyTo: post.id, images: [png] },
+      async () => {
+        throw new Error("Image missing on runner");
+      }
+    );
+    expect(missingOnRunner).toMatchObject({ sent: false });
+    expect(calls.uploads).toEqual([]);
+    expect(calls.posted).toEqual([]);
+
+    const runnerImage = "/runner/files/shot.png";
+    const sent = await notifier.sendNotification(
+      agent,
+      { message: "Screenshot", images: [runnerImage] },
+      async (source) => {
+        expect(source).toBe(runnerImage);
+        return PNG_BYTES;
+      }
+    );
+    expect(sent).toEqual({ sent: true });
+    expect(calls.uploads).toEqual([
+      { name: "shot.png", bytes: PNG_BYTES.length },
+    ]);
+    expect(calls.posted.map((message) => message.threadTs)).toEqual([parent]);
   });
 
   it("any message in a thread names that thread: replies go under its root", async () => {
@@ -634,7 +672,7 @@ describe("notify({ replyTo }): the agent answers in the Slack thread", () => {
       /Not a png, jpg or gif/
     );
     expect((await replyWith(reply, A, post.id, "x", [linkPng])).reason).toMatch(
-      /png, jpg or gif images only/
+      /Not a png, jpg or gif/
     );
     expect(calls.posted).toHaveLength(0);
     calls.scopes = ["chat:write"];

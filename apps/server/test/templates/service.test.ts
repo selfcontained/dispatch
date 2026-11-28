@@ -1,7 +1,11 @@
+import { teachKnownSeedCatalogs } from "../helpers/model-catalog-validation.js";
+import { beforeEach as beforeKnownCatalog } from "vitest";
+beforeKnownCatalog(teachKnownSeedCatalogs);
 import { describe, expect, it, vi } from "vitest";
 
 import * as personaResolver from "../../src/personas/resolve.js";
 import type { AgentRecord } from "../../src/agents/types.js";
+import { resolveSavedTarget } from "../../src/runners/saved-location.js";
 import { TemplateService } from "../../src/templates/service.js";
 import type { TemplateRecord } from "../../src/templates/store.js";
 
@@ -369,7 +373,7 @@ it("duplicates persona and project configuration through the existing creation v
     repoRoot: source.directory,
   } as never);
   const resolve = vi
-    .spyOn(personaResolver, "resolveLaunchPersona")
+    .spyOn(personaResolver, "resolvePersona")
     .mockResolvedValue({ slug: "builder" } as never);
   const create = vi.spyOn(service.store, "createTemplate").mockImplementation(
     async (config) =>
@@ -391,10 +395,14 @@ it("duplicates persona and project configuration through the existing creation v
     });
     expect(create).toHaveBeenCalledTimes(1);
     expect(resolve).toHaveBeenCalledWith(
-      source.directory,
+      {
+        kind: "folder",
+        cwd: source.directory,
+        source: "catalog",
+        runners: expect.any(Function),
+      },
       "builder",
-      "task",
-      "catalog"
+      "task"
     );
     expect(source).toEqual(snapshot);
     expect(createAgent).not.toHaveBeenCalled();
@@ -457,9 +465,11 @@ it.each([{ agentType: "opencode" as const }, { model: null }])(
     const { resolveTemplateLaunch } =
       await import("../../src/templates/resolve-launch.js");
     expect(
-      resolveTemplateLaunch(
-        buildTemplate({ agentType: "claude", model: "opus", effort: "max" }),
-        override
+      (
+        await resolveTemplateLaunch(
+          buildTemplate({ agentType: "claude", model: "opus", effort: "max" }),
+          override
+        )
       ).effort
     ).toBeNull();
   }
@@ -469,14 +479,54 @@ it("normalizes saved restricted templates and task runtime overrides to OpenCode
   const { resolveTemplateLaunch } =
     await import("../../src/templates/resolve-launch.js");
   expect(
-    resolveTemplateLaunch(
-      buildTemplate({ agentType: "opencode", fullAccess: false })
+    (
+      await resolveTemplateLaunch(
+        buildTemplate({ agentType: "opencode", fullAccess: false })
+      )
     ).fullAccess
   ).toBe(true);
   expect(
-    resolveTemplateLaunch(
-      buildTemplate({ agentType: "claude", fullAccess: false }),
-      { agentType: "opencode" }
+    (
+      await resolveTemplateLaunch(
+        buildTemplate({ agentType: "claude", fullAccess: false }),
+        { agentType: "opencode" }
+      )
     ).fullAccess
   ).toBe(true);
+});
+
+it("launches a saved Local repository-only template by project without a folder", async () => {
+  const createAgent = vi.fn(async () => buildAgent());
+  const service = new TemplateService(
+    {} as never,
+    { createAgent } as never,
+    { info: vi.fn() } as never
+  );
+  vi.spyOn(service.store, "getTemplate").mockResolvedValue({
+    ...buildTemplate({ projectId: "repo", directory: "", prompt: "Work" }),
+    ...resolveSavedTarget("", { runner: "local", projectId: "repo" }),
+  });
+  await service.launchTemplate({ templateId: "tmpl_123", args: {} });
+  expect(createAgent).toHaveBeenCalledWith(
+    expect.objectContaining({ cwd: "", projectId: "repo" })
+  );
+});
+
+it("leaves an unpicked template base for the runner to resolve", async () => {
+  const { resolveTemplateLaunch } =
+    await import("../../src/templates/resolve-launch.js");
+  expect(
+    (
+      await resolveTemplateLaunch(
+        buildTemplate({ useWorktree: true, baseBranch: null })
+      )
+    ).baseBranch
+  ).toBeNull();
+  expect(
+    (
+      await resolveTemplateLaunch(
+        buildTemplate({ useWorktree: true, baseBranch: "master" })
+      )
+    ).baseBranch
+  ).toBe("master");
 });

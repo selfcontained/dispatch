@@ -13,6 +13,9 @@ import type { BlockDelivery } from "@dispatch/shared";
 import { block } from "@/test-utils/blocks";
 import { DeliveryIndicator, DeliveryMeta } from "./chat-delivery-meta";
 
+const { api } = vi.hoisted(() => ({ api: vi.fn() }));
+vi.mock("@/lib/api", () => ({ api }));
+
 const clients: QueryClient[] = [];
 function render(ui: ReactNode) {
   const client = new QueryClient({
@@ -38,6 +41,35 @@ const name = (id: string) => id;
 function receipt(delivery: BlockDelivery[]) {
   return block({ id: "receipt", authorKind: "user", delivery });
 }
+function renderHeld(
+  agent: {
+    runnerId?: string;
+    cwd: string;
+    activity: string;
+    currentTurn: unknown;
+  },
+  runnerStatus?: string
+) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  });
+  clients.push(client);
+  client.setQueryData(["agents"], [{ id: "agt_1", ...agent }]);
+  if (runnerStatus)
+    client.setQueryData(["runners"], [{ id: "run_1", status: runnerStatus }]);
+  return testingRender(
+    <DeliveryMeta
+      block={receipt([{ agentId: "agt_1", state: "held" }])}
+      recipientName={name}
+    />,
+    {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      ),
+    }
+  );
+}
+const remote = { runnerId: "run_1", cwd: "/w" };
 function ui(delivery: BlockDelivery[]) {
   return (
     <>
@@ -49,7 +81,59 @@ function ui(delivery: BlockDelivery[]) {
 afterEach(() => {
   cleanup();
   for (const client of clients.splice(0)) client.clear();
+  api.mockReset();
   vi.useRealTimers();
+});
+describe("held label reason", () => {
+  it("fetches runner status in chat and updates the label after reconnect", async () => {
+    vi.useFakeTimers();
+    api
+      .mockResolvedValueOnce({ runners: [{ id: "run_1", status: "offline" }] })
+      .mockResolvedValueOnce({ runners: [{ id: "run_1", status: "online" }] });
+    renderHeld({ ...remote, activity: "idle", currentTurn: null });
+
+    await act(() => vi.advanceTimersByTimeAsync(10));
+    expect(api).toHaveBeenCalledWith("/api/runners");
+    expect(screen.getByTestId("chat-held-hint").textContent).toBe(
+      "Queued until the runner reconnects"
+    );
+
+    await act(() => vi.advanceTimersByTimeAsync(5_000));
+    expect(api).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("chat-held-hint").textContent).toBe(
+      "Queued until the turn ends"
+    );
+  });
+
+  it("says the runner when an idle remote agent's runner is offline", () => {
+    renderHeld({ ...remote, activity: "idle", currentTurn: null }, "offline");
+    expect(screen.getByTestId("chat-held-hint").textContent).toBe(
+      "Queued until the runner reconnects"
+    );
+  });
+  it("keeps the turn wording while a turn runs, even on an offline runner", () => {
+    renderHeld(
+      { ...remote, activity: "working", currentTurn: { blockId: "b" } },
+      "offline"
+    );
+    expect(screen.getByTestId("chat-held-hint").textContent).toBe(
+      "Queued until the turn ends"
+    );
+  });
+  it("keeps the turn wording for a local agent and an online runner", () => {
+    renderHeld(
+      { cwd: "/repo", activity: "idle", currentTurn: null },
+      "offline"
+    );
+    expect(screen.getByTestId("chat-held-hint").textContent).toBe(
+      "Queued until the turn ends"
+    );
+    cleanup();
+    renderHeld({ ...remote, activity: "idle", currentTurn: null }, "online");
+    expect(screen.getByTestId("chat-held-hint").textContent).toBe(
+      "Queued until the turn ends"
+    );
+  });
 });
 describe("quiet delivery status", () => {
   it("distinguishes requested interruption from confirmation and offers explicit retry on failure", () => {

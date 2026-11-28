@@ -1,13 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
-// Server-defined shape, imported type-only so nothing from the server
-// reaches the web bundle (see use-cached-release-info.ts for the same
-// pattern).
 import type {
-  PluginAgentType,
+  PluginEngine as PluginAgentType,
   PluginStatus,
-} from "../../../server/src/shared/plugin-status";
+} from "@dispatch/runner-protocol/plugin-engines";
+import type { EngineScope } from "@dispatch/runner-protocol/engine-management";
+
+import { engineScopeQuery, LOCAL_ENGINE_SCOPE } from "@/lib/engine-management";
+import { runnerEngineCapability } from "@/lib/engine-management";
 import { toast } from "@/components/ui/toast";
 
 export type { PluginAgentType, PluginStatus };
@@ -17,14 +18,19 @@ export const AGENT_TYPE_LABELS: Record<PluginAgentType, string> = {
   codex: "Codex",
 };
 
-export const PLUGIN_STATUS_QUERY_KEY = ["plugin", "status"] as const;
+export const pluginStatusKey = (scope: EngineScope) =>
+  ["plugin", "status", engineScopeQuery(scope)] as const;
+export const PLUGIN_STATUS_QUERY_KEY = pluginStatusKey(LOCAL_ENGINE_SCOPE);
 
 type PluginStatusResponse = { statuses: PluginStatus[] };
 
-export function usePluginStatus() {
+export function usePluginStatus(scope: EngineScope = LOCAL_ENGINE_SCOPE) {
   return useQuery<PluginStatusResponse>({
-    queryKey: PLUGIN_STATUS_QUERY_KEY,
-    queryFn: () => api<PluginStatusResponse>("/api/v1/plugin/status"),
+    queryKey: pluginStatusKey(scope),
+    queryFn: () =>
+      api<PluginStatusResponse>(
+        `/api/v1/engine-management/plugins?${engineScopeQuery(scope)}`
+      ),
     // The server caches its own check for up to an hour (each check does a
     // git fetch); no need to poll faster than that from here.
     staleTime: 5 * 60 * 1000,
@@ -33,17 +39,27 @@ export function usePluginStatus() {
 
 type UpdatePluginResponse = { status: PluginStatus };
 
-export function useUpdatePlugin(action: "update" | "install" = "update") {
+export function useUpdatePlugin(
+  action: "update" | "install" = "update",
+  scope: EngineScope = LOCAL_ENGINE_SCOPE
+) {
   const queryClient = useQueryClient();
   return useMutation<UpdatePluginResponse, Error, PluginAgentType>({
-    mutationFn: (agentType) =>
-      api<UpdatePluginResponse>(`/api/v1/plugin/${action}`, {
-        method: "POST",
-        body: JSON.stringify({ agentType }),
-      }),
+    mutationFn: async (agentType) => {
+      const { status } = await runnerEngineCapability(
+        scope,
+        {
+          type: action === "install" ? "plugin_install" : "plugin_update",
+          engine: agentType,
+          plugin: "dispatch@dispatch",
+        },
+        "plugin_status"
+      );
+      return { status: { ...status, agentType } };
+    },
     onSuccess: (data) => {
       queryClient.setQueryData<PluginStatusResponse>(
-        PLUGIN_STATUS_QUERY_KEY,
+        pluginStatusKey(scope),
         (prev) => {
           const statuses = prev?.statuses ?? [];
           const next = statuses.filter(
@@ -79,17 +95,20 @@ export function useUpdatePlugin(action: "update" | "install" = "update") {
       // A failed update can still have refreshed the marketplace snapshot
       // server-side (the error surfaces the mutating step, not the
       // refresh). Refetch rather than trust stale client state.
-      void queryClient.invalidateQueries({ queryKey: PLUGIN_STATUS_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: pluginStatusKey(scope) });
     },
   });
 }
 
-export function useRefreshPluginStatus() {
+export function useRefreshPluginStatus(
+  scope: EngineScope = LOCAL_ENGINE_SCOPE
+) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      api<PluginStatusResponse>("/api/v1/plugin/status?refresh=true"),
-    onSuccess: (data) =>
-      queryClient.setQueryData(PLUGIN_STATUS_QUERY_KEY, data),
+      api<PluginStatusResponse>(
+        `/api/v1/engine-management/plugins?${engineScopeQuery(scope)}&refresh=true`
+      ),
+    onSuccess: (data) => queryClient.setQueryData(pluginStatusKey(scope), data),
   });
 }

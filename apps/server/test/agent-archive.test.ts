@@ -1,3 +1,4 @@
+import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -17,31 +18,82 @@ import type {
   WorktreeCleanupMode,
 } from "../src/agents/types.js";
 
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const fs = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...fs,
+    lstat: (path: string, ...options: []) =>
+      path.startsWith("/tmp/wt")
+        ? Promise.resolve({})
+        : fs.lstat(path, ...options),
+  };
+});
+
 vi.mock("../src/agents/lifecycle-hooks.js", () => ({
   runLifecycleHook: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("../src/shared/git/worktree.js", () => ({
+vi.mock("../../../packages/runner/src/workload/shared/git/worktree.js", () => ({
   cleanupGitWorktree: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("../src/shared/git/worktree-status.js", () => ({
-  getUnmergedChanges: vi.fn().mockResolvedValue({
-    hasUnmergedCommits: false,
-    changedFiles: [],
-  }),
-  getUncommittedChanges: vi.fn().mockResolvedValue({
-    hasUncommittedChanges: false,
-    uncommittedFiles: [],
-  }),
-}));
+vi.mock(
+  "../../../packages/runner/src/workload/agents/checkout-inspection.js",
+  () => ({
+    observeGitCheckout: vi.fn(),
+  })
+);
+
+// The local runner's removal port, over the mocked Git cleanup above: these
+// tests are about the archive's sequence. archive-policy.test.ts removes
+// real worktrees through the real port.
+vi.mock(
+  "../../../packages/runner/src/workload/agents/checkout-worker.js",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("../../../packages/runner/src/workload/agents/checkout-worker.js")
+      >();
+    const { lstat } = await import("node:fs/promises");
+    const { cleanupGitWorktree } =
+      await import("../../../packages/runner/src/workload/shared/git/worktree.js");
+    return {
+      ...actual,
+      workspaceWorkload: {
+        ...actual.workspaceWorkload,
+        async release(
+          _session: string,
+          checkout: { path: string },
+          request: { deleteBranch: boolean; originalBranch: string | null }
+        ) {
+          if (!(await lstat(checkout.path).catch(() => null))) return true;
+          await cleanupGitWorktree(
+            { cwd: checkout.path, force: true, ...request },
+            async () => ({ exitCode: 0, stdout: "", stderr: "" })
+          );
+          return true;
+        },
+      },
+    };
+  }
+);
 
 import { runLifecycleHook } from "../src/agents/lifecycle-hooks.js";
-import { cleanupGitWorktree } from "../src/shared/git/worktree.js";
+import { cleanupGitWorktree } from "../../../packages/runner/src/workload/shared/git/worktree.js";
+import { observeGitCheckout } from "../../../packages/runner/src/workload/agents/checkout-inspection.js";
 import {
-  getUnmergedChanges,
-  getUncommittedChanges,
-} from "../src/shared/git/worktree-status.js";
+  controllerPlacement,
+  placementForRunner,
+} from "../src/runners/placement.js";
+
+const cleanCheckout = {
+  path: "/tmp/wt",
+  branch: "feature",
+  stateId: "a".repeat(64),
+  unmerged: false,
+  changedFiles: [],
+  uncommittedFiles: [],
+};
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -69,6 +121,7 @@ const makeAgent = (
   type: "claude",
   role: "standard",
   status: "stopped",
+  placement: controllerPlacement,
   cwd: "/tmp",
   worktreePath: null,
   worktreeBranch: null,
@@ -101,6 +154,7 @@ const makeRuntime = (overrides: Partial<AgentRuntime> = {}): AgentRuntime => ({
   ...createInertRuntime(),
   stop: vi.fn().mockResolvedValue(undefined),
   discard: vi.fn().mockResolvedValue(undefined),
+  clearRemoteState: vi.fn().mockResolvedValue(undefined),
   ...overrides,
 });
 
@@ -122,7 +176,7 @@ const makePool = (queryImpl?: (...args: unknown[]) => unknown) => ({
 
 const makeDeps = (overrides: Partial<ArchiveDeps> = {}): ArchiveDeps => {
   const pool = makePool();
-  return {
+  const deps: ArchiveDeps = {
     pool: pool as never,
     logger: noopLogger,
     runtime: makeRuntime(),
@@ -135,6 +189,38 @@ const makeDeps = (overrides: Partial<ArchiveDeps> = {}): ArchiveDeps => {
     setArchivePhase: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
+  deps.localRunnerChild ??= () =>
+    ({
+      connection: { state: "ready", epoch: 1, onChange: () => () => {} },
+      async call(op: string, input: any) {
+        const agent = await deps.getRequiredAgent(String(input.session));
+        if (op === "session.retire") return {};
+        if (op === "workspace.observe")
+          return {
+            ownership: agent.worktreePath ? "owned" : "external",
+            owner: agent.worktreePath ? agent.id : null,
+            borrowers: [],
+            checkout:
+              !agent.worktreePath || input.policy === "ownership"
+                ? null
+                : await observeGitCheckout(agent.worktreePath!),
+          };
+        if (op === "workspace.release") {
+          await cleanupGitWorktree(
+            {
+              cwd: agent.worktreePath!,
+              force: true,
+              deleteBranch: input.deleteBranch,
+              originalBranch: input.originalBranch,
+            },
+            async () => ({ exitCode: 0, stdout: "", stderr: "" })
+          );
+          return { removed: true };
+        }
+        throw new Error(`Unexpected ${op}`);
+      },
+    }) as never;
+  return deps;
 };
 
 const makeCallbacks = () => ({
@@ -159,7 +245,7 @@ describe("beginArchive", () => {
     expect(result).toBe(agent);
     expect(pool.query).toHaveBeenCalledWith(
       expect.stringContaining("UPDATE agents"),
-      ["a1", "auto"]
+      ["a1", "auto", null]
     );
   });
 
@@ -174,7 +260,7 @@ describe("beginArchive", () => {
 
     expect(pool.query).toHaveBeenCalledWith(
       expect.stringContaining("UPDATE agents"),
-      ["a1", "force"]
+      ["a1", "force", null]
     );
   });
 
@@ -217,7 +303,11 @@ describe("beginArchive", () => {
 
     await beginArchive(deps, "a1");
 
-    expect(pool.query).toHaveBeenCalledWith(expect.any(String), ["a1", "auto"]);
+    expect(pool.query).toHaveBeenCalledWith(expect.any(String), [
+      "a1",
+      "auto",
+      null,
+    ]);
   });
 });
 
@@ -226,14 +316,7 @@ describe("beginArchive", () => {
 describe("executeArchive", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getUnmergedChanges).mockResolvedValue({
-      hasUnmergedCommits: false,
-      changedFiles: [],
-    });
-    vi.mocked(getUncommittedChanges).mockResolvedValue({
-      hasUncommittedChanges: false,
-      uncommittedFiles: [],
-    });
+    vi.mocked(observeGitCheckout).mockResolvedValue(cleanCheckout);
   });
 
   describe("phase transitions", () => {
@@ -310,8 +393,9 @@ describe("executeArchive", () => {
     });
 
     it("preserves the worktree when there are unmerged commits", async () => {
-      vi.mocked(getUnmergedChanges).mockResolvedValue({
-        hasUnmergedCommits: true,
+      vi.mocked(observeGitCheckout).mockResolvedValue({
+        ...cleanCheckout,
+        unmerged: true,
         changedFiles: ["file1.ts", "file2.ts"],
       });
       const agent = makeAgent("a1", {
@@ -331,8 +415,8 @@ describe("executeArchive", () => {
     });
 
     it("preserves the worktree when there are uncommitted changes", async () => {
-      vi.mocked(getUncommittedChanges).mockResolvedValue({
-        hasUncommittedChanges: true,
+      vi.mocked(observeGitCheckout).mockResolvedValue({
+        ...cleanCheckout,
         uncommittedFiles: ["dirty.ts"],
       });
       const agent = makeAgent("a1", {
@@ -352,12 +436,10 @@ describe("executeArchive", () => {
     });
 
     it("preserves worktree when both unmerged and uncommitted changes exist", async () => {
-      vi.mocked(getUnmergedChanges).mockResolvedValue({
-        hasUnmergedCommits: true,
+      vi.mocked(observeGitCheckout).mockResolvedValue({
+        ...cleanCheckout,
+        unmerged: true,
         changedFiles: ["a.ts"],
-      });
-      vi.mocked(getUncommittedChanges).mockResolvedValue({
-        hasUncommittedChanges: true,
         uncommittedFiles: ["b.ts"],
       });
       const agent = makeAgent("a1", {
@@ -378,9 +460,10 @@ describe("executeArchive", () => {
   });
 
   describe("worktree cleanup decision — force mode", () => {
-    it("always cleans up when mode is force, even with outstanding changes", async () => {
-      vi.mocked(getUnmergedChanges).mockResolvedValue({
-        hasUnmergedCommits: true,
+    it("authorizes the observed checkout in force mode even with outstanding changes", async () => {
+      vi.mocked(observeGitCheckout).mockResolvedValue({
+        ...cleanCheckout,
+        unmerged: true,
         changedFiles: ["file.ts"],
       });
       const agent = makeAgent("a1", {
@@ -398,8 +481,24 @@ describe("executeArchive", () => {
       await executeArchive(deps, "a1", makeCallbacks());
 
       expect(cleanupGitWorktree).toHaveBeenCalled();
-      expect(getUnmergedChanges).not.toHaveBeenCalled();
+      expect(observeGitCheckout).not.toHaveBeenCalled();
     });
+  });
+
+  it("archives and keeps the checkout when the built-in runner cannot observe it", async () => {
+    vi.mocked(observeGitCheckout).mockRejectedValueOnce(
+      new Error("Git status unavailable")
+    );
+    const deps = makeDeps({
+      getRequiredAgent: vi.fn().mockResolvedValue(
+        makeAgent("a1", {
+          worktreePath: "/tmp/wt",
+          archiveCleanupMode: "auto",
+        })
+      ),
+    });
+    await executeArchive(deps, "a1", makeCallbacks());
+    expect(cleanupGitWorktree).not.toHaveBeenCalled();
   });
 
   describe("worktree cleanup decision — keep mode", () => {
@@ -418,8 +517,7 @@ describe("executeArchive", () => {
       await executeArchive(deps, "a1", makeCallbacks());
 
       expect(cleanupGitWorktree).not.toHaveBeenCalled();
-      expect(getUnmergedChanges).not.toHaveBeenCalled();
-      expect(getUncommittedChanges).not.toHaveBeenCalled();
+      expect(observeGitCheckout).not.toHaveBeenCalled();
     });
   });
 
@@ -525,7 +623,7 @@ describe("executeArchive", () => {
       await executeArchive(deps, "a1", makeCallbacks());
 
       expect(cleanupGitWorktree).not.toHaveBeenCalled();
-      expect(getUnmergedChanges).not.toHaveBeenCalled();
+      expect(observeGitCheckout).not.toHaveBeenCalled();
     });
   });
 
@@ -547,7 +645,8 @@ describe("executeArchive", () => {
 
       expect(runtime.stop).toHaveBeenCalledWith("a1", true);
       expect(settleStream).toHaveBeenCalledWith("a1");
-      expect(runtime.discard).toHaveBeenCalledWith("a1");
+      expect(runtime.discard).not.toHaveBeenCalled();
+      expect(runtime.clearRemoteState).toHaveBeenCalledWith("a1");
     });
 
     it("continues the archive when stopping the host fails", async () => {
@@ -586,7 +685,9 @@ describe("executeArchive", () => {
       expect(runLifecycleHook).toHaveBeenCalledWith(
         "stop",
         agent,
-        expect.anything()
+        expect.anything(),
+        { remote: undefined, child: deps.localRunnerChild },
+        undefined
       );
     });
 
@@ -629,12 +730,75 @@ describe("executeArchive", () => {
         expect(runLifecycleHook).toHaveBeenCalledWith(
           "archive",
           agent,
-          expect.anything()
+          expect.anything(),
+          expect.anything(),
+          undefined
         );
         expect(cleanupGitWorktree).not.toHaveBeenCalled();
         expect(callbacks.onComplete).toHaveBeenCalledWith(["a1"]);
       }
     );
+
+    it.each(["unavailable", "unknown_outcome", "failed"] as const)(
+      "retains an enrolled agent when its hook returns %s",
+      async (code) => {
+        const failure = new RunnerCallError({
+          code,
+          message: "archive hook failed",
+        });
+        const agent = makeAgent("a1", {
+          cwd: "/runner/checkout",
+          placement: placementForRunner("test"),
+        });
+        const pool = makePool();
+        const deps = makeDeps({
+          pool: pool as never,
+          getRequiredAgent: vi.fn().mockResolvedValue(agent),
+        });
+        const callbacks = makeCallbacks();
+        vi.mocked(runLifecycleHook)
+          .mockResolvedValueOnce(undefined)
+          .mockRejectedValueOnce(failure);
+        await executeArchive(deps, agent.id, callbacks);
+        expect(callbacks.onComplete).not.toHaveBeenCalled();
+        expect(
+          pool.query.mock.calls.some(([sql]) =>
+            String(sql).includes("SET deleted_at = NOW()")
+          )
+        ).toBe(false);
+        if (code === "unavailable") {
+          expect(deps.setAgentStatus).not.toHaveBeenCalled();
+          await executeArchive(deps, agent.id, callbacks);
+          expect(callbacks.onComplete).toHaveBeenCalledOnce();
+        } else {
+          expect(deps.setAgentStatus).toHaveBeenCalledWith(
+            agent.id,
+            "error",
+            failure.message
+          );
+          expect(callbacks.onError).toHaveBeenCalledWith(failure);
+        }
+      }
+    );
+
+    it("skips repository archive hooks for a borrower", async () => {
+      const agent = makeAgent("borrower");
+      const pool = makePool(async (sql) =>
+        String(sql).includes("AS borrowed")
+          ? { rows: [{ borrowed: true }] }
+          : defaultQueryImpl(sql)
+      );
+      const deps = makeDeps({
+        pool: pool as never,
+        getRequiredAgent: vi.fn().mockResolvedValue(agent),
+      });
+      const callbacks = makeCallbacks();
+      await executeArchive(deps, agent.id, callbacks);
+      expect(
+        vi.mocked(runLifecycleHook).mock.calls.map(([name]) => name)
+      ).not.toContain("archive");
+      expect(callbacks.onComplete).toHaveBeenCalledOnce();
+    });
 
     it("surfaces a cleanup failure and leaves the agent available for a retry", async () => {
       const failure = new Error("database volume is in use");
@@ -908,8 +1072,8 @@ describe("executeArchive", () => {
         worktreePath: "/tmp/wt-child",
         worktreeBranch: "agt/child",
       });
-      vi.mocked(getUncommittedChanges).mockResolvedValue({
-        hasUncommittedChanges: true,
+      vi.mocked(observeGitCheckout).mockResolvedValue({
+        ...cleanCheckout,
         uncommittedFiles: ["src/wip.ts"],
       });
 
@@ -931,6 +1095,73 @@ describe("executeArchive", () => {
         expect.any(Function)
       );
     });
+
+    it.each([
+      { ownership: "owned", online: true, release: true, pending: false },
+      { ownership: "owned", online: false, release: false, pending: true },
+      { ownership: "borrowed", online: true, release: false, pending: false },
+    ] as const)(
+      "archives a runner child according to its binding ($ownership, online $online)",
+      async ({ ownership, online, release, pending }) => {
+        const parent = makeAgent("parent");
+        const child = makeAgent("child", {
+          parentAgentId: parent.id,
+          cwd: "/runner/checkout",
+          placement: placementForRunner("runner"),
+        });
+        const pool = makeChildQueryPool([
+          { id: child.id, parentAgentId: parent.id },
+        ]);
+        const lookup = makeAgentLookup([parent, child]);
+        const call = vi.fn(
+          async (_runner: string, op: string, input: { session: string }) => {
+            expect(input.session).toBe(child.id);
+            if (op === "workspace.observe")
+              return {
+                ownership,
+                owner: ownership === "owned" ? child.id : parent.id,
+                borrowers: [],
+                checkout: {
+                  ...cleanCheckout,
+                  uncommittedFiles: ["src/wip.ts"],
+                },
+              };
+            if (op === "workspace.release") return { removed: true };
+            if (op === "session.retire") return {};
+            throw new Error("Unexpected operation " + op);
+          }
+        );
+        const callbacks = makeCallbacks();
+        await executeArchive(
+          makeDeps({
+            pool: pool as never,
+            getRequiredAgent: lookup,
+            getAgent: lookup,
+            remote: {
+              call,
+              connectionEpoch: () => (online ? 1 : undefined),
+            } as never,
+          }),
+          parent.id,
+          callbacks
+        );
+        expect(call.mock.calls.map(([, op]) => op)).toEqual(
+          online
+            ? release
+              ? ["workspace.observe", "workspace.release", "session.retire"]
+              : ["workspace.observe", "session.retire"]
+            : ["session.retire"]
+        );
+        expect(pool.query).toHaveBeenCalledWith(
+          expect.stringContaining("runner_cleanup_pending = $2"),
+          [child.id, pending]
+        );
+        expect(callbacks.onComplete).toHaveBeenCalledWith([
+          parent.id,
+          child.id,
+        ]);
+      }
+    );
 
     it("clears child worktrees even when the parent's own is kept", async () => {
       // "keep" is an answer about the parent's own worktree.
@@ -975,7 +1206,7 @@ describe("executeArchive", () => {
       });
 
       const pool = makePool(async (sql: string, params?: unknown[]) => {
-        if (sql.includes("worktree_path = $2")) {
+        if (sql.includes("SELECT id FROM agents WHERE deleted_at")) {
           // A second live row points at the same worktree.
           return { rows: [{ id: "other" }], rowCount: 1 };
         }
@@ -1028,8 +1259,7 @@ describe("executeArchive", () => {
           if (
             childFailed &&
             params?.[0] === parent.id &&
-            (params[3] as string[] | undefined)?.includes(checkout) &&
-            sql.includes(`OR ${column} = ANY($4::text[])`)
+            sql.includes("SELECT id FROM agents WHERE deleted_at")
           ) {
             return { rows: [{ id: child.id }], rowCount: 1 };
           }
@@ -1160,7 +1390,7 @@ describe("executeArchive", () => {
       expect(cb.onComplete).toHaveBeenCalled();
       expect(noopLogger.warn).toHaveBeenCalledWith(
         expect.objectContaining({ agentId: "a1" }),
-        "Worktree cleanup failed; leaving on disk."
+        "Runner checkout release remains pending."
       );
     });
   });
@@ -1206,7 +1436,7 @@ describe("deleteAgentDirect", () => {
     vi.clearAllMocks();
   });
 
-  it("deletes a stopped agent without tearing down a host", async () => {
+  it("confirms even a recorded stopped host before archive cleanup", async () => {
     const agent = makeAgent("a1", { status: "stopped" });
     const pool = makePool();
     const runtime = makeRuntime();
@@ -1218,15 +1448,17 @@ describe("deleteAgentDirect", () => {
 
     await deleteAgentDirect(deps, "a1");
 
-    expect(runtime.stop).not.toHaveBeenCalled();
+    expect(runtime.stop).toHaveBeenCalledWith("a1", true);
     expect(runLifecycleHook).toHaveBeenCalledExactlyOnceWith(
       "archive",
       agent,
-      expect.anything()
+      expect.anything(),
+      expect.anything(),
+      undefined
     );
     expect(pool.query).toHaveBeenCalledWith(
       expect.stringContaining("SET deleted_at = NOW()"),
-      ["a1"]
+      ["a1", false]
     );
   });
 
@@ -1245,7 +1477,8 @@ describe("deleteAgentDirect", () => {
     // stopAgent would write `stopping`/`stopped` and release the claim.
     expect(runtime.stop).toHaveBeenCalledWith("a1", true);
     expect(deps.settleStream).toHaveBeenCalledWith("a1");
-    expect(runtime.discard).toHaveBeenCalledWith("a1");
+    expect(runtime.discard).not.toHaveBeenCalled();
+    expect(runtime.clearRemoteState).toHaveBeenCalledWith("a1");
     expect(runLifecycleHook).toHaveBeenCalled();
     const statuses = pool.query.mock.calls
       .map(([sql]: [string]) => sql)
@@ -1271,7 +1504,7 @@ describe("deleteAgentDirect", () => {
 
     expect(pool.query).toHaveBeenCalledWith(
       expect.stringContaining("SET deleted_at = NOW()"),
-      ["a1"]
+      ["a1", true]
     );
   });
 
@@ -1416,4 +1649,32 @@ describe("deleteAgentDirect", () => {
     );
     expect(childDeleteCalls).toHaveLength(1);
   });
+});
+
+it("archives an offline managed session with pending cleanup recorded in the same write", async () => {
+  const runtime = makeRuntime({
+    stop: vi.fn().mockRejectedValue(new Error("runner offline")),
+  });
+  const deps = makeDeps({
+    runtime,
+    getRequiredAgent: vi.fn().mockResolvedValue(
+      makeAgent("remote", {
+        cwd: "/runner/sessions/checkout",
+        placement: placementForRunner("runner"),
+        status: "archiving",
+      })
+    ),
+  });
+  const onComplete = vi.fn();
+  await executeArchive(deps, "remote", {
+    onComplete,
+    onPhaseChange: vi.fn(),
+    onError: vi.fn(),
+  });
+  expect(runtime.discard).not.toHaveBeenCalled();
+  expect(deps.pool.query).toHaveBeenCalledWith(
+    expect.stringContaining("runner_cleanup_pending = $2"),
+    ["remote", true]
+  );
+  expect(onComplete).toHaveBeenCalledWith(["remote"]);
 });

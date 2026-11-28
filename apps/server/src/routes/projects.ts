@@ -1,14 +1,34 @@
 import type { TaskService } from "../tasks/service.js";
 import type { PublishUiEvent } from "../server/ui-events.js";
-import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 import * as z from "zod/v4";
+import {
+  inferProjectRepository,
+  projectRepositoryUrl,
+} from "../agents/remote/repository.js";
+import type { AgentManager } from "../agents/manager.js";
+import {
+  detectAgentIcon,
+  iconTarget,
+  readAgentIcon,
+} from "../agents/checkout-icon.js";
+import { sessionRunner } from "../agents/checkout-runner.js";
+import {
+  runnerDirectory,
+  type CheckoutCommandRunners,
+} from "../runners/directory.js";
+import { controllerPlacement } from "../runners/placement.js";
+import {
+  pathFromWire,
+  displayPath,
+  type Runner,
+  type Target,
+} from "@dispatch/runner-protocol/contract";
 import { ProjectStore } from "../projects/store.js";
 import { parseInput } from "../shared/lib/parse-input.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
-import { detectRepoIcon } from "../shared/repo-icon.js";
 import { parseUserAvatar } from "../user-avatar-settings.js";
 const appearance = z.object({
   name: z.string().trim().min(1).max(80),
@@ -24,28 +44,97 @@ const appearance = z.object({
       "Choose a valid prepared icon image."
     ),
 });
-export { resolveProjectRoot } from "../projects/resolve-root.js";
-import { resolveProjectRoot } from "../projects/resolve-root.js";
+/** Folder inputs to this controller belong to its own runner (D7). */
+export async function resolveProjectRoot(
+  input: string,
+  runners: CheckoutCommandRunners = {}
+): Promise<string> {
+  const expanded = resolveTilde(input);
+  // Prefix rather than path.resolve: preserve the kernel's symlink/.. rules.
+  const absolute =
+    expanded && !path.isAbsolute(expanded)
+      ? `${process.cwd()}${path.sep}${expanded}`
+      : expanded;
+  const result = await runnerDirectory(runners)
+    .for(controllerPlacement)
+    .call("path.resolve", { path: absolute, git: false, projectRoot: true });
+  if (result.projectRootError !== undefined) {
+    let message = result.projectRootError;
+    const suffix = ` '${absolute}'`;
+    // Node names realpath; Bun names its lstat. Keep the native label and
+    // the path spelling main passed, despite anchoring the RPC request.
+    if (
+      absolute !== expanded &&
+      /^[A-Z][A-Z0-9_]+: .*?, (?:realpath|lstat) '/.test(message) &&
+      message.endsWith(suffix)
+    )
+      message = message.slice(0, -suffix.length) + ` '${expanded}'`;
+    throw new Error(message);
+  }
+  if (result.projectRoot === null)
+    throw new Error("Runner did not return a project root.");
+  return displayPath(result.projectRoot);
+}
 
-async function readRepositoryIcon(repoRoot: string) {
+const MAX_ICON_BYTES = 2 * 1024 * 1024;
+
+function iconMime(icon: string) {
+  const ext = path.extname(icon).toLowerCase();
+  return ext === ".svg"
+    ? "image/svg+xml"
+    : ext === ".png"
+      ? "image/png"
+      : "image/x-icon";
+}
+
+/** The icon in a checkout as its runner reads it, with main's limits. */
+async function readCheckoutIcon(runner: Runner, target: Target) {
   try {
-    const root = await realpath(resolveTilde(repoRoot));
-    const icon = await detectRepoIcon(root);
+    const icon = await detectAgentIcon(runner, target);
     if (!icon) return null;
-    const iconPath = await realpath(path.join(root, icon));
-    if (!iconPath.startsWith(root + path.sep)) return null;
-    const bytes = await readFile(iconPath);
-    if (!bytes.length || bytes.length > 2 * 1024 * 1024) return null;
-    const mime =
-      path.extname(icon).toLowerCase() === ".svg"
-        ? "image/svg+xml"
-        : path.extname(icon).toLowerCase() === ".png"
-          ? "image/png"
-          : "image/x-icon";
-    return { bytes, mime, path: icon };
+    const bytes = await readAgentIcon(runner, target, icon);
+    if (
+      !Buffer.isBuffer(bytes) ||
+      !bytes.length ||
+      bytes.length > MAX_ICON_BYTES
+    )
+      return null;
+    return { bytes, mime: iconMime(icon), path: icon };
   } catch {
     return null;
   }
+}
+
+type IconAgents = Pick<AgentManager, "getAgent" | "checkoutReadRunners">;
+
+/**
+ * A project's repository icon, read through its runner: a folder on the
+ * runner that holds it; a project with no folder through its newest agent's
+ * launch checkout on that agent's runner, the agent main's folder history
+ * links a folder's icon through.
+ */
+async function readProjectIcon(
+  pool: Pool,
+  agents: IconAgents | undefined,
+  project: { id?: string; repoRoot: string | null }
+) {
+  const runners = agents?.checkoutReadRunners() ?? {};
+  if (project.repoRoot) {
+    const folder = resolveTilde(project.repoRoot);
+    return readCheckoutIcon(runnerDirectory(runners).for(controllerPlacement), {
+      path: pathFromWire(folder),
+    });
+  }
+  if (!agents || !project.id) return null;
+  const newest = (
+    await pool.query<{ id: string }>(
+      "SELECT id FROM agents WHERE project_id=$1 ORDER BY created_at DESC LIMIT 1",
+      [project.id]
+    )
+  ).rows[0];
+  const agent = newest && (await agents.getAgent(newest.id));
+  if (!agent) return null;
+  return readCheckoutIcon(sessionRunner(runners, agent), iconTarget(agent));
 }
 
 export async function registerProjectRoutes(
@@ -54,8 +143,11 @@ export async function registerProjectRoutes(
     pool,
     publishUiEvent,
     taskService,
+    agents,
   }: {
     pool: Pool;
+    /** Reads a folderless project's icon through its newest agent. */
+    agents?: IconAgents;
     publishUiEvent: PublishUiEvent;
     taskService: Pick<
       TaskService,
@@ -66,18 +158,58 @@ export async function registerProjectRoutes(
   const store = new ProjectStore(pool);
   const snapshotRepositoryIcon = async (project: {
     id: string;
-    repoRoot: string;
+    repoRoot: string | null;
     iconOverride: string | null;
   }) => {
     if (project.iconOverride) return;
-    const icon = await readRepositoryIcon(project.repoRoot);
+    const icon = await readProjectIcon(pool, agents, project);
     if (icon)
       await pool.query(
         "UPDATE projects SET icon_data=$2, icon_mime=$3 WHERE id=$1",
         [project.id, icon.bytes, icon.mime]
       );
   };
-  app.get("/api/v1/projects", () => store.list());
+  app.get<{ Querystring: { repository?: string } }>(
+    "/api/v1/projects",
+    async (request, reply) => {
+      const projects = await store.list();
+      if (request.query.repository === undefined) return projects;
+      let repository: string;
+      try {
+        repository = projectRepositoryUrl(request.query.repository);
+      } catch {
+        return reply
+          .code(400)
+          .send({ error: "Choose a valid HTTPS repository URL." });
+      }
+      const matches = await Promise.all(
+        projects.map(async (project) =>
+          (await store.getRepository(project.id))?.url === repository
+            ? project
+            : null
+        )
+      );
+      return matches.filter((project) => project !== null);
+    }
+  );
+  app.get<{ Params: { id: string } }>(
+    "/api/v1/projects/:id",
+    async (request, reply) => {
+      return (
+        (await store.get(request.params.id)) ??
+        reply.code(404).send({ error: "Project not found." })
+      );
+    }
+  );
+  app.get<{ Params: { id: string } }>(
+    "/api/v1/projects/:id/repository",
+    async (request, reply) => {
+      return (
+        (await store.getRepository(request.params.id)) ??
+        reply.code(404).send({ error: "Project not found." })
+      );
+    }
+  );
   app.get<{ Querystring: { repoRoot?: string; projectId?: string } }>(
     "/api/v1/projects/icon-preview",
     async (request, reply) => {
@@ -90,8 +222,14 @@ export async function registerProjectRoutes(
       // in-progress input simply has no preview; saved offline icons still work.
       const root =
         saved?.repoRoot ??
-        (await resolveProjectRoot(request.query.repoRoot!).catch(() => null));
-      const icon = root ? await readRepositoryIcon(root) : null;
+        (await resolveProjectRoot(
+          request.query.repoRoot!,
+          agents?.checkoutReadRunners() ?? {}
+        ).catch(() => null));
+      const icon =
+        saved || root
+          ? await readProjectIcon(pool, agents, saved ?? { repoRoot: root })
+          : null;
       if (icon)
         return {
           dataUrl: `data:${icon.mime};base64,${icon.bytes.toString("base64")}`,
@@ -116,34 +254,114 @@ export async function registerProjectRoutes(
     }
   );
   app.post("/api/v1/projects", async (request, reply) => {
+    const byRepository =
+      request.body != null &&
+      typeof request.body === "object" &&
+      "repository" in request.body;
     const input = parseInput(
-      appearance.extend({ repoRoot: z.string().min(1) }),
+      byRepository
+        ? appearance.extend({
+            repoRoot: z.undefined(),
+            repository: z.string().trim().min(1),
+          })
+        : appearance.extend({
+            repoRoot: z.string().min(1),
+            repository: z.undefined(),
+          }),
       request.body,
       reply
     );
     if (!input) return;
     try {
-      const repoRoot = await resolveProjectRoot(input.repoRoot);
-      const result = await store.create({ ...input, repoRoot });
+      const repoRoot = input.repoRoot
+        ? await resolveProjectRoot(
+            input.repoRoot,
+            agents?.checkoutReadRunners() ?? {}
+          )
+        : null;
+      const repository =
+        input.repository !== undefined
+          ? projectRepositoryUrl(input.repository)
+          : repoRoot &&
+            (await inferProjectRepository(
+              repoRoot,
+              agents?.checkoutReadRunners() ?? {}
+            ));
+      const result = await store.create({ ...input, repoRoot, repository });
       await snapshotRepositoryIcon(result);
       publishUiEvent({ type: "project.changed" });
       return result;
     } catch (error) {
-      const code = (error as { code?: string }).code;
+      const { code, constraint } = error as {
+        code?: string;
+        constraint?: string;
+      };
       return reply.code(code === "23505" ? 409 : 400).send({
         error:
           code === "23505"
-            ? "This folder already has a project."
-            : "Choose an existing folder.",
+            ? constraint === "projects_repository_key"
+              ? "This repository already has a project."
+              : "This folder already has a project."
+            : input.repository !== undefined
+              ? "Choose a valid HTTPS repository URL."
+              : "Choose an existing folder.",
       });
     }
   });
   app.patch<{ Params: { id: string } }>(
     "/api/v1/projects/:id",
     async (request, reply) => {
-      const input = parseInput(appearance, request.body, reply);
+      const input = parseInput(
+        appearance.extend({ repoRoot: z.string().optional() }),
+        request.body,
+        reply
+      );
       if (!input) return;
-      const result = await store.update(request.params.id, input);
+      const existing = await store.get(request.params.id);
+      if (!existing)
+        return reply.code(404).send({ error: "Project not found." });
+      const folder = input.repoRoot?.trim() ? input.repoRoot : undefined;
+      let repoRoot: string | undefined;
+      if (folder && existing.repoRoot && folder !== existing.repoRoot)
+        return reply
+          .code(400)
+          .send({ error: "This project already has a folder." });
+      if (folder && !existing.repoRoot) {
+        try {
+          repoRoot = await resolveProjectRoot(
+            folder,
+            agents?.checkoutReadRunners() ?? {}
+          );
+        } catch {
+          return reply.code(400).send({ error: "Choose an existing folder." });
+        }
+        const repository = await store.getRepository(existing.id);
+        const origin = await inferProjectRepository(
+          repoRoot,
+          agents?.checkoutReadRunners() ?? {}
+        );
+        if (
+          !repository?.url ||
+          !origin ||
+          projectRepositoryUrl(origin) !== projectRepositoryUrl(repository.url)
+        )
+          return reply.code(400).send({
+            error: "Folder repository does not match this project.",
+          });
+      }
+      let result;
+      try {
+        result = await store.update(request.params.id, { ...input, repoRoot });
+      } catch (error) {
+        if ((error as { code?: string }).code !== "23505") throw error;
+        return reply
+          .code(409)
+          .send({ error: "This folder already has a project." });
+      }
+      if (!result && (await store.get(request.params.id)))
+        return reply
+          .code(409)
+          .send({ error: "This project already has a folder." });
       if (result) {
         await snapshotRepositoryIcon(result);
         publishUiEvent({ type: "project.changed" });
@@ -201,7 +419,7 @@ export async function registerProjectRoutes(
           .type(cached.icon_mime)
           .send(cached.icon_data);
       }
-      const icon = await readRepositoryIcon(project.repoRoot);
+      const icon = await readProjectIcon(pool, agents, project);
       if (!icon) return reply.code(404).send();
       await pool.query(
         "UPDATE projects SET icon_data=$2, icon_mime=$3 WHERE id=$1",

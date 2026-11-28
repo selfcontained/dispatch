@@ -1,3 +1,4 @@
+import { useTemplateTarget } from "./use-template-target";
 import { type Project, useProjectScope } from "@/hooks/use-projects";
 import { useCallback, useState } from "react";
 
@@ -53,11 +54,12 @@ function CreateTemplateDialogContent({
   const scope = useProjectScope();
   const project = projectOverride ?? scope.project;
   const { addTemplate } = useTemplateActions();
-  const { draft, fieldProps } = useTemplateDraft({
+  const { draft, setDraft, fieldProps } = useTemplateDraft({
     ...EMPTY_TEMPLATE_DRAFT,
     projectId: project?.id ?? null,
     directory: project?.repoRoot ?? "",
   });
+  const target = useTemplateTarget(draft, setDraft);
   const [creating, setCreating] = useState(false);
   const [failure, setFailure] = useState<unknown>();
   const { add: addCwdHistory } = useCwdHistory();
@@ -71,10 +73,13 @@ function CreateTemplateDialogContent({
         directory: draft.directory,
         model: draft.model,
         ...templateConfigFromDraft(draft),
+        ...target.launch.fields,
         ...(projectOverride && {
           projectId: projectOverride.id,
-          directory: projectOverride.repoRoot,
+          directory:
+            target.data.data?.directory ?? projectOverride.repoRoot ?? "",
         }),
+        ...target.data.data?.defaults.templateFields,
       })
       .then((template) => {
         addCwdHistory(draft.directory);
@@ -90,11 +95,28 @@ function CreateTemplateDialogContent({
     addCwdHistory,
     onCreated,
     onOpenChange,
+    target.launch.fields,
+    target.data.data?.directory,
+    target.data.data?.defaults.templateFields,
   ]);
 
   const canCreate =
     draft.name.trim() &&
-    (projectOverride ? projectOverride.repoRoot : draft.directory).trim();
+    target.launch.selectionReady &&
+    (target.launch.target?.location.folders === false
+      ? Boolean(
+          draft.projectId &&
+          target.launch.target?.location.projects?.some(
+            (p) => p.id === draft.projectId
+          )
+        )
+      : Boolean(
+          (projectOverride?.repoRoot ?? draft.directory).trim() ||
+          (draft.projectId &&
+            target.launch.target?.location.projects?.some(
+              (p) => p.id === draft.projectId
+            ))
+        ));
 
   return (
     <DialogContent
@@ -123,6 +145,7 @@ function CreateTemplateDialogContent({
       <DialogBody>
         <TemplateConfigFields
           {...fieldProps}
+          target={target}
           enabledAgentTypes={enabledAgentTypes}
           lockedLocation={projectOverride}
           autoFocusName

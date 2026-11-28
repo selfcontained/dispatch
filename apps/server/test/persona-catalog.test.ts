@@ -1,21 +1,38 @@
+import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import {
+  defaultBranchFiles,
+  inspectCheckout,
+} from "./helpers/checkout-inspection.js";
 import { createPersonaHandlers } from "../src/server/mcp-persona-handlers.js";
+import { DefaultBranchFiles } from "./helpers/default-branch-files.js";
+import { RunnerCapabilityUnavailable } from "../src/agents/remote/service.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readdir,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
   PersonaCatalogCache,
   PERSONA_REFRESH_MS,
-  personaCatalog,
-} from "../src/personas/catalog.js";
+} from "./helpers/persona-catalog.js";
 import {
   runCommand,
   type CommandRunner,
 } from "../src/shared/lib/run-command.js";
+import { listPersonas, resolvePersona } from "../src/personas/resolve.js";
+
 import {
-  discoverPersonas,
-  resolveLaunchPersona,
-} from "../src/personas/resolve.js";
+  launchPersonaScope,
+  personaScopeFor,
+} from "./helpers/persona-scope.js";
 
 let directory: string,
   remote: string,
@@ -144,21 +161,110 @@ describe("shared remote persona catalog", () => {
       if (args.includes("fetch")) await held;
       return runner(command, args, options);
     };
-    const cache = new PersonaCatalogCache(delayed);
+    const cache = new DefaultBranchFiles(delayed);
     const spy = vi
-      .spyOn(personaCatalog, "get")
-      .mockImplementation((cwd, wait) => cache.get(cwd, wait));
-    const handlers = createPersonaHandlers({} as never);
+      .spyOn(defaultBranchFiles, "get")
+      .mockImplementation((cwd, directories, wait) =>
+        cache.get(cwd, directories, wait)
+      );
+    const handlers = createPersonaHandlers({
+      agentManager: {
+        getAgent: async () => ({ cwd: checkout }),
+        inspectCheckout: (
+          _agent: unknown,
+          query: Parameters<typeof inspectCheckout>[1]
+        ) => inspectCheckout(checkout, query),
+      },
+    } as never);
     try {
-      const result = await handlers.listPersonas(checkout);
+      const result = await handlers.listPersonas("author");
       expect(result.warnings.join()).toContain("refreshing in the background");
       expect(fetches).toBe(0);
     } finally {
       release();
-      await cache.get(checkout, true);
+      await cache.get(checkout, [".agents/personas"], true);
       spy.mockRestore();
     }
   });
+  it.each(["local", "runner"])(
+    "lists and resolves a %s session's personas with checkout precedence",
+    async (placement) => {
+      await publish("default instructions");
+      const agent = {
+        id: "author",
+        cwd: placement === "local" ? worktree : "/srv/checkout",
+      } as never;
+      const manager = {
+        getAgent: async () => agent,
+        inspectCheckout: (
+          _agent: unknown,
+          query: Parameters<typeof inspectCheckout>[1]
+        ) => inspectCheckout(worktree, query),
+      } as never;
+      const handlers = createPersonaHandlers({
+        agentManager: manager,
+      } as never);
+      expect(
+        (await resolvePersona(personaScopeFor({ manager, agent }), "builder"))
+          .body
+      ).toBe("default instructions");
+      expect((await handlers.listPersonas("author")).personas).toContainEqual(
+        expect.objectContaining({ slug: "builder", name: "builder" })
+      );
+      await mkdir(path.join(worktree, ".agents/personas"), { recursive: true });
+      await writeFile(
+        path.join(worktree, ".agents/personas/builder.md"),
+        "---\ntype: task\nname: Local Builder\n---\ncheckout instructions"
+      );
+      expect((await handlers.listPersonas("author")).personas).toContainEqual(
+        expect.objectContaining({ slug: "builder", name: "Local Builder" })
+      );
+      expect(
+        (await resolvePersona(personaScopeFor({ manager, agent }), "builder"))
+          .body
+      ).toBe("checkout instructions");
+    }
+  );
+
+  it("keeps checkout personas and built-ins available to an older runner", async () => {
+    const agent = { id: "author", cwd: "/srv/checkout" } as never;
+    const manager = {
+      getAgent: async () => agent,
+      inspectCheckout: async (
+        _agent: unknown,
+        query: { kind: string; path?: string }
+      ) => {
+        if (query.kind === "defaultBranchFiles")
+          throw new RunnerCapabilityUnavailable(
+            "Update the runner to read default-branch files."
+          );
+        if (query.kind === "listFiles")
+          return {
+            kind: "listFiles",
+            names: query.path === ".agents/personas" ? ["local.md"] : [],
+          };
+        return {
+          kind: "readFile",
+          content:
+            query.path === ".agents/personas/local.md"
+              ? "Checkout instructions"
+              : null,
+        };
+      },
+    } as never;
+    const handlers = createPersonaHandlers({ agentManager: manager } as never);
+    const list = await handlers.listPersonas("author");
+    expect(list.personas.map(({ slug }) => slug)).toEqual([
+      "local",
+      "code-review",
+    ]);
+    expect(list.warnings.join()).toContain("Update the runner");
+    expect(
+      (await resolvePersona(personaScopeFor({ manager, agent }), "code-review"))
+        .slug
+    ).toBe("code-review");
+  });
+
   it("does not reuse definitions after origin changes", async () => {
     await publish("first origin");
     const cache = new PersonaCatalogCache(runner, () => now);
@@ -190,6 +296,38 @@ describe("shared remote persona catalog", () => {
     await new PersonaCatalogCache(runner, () => now).get(checkout, true);
     expect(fetches).toBe(3);
   });
+  it("reuses a pinned snapshot from the legacy cache while offline", async () => {
+    await publish("retained from legacy cache");
+    const initial = new PersonaCatalogCache(runner, () => now);
+    await initial.get(checkout, true);
+    const base = path.join(checkout, ".git/dispatch");
+    const snapshotDir = path.join(base, "default-branch");
+    const legacyDir = path.join(base, "persona-catalog");
+    const [file] = await readdir(snapshotDir);
+    const metadata = JSON.parse(
+      await readFile(path.join(snapshotDir, file), "utf8")
+    );
+    await mkdir(legacyDir);
+    await writeFile(
+      path.join(legacyDir, file),
+      JSON.stringify({
+        ...metadata,
+        personas: [],
+        warnings: [],
+      })
+    );
+    await rm(snapshotDir, { recursive: true });
+    rejectFetch = true;
+    now += PERSONA_REFRESH_MS + 1;
+    const restarted = await new PersonaCatalogCache(runner, () => now).get(
+      worktree,
+      true
+    );
+    expect(restarted.personas[0].body).toBe("retained from legacy cache");
+    expect(restarted.warnings.join()).toContain("Could not refresh");
+    expect(fetches).toBe(2);
+  });
+
   it("drops deleted definitions after a successful refresh and retains other valid files", async () => {
     await publish("one");
     const cache = new PersonaCatalogCache(runner, () => now);
@@ -208,6 +346,63 @@ describe("shared remote persona catalog", () => {
     expect(result.personas.map((p) => p.slug)).toEqual(["replacement"]);
     expect(result.warnings.join()).toContain("bad.md");
   });
+  it("counts only Markdown personas toward the default-branch file cap", async () => {
+    const personas = path.join(author, ".agents/personas");
+    await mkdir(personas, { recursive: true });
+    await Promise.all(
+      Array.from({ length: 100 }, (_, index) =>
+        writeFile(path.join(personas, `a-${index}.txt`), "supporting text")
+      )
+    );
+    await publish("instructions", "z");
+
+    const result = await new PersonaCatalogCache(runner, () => now).get(
+      checkout,
+      true
+    );
+    expect(result.personas.map(({ slug }) => slug)).toEqual(["z"]);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("counts raw Git blob sizes toward the default-branch byte cap", async () => {
+    const personas = path.join(author, ".agents/personas");
+    await mkdir(personas, { recursive: true });
+    const header = "---\ntype: task\n---\n";
+    const content = header + '"'.repeat(256 * 1024 - header.length);
+    const slugs = Array.from(
+      { length: 16 },
+      (_, index) => `persona-${String(index).padStart(2, "0")}`
+    );
+    await Promise.all(
+      slugs.map((slug) => writeFile(path.join(personas, `${slug}.md`), content))
+    );
+    await git(author, "add", ".");
+    await git(author, "commit", "-m", "Catalog with 4 MiB of raw Markdown");
+    await git(author, "push", "origin", "trunk");
+
+    const result = await new PersonaCatalogCache(runner, () => now).get(
+      checkout,
+      true
+    );
+    expect(result.personas.map(({ slug }) => slug)).toEqual(slugs);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("names a committed persona symlink in a warning instead of skipping it", async () => {
+    await publish("one");
+    await symlink("builder.md", path.join(author, ".agents/personas/alias.md"));
+    await git(author, "add", ".");
+    await git(author, "commit", "-m", "symlink");
+    await git(author, "push");
+    const result = await new PersonaCatalogCache(runner, () => now).get(
+      checkout,
+      true
+    );
+    expect(result.personas.map((p) => p.slug)).toEqual(["builder"]);
+    expect(result.warnings).toEqual([
+      "Could not load persona .agents/personas/alias.md: unsupported file or larger than 256 KiB.",
+    ]);
+  });
   it("uses worktree overrides for existing agents but the catalog for new launches", async () => {
     await publish("remote");
     await mkdir(path.join(worktree, ".agents/personas"), { recursive: true });
@@ -216,24 +411,101 @@ describe("shared remote persona catalog", () => {
       "---\ntype: task\n---\nlocal override"
     );
     expect(
-      (await resolveLaunchPersona(checkout, "builder", "task", "catalog")).body
+      (
+        await resolvePersona(
+          personaScopeFor({ cwd: checkout }),
+          "builder",
+          "task"
+        )
+      ).body
     ).toBe("remote");
-    expect((await resolveLaunchPersona(worktree, "builder", "task")).body).toBe(
-      "local override"
-    );
     expect(
-      (await discoverPersonas(worktree, "workspace", true)).personas.find(
-        (p) => p.slug === "builder"
-      )?.body
+      (
+        await resolvePersona(
+          personaScopeFor({ cwd: worktree, source: "workspace" }),
+          "builder",
+          "task"
+        )
+      ).body
+    ).toBe("local override");
+    expect(
+      (
+        await listPersonas(
+          personaScopeFor({ cwd: worktree, source: "workspace" }),
+          "task",
+          true
+        )
+      ).personas.find((p) => p.slug === "builder")?.body
     ).toBe("local override");
     await writeFile(
       path.join(worktree, ".agents/personas/builder.md"),
       "---\ntype: typo\n---\nbad override"
     );
     await expect(
-      resolveLaunchPersona(worktree, "builder", "task")
+      resolvePersona(
+        personaScopeFor({ cwd: worktree, source: "workspace" }),
+        "builder",
+        "task"
+      )
     ).rejects.toThrow("Invalid persona type");
   });
+  it.each([
+    ["local folder", (root: string) => personaScopeFor({ cwd: root })],
+    ["local project", (root: string) => personaScopeFor({ projectRoot: root })],
+  ] as const)(
+    "lists the same task definition it resolves for a %s",
+    async (_name, target) => {
+      await publish("catalog instructions");
+      const scope = target(checkout);
+      const listed = await listPersonas(scope, "task", true);
+      expect(listed.personas.map((persona) => persona.slug)).toEqual([
+        "builder",
+      ]);
+      expect(await resolvePersona(scope, "builder", "task")).toEqual(
+        listed.personas[0]
+      );
+    }
+  );
+
+  it("never lists the controller's copy of a runner project", async () => {
+    await publish("catalog instructions");
+    const scope = launchPersonaScope(
+      { checkoutReadRunners: () => ({}) } as never,
+      {
+        placement: { runner: "rnr_test" } as never,
+        cwd: "/srv/checkout",
+        projectRoot: checkout,
+        repository: null,
+      }
+    );
+    const listed = await listPersonas(scope, "task", true);
+    expect(listed.personas).toEqual([]);
+    expect(listed.warnings).toEqual([
+      "Could not read default-branch files from the runner.",
+    ]);
+    await expect(resolvePersona(scope, "builder", "task")).rejects.toThrow(
+      'Persona "builder" not found.'
+    );
+  });
+
+  it("limits a runner repository without a project to built-ins", async () => {
+    const scope = launchPersonaScope(
+      { checkoutReadRunners: () => ({}) } as never,
+      { placement: { runner: "rnr_test" } as never, repository: null }
+    );
+    const listed = await listPersonas(scope, "review", true);
+    expect(listed.personas.map((persona) => persona.slug)).toEqual([
+      "code-review",
+    ]);
+    expect(await resolvePersona(scope, "code-review", "review")).toEqual(
+      listed.personas[0]
+    );
+    expect((await listPersonas(scope, "task")).personas).toEqual([]);
+    await expect(resolvePersona(scope, "builder", "task")).rejects.toThrow(
+      "not found"
+    );
+  });
+
   it("keeps local personas usable without a remote or a git repository", async () => {
     await git(checkout, "remote", "remove", "origin");
     await mkdir(path.join(checkout, ".agents/personas"), { recursive: true });
@@ -248,3 +520,108 @@ describe("shared remote persona catalog", () => {
     expect(fetches).toBe(0);
   });
 });
+
+it("returns definition text and the position of each file diagnostic", async () => {
+  await publish("valid", "c-valid");
+  await writeFile(
+    path.join(author, ".agents/personas/a-invalid.md"),
+    "---\ntype: typo\n---\nbad"
+  );
+  await symlink("c-valid.md", path.join(author, ".agents/personas/b-link.md"));
+  await git(author, "add", ".");
+  await git(author, "commit", "-m", "ordered invalid fixtures");
+  await git(author, "push");
+  const reply = await new DefaultBranchFiles(runner, () => now).get(
+    checkout,
+    [".agents/personas"],
+    true
+  );
+  expect(reply.files.map((file) => file.path)).toEqual([
+    ".agents/personas/a-invalid.md",
+    ".agents/personas/c-valid.md",
+  ]);
+  expect(reply.diagnostics).toEqual([
+    { code: "unsupported", path: ".agents/personas/b-link.md", fileIndex: 1 },
+  ]);
+});
+
+it("the enrolled worker reads definitions and reports a symlink in listing order", async () => {
+  await publish("valid", "c-valid");
+  await writeFile(
+    path.join(author, ".agents/personas/a-invalid.md"),
+    "---\ntype: typo\n---\nbad"
+  );
+  await symlink("c-valid.md", path.join(author, ".agents/personas/b-link.md"));
+  await git(author, "add", ".");
+  await git(author, "commit", "-m", "worker parser fixtures");
+  await git(author, "push");
+  const reply = await new Promise<{
+    data: { files: Array<{ path: string }>; diagnostics: unknown[] };
+  }>((resolve, reject) => {
+    const worker = execFile(
+      "bun",
+      [
+        "--no-env-file",
+        fileURLToPath(new URL("../src/main.ts", import.meta.url)),
+        "runner-worker",
+        "read",
+        checkout,
+      ],
+      { maxBuffer: 4 * 1024 * 1024 },
+      (error, stdout) => {
+        if (error) reject(error);
+        else {
+          try {
+            resolve(JSON.parse(stdout));
+          } catch (parseError) {
+            reject(parseError);
+          }
+        }
+      }
+    );
+    worker.stdin!.end(
+      JSON.stringify({
+        op: "checkout.defaultFiles",
+        request: { dirs: [".agents/personas"], wait: true },
+      })
+    );
+  });
+  expect(reply.data.files.map((file) => file.path)).toEqual([
+    ".agents/personas/a-invalid.md",
+    ".agents/personas/c-valid.md",
+  ]);
+  expect(reply.data.diagnostics).toEqual([
+    { code: "unsupported", path: ".agents/personas/b-link.md", fileIndex: 1 },
+  ]);
+});
+
+it.each([
+  ["a-invalid", "b-link"],
+  ["b-invalid", "a-link"],
+])(
+  "keeps main's catalog warning order for %s and %s",
+  async (invalid, link) => {
+    await publish("valid", "c-valid");
+    const dir = ".agents/personas";
+    await writeFile(
+      path.join(author, dir, invalid + ".md"),
+      "---\ntype: typo\n---\nbad"
+    );
+    await symlink("c-valid.md", path.join(author, dir, link + ".md"));
+    await git(author, "add", ".");
+    await git(author, "commit", "-m", "ordered definitions");
+    await git(author, "push");
+    const catalog = await new PersonaCatalogCache(runner, () => now).get(
+      checkout,
+      true
+    );
+    expect(catalog.personas.map(({ slug }) => slug)).toEqual(["c-valid"]);
+    const invalidWarning = `Could not load persona ${dir}/${invalid}.md: invalid persona definition.`;
+    const linkWarning = `Could not load persona ${dir}/${link}.md: unsupported file or larger than 256 KiB.`;
+    expect(catalog.warnings).toEqual(
+      invalid < link
+        ? [invalidWarning, linkWarning]
+        : [linkWarning, invalidWarning]
+    );
+  }
+);

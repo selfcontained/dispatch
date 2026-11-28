@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   Combobox,
@@ -14,6 +14,8 @@ import { api } from "@/lib/api";
 
 export type BranchSelectProps = {
   cwd: string;
+  sourceUrl?: string;
+  defaultBaseBranch?: string;
   baseBranch: string;
   /**
    * Fired when the user picks a branch. The component never overwrites
@@ -38,6 +40,8 @@ export type BranchSelectProps = {
 
 export function BranchSelect({
   cwd,
+  sourceUrl,
+  defaultBaseBranch = "",
   baseBranch,
   onBaseBranchChange,
   worktreeBranch,
@@ -49,57 +53,101 @@ export function BranchSelect({
   showNewBranchInput = true,
   disabled = false,
 }: BranchSelectProps): JSX.Element {
+  const source =
+    sourceUrl ??
+    (cwd.trim()
+      ? `/api/v1/git/branches?cwd=${encodeURIComponent(cwd.trim())}`
+      : "");
+  const activeSource = useRef(source);
+  activeSource.current = source;
+  const pendingSource = useRef<string | null>(null);
+  const sourcePending = sourceUrl === "";
+  const [reportedDefault, setReportedDefault] = useState("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [remoteBranches, setRemoteBranches] = useState<string[]>([]);
-  const [branchesLoading, setBranchesLoading] = useState(false);
+  const [loadingSource, setLoadingSource] = useState<string | null>(null);
+  const branchesLoading = loadingSource === source;
   const [fetchedForCwd, setFetchedForCwd] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   if (disabled && dropdownOpen) setDropdownOpen(false);
 
   const fetchBranches = useCallback(async () => {
-    const trimmed = cwd.trim();
-    if (!trimmed || disabled) return;
-    setBranchesLoading(true);
+    const trimmed = source;
+    if (!trimmed || disabled || pendingSource.current === trimmed) return;
+    pendingSource.current = trimmed;
+    setLoadingSource(trimmed);
     setFetchError(null);
     try {
-      const result = await api<{ branches: string[] }>(
-        `/api/v1/git/branches?cwd=${encodeURIComponent(trimmed)}`
+      const result = await api<{ branches: string[]; defaultBranch?: string }>(
+        source
       );
+      if (activeSource.current !== trimmed) return;
       setRemoteBranches(result.branches);
+      setReportedDefault(result.defaultBranch ?? "");
     } catch (error) {
+      if (activeSource.current !== trimmed) return;
       setRemoteBranches([]);
       setFetchError(
         error instanceof Error ? error.message : "Couldn’t load branches."
       );
     } finally {
-      setBranchesLoading(false);
-      setFetchedForCwd(trimmed);
+      if (pendingSource.current === trimmed) pendingSource.current = null;
+      if (activeSource.current === trimmed) {
+        setLoadingSource(null);
+        setFetchedForCwd(trimmed);
+      }
     }
-  }, [cwd, disabled]);
+  }, [source, disabled]);
 
   const changeOpen = useCallback(
     (open: boolean) => {
       if (disabled) return;
       setDropdownOpen(open);
-      if (open && fetchedForCwd !== cwd.trim()) void fetchBranches();
+      if (open && fetchedForCwd !== source) void fetchBranches();
     },
-    [disabled, fetchBranches, fetchedForCwd, cwd]
+    [disabled, fetchBranches, fetchedForCwd, source]
   );
+
+  useEffect(() => {
+    if (
+      (dropdownOpen || sourceUrl !== undefined) &&
+      source &&
+      fetchedForCwd !== source &&
+      pendingSource.current !== source
+    )
+      void fetchBranches();
+  }, [dropdownOpen, sourceUrl, source, fetchedForCwd, fetchBranches]);
 
   // Keep the saved baseBranch selectable even if the fetched list doesn't
   // include it (branch renamed/deleted upstream). We flag it visually in
   // the dropdown rather than silently overwrite it.
   const allBranches = useMemo(() => {
-    const base = remoteBranches.includes("main")
-      ? remoteBranches
-      : ["main", ...remoteBranches];
+    const listed = fetchedForCwd === source ? remoteBranches : [];
+    const base = listed.includes(defaultBaseBranch)
+      ? listed
+      : [
+          defaultBaseBranch,
+          ...listed.filter(
+            (branch) => defaultBaseBranch || branch !== reportedDefault
+          ),
+        ];
     if (baseBranch && !base.includes(baseBranch)) return [baseBranch, ...base];
     return base;
-  }, [remoteBranches, baseBranch]);
+  }, [
+    remoteBranches,
+    baseBranch,
+    defaultBaseBranch,
+    fetchedForCwd,
+    source,
+    reportedDefault,
+  ]);
 
+  const savedPullRequest =
+    /^https?:\/\/[^/]+\/[^/]+\/[^/]+\/pull\/\d+(?:[/?#].*)?$/.test(baseBranch);
   const savedBranchMissing =
     !branchesLoading &&
     !!baseBranch &&
+    !savedPullRequest &&
     !!fetchedForCwd &&
     remoteBranches.length > 0 &&
     !remoteBranches.includes(baseBranch);
@@ -138,11 +186,14 @@ export function BranchSelect({
         <Combobox open={dropdownOpen} onOpenChange={changeOpen}>
           <ComboboxTrigger
             disabled={disabled}
-            loading={branchesLoading}
+            loading={branchesLoading || sourcePending}
             data-testid={`${testIdPrefix}-base-branch`}
             className="font-mono text-body-sm"
           >
-            {baseBranch}
+            {baseBranch ||
+              (fetchedForCwd === source ? reportedDefault : "") ||
+              defaultBaseBranch ||
+              ""}
           </ComboboxTrigger>
           <ComboboxContent
             label="Search branches"
@@ -150,7 +201,7 @@ export function BranchSelect({
             value={baseBranch}
             emptyMessage="No matching branches."
             status={
-              branchesLoading ? (
+              branchesLoading || sourcePending ? (
                 <>
                   <Spinner />
                   Loading branches…
@@ -160,19 +211,23 @@ export function BranchSelect({
           >
             {allBranches.map((branch) => {
               const isMissing =
+                !!branch &&
+                !savedPullRequest &&
                 branch === baseBranch &&
                 remoteBranches.length > 0 &&
                 !remoteBranches.includes(branch);
               return (
                 <ComboboxItem
-                  key={branch}
-                  value={branch}
+                  key={branch || reportedDefault || ""}
+                  value={branch || reportedDefault || ""}
                   selected={branch === baseBranch}
                   data-testid={`${testIdPrefix}-base-branch-option`}
                   className="font-mono"
                   onSelect={() => onBaseBranchChange(branch)}
                 >
-                  <span className="min-w-0 break-all">{branch}</span>
+                  <span className="min-w-0 break-all">
+                    {branch || reportedDefault || defaultBaseBranch || ""}
+                  </span>
                   {isMissing ? (
                     <span className="ml-auto text-label-xs uppercase tracking-wide text-warning-ink">
                       not found

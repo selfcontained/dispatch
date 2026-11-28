@@ -1,23 +1,33 @@
+import { resolveSavedTarget } from "../src/runners/saved-location.js";
+import { placementForRunner } from "../src/runners/placement.js";
+import path from "node:path";
+import {
+  setLearnedAgentModels,
+  forgetLearnedAgentModels,
+} from "../src/shared/agent-models.js";
 import { BUILT_IN_PERSONA_SUMMARIES } from "../src/personas/built-in.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildStartupTurn } from "../src/agents/launch-guidance.js";
 
-vi.mock("../src/shared/git/worktree.js", () => ({
+vi.mock("../../../packages/runner/src/workload/shared/git/worktree.js", () => ({
   resolveHeadSha: vi.fn(async () => "abc123def456"),
 }));
 
-vi.mock("../src/shared/git/git-context.js", () => ({
-  resolveRepoRoot: vi.fn(async () => "/repo"),
-  resolveWorktreeRoot: vi.fn(async () => "/repo"),
-}));
+vi.mock(
+  "../../../packages/runner/src/workload/shared/git/git-context.js",
+  () => ({
+    resolveRepoRoot: vi.fn(async () => "/repo"),
+    resolveWorktreeRoot: vi.fn(async () => "/repo"),
+  })
+);
 
-vi.mock("../src/shared/git/base-ref.js", () => ({
+vi.mock("../../../packages/runner/src/workload/shared/git/base-ref.js", () => ({
   refreshRemoteBaseRef: vi.fn(async () => {}),
   resolveBaseRef: vi.fn(async () => "origin/main"),
 }));
 
-vi.mock("../src/shared/github/pr.js", () => ({
+vi.mock("../../../packages/runner/src/workload/shared/github/pr.js", () => ({
   getPrStatus: vi.fn(async () => ({ baseRefName: null })),
 }));
 
@@ -42,6 +52,12 @@ vi.mock("../src/personas/loader.js", async (importOriginal) => ({
   MAX_PERSONA_PROMPT_BYTES: 64 * 1024,
 }));
 
+vi.mock("../src/personas/persona-scope.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/personas/persona-scope.js")>();
+  return { ...actual, launchPersonaScope: vi.fn(actual.launchPersonaScope) };
+});
+
 vi.mock("../src/agent-type-settings.js", () => ({
   CLI_AGENT_TYPES: ["claude", "codex", "cursor", "opencode"],
   getEnabledAgentTypes: vi.fn(async () => [
@@ -55,6 +71,10 @@ vi.mock("../src/agent-type-settings.js", () => ({
   ),
 }));
 
+vi.mock(
+  "../../../packages/runner/src/workload/shared/lib/run-command.js",
+  () => import("../src/shared/lib/run-command.js")
+);
 vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 })),
 }));
@@ -64,18 +84,23 @@ vi.mock("../src/shared/files.js", async (importOriginal) => ({
   resolveFilesDir: vi.fn(() => "/tmp/files/agt_test1"),
 }));
 
-vi.mock("node:fs/promises", () => ({
-  readFile: vi.fn(async () => Buffer.from("file-content")),
-  writeFile: vi.fn(async () => {}),
-  mkdir: vi.fn(async () => {}),
-  unlink: vi.fn(async () => {}),
-}));
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const fs = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...fs,
+    readFile: vi.fn(fs.readFile),
+    realpath: vi.fn(fs.realpath),
+    writeFile: vi.fn(async () => {}),
+    mkdir: vi.fn(async () => {}),
+    unlink: vi.fn(async () => {}),
+  };
+});
 
 import {
   createMcpHandlers,
   mcpMethodNotAllowed,
 } from "../src/server/mcp-handlers.js";
-import { resolveRepoRoot } from "../src/shared/git/git-context.js";
+import { resolveRepoRoot } from "../../../packages/runner/src/workload/shared/git/git-context.js";
 import {
   assemblePersonaPrompt,
   loadPersonaBySlug,
@@ -83,7 +108,9 @@ import {
 import { GENERIC_REVIEW_PERSONA_SLUG } from "../src/personas/built-in.js";
 import { getEnabledAgentTypes } from "../src/agent-type-settings.js";
 import { resolveFilesDir } from "../src/shared/files.js";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, unlink, writeFile } from "node:fs/promises";
+import { SlackNotifier } from "../src/notifications/slack.js";
+import { IMAGE_LIMITS } from "../src/notifications/slack-images.js";
 import { BINARY_BYTES, PNG_BYTES } from "./helpers/file-bytes.js";
 
 function templateRecord(overrides: Record<string, unknown> = {}) {
@@ -111,6 +138,13 @@ function createMockDeps() {
     pool: { query: vi.fn(async () => ({ rows: [] })) } as any,
     filesRoot: "/tmp/files",
     agentManager: {
+      checkoutReadRunners: () => ({}),
+      deliverSessionFile: vi.fn(
+        async (_agent, source, _name, _purpose) => source
+      ),
+      collectSessionFile: vi.fn(async (_agent, _source) =>
+        Buffer.from("file-content")
+      ),
       getAgent: vi.fn(async () => ({
         id: "agt_test1",
         name: "test-agent",
@@ -125,6 +159,40 @@ function createMockDeps() {
         reviewAgentType: null,
         filesDir: null,
       })),
+      inspectCheckout: vi.fn(async (_agent, query) => {
+        if (query.kind === "defaultBranchFiles")
+          return {
+            kind: "defaultBranchFiles",
+            hasOrigin: false,
+            files: [],
+            warnings: [],
+            refreshing: false,
+            updatedAt: null,
+            truncated: false,
+          };
+        if (query.kind === "roots")
+          return {
+            kind: "roots",
+            checkoutRoot: "/repo",
+            repositoryRoot: await resolveRepoRoot(
+              _agent.workspacePath ?? _agent.cwd
+            ),
+          };
+        if (query.kind === "listFiles")
+          return {
+            kind: "listFiles",
+            names: query.path === ".agents/personas" ? ["security.md"] : [],
+          };
+        const persona = query.path.endsWith("/security.md")
+          ? await loadPersonaBySlug("/repo", "security")
+          : null;
+        return {
+          kind: "readFile",
+          content: persona
+            ? `---\ntype: ${persona.type ?? "review"}\nname: ${persona.name}\ndescription: ${persona.description ?? "Security review"}\n---\n${persona.body}`
+            : null,
+        };
+      }),
       listAgents: vi.fn(async () => []),
       createAgent: vi.fn(async (opts: any) => ({
         id: "agt_new1",
@@ -228,6 +296,93 @@ describe("createMcpHandlers", () => {
       await handlers.sendNotify("agt_test1", input as any);
       expect(deps.agentManager.getAgent).toHaveBeenCalledWith("agt_test1");
       expect(deps.slackNotifier.sendNotification).toHaveBeenCalled();
+    });
+
+    it("reads notify images only on the caller's machine", async () => {
+      const fs =
+        await vi.importActual<typeof import("node:fs/promises")>(
+          "node:fs/promises"
+        );
+      const dir = await fs.mkdtemp("/tmp/dispatch-notify-");
+      try {
+        const controllerPath = path.join(dir, "controller.png");
+        const runnerPath = path.join(dir, "runner.png");
+        await fs.writeFile(controllerPath, PNG_BYTES);
+        const localAgent = await deps.agentManager.getAgent();
+        const runnerAgent = {
+          ...localAgent,
+          cwd: "/srv/checkout",
+        };
+        const notifier = new SlackNotifier(deps.pool, deps.appLog);
+        const uploadImage = vi.fn(async () => "F1");
+        const postBlocks = vi.fn(async () => ({
+          channelId: "C1",
+          timestamp: "1.1",
+          generation: "g",
+        }));
+        Object.assign(notifier, {
+          app: {
+            settings: async () => ({
+              binding: { baseUrl: "https://dispatch.test" },
+            }),
+            postBlocks,
+            uploadImage,
+            hasScope: () => true,
+          },
+        });
+        deps.slackNotifier.sendNotification.mockImplementation(
+          notifier.sendNotification.bind(notifier)
+        );
+
+        deps.agentManager.getAgent.mockResolvedValue(runnerAgent);
+        const collect = deps.agentManager.collectSessionFile;
+        collect.mockRejectedValueOnce(new Error("No such file on runner"));
+        const send = (source: string) =>
+          handlers.sendNotify("agt_test1", {
+            message: "hello",
+            images: [source],
+          });
+        expect(await send(controllerPath)).toEqual({
+          sent: false,
+          reason: "Can't read image: controller.png. Nothing was sent.",
+        });
+        expect(collect).toHaveBeenLastCalledWith(runnerAgent, controllerPath);
+        expect(uploadImage).not.toHaveBeenCalled();
+        expect(postBlocks).not.toHaveBeenCalled();
+
+        collect.mockResolvedValueOnce(PNG_BYTES);
+        expect(await send(runnerPath)).toMatchObject({ sent: true });
+        expect(collect).toHaveBeenLastCalledWith(runnerAgent, runnerPath);
+        expect(uploadImage).toHaveBeenLastCalledWith(PNG_BYTES, "runner.png");
+        expect(postBlocks).toHaveBeenCalledTimes(1);
+
+        collect.mockResolvedValueOnce(Buffer.alloc(IMAGE_LIMITS.bytes + 1));
+        expect(await send(runnerPath)).toMatchObject({
+          sent: false,
+          reason: expect.stringContaining("Image over 5 MB"),
+        });
+        collect.mockResolvedValueOnce(BINARY_BYTES);
+        expect(await send(runnerPath)).toMatchObject({
+          sent: false,
+          reason: expect.stringContaining("Not a png, jpg or gif image"),
+        });
+        expect(realpath).not.toHaveBeenCalled();
+        expect(readFile).not.toHaveBeenCalled();
+        expect(uploadImage).toHaveBeenCalledTimes(1);
+
+        deps.agentManager.getAgent.mockResolvedValue(localAgent);
+        collect.mockImplementationOnce((_agent, file) => fs.readFile(file));
+        expect(await send(controllerPath)).toMatchObject({ sent: true });
+        expect(realpath).not.toHaveBeenCalled();
+        expect(collect).toHaveBeenLastCalledWith(localAgent, controllerPath);
+        expect(collect).toHaveBeenCalledTimes(5);
+        expect(uploadImage).toHaveBeenLastCalledWith(
+          PNG_BYTES,
+          "controller.png"
+        );
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
     });
 
     it("throws when agent not found", async () => {
@@ -344,6 +499,40 @@ describe("createMcpHandlers", () => {
       );
     });
 
+    it("returns the family file path from the recipient's put", async () => {
+      mockFamilyRows();
+      deps.agentManager.deliverSessionFile.mockResolvedValueOnce(
+        "/runner/files/shot.png"
+      );
+      const items = await handlers.listFiles("agt_test1", {
+        ownerAgentId: "agt_child",
+      });
+      expect(items[0].filePath).toBe("/runner/files/shot.png");
+      expect(deps.agentManager.deliverSessionFile).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "agt_test1" }),
+        "/tmp/files/agt_test1/shot.png",
+        "shot.png",
+        "reference"
+      );
+    });
+
+    it("warns and omits a reference when the recipient's put fails", async () => {
+      mockFamilyRows();
+      deps.agentManager.deliverSessionFile.mockRejectedValueOnce(
+        new Error("Failed to put")
+      );
+      expect(
+        await handlers.listFiles("agt_test1", { ownerAgentId: "agt_child" })
+      ).toEqual([]);
+      expect(deps.appLog.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentId: "agt_test1",
+          ownerAgentId: "agt_child",
+        }),
+        "Shared file is unavailable"
+      );
+    });
+
     it("refuses an unrelated owner", async () => {
       mockFamilyRows();
       await expect(
@@ -440,7 +629,7 @@ describe("createMcpHandlers", () => {
 
   describe("listPersonas", () => {
     it("returns personas mapped to slug/name/description", async () => {
-      const result = await handlers.listPersonas("/repo");
+      const result = await handlers.listPersonas("agt_test1");
       expect(result).toEqual({
         warnings: [],
         personas: [
@@ -745,6 +934,25 @@ describe("createMcpHandlers", () => {
       expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
     });
 
+    it("honors a full-access reviewer's ordinary Dispatch launch ceiling", async () => {
+      const reviewer = await deps.agentManager.getAgent("agt_test1");
+      deps.agentManager.getAgent.mockResolvedValue({
+        ...reviewer,
+        role: "review",
+        fullAccess: true,
+      } as never);
+      await handlers.launchAgent("agt_test1", {
+        name: "ordinary",
+        type: "codex",
+        child: false,
+        fullAccess: true,
+      });
+      expect(deps.agentManager.createAgent.mock.calls[0]?.[0]).toMatchObject({
+        name: "ordinary",
+        fullAccess: true,
+      });
+    });
+
     it("does not include full-access arg for opencode agents", async () => {
       vi.mocked(getEnabledAgentTypes).mockResolvedValue([
         "claude",
@@ -781,7 +989,7 @@ describe("createMcpHandlers", () => {
 
     it("does not resolve a diff base for ordinary persona reviews", async () => {
       const { resolveBaseRef, refreshRemoteBaseRef } =
-        await import("../src/shared/git/base-ref.js");
+        await import("../../../packages/runner/src/workload/shared/git/base-ref.js");
       await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
         context: "Review the supplied document",
@@ -886,7 +1094,441 @@ describe("createMcpHandlers", () => {
     });
   });
 
+  describe("launchAgent: main's local admission", () => {
+    // origin/main's handleLaunchAgent calls createAgent with one argument:
+    // cwd is `input.cwd ?? template.directory ?? parent workdir`.
+    const localParent = {
+      id: "agt_test1",
+      name: "parent",
+      cwd: "/repo",
+      type: "claude",
+      fullAccess: true,
+      projectId: "proj_1",
+      worktreePath: "/worktrees/parent",
+      status: "running",
+    };
+    const lastLaunch = () => deps.agentManager.createAgent.mock.calls.at(-1)!;
+
+    it.each([
+      ["child", {}, { parentAgentId: "agt_test1" }],
+      ["independent", { child: false }, {}],
+    ])(
+      "launches a local %s in the parent's folder in both checkout shapes",
+      async (_kind, shape, lineage) => {
+        deps.agentManager.getAgent.mockResolvedValue(localParent);
+        for (const useWorktree of [false, true]) {
+          await handlers.launchAgent("agt_test1", {
+            name: "c",
+            prompt: "work",
+            useWorktree,
+            ...shape,
+          });
+          const call = lastLaunch();
+          expect(call).toHaveLength(1);
+          expect(call[0]).toMatchObject({
+            cwd: "/worktrees/parent",
+            useWorktree,
+            createNewBranch: false,
+            launchedByAgentId: "agt_test1",
+            fullAccess: true,
+            ...lineage,
+          });
+          expect(call[0]).not.toHaveProperty("projectId");
+          expect(call[0]).not.toHaveProperty("repository");
+          if (!("parentAgentId" in lineage))
+            expect(call[0].parentAgentId).toBeUndefined();
+        }
+      }
+    );
+
+    it("keeps a local explicit folder and the parent's own launch folder as given", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        ...localParent,
+        workspacePath: "/moved/here",
+      });
+      for (const cwd of ["/moved/here", "/repo", "/elsewhere"]) {
+        await handlers.launchAgent("agt_test1", { prompt: "w", cwd });
+        expect(lastLaunch()).toHaveLength(1);
+        expect(lastLaunch()[0]).toMatchObject({ cwd });
+      }
+    });
+
+    it.each(["local", "runner-repository"])(
+      "launches a repository-only project template on %s through its saved project source",
+      async (runner) => {
+        deps.agentManager.getAgent.mockResolvedValue(localParent);
+        deps.templateService.getTemplate.mockResolvedValue(
+          templateRecord({
+            projectId: "repository-project",
+            useWorktree: true,
+            ...resolveSavedTarget("", {
+              runner,
+              projectId: "repository-project",
+            }),
+          })
+        );
+        await handlers.launchAgent("agt_test1", {
+          prompt: "Repository work",
+          templateId: "tmpl_123",
+          child: false,
+        });
+        expect(lastLaunch()[0]).toMatchObject({
+          cwd: "",
+          projectId: "repository-project",
+          placement: placementForRunner(runner),
+          repository: {},
+          useWorktree: true,
+        });
+        expect(lastLaunch()[0]).not.toHaveProperty("parentAgentId");
+      }
+    );
+    it.each(["local", "runner-repository"])(
+      "launches a child of a repository-only project session on %s in its prepared checkout",
+      async (runner) => {
+        deps.agentManager.getAgent.mockResolvedValue({
+          ...localParent,
+          placement: placementForRunner(runner),
+          projectId: "repository-project",
+          cwd: "/managed/repository/current",
+          worktreePath: "/managed/repository/current",
+        });
+        await handlers.launchAgent("agt_test1", {
+          prompt: "Child work",
+          useWorktree: true,
+          createNewBranch: true,
+        });
+        expect(lastLaunch()[0]).toMatchObject({
+          cwd: "/managed/repository/current",
+          placement: placementForRunner(runner),
+          parentAgentId: "agt_test1",
+          useWorktree: true,
+          createNewBranch: true,
+        });
+      }
+    );
+
+    it("launches a local template in its directory with no extra target", async () => {
+      deps.agentManager.getAgent.mockResolvedValue(localParent);
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({ directory: "/template-repo", projectId: "proj_t" })
+      );
+      await handlers.launchAgent("agt_test1", {
+        prompt: "w",
+        templateId: "tmpl_123",
+      });
+      expect(lastLaunch()).toHaveLength(1);
+      expect(lastLaunch()[0]).toMatchObject({
+        cwd: "/template-repo",
+        templateId: "tmpl_123",
+      });
+      expect(lastLaunch()[0]).not.toHaveProperty("projectId");
+      expect(lastLaunch()[0]).not.toHaveProperty("repository");
+      await expect(
+        handlers.launchAgent("agt_test1", {
+          prompt: "w",
+          templateId: "tmpl_123",
+          cwd: "/worktrees/parent",
+        })
+      ).rejects.toThrow("Project template directory cannot be overridden.");
+    });
+
+    it("reads a local task persona from the parent's checkout", async () => {
+      deps.agentManager.getAgent.mockResolvedValue(localParent);
+      const inspectCheckout = vi.fn(async (_agent: unknown, query: any) => ({
+        kind: "readFile",
+        content: query.path.endsWith("/builder.md")
+          ? "---\nname: Builder\ndescription: Build\ntype: task\n---\nRepo instructions"
+          : null,
+      }));
+      Object.assign(deps.agentManager, { inspectCheckout });
+      await handlers.launchAgent("agt_test1", {
+        prompt: "w",
+        persona: "builder",
+      });
+      expect(inspectCheckout).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "agt_test1" }),
+        expect.objectContaining({ kind: "readFile" })
+      );
+      expect(lastLaunch()).toHaveLength(1);
+      expect(lastLaunch()[0]).toMatchObject({
+        cwd: "/worktrees/parent",
+        persona: "builder",
+      });
+    });
+  });
+
+  describe("launchAgent: one access ceiling for every caller", () => {
+    const callers = [
+      ["local", "/repo"],
+      ["runner", "/srv/checkout"],
+    ] as const;
+    const parentAt = async (cwd: string, fullAccess: boolean) =>
+      deps.agentManager.getAgent.mockResolvedValue({
+        ...(await deps.agentManager.getAgent()),
+        placement: placementForRunner(
+          cwd === "/srv/checkout" ? "runner-test" : "local"
+        ),
+        cwd,
+        fullAccess,
+        parentAgentId: null,
+      });
+    const lastLaunch = () => deps.agentManager.createAgent.mock.calls.at(-1)!;
+    const template = (fullAccess: boolean, projectId?: string) =>
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({
+          directory: "/controller/folder",
+          fullAccess,
+          projectId,
+        })
+      );
+
+    it.each(
+      callers.flatMap(([caller, cwd]) =>
+        [
+          // [parent, input, template, expected child fullAccess]
+          [false, undefined, undefined, false],
+          [false, true, undefined, false],
+          [false, undefined, true, false],
+          [true, undefined, undefined, true],
+          [true, false, undefined, false],
+          [true, undefined, false, false],
+          [true, undefined, true, true],
+        ].map((row) => ({ caller, cwd, row }))
+      )
+    )(
+      "$caller caller: parent, input, template → $row",
+      async ({ cwd, row: [parentFull, input, templateFull, expected] }) => {
+        await parentAt(cwd, parentFull as boolean);
+        if (templateFull !== undefined) template(templateFull as boolean);
+        await handlers.launchAgent("agt_test1", {
+          prompt: "w",
+          ...(input !== undefined && { fullAccess: input as boolean }),
+          ...(templateFull !== undefined && { templateId: "tmpl_123" }),
+        });
+        expect(lastLaunch()[0].fullAccess).toBe(expected);
+        if (templateFull !== undefined)
+          // A controller-folder template launches there for both callers.
+          expect(lastLaunch()[0].cwd).toBe("/controller/folder");
+      }
+    );
+
+    it("reads a runner project template's personas on that runner, for a local caller", async () => {
+      const { launchPersonaScope } =
+        await import("../src/personas/persona-scope.js");
+      vi.mocked(launchPersonaScope).mockClear();
+      await parentAt("/repo", true);
+      const target = templateRecord({
+        ...resolveSavedTarget("", {
+          runner: "runner-test",
+          projectId: "proj_r",
+        }),
+        projectId: "proj_r",
+      });
+      deps.templateService.getTemplate.mockResolvedValue(target);
+      await handlers
+        .launchAgent("agt_test1", {
+          prompt: "w",
+          templateId: "tmpl_123",
+          persona: "code-review",
+        })
+        .catch(() => {});
+      const [, scope] = vi.mocked(launchPersonaScope).mock.calls.at(-1)!;
+      expect(scope).toMatchObject({
+        placement: placementForRunner("runner-test"),
+        cwd: "",
+      });
+      expect(scope.repository).toEqual(expect.any(Function));
+    });
+
+    it.each(callers)(
+      "%s caller: a restricted parent cannot launch OpenCode",
+      async (_caller, cwd) => {
+        await parentAt(cwd, false);
+        await expect(
+          handlers.launchAgent("agt_test1", { prompt: "w", type: "opencode" })
+        ).rejects.toThrow(
+          "Permission denied: a restricted agent cannot launch full-access OpenCode agents."
+        );
+      }
+    );
+
+    it.each(callers)(
+      "%s caller: a project template's directory cannot be overridden",
+      async (_caller, cwd) => {
+        // From the caller's own current folder, which both callers can name.
+        deps.agentManager.getAgent.mockResolvedValue({
+          ...(await deps.agentManager.getAgent()),
+          cwd,
+          workspacePath: "/moved/here",
+        });
+        template(false, "proj_t");
+        await expect(
+          handlers.launchAgent("agt_test1", {
+            prompt: "w",
+            templateId: "tmpl_123",
+            cwd: "/moved/here",
+          })
+        ).rejects.toThrow("Project template directory cannot be overridden.");
+      }
+    );
+
+    it.each(callers)(
+      "%s caller: a reviewer gets the parent's access",
+      async (_caller, cwd) => {
+        for (const fullAccess of [false, true]) {
+          await parentAt(cwd, fullAccess);
+          await handlers.launchPersonaAgent("agt_test1", {
+            persona: "security",
+            context: "review",
+          });
+          expect(lastLaunch()[0]).toMatchObject({
+            fullAccess,
+            cwd,
+            role: "review",
+          });
+          expect(lastLaunch()[1]).toEqual({ detachLaunch: true });
+        }
+      }
+    );
+  });
+
   describe("launchAgent", () => {
+    it("launches from a runner caller's session with a local caller's inputs", async () => {
+      const cwd = "/srv/checkout";
+      deps.agentManager.getAgent.mockResolvedValue({
+        ...(await deps.agentManager.getAgent()),
+        placement: placementForRunner(
+          cwd === "/srv/checkout" ? "runner-test" : "local"
+        ),
+        cwd,
+        workspacePath: "/home/runner/checkout",
+      });
+      const lastLaunch = () => deps.agentManager.createAgent.mock.calls.at(-1)!;
+      // Omitted, or its own folder: its session, in both shapes (T36, D7).
+      for (const own of [{}, { cwd: "/home/runner/checkout" }])
+        for (const shape of [
+          {},
+          { child: false },
+          { useWorktree: true, createNewBranch: true },
+        ]) {
+          await handlers.launchAgent("agt_test1", {
+            name: "w",
+            prompt: "work",
+            ...own,
+            ...shape,
+          });
+          expect(lastLaunch()).toHaveLength(1);
+          expect(lastLaunch()[0]).toMatchObject({
+            cwd,
+            launchedByAgentId: "agt_test1",
+            useWorktree: "useWorktree" in shape,
+          });
+          expect(lastLaunch()[0].parentAgentId).toBe(
+            "child" in shape ? undefined : "agt_test1"
+          );
+        }
+      // A template launches at its saved location, as from the UI.
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({
+          directory: "/native/project",
+          useWorktree: true,
+          baseBranch: "develop",
+        })
+      );
+      await handlers.launchAgent("agt_test1", {
+        name: "template",
+        prompt: "work",
+        templateId: "tmpl_123",
+      });
+      expect(lastLaunch()).toHaveLength(1);
+      expect(lastLaunch()[0]).toMatchObject({
+        cwd: "/native/project",
+        useWorktree: true,
+        baseBranch: "develop",
+      });
+      // Another folder: a folder on the caller's runner (D7), carried apart
+      // from the launch's cwd so the manager places it on that runner.
+      await handlers.launchAgent("agt_test1", {
+        name: "elsewhere",
+        prompt: "work",
+        cwd: "/home/runner/other",
+      });
+      expect(lastLaunch()[0]).toMatchObject({
+        cwd: "/home/runner/other",
+        launcherFolder: "/home/runner/other",
+        launchedByAgentId: "agt_test1",
+        parentAgentId: "agt_test1",
+      });
+      // A runner address is not a folder, for any caller: main's error.
+      await expect(
+        handlers.launchAgent("agt_test1", {
+          name: "foreign",
+          prompt: "work",
+          cwd: "relative/folder",
+        })
+      ).rejects.toThrow("Working directory must be an absolute path.");
+      expect(deps.agentManager.createAgent).toHaveBeenCalledTimes(8);
+    });
+
+    it("treats a runner address from a local caller as main's folder", async () => {
+      await expect(
+        handlers.launchAgent("agt_test1", {
+          name: "foreign",
+          prompt: "work",
+          cwd: "relative/folder",
+        })
+      ).rejects.toThrow("Working directory must be an absolute path.");
+      expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
+    });
+
+    it("checks the model against the caller runner's catalog when it reports one", async () => {
+      const cwd = "/srv/checkout";
+      deps.agentManager.getAgent.mockResolvedValue({
+        ...(await deps.agentManager.getAgent()),
+        placement: placementForRunner(
+          cwd === "/srv/checkout" ? "runner-test" : "local"
+        ),
+        cwd,
+      });
+      setLearnedAgentModels(
+        "claude",
+        [{ id: "runner-model", label: "Runner model" }],
+        "runner-model",
+        "runner-test"
+      );
+      try {
+        await expect(
+          handlers.launchAgent("agt_test1", {
+            name: "local-only",
+            prompt: "work",
+            type: "claude",
+            model: "opus",
+          })
+        ).rejects.toThrow('Model "opus" is not supported for claude.');
+        expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
+        await handlers.launchAgent("agt_test1", {
+          name: "runner-only",
+          prompt: "work",
+          type: "claude",
+          model: "runner-model",
+        });
+
+        expect(deps.agentManager.createAgent).toHaveBeenLastCalledWith(
+          expect.objectContaining({ cwd, model: "runner-model" })
+        );
+        await expect(
+          handlers.launchAgent("agt_test1", {
+            name: "offline",
+            prompt: "work",
+            type: "claude",
+            model: "anything-new",
+          })
+        ).rejects.toThrow(/not supported/);
+      } finally {
+        forgetLearnedAgentModels();
+      }
+    });
+
     it("rejects a review persona from a different requested workspace", async () => {
       await expect(
         handlers.launchAgent("agt_test1", {
@@ -912,7 +1554,7 @@ describe("createMcpHandlers", () => {
 
     it("resolves a template task persona from the workspace where the helper will run", async () => {
       const { resolveWorktreeRoot } =
-        await import("../src/shared/git/git-context.js");
+        await import("../../../packages/runner/src/workload/shared/git/git-context.js");
       vi.mocked(resolveWorktreeRoot).mockResolvedValueOnce("/template-repo");
       vi.mocked(loadPersonaBySlug).mockResolvedValueOnce({
         slug: "builder",
@@ -933,7 +1575,8 @@ describe("createMcpHandlers", () => {
       expect(resolveWorktreeRoot).toHaveBeenLastCalledWith("/template-repo");
       expect(loadPersonaBySlug).toHaveBeenLastCalledWith(
         "/template-repo",
-        "builder"
+        "builder",
+        {}
       );
       expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
         expect.objectContaining({ cwd: "/template-repo", persona: "builder" })
@@ -2048,6 +2691,59 @@ describe("createMcpHandlers", () => {
       });
     });
 
+    it("lists project-less runner agents of one recorded repository (T34 key)", async () => {
+      const runner = "/srv/checkout";
+      deps.agentManager.listAgents.mockResolvedValue([
+        {
+          id: "agt_self",
+          name: "self",
+          cwd: runner,
+          placement: placementForRunner("runner-test"),
+          status: "running",
+        },
+        {
+          id: "agt_peer",
+          name: "peer",
+          cwd: runner,
+          placement: placementForRunner("runner-test"),
+          status: "running",
+        },
+        {
+          id: "agt_other",
+          name: "other",
+          cwd: runner,
+          placement: placementForRunner("runner-test"),
+          status: "running",
+        },
+        { id: "agt_local", name: "local", cwd: "/repo", status: "running" },
+      ]);
+      vi.mocked(resolveRepoRoot).mockImplementation(
+        async (cwd) => cwd as string
+      );
+      const urls: Record<string, string> = {
+        agt_self: "https://example.test/shared.git",
+        agt_peer: "https://example.test/shared",
+        agt_other: "https://example.test/other",
+      };
+      deps.pool.query.mockImplementation(async (sql: string, params: any[]) =>
+        sql.includes("runner_repository")
+          ? { rows: [{ url: urls[params[0]] ?? null }] }
+          : { rows: [] }
+      );
+      const result = await handlers.listAgentsForAgent(
+        "agt_self",
+        "https://example.test/shared"
+      );
+      expect(result.map(({ id }) => id)).toEqual(["agt_peer"]);
+      // A local agent's key is its folder's; no session repository is read.
+      expect(
+        deps.pool.query.mock.calls.filter(
+          ([sql, params]: any[]) =>
+            sql.includes("runner_repository") && params[0] === "agt_local"
+        )
+      ).toHaveLength(0);
+    });
+
     it("returns empty list when senderRepoRoot is null and no parent/child", async () => {
       deps.agentManager.listAgents.mockResolvedValue([
         {
@@ -2408,10 +3104,63 @@ describe("createMcpHandlers", () => {
   });
 
   describe("shareFile", () => {
+    it("stores, replaces and deletes published bytes under the controller file directory", async () => {
+      const fs =
+        await vi.importActual<typeof import("node:fs/promises")>(
+          "node:fs/promises"
+        );
+      const root = await fs.mkdtemp("/tmp/mcp-published-");
+      const dir = path.join(root, "files");
+      const input = { filePath: "/runner/source.md", description: "notes" };
+      try {
+        vi.mocked(resolveFilesDir).mockReturnValueOnce(dir);
+        vi.mocked(mkdir).mockImplementationOnce(fs.mkdir);
+        vi.mocked(writeFile).mockImplementationOnce(fs.writeFile);
+        const initial = Buffer.from("first\n");
+        deps.agentManager.collectSessionFile.mockResolvedValueOnce(initial);
+        const result = await handlers.shareFile("agt_test1", input);
+        const stored = path.join(dir, result.fileName);
+        expect(await fs.readFile(stored)).toEqual(initial);
+        expect((await fs.stat(dir)).mode & 0o777).toBe(
+          0o777 & ~process.umask()
+        );
+        expect((await fs.stat(stored)).mode & 0o777).toBe(
+          0o666 & ~process.umask()
+        );
+        await fs.chmod(stored, 0o600);
+        vi.mocked(resolveFilesDir).mockReturnValueOnce(dir);
+        vi.mocked(mkdir).mockImplementationOnce(fs.mkdir);
+        vi.mocked(writeFile).mockImplementationOnce(fs.writeFile);
+        deps.pool.query.mockResolvedValueOnce({
+          rows: [{ file_name: result.fileName }],
+        });
+        const replacement = Buffer.from("second\n");
+        deps.agentManager.collectSessionFile.mockResolvedValueOnce(replacement);
+        await handlers.shareFile("agt_test1", {
+          ...input,
+          update: result.fileName,
+        });
+        expect(await fs.readFile(stored)).toEqual(replacement);
+        expect((await fs.stat(stored)).mode & 0o777).toBe(0o600);
+        for (let deletion = 0; deletion < 2; deletion++) {
+          vi.mocked(resolveFilesDir).mockReturnValueOnce(dir);
+          vi.mocked(unlink).mockImplementationOnce(fs.unlink);
+          deps.pool.query.mockResolvedValueOnce({
+            rows: [{ file_name: result.fileName }],
+          });
+          await handlers.deleteFile("agt_test1", result.fileName);
+          await expect(fs.stat(stored)).rejects.toMatchObject({
+            code: "ENOENT",
+          });
+        }
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    });
     it.each([230, 231])(
       "imports a %i-byte name with a bounded timestamp suffix",
       async (length) => {
-        vi.mocked(readFile).mockResolvedValueOnce(PNG_BYTES);
+        deps.agentManager.collectSessionFile.mockResolvedValueOnce(PNG_BYTES);
         const result = await handlers.shareFile("agt_test1", {
           filePath: "/tmp/source.png",
           name: `${"a".repeat(length - 4)}.png`,
@@ -2427,7 +3176,7 @@ describe("createMcpHandlers", () => {
     );
 
     it("rejects an oversized import before writing or registering", async () => {
-      vi.mocked(readFile).mockResolvedValueOnce(PNG_BYTES);
+      deps.agentManager.collectSessionFile.mockResolvedValueOnce(PNG_BYTES);
       await expect(
         handlers.shareFile("agt_test1", {
           filePath: "/tmp/source.png",
@@ -2455,7 +3204,7 @@ describe("createMcpHandlers", () => {
     );
 
     it("rejects contents that are no type Dispatch stores", async () => {
-      vi.mocked(readFile).mockResolvedValueOnce(BINARY_BYTES);
+      deps.agentManager.collectSessionFile.mockResolvedValueOnce(BINARY_BYTES);
       await expect(
         handlers.shareFile("agt_test1", {
           filePath: "/tmp/file.exe",
@@ -2475,7 +3224,9 @@ describe("createMcpHandlers", () => {
     });
 
     it("rejects a name that promises a type its contents are not", async () => {
-      vi.mocked(readFile).mockResolvedValueOnce(Buffer.from("not an image"));
+      deps.agentManager.collectSessionFile.mockResolvedValueOnce(
+        Buffer.from("not an image")
+      );
       await expect(
         handlers.shareFile("agt_test1", {
           filePath: "/tmp/shot.png",
@@ -2485,7 +3236,7 @@ describe("createMcpHandlers", () => {
     });
 
     it("creates new file entry, typed from its bytes, and publishes event", async () => {
-      vi.mocked(readFile).mockResolvedValueOnce(PNG_BYTES);
+      deps.agentManager.collectSessionFile.mockResolvedValueOnce(PNG_BYTES);
       const result = await handlers.shareFile("agt_test1", {
         filePath: "/tmp/shot.png",
         description: "a screenshot",
@@ -2504,7 +3255,9 @@ describe("createMcpHandlers", () => {
     });
 
     it("uses text source for text files", async () => {
-      vi.mocked(readFile).mockResolvedValueOnce(Buffer.from("# Notes"));
+      deps.agentManager.collectSessionFile.mockResolvedValueOnce(
+        Buffer.from("# Notes")
+      );
       const result = await handlers.shareFile("agt_test1", {
         filePath: "/tmp/notes.md",
         description: "notes",
@@ -2513,7 +3266,7 @@ describe("createMcpHandlers", () => {
     });
 
     it("updates existing file when update option is provided", async () => {
-      vi.mocked(readFile).mockResolvedValueOnce(PNG_BYTES);
+      deps.agentManager.collectSessionFile.mockResolvedValueOnce(PNG_BYTES);
       deps.pool.query.mockResolvedValueOnce({
         rows: [{ file_name: "existing.png" }],
       });
@@ -2530,7 +3283,7 @@ describe("createMcpHandlers", () => {
     });
 
     it("throws when update target not found", async () => {
-      vi.mocked(readFile).mockResolvedValueOnce(PNG_BYTES);
+      deps.agentManager.collectSessionFile.mockResolvedValueOnce(PNG_BYTES);
       deps.pool.query.mockResolvedValueOnce({ rows: [] });
       await expect(
         handlers.shareFile("agt_test1", {

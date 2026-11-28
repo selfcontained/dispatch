@@ -1,0 +1,33 @@
+# Stages one signed runner build. The instance is VERSION_linux_ARCH_SHA256;
+# the executable validates it and reads everything else from root-owned state.
+# It never renames, stops or starts dispatch-runner.service.
+[Unit]
+Description=Dispatch runner update staging (%i)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/flock --nonblock --conflict-exit-code 75 /var/lib/dispatch-runner/update/stage.lock /opt/dispatch-runner/dispatch runner-update-stage %i
+UMask=0077
+TimeoutStartSec=40min
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/dispatch-runner/update /var/lib/dispatch-runner/update
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# PID 1 runs the post-verification probe in its own unprivileged unit.
+CapabilityBoundingSet=
+SystemCallArchitectures=native

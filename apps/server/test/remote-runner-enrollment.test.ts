@@ -1,0 +1,1260 @@
+import { X509Certificate } from "node:crypto";
+import { once } from "node:events";
+import http from "node:http";
+import https from "node:https";
+import type { AddressInfo } from "node:net";
+import { connect, createServer, type TLSSocket } from "node:tls";
+import { setTimeout as delay } from "node:timers/promises";
+import type { Pool } from "pg";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import { exchangeCode } from "../../../packages/runner/src/workload/agents/remote/enrollment.js";
+import {
+  type RunnerHealth,
+  type EnrollmentRequest,
+  type EnrollmentReply,
+} from "../../../packages/runner/src/workload/agents/remote/protocol.js";
+import { wireFrames } from "@dispatch/runner-client/v1/node";
+import { RunnerRegistry } from "../src/agents/remote/registry.js";
+import {
+  advertisedHost,
+  RemoteRunnerService,
+  RunnerRequestError,
+  RunnerUnavailable,
+  RunnerRevoked,
+} from "../src/agents/remote/service.js";
+import { generateRunnerKey } from "../../../packages/runner/src/workload/agents/remote/x509.js";
+import {
+  issueAuthority,
+  issueClient,
+  issueServer,
+  runnerPublicKey,
+} from "../src/agents/remote/certificate-authority.js";
+import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
+
+const HOST = "127.0.0.1";
+
+function parseCommand(command: string) {
+  const value = (flag: string) =>
+    new RegExp(`--${flag} (\\S+)`).exec(command)?.[1] ?? "";
+  return {
+    endpoint: value("endpoint"),
+    pin: value("ca-sha256"),
+    code: value("code"),
+  };
+}
+
+type Request = { id: number; op: string; input: unknown };
+type FakeRunner = {
+  socket: TLSSocket;
+  closed: Promise<void>;
+  requests: Request[];
+  send: (frame: unknown) => void;
+};
+
+/** A certificate-authenticated operation peer for enrollment and revocation tests. */
+function dialRunner(input: {
+  endpoint: string;
+  ca: string;
+  cert: string;
+  key: string;
+  label: string;
+  answer?: boolean;
+  health?: RunnerHealth;
+  selfUpdate?: object;
+}): Promise<FakeRunner> {
+  const url = new URL(input.endpoint);
+  return new Promise((resolve, reject) => {
+    const requests: Request[] = [];
+    const socket = connect({
+      host: url.hostname,
+      port: Number(url.port),
+      ca: input.ca,
+      cert: input.cert,
+      key: input.key,
+      rejectUnauthorized: true,
+    });
+    const closed = new Promise<void>((done) => socket.on("close", done));
+    socket.on("error", reject);
+    const send = wireFrames<Request, unknown>(socket, (frame) => {
+      if (!frame.op) return;
+      const value = (value: unknown) => send({ id: frame.id, ok: true, value });
+      if (frame.op === "runner.describe")
+        return value({
+          runnerId: input.label,
+          displayName: input.label,
+          build: { version: "1.0" },
+          protocol: 1,
+          engines: [],
+          capabilities: input.selfUpdate
+            ? { selfUpdate: input.selfUpdate }
+            : {},
+        });
+      if (frame.op === "runner.health") {
+        if (input.health) value(input.health);
+        else
+          send({
+            id: frame.id,
+            ok: false,
+            error: { code: "unavailable", message: "No sample" },
+          });
+        return;
+      }
+      if (frame.op === "engine.list") return value({ entries: [] });
+      requests.push(frame);
+      if (input.answer !== false && frame.op === "github.repositories")
+        value({
+          repositories: [
+            { name: input.label, url: "https://example.invalid/test" },
+          ],
+        });
+    });
+    socket.once("secureConnect", () =>
+      resolve({ socket, closed, requests, send })
+    );
+  });
+}
+
+async function waitFor(check: () => boolean | Promise<boolean>) {
+  for (let i = 0; i < 100; i++) {
+    if (await check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("condition not reached");
+}
+
+describe("certificate issuance", () => {
+  it("issues a CA, a server leaf with SANs and a client leaf", () => {
+    const ca = issueAuthority("test CA");
+    const caCert = new X509Certificate(ca.cert);
+    const server = new X509Certificate(
+      issueServer(ca, ["runner.example", "10.1.2.3", "::1"]).cert
+    );
+    const runner = generateRunnerKey();
+    const client = new X509Certificate(
+      issueClient(ca, "rnr_1", runnerPublicKey(runner.publicKey))
+    );
+    expect(caCert.ca).toBe(true);
+    expect(server.ca).toBe(false);
+    expect(server.verify(caCert.publicKey)).toBe(true);
+    expect(server.checkHost("runner.example")).toBe("runner.example");
+    expect(server.checkIP("10.1.2.3")).toBe("10.1.2.3");
+    expect(server.checkIP("::1")).toBe("::1");
+    expect(client.verify(caCert.publicKey)).toBe(true);
+    expect(client.subject).toBe("CN=rnr_1");
+    expect(client.keyUsage).toEqual(["1.3.6.1.5.5.7.3.2"]);
+  });
+
+  it("rejects weak runner keys", () => {
+    expect(() =>
+      runnerPublicKey(
+        "-----BEGIN PUBLIC KEY-----\nMFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBAL\n-----END PUBLIC KEY-----"
+      )
+    ).toThrow();
+  });
+});
+
+describe("runner enrollment service", () => {
+  let pool: Pool;
+  let api: http.Server;
+  let apiRequests: http.IncomingMessage[];
+  const services: RemoteRunnerService[] = [];
+  const runners: FakeRunner[] = [];
+
+  const makeService = () => {
+    const service = new RemoteRunnerService(
+      {
+        registry: new RunnerRegistry(pool),
+        host: HOST,
+        endpointHost: HOST,
+      },
+      {
+        host: HOST,
+        port: (api.address() as AddressInfo).port,
+        tls: false,
+        validAgentToken: (token, agentId) => token === `agent-token:${agentId}`,
+        validJobToken: (token, runId, agentId) =>
+          token === `job-token:${runId}:${agentId}`,
+      }
+    );
+    services.push(service);
+    return service;
+  };
+
+  async function enroll(service: RemoteRunnerService, name: string) {
+    const created = await service.createRegistration(name);
+    const { endpoint, pin, code } = parseCommand(created.command);
+    const runnerKey = generateRunnerKey();
+    const enrolled = await exchangeCode({
+      endpoint,
+      pin,
+      code,
+      publicKey: runnerKey.publicKey,
+    });
+    return { created, endpoint, pin, code, key: runnerKey.key, ...enrolled };
+  }
+
+  beforeAll(async () => {
+    pool = await setupTestDb();
+    await runTestMigrations();
+    apiRequests = [];
+    api = http.createServer((request, response) => {
+      apiRequests.push(request);
+      response.end(`api:${request.url}`);
+    });
+    await new Promise<void>((resolve) => api.listen(0, HOST, resolve));
+  }, 60_000);
+
+  afterEach(async () => {
+    for (const runner of runners.splice(0)) runner.socket.destroy();
+    for (const service of services.splice(0)) service.close();
+    await pool.query("DELETE FROM runner_registrations");
+    await pool.query("DELETE FROM runner_authority");
+  });
+
+  afterAll(async () => {
+    api?.close();
+    await teardownTestDb();
+  });
+
+  it("prunes expired unclaimed registrations after they are cleared", async () => {
+    const registry = new RunnerRegistry(pool);
+    const { id } = await registry.create("unused", HOST);
+    await registry.revoke(id);
+    await pool.query(
+      "UPDATE runner_registrations SET code_expires_at = now() WHERE id = $1",
+      [id]
+    );
+
+    expect(await registry.list()).toMatchObject([{ id }]);
+    expect(await registry.clearRevoked([id])).toBe(1);
+    expect(await registry.list()).toEqual([]);
+  });
+
+  it("negotiates supervisor update frames only with an advertising peer", async () => {
+    const service = makeService();
+    const revision = "b".repeat(40);
+    const advert = {
+      protocol: 1,
+      os: "linux",
+      arch: "x64",
+      version: "1.7.28",
+      revision,
+      installedSha256: "c".repeat(64),
+      handoff: { reads: [1, 2], writes: 2 },
+    };
+    const current = await enroll(service, "updatable");
+    const older = await enroll(service, "older");
+    const currentPeer = await dialRunner({
+      ...current,
+      label: "current",
+      selfUpdate: advert,
+    });
+    const olderPeer = await dialRunner({
+      ...older,
+      label: "older",
+    });
+    runners.push(currentPeer, olderPeer);
+    const currentId = current.created.id;
+    const olderId = older.created.id;
+    await waitFor(() =>
+      [currentId, olderId].every((runner) => service.available(runner))
+    );
+    const attemptId = "6f1c1d1e-2a3b-4c5d-8e9f-0a1b2c3d4e5f";
+    const target = {
+      version: "1.7.29",
+      os: "linux" as const,
+      arch: "x64" as const,
+      sha256: "a".repeat(64),
+      revision: "d".repeat(40),
+    };
+
+    // A runner without protected update support receives no update operation.
+    expect(service.selfUpdate(olderId)).toBeUndefined();
+    expect(() => service.offerUpdate(olderId, attemptId, target)).toThrow(
+      /does not support supervisor updates/
+    );
+    expect(olderPeer.requests).toEqual([]);
+
+    const { advert: seen, epoch } = service.selfUpdate(currentId)!;
+    expect(seen).toEqual(advert);
+    const events: unknown[] = [];
+    const stop = service.onUpdateStatus((event) => events.push(event));
+    expect(
+      service.offerUpdate(currentId, attemptId, target, false, epoch)
+    ).toEqual({ epoch });
+    expect(() =>
+      service.fenceUpdate(currentId, attemptId, true, epoch + 1)
+    ).toThrow(RunnerUnavailable);
+    expect(() =>
+      // @ts-expect-error A decision requires a connection epoch.
+      service.sendUpdate(currentId, {
+        type: "update_cancel",
+        attemptId,
+        reason: "policy_changed",
+      })
+    ).toThrow(/epoch is required/);
+    expect(() =>
+      service.sendUpdate(
+        currentId,
+        {
+          type: "update_cancel",
+          attemptId,
+          reason: "because",
+        } as never,
+        epoch
+      )
+    ).toThrow(TypeError);
+    await waitFor(() => currentPeer.requests.length === 1);
+    expect(currentPeer.requests[0]).toMatchObject({
+      op: "update.offer",
+      input: { attempt: attemptId, target, retry: false },
+    });
+
+    const status = {
+      type: "update_status",
+      attemptId,
+      phase: "deferred",
+      reason: "staging",
+      installed: { version: "1.7.28", revision, sha256: "c".repeat(64) },
+    };
+    currentPeer.send({ ...status, path: "/opt/dispatch-runner" });
+    await waitFor(() => events.length === 1);
+    expect(events[0]).toEqual({ runnerId: currentId, epoch, status });
+    stop();
+
+    // A malformed status ends the connection; so does one from a peer
+    // that never advertised the capability.
+    currentPeer.send({ ...status, phase: "renaming" });
+    olderPeer.send(status);
+    await Promise.all([currentPeer.closed, olderPeer.closed]);
+    expect(events).toHaveLength(1);
+  });
+
+  it("clears a cached unreadable fence only when the runner reports it cleared", async () => {
+    const service = makeService();
+    const revision = "b".repeat(40);
+    const enrolled = await enroll(service, "unreadable-fence");
+    const id = enrolled.created.id;
+    const advert = {
+      protocol: 1,
+      os: "linux",
+      arch: "x64",
+      version: "1.7.28",
+      revision,
+      installedSha256: "c".repeat(64),
+      handoff: { reads: [1, 2], writes: 2 },
+    };
+    const peer = await dialRunner({
+      ...enrolled,
+      label: "unreadable",
+      selfUpdate: { ...advert, fenceUnreadable: true },
+    });
+    runners.push(peer);
+    await waitFor(() => service.selfUpdate(id) !== undefined);
+    const seen: unknown[] = [];
+    const stop = service.onUpdateStatus(() =>
+      seen.push(service.selfUpdate(id)?.advert)
+    );
+    const cancelled = {
+      type: "update_status",
+      attemptId: "6f1c1d1e-2a3b-4c5d-8e9f-0a1b2c3d4e5f",
+      phase: "deferred",
+      reason: "cancelled",
+      installed: { version: "1.7.28", revision, sha256: "c".repeat(64) },
+    };
+    peer.send(cancelled);
+    await waitFor(() => seen.length === 1);
+    expect(seen[0]).toEqual({ ...advert, fenceUnreadable: true });
+    peer.send({ ...cancelled, fenceCleared: true });
+    await waitFor(() => seen.length === 2);
+    // Listeners already see the refreshed advert.
+    expect(seen[1]).toEqual(advert);
+    stop();
+  });
+
+  it("pairs with a one-time code over a pinned CA and lists the runner", async () => {
+    const service = makeService();
+    const created = await service.createRegistration("alpha");
+    expect(created.id).toMatch(/^rnr_[a-f0-9]+$/);
+    expect(new Date(created.expiresAt).getTime()).toBeGreaterThan(Date.now());
+    expect(created.command).toMatch(
+      /^dispatch-runner remote-runner-pair --endpoint https:\/\/127\.0\.0\.1:\d+ --ca-sha256 [a-f0-9]{64} --code \S+$/
+    );
+    expect(await service.list()).toMatchObject([
+      {
+        id: created.id,
+        name: "alpha",
+        status: "pending",
+        automaticUpdates: true,
+        engineManagement: false,
+        githubManagement: false,
+      },
+    ]);
+
+    const { endpoint, pin, code } = parseCommand(created.command);
+    const wrongPin = "0".repeat(64);
+    const runnerKey = generateRunnerKey();
+    await expect(
+      exchangeCode({
+        endpoint,
+        pin: wrongPin,
+        code,
+        publicKey: runnerKey.publicKey,
+      })
+    ).rejects.toThrow(/pinned/);
+    // The wrong pin aborted before the code was sent, so it still works.
+    const enrolled = await exchangeCode({
+      endpoint,
+      pin,
+      code,
+      publicKey: runnerKey.publicKey,
+    });
+    expect(enrolled).toMatchObject({ id: created.id, name: "alpha" });
+    await expect(
+      exchangeCode({
+        endpoint,
+        pin,
+        code,
+        publicKey: generateRunnerKey().publicKey,
+      })
+    ).rejects.toThrow(/invalid, expired or already used/);
+
+    expect((await service.list())[0]?.status).toBe("offline");
+    runners.push(
+      await dialRunner({
+        endpoint,
+        ca: enrolled.ca,
+        cert: enrolled.cert,
+        key: runnerKey.key,
+        label: "alpha",
+      })
+    );
+    await waitFor(() => service.available(created.id));
+    // Placements address the opaque registration id, never the name.
+    expect(service.available("alpha")).toBe(false);
+    expect(await service.list()).toMatchObject([
+      {
+        id: created.id,
+        name: "alpha",
+        status: "online",
+        automaticUpdates: true,
+        engineManagement: true,
+        githubManagement: true,
+      },
+    ]);
+  });
+
+  it("defaults an existing registration to automatic and persists a per-runner opt-out", async () => {
+    const service = makeService();
+    const { created } = await enroll(service, "existing");
+    await pool.query(
+      "UPDATE runner_registrations SET settings = '{}' WHERE id = $1",
+      [created.id]
+    );
+    expect(service.automaticUpdates(created.id)).toBe(true);
+    await service.setAutomaticUpdates(created.id, false);
+    expect(service.automaticUpdates(created.id)).toBe(false);
+    expect(await new RunnerRegistry(pool).active()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: created.id, automaticUpdates: false }),
+      ])
+    );
+    expect(await service.list()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: created.id, automaticUpdates: false }),
+      ])
+    );
+  });
+
+  it("stores a requested health sample under the peer identity and retains it offline", async () => {
+    const service = makeService();
+    const alpha = await enroll(service, "alpha");
+    const beta = await enroll(service, "beta");
+    const health = {
+      version: "1.2.3",
+      sessions: 3,
+      working: 1,
+      cpuPercent: 12,
+      memoryUsed: 64,
+      memoryTotal: 512,
+    };
+    const runner = await dialRunner({
+      ...alpha,
+      label: "alpha",
+      health,
+    });
+    runners.push(runner);
+    await waitFor(
+      async () =>
+        (await service.list()).find((r) => r.id === alpha.id)?.health
+          ?.sessions === 3
+    );
+    runner.socket.destroy();
+    await waitFor(
+      async () =>
+        (await service.list()).find((r) => r.id === alpha.id)?.status ===
+        "offline"
+    );
+    await waitFor(async () =>
+      Boolean((await service.list()).find((r) => r.id === alpha.id)?.health)
+    );
+    const rows = await service.list();
+    expect(rows.find((r) => r.id === alpha.id)).toMatchObject({
+      health,
+      healthReceivedAt: expect.any(String),
+    });
+    expect(rows.find((r) => r.id === beta.id)?.health).toBeUndefined();
+  });
+
+  it("validates names and rejects duplicates", async () => {
+    const service = makeService();
+    for (const bad of [" padded", "", "x".repeat(65), "tab\tname", 7])
+      await expect(service.createRegistration(bad)).rejects.toMatchObject({
+        status: 400,
+      });
+    // Display names are free-form; only the id addresses placements.
+    await service.createRegistration("Lima VM (arm64)");
+    await service.createRegistration("dup");
+    await expect(service.createRegistration("dup")).rejects.toBeInstanceOf(
+      RunnerRequestError
+    );
+  });
+
+  it("routes operations to independent registrations and revokes one", async () => {
+    const service = makeService();
+    const a = await enroll(service, "alpha");
+    const b = await enroll(service, "beta");
+    const alpha = await dialRunner({
+      endpoint: a.endpoint,
+      ca: a.ca,
+      cert: a.cert,
+      key: a.key,
+      label: "alpha",
+      answer: false,
+    });
+    const beta = await dialRunner({
+      endpoint: b.endpoint,
+      ca: b.ca,
+      cert: b.cert,
+      key: b.key,
+      label: "beta",
+    });
+    runners.push(alpha, beta);
+    const alphaPlace = { runner: a.id, workspace: "proof" };
+    const betaPlace = { runner: b.id, workspace: "proof" };
+    await waitFor(
+      () =>
+        service.available(alphaPlace.runner) &&
+        service.available(betaPlace.runner)
+    );
+    const query = (id: string, peer = service) =>
+      peer.call(id, "github.repositories", { query: "x" });
+    expect((await query(b.id)).repositories[0]?.name).toBe("beta");
+    expect(alpha.requests).toHaveLength(0);
+    const inFlight = expect(query(a.id)).rejects.toMatchObject({
+      code: "unavailable",
+    });
+    await waitFor(() =>
+      alpha.requests.some((f) => f.op === "github.repositories")
+    );
+    await service.revoke(a.id);
+    await inFlight;
+    await alpha.closed;
+    expect(service.available(alphaPlace.runner)).toBe(false);
+    expect((await query(b.id)).repositories[0]?.name).toBe("beta");
+
+    expect((await service.list()).find((r) => r.id === a.id)?.status).toBe(
+      "revoked"
+    );
+    expect(await service.clearRevoked([a.id, b.id])).toBe(1);
+    expect((await service.list()).map((r) => [r.id, r.status])).toEqual([
+      [b.id, "online"],
+    ]);
+
+    // The cleared runner's revoked certificate cannot attach again.
+    const again = await dialRunner({
+      endpoint: a.endpoint,
+      ca: a.ca,
+      cert: a.cert,
+      key: a.key,
+      label: "alpha",
+    }).catch(() => undefined);
+    if (again) {
+      runners.push(again);
+      await again.closed;
+    }
+    expect(service.available(alphaPlace.runner)).toBe(false);
+    await expect(query(a.id)).rejects.toBeInstanceOf(RunnerRevoked);
+    expect((await query(b.id)).repositories[0]?.name).toBe("beta");
+    // A fresh service rebuilds the roster from persisted registrations.
+    service.close();
+    const restarted = makeService();
+    expect((await restarted.list()).map((r) => [r.id, r.status])).toEqual([
+      [b.id, "offline"],
+    ]);
+    await expect(query(a.id, restarted)).rejects.toBeInstanceOf(RunnerRevoked);
+    await expect(restarted.revoke("rnr_missing")).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+
+  it("rejects a client certificate from another CA", async () => {
+    const service = makeService();
+    const a = await enroll(service, "alpha");
+    const rogueCa = issueAuthority("rogue");
+    const key = generateRunnerKey();
+    const cert = issueClient(rogueCa, a.id, runnerPublicKey(key.publicKey));
+    const rogue = await dialRunner({
+      endpoint: a.endpoint,
+      ca: a.ca,
+      cert,
+      key: key.key,
+      label: "rogue",
+    });
+    runners.push(rogue);
+    await rogue.closed;
+    expect(service.available(a.id)).toBe(false);
+  });
+
+  it("never routes an old placement to a re-paired runner with the same name", async () => {
+    const service = makeService();
+    const old = await enroll(service, "lima");
+    const oldPlace = { runner: old.id, workspace: "proof" };
+    expect(service.permitsAgentMcp(oldPlace.runner)).toBe(true);
+    await service.revoke(old.id);
+    expect(service.permitsAgentMcp(oldPlace.runner)).toBe(false);
+
+    const fresh = await enroll(service, "lima");
+    expect(fresh.id).not.toBe(old.id);
+    const freshPlace = { runner: fresh.id, workspace: "proof" };
+    // Offline but active: the agent's MCP credential stays valid.
+    expect(service.permitsAgentMcp(freshPlace.runner)).toBe(true);
+    const runner = await dialRunner({
+      endpoint: fresh.endpoint,
+      ca: fresh.ca,
+      cert: fresh.cert,
+      key: fresh.key,
+      label: "fresh",
+    });
+    runners.push(runner);
+    await waitFor(() => service.available(freshPlace.runner));
+    expect(service.available(oldPlace.runner)).toBe(false);
+    await expect(
+      service.call(oldPlace.runner, "github.repositories", { query: "x" })
+    ).rejects.toBeInstanceOf(RunnerRevoked);
+    expect(runner.requests.length > 0).toBe(false);
+    expect(service.permitsAgentMcp("rnr_unknown")).toBe(false);
+    const listed = await service.list();
+    expect(listed.map((r) => [r.name, r.status])).toEqual([
+      ["lima", "revoked"],
+      ["lima", "online"],
+    ]);
+  });
+
+  it("renews a certificate under the same id and retires the old one", async () => {
+    const service = makeService();
+    const a = await enroll(service, "alpha");
+    const place = { runner: a.id, workspace: "proof" };
+    const before = await dialRunner({
+      endpoint: a.endpoint,
+      ca: a.ca,
+      cert: a.cert,
+      key: a.key,
+      label: "old",
+    });
+    runners.push(before);
+    await waitFor(() => service.available(place.runner));
+
+    const renewal = await service.reissueRegistration(a.id);
+    expect(renewal.id).toBe(a.id);
+    const { endpoint, pin, code } = parseCommand(renewal.command);
+    const key = generateRunnerKey();
+    const renewed = await exchangeCode({
+      endpoint,
+      pin,
+      code,
+      publicKey: key.publicKey,
+    });
+    expect(renewed.id).toBe(a.id);
+    await before.closed;
+
+    const stale = await dialRunner({
+      endpoint: a.endpoint,
+      ca: a.ca,
+      cert: a.cert,
+      key: a.key,
+      label: "old",
+    });
+    runners.push(stale);
+    await stale.closed;
+    const after = await dialRunner({
+      endpoint,
+      ca: renewed.ca,
+      cert: renewed.cert,
+      key: key.key,
+      label: "new",
+    });
+    runners.push(after);
+    await waitFor(() => service.available(place.runner));
+    expect(
+      (await service.call(a.id, "github.repositories", { query: "x" }))
+        .repositories[0]?.name
+    ).toBe("new");
+    await service.revoke(a.id);
+    await expect(service.reissueRegistration(a.id)).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+
+  it("persists the CA, port and registrations across a service restart", async () => {
+    const first = makeService();
+    const a = await enroll(first, "alpha");
+    const place = (workspace: string) => ({ runner: a.id, workspace });
+    const port = Number(new URL(a.endpoint).port);
+    first.close();
+    services.splice(services.indexOf(first), 1);
+
+    const second = makeService();
+    await second.startEnrolled();
+    expect(second.originFor(a.id)).toBe(`https://127.0.0.1:${port}`);
+    runners.push(
+      await dialRunner({
+        endpoint: a.endpoint,
+        ca: a.ca,
+        cert: a.cert,
+        key: a.key,
+        label: "alpha",
+      })
+    );
+    await waitFor(() => second.available(a.id));
+    second.close();
+    services.splice(services.indexOf(second), 1);
+    // The registration survives while offline.
+    const third = makeService();
+    await third.startEnrolled();
+
+    expect((await third.list())[0]).toMatchObject({
+      status: "offline",
+    });
+  });
+
+  it("proxies only session-scoped MCP routes with allow-listed headers", async () => {
+    const service = makeService();
+    const a = await enroll(service, "alpha");
+    const origin = new URL(a.endpoint);
+    const get = (
+      path: string,
+      headers: Record<string, string> = {},
+      method = "GET"
+    ) =>
+      new Promise<{ status: number; body: string }>((resolve, reject) => {
+        const request = https.request(
+          {
+            host: origin.hostname,
+            port: origin.port,
+            path,
+            method,
+            headers,
+            ca: a.ca,
+          },
+          (response) => {
+            let body = "";
+            response.on("data", (chunk) => (body += chunk));
+            response.on("end", () =>
+              resolve({ status: response.statusCode ?? 0, body })
+            );
+          }
+        );
+        request.on("error", reject);
+        request.end();
+      });
+    expect(await get("/ping")).toEqual({ status: 200, body: "api:/ping" });
+    expect(
+      (await get("/api/v1/agents", { authorization: "Bearer x" })).status
+    ).toBe(404);
+    expect((await get("/api/mcp/agt_abc")).status).toBe(404);
+    // Non-agent credentials (e.g. the admin API token) never pass.
+    expect(
+      (await get("/api/mcp/agt_abc", { authorization: "Bearer admin" }, "POST"))
+        .status
+    ).toBe(404);
+    expect(
+      (
+        await get(
+          "/api/mcp/agt_abc",
+          { authorization: "Bearer agent-token:agt_other" },
+          "POST"
+        )
+      ).status
+    ).toBe(404);
+    apiRequests.length = 0;
+    expect(
+      await get(
+        "/api/mcp/agt_abc",
+        {
+          authorization: "Bearer agent-token:agt_abc",
+          cookie: "dispatch_session=secret",
+          "x-forwarded-for": "10.0.0.1",
+          "x-dispatch-admin": "1",
+          origin: "https://evil.example",
+          "mcp-session-id": "s1",
+        },
+        "POST"
+      )
+    ).toEqual({ status: 200, body: "api:/api/mcp/agt_abc" });
+    const forwarded = apiRequests[0]!.headers;
+    expect(forwarded.authorization).toBe("Bearer agent-token:agt_abc");
+    expect(forwarded["mcp-session-id"]).toBe("s1");
+    for (const name of [
+      "cookie",
+      "x-forwarded-for",
+      "x-dispatch-admin",
+      "origin",
+    ])
+      expect(forwarded[name], name).toBeUndefined();
+    apiRequests.length = 0;
+    for (const [method, path] of [
+      ["GET", `/api/v1/runners/${a.created.id}/github`],
+      ["POST", `/api/v1/runners/${a.created.id}/github/login`],
+      ["GET", `/api/v1/runners/${a.created.id}/repository-search?q=org/repo`],
+      ["GET", `/api/v1/runners/${a.created.id}/pull-request-head`],
+    ]) {
+      expect(
+        (
+          await get(
+            path,
+            { authorization: "Bearer agent-token:agt_abc" },
+            method
+          )
+        ).status
+      ).toBe(404);
+    }
+    expect(apiRequests).toHaveLength(0);
+    const runId = "50a552a3-9629-4bc5-8b16-d52351d6c9ab";
+    const jobRoute = `/api/mcp/jobs/${runId}/agt_abc`;
+    for (const token of ["agent-token:agt_abc", `job-token:${runId}:agt_other`])
+      expect(
+        (await get(jobRoute, { authorization: `Bearer ${token}` }, "POST"))
+          .status
+      ).toBe(404);
+    expect(
+      await get(
+        jobRoute,
+        { authorization: `Bearer job-token:${runId}:agt_abc` },
+        "POST"
+      )
+    ).toEqual({ status: 200, body: `api:${jobRoute}` });
+    // /ping carries no credentials upstream.
+    apiRequests.length = 0;
+    await get("/ping", { authorization: "Bearer agent-token:agt_abc" });
+    expect(apiRequests[0]?.headers.authorization).toBeUndefined();
+  });
+});
+
+it("relays on an anonymous socket with a simulated Bun authorization flag", async () => {
+  const authority = issueAuthority("relay-test");
+  const leaf = issueServer(authority, [HOST]);
+  const requests: string[] = [];
+  const api = http.createServer((request, response) => {
+    requests.push(request.method ?? "");
+    const status = request.method === "POST" ? 400 : 405;
+    const body = JSON.stringify({
+      error:
+        status === 400 ? "Unsupported protocol version" : "Method not allowed",
+    });
+    setTimeout(
+      () => {
+        response.writeHead(status, {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(body),
+          Connection: "close",
+        });
+        response.end(body);
+      },
+      status === 400 ? 0 : 150
+    );
+  });
+  api.listen(0, HOST);
+  await once(api, "listening");
+  const debug = vi.fn();
+  const service = new RemoteRunnerService(
+    undefined,
+    {
+      host: HOST,
+      port: (api.address() as AddressInfo).port,
+      tls: false,
+      validAgentToken: (token, id) =>
+        token === "agent-token" && id === "agt_probe",
+    },
+    { debug }
+  );
+  const listener = createServer(
+    {
+      cert: leaf.cert,
+      key: leaf.key,
+      requestCert: true,
+      rejectUnauthorized: false,
+    },
+    (socket) => {
+      // Bun reports an anonymous TLS resumption as authorized without a cert.
+      socket.authorized = true;
+      service["accept"](socket, "legacy");
+    }
+  );
+  listener.listen(0, HOST);
+  await once(listener, "listening");
+  const agent = new https.Agent({ keepAlive: true, ca: authority.cert });
+  try {
+    expect(service["proxyIdleTimeout"]).toBeGreaterThan(60_000);
+    Object.defineProperty(service, "proxyIdleTimeout", { value: 100 });
+    const call = (method: string) =>
+      new Promise<{
+        socket: TLSSocket;
+        status: number | undefined;
+        body: string;
+      }>((resolve, reject) => {
+        const request = https.request(
+          {
+            host: HOST,
+            port: (listener.address() as AddressInfo).port,
+            path: "/api/mcp/agt_probe",
+            method,
+            headers: { Authorization: "Bearer agent-token" },
+            agent,
+          },
+          (response) => {
+            const socket = response.socket as TLSSocket;
+            let body = "";
+            response.setEncoding("utf8");
+            response.on("data", (chunk: string) => (body += chunk));
+            response.once("end", () =>
+              resolve({ socket, status: response.statusCode, body })
+            );
+            response.once("error", reject);
+          }
+        );
+        request.on("error", reject);
+        request.end();
+      });
+    const first = await call("POST");
+    expect(first.status).toBe(400);
+    expect(JSON.parse(first.body)).toEqual({
+      error: "Unsupported protocol version",
+    });
+    expect(service["unauthenticated"]).toBe(0);
+    const close = once(first.socket, "close");
+    const second = await call("GET");
+    expect(second.socket).toBe(first.socket);
+    expect(second.status).toBe(405);
+    expect(JSON.parse(second.body)).toEqual({ error: "Method not allowed" });
+    expect(requests).toEqual(["POST", "GET"]);
+    expect(await close).toEqual([false]);
+    await vi.waitFor(() =>
+      expect(debug).toHaveBeenCalledExactlyOnceWith(
+        { ageMs: expect.any(Number), requestsServed: 2, closedBy: "proxy" },
+        "Runner HTTP relay closed"
+      )
+    );
+  } finally {
+    agent.destroy();
+    service.close();
+    listener.close();
+    api.close();
+  }
+});
+
+describe("runner listener request prefixes", () => {
+  const authority = issueAuthority("prefix-test");
+  let api: http.Server;
+  let listener: ReturnType<typeof createServer>;
+  let service: RemoteRunnerService;
+  let bootstrapStarted = false;
+
+  beforeAll(async () => {
+    api = http.createServer((request, response) => {
+      if (request.url === "/api/v1/runners/connect") bootstrapStarted = true;
+      request.resume();
+      request.once("end", () => response.end("ping ok"));
+    });
+    api.listen(0, HOST);
+    await once(api, "listening");
+    service = new RemoteRunnerService(undefined, {
+      host: HOST,
+      port: (api.address() as AddressInfo).port,
+      tls: false,
+      validAgentToken: () => false,
+    });
+    const leaf = issueServer(authority, [HOST]);
+    service["authority"] = {
+      caFingerprint: new X509Certificate(authority.cert).fingerprint256,
+      caPem: authority.cert,
+      serverCert: leaf.cert,
+    };
+    listener = createServer(
+      {
+        cert: leaf.cert,
+        key: leaf.key,
+        requestCert: true,
+        rejectUnauthorized: false,
+      },
+      (socket) => service["accept"](socket, "enrolled")
+    );
+    listener.listen(0, HOST);
+    await once(listener, "listening");
+  });
+
+  afterAll(() => {
+    service.close();
+    listener.close();
+    api.close();
+  });
+
+  async function dial(session?: Buffer) {
+    const socket = connect({
+      host: HOST,
+      port: (listener.address() as AddressInfo).port,
+      ca: authority.cert,
+      maxVersion: "TLSv1.2",
+      session,
+    });
+    await once(socket, "secureConnect");
+    return socket;
+  }
+
+  async function exchange(chunks: string[], interval: number) {
+    const socket = await dial();
+    let response = "";
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk) => (response += chunk));
+    const closed = once(socket, "close");
+    try {
+      for (const [index, chunk] of chunks.entries()) {
+        if (index > 0) await delay(interval);
+        if (socket.destroyed) break;
+        socket.write(chunk);
+      }
+      await closed;
+      return response;
+    } finally {
+      socket.destroy();
+    }
+  }
+
+  const rest = "ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+  it("relays HTTP after establishing a second TLS connection with a saved session", async () => {
+    const first = await dial();
+    const session = first.getSession();
+    const firstClosed = once(first, "close");
+    first.end();
+    await firstClosed;
+    expect(session).toBeDefined();
+
+    const resumed = await dial(session);
+    try {
+      expect(resumed.isSessionReused()).toBe(true);
+      let response = "";
+      resumed.setEncoding("utf8");
+      resumed.on("data", (chunk) => (response += chunk));
+      const closed = once(resumed, "close");
+      resumed.write("GET /" + rest);
+      await closed;
+      expect(response).toContain("HTTP/1.1 200 OK");
+      expect(response).toContain("ping ok");
+    } finally {
+      resumed.destroy();
+    }
+  });
+
+  it.each([
+    { chunks: ["GE", "T /" + rest], interval: 150 },
+    { chunks: [..."GET /", rest], interval: 20 },
+  ])("relays a fragmented HTTP request (%j)", async ({ chunks, interval }) => {
+    expect(await exchange(chunks, interval)).toMatch(
+      /^HTTP\/1\.1 200 OK[\s\S]*\r\n\r\nping ok$/
+    );
+  });
+
+  it.each(["nope", "G ", "ABCDEFGH", "GET x"])(
+    "drops a prefix that cannot become an HTTP request (%s)",
+    async (prefix) => {
+      expect(await exchange([prefix], 0)).toBe("");
+    }
+  );
+
+  it("drops an idle incomplete prefix at the original deadline", async () => {
+    const started = performance.now();
+    expect(await exchange(["G", "E"], 150)).toBe("");
+    expect(performance.now() - started).toBeGreaterThanOrEqual(9_500);
+  }, 15_000);
+
+  it("reads a pairing frame split after its leading brace", async () => {
+    const reply = await exchange(
+      ["{", '"type":"ca_request","version":1}\n'],
+      50
+    );
+    expect(JSON.parse(reply)).toEqual({ type: "ca", ca: authority.cert });
+  });
+
+  it("keeps an unfinished bootstrap request in the handshake and relay budgets", async () => {
+    const socket = await dial();
+    const relayLimit = service["maxHttpRelays"];
+    Object.defineProperty(service, "maxHttpRelays", { value: 1 });
+    try {
+      socket.write(
+        "POST /api/v1/runners/connect HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\n\r\n{"
+      );
+      await vi.waitFor(() => expect(bootstrapStarted).toBe(true));
+      expect(service["proxyRelays"].size).toBe(1);
+      const release = service["proxyRelays"].values().next()
+        .value?.releaseHandshake;
+      expect(release).toBeTypeOf("function");
+      expect(service["unauthenticated"]).toBe(1);
+      expect(service["activeHttpRelays"]).toBe(1);
+      expect(await exchange(["GET /" + rest], 0)).toBe("");
+      const ca = await exchange(['{"type":"ca_request","version":1}\n'], 0);
+      expect(JSON.parse(ca)).toEqual({ type: "ca", ca: authority.cert });
+      const closed = once(socket, "close");
+      let response = "";
+      socket.setEncoding("utf8");
+      socket.on("data", (chunk) => (response += chunk));
+      socket.write("}");
+      await closed;
+      expect(response).toContain("HTTP/1.1 200 OK");
+      expect(response).toMatch(/connection: close/i);
+      await vi.waitFor(() => {
+        expect(service["proxyRelays"].size).toBe(0);
+        expect(service["unauthenticated"]).toBe(0);
+        expect(service["activeHttpRelays"]).toBe(0);
+      });
+      // A buffered proxy request can arrive after the TLS close callback.
+      release?.();
+      expect(service["unauthenticated"]).toBe(0);
+    } finally {
+      socket.destroy();
+      Object.defineProperty(service, "maxHttpRelays", { value: relayLimit });
+    }
+  });
+});
+
+describe("advertised pairing host", () => {
+  const nic = (address: string, internal = false) => ({
+    address,
+    internal,
+    family: "IPv4" as const,
+    netmask: "255.255.255.0",
+    mac: "00:00:00:00:00:00",
+    cidr: null,
+  });
+  const interfaces = {
+    lo0: [nic("127.0.0.1", true)],
+    utun0: [nic("100.64.1.2")],
+    en0: [nic("192.168.1.246")],
+  };
+
+  it("keeps a reachable request host", () => {
+    expect(advertisedHost("studio.local", interfaces, "studio")).toBe(
+      "studio.local"
+    );
+    expect(advertisedHost("10.0.0.5", interfaces, "studio")).toBe("10.0.0.5");
+  });
+
+  it("replaces loopback with a private LAN address", () => {
+    for (const hint of ["localhost", "127.0.0.1", "::1", "[::1]", undefined])
+      expect(advertisedHost(hint, interfaces, "studio")).toBe("192.168.1.246");
+  });
+
+  it("falls back to the hostname without a LAN address", () => {
+    expect(
+      advertisedHost("localhost", { lo0: [nic("127.0.0.1", true)] }, "studio")
+    ).toBe("studio");
+  });
+});
+
+describe("pinned pairing bootstrap", () => {
+  it("sends the exact v1 bootstrap and enrollment request bytes", async () => {
+    const authority = issueAuthority("fixture");
+    const leaf = issueServer(authority, [HOST]);
+    const requests: Buffer[] = [];
+    const server = createServer(
+      { cert: leaf.cert + authority.cert, key: leaf.key },
+      (socket) => {
+        const chunks: Buffer[] = [];
+        socket.on("data", (chunk: Buffer) => {
+          chunks.push(chunk);
+          if (!chunk.includes(10)) return;
+          requests.push(Buffer.concat(chunks));
+          const reply =
+            requests.length === 1
+              ? { type: "ca", ca: authority.cert }
+              : { type: "enroll_error", error: "fixture refused" };
+          socket.end(JSON.stringify(reply) + "\n");
+        });
+      }
+    );
+    await new Promise<void>((resolve) => server.listen(0, HOST, resolve));
+    try {
+      await expect(
+        exchangeCode({
+          endpoint: `https://${HOST}:${(server.address() as AddressInfo).port}`,
+          pin: new X509Certificate(authority.cert).fingerprint256,
+          code: "fixture-code",
+          publicKey: "fixture\nkey",
+        })
+      ).rejects.toThrow("fixture refused");
+      expect(requests).toEqual([
+        Buffer.from('{"type":"ca_request","version":1}\n'),
+        Buffer.from(
+          '{"type":"enroll","version":1,"code":"fixture-code","publicKey":"fixture\\nkey"}\n'
+        ),
+      ]);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("never sends the code to a peer that echoes the pinned CA but serves another chain", async () => {
+    const { createServer } = await import("node:tls");
+    const real = issueAuthority("real");
+    const rogue = issueAuthority("rogue");
+    const leaf = issueServer(rogue, [HOST]);
+    const received: unknown[] = [];
+    const server = createServer(
+      { cert: leaf.cert + rogue.cert, key: leaf.key },
+      (socket) => {
+        socket.on("error", () => {});
+        const send = wireFrames<EnrollmentRequest, EnrollmentReply>(
+          socket,
+          (frame) => {
+            received.push(frame);
+            send({ type: "ca", ca: real.cert });
+            socket.end();
+          }
+        );
+      }
+    );
+    await new Promise<void>((resolve) => server.listen(0, HOST, resolve));
+    const port = (server.address() as AddressInfo).port;
+    const pin = new X509Certificate(real.cert).fingerprint256;
+    try {
+      await expect(
+        exchangeCode({
+          endpoint: `https://${HOST}:${port}`,
+          pin,
+          code: "secret-code",
+          publicKey: generateRunnerKey().publicKey,
+        })
+      ).rejects.toThrow();
+      expect(received).toEqual([{ type: "ca_request", version: 1 }]);
+    } finally {
+      server.close();
+    }
+  });
+});

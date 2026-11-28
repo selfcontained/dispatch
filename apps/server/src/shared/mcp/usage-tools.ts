@@ -1,3 +1,4 @@
+import type { RunnerEngine } from "@dispatch/runner-protocol";
 import type { RedeemCodexReset } from "../../agents/codex-reset.js";
 import type { ProviderPlan, ProviderPlansResponse } from "@dispatch/shared";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -13,7 +14,11 @@ import {
   withRemaining,
   type UsageWatchService,
 } from "../../agents/usage-watches.js";
-import { selectableAgentModels } from "../agent-models.js";
+import {
+  getAgentModelAvailability,
+  getAgentModelOptions,
+  type AgentModelOption,
+} from "../agent-models.js";
 import { CLI_AGENT_TYPES } from "../agent-types.js";
 import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
@@ -27,6 +32,9 @@ function agentPlan(plan: ProviderPlan) {
 
 export type UsageCallbacks = {
   redeemCodexReset?: RedeemCodexReset;
+  modelOptions?: (
+    engine: RunnerEngine
+  ) => Promise<ReturnType<typeof getAgentModelOptions>>;
   providerPlans?: (request?: {
     force?: boolean;
   }) => Promise<ProviderPlansResponse>;
@@ -167,6 +175,15 @@ export function summarizeUsage(
   };
 }
 
+/** A type's catalog less what is turned off in Settings. */
+function offeredModels(
+  engine: (typeof CLI_AGENT_TYPES)[number],
+  models: readonly AgentModelOption[]
+): readonly AgentModelOption[] {
+  const { disabled } = getAgentModelAvailability(engine);
+  return models.filter((model) => !disabled.includes(model.id));
+}
+
 export function registerUsageTools(
   server: McpServer,
   allowed: Set<string>,
@@ -259,40 +276,50 @@ export function registerUsageTools(
           providerPlans({ force }),
           callbacks.enabledAgentTypes?.() ?? CLI_AGENT_TYPES,
         ]);
-        const providers = CLI_AGENT_TYPES.filter(
-          (engine) => !type || type === engine
-        ).map((engine) => {
-          const plan = report.providers.find(
-            (provider) => provider.engine === engine
-          );
-          const windows = withRemaining(plan?.windows ?? []);
-          return {
-            ...(plan
-              ? agentPlan(plan)
-              : {
+        const providers = await Promise.all(
+          CLI_AGENT_TYPES.filter((engine) => !type || type === engine).map(
+            async (engine) => {
+              const plan = report.providers.find(
+                (provider) => provider.engine === engine
+              );
+              const windows = withRemaining(plan?.windows ?? []);
+              return {
+                ...(plan
+                  ? agentPlan(plan)
+                  : {
+                      engine,
+                      plan: null,
+                      observedAt: null,
+                      unavailableReason:
+                        engine === "opencode"
+                          ? "OpenCode ACP reports session usage, but does not expose provider subscription limits."
+                          : "No usage report available.",
+                    }),
+                type: engine,
+                enabled: enabled.includes(engine),
+                ...verdict(plan, windows),
+                models: offeredModels(
                   engine,
-                  plan: null,
-                  observedAt: null,
-                  unavailableReason:
-                    engine === "opencode"
-                      ? "OpenCode ACP reports session usage, but does not expose provider subscription limits."
-                      : "No usage report available.",
-                }),
-            type: engine,
-            enabled: enabled.includes(engine),
-            ...verdict(plan, windows),
-            models: selectableAgentModels(engine),
-            windows,
-            ...(plan?.spend
-              ? {
-                  spend: {
-                    ...plan.spend,
-                    remaining: Math.max(0, plan.spend.limit - plan.spend.used),
-                  },
-                }
-              : {}),
-          };
-        });
+                  callbacks.modelOptions
+                    ? await callbacks.modelOptions(engine)
+                    : getAgentModelOptions(engine)
+                ),
+                windows,
+                ...(plan?.spend
+                  ? {
+                      spend: {
+                        ...plan.spend,
+                        remaining: Math.max(
+                          0,
+                          plan.spend.limit - plan.spend.used
+                        ),
+                      },
+                    }
+                  : {}),
+              };
+            }
+          )
+        );
         const result = {
           checkedAt: report.checkedAt,
           ...summarizeUsage(providers, report.checkedAt),

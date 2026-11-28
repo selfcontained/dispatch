@@ -1,3 +1,16 @@
+import { placementForRunner } from "../src/runners/placement.js";
+import { validationCatalogFixture } from "./helpers/model-catalog-validation.js";
+const validationFixtures: ReturnType<typeof validationCatalogFixture>[] = [];
+import {
+  setLearnedAgentModels,
+  getLearnedAgentModels,
+  forgetLearnedAgentModels,
+} from "../src/shared/agent-models.js";
+import { afterEach } from "vitest";
+afterEach(() => {
+  for (const fixture of validationFixtures.splice(0)) fixture.close();
+  forgetLearnedAgentModels();
+});
 import {
   afterAll,
   beforeAll,
@@ -13,7 +26,7 @@ import { registerPersonaRoutes } from "../src/routes/personas.js";
 import { StreamServiceError } from "../src/chat/service.js";
 
 vi.mock("../src/personas/resolve.js", () => ({
-  discoverPersonas: vi.fn(async () => ({
+  listPersonas: vi.fn(async () => ({
     personas: [],
     warnings: [],
     refreshing: false,
@@ -25,14 +38,22 @@ vi.mock("../src/personas/codeowners.js", () => ({
   hasCodeowners: vi.fn(async () => false),
 }));
 
-vi.mock("../src/shared/git/git-context.js", () => ({
-  resolveRepoRoot: vi.fn(async (cwd: string) => cwd),
-  resolveWorktreeRoot: vi.fn(async (cwd: string) => cwd),
-}));
+vi.mock(
+  "../../../packages/runner/src/workload/shared/git/git-context.js",
+  () => ({
+    resolveRepoRoot: vi.fn(async (cwd: string) => cwd),
+    resolveWorktreeRoot: vi.fn(async (cwd: string) => cwd),
+  })
+);
 
 function createMockDeps() {
   return {
+    projects: {
+      get: vi.fn(async (_id: string) => ({ repoRoot: "/project" })),
+      getRepository: vi.fn(async (_id: string) => ({ url: null })),
+    },
     agentManager: {
+      checkoutReadRunners: vi.fn(() => ({})),
       getAgent: vi.fn(async () => ({
         id: "agt_parent",
         name: "test-agent",
@@ -89,8 +110,8 @@ describe("GET /api/v1/personas", () => {
   });
 
   it("loads personas from the worktree and repo roots", async () => {
-    const { discoverPersonas } = await import("../src/personas/resolve.js");
-    vi.mocked(discoverPersonas).mockResolvedValueOnce({
+    const { listPersonas } = await import("../src/personas/resolve.js");
+    vi.mocked(listPersonas).mockResolvedValueOnce({
       personas: [
         { slug: "security-review", name: "Security Review", type: "review" },
       ],
@@ -105,12 +126,20 @@ describe("GET /api/v1/personas", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json().personas[0].slug).toBe("security-review");
     expect(response.json().codeowners).toBe(false);
-    expect(discoverPersonas).toHaveBeenCalledWith("/tmp", "workspace");
+    expect(listPersonas).toHaveBeenCalledWith(
+      {
+        kind: "folder",
+        cwd: "/tmp",
+        source: "workspace",
+        runners: expect.any(Function),
+      },
+      "review"
+    );
   });
 
   it("returns discovery warnings without hiding valid personas", async () => {
-    const { discoverPersonas } = await import("../src/personas/resolve.js");
-    vi.mocked(discoverPersonas).mockResolvedValueOnce({
+    const { listPersonas } = await import("../src/personas/resolve.js");
+    vi.mocked(listPersonas).mockResolvedValueOnce({
       warnings: ["Invalid persona type in broken.md"],
       refreshing: true,
       updatedAt: null,
@@ -129,7 +158,15 @@ describe("GET /api/v1/personas", () => {
       url: "/api/v1/personas?cwd=/tmp&type=task",
     });
     expect(response.statusCode).toBe(200);
-    expect(discoverPersonas).toHaveBeenCalledWith("/tmp", "catalog");
+    expect(listPersonas).toHaveBeenCalledWith(
+      {
+        kind: "folder",
+        cwd: "/tmp",
+        source: "catalog",
+        runners: expect.any(Function),
+      },
+      "task"
+    );
     expect(response.json()).toMatchObject({
       refreshing: true,
       personas: [expect.objectContaining({ slug: "builder" })],
@@ -137,40 +174,19 @@ describe("GET /api/v1/personas", () => {
     });
   });
 
-  it("separates agent and review pickers", async () => {
-    const { discoverPersonas } = await import("../src/personas/resolve.js");
-    const personas = [
-      { slug: "legacy", type: "review" },
-      { slug: "builder", type: "task" },
-      { slug: "default" },
-    ];
-    vi.mocked(discoverPersonas).mockResolvedValueOnce({
-      personas,
-      warnings: [],
-      refreshing: false,
-      updatedAt: null,
-    } as never);
-    expect(
-      (
-        await app.inject({
-          method: "GET",
-          url: "/api/v1/personas?cwd=/tmp&type=task",
-        })
-      )
-        .json()
-        .personas.map((p: { slug: string }) => p.slug)
-    ).toEqual(["builder"]);
-    vi.mocked(discoverPersonas).mockResolvedValueOnce({
-      personas,
-      warnings: [],
-      refreshing: false,
-      updatedAt: null,
-    } as never);
-    expect(
-      (await app.inject({ method: "GET", url: "/api/v1/personas?cwd=/tmp" }))
-        .json()
-        .personas.map((p: { slug: string }) => p.slug)
-    ).toEqual(["legacy", "default"]);
+  it.each([
+    // Its repository, read on that runner and nowhere else; without a
+    // project there is nothing to read there, and the runner says so.
+    ["&projectId=prj_test", { kind: "repository", read: expect.any(Function) }],
+    ["", { kind: "repository", read: expect.any(Function) }],
+  ])("scopes a runner listing with query suffix %s", async (suffix, scope) => {
+    const { listPersonas } = await import("../src/personas/resolve.js");
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/personas?runner=rnr_test&cwd=&type=task${suffix}`,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(listPersonas).toHaveBeenCalledWith(scope, "task");
   });
 
   it("reports an ownership map found in the worktree", async () => {
@@ -182,7 +198,9 @@ describe("GET /api/v1/personas", () => {
     });
     expect(response.statusCode).toBe(200);
     expect(response.json().codeowners).toBe(true);
-    expect(hasCodeowners).toHaveBeenCalledWith("/tmp");
+    expect(hasCodeowners).toHaveBeenCalledWith({
+      access: expect.any(Function),
+    });
   });
 });
 
@@ -216,6 +234,71 @@ describe("POST /api/v1/agents/:id/launch-persona", () => {
     });
     expect(response.statusCode).toBe(404);
   });
+
+  it.each(["taught", "first refresh", "failed refresh"] as const)(
+    "passes a runner-only reviewer model and effort to the kickoff (%s)",
+    async (source) => {
+      if (source === "taught")
+        setLearnedAgentModels(
+          "opencode",
+          [
+            {
+              id: "runner-custom/review",
+              label: "Runner Review",
+              effort: [{ value: "runner-effort", name: "Runner effort" }],
+            },
+          ],
+          "runner-custom/review",
+          "linux"
+        );
+      else
+        validationFixtures.push(
+          validationCatalogFixture(
+            "linux",
+            "opencode",
+            [
+              {
+                id: "runner-custom/review",
+                label: "Runner Review",
+                effort: [{ value: "runner-effort", name: "Runner effort" }],
+              },
+            ],
+            source === "failed refresh"
+          )
+        );
+      deps.agentManager.getAgent.mockResolvedValueOnce({
+        id: "agt_parent",
+        placement: placementForRunner("linux"),
+        cwd: "/srv/review",
+      } as never);
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/agents/agt_parent/launch-persona",
+        payload: {
+          personas: ["security-review"],
+          codeowners: true,
+          agentType: "opencode",
+          model: "runner-custom/review",
+          effort: "runner-effort",
+        },
+      });
+      expect(response.statusCode).toBe(200);
+      const [, input] = deps.streams.promptAgent.mock.calls[0]!;
+      expect(input.text).toContain('model: "runner-custom/review"');
+      expect(input.text).toContain('effort: "runner-effort"');
+      if (source !== "taught") {
+        expect(
+          validationFixtures[0]!.call.mock.calls.filter(
+            ([op]) => op === "engine.models"
+          )
+        ).toHaveLength(1);
+        const learned = getLearnedAgentModels("opencode", "linux");
+        if (source === "first refresh")
+          expect(learned?.[0]?.id).toBe("runner-custom/review");
+        else expect(learned).toBeUndefined();
+      }
+    }
+  );
 
   it("asks the agent to launch the personas itself, with the user's note", async () => {
     const response = await app.inject({

@@ -16,8 +16,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   WORKTREE_LOCAL_CONFIG_FILES,
   assertTopLevelFileName,
-  copyLocalConfigFiles,
-} from "../src/agents/worktree-local-config.js";
+} from "../src/agents/worktree-local-config-files.js";
+import { copyLocalConfigFiles as copyWorkloadConfigFiles } from "../../../packages/runner/src/workload/agents/worktree-local-config.js";
 
 let tempRoot: string;
 let sourceRoot: string;
@@ -154,3 +154,11 @@ describe("copyLocalConfigFiles", () => {
     ).resolves.toEqual([]);
   });
 });
+
+function copyLocalConfigFiles(
+  source: string,
+  destination: string,
+  names = WORKTREE_LOCAL_CONFIG_FILES
+) {
+  return copyWorkloadConfigFiles(source, destination, names);
+}

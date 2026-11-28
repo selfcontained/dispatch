@@ -1,3 +1,6 @@
+import { teachKnownSeedCatalogs } from "./helpers/model-catalog-validation.js";
+import { beforeEach as beforeKnownCatalog } from "vitest";
+beforeKnownCatalog(teachKnownSeedCatalogs);
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { useInjectApp } from "./helpers/inject-app.js";
@@ -90,6 +93,32 @@ describe("POST /api/v1/templates (create)", () => {
       name: "no-dir",
     });
     expect(res.statusCode).toBe(400);
+  });
+
+  it("accepts an empty directory for an enrolled project and rejects it for a local template", async () => {
+    const projectId = "enrolled-template-project";
+    await ctx.pool.query(
+      "INSERT INTO projects (id, name, repo_root) VALUES ($1, 'Enrolled template project', NULL)",
+      [projectId]
+    );
+    const template = await createTemplate("enrolled-template", {
+      projectId,
+      runner: "fixture-runner",
+      directory: "",
+    });
+    expect(template.directory).toBe("");
+    const edited = await authedInject(
+      "PATCH",
+      `/api/v1/templates/${template.id}`,
+      { directory: "", description: "edited" }
+    );
+    expect(edited.statusCode).toBe(200);
+    const local = await authedInject("POST", "/api/v1/templates", {
+      name: "empty-local",
+      directory: "",
+    });
+    expect(local.statusCode).toBe(400);
+    expect(local.json().error).toBe("Template directory is required.");
   });
 
   it("rejects duplicate name in same directory", async () => {

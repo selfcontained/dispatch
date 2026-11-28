@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BLOCK_TEXT_MAX_CHARS } from "@dispatch/shared";
 import { AgentManager } from "../src/agents/manager.js";
 import { StreamService } from "../src/chat/service.js";
-import * as agentDiff from "../src/shared/git/agent-diff.js";
+import { WorkspaceError } from "../../../packages/runner/src/workload/files/workspace-view.js";
 
 import { useInjectApp } from "./helpers/inject-app.js";
 
@@ -43,6 +43,49 @@ async function createAgent(
 beforeEach(async () => {
   await ctx.pool.query("DELETE FROM agents");
 });
+
+it.each([
+  ["diff-stats?includeUncommitted=false", "Failed to compute diff."],
+  ["diff", "Failed to compute diff."],
+  ["diff/file?path=changed.txt", "Failed to compute file diff."],
+  ["diff/image?path=changed.png", "Failed to read image."],
+])("returns the pinned main error from %s", async (route, error) => {
+  const agent = await createAgent();
+  const read = vi
+    .spyOn(AgentManager.prototype, "viewCheckout")
+    .mockRejectedValueOnce(new Error("fixture failure"));
+  try {
+    const response = await authedInject(
+      "GET",
+      `/api/v1/agents/${agent.id}/${route}`
+    );
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({ error });
+  } finally {
+    read.mockRestore();
+  }
+});
+
+it.each([404, 413])(
+  "preserves a typed %s from a diff image read",
+  async (status) => {
+    const agent = await createAgent();
+    const error = "Image not available.";
+    const read = vi
+      .spyOn(AgentManager.prototype, "viewCheckout")
+      .mockRejectedValueOnce(new WorkspaceError(error, status));
+    try {
+      const response = await authedInject(
+        "GET",
+        `/api/v1/agents/${agent.id}/diff/image?path=changed.png`
+      );
+      expect(response.statusCode).toBe(status);
+      expect(response.json()).toEqual({ error });
+    } finally {
+      read.mockRestore();
+    }
+  }
+);
 
 describe("GET /api/v1/agents/:id/identity", () => {
   it("roots a surviving tree at its first ancestor whose parent was purged, and leaves cycles unseated", async () => {
@@ -270,22 +313,26 @@ describe("POST /api/v1/agents/:id/diff/comment", () => {
     },
   ])("posts selected code as an attachment ($label)", async (selection) => {
     const agent = await createAgent({ name: "snippet-comment" });
-    const diff = vi.spyOn(agentDiff, "getAgentFileDiff").mockResolvedValue({
-      path: "example.ts",
-      status: "modified",
-      added: 2,
-      deleted: 1,
-      diff: [
-        "diff --git a/example.ts b/example.ts",
-        "--- a/example.ts",
-        "+++ b/example.ts",
-        "@@ -1,3 +1,3 @@",
-        "-const first = 0;",
-        `+${selection.source ?? "const first = 1;"}`,
-        " ",
-        " const last = 3;",
-      ].join("\n"),
-    });
+    // The file diff is read where the session's checkout is bound (the local
+    // runner child), so the read is stubbed at the manager, not in Git.
+    const diff = vi
+      .spyOn(AgentManager.prototype, "viewCheckout")
+      .mockResolvedValue({
+        path: "example.ts",
+        status: "modified",
+        added: 2,
+        deleted: 1,
+        diff: [
+          "diff --git a/example.ts b/example.ts",
+          "--- a/example.ts",
+          "+++ b/example.ts",
+          "@@ -1,3 +1,3 @@",
+          "-const first = 0;",
+          `+${selection.source ?? "const first = 1;"}`,
+          " ",
+          " const last = 3;",
+        ].join("\n"),
+      });
     // Persist normally while using the isolated test runtime's inert agent.
     const sendUserPost = StreamService.prototype.sendUserPost;
     const send = vi

@@ -1,3 +1,6 @@
+import { RunnerCallError } from "@dispatch/runner-protocol/contract";
+import { pullRequestCredentialContext } from "../pull-request-reader.js";
+import { mergeRiskScope, type MergeRiskGitHubSource } from "./github-source.js";
 import { mergeRiskCapacity } from "./budget.js";
 /**
  * Produces one merge-risk recommendation per (pull request, head, review
@@ -17,10 +20,7 @@ import {
   DECISIONS_MODEL,
 } from "../../chat/decisions-client.js";
 import type { RoutingSettings } from "../../chat/routing-settings.js";
-import {
-  loadCodeowners,
-  type CodeownersConfig,
-} from "../../personas/codeowners.js";
+import type { CodeownersConfig } from "../../personas/codeowners.js";
 import {
   buildMergeRiskEvidence,
   MergeRiskEvidenceTooLarge,
@@ -35,17 +35,19 @@ import {
   allFindingsResolved,
   loadBriefing,
   loadReviewEvidence,
-  readPullRequestDetails,
   reviewFingerprint,
-  type PullRequestDetails,
 } from "./sources.js";
 
 type Options = {
   pool: Pool;
   settings: RoutingSettings;
-  /** Checkout root for an owning agent, used to read its ownership map. */
-  agentRoot: (agentId: string) => Promise<string | null>;
-  readDetails?: (url: string) => Promise<PullRequestDetails | null>;
+  /** The owning agent's checkout map, read through its runner. */
+  owners: (
+    agentId: string,
+    runnerId: string | null
+  ) => Promise<CodeownersConfig | null>;
+  /** PR details as the tracking agent's runner reads them. */
+  github: Pick<MergeRiskGitHubSource, "details">;
   transport?: typeof fetch;
   warn?: (error: unknown) => void;
 };
@@ -60,11 +62,7 @@ type Row = {
 };
 
 export class MergeRiskAssessor {
-  private readonly readDetails: NonNullable<Options["readDetails"]>;
-  constructor(private readonly options: Options) {
-    this.readDetails =
-      options.readDetails ?? ((url) => readPullRequestDetails(url));
-  }
+  constructor(private readonly options: Options) {}
 
   /**
    * The recommendation to show for this PR observation.
@@ -81,14 +79,19 @@ export class MergeRiskAssessor {
     url: string,
     pr: AgentPullRequest,
     ownerAgentIds: string[],
-    onProgress?: (risk: MergeRiskSummary) => void
+    onProgress?: (risk: MergeRiskSummary) => void,
+    runnerId: string | null = null
   ): Promise<MergeRiskSummary | undefined> {
     const headSha = pr.ci?.headSha ?? "";
     // Off means off: no reads, no lookups, and no recommendation shown.
     const config = await this.options.settings.configuration();
     if (!config.mergeRiskEnabled || !config.apiKey)
       return displaySummary("disabled", headSha);
-    const previous = await this.history(url);
+    // Records are keyed by the credential the PR was observed with; a runner
+    // whose read names none has nothing it may reuse or record.
+    const scope = mergeRiskScope(runnerId, pullRequestCredentialContext(pr));
+    if (scope === null) return displaySummary("unavailable", headSha);
+    const previous = await this.history(url, scope);
     const display = (state: NonNullable<MergeRiskSummary["displayState"]>) => ({
       ...displaySummary(state, headSha),
       ...(previous ? { previous } : {}),
@@ -99,7 +102,7 @@ export class MergeRiskAssessor {
     });
     const fingerprint = reviewFingerprint(reviews);
     if (pr.status === "Merged")
-      return (await this.latest(url, headSha)) ?? display("not_ready");
+      return (await this.latest(url, headSha, scope)) ?? display("not_ready");
     const gateHolds =
       (pr.status === "Open" || pr.status === "Draft") &&
       allFindingsResolved(reviews);
@@ -109,7 +112,7 @@ export class MergeRiskAssessor {
           ? "not_ready"
           : "waiting_review"
       );
-    const stored = await this.latest(url, headSha, fingerprint);
+    const stored = await this.latest(url, headSha, scope, fingerprint);
     if (stored)
       return stored.status === "ok"
         ? stored
@@ -118,11 +121,11 @@ export class MergeRiskAssessor {
             displayState: stored.displayState ?? "failure",
             ...(previous ? { previous } : {}),
           };
-    const id = await this.reserve(url, headSha, fingerprint);
+    const id = await this.reserve(url, headSha, fingerprint, scope);
     if (!id) {
       const record = await this.options.pool.query<{ status: string }>(
-        "SELECT status FROM merge_risk_decision_records WHERE url=$1 AND head_sha=$2 AND review_fingerprint=$3 ORDER BY created_at DESC,id DESC LIMIT 1",
-        [url, headSha, fingerprint]
+        "SELECT status FROM merge_risk_decision_records WHERE url=$1 AND head_sha=$2 AND review_fingerprint=$3 AND evidence_scope=$4 ORDER BY created_at DESC,id DESC LIMIT 1",
+        [url, headSha, fingerprint, scope]
       );
       return display(
         record.rows[0]?.status === "pending"
@@ -134,12 +137,35 @@ export class MergeRiskAssessor {
     }
     onProgress?.(display("evaluating"));
     try {
-      const details = await this.readDetails(url);
+      let details;
+      try {
+        details = await this.options.github.details(runnerId, url);
+      } catch (error) {
+        // A runner that cannot answer is asked again on the next read; a
+        // local read falls back in process, so it never lands here.
+        if (
+          !(error instanceof RunnerCallError) ||
+          (error.code !== "unavailable" && error.code !== "unknown_outcome")
+        )
+          throw error;
+        await this.finish(id, "skipped_runner_unavailable", {});
+        return display("unavailable");
+      }
       if (!details || details.headRefOid !== headSha) {
         await this.finish(id, "skipped_stale_head", {});
         return display("unavailable");
       }
-      const owners = await this.owners(ownerAgentIds);
+      // The evidence must come from the credential the record is keyed by.
+      if (mergeRiskScope(runnerId, details.credentialContext) !== scope) {
+        await this.finish(id, "skipped_credential_changed", {});
+        return displaySummary("unavailable", headSha);
+      }
+      if (details.baseRefOid)
+        await this.options.pool.query(
+          "UPDATE merge_risk_decision_records SET base_sha=$2 WHERE id=$1",
+          [id, details.baseRefOid]
+        );
+      const owners = await this.owners(ownerAgentIds, runnerId);
       const evidence = buildMergeRiskEvidence({
         pullRequest: {
           number: details.number,
@@ -220,7 +246,7 @@ export class MergeRiskAssessor {
     const finalConfig = await this.options.settings.configuration();
     if (!finalConfig.mergeRiskEnabled || !finalConfig.apiKey)
       return displaySummary("disabled", headSha);
-    const result = await this.latest(url, headSha, fingerprint);
+    const result = await this.latest(url, headSha, scope, fingerprint);
     return result?.status === "ok"
       ? result
       : {
@@ -234,19 +260,25 @@ export class MergeRiskAssessor {
         };
   }
 
-  private async history(url: string): Promise<MergeRiskSummary | undefined> {
+  private async history(
+    url: string,
+    scope: string
+  ): Promise<MergeRiskSummary | undefined> {
     const rows = await this.options.pool.query<Row>(
-      "SELECT id, status, head_sha, prompt_version, created_at, result FROM merge_risk_decision_records WHERE url=$1 AND status = 'ok' ORDER BY created_at DESC,id DESC LIMIT 1",
-      [url]
+      "SELECT id, status, head_sha, prompt_version, created_at, result FROM merge_risk_decision_records WHERE url=$1 AND evidence_scope=$2 AND status = 'ok' ORDER BY created_at DESC,id DESC LIMIT 1",
+      [url, scope]
     );
     return rows.rows[0] ? toSummary(rows.rows[0]) : undefined;
   }
 
-  private async owners(agentIds: string[]): Promise<CodeownersConfig | null> {
+  private async owners(
+    agentIds: string[],
+    runnerId: string | null
+  ): Promise<CodeownersConfig | null> {
     for (const agentId of agentIds) {
       try {
-        const root = await this.options.agentRoot(agentId);
-        if (root) return await loadCodeowners(root);
+        const config = await this.options.owners(agentId, runnerId);
+        if (config) return config;
       } catch {
         // A missing or invalid map leaves subsystems empty; the file list still carries the paths.
       }
@@ -257,20 +289,27 @@ export class MergeRiskAssessor {
   private async latest(
     url: string,
     headSha: string,
+    scope: string,
     fingerprint?: string
   ): Promise<MergeRiskSummary | undefined> {
     const rows = await this.options.pool.query<Row>(
       `SELECT id, status, head_sha, prompt_version, created_at, result FROM merge_risk_decision_records
         WHERE url = $1 AND head_sha = $2 AND ($3::text IS NULL OR review_fingerprint = $3)
+          AND evidence_scope = $4
           AND status NOT IN ('pending') AND status NOT LIKE 'skipped%'
         ORDER BY created_at DESC, id DESC LIMIT 1`,
-      [url, headSha, fingerprint ?? null]
+      [url, headSha, fingerprint ?? null, scope]
     );
     const row = rows.rows[0];
     return row ? toSummary(row) : undefined;
   }
 
-  private async reserve(url: string, headSha: string, fingerprint: string) {
+  private async reserve(
+    url: string,
+    headSha: string,
+    fingerprint: string,
+    scope: string
+  ) {
     const client = await this.options.pool.connect();
     try {
       await client.query("BEGIN");
@@ -280,11 +319,11 @@ export class MergeRiskAssessor {
       // predate the removal of Dispatch's daily cap and revive the same way;
       // before this, a skipped head showed its limit forever.
       const record = await client.query<{ id: string }>(
-        `INSERT INTO merge_risk_decision_records(url,head_sha,review_fingerprint,status,prompt_version,result)
-         VALUES($1,$2,$3,$4,$5,$6)
-         ON CONFLICT(url,head_sha,review_fingerprint) DO UPDATE
-           SET status=EXCLUDED.status,created_at=now(),prompt_version=EXCLUDED.prompt_version,result=EXCLUDED.result
-           WHERE merge_risk_decision_records.status IN ('skipped_daily_cap','skipped_concurrency')
+        `INSERT INTO merge_risk_decision_records(url,head_sha,review_fingerprint,status,prompt_version,result,evidence_scope,base_sha)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+         ON CONFLICT(url,head_sha,review_fingerprint,evidence_scope) DO UPDATE
+           SET status=EXCLUDED.status,created_at=now(),prompt_version=EXCLUDED.prompt_version,result=EXCLUDED.result,base_sha=EXCLUDED.base_sha
+           WHERE merge_risk_decision_records.status IN ('skipped_daily_cap','skipped_concurrency','skipped_credential_changed','skipped_runner_unavailable')
              AND merge_risk_decision_records.status <> EXCLUDED.status
          RETURNING id`,
         [
@@ -294,6 +333,8 @@ export class MergeRiskAssessor {
           status,
           MERGE_RISK_PROMPT_VERSION,
           JSON.stringify({ model: DECISIONS_MODEL }),
+          scope,
+          null,
         ]
       );
       await client.query("COMMIT");

@@ -1,14 +1,36 @@
 import { useCallback, useRef, useState } from "react";
 
-/** Copy text via hidden textarea + execCommand. Works on iOS Safari non-secure contexts. */
+/**
+ * Copy text via hidden textarea + execCommand. Works on iOS Safari and other
+ * non-secure contexts (e.g. a LAN address over plain HTTP).
+ *
+ * The textarea is mounted inside the focused dialog, if any, so a modal focus
+ * trap does not pull focus back out before the copy runs. The copy event also
+ * sets the exact text, so line breaks survive even if the selection is lost.
+ */
 function copyViaExecCommand(text: string): boolean {
+  const previousFocus =
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+  const host =
+    previousFocus?.closest<HTMLElement>(
+      "[role='dialog'], [role='alertdialog']"
+    ) ?? document.body;
   const textarea = document.createElement("textarea");
   textarea.value = text;
+  textarea.setAttribute("aria-hidden", "true");
   textarea.style.position = "fixed";
   textarea.style.left = "0";
   textarea.style.top = "0";
   textarea.style.opacity = "0";
-  document.body.appendChild(textarea);
+  const onCopy = (event: ClipboardEvent) => {
+    if (!event.clipboardData) return;
+    event.clipboardData.setData("text/plain", text);
+    event.preventDefault();
+  };
+  host.appendChild(textarea);
+  document.addEventListener("copy", onCopy);
   textarea.focus();
   textarea.select();
 
@@ -18,7 +40,9 @@ function copyViaExecCommand(text: string): boolean {
   } catch {
     ok = false;
   }
-  document.body.removeChild(textarea);
+  document.removeEventListener("copy", onCopy);
+  host.removeChild(textarea);
+  previousFocus?.focus({ preventScroll: true });
   return ok;
 }
 

@@ -1,0 +1,545 @@
+// Harness unit tests, without building or running any scenarios.
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import { setImmediate } from "node:timers/promises";
+import { World } from "./runner-local-parity/world.mjs";
+import { scheduleScenarios } from "./runner-local-parity/schedule.mjs";
+import {
+  createNormaliser,
+  differences,
+  normaliseObserved,
+  substitutions,
+} from "./runner-local-parity/compare.mjs";
+import {
+  assertShrinks,
+  checkHistory,
+  checkWorkingTree,
+  evaluate,
+  paths,
+  readLedger,
+  validateLedgers,
+} from "./runner-local-parity/ledger.mjs";
+import { childProcessEnv } from "../apps/server/src/shared/process/child-environment.js";
+
+test("runtime installs have private executable inodes", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "dispatch-parity-install-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const main = join(root, "dispatch-main");
+  const head = join(root, "dispatch-head");
+  writeFileSync(main, "main", { mode: 0o755 });
+  writeFileSync(head, "head", { mode: 0o755 });
+  const builds = { main: { binary: main }, head: { binary: head } };
+  const worlds = ["m", "h"].map((name) => {
+    const directory = join(root, name);
+    mkdirSync(directory);
+    return new World({ directory, builds });
+  });
+
+  for (const world of worlds) world.install("main");
+  const [first, second] = worlds;
+  const files = [main, first.runtime, second.runtime].map((path) =>
+    statSync(path)
+  );
+  assert.equal(new Set(files.map(({ ino }) => ino)).size, files.length);
+
+  first.install("head");
+  assert.notEqual(statSync(first.runtime).ino, statSync(head).ino);
+  assert.equal(statSync(first.runtime).mode & 0o111, 0o111);
+  assert.equal(readFileSync(first.runtime, "utf8"), "head");
+  assert.equal(readFileSync(second.runtime, "utf8"), "main");
+});
+
+test("early server death reports its signal before the readiness deadline", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "dispatch-parity-start-"));
+  const binary = join(root, "fixture");
+  writeFileSync(binary, '#!/bin/sh\nkill -KILL "$$"\n', { mode: 0o755 });
+  const world = new World({
+    directory: root,
+    side: "main",
+    tools: { fixtures: root },
+    builds: { main: { binary } },
+  });
+  t.after(async () => {
+    await world.stop();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await assert.rejects(
+    world.start(),
+    /did not start after \d+ms \(signal SIGKILL\)/
+  );
+});
+
+test("serial scenarios never overlap either parallel lane", async () => {
+  const scenarios = [
+    { name: "parallel-1" },
+    { name: "set-workspace", serial: true },
+    { name: "parallel-2" },
+    { name: "git-context", serial: true },
+    { name: "parallel-3" },
+    { name: "timeout", waits: true },
+  ];
+  const active = new Set();
+  const started = [];
+  let peak = 0;
+  await scheduleScenarios(scenarios, 2, async (scenario) => {
+    if (scenario.serial) assert.equal(active.size, 0);
+    else assert.ok([...active].every((item) => !item.serial));
+    active.add(scenario);
+    started.push(scenario.name);
+    peak = Math.max(peak, active.size);
+    assert.ok([...active].filter((item) => !item.waits).length <= 2);
+    await setImmediate();
+    active.delete(scenario);
+  });
+  assert.deepEqual(started.slice(0, 2), ["set-workspace", "git-context"]);
+  assert.deepEqual(started.sort(), scenarios.map(({ name }) => name).sort());
+  assert.equal(peak, 3);
+});
+
+test("the substitution list is closed", () => {
+  // A new entry hides a kind of difference from every later task. Changing
+  // this list is the review point.
+  assert.deepEqual(
+    substitutions.map((rule) => rule.name),
+    [
+      "run root",
+      "oracle directory",
+      "machine",
+      "scratch database",
+      "build revision",
+      "instance secret",
+      "loopback port",
+      "agent id",
+      "uuid",
+      "timestamp",
+      "file name timestamp",
+      "fixture session id",
+      "epoch milliseconds",
+      "duration",
+      "process id",
+      "database oid",
+      "image change token",
+      "checkout state id",
+      "checkout state id in text",
+      "task and column id",
+    ]
+  );
+});
+
+test("normalisation removes the substitutions and nothing else", () => {
+  const normalise = createNormaliser({
+    root: ["/private/tmp/dp-x/01/m"],
+    secrets: ["s3cret"],
+    port: 23456,
+    agents: ["agt_aaaaaaaaaaaa"],
+  });
+  assert.deepEqual(
+    normalise({
+      path: "/private/tmp/dp-x/01/m/work",
+      url: "http://127.0.0.1:23456/api",
+      port: 23456,
+      other: 23456,
+      token: "s3cret",
+      agent: "agt_aaaaaaaaaaaa",
+      branch: "agent-aaaaaa",
+      at: "2026-11-22T11:22:33.123Z",
+      updatedAt: 1795372275337,
+      size: 1795372275337,
+      message: "Session files are limited to 20 MiB.",
+    }),
+    {
+      agent: "<agent:1>",
+      at: "<time>",
+      branch: "agent-<agent:1>",
+      message: "Session files are limited to 20 MiB.",
+      other: 23456,
+      path: "<root>/work",
+      port: "<port>",
+      size: 1795372275337,
+      token: "<secret>",
+      updatedAt: "<epoch-ms>",
+      url: "http://127.0.0.1:<port>/api",
+    }
+  );
+});
+
+test("one step cannot renumber another", () => {
+  const first = "11111111-1111-4111-8111-111111111111";
+  const second = "22222222-2222-4222-8222-222222222222";
+  const observe = (extra) =>
+    normaliseObserved(
+      {
+        ...extra,
+        later: { id: second, again: second, child: "agt_cccccccccccc" },
+      },
+      { agents: ["agt_aaaaaaaaaaaa"] }
+    );
+  const expected = {
+    again: "<uuid:1>",
+    child: "<agent:launched-1>",
+    id: "<uuid:1>",
+  };
+  assert.deepEqual(observe({}).later, expected);
+  assert.deepEqual(
+    observe({ earlier: { id: first, child: "agt_bbbbbbbbbbbb" } }).later,
+    expected
+  );
+});
+
+test("differences see values, absence, types and order", () => {
+  assert.deepEqual(differences({ a: [1, 2] }, { a: [1, 2] }), []);
+  assert.deepEqual(differences({ a: [1, 2] }, { a: [2, 1] }), [
+    { path: "a > 0", main: "1", head: "2" },
+    { path: "a > 1", main: "2", head: "1" },
+  ]);
+  assert.deepEqual(differences({ a: null }, { b: false }), [
+    { path: "a", main: "null", head: "<absent>" },
+    { path: "b", main: "<absent>", head: "false" },
+  ]);
+  const [long] = differences("x".repeat(500), `${"x".repeat(499)}y`);
+  assert.notEqual(long.main, long.head);
+});
+
+const entry = {
+  scenario: "sharing",
+  path: "post > isError",
+  main: "<absent>",
+  head: "true",
+  finding: "one",
+};
+const field = {
+  field: "added",
+  main: "<absent>",
+  head: "false",
+  finding: "one",
+};
+const known = (entries) => ({
+  findings: { one: { title: "One", task: "F1" } },
+  entries,
+});
+
+test("only an exact entry excuses a difference", () => {
+  const run = (found, entries = [entry]) =>
+    evaluate(
+      found,
+      { known: known(entries), intended: [] },
+      new Set(["sharing"])
+    );
+  assert.equal(run([entry]).unexpected.length, 0);
+  assert.equal(run([]).stale.length, 1);
+  for (const change of [{ head: "1" }, { main: "false" }, { path: "other" }]) {
+    const result = run([{ ...entry, ...change }]);
+    assert.equal(result.unexpected.length, 1);
+    assert.equal(result.stale.length, 1);
+  }
+});
+
+test("a field entry excuses that added field and value only", () => {
+  const run = (found, complete = true) =>
+    evaluate(
+      found,
+      { known: known([field]), intended: [] },
+      new Set(["sharing"]),
+      complete
+    );
+  const added = {
+    scenario: "sharing",
+    path: "agent > added",
+    main: "<absent>",
+    head: "false",
+  };
+  assert.equal(run([added]).known.length, 1);
+  for (const change of [
+    { head: "true" },
+    { main: "true" },
+    { path: "agent > other" },
+  ])
+    assert.equal(run([{ ...added, ...change }]).unexpected.length, 1);
+  assert.equal(run([]).stale.length, 1);
+  assert.equal(run([], false).stale.length, 0);
+});
+
+test("known regressions only shrink", () => {
+  const other = { ...entry, path: "post > text" };
+  assertShrinks(known([entry, other]), known([entry]));
+  for (const next of [
+    [entry, other],
+    [other],
+    [{ ...entry, head: "1" }],
+    [{ ...entry, main: "false" }],
+    [field],
+  ])
+    assert.throws(() => assertShrinks(known([entry]), known(next)), /shrink/);
+  assertShrinks(
+    known([entry]),
+    known([{ ...entry, main: "false", head: "1" }]),
+    true
+  );
+});
+
+test("a fix may swap its entries for a known difference it uncovers, if the ledger shrinks", () => {
+  const fixed = { ...entry, scenario: "fixed", finding: "fixed-finding" };
+  const fixedToo = { ...fixed, path: "post > more" };
+  const tracked = { ...entry, scenario: "elsewhere", finding: "tracked" };
+  const surfaced = {
+    ...entry,
+    scenario: "fixed",
+    path: "plan",
+    finding: "tracked",
+  };
+  const ledger = (entries) => ({
+    findings: {
+      "fixed-finding": { title: "f", task: "T" },
+      tracked: { title: "t", task: "T" },
+    },
+    entries,
+  });
+  const before = ledger([fixed, fixedToo, tracked]);
+  assertShrinks(before, ledger([tracked, surfaced]));
+  for (const next of [
+    // No net shrink.
+    [fixed, tracked, surfaced],
+    // A scenario nothing was fixed in.
+    [tracked, { ...surfaced, scenario: "other" }],
+    // A finding the ledger did not have.
+    [tracked, { ...surfaced, finding: "new" }],
+    // A finding only this scenario had.
+    [tracked, { ...surfaced, finding: "fixed-finding" }],
+  ])
+    assert.throws(() => assertShrinks(before, ledger(next)), /shrink/);
+});
+
+test("ledger entries need an owner", () => {
+  const problems = (ledgers) =>
+    validateLedgers(
+      { known: known([]), intended: [], ...ledgers },
+      new Set(["sharing"])
+    ).join("\n");
+  assert.match(
+    problems({ known: known([{ ...field, main: "true" }]) }),
+    /may only describe/
+  );
+  assert.match(
+    problems({
+      known: known([entry]),
+      intended: [{ ...entry, path: "x", decision: "seems fine" }],
+    }),
+    /owner decision/
+  );
+});
+
+const decision = "Owner 2026-11-22: approved";
+const migrationFacts = (head = { count: 63, latest: "0063_runner" }) => ({
+  migrations: { main: { count: 52, latest: "0052_agent" }, head },
+});
+
+test("an intended field excuses that field added with any value, never a changed one", () => {
+  const wide = { field: "runnerManaged", decision };
+  const run = (found, complete = true) =>
+    evaluate(
+      found,
+      { known: known([]), intended: [wide] },
+      new Set(["sharing"]),
+      complete
+    );
+  const added = {
+    scenario: "sharing",
+    path: "agents > 0 > runnerManaged",
+    main: "<absent>",
+    head: "false",
+  };
+  for (const head of ["false", "true"]) {
+    const result = run([{ ...added, head }]);
+    assert.equal(result.intended.length, 1);
+    assert.equal(result.unexpected.length, 0);
+  }
+  for (const change of [
+    { main: "true" },
+    { main: "false", head: "true" },
+    { main: "false", head: "<absent>" },
+    { path: "agents > 0 > other" },
+  ])
+    assert.equal(run([{ ...added, ...change }]).unexpected.length, 1);
+  assert.equal(run([]).stale.length, 1);
+  assert.equal(run([], false).stale.length, 0);
+});
+
+test("the migrations consequence follows each side's own migrations", () => {
+  const wide = { consequence: "migrations", decision };
+  const run = (found, facts = migrationFacts(), complete = true) =>
+    evaluate(
+      found,
+      { known: known([]), intended: [wide] },
+      new Set(["upgrade"]),
+      complete,
+      facts
+    );
+  const count = {
+    scenario: "upgrade",
+    path: "readiness > body > database > migrations > count",
+    main: "52",
+    head: "63",
+  };
+  const latest = {
+    ...count,
+    path: "readiness > body > database > migrations > latest",
+    main: '"0052_agent"',
+    head: '"0063_runner"',
+  };
+  assert.equal(run([count, latest]).intended.length, 2);
+  // One more migration on the head: the entry follows it unedited.
+  const added = { count: 64, latest: "0064_more" };
+  const grown = run(
+    [
+      { ...count, head: "64" },
+      { ...latest, head: '"0064_more"' },
+    ],
+    migrationFacts(added)
+  );
+  assert.equal(grown.intended.length, 2);
+  assert.equal(grown.unexpected.length, 0);
+  for (const wrong of [
+    { ...count, head: "62" },
+    { ...count, main: "51" },
+    { ...latest, head: '"0062_other"' },
+    { ...count, path: "readiness > body > migrations > count" },
+    { ...count, path: "readiness > body > database > migrations > other" },
+  ])
+    assert.equal(run([wrong]).unexpected.length, 1);
+  // Without the built trees' facts, nothing is excused.
+  assert.equal(run([count], {}).unexpected.length, 1);
+  assert.equal(run([]).stale.length, 1);
+  assert.equal(run([], migrationFacts(), false).stale.length, 0);
+});
+
+test("intended entries have one of three shapes, each with an owner decision", () => {
+  const problems = (intended) =>
+    validateLedgers(
+      { known: { findings: {}, entries: [] }, intended },
+      new Set(["sharing"])
+    ).join("\n");
+  assert.equal(
+    problems([
+      { field: "runnerManaged", decision },
+      { consequence: "migrations", decision },
+      { ...entry, decision },
+    ]),
+    ""
+  );
+  assert.match(problems([{ field: "runnerManaged" }]), /owner decision/);
+  assert.match(problems([{ consequence: "migrations" }]), /owner decision/);
+  assert.match(problems([{ ...entry, finding: undefined }]), /no decision/);
+  for (const key of ["scenario", "path", "main", "head"])
+    assert.match(
+      problems([{ field: "runnerManaged", decision, [key]: "x" }]),
+      /may not name/
+    );
+  assert.match(
+    problems([{ consequence: "migrations", decision, head: "x" }]),
+    /may not name/
+  );
+  assert.match(
+    problems([{ consequence: "schema", decision }]),
+    /not a known consequence/
+  );
+  assert.match(
+    problems([
+      { field: "runnerManaged", decision },
+      { field: "runnerManaged", decision },
+    ]),
+    /listed twice/
+  );
+  assert.match(
+    problems([
+      { consequence: "migrations", decision },
+      { consequence: "migrations", decision },
+    ]),
+    /listed twice/
+  );
+});
+
+test("the checked-in ledgers are valid", () => {
+  assert.deepEqual(
+    validateLedgers({
+      known: readLedger("known"),
+      intended: readLedger("intended"),
+    }),
+    []
+  );
+});
+
+function scratchRepository(t) {
+  const root = mkdtempSync(join(tmpdir(), "dispatch-parity-ledger-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const git = (...args) =>
+    execFileSync("git", args, {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...childProcessEnv(),
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_AUTHOR_NAME: "Parity",
+        GIT_AUTHOR_EMAIL: "parity@example.invalid",
+        GIT_COMMITTER_NAME: "Parity",
+        GIT_COMMITTER_EMAIL: "parity@example.invalid",
+      },
+    }).trim();
+  mkdirSync(join(root, "scripts/runner-local-parity"), { recursive: true });
+  const write = (name, value) =>
+    writeFileSync(join(root, paths[name]), JSON.stringify(value));
+  const commit = (message) => {
+    git("add", "--all");
+    git("commit", "--quiet", "--allow-empty", "-m", message);
+    return git("rev-parse", "HEAD");
+  };
+  git("init", "--quiet", "--initial-branch=main");
+  const base = commit("Base");
+  git("switch", "--quiet", "-c", "branch");
+  write("pin", { sha: base });
+  write("known", known([entry]));
+  write("intended", []);
+  commit("Seed");
+  return { root, git, write, commit, base };
+}
+
+test("history rejects growth, even if a later commit undoes it", (t) => {
+  const { root, write, commit, base } = scratchRepository(t);
+  write("known", known([entry, { ...entry, path: "post > text" }]));
+  assert.throws(() => checkWorkingTree(root), /shrink/);
+  commit("Grow");
+  write("known", known([entry]));
+  const head = commit("Undo");
+  assert.throws(() => checkHistory(base, head, root), /shrink/);
+});
+
+test("the pin moves only in the merge of that main commit", (t) => {
+  const { root, git, write, commit, base } = scratchRepository(t);
+  git("switch", "--quiet", "main");
+  const next = commit("Main moves");
+  git("switch", "--quiet", "branch");
+
+  write("pin", { sha: next });
+  assert.throws(() => checkWorkingTree(root), /pin moves/);
+  const bad = commit("Move the pin alone");
+  assert.throws(() => checkHistory(base, bad, root), /pin moves/);
+  git("reset", "--quiet", "--hard", "HEAD~1");
+
+  git("merge", "--quiet", "--no-ff", "--no-commit", "main");
+  write("pin", { sha: next });
+  checkWorkingTree(root);
+  const merged = commit("Merge main");
+  checkHistory(base, merged, root);
+});

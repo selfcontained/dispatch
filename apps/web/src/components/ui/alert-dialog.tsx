@@ -7,6 +7,7 @@ import { RememberOpener, useReturnFocus } from "./return-focus";
 
 // For a confirmation use ConfirmDialog, which is built from these.
 const AlertDialog = Primitive.Root;
+const AlertDialogTrigger = Primitive.Trigger;
 const AlertDialogTitle = React.forwardRef<
   React.ElementRef<typeof Primitive.Title>,
   React.ComponentPropsWithoutRef<typeof Primitive.Title>
@@ -54,6 +55,15 @@ const AlertDialogContent = React.forwardRef<
   );
 });
 AlertDialogContent.displayName = "AlertDialogContent";
+const AlertDialogAction = React.forwardRef<
+  React.ElementRef<typeof Primitive.Action>,
+  React.ComponentPropsWithoutRef<typeof Primitive.Action>
+>(({ className, ...props }, ref) => (
+  <Button asChild variant="primary" className={className}>
+    <Primitive.Action ref={ref} {...props} />
+  </Button>
+));
+AlertDialogAction.displayName = "AlertDialogAction";
 const AlertDialogCancel = React.forwardRef<
   React.ElementRef<typeof Primitive.Cancel>,
   React.ComponentPropsWithoutRef<typeof Primitive.Cancel>
@@ -65,8 +75,10 @@ const AlertDialogCancel = React.forwardRef<
 AlertDialogCancel.displayName = "AlertDialogCancel";
 export {
   AlertDialog,
+  AlertDialogTrigger,
   AlertDialogContent,
   AlertDialogTitle,
   AlertDialogDescription,
+  AlertDialogAction,
   AlertDialogCancel,
 };

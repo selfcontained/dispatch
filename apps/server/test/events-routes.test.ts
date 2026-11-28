@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { registerAgentEventRoutes } from "../src/routes/agents/events-routes.js";
 import { UiEventBroker } from "../src/server/ui-events.js";
+import { controllerPlacement } from "../src/runners/placement.js";
 
 type EventHandler = (request: any, reply: any) => Promise<void>;
 
@@ -68,6 +69,7 @@ describe("GET /api/v1/events", () => {
     const context = "PRIVATE_CONTEXT_SENTINEL".repeat(4000);
     const agent = {
       id: "reviewer",
+      placement: controllerPlacement,
       agentArgs: [
         "--dispatch-persona-context",
         context,

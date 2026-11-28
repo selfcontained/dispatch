@@ -1,18 +1,42 @@
+import { runnerIdForPlacement } from "../runners/placement.js";
+import {
+  readStoredModelCatalog,
+  selectableAgentModels,
+} from "../shared/agent-models.js";
 import { createRiskReader } from "../shared/mcp/pull-request-risk-tools.js";
 import type { PullRequestRefresher } from "../agents/pull-request-refresher.js";
+import { inProcessEngines, localEngineCalls } from "../runners/local.js";
+import { createRunnerUsage } from "../agents/codex-reset.js";
 import type { RedeemCodexReset } from "../agents/codex-reset.js";
 import type { ScheduledMessageService } from "../scheduled-messages/service.js";
-import path from "node:path";
 
 import type { FastifyInstance } from "fastify";
+import { isJSONRPCRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { Pool } from "pg";
 import type { SharedUiEvent } from "@dispatch/shared";
 
 import { getEnabledAgentTypes } from "../agent-type-settings.js";
-import { createProviderPlansReporter } from "../agents/provider-plans.js";
+import type { ProviderPlansReporter } from "../agents/provider-plans-reporter.js";
 import type { UsageCallbacks } from "../shared/mcp/usage-tools.js";
-import type { AgentManager } from "../agents/manager.js";
-import { agentWorkspaceDir } from "../agents/workspace-target.js";
+import type { AgentManager, AgentRecord } from "../agents/manager.js";
+import { sameRunner } from "@dispatch/runner-protocol/contract";
+import { controllerPlacement, enrolledRunnerId } from "../runners/placement.js";
+import {
+  identityKey,
+  PROJECT_IDENTITY_SQL,
+  projectIdentities,
+  repositoryKey,
+  SESSION_REPOSITORY_SQL,
+  type ProjectIdentity,
+} from "../runners/repository-identity.js";
+import {
+  defaultSavedTarget,
+  requestedRunnerPlacement,
+  normalizeSavedDirectory,
+  targetPlacement,
+  sessionLaunchTarget,
+  type SavedTarget,
+} from "../runners/saved-location.js";
 import * as telemetry from "../agents/telemetry.js";
 import type { LoginLinkStore } from "../auth.js";
 import type { BrainStore } from "../brain/store.js";
@@ -21,9 +45,12 @@ import type { UpdateJobInput } from "../jobs/store.js";
 import type { TemplateService } from "../templates/service.js";
 import type { AddTemplateInput } from "../templates/store.js";
 import {
-  resolveRepoRoot,
-  resolveWorktreeRoot,
-} from "../shared/git/git-context.js";
+  personaScopeFor,
+  savedPersonaScope,
+  type SavedPersonaScope,
+} from "../personas/persona-scope.js";
+import { discoverRepoTools, mcpCheckoutRoots } from "../server/mcp-checkout.js";
+import { sessionPersonaFiles } from "../personas/checkout-files.js";
 import type { CrudToolCallbacks } from "../shared/mcp/crud-tools.js";
 import { handleMcpRequest } from "../shared/mcp/server.js";
 import type { StreamService } from "../chat/service.js";
@@ -45,12 +72,96 @@ function onceResponseFinished(res: {
   });
 }
 
+function isOwnerReviewRequest(body: unknown): boolean {
+  const messages: unknown[] = Array.isArray(body) ? body : [body];
+  return (
+    messages.length > 0 &&
+    messages.every(
+      (message) =>
+        isJSONRPCRequest(message) &&
+        message.method === "tools/call" &&
+        message.params?.name === "launch_owner_reviews"
+    )
+  );
+}
+
+async function checkoutContext(
+  deps: McpRouteDeps,
+  agent: NonNullable<Awaited<ReturnType<AgentManager["getAgent"]>>>,
+  body: unknown
+) {
+  const placement = enrolledRunnerId(agent.placement ?? controllerPlacement);
+  const workspaceDir = sessionLaunchTarget(agent).directory;
+  const ownerOnly = isOwnerReviewRequest(body);
+  const roots = ownerOnly
+    ? null
+    : await mcpCheckoutRoots(deps.agentManager, agent);
+  const hasCheckout =
+    !roots || Boolean(roots.checkoutRoot || roots.repositoryRoot);
+  const callerPlacement = agent.placement ?? controllerPlacement;
+  // The runner's machine-local paths never become host paths or keys.
+  const repoRoot = identityKey(callerPlacement, roots?.repositoryRoot ?? null);
+  // Like repoRoot: a runner's machine-local path is never a host path.
+  const worktreeRoot = identityKey(
+    callerPlacement,
+    roots?.checkoutRoot ?? null
+  );
+  // Persona authoring reads and writes in the checkout through its runner.
+  const persona =
+    roots && (roots.checkoutRoot || roots.repositoryRoot)
+      ? sessionPersonaFiles(deps.agentManager, agent)
+      : null;
+  // One key (D5, D8) for Brain, the agent list and PR-risk visibility.
+  const repositoryScope = await repositoryKey({
+    placement: callerPlacement,
+    moved: Boolean(agent.workspacePath),
+    repositoryRoot: async () => repoRoot,
+    project: async () =>
+      agent.projectId
+        ? ((
+            await deps.pool.query<ProjectIdentity>(PROJECT_IDENTITY_SQL, [
+              agent.projectId,
+            ])
+          ).rows[0] ?? null)
+        : null,
+    repository: async () =>
+      (
+        await deps.pool.query<{ url: string | null }>(SESSION_REPOSITORY_SQL, [
+          agent.id,
+        ])
+      ).rows[0]?.url ?? null,
+  });
+  return {
+    workspaceDir,
+    repoRoot,
+    repositoryScope,
+    context: {
+      worktreeRoot,
+      taskWorkspaceKey: identityKey(callerPlacement, workspaceDir),
+      brainRepoRoot: repositoryScope,
+      ...(persona && {
+        personaFiles: persona.files,
+        personaWrites: persona.writes,
+      }),
+      toolsRoot: hasCheckout && placement ? workspaceDir : undefined,
+      listSessionPersonas: hasCheckout,
+      discoverRepoTools: ownerOnly
+        ? async () => []
+        : () => discoverRepoTools(deps.agentManager, agent),
+    },
+  };
+}
+
 type McpRouteDeps = {
   pullRequests?: Pick<PullRequestRefresher, "get">;
   riskEnabled?: () => Promise<boolean>;
+  usageForAgent?: (id: string) => Promise<{
+    providerPlans: ProviderPlansReporter;
+    redeemCodexReset: RedeemCodexReset;
+  }>;
   redeemCodexReset?: RedeemCodexReset;
   usageWatches?: UsageCallbacks["usageWatches"];
-  providerPlans?: ReturnType<typeof createProviderPlansReporter>;
+  providerPlans?: ProviderPlansReporter;
   config: {
     authToken: string;
   };
@@ -109,22 +220,110 @@ type McpRouteDeps = {
 
 function buildCrudCallbacks(
   deps: McpRouteDeps,
-  callerFullAccess: boolean
+  agent: AgentRecord
 ): CrudToolCallbacks {
+  const callerFullAccess = agent.fullAccess === true;
+  const callerPlacement = agent.placement ?? controllerPlacement;
+  const personaScope: SavedPersonaScope = (target) =>
+    !sameRunner(callerPlacement, controllerPlacement) &&
+    sameRunner(callerPlacement, target.placement ?? controllerPlacement)
+      ? personaScopeFor({ manager: deps.agentManager, agent })
+      : savedPersonaScope(deps.agentManager)(target);
+
+  const project = projectIdentities(
+    async (id) =>
+      (await deps.pool.query<ProjectIdentity>(PROJECT_IDENTITY_SQL, [id]))
+        .rows[0] ?? null
+  );
+  // Saved repository targets belong to a project, never to its managed clone.
+  async function callerProject(defaultDirectory?: boolean) {
+    if (!defaultDirectory || !agent.projectId) return null;
+    if (!sameRunner(callerPlacement, controllerPlacement))
+      return agent.projectId;
+    if (agent.workspacePath) return null;
+    const identity = await project(agent.projectId);
+    return identity?.repoRoot === null && identity.repository
+      ? agent.projectId
+      : null;
+  }
+  async function scopeFor(directory: string, defaultDirectory?: boolean) {
+    const placement =
+      defaultDirectory || directory === agent.cwd
+        ? callerPlacement
+        : controllerPlacement;
+    const projectId = await callerProject(defaultDirectory);
+    return {
+      placement,
+      projectId,
+      directory: projectId
+        ? ""
+        : normalizeSavedDirectory(directory, runnerIdForPlacement(placement)),
+    };
+  }
+  function matches(
+    target: SavedTarget,
+    scope: Awaited<ReturnType<typeof scopeFor>>
+  ) {
+    return (
+      target.directory === scope.directory &&
+      sameRunner(targetPlacement(target), scope.placement) &&
+      (!scope.projectId || target.projectId === scope.projectId)
+    );
+  }
+  async function defaultTarget<T extends SavedTarget & { runner?: string }>(
+    input: T,
+    defaultDirectory?: boolean
+  ) {
+    const target = defaultSavedTarget(input, agent, defaultDirectory);
+    const projectId = await callerProject(defaultDirectory);
+    return projectId &&
+      sameRunner(
+        requestedRunnerPlacement(target) ?? controllerPlacement,
+        callerPlacement
+      )
+      ? {
+          ...target,
+          directory: "",
+          projectId:
+            input.projectId === undefined ? projectId : input.projectId,
+        }
+      : target;
+  }
+
   return {
-    listJobs: async (directory) => {
+    listJobs: async (directory, defaultDirectory) => {
       const jobs = await deps.jobService.listJobs();
       if (!directory) return jobs;
-      const resolved = path.resolve(directory);
-      return jobs.filter((j) => j.directory === resolved);
+      const scope = await scopeFor(directory, defaultDirectory);
+      return jobs.filter((job) => matches(job, scope));
     },
     getJobById: (jobId) => deps.jobService.getJobById(jobId),
-    getJobByName: (directory, name) =>
-      deps.jobService.getJobByName(directory, name),
-    createJob: (input) =>
-      deps.jobService.addJob(input as AddJobInput, callerFullAccess),
+    getJobByName: async (directory, name, defaultDirectory) => {
+      const scope = await scopeFor(directory, defaultDirectory);
+      if (scope.projectId)
+        return (
+          (await deps.jobService.listJobs()).find(
+            (job) => job.name === name && matches(job, scope)
+          ) ?? null
+        );
+      return deps.jobService.getJobByName(
+        directory,
+        name,
+        runnerIdForPlacement(scope.placement)
+      );
+    },
+    createJob: async (input, defaultDirectory) =>
+      deps.jobService.addJob(
+        (await defaultTarget(input, defaultDirectory)) as AddJobInput,
+        callerFullAccess,
+        personaScope
+      ),
     updateJob: (input) =>
-      deps.jobService.updateJob(input as UpdateJobInput, callerFullAccess),
+      deps.jobService.updateJob(
+        input as UpdateJobInput,
+        callerFullAccess,
+        personaScope
+      ),
     deleteJob: (jobId) => deps.jobService.removeJob({ jobId }),
     runJob: (jobId) =>
       deps.jobService.runJob({
@@ -132,26 +331,40 @@ function buildCrudCallbacks(
         wait: false,
         callerFullAccess,
       }),
-    listTemplates: async (directory) => {
+    listTemplates: async (directory, defaultDirectory) => {
       const templates = await deps.templateService.listTemplates();
       if (!directory) return templates;
-      const resolved = path.resolve(directory);
-      return templates.filter((t) => t.directory === resolved);
+      const scope = await scopeFor(directory, defaultDirectory);
+      return templates.filter((template) => matches(template, scope));
     },
     getTemplateById: (templateId) =>
       deps.templateService.getTemplate(templateId),
-    getTemplateByName: (directory, name) =>
-      deps.templateService.getTemplateByName(directory, name),
-    createTemplate: (input) =>
+    getTemplateByName: async (directory, name, defaultDirectory) => {
+      const scope = await scopeFor(directory, defaultDirectory);
+      if (scope.projectId)
+        return (
+          (await deps.templateService.listTemplates()).find(
+            (template) => template.name === name && matches(template, scope)
+          ) ?? null
+        );
+      return deps.templateService.getTemplateByName(
+        directory,
+        name,
+        runnerIdForPlacement(scope.placement)
+      );
+    },
+    createTemplate: async (input, defaultDirectory) =>
       deps.templateService.addTemplate(
-        input as AddTemplateInput,
-        callerFullAccess
+        (await defaultTarget(input, defaultDirectory)) as AddTemplateInput,
+        callerFullAccess,
+        personaScope
       ),
     updateTemplate: (templateId, input) =>
       deps.templateService.updateTemplate(
         templateId,
         input as Partial<AddTemplateInput>,
-        callerFullAccess
+        callerFullAccess,
+        personaScope
       ),
     deleteTemplate: (templateId) =>
       deps.templateService.removeTemplate(templateId),
@@ -162,8 +375,25 @@ export async function registerMcpRoutes(
   app: FastifyInstance,
   deps: McpRouteDeps
 ): Promise<void> {
+  const fallbackEngines = deps.providerPlans
+    ? undefined
+    : inProcessEngines(undefined);
+  if (fallbackEngines)
+    app.addHook("onClose", async () => fallbackEngines.close());
   const providerPlans =
-    deps.providerPlans ?? createProviderPlansReporter({ log: app.log });
+    deps.providerPlans ??
+    createRunnerUsage(localEngineCalls(() => undefined, fallbackEngines!))
+      .providerPlans;
+
+  function modelOptionsForRunner(
+    runnerId: string
+  ): NonNullable<UsageCallbacks["modelOptions"]> {
+    return async (engine) => {
+      readStoredModelCatalog(runnerId, engine);
+      return selectableAgentModels(engine, runnerId);
+    };
+  }
+
   const enabledAgentTypes = () => getEnabledAgentTypes(deps.pool);
 
   app.post("/api/mcp", async (request, reply) => {
@@ -195,6 +425,13 @@ export async function registerMcpRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
+    const placement = enrolledRunnerId(agent.placement ?? controllerPlacement);
+    if (placement && !deps.agentManager.permitsRemoteAgentMcp(placement)) {
+      return reply
+        .code(403)
+        .send({ error: "The runner registration is no longer active." });
+    }
+
     const run = await deps.jobService.getActiveRunForAgent(agentId);
     if (run && run.id !== runId) {
       return reply
@@ -202,14 +439,8 @@ export async function registerMcpRoutes(
         .send({ error: "Token does not match the active job run." });
     }
 
-    let repoRoot: string | null = null;
-    let worktreeRoot: string | null = null;
-    // Repo tools, brain and job defaults follow a moved workspace.
-    const workspaceDir = agentWorkspaceDir(agent) ?? agent.cwd;
-    try {
-      repoRoot = await resolveRepoRoot(workspaceDir);
-      worktreeRoot = await resolveWorktreeRoot(workspaceDir);
-    } catch {}
+    const checkout = await checkoutContext(deps, agent, request.body);
+    const { workspaceDir, repoRoot, repositoryScope } = checkout;
 
     const jobTools = run
       ? {
@@ -247,13 +478,22 @@ export async function registerMcpRoutes(
               id: string,
               root: string | null
             ) => Promise<{ id: string }[]>
-          )(agent.id, repoRoot),
+          )(agent.id, repositoryScope),
         inventory: deps.pullRequests,
         enabled: deps.riskEnabled,
       }),
-      providerPlans,
+      providerPlans: deps.usageForAgent
+        ? (await deps.usageForAgent(agent.id)).providerPlans
+        : providerPlans,
+      modelOptions: modelOptionsForRunner(
+        runnerIdForPlacement(agent.placement)
+      ),
       usageWatches: deps.usageWatches,
-      redeemCodexReset: bearerToken ? deps.redeemCodexReset : undefined,
+      redeemCodexReset: bearerToken
+        ? deps.usageForAgent
+          ? (await deps.usageForAgent(agent.id)).redeemCodexReset
+          : deps.redeemCodexReset
+        : undefined,
       enabledAgentTypes,
       whenResponseFinished: () => responseFinished,
       agent: {
@@ -268,7 +508,7 @@ export async function registerMcpRoutes(
         fullAccess: agent.fullAccess === true,
       },
       repoRoot,
-      worktreeRoot,
+      ...checkout.context,
       sendNotify: deps.mcpSendNotify,
       renameSession: deps.mcpRenameSession,
       setWorkspace: deps.mcpSetWorkspace,
@@ -285,14 +525,21 @@ export async function registerMcpRoutes(
       clearActivePersonality: deps.mcpClearActivePersonality,
       launchAgent: deps.mcpLaunchAgent,
       archiveAgent: deps.mcpArchiveAgent,
-      listAgentsForAgent: deps.mcpListAgentsForAgent,
+      // list_agents takes the caller's repository key, not its host root.
+      listAgentsForAgent: (id: string) =>
+        (
+          deps.mcpListAgentsForAgent as (
+            id: string,
+            root: string | null
+          ) => Promise<unknown>
+        )(id, repositoryScope),
       getFeedbackSummary: (params: Record<string, unknown>) =>
         telemetry.getFeedbackSummary(deps.pool, params as never) as Promise<
           Record<string, unknown>
         >,
       toolScope: run ? "job" : "agent",
       jobTools,
-      crudTools: buildCrudCallbacks(deps, agent.fullAccess === true),
+      crudTools: buildCrudCallbacks(deps, agent),
       brainStore: deps.brainStore,
       publishBrainChanged: deps.publishBrainChanged,
       taskService: deps.taskService,
@@ -320,6 +567,13 @@ export async function registerMcpRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
+    const placement = enrolledRunnerId(agent.placement ?? controllerPlacement);
+    if (placement && !deps.agentManager.permitsRemoteAgentMcp(placement)) {
+      return reply
+        .code(403)
+        .send({ error: "The runner registration is no longer active." });
+    }
+
     const activeJobRun = await deps.jobService.getActiveRunForAgent(agentId);
     if (activeJobRun) {
       return reply
@@ -327,14 +581,8 @@ export async function registerMcpRoutes(
         .send({ error: "Job agents must use the job-scoped MCP route." });
     }
 
-    let repoRoot: string | null = null;
-    let worktreeRoot: string | null = null;
-    // Repo tools, brain and job defaults follow a moved workspace.
-    const workspaceDir = agentWorkspaceDir(agent) ?? agent.cwd;
-    try {
-      repoRoot = await resolveRepoRoot(workspaceDir);
-      worktreeRoot = await resolveWorktreeRoot(workspaceDir);
-    } catch {}
+    const checkout = await checkoutContext(deps, agent, request.body);
+    const { workspaceDir, repoRoot, repositoryScope } = checkout;
 
     reply.hijack();
     // Captured before the transport writes anything, so an archive that stops
@@ -350,13 +598,22 @@ export async function registerMcpRoutes(
               id: string,
               root: string | null
             ) => Promise<{ id: string }[]>
-          )(agent.id, repoRoot),
+          )(agent.id, repositoryScope),
         inventory: deps.pullRequests,
         enabled: deps.riskEnabled,
       }),
-      providerPlans,
+      providerPlans: deps.usageForAgent
+        ? (await deps.usageForAgent(agent.id)).providerPlans
+        : providerPlans,
+      modelOptions: modelOptionsForRunner(
+        runnerIdForPlacement(agent.placement)
+      ),
       usageWatches: deps.usageWatches,
-      redeemCodexReset: bearerToken ? deps.redeemCodexReset : undefined,
+      redeemCodexReset: bearerToken
+        ? deps.usageForAgent
+          ? (await deps.usageForAgent(agent.id)).redeemCodexReset
+          : deps.redeemCodexReset
+        : undefined,
       enabledAgentTypes,
       whenResponseFinished: () => responseFinished,
       agent: {
@@ -371,7 +628,7 @@ export async function registerMcpRoutes(
         fullAccess: agent.fullAccess === true,
       },
       repoRoot,
-      worktreeRoot,
+      ...checkout.context,
       sendNotify: deps.mcpSendNotify,
       renameSession: deps.mcpRenameSession,
       setWorkspace: deps.mcpSetWorkspace,
@@ -388,13 +645,20 @@ export async function registerMcpRoutes(
       clearActivePersonality: deps.mcpClearActivePersonality,
       launchAgent: deps.mcpLaunchAgent,
       archiveAgent: deps.mcpArchiveAgent,
-      listAgentsForAgent: deps.mcpListAgentsForAgent,
+      // list_agents takes the caller's repository key, not its host root.
+      listAgentsForAgent: (id: string) =>
+        (
+          deps.mcpListAgentsForAgent as (
+            id: string,
+            root: string | null
+          ) => Promise<unknown>
+        )(id, repositoryScope),
       issueLoginLink: () => deps.loginLinkStore.issue(),
       getFeedbackSummary: (params: Record<string, unknown>) =>
         telemetry.getFeedbackSummary(deps.pool, params as never) as Promise<
           Record<string, unknown>
         >,
-      crudTools: buildCrudCallbacks(deps, agent.fullAccess === true),
+      crudTools: buildCrudCallbacks(deps, agent),
       brainStore: deps.brainStore,
       publishBrainChanged: deps.publishBrainChanged,
       taskService: deps.taskService,

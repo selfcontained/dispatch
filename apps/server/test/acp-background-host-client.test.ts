@@ -1,9 +1,14 @@
+import { isPromptSource } from "../src/agents/acp/prompt-source.js";
 import { afterEach, expect, it, vi } from "vitest";
-import { HostClient } from "../src/agents/acp/host-client.js";
+import { HostClient } from "@dispatch/runner-client/host-client";
 function fixture(supported = true) {
   const client = new HostClient({
+    validSource: isPromptSource,
     agentId: "a",
-    socketPath: "/tmp/unused",
+    remote: false,
+    openSocket: async () => {
+      throw new Error("unused");
+    },
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
     fromSeq: () => 0,
     journalId: () => null,

@@ -89,8 +89,7 @@ export function AgentCardDetails({
   // where its engine runs.
   const workspaceDir = agent.workspacePath ?? agent.cwd;
   const sidebarBaseBranch =
-    (agent.workspacePath ? agent.workspaceBaseBranch : agent.baseBranch) ??
-    "main";
+    (agent.workspacePath ? agent.workspaceBaseBranch : agent.baseBranch) ?? "";
   const modelCatalog = useAgentModelCatalogData();
 
   return (

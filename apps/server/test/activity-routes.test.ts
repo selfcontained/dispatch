@@ -1,4 +1,5 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -277,6 +278,30 @@ describe("GET /api/v1/history/projects", () => {
     expect(projA.usageCount).toBe(2);
   });
 
+  it("builds icon URLs from each folder's newest agent, deleted or not (main)", async () => {
+    await createAgent({ cwd: "/home/user/mixed" });
+    const gone = await createAgent({ cwd: "/home/user/mixed" });
+    const only = await createAgent({ cwd: "/home/user/deleted" });
+    await ctx.pool.query(
+      "UPDATE agents SET deleted_at = now(), created_at = created_at + interval '1 second' WHERE id = ANY($1)",
+      [[gone, only]]
+    );
+
+    const res = await authedInject("GET", "/api/v1/history/projects");
+    const options = res.json().projectOptions as {
+      path: string;
+      usageCount: number;
+      iconUrl?: string;
+    }[];
+    expect(options.find((p) => p.path === "/home/user/mixed")).toMatchObject({
+      usageCount: 2,
+      iconUrl: `/api/v1/agents/${gone}/repo-icon`,
+    });
+    expect(options.find((p) => p.path === "/home/user/deleted")).toMatchObject({
+      iconUrl: `/api/v1/agents/${only}/repo-icon`,
+    });
+  });
+
   it("filters by search query", async () => {
     await createAgent({ cwd: "/home/user/alpha" });
     await createAgent({ cwd: "/home/user/beta" });
@@ -382,6 +407,82 @@ describe("GET /api/v1/history/projects", () => {
       expect(cached.rows[0]?.icon_path).toBe("logo.svg");
     } finally {
       await rm(project, { recursive: true, force: true });
+    }
+  });
+
+  it("remembers the chosen folder's icon when the agent is created (main's warm-up)", async () => {
+    const project = await mkdtemp(
+      path.join(os.tmpdir(), "dispatch-icon-warm-")
+    );
+    try {
+      await writeFile(path.join(project, "favicon.svg"), "<svg/>");
+      await createAgent({ requestCwd: project });
+      const cached = await ctx.pool.query<{ icon_path: string | null }>(
+        "SELECT icon_path FROM directory_icons WHERE cwd = $1",
+        [project]
+      );
+      expect(cached.rows).toEqual([{ icon_path: "favicon.svg" }]);
+    } finally {
+      await rm(project, { recursive: true, force: true });
+    }
+  });
+
+  it("keys the icon cache by the chosen folder, as main does, for every local launch", async () => {
+    const base = await mkdtemp(path.join(os.tmpdir(), "dispatch-icon-keys-"));
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync("git", args, {
+        cwd,
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: "t",
+          GIT_AUTHOR_EMAIL: "t@example.com",
+          GIT_COMMITTER_NAME: "t",
+          GIT_COMMITTER_EMAIL: "t@example.com",
+        },
+      });
+    try {
+      const repo = path.join(base, "repo");
+      await mkdir(path.join(repo, "sub"), { recursive: true });
+      await writeFile(path.join(repo, "favicon.svg"), "<svg/>");
+      await writeFile(path.join(repo, "sub", "logo.svg"), "<svg/>");
+      git(repo, "init", "-q", "-b", "main");
+      git(repo, "add", ".");
+      git(repo, "commit", "-q", "-m", "base");
+      const linked = path.join(base, "linked");
+      git(repo, "worktree", "add", "-q", "-b", "other", linked);
+      const plain = path.join(base, "plain");
+      await mkdir(plain);
+      await writeFile(path.join(plain, "icon.png"), "png");
+      const cases: Array<[string, string | null]> = [
+        [repo, "favicon.svg"],
+        [path.join(repo, "sub"), "logo.svg"],
+        [linked, "favicon.svg"],
+        [plain, "icon.png"],
+      ];
+      const keys = async () =>
+        (
+          await ctx.pool.query<{ cwd: string; icon_path: string | null }>(
+            "SELECT cwd, icon_path FROM directory_icons WHERE cwd LIKE $1 ORDER BY cwd",
+            [`${base}%`]
+          )
+        ).rows;
+      const expected = [...cases]
+        .map(([cwd, icon_path]) => ({ cwd, icon_path }))
+        .sort((a, b) => (a.cwd < b.cwd ? -1 : 1));
+      const ids: string[] = [];
+      // main: the warm-up keys by the folder chosen at create.
+      for (const [cwd] of cases)
+        ids.push(await createAgent({ requestCwd: cwd }));
+      expect(await keys()).toEqual(expected);
+      // main: the route keys by launchCwd ?? gitContext.repoRoot ?? cwd,
+      // which is that same folder; it adds no other entry.
+      for (const id of ids) {
+        const res = await authedInject("GET", `/api/v1/agents/${id}/repo-icon`);
+        expect(res.statusCode).toBe(200);
+      }
+      expect(await keys()).toEqual(expected);
+    } finally {
+      await rm(base, { recursive: true, force: true });
     }
   });
 

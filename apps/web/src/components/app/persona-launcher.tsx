@@ -1,3 +1,7 @@
+import {
+  useLaunchTargets,
+  useLaunchTargetData,
+} from "@/hooks/use-launch-targets";
 import { useAtom } from "jotai";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -54,9 +58,12 @@ export function PersonaLauncher({
 }): JSX.Element {
   const queryClient = useQueryClient();
   const cwd = agent.workspacePath ?? agent.worktreePath ?? agent.cwd;
-  const reviewerTypes = enabledAgentTypes.filter(isCliAgentType);
-  const showReviewAgentTypePicker = reviewerTypes.length > 1;
   const [dialogOpen, setDialogOpen] = useState(false);
+  const target = useLaunchTargets(
+    { kind: "agent", id: agent.id },
+    undefined,
+    dialogOpen
+  );
   const [selectedPersonas, setSelectedPersonas] = useState<string[]>([]);
   const [codeownersSelected, setCodeownersSelected] = useState(false);
   const [note, setNote] = useState("");
@@ -64,14 +71,30 @@ export function PersonaLauncher({
     defaultReviewAgentType(agent)
   );
 
+  const data = useLaunchTargetData(
+    target.target,
+    {
+      directory: target.projection.data?.directory ?? "",
+      projectId: target.projection.data?.projectId,
+      agentType: selectedAgentType,
+    },
+    dialogOpen
+  );
+  const reviewerTypes = (data.info?.agentTypes ?? enabledAgentTypes).filter(
+    isCliAgentType
+  );
+  const showReviewAgentTypePicker = reviewerTypes.length > 1;
+  const preferenceKey = target.projection.data?.reviewPreferenceKey ?? cwd;
   const modelAtom = useMemo(
-    () => reviewAgentModelPrefAtom(`${selectedAgentType}:${cwd}`),
-    [selectedAgentType, cwd]
+    () => reviewAgentModelPrefAtom(`${selectedAgentType}:${preferenceKey}`),
+    [selectedAgentType, preferenceKey]
   );
   const [selectedModel, setSelectedModel] = useAtom(modelAtom);
-
   const { options: modelOptions, loading: modelCatalogLoading } =
-    useAgentModelCatalog(selectedAgentType);
+    useAgentModelCatalog(selectedAgentType, true, {
+      data: data.info?.catalog,
+      loading: target.list.isLoading || data.catalogLoading,
+    });
   const showModelSelect = modelCatalogLoading || modelOptions.length > 0;
 
   const { data: personaCatalog, isPending: personasPending } = useQuery<{
@@ -80,14 +103,14 @@ export function PersonaLauncher({
     codeowners: boolean;
     refreshing: boolean;
   }>({
-    queryKey: ["personas", cwd],
+    queryKey: ["personas", agent.id, cwd],
     refetchInterval: (query) => (query.state.data?.refreshing ? 2000 : false),
     queryFn: async () => {
       const result = await api<{
         personas: PersonaSummary[];
         codeowners?: boolean;
         refreshing?: boolean;
-      }>(`/api/v1/personas?cwd=${encodeURIComponent(cwd)}`);
+      }>(`/api/v1/personas?agentId=${encodeURIComponent(agent.id)}`);
       return {
         personas: result.personas,
         codeowners: result.codeowners === true,

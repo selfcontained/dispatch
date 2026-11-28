@@ -8,6 +8,8 @@ import {
 
 export type CreateAgentBody = {
   projectId?: unknown;
+  runner?: unknown;
+  repository?: unknown;
   name?: unknown;
   type?: unknown;
   /** Not accepted — see the create route; typed so it can be refused. */
@@ -22,6 +24,7 @@ export type CreateAgentBody = {
   createNewBranch?: unknown;
   worktreeBranch?: unknown;
   baseBranch?: unknown;
+  pullRequest?: unknown;
   persona?: unknown;
   parentAgentId?: unknown;
   personaContext?: unknown;

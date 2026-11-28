@@ -1,17 +1,26 @@
+import { WORKTREE_LOCAL_CONFIG_FILES } from "../src/agents/worktree-local-config-files.js";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../src/shared/lib/run-command.js", () => ({
-  runCommand: vi.fn(),
-}));
+vi.mock(
+  "../../../packages/runner/src/workload/shared/lib/run-command.js",
+  () => ({
+    runCommand: vi.fn(),
+  })
+);
 
-const { setupAgentWorkspace } = await import("../src/agents/workspace-prep.js");
+const {
+  setupAgentWorkspace: setupWorkloadWorkspace,
+  installWorkspaceDependencies,
+} =
+  await import("../../../packages/runner/src/workload/agents/workspace-prep.js");
 const { withToolSearchPath } =
   await import("../src/shared/lib/tool-environment.js");
-const { runCommand } = await import("../src/shared/lib/run-command.js");
+const { runCommand } =
+  await import("../../../packages/runner/src/workload/shared/lib/run-command.js");
 
 const noopLogger = (() => {
   const logger = {
@@ -175,5 +184,60 @@ describe("setupAgentWorkspace — auto deps install", () => {
 
     expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(warnSpy.mock.calls[0]?.[1]).toBe("Dependency install failed.");
+    expect(
+      JSON.parse(JSON.stringify(warnSpy.mock.calls[0]?.[0]))
+    ).toMatchObject({
+      err: { name: "Error", message: "install crashed" },
+      packageManager: "pnpm",
+      worktreePath,
+    });
   });
+
+  it.each([
+    { timedOut: true, timeoutMs: 120_000, stderrTail: "fetching packages" },
+    { timedOut: false, exitCode: 42, stderrTail: "install denied" },
+  ])("logs serializable command diagnostics: %j", async (diagnostics) => {
+    await writeFile(path.join(worktreePath, "pnpm-lock.yaml"), "");
+    vi.mocked(runCommand).mockRejectedValue(
+      Object.assign(new Error("pnpm install failed"), diagnostics)
+    );
+    const logger = { info: vi.fn(), warn: vi.fn() };
+    await setupAgentWorkspace(originalCwd, worktreePath, logger);
+    expect(
+      JSON.parse(JSON.stringify(logger.warn.mock.calls[0]?.[0]))
+    ).toMatchObject({
+      err: { message: "pnpm install failed", ...diagnostics },
+    });
+    expect(vi.mocked(runCommand).mock.calls[0]?.[2]?.timeoutMs).toBe(120_000);
+  });
+});
+
+function setupAgentWorkspace(
+  ...[source, destination, logger, progress]: [
+    string,
+    string,
+    Parameters<typeof setupWorkloadWorkspace>[2],
+    Parameters<typeof setupWorkloadWorkspace>[4]?,
+  ]
+) {
+  return setupWorkloadWorkspace(
+    source,
+    destination,
+    logger,
+    WORKTREE_LOCAL_CONFIG_FILES,
+    progress
+  );
+}
+
+it("passes an explicitly supplied install deadline without changing the default", async () => {
+  await writeFile(path.join(worktreePath, "package-lock.json"), "{}");
+  await installWorkspaceDependencies(
+    worktreePath,
+    noopLogger,
+    undefined,
+    1_000
+  );
+  expect(vi.mocked(runCommand).mock.calls[0]?.[2]?.timeoutMs).toBe(1_000);
+  await installWorkspaceDependencies(worktreePath, noopLogger);
+  expect(vi.mocked(runCommand).mock.calls[1]?.[2]?.timeoutMs).toBe(120_000);
 });

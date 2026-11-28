@@ -24,6 +24,7 @@ export type GitHubReleaseMetadata = {
   url: string;
   body?: string | null;
   artifactSha256?: string;
+  assets?: Array<{ name: string; digest?: string }>;
 };
 
 export type GitHubReleaseListItem = {
@@ -32,6 +33,7 @@ export type GitHubReleaseListItem = {
   url: string;
   prerelease: boolean;
   hasDispatchArtifact: boolean;
+  hasRunnerInstaller?: true;
 };
 
 const DEFAULT_GITHUB_REPO = "selfcontained/dispatch";
@@ -200,7 +202,8 @@ export function createCheckIsAdmin(
 }
 
 export async function fetchReleaseMetadata(
-  tag: string
+  tag: string,
+  includeAssets = false
 ): Promise<GitHubReleaseMetadata | null> {
   try {
     const repo = await getGitHubRepo();
@@ -218,6 +221,7 @@ export async function fetchReleaseMetadata(
     )?.digest;
     return {
       tag: data.tag_name,
+      ...(includeAssets ? { assets: data.assets ?? [] } : {}),
       publishedAt: data.published_at,
       url: data.html_url,
       body: typeof data.body === "string" ? data.body.trim() : null,
@@ -247,6 +251,14 @@ export async function fetchGitHubReleases(): Promise<GitHubReleaseListItem[]> {
     publishedAt: release.published_at,
     url: release.html_url,
     prerelease: release.prerelease,
+    ...([
+      "install-dispatch-runner.sh",
+      "install-dispatch-runner.sh.sigstore.json",
+      RELEASE_ARTIFACT_NAME,
+      RELEASE_ARTIFACT_NAME + ".sigstore.json",
+    ].every((name) => release.assets?.some((asset) => asset.name === name))
+      ? { hasRunnerInstaller: true as const }
+      : {}),
     hasDispatchArtifact:
       release.assets?.some(
         // Deliberately not 0.x's `dispatch-release.tar.gz`: 0.x servers look

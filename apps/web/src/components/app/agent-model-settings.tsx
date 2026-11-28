@@ -1,3 +1,6 @@
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import type { CatalogResponse } from "@/hooks/use-agent-model-catalog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
@@ -19,6 +22,18 @@ import {
 const AUTO_ENABLE = "auto-enable";
 const MODEL = "model:";
 
+export function useSettingsAgentModelCatalog(agentType: AgentType) {
+  const catalog = useQuery<CatalogResponse>({
+    queryKey: ["agent-models", "settings"],
+    queryFn: () => api("/api/v1/app/settings/agent-models"),
+    staleTime: 5 * 60 * 1000,
+  });
+  return useAgentModelCatalog(agentType, true, {
+    data: catalog.data,
+    loading: catalog.isLoading,
+  });
+}
+
 /** One agent type's model filter, inside its row in Settings → Agents. */
 export function AgentModelSettings({
   agentType,
@@ -26,7 +41,7 @@ export function AgentModelSettings({
   agentType: AgentType;
 }): JSX.Element {
   const { options, allOptions, autoEnable, loading, loaded } =
-    useAgentModelCatalog(agentType);
+    useSettingsAgentModelCatalog(agentType);
   const { mutateAsync } = useUpdateModelAvailability();
   const typeLabel = AGENT_TYPE_LABELS[agentType];
   // Keyed by model id, with the one switch above them all.

@@ -1,15 +1,11 @@
 /**
- * Diff hunks for an explanation, read at click time and pinned to the
- * assessed commit: the PR's base sha compared with the assessed head sha, so
- * later pushes never change what is explained. Never stored; read-only `gh`.
- * Any failure yields null and the explanation proceeds without hunks.
+ * Diff hunks for an explanation, read at click time through the agent's
+ * runner (`github.pr.diff`) and pinned to the assessed head, so later pushes
+ * never change what is explained. Never stored. Any failure yields null and
+ * the explanation proceeds without hunks.
  */
-import {
-  runCommand,
-  type CommandRunner,
-} from "../../shared/lib/run-command.js";
-import { shouldExcludePath } from "../../shared/git/diff-file-rules.js";
-import { isTestFile } from "../../shared/git/test-files.js";
+import { shouldExcludePath } from "@dispatch/runner-protocol";
+import { isTestFile } from "@dispatch/runner-protocol";
 
 /** JSON bytes of selected patches; keeps the whole input under its bound. */
 export const EXPLANATION_DIFF_BUDGET = 24 * 1024;
@@ -112,13 +108,6 @@ export function selectHunks(
   return { files: selected, omitted_files: files.length - selected.length };
 }
 
-function repoOf(url: string) {
-  const match = new URL(url).pathname.match(
-    /^\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)\/?$/
-  );
-  return match ? { repo: `${match[1]}/${match[2]}`, number: match[3]! } : null;
-}
-
 /** Text of review findings, used only to rank files they mention. */
 export function mentionedText(evidence: unknown): string {
   const reviews = (evidence as { reviews?: unknown } | null)?.reviews;
@@ -132,58 +121,4 @@ export function mentionedText(evidence: unknown): string {
         : []
     )
     .join("\n");
-}
-
-export async function readAssessedDiff(
-  url: string,
-  headSha: string,
-  evidence: unknown,
-  run: CommandRunner = runCommand
-): Promise<ExplanationDiff | null> {
-  try {
-    const target = repoOf(url);
-    if (!target || !/^[0-9a-f]{7,40}$/i.test(headSha)) return null;
-    const pull = await run(
-      "gh",
-      [
-        "api",
-        `repos/${target.repo}/pulls/${target.number}`,
-        "--jq",
-        ".base.sha",
-      ],
-      { timeoutMs: 15_000, allowedExitCodes: [0, 1] }
-    );
-    const base = pull.stdout.trim();
-    if (pull.exitCode !== 0 || !/^[0-9a-f]{40}$/i.test(base)) return null;
-    const compare = await run(
-      "gh",
-      [
-        "api",
-        `repos/${target.repo}/compare/${base}...${headSha}`,
-        "--jq",
-        "[.files[] | {path: .filename, additions, deletions, patch}]",
-      ],
-      { timeoutMs: 20_000, allowedExitCodes: [0, 1] }
-    );
-    if (compare.exitCode !== 0) return null;
-    const parsed: unknown = JSON.parse(compare.stdout);
-    if (!Array.isArray(parsed)) return null;
-    const files: ChangedFile[] = parsed.flatMap((raw) => {
-      const f = raw as Record<string, unknown>;
-      return typeof f?.path === "string"
-        ? [
-            {
-              path: f.path,
-              additions: Number(f.additions) || 0,
-              deletions: Number(f.deletions) || 0,
-              ...(typeof f.patch === "string" ? { patch: f.patch } : {}),
-            },
-          ]
-        : [];
-    });
-    if (!files.length) return null;
-    return { base, ...selectHunks(files, mentionedText(evidence)) };
-  } catch {
-    return null;
-  }
 }

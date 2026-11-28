@@ -1,3 +1,8 @@
+import { placementForRunner } from "../../runners/placement.js";
+import {
+  HISTORY_IDENTITY_SQL,
+  historyProjectFields,
+} from "../../runners/repository-identity.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
 import { fileMedia } from "@dispatch/shared";
@@ -21,16 +26,17 @@ async function handleHistoryProjects(
     50
   );
   const params: unknown[] = [];
-  const where = [
-    "parent_agent_id IS NULL",
-    "COALESCE(launch_cwd, git_context->>'repoRoot', cwd) IS NOT NULL",
-  ];
+  const where = ["parent_agent_id IS NULL", `a.history_identity IS NOT NULL`];
 
   if (search) {
     params.push(`%${search}%`);
     where.push(
-      `(LOWER(COALESCE(launch_cwd, git_context->>'repoRoot', cwd)) LIKE $${params.length} OR LOWER(regexp_replace(COALESCE(launch_cwd, git_context->>'repoRoot', cwd), '/+$', '')) LIKE $${params.length})`
+      `(LOWER(a.history_identity) LIKE $${params.length} OR LOWER(regexp_replace(a.history_identity, '/+$', '')) LIKE $${params.length})`
     );
+  }
+  if (typeof query.runnerId === "string") {
+    params.push(query.runnerId);
+    where.push(`a.runner_id = $${params.length}`);
   }
   params.push(limit);
 
@@ -47,8 +53,8 @@ async function handleHistoryProjects(
        FROM (
          SELECT id,
                 created_at,
-                COALESCE(launch_cwd, git_context->>'repoRoot', cwd) AS project
-         FROM agents
+                a.history_identity AS project
+         FROM ${HISTORY_IDENTITY_SQL} a
          WHERE ${where.join(" AND ")}
        ) project_agents
        GROUP BY project
@@ -109,9 +115,7 @@ async function handleHistoryAgents(
   }
   if (project) {
     params.push(project);
-    conditions.push(
-      `COALESCE(a.launch_cwd, a.git_context->>'repoRoot', a.cwd) = $${params.length}`
-    );
+    conditions.push(`a.history_identity = $${params.length}`);
   }
 
   const dateRange = deps.timeRangeClause(aq, "a.created_at", params.length);
@@ -130,12 +134,14 @@ async function handleHistoryAgents(
 
   const [countResult, agentsResult] = await Promise.all([
     deps.pool.query<{ total: number }>(
-      `SELECT COUNT(*)::int AS total FROM agents a ${whereClause}`,
+      `SELECT COUNT(*)::int AS total FROM ${HISTORY_IDENTITY_SQL} a ${whereClause}`,
       params
     ),
     deps.pool.query(
       `SELECT
           a.id,
+          a.runner_id AS "historyRunner",
+          a.history_identity AS "historyProject",
           a.name,
           a.type,
           a.status,
@@ -150,7 +156,7 @@ async function handleHistoryAgents(
             SELECT SUM(input_tokens + cache_creation_tokens + cache_read_tokens + output_tokens)
             FROM agent_token_usage WHERE agent_id = a.id
           ), 0)::bigint AS "totalTokens"
-         FROM agents a
+         FROM ${HISTORY_IDENTITY_SQL} a
          ${whereClause}
          ORDER BY ${sortSql}
          LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
@@ -202,7 +208,13 @@ async function handleHistoryAgents(
   }
 
   const agents = agentsResult.rows.map(
-    (agent: { id: string; totalTokens: number }) => {
+    (row: {
+      id: string;
+      totalTokens: number;
+      historyRunner: string;
+      historyProject: string | null;
+    }) => {
+      const { historyRunner, historyProject, ...agent } = row;
       const children = childrenByParent.get(agent.id) ?? [];
       const childTokens = children.reduce(
         (sum, child) => sum + child.totalTokens,
@@ -210,6 +222,10 @@ async function handleHistoryAgents(
       );
       return {
         ...agent,
+        ...historyProjectFields(
+          placementForRunner(historyRunner),
+          historyProject
+        ),
         children,
         groupTotalTokens: agent.totalTokens + childTokens,
       };

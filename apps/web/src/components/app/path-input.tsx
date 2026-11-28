@@ -53,6 +53,7 @@ type PathInputProps = {
   showValidation?: boolean;
   /** Recent directory history for dropdown */
   history?: string[];
+  historyUrl?: string;
   /** History entries that can be removed from this client. Defaults to history. */
   removableHistory?: string[];
   /** Extra presentation data for history entries, keyed by full path. */
@@ -83,6 +84,7 @@ export function PathInput({
   placeholder = "~/path/to/project",
   showValidation = true,
   history = [],
+  historyUrl,
   removableHistory,
   historyMetadata = {},
   onRemoveHistory,
@@ -162,7 +164,7 @@ export function PathInput({
   // separate from filesystem path completions: the dropdown shows known
   // projects, while arbitrary full paths still validate and can use Tab.
   useEffect(() => {
-    if (!dropdownOpen) {
+    if (!dropdownOpen || historyUrl === "") {
       projectSuggestionsRequestRef.current += 1;
       setProjectSuggestionOptions([]);
       return;
@@ -181,7 +183,9 @@ export function PathInput({
           iconUrl?: string;
         }>;
         projects: string[];
-      }>(`/api/v1/history/projects?${params.toString()}`)
+      }>(
+        `${historyUrl ?? "/api/v1/history/projects"}${historyUrl?.includes("?") ? "&" : "?"}${params.toString()}`
+      )
         .then((payload) => {
           if (requestId !== projectSuggestionsRequestRef.current) return;
           const metadata = Object.fromEntries(
@@ -207,7 +211,7 @@ export function PathInput({
     return () => {
       clearTimeout(timer);
     };
-  }, [dropdownOpen, historyFilter]);
+  }, [dropdownOpen, historyFilter, historyUrl]);
 
   // Debounced path validation
   useEffect(() => {

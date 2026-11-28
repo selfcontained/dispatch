@@ -1,3 +1,5 @@
+import { inProcessEngines, localEngineCalls } from "../../runners/local.js";
+import { createRunnerUsage } from "../../agents/codex-reset.js";
 import { createCodexResetCoordinator } from "../../agents/codex-reset.js";
 import * as z from "zod/v4";
 import type {
@@ -6,10 +8,6 @@ import type {
 } from "@dispatch/shared";
 import type { FastifyInstance } from "fastify";
 
-import {
-  consumeCodexLimitReset,
-  createProviderPlansReporter,
-} from "../../agents/provider-plans.js";
 import {
   loadAgentUsage,
   toAgentConfigOptions,
@@ -31,8 +29,16 @@ export async function registerAgentUsageRoutes(
   app: FastifyInstance,
   deps: AgentRouteDeps
 ): Promise<void> {
-  const providerPlans =
-    deps.providerPlans ?? createProviderPlansReporter({ log: deps.appLog });
+  const fallbackEngines =
+    deps.providerPlans && deps.redeemCodexReset
+      ? undefined
+      : inProcessEngines(undefined);
+  if (fallbackEngines)
+    app.addHook("onClose", async () => fallbackEngines.close());
+  const fallbackUsage =
+    fallbackEngines &&
+    createRunnerUsage(localEngineCalls(() => undefined, fallbackEngines));
+  const providerPlans = deps.providerPlans ?? fallbackUsage!.providerPlans;
 
   app.get("/api/v1/agents/:id/config", async (request, reply) => {
     const id = (request.params as { id?: string }).id ?? "";
@@ -107,20 +113,23 @@ export async function registerAgentUsageRoutes(
 
   const redeem =
     deps.redeemCodexReset ??
-    createCodexResetCoordinator({
-      consume:
-        deps.consumeCodexReset ??
-        ((requestId) =>
-          consumeCodexLimitReset({ log: deps.appLog, requestId })),
-      providerPlans,
-    });
-  app.post("/api/v1/usage/codex/resets/consume", async (request, reply) => {
+    (deps.consumeCodexReset
+      ? createCodexResetCoordinator({
+          consume: deps.consumeCodexReset,
+          providerPlans,
+        })
+      : fallbackUsage!.redeemCodexReset);
+  async function consume(
+    request: import("fastify").FastifyRequest,
+    reply: import("fastify").FastifyReply,
+    redeemReset = redeem
+  ) {
     const parsed = z
       .object({ idempotencyKey: z.uuid().optional() })
       .safeParse(request.body ?? {});
     if (!parsed.success)
       return reply.code(400).send({ error: "idempotencyKey must be a UUID." });
-    const result = await redeem(parsed.data.idempotencyKey);
+    const result = await redeemReset(parsed.data.idempotencyKey);
     if (result.error) {
       return reply
         .code(
@@ -135,5 +144,40 @@ export async function registerAgentUsageRoutes(
         .send({ error: result.error.message, reason: result.error.reason });
     }
     return result.outcome;
+  }
+  app.post("/api/v1/usage/codex/resets/consume", (request, reply) =>
+    consume(request, reply)
+  );
+  app.get("/api/v1/agents/:id/usage/plans", async (request, reply) => {
+    const id = (request.params as { id: string }).id;
+    if (!(await deps.agentManager.getAgent(id)))
+      return reply.code(404).send({ error: "Agent not found." });
+    const usage = await deps.usageForAgent?.(id);
+    return (usage?.providerPlans ?? providerPlans)({
+      force: (request.query as { force?: string }).force === "1",
+    });
   });
+  app.post(
+    "/api/v1/agents/:id/usage/codex/resets/consume",
+    async (request, reply) => {
+      const id = (request.params as { id: string }).id;
+      if (!(await deps.agentManager.getAgent(id)))
+        return reply.code(404).send({ error: "Agent not found." });
+      const usage = await deps.usageForAgent?.(id);
+      return consume(request, reply, usage?.redeemCodexReset ?? redeem);
+    }
+  );
+  app.get("/api/v1/runners/:id/usage/plans", async (request) => {
+    const usage = deps.usageForRunner!((request.params as { id: string }).id);
+    return usage.providerPlans({
+      force: (request.query as { force?: string }).force === "1",
+    });
+  });
+  app.post(
+    "/api/v1/runners/:id/usage/codex/resets/consume",
+    async (request, reply) => {
+      const usage = deps.usageForRunner!((request.params as { id: string }).id);
+      return consume(request, reply, usage.redeemCodexReset);
+    }
+  );
 }

@@ -1,1 +1,3 @@
+node scripts/check-runner-boundary.mjs --staged
+
 pnpm exec lint-staged

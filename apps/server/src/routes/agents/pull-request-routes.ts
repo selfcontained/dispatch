@@ -1,3 +1,4 @@
+import { enrolledRunnerId } from "../../runners/placement.js";
 import type { FastifyInstance } from "fastify";
 import type { AgentRouteDeps } from "./shared.js";
 
@@ -30,13 +31,14 @@ export async function registerAgentPullRequestRoutes(
         return reply
           .code(403)
           .send({ error: "Use the browser to explain an assessment." });
-      if (!(await deps.agentManager.getAgent(request.params.id)))
-        return reply.code(404).send({ error: "Agent not found." });
+      const agent = await deps.agentManager.getAgent(request.params.id);
+      if (!agent) return reply.code(404).send({ error: "Agent not found." });
       if (!deps.riskExplanations)
         return reply.code(503).send({ error: "Explanation unavailable." });
-      // The id alone identifies the assessment; url stays in the body contract.
       const result = await deps.riskExplanations.explain({
         assessmentId: request.body.assessmentId,
+        url: request.body.url,
+        runnerId: enrolledRunnerId(agent.placement) ?? null,
       });
       // Reason codes only: never the URL, evidence or provider payload.
       if (result.state !== "ready" && result.state !== "pending")

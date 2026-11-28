@@ -1,11 +1,21 @@
 import {
+  inProcessEngines,
+  localEngineCalls,
+  type EngineCalls,
+} from "../runners/local.js";
+import { displayPath } from "@dispatch/runner-protocol/contract";
+import {
+  runnerDirectory,
+  type CheckoutCommandRunners,
+} from "../runners/directory.js";
+import { controllerPlacement } from "../runners/placement.js";
+import { projectRepositoryUrl } from "../agents/remote/repository.js";
+import {
   isAllowedSlackLinkOrigin,
   type SlackLinkOrigins,
 } from "../notifications/slack-link-origins.js";
 import type { SlackAnswers } from "../notifications/slack-answers.js";
 import os from "node:os";
-import path from "node:path";
-import { readdir, stat } from "node:fs/promises";
 
 import type {
   FastifyBaseLogger,
@@ -28,19 +38,12 @@ import { SlackNotifier, slackDelayError } from "../notifications/slack.js";
 import {
   ModelAvailabilityError,
   updateModelAvailability,
+  settingsModelCatalog,
 } from "../agents/model-availability.js";
-import { runCommand } from "../shared/lib/run-command.js";
-import { resolveTilde } from "../shared/lib/resolve-tilde.js";
-import { shouldSkipAutomaticMacPathProbe } from "../shared/mac-path-privacy.js";
 import {
   agentModelAvailability,
-  agentModelCatalog,
-  agentModelDefaults,
+  readStoredAgentModelCatalog,
 } from "../shared/agent-models.js";
-import {
-  engineStatuses,
-  withEngineVersions,
-} from "../agents/engine-availability.js";
 import {
   getWorktreeLocation,
   isWorktreeLocation,
@@ -53,12 +56,16 @@ import {
   setUserAvatar,
 } from "../user-avatar-settings.js";
 
+import { engineUpdatePort } from "../agents/engine-update-operations.js";
 import {
   EngineUpdateOperations,
   engineOperationStore,
-  withEngineUpdates,
-} from "../agents/engine-updates.js";
-import { ACP_ENGINE_IDS, type AcpEngineId } from "../agents/acp/engine-spec.js";
+  engineStatusPresentation,
+} from "../agents/engine-update-operations.js";
+import {
+  ACP_ENGINE_IDS,
+  type AcpEngineId,
+} from "@dispatch/runner-protocol/host";
 
 const INSTANCE_NAME_KEY = "instance_name";
 const modelIdField = z.string().min(1).max(256);
@@ -82,6 +89,16 @@ const ModelAvailabilityBodySchema = z.union([
 ]);
 
 type SystemRouteDeps = {
+  runners?: CheckoutCommandRunners;
+  engineCalls?: EngineCalls;
+  runnerEngines?: (runnerId: string) => {
+    engineCalls: EngineCalls;
+    engineUpdates: EngineUpdateOperations;
+  };
+  runnerBranches?: (
+    runner: string,
+    target: { repository: string }
+  ) => Promise<{ branches: string[]; defaultBranch?: string }>;
   publishModelsChanged?: (agentType: AgentType) => void;
   notificationLinkOrigins?: () => Promise<SlackLinkOrigins>;
   slackAnswers?: Pick<
@@ -100,6 +117,8 @@ type SystemRouteDeps = {
   maintenanceMode?: () => string;
   engineBins: { claude: string; codex: string; opencode?: string };
   localCertificateTrust?: boolean;
+  /** Shared with engine-management routes so both see the same operation state. */
+  engineUpdates?: EngineUpdateOperations;
   /** Update recovery helper protocol; omitted in tests that don't need it. */
 };
 
@@ -163,61 +182,80 @@ export async function registerSystemRoutes(
     };
   });
 
-  const engineUpdates = new EngineUpdateOperations(
-    engineOperationStore(deps.pool),
-    {
+  const engines =
+    deps.engineCalls ??
+    localEngineCalls(
+      () => undefined,
+      inProcessEngines(
+        deps.engineBins && {
+          claudeBin: deps.engineBins.claude,
+          codexBin: deps.engineBins.codex,
+          opencodeBin: deps.engineBins.opencode,
+        }
+      )
+    );
+  const engineUpdates =
+    deps.engineUpdates ??
+    new EngineUpdateOperations(engineOperationStore(deps.pool), {
+      ...engineUpdatePort(engines),
       onError: (error) =>
         deps.appLog.error({ err: error }, "Engine update persistence failed"),
+    });
+  const mountEngineRoutes = (
+    prefix: string,
+    resolve: (request: FastifyRequest) => {
+      engineCalls: EngineCalls;
+      engineUpdates: EngineUpdateOperations;
     }
-  );
-  app.get("/api/v1/system/engines", async (request) => {
-    const operations = await engineUpdates.read();
-    return {
-      canManage: (await deps.canManageEngineUpdates?.(request)) ?? false,
-      engines: await withEngineUpdates(
-        await withEngineVersions(await engineStatuses(deps.engineBins))
-      ).then((engines) =>
-        engines.map((engine) => ({
-          ...engine,
-          update: {
-            ...engine.update,
-            operation: operations[engine.id] ?? null,
-          },
-        }))
-      ),
-    };
-  });
+  ) => {
+    app.get(`${prefix}/engines`, async (request) => {
+      const { engineCalls: targetEngines, engineUpdates: targetUpdates } =
+        resolve(request);
+      return {
+        canManage: (await deps.canManageEngineUpdates?.(request)) ?? false,
+        engines: await engineStatusPresentation(targetEngines, targetUpdates),
+      };
+    });
 
-  app.post("/api/v1/system/engines/:engine/update", async (request, reply) => {
-    const { engine } = request.params as { engine: string };
-    if (
-      !(ACP_ENGINE_IDS as readonly string[]).includes(engine) ||
-      request.body != null
-    ) {
-      return reply
-        .code(400)
-        .send({ error: "Provide only a supported engine ID in the URL." });
-    }
-    try {
-      const operation = await engineUpdates.start(
-        engine as AcpEngineId,
-        deps.engineBins
-      );
-      return reply.code(202).send({ operation });
-    } catch (error) {
-      return reply.code(409).send({
-        error: error instanceof Error ? error.message : "Update unavailable.",
-      });
-    }
-  });
+    app.post(`${prefix}/engines/:engine/update`, async (request, reply) => {
+      const { engine } = request.params as { engine: string };
+      if (
+        !(ACP_ENGINE_IDS as readonly string[]).includes(engine) ||
+        request.body != null
+      ) {
+        return reply
+          .code(400)
+          .send({ error: "Provide only a supported engine ID in the URL." });
+      }
+      try {
+        const operation = await resolve(request).engineUpdates.start(
+          engine as AcpEngineId,
+          deps.engineBins
+        );
+        return reply.code(202).send({ operation });
+      } catch (error) {
+        return reply.code(409).send({
+          error: error instanceof Error ? error.message : "Update unavailable.",
+        });
+      }
+    });
+  };
+  mountEngineRoutes("/api/v1/system", () => ({
+    engineCalls: engines,
+    engineUpdates,
+  }));
+  if (deps.runnerEngines)
+    mountEngineRoutes("/api/v1/runners/:runnerId", (request) =>
+      deps.runnerEngines!((request.params as { runnerId: string }).runnerId)
+    );
 
-  app.get("/api/v1/agent-models", async () => {
-    return {
-      models: agentModelCatalog(),
-      defaults: agentModelDefaults(),
-      availability: agentModelAvailability(),
-    };
-  });
+  app.get("/api/v1/agent-models", async () => ({
+    ...readStoredAgentModelCatalog(),
+    availability: agentModelAvailability(),
+  }));
+
+  const launchFolderRunner = () =>
+    runnerDirectory(deps.runners ?? {}).for(controllerPlacement);
 
   app.get("/api/v1/system/path-info", async (request, reply) => {
     const query = request.query as { path?: unknown };
@@ -226,54 +264,18 @@ export async function registerSystemRoutes(
         .code(400)
         .send({ error: "path query parameter is required." });
     }
-    const resolved = resolveTilde(query.path.trim());
-    if (!path.isAbsolute(resolved)) {
-      return {
-        exists: false,
-        isDirectory: false,
-        isGitRepo: false,
-        privacyRestricted: false,
-        resolvedPath: resolved,
-      };
-    }
-    if (shouldSkipAutomaticMacPathProbe(resolved, os.homedir())) {
-      return {
-        exists: false,
-        isDirectory: false,
-        isGitRepo: false,
-        privacyRestricted: true,
-        resolvedPath: resolved,
-      };
-    }
-    try {
-      const info = await stat(resolved).catch(() => null);
-      const exists = info !== null;
-      const isDirectory = exists && info.isDirectory();
-      let isGitRepo = false;
-      if (isDirectory) {
-        const result = await runCommand(
-          "git",
-          ["-C", resolved, "rev-parse", "--is-inside-work-tree"],
-          { timeoutMs: 3_000, allowedExitCodes: [0, 1, 128] }
-        );
-        isGitRepo = result.exitCode === 0 && result.stdout.trim() === "true";
-      }
-      return {
-        exists,
-        isDirectory,
-        isGitRepo,
-        privacyRestricted: false,
-        resolvedPath: resolved,
-      };
-    } catch {
-      return {
-        exists: false,
-        isDirectory: false,
-        isGitRepo: false,
-        privacyRestricted: false,
-        resolvedPath: resolved,
-      };
-    }
+    const { exists, isDirectory, isGitRepo, privacyRestricted, resolvedPath } =
+      await launchFolderRunner().call("path.resolve", {
+        path: query.path.trim(),
+        automatic: true,
+      });
+    return {
+      exists,
+      isDirectory,
+      isGitRepo,
+      privacyRestricted,
+      resolvedPath: displayPath(resolvedPath),
+    };
   });
 
   app.get("/api/v1/system/path-completions", async (request, reply) => {
@@ -283,79 +285,55 @@ export async function registerSystemRoutes(
         .code(400)
         .send({ error: "prefix query parameter is required." });
     }
-    const raw = query.prefix.trim();
-    const resolved = resolveTilde(raw);
-    if (!path.isAbsolute(resolved)) {
-      return { completions: [] };
-    }
-    try {
-      const parentDir = path.dirname(resolved);
-      const partial = path.basename(resolved).toLowerCase();
-      const isExactDir = raw.endsWith("/");
-      const searchDir = isExactDir ? resolved : parentDir;
-      const searchPartial = isExactDir ? "" : partial;
-
-      if (shouldSkipAutomaticMacPathProbe(searchDir, os.homedir())) {
-        return { completions: [], privacyRestricted: true };
-      }
-
-      const entries = await readdir(searchDir, { withFileTypes: true });
-      const dirs = entries
-        .filter((entry) => {
-          if (!entry.isDirectory()) return false;
-          if (entry.name.startsWith(".") && !searchPartial.startsWith(".")) {
-            return false;
-          }
-          return entry.name.toLowerCase().startsWith(searchPartial);
-        })
-        .sort((a, b) => a.name.localeCompare(b.name))
-        .slice(0, 20)
-        .map((entry) => path.join(searchDir, entry.name));
-
-      const homeDir = os.homedir();
-      const completions = dirs.map((dir) =>
-        raw.startsWith("~") && dir.startsWith(homeDir)
-          ? "~" + dir.slice(homeDir.length)
-          : dir
-      );
-
-      return { completions, privacyRestricted: false };
-    } catch {
-      return { completions: [], privacyRestricted: false };
-    }
+    return launchFolderRunner().call("path.complete", {
+      prefix: query.prefix.trim(),
+      limit: 20,
+    });
   });
 
   app.get("/api/v1/git/branches", async (request, reply) => {
-    const query = request.query as { cwd?: unknown };
+    const query = request.query as {
+      cwd?: unknown;
+      runnerId?: unknown;
+      repository?: unknown;
+    };
+    if (query?.runnerId !== undefined || query?.repository !== undefined) {
+      if (
+        typeof query.runnerId !== "string" ||
+        !query.runnerId.trim() ||
+        typeof query.repository !== "string" ||
+        query.cwd !== undefined
+      )
+        return reply
+          .code(400)
+          .send({ error: "Choose a runner and repository." });
+      let repository: string;
+      try {
+        repository = projectRepositoryUrl(query.repository);
+      } catch {
+        return reply
+          .code(400)
+          .send({ error: "Choose a valid HTTPS repository URL." });
+      }
+      try {
+        if (deps.runnerBranches)
+          return await deps.runnerBranches(query.runnerId, { repository });
+      } catch {
+        // A runner can become unavailable between opening and using the picker.
+      }
+      return reply
+        .code(503)
+        .send({ error: "Couldn’t load branches from this runner." });
+    }
     if (typeof query?.cwd !== "string" || !query.cwd.trim()) {
       return reply
         .code(400)
         .send({ error: "cwd query parameter is required." });
     }
     try {
-      const cwd = resolveTilde(query.cwd.trim());
-      const result = await runCommand(
-        "git",
-        ["-C", cwd, "ls-remote", "--heads", "origin"],
-        { timeoutMs: 15_000 }
-      );
-      if (result.exitCode !== 0) {
-        return reply
-          .code(500)
-          .send({ error: "Failed to list remote branches." });
-      }
-      const branches = result.stdout
-        .split("\n")
-        .map((line) => line.replace(/^.*refs\/heads\//, "").trim())
-        .filter(Boolean)
-        .sort((a, b) => {
-          if (a === "main") return -1;
-          if (b === "main") return 1;
-          if (a === "master") return -1;
-          if (b === "master") return 1;
-          return a.localeCompare(b);
-        });
-      return { branches };
+      return await launchFolderRunner().call("git.remoteHeads", {
+        path: query.cwd.trim(),
+      });
     } catch {
       return reply.code(500).send({ error: "Failed to list remote branches." });
     }
@@ -580,6 +558,10 @@ export async function registerSystemRoutes(
     };
   });
 
+  app.get("/api/v1/app/settings/agent-models", () =>
+    settingsModelCatalog(deps.pool)
+  );
+
   app.patch("/api/v1/app/settings/agent-models", async (request, reply) => {
     const parsed = ModelAvailabilityBodySchema.safeParse(request.body);
     if (!parsed.success) {
@@ -597,7 +579,9 @@ export async function registerSystemRoutes(
         return reply.code(400).send({ error: error.message });
       throw error;
     }
-    return { availability: agentModelAvailability() };
+    return {
+      availability: (await settingsModelCatalog(deps.pool)).availability,
+    };
   });
 
   app.get("/api/v1/app/settings/ides", async () => {

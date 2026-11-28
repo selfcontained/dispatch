@@ -53,6 +53,28 @@ export function cachedTarballPath(tag: string): string {
   return path.join(cacheDir(), `release-${sanitizeTag(tag)}.tar.gz`);
 }
 
+/** Download a fixed, caller-selected companion asset into the release cache. */
+export async function downloadReleaseCompanion(input: {
+  tag: string;
+  repo: string;
+  name: string;
+  destination: string;
+}): Promise<void> {
+  const { tag, repo, name, destination } = input;
+  await mkdir(path.dirname(destination), { recursive: true });
+  const partial = `${destination}.partial.${process.pid}.${randomBytes(4).toString("hex")}`;
+  try {
+    await downloadToFile({
+      url: new URL(encodeURIComponent(name), releaseDownloadUrl(repo, tag))
+        .href,
+      destination: partial,
+    });
+    await rename(partial, destination);
+  } finally {
+    await rm(partial, { force: true }).catch(() => {});
+  }
+}
+
 /**
  * Returns the cached tarball if one is present for `tag`, or null when the
  * cache is empty / corrupt. Never throws.

@@ -1,3 +1,8 @@
+import {
+  controllerPlacement,
+  runnerIdForPlacement,
+} from "../runners/placement.js";
+
 import { CLI_AGENT_TYPES, type AgentType } from "./agent-types.js";
 
 export type AgentModelOption = {
@@ -5,9 +10,85 @@ export type AgentModelOption = {
   label: string;
   /** Absent until observed; empty means unsupported. */ effort?: import("@dispatch/shared").AgentConfigChoice[];
 };
-const learnedDefaults = new Map<AgentType, string>();
-export function agentModelDefaults(): Partial<Record<AgentType, string>> {
-  return Object.fromEntries(learnedDefaults);
+const catalogs = new Map<
+  string,
+  {
+    learned: Map<AgentType, readonly AgentModelOption[]>;
+    defaults: Map<AgentType, string>;
+    settings?: import("../runners/settings-namespace.js").RunnerSettings;
+  }
+>();
+function catalogFor(runnerId: string) {
+  let catalog = catalogs.get(runnerId);
+  if (!catalog) {
+    catalog = { learned: new Map(), defaults: new Map() };
+    catalogs.set(runnerId, catalog);
+  }
+  return catalog;
+}
+export function rememberCatalogRunner(
+  runnerId: string,
+  settings: import("../runners/settings-namespace.js").RunnerSettings
+) {
+  catalogFor(runnerId).settings = settings;
+}
+export function catalogRunnerSettings(runnerId: string) {
+  return catalogs.get(runnerId)?.settings;
+}
+export function catalogUnion(runnerIds: readonly string[]) {
+  const models = agentModelCatalog();
+  for (const runnerId of runnerIds) {
+    for (const [type, options] of Object.entries(agentModelCatalog(runnerId))) {
+      const agentType = type as AgentType;
+      const current = models[agentType] ?? [];
+      const ids = new Set(current.map((model) => model.id));
+      models[agentType] = [
+        ...current,
+        ...options.filter((model) => !ids.has(model.id)),
+      ];
+    }
+  }
+  return models;
+}
+
+type CatalogRead = (
+  runnerId: string,
+  agentType: AgentType,
+  model?: string
+) => void;
+let catalogRead: CatalogRead | undefined;
+export function onStoredModelCatalogRead(listener: CatalogRead): () => void {
+  catalogRead = listener;
+  return () => {
+    if (catalogRead === listener) catalogRead = undefined;
+  };
+}
+/** These user-facing reads return the snapshot before scheduling any I/O. */
+export function readStoredModelCatalog(
+  runnerId: string,
+  agentType: AgentType,
+  model?: string
+) {
+  const result = {
+    defaultModel: agentModelDefaults(runnerId)[agentType] ?? null,
+    models: getAgentModelOptions(agentType, runnerId),
+  };
+  catalogRead?.(runnerId, agentType, model);
+  return result;
+}
+export function readStoredAgentModelCatalog(runnerId = "local") {
+  const result = {
+    models: agentModelCatalog(runnerId),
+    defaults: agentModelDefaults(runnerId),
+  };
+  for (const agentType of CLI_AGENT_TYPES) catalogRead?.(runnerId, agentType);
+  return result;
+}
+
+export function agentModelDefaults(
+  runnerId = "local"
+): Partial<Record<AgentType, string>> {
+  return Object.fromEntries(catalogFor(runnerId).defaults);
 }
 
 /**
@@ -60,13 +141,14 @@ export const AGENT_MODEL_OPTIONS: Partial<
  * opened on this machine. Learned lists replace the seed above for their
  * type: they are the engine's own words, for this install and this login.
  */
-const learned = new Map<AgentType, readonly AgentModelOption[]>();
 
 export function setLearnedAgentModels(
   agentType: AgentType,
   options: readonly AgentModelOption[],
-  defaultModel?: string
+  defaultModel?: string,
+  runnerId = "local"
 ): void {
+  const { learned, defaults: learnedDefaults } = catalogFor(runnerId);
   if (options.length === 0) return;
   if (defaultModel) learnedDefaults.set(agentType, defaultModel);
   learned.set(
@@ -77,15 +159,16 @@ export function setLearnedAgentModels(
 
 /** Tests reset what earlier tests taught. */
 export function forgetLearnedAgentModels(): void {
-  learned.clear();
-  learnedDefaults.clear();
+  catalogs.clear();
   availability.clear();
+  reportedHistory.clear();
 }
 
 export function getLearnedAgentModels(
-  agentType: AgentType
+  agentType: AgentType,
+  runnerId = "local"
 ): readonly AgentModelOption[] | undefined {
-  return learned.get(agentType);
+  return catalogFor(runnerId).learned.get(agentType);
 }
 
 /**
@@ -102,6 +185,38 @@ export type AgentModelAvailability = {
   /** Every id the engine has ever listed; null before its first list. */
   known: readonly string[] | null;
 };
+export type AgentModelHistory = Pick<
+  AgentModelAvailability,
+  "known" | "unseen"
+>;
+const reportedHistory = new Map<string, Map<AgentType, AgentModelHistory>>();
+export function getReportedModelHistory(
+  runnerId: string,
+  agentType: AgentType
+): AgentModelHistory {
+  return (
+    reportedHistory.get(runnerId)?.get(agentType) ?? { known: null, unseen: [] }
+  );
+}
+export function setReportedModelHistory(
+  runnerId: string,
+  agentType: AgentType,
+  history: AgentModelHistory
+): void {
+  let histories = reportedHistory.get(runnerId);
+  if (!histories) {
+    histories = new Map();
+    reportedHistory.set(runnerId, histories);
+  }
+  histories.set(agentType, history);
+}
+
+/** Shared choices apply to every runner; reports never create a separate off-list. */
+export function modelChoicesForRunner(_runnerId: string, agentType: AgentType) {
+  const { autoEnable, disabled } = getAgentModelAvailability(agentType);
+  return { autoEnable, disabled };
+}
+
 const availability = new Map<AgentType, AgentModelAvailability>();
 
 export function setAgentModelAvailability(
@@ -138,29 +253,36 @@ export function agentModelAvailability(): Partial<
 
 /** The catalog less what is turned off: what can be newly chosen. */
 export function selectableAgentModels(
-  agentType: AgentType
+  agentType: AgentType,
+  runnerId = "local"
 ): readonly AgentModelOption[] {
-  const { disabled } = getAgentModelAvailability(agentType);
-  const options = getAgentModelOptions(agentType);
+  const { disabled } = modelChoicesForRunner(runnerId, agentType);
+  const options = getAgentModelOptions(agentType, runnerId);
   return disabled.length
     ? options.filter((option) => !disabled.includes(option.id))
     : options;
 }
 
 export function getAgentModelOptions(
-  agentType: AgentType
+  agentType: AgentType,
+  runnerId = "local"
 ): readonly AgentModelOption[] {
-  return learned.get(agentType) ?? AGENT_MODEL_OPTIONS[agentType] ?? [];
+  return (
+    catalogFor(runnerId).learned.get(agentType) ??
+    AGENT_MODEL_OPTIONS[agentType] ??
+    []
+  );
 }
 
 /** The catalog the pickers read: learned lists over the seed, per type. */
-export function agentModelCatalog(): Partial<
-  Record<AgentType, readonly AgentModelOption[]>
-> {
+export function agentModelCatalog(
+  runnerId = "local"
+): Partial<Record<AgentType, readonly AgentModelOption[]>> {
   const catalog: Partial<Record<AgentType, readonly AgentModelOption[]>> = {
     ...AGENT_MODEL_OPTIONS,
   };
-  for (const [agentType, options] of learned) catalog[agentType] = options;
+  for (const [agentType, options] of catalogFor(runnerId).learned)
+    catalog[agentType] = options;
   return catalog;
 }
 
@@ -218,16 +340,94 @@ export function describeAgentModelCatalog(
   return sentences.join(" ");
 }
 
+/**
+ * The catalog a model id and effort are checked against: the one on the
+ * machine the agent will run on.
+ * - `local`: this Mac's learned (or seed) catalog.
+ * - `runner`: the catalog the target runner reported for the engine.
+ * - `engine`: no catalog to check here; any well-formed id passes and the
+ *   engine validates it over ACP at launch.
+ */
+export type ModelScope =
+  | { kind: "local" }
+  | {
+      kind: "runner";
+      defaultModel: string | null;
+      models: readonly AgentModelOption[];
+    }
+  | { kind: "engine" };
+
+export const LOCAL_MODEL_SCOPE: ModelScope = { kind: "local" };
+
+/** Reads a runner's reported catalog for one engine; null when unavailable. */
+export type RunnerModelCatalogSource = (
+  runnerId: string,
+  agentType: AgentType
+) => Promise<{
+  defaultModel: string | null;
+  models: readonly AgentModelOption[];
+} | null>;
+
+export type ModelValidationRequest = {
+  model?: string | null;
+  effort?: unknown;
+};
+type CatalogValidation = (
+  runnerId: string,
+  agentType: AgentType,
+  request: ModelValidationRequest
+) => Promise<boolean>;
+let catalogValidation: CatalogValidation | undefined;
+export function onModelCatalogValidation(
+  validator: CatalogValidation
+): () => void {
+  catalogValidation = validator;
+  return () => {
+    if (catalogValidation === validator) catalogValidation = undefined;
+  };
+}
+
+/** Launches establish an authoritative catalog; picker reads never wait. */
+export async function modelScopeFor(
+  placement: typeof controllerPlacement | undefined,
+  agentType: AgentType,
+  request: ModelValidationRequest = {}
+): Promise<ModelScope> {
+  const runnerId = runnerIdForPlacement(placement ?? controllerPlacement);
+  const ready = catalogValidation
+    ? await catalogValidation(runnerId, agentType, request)
+    : getLearnedAgentModels(agentType, runnerId) !== undefined;
+  // A failed first discovery still has the same seed authority as main.
+  // Retain stored effort metadata even when its foreground refresh times out.
+  if (!ready && getAgentModelOptions(agentType, runnerId).length === 0)
+    return { kind: "engine" };
+  return { kind: "runner", ...readStoredModelCatalog(runnerId, agentType) };
+}
+
+/** The ids a scope offers for a type; null when the engine checks at launch. */
+export function scopeModelOptions(
+  agentType: AgentType,
+  scope: ModelScope
+): readonly AgentModelOption[] | null {
+  if (scope.kind === "engine") return null;
+  return scope.kind === "runner"
+    ? scope.models
+    : getAgentModelOptions(agentType);
+}
+
 export function validateAgentModel(
   agentType: AgentType,
-  model: string | undefined
+  model: string | undefined,
+  scope: ModelScope = LOCAL_MODEL_SCOPE
 ): string | undefined {
   const normalizedModel = model?.trim() || undefined;
   if (normalizedModel === undefined) return undefined;
+  const options = scopeModelOptions(agentType, scope);
+  // An enrolled engine owns its catalog and validates the override in ACP.
   if (
-    getAgentModelOptions(agentType).some(
-      (option) => option.id === normalizedModel
-    )
+    options === null
+      ? /^[\w./:@+\[\]-]{1,160}$/.test(normalizedModel)
+      : options.some((option) => option.id === normalizedModel)
   ) {
     return normalizedModel;
   }
@@ -261,9 +461,10 @@ export function assertModelSelectable(
 export function validateAgentModelChoice(
   agentType: AgentType,
   model: string | undefined,
-  saved?: string | null
+  saved?: string | null,
+  scope: ModelScope = LOCAL_MODEL_SCOPE
 ): string | undefined {
-  const valid = validateAgentModel(agentType, model);
+  const valid = validateAgentModel(agentType, model, scope);
   assertModelSelectable(agentType, valid, saved);
   return valid;
 }
@@ -301,7 +502,8 @@ export type AgentConfigDefaults<T extends AgentType = AgentType> = {
  */
 export function applyAgentConfigDefaults<T extends AgentType = AgentType>(
   input: AgentConfigInput<T>,
-  savedModel?: string | null
+  savedModel?: string | null,
+  scope: ModelScope = LOCAL_MODEL_SCOPE
 ): AgentConfigDefaults<T> {
   const agentType = input.agentType ?? "claude";
   return {
@@ -311,7 +513,8 @@ export function applyAgentConfigDefaults<T extends AgentType = AgentType>(
       validateAgentModelChoice(
         agentType,
         input.model ?? undefined,
-        savedModel
+        savedModel,
+        scope
       ) ?? null,
     useWorktree: input.useWorktree ?? false,
     baseBranch: input.baseBranch ?? null,
@@ -334,26 +537,32 @@ export function resolveAgentModelForUpdate(params: {
   inputModel: string | null | undefined;
   existingAgentType: AgentType;
   existingModel: string | null;
+  scope?: ModelScope;
 }): string | null {
   const nextAgentType = params.inputAgentType ?? params.existingAgentType;
+  const scope = params.scope ?? LOCAL_MODEL_SCOPE;
   const sameType = nextAgentType === params.existingAgentType;
   if (params.inputModel !== undefined) {
     return (
       validateAgentModelChoice(
         nextAgentType,
         params.inputModel ?? undefined,
-        sameType ? params.existingModel : null
+        sameType ? params.existingModel : null,
+        scope
       ) ?? null
     );
   }
+  const options = scopeModelOptions(nextAgentType, scope);
   if (
     params.inputAgentType !== undefined &&
     params.existingModel !== null &&
-    !(
-      sameType
-        ? getAgentModelOptions(nextAgentType)
-        : selectableAgentModels(nextAgentType)
-    ).some((option) => option.id === params.existingModel)
+    ((!sameType && options === null) ||
+      (options !== null &&
+        !options.some((option) => option.id === params.existingModel)) ||
+      (!sameType &&
+        getAgentModelAvailability(nextAgentType).disabled.includes(
+          params.existingModel
+        )))
   ) {
     return null;
   }

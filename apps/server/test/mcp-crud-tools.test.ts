@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useInjectApp } from "./helpers/inject-app.js";
 
+vi.mock(
+  "../../../packages/runner/src/workload/shared/lib/run-command.js",
+  () => import("../src/shared/lib/run-command.js")
+);
 vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
 }));
@@ -245,6 +249,116 @@ describe("MCP CRUD tools", () => {
         [agentId]
       );
     });
+
+    it.each(["create_job", "create_template"])(
+      "%s keeps an explicit repository-only project pathless instead of using the caller folder",
+      async (tool) => {
+        const id = `mcp-repository-${tool}`;
+        await ctx.pool.query(
+          "INSERT INTO projects(id,name,repo_root,repository) VALUES($1,'MCP repository',NULL,$2)",
+          [id, `https://github.com/mcp-fixture/${tool}`]
+        );
+        const response = await mcpToolCall(agentId, tool, {
+          name: `repository-${tool}`,
+          projectId: id,
+          prompt: "Repository work",
+        });
+        expect(response.statusCode).toBe(200);
+        const result = JSON.parse(parseToolText(response.body));
+        expect(result.id).toBeTruthy();
+        const table = tool === "create_job" ? "jobs" : "templates";
+        const stored = (
+          await ctx.pool.query(
+            `SELECT directory,location FROM ${table} WHERE id=$1`,
+            [result.id]
+          )
+        ).rows[0];
+        expect(stored).toEqual({
+          directory: "",
+          location: { runner: "local", projectId: id },
+        });
+      }
+    );
+
+    it.each(["job", "template"])(
+      "uses a repository-only Local project's identity for implicit %s defaults and name lookups",
+      async (kind) => {
+        const projectId = `implicit-${kind}`;
+        const otherId = `other-${kind}`;
+        await ctx.pool.query(
+          "INSERT INTO projects(id,name,repository) VALUES($1,'Own',$2),($3,'Other',$4)",
+          [
+            projectId,
+            `https://github.com/mcp-fixture/${projectId}`,
+            otherId,
+            `https://github.com/mcp-fixture/${otherId}`,
+          ]
+        );
+        await ctx.pool.query(
+          "UPDATE agents SET project_id=$2,cwd='/managed/cache/checkout' WHERE id=$1",
+          [agentId, projectId]
+        );
+        const create = async (name: string, extra = {}) =>
+          JSON.parse(
+            parseToolText(
+              (
+                await mcpToolCall(agentId, `create_${kind}`, {
+                  name,
+                  prompt: "Work",
+                  ...extra,
+                })
+              ).body
+            )
+          );
+        const own = await create("own");
+        expect(own.id).toBeTruthy();
+        const table = kind === "job" ? "jobs" : "templates";
+        expect(
+          (
+            await ctx.pool.query(
+              `SELECT directory,location FROM ${table} WHERE id=$1`,
+              [own.id]
+            )
+          ).rows[0]
+        ).toEqual({ directory: "", location: { runner: "local", projectId } });
+        const other = await create("other", { projectId: otherId });
+        expect(other.id).toBeTruthy();
+        const listed = JSON.parse(
+          parseToolText((await mcpToolCall(agentId, `list_${kind}s`, {})).body)
+        );
+        expect(listed.map((entry: { id: string }) => entry.id)).toContain(
+          own.id
+        );
+        expect(listed.map((entry: { id: string }) => entry.id)).not.toContain(
+          other.id
+        );
+        expect(
+          JSON.parse(
+            parseToolText(
+              (await mcpToolCall(agentId, `get_${kind}`, { name: "own" })).body
+            )
+          ).id
+        ).toBe(own.id);
+        expect(
+          parseToolText(
+            (await mcpToolCall(agentId, `get_${kind}`, { name: "other" })).body
+          )
+        ).toContain("not found");
+        const folder = await create("folder", { directory: "/tmp" });
+        expect(folder.id).toBeTruthy();
+        expect(
+          (
+            await ctx.pool.query(
+              `SELECT directory,location FROM ${table} WHERE id=$1`,
+              [folder.id]
+            )
+          ).rows[0]
+        ).toEqual({
+          directory: "/tmp",
+          location: { runner: "local", path: "/tmp" },
+        });
+      }
+    );
 
     async function privilegedJob() {
       await ctx.pool.query(

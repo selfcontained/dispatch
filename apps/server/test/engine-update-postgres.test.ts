@@ -1,3 +1,4 @@
+import { enrolledRunnerSettings } from "../src/runners/settings-namespace.js";
 import {
   afterAll,
   beforeAll,
@@ -11,8 +12,9 @@ import type { Pool } from "pg";
 import {
   EngineUpdateOperations,
   engineOperationStore,
+  observeModelUpdates,
   type Installation,
-} from "../src/agents/engine-updates.js";
+} from "./helpers/native-engine-updates.js";
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./db/setup.js";
 
 let pool: Pool;
@@ -51,6 +53,26 @@ async function completed(manager: EngineUpdateOperations) {
 }
 
 describe("engine update settings persistence in isolated Postgres", () => {
+  it("invalidates models after a successful install/update commits, once", async () => {
+    const seen: string[] = [];
+    const callback = vi.fn((engine: string) => seen.push(engine));
+    const store = observeModelUpdates(engineOperationStore(pool), callback);
+    const manager = new EngineUpdateOperations(store, {
+      verify: async (_bin, phase) => (phase === "before" ? "1.0.0" : "1.2.3"),
+      prepare: async () => installation,
+      runner: () => async () => done,
+    });
+    await manager.start("codex", {});
+    await completed(manager);
+    expect(seen).toEqual(["codex"]);
+    const stored = await pool.query(
+      "SELECT value FROM settings WHERE key = 'engine_update_operations'"
+    );
+    expect(JSON.parse(stored.rows[0].value).codex.status).toBe("succeeded");
+    await manager.read();
+    await manager.read();
+    expect(callback).toHaveBeenCalledOnce();
+  });
   it("serializes transactions with the advisory lock and reloads committed snapshots through a new store", async () => {
     const firstStore = engineOperationStore(pool);
     const runner = vi.fn(async () => done);
@@ -161,5 +183,43 @@ describe("engine update settings persistence in isolated Postgres", () => {
       (await new EngineUpdateOperations(engineOperationStore(pool)).read())
         .codex?.output
     ).toContain(done.stdout);
+  });
+  it("keeps local upgrade rows unchanged while coordinating another runner independently", async () => {
+    const wait = barrier();
+    const options = {
+      prepare: async () => installation,
+      verify: async (_bin: string, phase: "before" | "after") =>
+        phase === "before" ? "1.0.0" : "2.0.0",
+      runner: () => async () => {
+        await wait.promise;
+        return done;
+      },
+    };
+    const local = new EngineUpdateOperations(
+      engineOperationStore(pool),
+      options
+    );
+    const remote = new EngineUpdateOperations(
+      engineOperationStore(pool, enrolledRunnerSettings("fixture")),
+      options
+    );
+    const first = await local.start("codex", {});
+    const second = await remote.start("claude", {});
+    expect((await local.read()).codex?.id).toBe(first.id);
+    expect((await local.read()).claude).toBeUndefined();
+    expect((await remote.read()).claude?.id).toBe(second.id);
+    expect((await remote.read()).codex).toBeUndefined();
+    const rows = await pool.query(
+      "SELECT key FROM settings WHERE key = 'engine_update_operations' OR key LIKE 'runner:%:engine_update_operations' ORDER BY key"
+    );
+    expect(rows.rows.map((row) => row.key)).toEqual([
+      "engine_update_operations",
+      "runner:fixture:engine_update_operations",
+    ]);
+    wait.release();
+    await completed(local);
+    await vi.waitFor(async () =>
+      expect((await remote.read()).claude?.status).toBe("succeeded")
+    );
   });
 });

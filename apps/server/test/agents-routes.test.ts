@@ -1,3 +1,7 @@
+import { teachKnownSeedCatalogs } from "./helpers/model-catalog-validation.js";
+import { beforeEach as beforeKnownCatalog } from "vitest";
+beforeKnownCatalog(teachKnownSeedCatalogs);
+import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -777,6 +781,95 @@ describe("agent permissions API", () => {
       expect(res.statusCode).toBe(401);
     }
   });
+});
+
+it("provides a credential-free project repository origin and null for a plain folder", async () => {
+  const root = await mkdtemp(
+    path.join(os.tmpdir(), "dispatch-project-origin-")
+  );
+  try {
+    const { ProjectStore } = await import("../src/projects/store.js");
+    const projects = new ProjectStore(ctx.pool);
+    const plain = path.join(root, "plain");
+    const repo = path.join(root, "repo");
+    await mkdir(plain);
+    execFileSync("git", ["init", repo]);
+    execFileSync("git", [
+      "-C",
+      repo,
+      "remote",
+      "add",
+      "origin",
+      "https://fixture:secret@example.test/repo.git",
+    ]);
+    for (const [repoRoot, url] of [
+      [plain, null],
+      // The recorded identity: no credentials, no ".git".
+      [repo, "https://example.test/repo"],
+    ] as const) {
+      // Created as the app does: the repository is recorded on create.
+      const created = await authedInject("POST", "/api/v1/projects", {
+        name: "Origin",
+        repoRoot,
+        color: "#123456",
+      });
+      expect(created.statusCode).toBe(200);
+      const project = created.json() as { id: string };
+      const response = await authedInject(
+        "GET",
+        `/api/v1/projects/${project.id}/repository`
+      );
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ url });
+      await projects.delete(project.id);
+    }
+    expect(
+      (await authedInject("GET", "/api/v1/projects/missing/repository"))
+        .statusCode
+    ).toBe(404);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("uses a task's default project and accepts explicit project choices on a runner", async () => {
+  const { ProjectStore } = await import("../src/projects/store.js");
+  const projects = new ProjectStore(ctx.pool);
+  const project = await projects.create({
+    name: "Task launch",
+    repoRoot: "/tmp",
+    color: "#123456",
+  });
+  const other = await projects.create({
+    name: "Explicit launch project",
+    repoRoot: "/var/tmp",
+    color: "#123456",
+  });
+  try {
+    const created = await authedInject("POST", "/api/v1/tasks", {
+      projectId: project.id,
+      title: "Try runner",
+    });
+    expect(created.statusCode).toBe(200);
+    const base = {
+      taskId: created.json().id,
+      cwd: "",
+      runner: "offline",
+    };
+    for (const projectId of [undefined, project.id, other.id]) {
+      const response = await authedInject("POST", "/api/v1/agents", {
+        ...base,
+        projectId,
+      });
+      expect(response.statusCode).toBe(409);
+      expect(response.json().error).toContain(
+        "runner workspace is unavailable"
+      );
+    }
+  } finally {
+    await projects.delete(other.id);
+    await projects.delete(project.id);
+  }
 });
 
 describe("task agent names", () => {

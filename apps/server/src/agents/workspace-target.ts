@@ -1,15 +1,8 @@
-import { realpath, stat } from "node:fs/promises";
+import { controllerPlacement, enrolledRunnerId } from "../runners/placement.js";
+import type { Placement } from "@dispatch/runner-protocol/contract";
 import path from "node:path";
 
-import {
-  normalizePath,
-  probeGitContext,
-  resolveRepoRoot,
-} from "../shared/git/git-context.js";
-import { runCommand, type CommandRunner } from "../shared/lib/run-command.js";
 import { AgentError } from "./errors.js";
-
-const WORKSPACE_PROBE_TIMEOUT_MS = 5_000;
 
 /**
  * Where an agent is working, for everything that looks at its files: the
@@ -19,9 +12,12 @@ const WORKSPACE_PROBE_TIMEOUT_MS = 5_000;
  *
  * Deliberately separate from `cwd` (the engine spawns and resumes there) and
  * `worktreePath` (the worktree Dispatch created and archive may delete).
+ * For enrolled sessions, `cwd` is the prepared path and `workspacePath`
+ * is runner-confirmed display metadata. Checkout operations go to the runner.
  */
 export type WorkspaceTargetAgent = {
   cwd: string | null;
+  placement?: Placement;
   worktreePath: string | null;
   baseBranch: string | null;
   workspacePath?: string | null;
@@ -32,148 +28,109 @@ export type WorkspaceTargetAgent = {
   } | null;
 };
 
-const DEFAULT_WORKTREE_BASE_BRANCH = "main";
+export function recordedCheckoutDirectory(agent: WorkspaceTargetAgent) {
+  return agent.workspacePath ?? agent.worktreePath ?? agent.cwd;
+}
+
+export function recordedDiffDirectory(agent: WorkspaceTargetAgent) {
+  return (
+    agent.workspacePath ??
+    agent.worktreePath ??
+    (agent.gitContext?.isWorktree ? agent.gitContext.worktreePath : null) ??
+    agent.cwd
+  );
+}
+
+/** Resolve a directory on the controller. */
+export function resolveLaunchLocation(directory: string): string {
+  return path.resolve(directory);
+}
 
 export function agentWorkspaceDir(agent: WorkspaceTargetAgent): string | null {
-  return agent.workspacePath ?? agent.worktreePath ?? agent.cwd ?? null;
+  if (enrolledRunnerId(agent.placement ?? controllerPlacement)) return null;
+  return recordedCheckoutDirectory(agent);
 }
 
-/**
- * The directory and base branch a diff of the agent's work runs against.
- * A moved workspace diffs against the base recorded when it moved. Otherwise
- * managed worktrees (or older rows whose probed git context says worktree)
- * default to `main`, and plain checkouts leave the base to the resolver.
- */
-export function agentDiffTarget(
-  agent: WorkspaceTargetAgent
-): { path: string; baseRef: string | null } | null {
-  if (agent.workspacePath) {
-    return {
-      path: agent.workspacePath,
-      baseRef: agent.workspaceBaseBranch ?? null,
-    };
-  }
-  const gitContextWorktreePath = agent.gitContext?.isWorktree
-    ? agent.gitContext.worktreePath
-    : null;
-  const path = agent.worktreePath ?? gitContextWorktreePath ?? agent.cwd;
-  if (!path) return null;
-  const baseRef =
-    agent.baseBranch ??
-    (agent.worktreePath || gitContextWorktreePath
-      ? DEFAULT_WORKTREE_BASE_BRANCH
-      : null);
-  return { path, baseRef };
+/** Path used to make tool locations relative to the session's checkout. */
+export function agentStreamDirectory(
+  agent: Pick<WorkspaceTargetAgent, "workspacePath"> & { cwd: string }
+): string {
+  return agent.workspacePath ?? agent.cwd;
 }
+
+/** Local path used by Changes, including a worktree discovered on older rows. */
+export function agentDiffPath(agent: WorkspaceTargetAgent): string | null {
+  if (enrolledRunnerId(agent.placement ?? controllerPlacement)) return null;
+  return recordedDiffDirectory(agent);
+}
+
+/** What a workspace move needs from the machine the agent runs on. */
+export type WorkspaceProbes = {
+  /**
+   * Validate and record the folder (null: back to the launch checkout):
+   * the checkout root it sits in (or the folder itself outside Git),
+   * whether that is a move away from the launch checkout, and its
+   * repository root (null outside Git; undefined from a runner build that
+   * does not report it). Throws main's refusals.
+   */
+  select(path: string | null): Promise<{
+    path: string;
+    moved: boolean;
+    repoRoot: string | null | undefined;
+  }>;
+  /** The launch checkout's repository root; null when unknown. */
+  launchRepoRoot(): Promise<string | null>;
+  /** The repository's default branch at `dir`; null when unknown. */
+  defaultBranch(dir: string): Promise<string | null>;
+};
 
 /**
  * Validate a requested workspace and settle what gets stored: the checkout
  * root it sits in (or the directory itself outside git) and the branch its
  * diff runs against. Resolves to nulls when the request is empty or lands
  * back on the agent's own worktree/cwd without an explicit comparison base.
+ * The one base policy for every runner; the probes reach the machine.
  */
-export async function resolveWorkspace(
-  agent: WorkspaceTargetAgent,
+export async function settleWorkspace(
+  agent: Pick<WorkspaceTargetAgent, "baseBranch">,
   input: { path: string | null; baseBranch?: string | null },
-  run: CommandRunner = runCommand
+  probes: WorkspaceProbes
 ): Promise<{ path: string | null; baseBranch: string | null }> {
   const requested = input.path?.trim() ?? "";
-  if (!requested) return { path: null, baseBranch: null };
-  if (!path.isAbsolute(requested)) {
+  if (requested && !path.isAbsolute(requested)) {
     throw new AgentError("Workspace path must be absolute.", 400);
   }
   const requestedBase = input.baseBranch?.trim() || null;
-  if (requestedBase && !isSafeBranchName(requestedBase)) {
+  if (requested && requestedBase && !isSafeBranchName(requestedBase)) {
     throw new AgentError(`Invalid base branch "${requestedBase}".`, 400);
   }
-
-  let dir: string;
-  try {
-    if (!(await stat(requested)).isDirectory()) {
-      throw new AgentError(`${requested} is not a directory.`, 400);
-    }
-    dir = normalizePath(await realpath(requested));
-  } catch (error) {
-    if (error instanceof AgentError) throw error;
-    throw new AgentError(`${requested} does not exist.`, 400);
-  }
-
-  const probe = await probeGitContext(dir, {
-    timeoutMs: WORKSPACE_PROBE_TIMEOUT_MS,
-  });
-  if (probe.status === "error") {
-    throw new AgentError(`Could not read git state in ${dir}.`, 400);
-  }
-  const git = probe.value;
-  const workspace = git?.worktreePath ?? dir;
-
-  const home = agent.worktreePath ?? agent.cwd;
-  const homeDir = home ? await realpathOrSelf(home) : null;
+  const selected = await probes.select(requested || null);
+  if (!requested) return { path: null, baseBranch: null };
   // An explicit diff base is a workspace override even at the launch path.
   // Never rewrite baseBranch: it also records how the session was launched.
-  if (workspace === homeDir && !requestedBase) {
+  if (!selected.moved && !requestedBase) {
     return { path: null, baseBranch: null };
   }
-  if (!git) return { path: workspace, baseBranch: null };
+  const workspace = selected.path;
+  // A runner that does not report Git facts: the requested base, as before T16.
+  if (selected.repoRoot === undefined)
+    return { path: workspace, baseBranch: requestedBase };
+  if (!selected.repoRoot) return { path: workspace, baseBranch: null };
 
   if (requestedBase) return { path: workspace, baseBranch: requestedBase };
   // Same repo as the launch checkout: its base still applies.
-  if (agent.baseBranch && homeDir) {
-    const homeRepo = await resolveRepoRoot(homeDir, {
-      timeoutMs: WORKSPACE_PROBE_TIMEOUT_MS,
-    }).catch(() => null);
-    if (homeRepo === git.repoRoot) {
+  if (agent.baseBranch) {
+    const homeRepo = await probes.launchRepoRoot().catch(() => null);
+    if (homeRepo === selected.repoRoot) {
       return { path: workspace, baseBranch: agent.baseBranch };
     }
   }
   return {
     path: workspace,
-    baseBranch: await detectDefaultBranch(workspace, run),
+    baseBranch: await probes.defaultBranch(workspace).catch(() => null),
   };
 }
 
-/**
- * The repo's default branch: origin/HEAD when the clone recorded it,
- * otherwise the first of main/master that exists. Null when none do.
- */
-export async function detectDefaultBranch(
-  dir: string,
-  run: CommandRunner = runCommand
-): Promise<string | null> {
-  const opts = {
-    allowedExitCodes: [0, 1, 128],
-    timeoutMs: WORKSPACE_PROBE_TIMEOUT_MS,
-  };
-  const originHead = await run(
-    "git",
-    ["-C", dir, "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD"],
-    opts
-  ).catch(() => null);
-  const fromOrigin = originHead?.exitCode === 0 ? originHead.stdout.trim() : "";
-  if (fromOrigin.startsWith("origin/")) {
-    return fromOrigin.slice("origin/".length);
-  }
-  for (const branch of ["main", "master"]) {
-    for (const ref of [`origin/${branch}`, branch]) {
-      const found = await run(
-        "git",
-        ["-C", dir, "rev-parse", "--verify", "--quiet", ref],
-        opts
-      ).catch(() => null);
-      if (found?.exitCode === 0 && found.stdout.trim()) return branch;
-    }
-  }
-  return null;
-}
-
-function isSafeBranchName(name: string): boolean {
+export function isSafeBranchName(name: string): boolean {
   return !name.startsWith("-") && !/\s/.test(name) && !name.includes("..");
-}
-
-async function realpathOrSelf(dir: string): Promise<string> {
-  try {
-    return normalizePath(await realpath(dir));
-  } catch {
-    return normalizePath(dir);
-  }
 }

@@ -105,6 +105,27 @@ describe("POST /api/v1/jobs (create)", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it("accepts an empty directory for an enrolled project and rejects it for a local job", async () => {
+    const projectId = "enrolled-job-project";
+    await ctx.pool.query(
+      "INSERT INTO projects (id, name, repo_root) VALUES ($1, 'Enrolled job project', NULL) ON CONFLICT (id) DO NOTHING",
+      [projectId]
+    );
+    const job = await createJob("enrolled-job", {
+      projectId,
+      runner: "fixture-runner",
+      directory: "",
+    });
+    expect(job.directory).toBe("");
+    const local = await authedInject("POST", "/api/v1/jobs", {
+      name: "empty-local",
+      directory: "  ",
+      prompt: "test",
+    });
+    expect(local.statusCode).toBe(400);
+    expect(local.json().error).toBe("Job directory is required.");
+  });
+
   it("rejects enabled without schedule", async () => {
     const res = await authedInject("POST", "/api/v1/jobs", {
       name: "no-sched",
@@ -736,4 +757,27 @@ describe("job effort", () => {
     expect(result.statusCode).toBe(400);
     expect(result.json().error).toBeTruthy();
   });
+});
+
+it("creates and edits a Local repository-only project job without a directory", async () => {
+  const projectId = "job-route-repository";
+  await ctx.pool.query(
+    "INSERT INTO projects(id,name,repo_root,repository) VALUES($1,'Repository job',NULL,'https://github.com/job-route/repository')",
+    [projectId]
+  );
+  const created = await authedInject("POST", "/api/v1/jobs", {
+    name: "Repository job",
+    directory: "",
+    projectId,
+    prompt: "Work",
+  });
+  expect(created.statusCode).toBe(200);
+  expect(created.json().directory).toBe("");
+  const changed = await authedInject("PATCH", "/api/v1/jobs", {
+    jobId: created.json().id,
+    directory: "",
+    prompt: "Changed work",
+  });
+  expect(changed.statusCode).toBe(200);
+  expect(changed.json().directory).toBe("");
 });

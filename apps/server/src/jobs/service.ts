@@ -1,12 +1,40 @@
+import {
+  controllerPlacement,
+  runnerIdForPlacement,
+} from "../runners/placement.js";
+import {
+  displayPath,
+  pathFromWire,
+  sameRunner,
+} from "@dispatch/runner-protocol/contract";
+import path from "node:path";
+import { runnerDirectory } from "../runners/directory.js";
+import {
+  PROJECT_IDENTITY_SQL,
+  repositoryKey,
+  SESSION_REPOSITORY_SQL,
+  type ProjectIdentity,
+} from "../runners/repository-identity.js";
+import {
+  requestedRunnerPlacement,
+  resolveSavedTarget,
+  savedLaunchTarget,
+  storedLocation,
+  targetPlacement,
+} from "../runners/saved-location.js";
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import { ProjectStore } from "../projects/store.js";
 import { randomBytes, randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readSetupLogTail } from "./setup-log.js";
 
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
-import { resolveLaunchPersona } from "../personas/resolve.js";
+import {
+  savedPersonaScope,
+  type SavedPersonaScope,
+} from "../personas/persona-scope.js";
+import { resolvePersona } from "../personas/resolve.js";
 import { Cron } from "croner";
 
 import type { AgentManager } from "../agents/manager.js";
@@ -15,13 +43,12 @@ import { sanitizeAgentName } from "../shared/lib/agent-strings.js";
 import { buildSelfImprovementGuidance } from "../shared/self-improvement-prompt.js";
 import {
   applyAgentConfigDefaults,
+  modelScopeFor,
   resolveAgentModelForUpdate,
 } from "../shared/agent-models.js";
 import { errorMessage } from "../shared/lib/error-message.js";
-import { runCommand } from "../shared/lib/run-command.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import { sleep } from "../shared/lib/sleep.js";
-import { normalizePath, resolveRepoRoot } from "../shared/git/git-context.js";
 import { BrainStore } from "../brain/store.js";
 import {
   JobStore,
@@ -142,9 +169,10 @@ export class JobService {
 
   async getJobByName(
     directory: string,
-    name: string
+    name: string,
+    runner = "local"
   ): Promise<JobRecord | null> {
-    return this.store.getJobByDirectoryAndName(directory, name);
+    return this.store.getJobByDirectoryAndName(directory, name, runner);
   }
 
   async runJob(input: RunJobInput): Promise<RunJobResult> {
@@ -174,7 +202,13 @@ export class JobService {
     let run = await this.store.createRun(
       job.id,
       buildRunConfig(
-        { ...job, directory: template?.directory ?? job.directory },
+        {
+          ...job,
+          ...(template && {
+            directory: template.directory,
+            [storedLocation]: template[storedLocation],
+          }),
+        },
         input.triggerSource ?? "manual",
         input.chainId ?? (job.continuationEnabled ? randomUUID() : undefined),
         input.iteration ?? (job.continuationEnabled ? 1 : undefined),
@@ -199,7 +233,7 @@ export class JobService {
           model: agentConfig.model ?? undefined,
           effort: agentConfig.effort,
           persona: agentConfig.persona ?? undefined,
-          cwd: template?.directory ?? job.directory,
+          ...savedLaunchTarget(agentConfig),
           agentArgs: buildAgentArgs(agentType, prompt, agentConfig.fullAccess),
           // The CLI receives generated job-run scaffolding through agentArgs;
           // Chat shows only the user-authored job prompt.
@@ -491,7 +525,7 @@ export class JobService {
         model: agentConfig.model ?? undefined,
         effort: agentConfig.effort,
         persona: agentConfig.persona ?? undefined,
-        cwd: template?.directory ?? job.directory,
+        ...savedLaunchTarget(agentConfig),
         agentArgs: buildAgentArgs(
           agentConfig.agentType as JobAgentType,
           prompt,
@@ -514,12 +548,13 @@ export class JobService {
             );
             if (
               previous &&
-              previous.config.directory !== attached.config.directory
+              (previous.config.directory !== attached.config.directory ||
+                !sameRunner(
+                  targetPlacement(previous.config),
+                  targetPlacement(attached.config)
+                ))
             )
-              await this.syncContinuationHandoff(
-                previous,
-                attached.config.directory
-              );
+              await this.syncContinuationHandoff(previous, attached.config);
           }
           this.emitRunStateChange(attached);
         },
@@ -539,20 +574,49 @@ export class JobService {
 
   private async syncContinuationHandoff(
     run: JobRunRecord,
-    destinationDirectory?: string
+    destination?: JobRunRecord["config"]
   ): Promise<void> {
     if (!this.brainStore || !run.agentId) return;
     const job = await this.store.getJob(run.jobId);
     if (!job?.continuationEnabled) return;
-    const directory = destinationDirectory ?? run.config.directory;
-    let repoRoot: string;
-    try {
-      repoRoot = await resolveRepoRoot(directory);
-    } catch {
-      // Brain is scoped by a stable repository root when possible; plain
-      // directories are still valid job targets and use their normalized path.
-      repoRoot = normalizePath(directory);
-    }
+    const target = destination ?? run.config;
+    const directory = target.directory;
+    // The key the successor's Brain tools read (D5, D8). A plain folder on
+    // the controller's machine keeps its normalized path, as on main.
+    const agentId = run.agentId;
+    const repoRoot =
+      (await repositoryKey({
+        placement: targetPlacement(target),
+        repositoryRoot: async () => {
+          const roots = await runnerDirectory(
+            this.agentManager.checkoutReadRunners()
+          )
+            .for(targetPlacement(target))
+            .call("git.roots", { target: { path: pathFromWire(directory) } })
+            .catch(() => null);
+          return roots?.repositoryRoot
+            ? displayPath(roots.repositoryRoot)
+            : normalizePath(directory);
+        },
+        project: async () => {
+          const projectId = (await this.agentManager.getAgent(agentId))
+            ?.projectId;
+          return projectId
+            ? ((
+                await this.pool.query<ProjectIdentity>(PROJECT_IDENTITY_SQL, [
+                  projectId,
+                ])
+              ).rows[0] ?? null)
+            : null;
+        },
+        repository: async () =>
+          (
+            await this.pool.query<{ url: string | null }>(
+              SESSION_REPOSITORY_SQL,
+              [agentId]
+            )
+          ).rows[0]?.url ?? null,
+      })) ?? directory;
     const key = continuationBrainKey(job.id);
     const terminalStatus =
       run.continuation?.action === "finish"
@@ -643,9 +707,13 @@ export class JobService {
 
   async addJob(
     input: AddJobInput,
-    callerFullAccess?: boolean
+    callerFullAccess?: boolean,
+    personaScope: SavedPersonaScope = savedPersonaScope(this.agentManager)
   ): Promise<JobRecord> {
-    input = { ...input, directory: normalizeJobDirectory(input.directory) };
+    input = {
+      ...input,
+      directory: normalizeJobDirectory(input.directory, input),
+    };
     if (input.agentType === "opencode") input = { ...input, fullAccess: true };
     assertAccessCeiling(input.fullAccess ?? false, callerFullAccess);
     const displayName = input.displayName?.trim() || input.name;
@@ -657,40 +725,66 @@ export class JobService {
       continuationEnabled: input.continuationEnabled,
     });
 
+    let projectRoot: string | undefined;
     if (input.projectId) {
       const project = await new ProjectStore(this.pool).get(input.projectId);
       if (!project) throw new Error("Project not found.");
-      input = { ...input, directory: project.repoRoot };
+      projectRoot = project.repoRoot ?? undefined;
     }
+    const target = resolveSavedTarget(input.directory, {
+      ...input,
+      projectId: input.projectId,
+      projectRoot,
+    });
     if (input.persona)
-      await resolveLaunchPersona(
-        input.directory,
+      await resolvePersona(
+        personaScope({
+          cwd: target.directory,
+          projectRoot,
+          placement: targetPlacement(target),
+          repository: input.projectId
+            ? async () =>
+                (
+                  await new ProjectStore(this.pool).getRepository(
+                    input.projectId!
+                  )
+                )?.url
+            : null,
+        }),
         input.persona,
-        "task",
-        "catalog"
+        "task"
       );
+    const scope = await modelScopeFor(
+      targetPlacement(target),
+      input.agentType ?? "claude",
+      { model: input.model, effort: input.effort }
+    );
     const agentConfig = {
-      ...applyAgentConfigDefaults(input),
+      ...applyAgentConfigDefaults(input, undefined, scope),
       effort: validateAgentEffort(
         input.agentType ?? "claude",
         input.effort,
-        input.model
+        input.model,
+        scope
       ),
     };
 
     // Create a backing template for this job (hidden from Cmd+K by default).
     // If job creation fails, clean up the template to avoid orphans.
-    const template = await this.templateStore.createTemplate({
-      name: displayName,
-      projectId: input.projectId ?? null,
-      directory: input.directory,
-      description: null,
-      prompt: input.prompt ?? null,
-      ...agentConfig,
-      callable: false,
-      allowFiles: false,
-      selfImprove: input.selfImprove ?? false,
-    });
+    const template = await this.templateStore.createTemplate(
+      {
+        name: displayName,
+        projectId: input.projectId ?? null,
+        directory: target.directory,
+        description: null,
+        prompt: input.prompt ?? null,
+        ...agentConfig,
+        callable: false,
+        allowFiles: false,
+        selfImprove: input.selfImprove ?? false,
+      },
+      target[storedLocation]
+    );
 
     const webhookEnabled = input.webhookEnabled ?? false;
     const webhookSecret = webhookEnabled ? generateWebhookSecret() : null;
@@ -699,7 +793,7 @@ export class JobService {
     try {
       job = await this.store.createJob({
         name: displayName,
-        directory: input.directory,
+        ...target,
         prompt: input.prompt ?? null,
         schedule,
         timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
@@ -747,7 +841,8 @@ export class JobService {
 
   async updateJob(
     input: UpdateJobInput,
-    callerFullAccess?: boolean
+    callerFullAccess?: boolean,
+    personaScope: SavedPersonaScope = savedPersonaScope(this.agentManager)
   ): Promise<JobRecord> {
     const existing = await this.getJobOrThrow(input.jobId);
     if ((input.agentType ?? existing.agentType) === "opencode")
@@ -777,7 +872,7 @@ export class JobService {
     if (projectId) {
       const project = await new ProjectStore(this.pool).get(projectId);
       if (!project) throw new Error("Project not found.");
-      projectDirectory = project.repoRoot;
+      projectDirectory = project.repoRoot ?? undefined;
     }
     if (input.projectId !== undefined && !existing.templateId)
       throw new Error("Job has no backing template.");
@@ -797,17 +892,30 @@ export class JobService {
     const name = input.name === undefined ? existing.name : input.name.trim();
     if (!name) throw new Error("Job name is required.");
     const previousDirectory = backingTemplate?.directory ?? existing.directory;
-    const directory =
-      projectDirectory ??
-      (input.directory === undefined
+    const requestedDirectory =
+      input.directory === undefined
         ? previousDirectory
-        : normalizeJobDirectory(input.directory));
+        : normalizeJobDirectory(input.directory, { ...input, projectId });
+    const previousTarget = backingTemplate ?? existing;
+    const target = resolveSavedTarget(requestedDirectory, {
+      ...input,
+      previous: previousTarget,
+      directorySupplied: Boolean(input.directory),
+      projectId,
+      projectRoot: projectDirectory,
+    });
+    const { directory } = target;
     const branchName = normalizeNullableString(input.branchName);
     const baseBranch = normalizeNullableString(input.baseBranch);
-    if (name !== existing.name || directory !== existing.directory) {
+    if (
+      name !== existing.name ||
+      directory !== existing.directory ||
+      !sameRunner(targetPlacement(target), targetPlacement(previousTarget))
+    ) {
       const conflict = await this.store.getJobByDirectoryAndName(
         directory,
-        name
+        name,
+        runnerIdForPlacement(targetPlacement(target))
       );
       if (conflict && conflict.id !== existing.id) {
         throw new Error(
@@ -815,12 +923,13 @@ export class JobService {
         );
       }
       config.name = name;
-      config.directory = directory;
+      Object.assign(config, target);
     } else if (
       input.directory !== undefined ||
-      projectDirectory !== undefined
+      projectDirectory !== undefined ||
+      input.projectId !== undefined
     ) {
-      config.directory = directory;
+      Object.assign(config, target);
     }
     if (input.prompt !== undefined) config.prompt = input.prompt;
     if (input.schedule !== undefined) config.schedule = schedule;
@@ -830,11 +939,30 @@ export class JobService {
     const previousEffort = backingTemplate
       ? backingTemplate.effort
       : existing.effort;
+    const scope = await modelScopeFor(
+      targetPlacement(target),
+      input.agentType ?? existing.agentType,
+      {
+        model:
+          input.model !== undefined
+            ? input.model
+            : input.agentType && input.agentType !== existing.agentType
+              ? null
+              : existing.model,
+        effort:
+          input.effort !== undefined
+            ? input.effort
+            : input.agentType && input.agentType !== existing.agentType
+              ? null
+              : previousEffort,
+      }
+    );
     const nextModel = resolveAgentModelForUpdate({
       inputAgentType: input.agentType,
       inputModel: input.model,
       existingAgentType: existing.agentType,
       existingModel: existing.model,
+      scope,
     });
     const nextEffort = validateAgentEffort(
       input.agentType ?? backingTemplate?.agentType ?? existing.agentType,
@@ -845,7 +973,8 @@ export class JobService {
               (backingTemplate?.agentType ?? existing.agentType)
           ? null
           : previousEffort,
-      nextModel
+      nextModel,
+      scope
     );
     if (input.effort !== undefined || nextEffort !== existing.effort)
       config.effort = nextEffort;
@@ -857,9 +986,25 @@ export class JobService {
       input.persona === undefined ? previousPersona : input.persona;
     if (
       persona &&
-      (persona !== previousPersona || directory !== previousDirectory)
+      (persona !== previousPersona ||
+        directory !== previousDirectory ||
+        !sameRunner(targetPlacement(target), targetPlacement(previousTarget)) ||
+        projectId !== backingTemplate?.projectId)
     )
-      await resolveLaunchPersona(directory, persona, "task", "catalog");
+      await resolvePersona(
+        personaScope({
+          cwd: directory,
+          projectRoot: projectDirectory,
+          placement: targetPlacement(target),
+          repository: projectId
+            ? async () =>
+                (await new ProjectStore(this.pool).getRepository(projectId))
+                  ?.url
+            : null,
+        }),
+        persona,
+        "task"
+      );
     if (input.persona !== undefined) config.persona = input.persona;
     if (input.agentType !== undefined) config.agentType = input.agentType;
     if (nextModel !== existing.model || input.model !== undefined)
@@ -906,10 +1051,11 @@ export class JobService {
       config,
       async (client, updated) => {
         if (!updated.templateId) return;
-        const templateUpdates: Record<string, unknown> = {};
+        const templateUpdates: Parameters<TemplateStore["updateTemplate"]>[1] =
+          {};
         if (input.projectId !== undefined) {
           templateUpdates.projectId = input.projectId;
-          if (projectDirectory) templateUpdates.directory = projectDirectory;
+          if (projectDirectory) templateUpdates.directory = directory;
         }
         if (input.persona !== undefined)
           templateUpdates.persona = input.persona;
@@ -931,6 +1077,7 @@ export class JobService {
         if (config.name !== undefined) templateUpdates.name = config.name;
         if (config.directory !== undefined)
           templateUpdates.directory = config.directory;
+        templateUpdates[storedLocation] = config[storedLocation];
         if (Object.keys(templateUpdates).length > 0) {
           await new TemplateStore(client).updateTemplate(
             updated.templateId,
@@ -1330,9 +1477,7 @@ export class JobService {
     taskName = "guardrails",
     scheduleRecovery = true
   ): Promise<JobRunRecord> {
-    const diagnostics = run.agentId
-      ? await this.readAgentDiagnostics(run.agentId)
-      : "";
+    const diagnostics = run.agentId ? await readSetupLogTail(run.agentId) : "";
     const fullMessage = diagnostics ? `${message}\n\n${diagnostics}` : message;
     this.logger.warn({ runId: run.id, agentId: run.agentId }, message);
     const updated = await this.store.markCrashed(run.id, {
@@ -1365,21 +1510,6 @@ export class JobService {
     const updated = recovery ?? run;
     this.emitRunStateChange(updated);
     return updated;
-  }
-
-  private async readAgentDiagnostics(agentId: string): Promise<string> {
-    const sections: string[] = [];
-    const setupLog = await readFile(
-      `/tmp/dispatch_setup_${agentId}.log`,
-      "utf8"
-    ).catch(() => "");
-    if (setupLog.trim()) {
-      sections.push(
-        `Setup log tail:\n${setupLog.trim().split("\n").slice(-20).join("\n")}`
-      );
-    }
-
-    return sections.join("\n\n");
   }
 }
 
@@ -1415,6 +1545,7 @@ function buildRunConfig(
 ): JobRunConfig {
   return {
     directory: job.directory,
+    [storedLocation]: job[storedLocation],
     name: job.name,
     schedule: job.schedule,
     timeoutMs: job.timeoutMs ?? DEFAULT_TIMEOUT_MS,
@@ -1527,7 +1658,28 @@ function normalizeNullableString(
   return trimmed ? trimmed : null;
 }
 
-function normalizeJobDirectory(directory: string): string {
-  if (!directory.trim()) throw new Error("Job directory is required.");
-  return normalizePath(resolveTilde(directory.trim()));
+function normalizeJobDirectory(
+  directory: string,
+  target: { runner?: string; projectId?: string | null }
+): string {
+  if (
+    !sameRunner(
+      requestedRunnerPlacement(target) ?? controllerPlacement,
+      controllerPlacement
+    )
+  )
+    return "";
+  if (!directory.trim()) {
+    if (target.projectId) return "";
+    throw new Error("Job directory is required.");
+  }
+  const trimmed = directory.trim();
+  return normalizePath(resolveTilde(trimmed));
+}
+
+/** Saved folder/key normalization on the controller; it performs no machine read. */
+function normalizePath(value: string): string {
+  const resolved = path.resolve(value);
+  const trimmed = resolved.replace(/[\\/]+$/, "");
+  return trimmed.length > 0 ? trimmed : resolved;
 }

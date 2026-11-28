@@ -4,10 +4,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   extractPersonaContext,
-  firstPromptContext,
   PERSONA_CONTEXT_ARG,
-  preparePersonaContext,
 } from "../src/agents/acp/persona-context.js";
+import { preparePromptContext } from "@dispatch/runner/host/host-env";
+import { firstPromptContext } from "@dispatch/runner/host/first-prompt";
 import { MAX_PERSONA_PROMPT_BYTES } from "../src/personas/loader.js";
 
 const roots: string[] = [];
@@ -28,7 +28,7 @@ describe("persona context delivery", () => {
   });
   it("keeps exactly 64KiB inline, including multibyte text", async () => {
     const context = "é".repeat(MAX_PERSONA_PROMPT_BYTES / 2);
-    expect(await preparePersonaContext("unused", context)).toBe(context);
+    expect(await preparePromptContext("unused", context)).toBe(context);
   });
   it("preserves all oversized content in a private file and recreates it on restart", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "persona-context-"));
@@ -36,7 +36,7 @@ describe("persona context delivery", () => {
     const context = "🙂".repeat(MAX_PERSONA_PROMPT_BYTES / 4) + "FINAL RULE";
     const file = path.join(root, "persona-context.md");
     for (let attempt = 0; attempt < 2; attempt++) {
-      const prompt = await preparePersonaContext(root, context);
+      const prompt = await preparePromptContext(root, context);
       expect(prompt).toContain(JSON.stringify(file));
       expect(prompt).toContain("read the entire");
       expect(prompt).toContain("If you cannot read it");

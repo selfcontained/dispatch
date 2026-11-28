@@ -4,13 +4,15 @@ import Fastify from "fastify";
 import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readAgentView } from "../src/agents/checkout-runner.js";
 import { registerAgentWorkspaceRoutes } from "../src/routes/agents/workspace-routes.js";
 import type { AgentRouteDeps } from "../src/routes/agents/shared.js";
 
 describe("workspace browsing", () => {
   let root: string;
   let app: ReturnType<typeof Fastify>;
+  const viewCheckout = vi.fn(readAgentView);
   beforeEach(async () => {
     root = await mkdtemp(path.join(tmpdir(), "dispatch-files-test-"));
     await mkdir(path.join(root, "src"));
@@ -22,6 +24,7 @@ describe("workspace browsing", () => {
     app = Fastify();
     await registerAgentWorkspaceRoutes(app, {
       agentManager: {
+        viewCheckout,
         getAgent: async (id: string) =>
           id === "missing"
             ? null
@@ -42,6 +45,22 @@ describe("workspace browsing", () => {
       method: "GET",
       url: `/api/v1/agents/test/workspace?${new URLSearchParams({ path: relative, file: String(file), workspace: workspace ?? root })}`,
     });
+  it.each([
+    ["ESTALE", 409, "Directory changed. Refresh to retry."],
+    ["ENOENT", 404, "File or workspace no longer exists."],
+    ["ENOTDIR", 404, "File or workspace no longer exists."],
+    ["EACCES", 403, "This path cannot be read."],
+    ["EPERM", 403, "This path cannot be read."],
+    ["ELOOP", 403, "This path cannot be read."],
+    ["EIO", 500, "Unable to read workspace."],
+  ])("maps workspace read error %s", async (code, status, error) => {
+    viewCheckout.mockRejectedValueOnce(
+      Object.assign(new Error("fixture failure"), { code })
+    );
+    const response = await get();
+    expect(response.statusCode).toBe(status);
+    expect(response.json()).toEqual({ error });
+  });
   it("returns SVG source and image data only for detected SVG bytes", async () => {
     const text =
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20"><rect width="40" height="20"/></svg>';
@@ -192,4 +211,144 @@ describe("workspace browsing", () => {
     expect(data.entries).toHaveLength(500);
     expect(data.truncated).toBe(true);
   });
+});
+
+describe("workspace request identity", () => {
+  const launch = "/srv/original";
+  const checkout = "/var/lib/runner/sessions/test/checkout";
+  const cases = [
+    {
+      name: "local launch directory",
+      cwd: "/launch",
+      worktreePath: null,
+      workspacePath: null,
+      requested: "/launch",
+      status: 200,
+    },
+    {
+      name: "local worktree",
+      cwd: "/launch",
+      worktreePath: "/worktree",
+      workspacePath: null,
+      requested: "/worktree",
+      status: 200,
+    },
+    {
+      name: "local stale launch directory",
+      cwd: "/launch",
+      worktreePath: "/worktree",
+      workspacePath: null,
+      requested: "/launch",
+      status: 409,
+    },
+    {
+      name: "local selected workspace",
+      cwd: "/launch",
+      worktreePath: "/worktree",
+      workspacePath: "/selected",
+      requested: "/selected",
+      status: 200,
+    },
+    {
+      name: "local stale worktree",
+      cwd: "/launch",
+      worktreePath: "/worktree",
+      workspacePath: "/selected",
+      requested: "/worktree",
+      status: 409,
+    },
+    {
+      name: "runner prepared checkout",
+      cwd: launch,
+      worktreePath: checkout,
+      workspacePath: null,
+      requested: checkout,
+      status: 200,
+    },
+    {
+      name: "runner stale launch directory",
+      cwd: launch,
+      worktreePath: checkout,
+      workspacePath: null,
+      requested: launch,
+      status: 409,
+    },
+    {
+      name: "runner selected workspace",
+      cwd: launch,
+      worktreePath: checkout,
+      workspacePath: "/selected",
+      requested: "/selected",
+      status: 200,
+    },
+    {
+      name: "runner stale launch after selection",
+      cwd: launch,
+      worktreePath: checkout,
+      workspacePath: "/selected",
+      requested: launch,
+      status: 409,
+    },
+    {
+      name: "runner stale worktree after selection",
+      cwd: launch,
+      worktreePath: checkout,
+      workspacePath: "/selected",
+      requested: checkout,
+      status: 409,
+    },
+    {
+      name: "runner unrelated directory",
+      cwd: launch,
+      worktreePath: checkout,
+      workspacePath: null,
+      requested: "/unrelated",
+      status: 409,
+    },
+  ];
+  for (const mode of ["directory", "preview", "index"] as const) {
+    it.each(cases)(
+      `${mode}: $name`,
+      async ({ name: _name, requested, status, ...fields }) => {
+        const agent = {
+          id: "test",
+          placement: {
+            runner: fields.cwd === launch ? "rnr_fixture" : "local",
+          },
+          ...fields,
+        };
+        const viewCheckout = vi.fn().mockResolvedValue({ fixture: mode });
+        const app = Fastify();
+        try {
+          await registerAgentWorkspaceRoutes(app, {
+            agentManager: {
+              getAgent: async () => agent,
+              viewCheckout,
+            } as unknown as AgentRouteDeps["agentManager"],
+          });
+          const response = await app.inject({
+            method: "GET",
+            url: `/api/v1/agents/test/workspace?${new URLSearchParams({ workspace: requested, path: "note.txt", file: String(mode === "preview"), index: String(mode === "index") })}`,
+          });
+          expect(response.statusCode).toBe(status);
+          if (status === 409) {
+            expect(response.json()).toEqual({
+              error: "Workspace changed. Reopen Files to continue.",
+            });
+            expect(viewCheckout).not.toHaveBeenCalled();
+          } else {
+            expect(response.json()).toEqual({ fixture: mode });
+            expect(viewCheckout).toHaveBeenCalledWith(
+              agent,
+              mode === "index"
+                ? { kind: "index", generation: "initial" }
+                : { kind: mode, path: "note.txt" }
+            );
+          }
+        } finally {
+          await app.close();
+        }
+      }
+    );
+  }
 });

@@ -11,6 +11,8 @@ export function AgentEffortSelect({
   model = null,
   id = "create-agent-effort",
   inheritLabel = "Default",
+  workload = false,
+  workloadChoices,
 }: {
   value: Effort | null;
   onChange: (value: Effort | null) => void;
@@ -18,8 +20,11 @@ export function AgentEffortSelect({
   model?: string | null;
   id?: string;
   inheritLabel?: string;
+  workload?: boolean;
+  workloadChoices?: import("@dispatch/shared").AgentConfigChoice[];
 }): JSX.Element {
-  const choices = useAgentEffortChoices(agentType, model);
+  const nativeChoices = useAgentEffortChoices(agentType, model, !workload);
+  const choices = workload ? workloadChoices : nativeChoices;
   return (
     <Field id={id} label="Effort">
       <EffortPicker

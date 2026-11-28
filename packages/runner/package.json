@@ -1,0 +1,45 @@
+{
+  "name": "@dispatch/runner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./cli": "./src/cli.ts",
+    "./host/launch-effort": "./src/host/launch-effort.ts",
+    "./host/main": "./src/host/main.ts",
+    "./host/prompt-images": "./src/host/prompt-images.ts",
+    "./host/mcp-inventory": "./src/host/mcp-inventory.ts",
+    "./host/types": "./src/host/types.ts",
+    "./host/first-prompt": "./src/host/first-prompt.ts",
+    "./host/driver": "./src/host/driver.ts",
+    "./host/engine-spec": "./src/host/engine-spec.ts",
+    "./host/host-env": "./src/host/host-env.ts",
+    "./host/host-command": "./src/host/host-command.ts",
+    "./host/opencode-instructions": "./src/host/opencode-instructions.ts",
+    "./host/permissions": "./src/host/permissions.ts",
+    "./host/engine-bin-dir": "./src/host/engine-bin-dir.ts",
+    "./host/background-ingress": "./src/host/background-ingress.ts",
+    "./host/background-work": "./src/host/background-work.ts",
+    "./composition": "./src/composition.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "dependencies": {
+    "@dispatch/runner-client": "workspace:*",
+    "@dispatch/runner-protocol": "workspace:*",
+    "@agentclientprotocol/sdk": "1.8.0",
+    "jsonc-parser": "3.3.1",
+    "zod": "4.3.6",
+    "@agentclientprotocol/claude-agent-acp": "0.108.0",
+    "@agentclientprotocol/codex-acp": "2.7.0"
+  },
+  "scripts": {
+    "start": "bun ../../scripts/generate-runner-runtime-assets.mjs && bun --no-env-file src/standalone.ts",
+    "check": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
+    "test": "vitest run --root ."
+  },
+  "engines": {
+    "bun": ">=1.3.13"
+  }
+}

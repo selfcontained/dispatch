@@ -1,3 +1,4 @@
+import { createProviderPlansReporter } from "./helpers/provider-plans-reporter.js";
 import { describe, expect, it, vi } from "vitest";
 import { mkdtemp, mkdir, utimes, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
@@ -6,12 +7,12 @@ import path from "node:path";
 import {
   CodexResetError,
   consumeCodexLimitReset,
-  createProviderPlansReporter,
   loadProviderPlans,
+  loadWorkloadProviderPlans,
   parseClaudeCache,
   parseClaudeUtilization,
   parseCodexRollout,
-} from "../src/agents/provider-plans.js";
+} from "../../../packages/runner/src/workload/agents/provider-plans.js";
 
 const NOW = new Date("2026-09-24T12:00:00Z");
 
@@ -432,6 +433,48 @@ describe("loadProviderPlans", () => {
     expect(report.providers[0]?.unavailableReason).toMatch(/not signed in/);
   });
 
+  // T31: pinned against origin/main before rerouting host reads through EnginePort.
+  it("retains main's snapshot presentation and provider order after live reads fail", async () => {
+    const observedAt = "2026-09-24T09:00:00Z";
+    const fetchUsage = vi.fn(async () => {
+      throw new Error("fixture offline");
+    });
+    const report = await loadProviderPlans({
+      ...codexOptions(codexAuth),
+      read: async (file) =>
+        file === "/home/.claude.json"
+          ? JSON.stringify({
+              cachedUsageUtilization: {
+                fetchedAtMs: Date.parse(observedAt),
+                utilization: claudeUtilization,
+              },
+            })
+          : file === "/home/.codex/auth.json"
+            ? codexAuth
+            : read(file),
+      fetchUsage: fetchUsage as unknown as typeof fetch,
+    });
+    expect(report.checkedAt).toBe(NOW.toISOString());
+    expect(report.providers.map(({ engine }) => engine)).toEqual([
+      "claude",
+      "codex",
+    ]);
+    expect(report.providers[0]).toEqual({
+      ...parseClaudeUtilization(
+        claudeUtilization,
+        new Date(observedAt).toISOString()
+      ),
+      unavailableReason:
+        "Could not refresh Claude plan usage. Open /usage in Claude Code to refresh its local report.",
+    });
+    expect(report.providers[1]).toEqual({
+      ...parseCodexRollout(fallback),
+      unavailableReason:
+        "Could not refresh Codex plan usage; showing the last report Codex left on this machine.",
+    });
+    expect(fetchUsage).toHaveBeenCalledTimes(3);
+  });
+
   it("caches, and a forced refresh inside the floor still reuses", async () => {
     let calls = 0;
     const reporter = createProviderPlansReporter({
@@ -570,6 +613,79 @@ describe("loadProviderPlans", () => {
       }
       return new Response(JSON.stringify(claudeUtilization));
     });
+
+  it("reads each workload login and rejects reset after account replacement", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "workload-usage-"));
+    try {
+      const homes = [path.join(root, "first"), path.join(root, "second")];
+      const writeLogin = async (home: string, account: string) => {
+        await mkdir(path.join(home, ".codex"), { recursive: true });
+        await writeFile(
+          path.join(home, ".codex/auth.json"),
+          JSON.stringify({
+            tokens: { access_token: `fixture-${account}`, account_id: account },
+          })
+        );
+      };
+      await Promise.all(
+        homes.map((home, index) => writeLogin(home, `account-${index}`))
+      );
+      const fetchUsage = vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.endsWith("/consume"))
+          return Response.json({ code: "ok", windows_reset: 1 });
+        const account = new Headers(init?.headers).get("ChatGPT-Account-Id");
+        if (url.endsWith("/usage"))
+          return Response.json({
+            ...codexUsage,
+            plan_type: account === "account-0" ? "pro" : "plus",
+          });
+        return Response.json(codexResets);
+      });
+      const scoped = (homeDir: string) => ({
+        homeDir,
+        env: {},
+        platform: "linux" as const,
+        fetchUsage: fetchUsage as unknown as typeof fetch,
+      });
+      const [first, second] = await Promise.all(
+        homes.map((home) =>
+          loadWorkloadProviderPlans("fixture-secret", scoped(home))
+        )
+      );
+      expect(first.providers[1]?.plan).toBe("Pro");
+      expect(second.providers[1]?.plan).toBe("Plus");
+      expect(first.codexResetAccount).toBeDefined();
+      expect(second.codexResetAccount).toBeDefined();
+      expect(first.codexResetAccount).not.toBe(second.codexResetAccount);
+      const account = {
+        secret: "fixture-secret",
+        handle: first.codexResetAccount!,
+      };
+      await writeLogin(homes[0]!, "replacement");
+      await expect(
+        consumeCodexLimitReset({ ...scoped(homes[0]!), account })
+      ).rejects.toMatchObject({ reason: "account_changed" });
+      expect(
+        fetchUsage.mock.calls.some(([url]) => url.endsWith("/consume"))
+      ).toBe(false);
+      const readRollouts = vi.fn(async () => ["/old-account"]);
+      const offline = await loadWorkloadProviderPlans("fixture-secret", {
+        ...scoped(homes[0]!),
+        codexFiles: readRollouts,
+        fetchUsage: async () => {
+          throw new Error("offline");
+        },
+      });
+      expect(offline.codexResetAccount).toBeUndefined();
+      expect(offline.providers[1]).toMatchObject({
+        windows: [],
+        observedAt: null,
+      });
+      expect(readRollouts).not.toHaveBeenCalled();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 
   it("lists the account's resets, oldest first, beside the live report", async () => {
     const fetchUsage = codexFetch();

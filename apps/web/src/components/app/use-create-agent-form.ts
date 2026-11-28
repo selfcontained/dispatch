@@ -1,3 +1,7 @@
+import {
+  useLaunchTargets,
+  useLaunchTargetData,
+} from "@/hooks/use-launch-targets";
 import type { Effort } from "@dispatch/shared";
 import { useAtom } from "jotai";
 import { useProjects } from "@/hooks/use-projects";
@@ -32,6 +36,7 @@ import { type AgentType } from "@/lib/agent-types";
 import { api } from "@/lib/api";
 
 type UseCreateAgentFormOptions = {
+  sourceAgentId?: string;
   enabledAgentTypes: AgentType[];
   initialAgentType: AgentType | null;
   resolveDefaultCwd: () => string;
@@ -53,6 +58,7 @@ type ValidatedCwd = CwdPathInfo & {
 };
 
 export function useCreateAgentForm({
+  sourceAgentId,
   enabledAgentTypes,
   initialAgentType,
   resolveDefaultCwd,
@@ -60,6 +66,9 @@ export function useCreateAgentForm({
   task = null,
   onCreated,
 }: UseCreateAgentFormOptions) {
+  const launch = useLaunchTargets(
+    sourceAgentId ? { kind: "agent", id: sourceAgentId } : undefined
+  );
   const [locationPref, setLocationPref] = useAtom(createAgentLocationPrefAtom);
   const { data: projects = [], isSuccess: projectsLoaded } = useProjects();
   // The scope seeds this opening, but a picker choice (including Folder)
@@ -67,18 +76,36 @@ export function useCreateAgentForm({
   const [locationChoice, setLocationChoice] = useState<{
     projectId: string | null;
   } | null>(null);
+  const projectedProject = (launch.target?.location.projects ?? projects).find(
+    (project) => project.id === launch.projection.data?.projectId
+  );
   const selectedProjectId = task
     ? task.projectId
     : locationChoice
       ? locationChoice.projectId
-      : (initialProjectId ??
-        (locationPref?.mode === "project" ? locationPref.projectId : null));
-  const project = projects.find((p) => p.id === selectedProjectId);
+      : sourceAgentId &&
+          (launch.target?.location.folders === false ||
+            (projectedProject && !projectedProject.repoRoot))
+        ? (launch.projection.data?.projectId ?? null)
+        : (initialProjectId ??
+          (locationPref?.mode === "project" ? locationPref.projectId : null));
+  const project = (launch.target?.location.projects ?? projects).find(
+    (p) => p.id === selectedProjectId
+  );
+  const projectRepository = launch.target?.location.projects?.find(
+    (p) => p.id === selectedProjectId
+  )?.repository;
   // Keep a pending choice while loading, but never submit an unavailable ID.
   const createProjectId = projectsLoaded
     ? (project?.id ?? null)
     : selectedProjectId;
-  const locationReady = !selectedProjectId || projectsLoaded;
+  const locationReady =
+    (!selectedProjectId || projectsLoaded) &&
+    launch.selectionReady &&
+    (!sourceAgentId ||
+      launch.changed ||
+      (launch.projection.isSuccess && Boolean(launch.target))) &&
+    (launch.target?.location.folders !== false || Boolean(project));
   const setCreateProjectId = (id: string | null) => {
     setLocationChoice({ projectId: id });
     setLocationPref({
@@ -89,6 +116,10 @@ export function useCreateAgentForm({
   const [step, setStep] = useState<"config" | "context">("config");
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [createEffort, setCreateEffort] = useState<Effort | null>(null);
+  const [modelChoice, setModelChoice] = useState<{
+    agentType: AgentType;
+    model: string | null;
+  } | null>(null);
   const [createName, setCreateName] = useState("");
   const [createType, setCreateType] = useState<AgentType>(() => {
     const preferred = initialAgentType ?? readLastUsedAgentType();
@@ -99,10 +130,29 @@ export function useCreateAgentForm({
         : enabledAgentTypes[0]!;
   });
   const [folderCwd, setCreateCwd] = useState(() => {
+    if (sourceAgentId) return "";
     const resolved = resolveDefaultCwd().trim();
     return resolved || readLastUsedCwd();
   });
-  const createCwd = project?.repoRoot ?? folderCwd;
+  const sourceInitialized = useRef<string | null>(null);
+  const folderEdited = useRef(false);
+  useEffect(() => {
+    if (
+      launch.changed ||
+      sourceInitialized.current === sourceAgentId ||
+      folderEdited.current
+    )
+      return;
+    if (sourceAgentId && launch.projection.data) {
+      sourceInitialized.current = sourceAgentId;
+      setCreateCwd(launch.projection.data.directory);
+    }
+  }, [sourceAgentId, launch.projection.data, launch.changed]);
+  const createCwd =
+    project && !project.repoRoot
+      ? ""
+      : (project?.repoRoot ??
+        (sourceAgentId && launch.projection.isPending ? "" : folderCwd));
   const [createCwdInitialized, setCreateCwdInitialized] = useState(
     () => createCwd.trim().length > 0
   );
@@ -128,11 +178,17 @@ export function useCreateAgentForm({
   const [submitError, setSubmitError] = useState<unknown>();
   const {
     history: cwdHistory,
+    suggestionsUrl: historyUrl,
     removableHistory: removableCwdHistory,
     historyMetadata: cwdHistoryMetadata,
     add: addCwdHistory,
     remove: removeCwdHistory,
-  } = useCwdHistory();
+  } = useCwdHistory(launch.target?.historyUrl ?? "");
+  const targetData = useLaunchTargetData(launch.target, {
+    directory: createCwd,
+    projectId: createProjectId,
+    agentType: createType,
+  });
   const {
     persona: createPersona,
     setPersona: setCreatePersona,
@@ -144,16 +200,57 @@ export function useCreateAgentForm({
     setBaseBranch: setCreateBaseBranch,
     createNewBranch,
     setCreateNewBranch,
-    model: createModel,
-    setModel: setCreateModel,
-  } = useCreateAgentPrefs(createCwd, createType);
+    model: savedModel,
+    setModel: saveModel,
+  } = useCreateAgentPrefs(
+    targetData.data?.defaults.preferenceKey ?? createCwd,
+    createType,
+    targetData.defaultBaseBranch
+  );
+  // Location preferences seed a form. Once the person chooses a model, that
+  // choice belongs to this opening, including while another target loads.
+  const createModel =
+    modelChoice?.agentType === createType ? modelChoice.model : savedModel;
+  const setCreateModel = useCallback(
+    (model: string | null) => {
+      setModelChoice({ agentType: createType, model });
+      saveModel(model);
+    },
+    [createType, saveModel]
+  );
   const createFullAccess = createType === "opencode" || savedCreateFullAccess;
   const {
     options: modelOptions,
     defaultModel,
     loading: modelCatalogLoading,
     loaded: modelCatalogLoaded,
-  } = useAgentModelCatalog(createType);
+  } = useAgentModelCatalog(createType, true, {
+    data: targetData.info?.catalog,
+    loading: launch.list.isLoading || targetData.catalogLoading,
+  });
+  const agentTypes = targetData.info?.agentTypes ?? enabledAgentTypes;
+  const effortData = useLaunchTargetData(
+    launch.target,
+    {
+      directory: createCwd,
+      projectId: createProjectId,
+      agentType: createType,
+      model: createModel,
+    },
+    Boolean(createModel && createModel !== defaultModel)
+  );
+  const workloadEffort =
+    createModel && createModel !== defaultModel
+      ? effortData.effort
+      : targetData.effort;
+  useEffect(() => {
+    if (
+      createEffort !== null &&
+      workloadEffort !== undefined &&
+      !workloadEffort.some((choice) => choice.value === createEffort)
+    )
+      setCreateEffort(null);
+  }, [createEffort, workloadEffort]);
 
   useEffect(() => {
     if (!modelCatalogLoaded || modelOptions.length === 0) return;
@@ -174,19 +271,26 @@ export function useCreateAgentForm({
   const { data: systemDefaults, isError: systemDefaultsError } =
     useSystemDefaults();
   useEffect(() => {
-    if (createCwdInitialized) return;
+    if (createCwdInitialized || sourceAgentId) return;
     if (systemDefaults) {
       setCreateCwd(systemDefaults.homeDir);
       setCreateCwdInitialized(true);
     } else if (systemDefaultsError) {
       setCreateCwdInitialized(true);
     }
-  }, [createCwdInitialized, systemDefaults, systemDefaultsError]);
+  }, [
+    createCwdInitialized,
+    sourceAgentId,
+    systemDefaults,
+    systemDefaultsError,
+  ]);
 
   useEffect(() => {
-    if (enabledAgentTypes.includes(createType)) return;
-    setCreateType(enabledAgentTypes[0] ?? "claude");
-  }, [createType, enabledAgentTypes]);
+    if (!targetData.info && enabledAgentTypes.includes(createType)) return;
+    if (agentTypes.includes(createType)) return;
+    setCreateType(agentTypes[0] ?? "claude");
+    setCreateEffort(null);
+  }, [createType, agentTypes, targetData.info, enabledAgentTypes]);
 
   useEffect(() => {
     if (step === "context") {
@@ -212,7 +316,7 @@ export function useCreateAgentForm({
   );
 
   useEffect(() => {
-    if (!createProjectId) return;
+    if (!createProjectId || projectRepository) return;
     const controller = new AbortController();
     void api<CwdPathInfo>(
       `/api/v1/system/path-info?path=${encodeURIComponent(createCwd.trim())}`,
@@ -225,10 +329,11 @@ export function useCreateAgentForm({
         if (!controller.signal.aborted) handlePathInfoChange(null);
       });
     return () => controller.abort();
-  }, [createProjectId, createCwd, handlePathInfoChange]);
+  }, [createProjectId, createCwd, handlePathInfoChange, projectRepository]);
   const currentCwd = createCwd.trim();
   const worktreeAvailable =
-    validatedCwd?.cwd === currentCwd && validatedCwd.isGitRepo;
+    Boolean(projectRepository) ||
+    (validatedCwd?.cwd === currentCwd && validatedCwd.isGitRepo);
 
   const handleStartupPaste = useCallback(
     (event: ClipboardEvent<HTMLElement>) => {
@@ -271,20 +376,21 @@ export function useCreateAgentForm({
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
       const cwd = createCwd.trim();
-      if (!cwd || !locationReady) return;
+      if ((!cwd && !createProjectId) || !locationReady) return;
 
       setCreating(true);
       setSubmitError(undefined);
       try {
         const latestPathInfo = validatedCwdRef.current;
         const submitUseWorktree =
-          latestPathInfo?.cwd === cwd &&
-          latestPathInfo.isGitRepo &&
+          (Boolean(projectRepository) ||
+            (latestPathInfo?.cwd === cwd && latestPathInfo.isGitRepo)) &&
           createUseWorktree;
         const submitCreateNewBranch = submitUseWorktree && createNewBranch;
         const contextInitialPrompt =
           step === "context" ? initialPrompt.trim() || undefined : undefined;
         const payloadBase = {
+          ...launch.target?.launchFields,
           name: createName.trim(),
           cwd: createProjectId ? undefined : cwd,
           projectId: createProjectId ?? undefined,
@@ -303,7 +409,8 @@ export function useCreateAgentForm({
             ? createWorktreeBranch.trim() || undefined
             : undefined,
           baseBranch:
-            submitUseWorktree && createBaseBranch !== "main"
+            submitUseWorktree &&
+            createBaseBranch !== targetData.defaultBaseBranch
               ? createBaseBranch
               : undefined,
           initialPrompt: contextInitialPrompt,
@@ -351,6 +458,9 @@ export function useCreateAgentForm({
     },
     [
       createBaseBranch,
+      launch.target?.launchFields,
+      targetData.defaultBaseBranch,
+      projectRepository,
       locationReady,
       createCwd,
       createProjectId,
@@ -375,6 +485,18 @@ export function useCreateAgentForm({
   );
 
   return {
+    launch,
+    targetData,
+    agentTypes,
+    workloadEffort,
+    engines: targetData.info?.engineOptions ?? null,
+    chooseTarget: (key: string) => {
+      launch.choose(key);
+      if (sourceAgentId) {
+        setCreateCwd("");
+        setLocationChoice({ projectId: null });
+      }
+    },
     submitError,
     createProjectId,
     locationReady,
@@ -391,7 +513,10 @@ export function useCreateAgentForm({
       setCreateEffort(null);
     },
     createCwd,
-    setCreateCwd,
+    setCreateCwd: (value: string) => {
+      folderEdited.current = true;
+      setCreateCwd(value);
+    },
     createUseWorktree,
     setCreateUseWorktree,
     createWorktreeBranch,
@@ -425,6 +550,7 @@ export function useCreateAgentForm({
     createNewBranch,
     setCreateNewBranch,
     cwdHistory,
+    historyUrl,
     removableCwdHistory,
     cwdHistoryMetadata,
     removeCwdHistory,

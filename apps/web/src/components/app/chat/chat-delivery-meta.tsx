@@ -5,12 +5,14 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   Block,
   BlockDeliveryState,
   RoutingPending,
 } from "@dispatch/shared";
+import type { Agent } from "@/components/app/types";
+import { useRunners } from "@/hooks/use-runners";
 import {
   AlertTriangle,
   Check,
@@ -69,6 +71,31 @@ function useRoutingReceipt(block: Block): boolean {
   return visible && !!pending;
 }
 
+/**
+ * Held recipients that are not mid-turn but sit on a remote runner that is
+ * offline: their message waits for the runner, not for a turn.
+ */
+function useWaitingOnRunner(held: readonly string[]): boolean {
+  const { data: agents } = useQuery<Agent[]>({
+    queryKey: ["agents"],
+    queryFn: skipToken,
+  });
+  const runnerIds = held.map((id) => {
+    const agent = agents?.find((entry) => entry.id === id);
+    if (!agent || agent.currentTurn || agent.activity === "working")
+      return undefined;
+    return agent.runnerId;
+  });
+  const eligible = runnerIds.length > 0 && runnerIds.every(Boolean);
+  const { data: runners } = useRunners({ enabled: eligible, poll: eligible });
+  return (
+    eligible &&
+    runnerIds.every(
+      (id) => runners?.find((runner) => runner.id === id)?.status === "offline"
+    )
+  );
+}
+
 /** The recipients of a post in one of the states worth reporting. */
 function inState(block: Block, state: BlockDeliveryState): readonly string[] {
   return (block.delivery ?? [])
@@ -111,17 +138,18 @@ function DeliveryStatus({
   retrying = false,
   onRetryDelivery,
 }: DeliveryMetaProps): JSX.Element | null {
+  const held = inState(block, "held");
+  const interrupt =
+    block.kind === "text" && block.data?.delivery === "interrupt";
+  const waitingOnRunner = useWaitingOnRunner(interrupt ? [] : held);
   if (block.toAgentId === null || !block.delivery?.length) return null;
   if (
     (block.data as { scheduledMessageId?: string } | null)?.scheduledMessageId
   )
     return null;
   const several = block.delivery.length > 1;
-  const interrupt =
-    block.kind === "text" && block.data?.delivery === "interrupt";
   const skipped = inState(block, "not_attempted");
   const failed = inState(block, "failed");
-  const held = inState(block, "held");
 
   if (skipped.length > 0) {
     return (
@@ -193,9 +221,11 @@ function DeliveryStatus({
         title={
           interrupt
             ? `Stop requested${several ? ` for ${nameList(held, recipientName)}` : ""}. Delivery waits for the current turn to stop; running tools may take time to cancel.`
-            : block.kind === "text" && block.data?.acpCommand
-              ? "This command will run after the current turn."
-              : "Your message will be delivered in its own conversation after the current turn."
+            : waitingOnRunner
+              ? "Your message will be delivered when the runner reconnects."
+              : block.kind === "text" && block.data?.acpCommand
+                ? "This command will run after the current turn."
+                : "Your message will be delivered in its own conversation after the current turn."
         }
         data-testid="chat-held-hint"
       >
@@ -209,11 +239,15 @@ function DeliveryStatus({
             ? several
               ? `Stop requested · ${held.length} agents`
               : "Stop requested"
-            : several
-              ? `Queued for ${nameList(held, recipientName)}, until the turn ends`
-              : block.threadId
-                ? "Queued for a reply here"
-                : "Queued until the turn ends"}
+            : waitingOnRunner
+              ? several
+                ? `Queued for ${nameList(held, recipientName)}, until the runner reconnects`
+                : "Queued until the runner reconnects"
+              : several
+                ? `Queued for ${nameList(held, recipientName)}, until the turn ends`
+                : block.threadId
+                  ? "Queued for a reply here"
+                  : "Queued until the turn ends"}
         </span>
       </div>
     );

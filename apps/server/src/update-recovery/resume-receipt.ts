@@ -5,24 +5,57 @@ import { uuid } from "./protocol.js";
 import { readPrivate, writeAtomic, syncDirectory } from "./files.js";
 const readPrivateFile = (file: string) =>
   readPrivate(file, { maxBytes: 64 * 1024 });
+export const resumeAgentSchema = z
+  .object({
+    id: z.string().regex(/^agt_[A-Za-z0-9_-]{1,64}$/),
+    updatedAt: z.string().min(1).max(64),
+  })
+  .strict();
+
 const resumeReceiptSchema = z
   .object({
     formatVersion: z.literal(1),
     transactionId: uuid,
     createdAt: z.string().datetime(),
-    agents: z
-      .array(
-        z
-          .object({
-            id: z.string().regex(/^agt_[A-Za-z0-9_-]{1,64}$/),
-            updatedAt: z.string().min(1).max(64),
-          })
-          .strict()
-      )
-      .max(10_000),
+    agents: z.array(resumeAgentSchema).max(10_000),
   })
   .strict();
 export type ResumeReceipt = z.infer<typeof resumeReceiptSchema>;
+
+/**
+ * A runner attempt's entry: a session claim and recovery progress. The
+ * attempt keeps each one until that agent is resumed and, if its turn was
+ * cut, told to continue. The local receipt above is strict and has none of
+ * this.
+ */
+export const runnerResumeAgentSchema = resumeAgentSchema
+  .extend({
+    /** Absent in receipts written before session claims were introduced. */
+    sessionId: z.string().min(1).optional(),
+    /** Turns a forced update cut or tried to: stream row, host sequence. */
+    turns: z
+      .array(
+        z
+          .object({
+            id: z.number().int().nonnegative(),
+            seq: z.number().int().nonnegative().optional(),
+          })
+          .strict()
+      )
+      .max(16)
+      .optional(),
+    /** Saved before the launch, which itself moves the row's timestamp. */
+    launching: z.literal(true).optional(),
+    resumed: z.literal(true).optional(),
+    /** Saved before the continuation is first handed to the host. */
+    continuationSent: z.literal(true).optional(),
+    /** When resuming first failed. */
+    failedAt: z.number().optional(),
+    /** A stop, archive or delete ended it for good, whatever the row says later. */
+    ended: z.literal(true).optional(),
+  })
+  .strict();
+export type RunnerResumeAgent = z.infer<typeof runnerResumeAgentSchema>;
 
 export const RESUME_RECEIPT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 

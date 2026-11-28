@@ -1,6 +1,16 @@
+import { localEngineWorkload } from "../../../packages/runner/src/workload/agents/remote/engine-runner-executor.js";
+import {
+  scopedEngineCalls,
+  localEngineCalls,
+  inProcessEngines,
+} from "../src/runners/local.js";
+import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 import { describe, expect, it, vi } from "vitest";
-import { createCodexResetCoordinator } from "../src/agents/codex-reset.js";
-import { CodexResetError } from "../src/agents/provider-plans.js";
+import {
+  createRunnerUsage,
+  createCodexResetCoordinator,
+} from "../src/agents/codex-reset.js";
+import { CodexResetError } from "../../../packages/runner/src/workload/agents/provider-plans.js";
 
 const key = "a8b3cda6-7890-4a17-a031-9affc78a1eba";
 const otherKey = "bbf3cda6-7890-4a17-a031-9affc78a1eba";
@@ -212,3 +222,280 @@ describe("account-shared Codex reset orchestration", () => {
     expect(consume).toHaveBeenCalledTimes(1024);
   });
 });
+
+describe("runner usage coordinator", () => {
+  it("retains unknown reset outcomes without re-sending or losing fresh usage", async () => {
+    const call = vi.fn(async (op: string) => {
+      if (op === "engine.usage") return report;
+      throw new Error("fixture lost acknowledgement");
+    });
+    const usage = createRunnerUsage({ call } as never);
+    const first = await usage.redeemCodexReset(key);
+    expect(first.error).toEqual({
+      reason: "unexpected",
+      message:
+        "Reset execution failed; whether a credit was spent is unknown. Check usage before retrying.",
+      possiblyConsumed: true,
+    });
+    expect(first.usage).toEqual(report);
+    expect(await usage.redeemCodexReset(key)).toEqual(first);
+    expect(
+      call.mock.calls.filter(([op]) => op === "engine.quota.reset")
+    ).toHaveLength(1);
+  });
+  it("keeps caches and reset replay independent for each runner", async () => {
+    const call = vi.fn(async (op: string) =>
+      op === "engine.usage"
+        ? report
+        : { ...ok, credit: { id: "credit", title: "Reset", expiresAt: null } }
+    );
+    const first = createRunnerUsage({ call } as never);
+    const second = createRunnerUsage({ call } as never);
+    expect((await first.redeemCodexReset(key)).outcome?.credit).toEqual({
+      id: "credit",
+      title: "Reset",
+      expiresAt: null,
+    });
+    await first.redeemCodexReset(key);
+    await second.redeemCodexReset(key);
+    expect(
+      call.mock.calls.filter(([op]) => op === "engine.quota.reset")
+    ).toHaveLength(2);
+  });
+});
+
+it("a lost local-child reset acknowledgement never calls the in-process host", async () => {
+  const fallback = inProcessEngines();
+  const spend = vi.spyOn(fallback, "quotaReset");
+  vi.spyOn(fallback, "usage").mockResolvedValue(report);
+  const call = vi.fn(async () => {
+    throw new RunnerCallError({
+      code: "unknown_outcome",
+      message: "fixture lost reply",
+    });
+  });
+  const calls = localEngineCalls(
+    () => ({ connection: { state: "ready" }, call }) as never,
+    fallback
+  );
+  const usage = createRunnerUsage(calls);
+  const result = await usage.redeemCodexReset(key);
+  expect(result.error?.possiblyConsumed).toBe(true);
+  await usage.redeemCodexReset(key);
+  expect(
+    call.mock.calls.filter(
+      (args) => (args as unknown[])[0] === "engine.quota.reset"
+    )
+  ).toHaveLength(1);
+  expect(call).toHaveBeenCalledWith(
+    "engine.quota.reset",
+    { engine: "codex", account: "", requestId: key },
+    { wait: false }
+  );
+  expect(spend).not.toHaveBeenCalled();
+  fallback.close();
+});
+
+it("the host port retains snapshot details and full reset outcomes with fixture transport", async () => {
+  const now = new Date("2026-11-24T12:00:00Z");
+  const credit = {
+    id: "fixture-credit",
+    title: "Fixture reset",
+    expires_at: "2027-01-01T00:00:00Z",
+  };
+  const fetchUsage = vi.fn(
+    async () =>
+      new Response(
+        JSON.stringify({
+          code: "future_provider_code",
+          windows_reset: 2,
+          credit,
+        })
+      )
+  );
+  const host = localEngineWorkload(
+    {},
+    {
+      providerOptions: {
+        now,
+        env: {},
+        homeDir: "/fixture",
+        platform: "linux",
+        read: async (file) => {
+          if (file === "/fixture/.codex/auth.json")
+            return JSON.stringify({
+              auth_mode: "chatgpt",
+              tokens: {
+                access_token: "fixture-token",
+                account_id: "fixture-account",
+              },
+            });
+          if (file === "/fixture/.claude.json")
+            return JSON.stringify({
+              cachedUsageUtilization: {
+                fetchedAtMs: now.valueOf(),
+                utilization: {
+                  limits: [
+                    {
+                      kind: "session",
+                      percent: 42,
+                      severity: "warning",
+                      resets_at: "2026-11-24T15:00:00Z",
+                    },
+                  ],
+                },
+              },
+            });
+          throw new Error("fixture absent");
+        },
+        codexFiles: async () => [],
+        fetchUsage: fetchUsage as unknown as typeof fetch,
+      },
+    }
+  );
+  try {
+    const usage = await host.usage({});
+    expect(usage.providers.map(({ engine }) => engine)).toEqual([
+      "claude",
+      "codex",
+    ]);
+    expect(usage.providers[0]?.windows[0]).toMatchObject({
+      id: "session",
+      severity: "warning",
+      usedPercent: 42,
+    });
+    expect(
+      await host.quotaReset({ engine: "codex", account: "", requestId: key })
+    ).toEqual({
+      code: "future_provider_code",
+      windowsReset: 2,
+      credit: {
+        id: credit.id,
+        title: credit.title,
+        expiresAt: credit.expires_at,
+      },
+    });
+    // The transport captures no ambient credentials; the fixture login is the only input.
+    expect(fetchUsage).toHaveBeenCalled();
+  } finally {
+    host.close();
+  }
+});
+
+it("the enrolled adapter sends an ambiguous reset only once", async () => {
+  const callEngine = vi.fn(async (_runner: string, op: string) => {
+    if (op === "engine.usage") return report;
+    throw new RunnerCallError({
+      code: "unknown_outcome",
+      message: "fixture lost reply",
+    });
+  });
+  const local = { call: vi.fn() };
+  const usage = createRunnerUsage(
+    scopedEngineCalls(local as never, { callEngine } as never, {
+      kind: "runner",
+      runnerId: "fixture-runner",
+    })
+  );
+  const result = await usage.redeemCodexReset(key);
+  expect(result.error?.possiblyConsumed).toBe(true);
+  expect(await usage.redeemCodexReset(key)).toEqual(result);
+  expect(
+    callEngine.mock.calls.filter(([, op]) => op === "engine.quota.reset")
+  ).toHaveLength(1);
+  expect(local.call).not.toHaveBeenCalled();
+});
+
+it("retains newer good windows after a runner refresh loses its reply", async () => {
+  vi.useFakeTimers();
+  try {
+    vi.setSystemTime(new Date("2026-11-24T12:00:00Z"));
+    const good = {
+      checkedAt: new Date().toISOString(),
+      providers: [
+        {
+          engine: "codex",
+          plan: "Pro",
+          observedAt: new Date().toISOString(),
+          windows: [
+            { id: "primary", label: "5-hour", usedPercent: 42, resetsAt: null },
+          ],
+        },
+      ],
+    };
+    let reads = 0;
+    const call = vi.fn(async () => {
+      if (++reads === 1) return good;
+      throw new Error("fixture disconnected");
+    });
+    const usage = createRunnerUsage({ call } as never);
+    await usage.providerPlans();
+    vi.advanceTimersByTime(60_001);
+    const refreshed = await usage.providerPlans();
+    expect(
+      refreshed.providers.find(({ engine }) => engine === "codex")
+    ).toEqual({
+      ...good.providers[0],
+      unavailableReason: "fixture disconnected",
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it.each(["success", "failure", "auth", "ambiguous", "transport"])(
+  "shares main's process-wide spend guard across runners and releases after %s",
+  async (kind) => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const spendA = vi.fn(async () => {
+      await held;
+      if (kind === "auth")
+        throw new CodexResetError("not_signed_in", "fixture missing login");
+      if (kind === "failure")
+        throw new CodexResetError("request_failed", "fixture provider failure");
+      if (kind === "ambiguous")
+        throw new RunnerCallError({
+          code: "unknown_outcome",
+          message: "fixture lost acknowledgement",
+        });
+      if (kind === "transport") throw new Error("fixture transport throw");
+      return ok;
+    });
+    const spendB = vi.fn(async () => ok);
+    const runner = (spend: () => Promise<typeof ok>) =>
+      createRunnerUsage({
+        call: async (op: string) => (op === "engine.usage" ? report : spend()),
+      } as never);
+    const a = runner(spendA);
+    const b = runner(spendB);
+    const first = a.redeemCodexReset(key);
+    try {
+      expect(await b.redeemCodexReset(otherKey)).toEqual({
+        outcome: null,
+        error: {
+          reason: "reset_in_progress",
+          message:
+            "Another account-shared reset is in progress. Check usage before making a new request.",
+          possiblyConsumed: false,
+        },
+        usage: null,
+        refreshError: null,
+      });
+      expect(spendB).not.toHaveBeenCalled();
+    } finally {
+      release();
+    }
+    const result = await first;
+    if (kind === "success") expect(result.outcome).toEqual(ok);
+    else expect(result.error?.possiblyConsumed).toBe(kind !== "auth");
+    expect(spendA).toHaveBeenCalledOnce();
+    // Same UUID on B is a different runner's replay map, but shares active exclusion.
+    expect((await b.redeemCodexReset(key)).outcome).toEqual(ok);
+    expect(spendB).toHaveBeenCalledOnce();
+    expect(await a.redeemCodexReset(key)).toEqual(result);
+    expect(spendA).toHaveBeenCalledOnce();
+  }
+);

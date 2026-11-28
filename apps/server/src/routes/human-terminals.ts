@@ -1,9 +1,12 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Pool } from "pg";
-import { realpath, stat } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { isPasswordSet, validateSession } from "../auth.js";
-import { HumanTerminalManager, terminalOwner } from "../terminal/manager.js";
+import {
+  HumanTerminalManager,
+  terminalOwner,
+  type TerminalBackend,
+} from "../terminal/manager.js";
 
 export function terminalOriginAllowed(
   origin: string | undefined,
@@ -31,9 +34,7 @@ export function terminalOriginAllowed(
 type Deps = {
   pool: Pool;
   sessionCookie: string;
-  getAgent: (
-    id: string
-  ) => Promise<{ cwd: string; worktreePath: string | null } | null>;
+  getBackend: (id: string) => Promise<TerminalBackend | null>;
   manager?: HumanTerminalManager;
 };
 
@@ -147,20 +148,13 @@ export async function registerHumanTerminalRoutes(
             });
           return { ...resumed, unencrypted: request.protocol !== "https" };
         }
-        const agent = await deps.getAgent(request.body.agentId);
-        if (!agent)
-          return reply.code(404).send({ error: "Workspace not found." });
         try {
-          const cwd = await realpath(agent.worktreePath || agent.cwd);
-          if (!(await stat(cwd)).isDirectory())
-            throw new Error("Workspace directory is unavailable.");
+          const { agentId, clientId } = request.body;
+          const backend = await deps.getBackend(agentId);
+          if (!backend)
+            return reply.code(404).send({ error: "Workspace not found." });
           return {
-            ...manager.open(
-              owners.get(request)!.owner,
-              request.body.clientId,
-              request.body.agentId,
-              cwd
-            ),
+            ...(await manager.open(owner, clientId, agentId, backend)),
             unencrypted: request.protocol !== "https",
           };
         } catch (error) {

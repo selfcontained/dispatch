@@ -478,6 +478,16 @@ cmd_up() {
   DEV_LAN_HOST=""
   [ "$DEV_BIND_HOST" = "0.0.0.0" ] && DEV_LAN_HOST="$(lan_address)"
 
+  DEV_VITE_PORT="${RESTART_VITE_PORT:-$(find_free_port)}"
+  while [ "$DEV_VITE_PORT" = "$DEV_API_PORT" ]; do
+    DEV_VITE_PORT="$(find_free_port)"
+  done
+  local web_host="${DEV_LAN_HOST:-$DEV_DISPLAY_HOST}"
+  case "$web_host" in
+    ::) web_host="[::1]" ;;
+    *:*) web_host="[${web_host}]" ;;
+  esac
+
   # Build environment
   (
 
@@ -504,6 +514,7 @@ cmd_up() {
 
     # Override port, session prefix, and agent runtime — always explicit so .env doesn't leak
     export DISPATCH_PORT="$DEV_API_PORT"
+    export DISPATCH_RUNNER_APPROVAL_ORIGIN="${DISPATCH_RUNNER_APPROVAL_ORIGIN:-http://$web_host:$DEV_VITE_PORT}"
     export DISPATCH_DEV_STACK=1
     # Bind to all interfaces so the dev stack is reachable from other devices
     # (phone, another laptop) on the LAN or tailnet, not just this machine.
@@ -590,7 +601,6 @@ cmd_up() {
   fi
 
   # --- Vite Frontend ---
-  DEV_VITE_PORT="${RESTART_VITE_PORT:-$(find_free_port)}"
   local vite_cache_dir
   vite_cache_dir="$(log_dir)/vite-cache"
 

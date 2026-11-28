@@ -7,7 +7,7 @@ import {
   applyPluginUpdate,
   checkPluginStatus,
   createPluginStatusChecker,
-} from "../src/shared/plugin-status.js";
+} from "../../../packages/runner/src/workload/shared/plugin-status.js";
 import type { RunCommandResult } from "../src/shared/lib/run-command.js";
 
 type Call = { command: string; args: string[] };

@@ -30,7 +30,7 @@ describe("AgentEffortSelect", () => {
         model="new-model"
       />
     );
-    expect(choices).toHaveBeenCalledWith("codex", "new-model");
+    expect(choices).toHaveBeenCalledWith("codex", "new-model", true);
     fireEvent.click(screen.getByRole("button", { name: /^Effort:/ }));
     fireEvent.click(screen.getByRole("radio", { name: "Deliberate" }));
     expect(onChange).toHaveBeenCalledWith("future");
@@ -43,6 +43,22 @@ describe("AgentEffortSelect", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Effort:/ }));
     fireEvent.click(screen.getByRole("radio", { name: "Default" }));
     expect(onChange).toHaveBeenLastCalledWith(null);
+  });
+  it("shows workload choices without enabling the native catalog query", () => {
+    choices.mockReturnValue([{ value: "native", name: "Native effort" }]);
+    render(
+      <AgentEffortSelect
+        value={null}
+        onChange={vi.fn()}
+        agentType="codex"
+        workload
+        workloadChoices={[{ value: "workload", name: "Workload effort" }]}
+      />
+    );
+    expect(choices).toHaveBeenLastCalledWith("codex", null, false);
+    fireEvent.click(screen.getByRole("button", { name: /^Effort:/ }));
+    expect(screen.getByRole("radio", { name: "Workload effort" })).toBeTruthy();
+    expect(screen.queryByRole("radio", { name: "Native effort" })).toBeNull();
   });
   it.each([undefined, []])(
     "does not fabricate options when capabilities are %s",

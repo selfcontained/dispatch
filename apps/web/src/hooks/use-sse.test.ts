@@ -1282,6 +1282,16 @@ describe("useSSE message handling", () => {
     ).toEqual(["newer", "older"]);
   });
 
+  it("refreshes only the changed session's Files and Changes queries", () => {
+    const { emit, invalidateQueries } = renderMessages();
+    emit({ type: "agent.checkout_changed", agentId: "author" });
+    expectInvalidatedSet(invalidateQueries, [
+      ["workspace-files", "author"],
+      ["agent-diff-content", "author"],
+      ["agent-diff-file", "author"],
+      ["agent-diff", "author"],
+    ]);
+  });
   it("refetches the state a snapshot does not carry", () => {
     // The snapshot payload only carries agents. Everything else the UI holds
     // could have changed during the gap.
@@ -1290,6 +1300,10 @@ describe("useSSE message handling", () => {
     emit({ type: "snapshot", agents: [] });
 
     expectInvalidatedSet(invalidateQueries, [
+      ["workspace-files"],
+      ["agent-diff-content"],
+      ["agent-diff-file"],
+      ["agent-diff"],
       ["message-metadata"],
       ["routing-pending"],
       ["routing-experiment-settings"],

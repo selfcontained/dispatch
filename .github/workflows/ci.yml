@@ -55,6 +55,10 @@ jobs:
       - name: Test owned command cleanup
         run: node --test scripts/run-owned.test.mjs
 
+      - name: Test managed Linux runner installer
+        if: steps.scope.outputs.scope != 'docs'
+        run: bash scripts/remote-runner/test-installer.sh
+
       - uses: pnpm/action-setup@v6
         with:
           version: 9.15.9
@@ -89,6 +93,12 @@ jobs:
       - name: Test CI event policy
         run: node --test scripts/ci-event-policy.test.mjs
 
+      - name: Check sealed runner boundary baseline and history
+        run: node scripts/check-runner-boundary.mjs --history "$PR_BASE_SHA" "$PR_HEAD_SHA"
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
       # This guard runs for every PR, including the docs fast path. It reads
       # ownership definitions from the PR head, not the merge checkout.
       - name: Require explicit PR owner coverage
@@ -122,6 +132,9 @@ jobs:
       - name: Build Bun binaries
         if: steps.scope.outputs.scope != 'docs'
         run: node scripts/run-owned.mjs pnpm run build:bun
+        env:
+          # CI checks already produced the web build used by the E2E tests.
+          DISPATCH_BUN_REUSE_WEB_DIST: "1"
 
       - name: Smoke test compiled binary for host platform
         if: steps.scope.outputs.scope != 'docs'

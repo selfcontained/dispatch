@@ -1,11 +1,28 @@
-import { readdir, readFile } from "node:fs/promises";
+import {
+  pathFromWire,
+  RunnerCallError,
+} from "@dispatch/runner-protocol/contract";
+import {
+  runnerDirectory,
+  type CheckoutCommandRunners,
+} from "../runners/directory.js";
+import { controllerPlacement } from "../runners/placement.js";
 import path from "node:path";
 
-import { appendBuiltInPersonas, BUILT_IN_PERSONAS } from "./built-in.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import { PERSONA_DIRS } from "./paths.js";
 
-export type PersonaType = "review" | "task";
+import {
+  toPersonaDefinition,
+  type PersonaDefinition,
+  type PersonaType,
+} from "./definition.js";
+export {
+  parseFrontmatter,
+  toPersonaDefinition,
+  type PersonaDefinition,
+  type PersonaType,
+} from "./definition.js";
 
 export function supportsPersonaType(
   persona: { type?: PersonaType },
@@ -14,117 +31,103 @@ export function supportsPersonaType(
   return (persona.type ?? "review") === type;
 }
 
-export type PersonaDefinition = {
-  type?: PersonaType;
-  /** Filename without extension (used as persona ID) */
-  slug: string;
-  /** Display name from frontmatter */
-  name: string;
-  /** Short description from frontmatter */
-  description: string;
-  /** Raw markdown body (after frontmatter) */
-  body: string;
-};
-
-type PersonaFrontmatter = {
-  type?: string;
-  name?: string;
-  description?: string;
-};
-
-/** Inline ACP context budget; larger launches use a complete private file. */
-export const MAX_PERSONA_PROMPT_BYTES = 64 * 1024;
+export { MAX_INLINE_FIRST_TEXT_BYTES as MAX_PERSONA_PROMPT_BYTES } from "@dispatch/runner-protocol";
 export const PERSONA_SIZE_WARNING_BYTES = 48 * 1024;
 
-export function parseFrontmatter(content: string): {
-  frontmatter: PersonaFrontmatter;
-  body: string;
-} {
-  const trimmed = content.trimStart();
-  if (!trimmed.startsWith("---")) {
-    return { frontmatter: {}, body: content };
-  }
-
-  const endIndex = trimmed.indexOf("\n---", 3);
-  if (endIndex === -1) {
-    return { frontmatter: {}, body: content };
-  }
-
-  const fmBlock = trimmed.slice(3, endIndex).trim();
-  const body = trimmed.slice(endIndex + 4).trim();
-
-  const frontmatter: Record<string, string> = {};
-  let legacyFeedbackFormat = false;
-  for (const line of fmBlock.split("\n")) {
-    const colonIdx = line.indexOf(":");
-    if (colonIdx === -1) continue;
-    const key = line.slice(0, colonIdx).trim();
-    const value = line.slice(colonIdx + 1).trim();
-    if (key === "feedbackFormat") legacyFeedbackFormat = true;
-    // Read this legacy marker without exposing the obsolete metadata.
-    if (key && value && key !== "feedbackFormat") {
-      frontmatter[key] = value;
-    }
-  }
-
-  if (legacyFeedbackFormat && frontmatter.type === undefined) {
-    frontmatter.type = "review";
-  }
-  return { frontmatter: frontmatter as PersonaFrontmatter, body };
+/** Folder/project definitions use native semantics; session readers retain their own ports. */
+function folderFiles(root: string, runners: CheckoutCommandRunners) {
+  const runner = runnerDirectory(runners).for(controllerPlacement);
+  const target = { path: pathFromWire(path.resolve(root)) };
+  return {
+    async list(dir: string) {
+      const reply = await runner.call("checkout.list", {
+        target,
+        path: dir,
+        mode: "native",
+      });
+      if (!reply.names)
+        throw new Error("Runner did not return native directory names.");
+      return reply.names;
+    },
+    async read(file: string) {
+      try {
+        const reply = await runner.call("checkout.read", {
+          target,
+          path: file,
+          mode: "native",
+          encoding: "utf8",
+          maxBytes: null,
+        });
+        return reply?.data ?? null;
+      } catch (error) {
+        if (
+          !(error instanceof RunnerCallError) ||
+          error.code !== "failed" ||
+          !error.details ||
+          typeof error.details !== "object" ||
+          Array.isArray(error.details)
+        )
+          throw error;
+        const details = error.details;
+        const original = path.join(root, file);
+        const message =
+          typeof details.path === "string"
+            ? error.message.replaceAll(
+                "'" + details.path + "'",
+                "'" + original + "'"
+              )
+            : error.message;
+        throw Object.assign(new Error(message), {
+          code: details.code,
+          path: original,
+          syscall: details.syscall,
+        });
+      }
+    },
+  };
 }
 
 export async function loadPersonas(
   repoRoot: string,
-  warnings: string[] = []
+  warnings: string[],
+  runners: CheckoutCommandRunners
+): Promise<PersonaDefinition[]> {
+  const files = folderFiles(repoRoot, runners);
+  return loadCheckoutPersonas(files.list, files.read, warnings);
+}
+
+export async function loadCheckoutPersonas(
+  listFiles: (dir: string) => Promise<string[]>,
+  readFile: (file: string) => Promise<string | null>,
+  warnings: string[]
 ): Promise<PersonaDefinition[]> {
   const personas: PersonaDefinition[] = [];
   const seen = new Set<string>();
 
-  for (const personasDir of PERSONA_DIRS) {
-    const dir = path.join(repoRoot, personasDir);
+  for (const directory of PERSONA_DIRS) {
     let entries: string[];
     try {
-      entries = await readdir(dir);
+      entries = await listFiles(directory);
     } catch {
       continue;
     }
 
-    const mdFiles = entries.filter((f) => f.endsWith(".md")).sort();
-    for (const file of mdFiles) {
-      const slug = file.replace(/\.md$/, "");
+    for (const file of entries.filter((name) => name.endsWith(".md")).sort()) {
+      const slug = file.slice(0, -3);
       if (seen.has(slug)) continue;
       seen.add(slug);
       try {
-        const content = await readFile(path.join(dir, file), "utf-8");
-        personas.push(toPersonaDefinition(slug, content));
+        const content = await readFile(`${directory}/${file}`);
+        if (content !== null) personas.push(toPersonaDefinition(slug, content));
       } catch (error) {
         warnings.push(
-          `Could not load persona ${path.join(personasDir, file)}: ${errorMessage(error)}`
+          `Could not load persona ${directory}/${file}: ${errorMessage(error)}`
         );
       }
     }
   }
 
   return personas;
-}
-
-export function toPersonaDefinition(
-  slug: string,
-  content: string
-): PersonaDefinition {
-  const { frontmatter, body } = parseFrontmatter(content);
-  if (frontmatter.type && !["review", "task"].includes(frontmatter.type)) {
-    throw new Error(
-      `Invalid persona type "${frontmatter.type}" in ${slug}. Expected review or task.`
-    );
-  }
-  return {
-    type: (frontmatter.type ?? "review") as PersonaType,
-    slug,
-    name: frontmatter.name ?? slug,
-    description: frontmatter.description ?? "",
-    body,
-  };
 }
 
 export function mergePersonasWithWorktreePrecedence<
@@ -137,50 +140,39 @@ export function mergePersonasWithWorktreePrecedence<
   ];
 }
 
-export async function loadPersonasFromRoots(input: {
-  worktreeRoot?: string | null;
-  repoRoot?: string | null;
-  warnings?: string[];
-}): Promise<PersonaDefinition[]> {
-  const worktreeRoot = input.worktreeRoot ?? null;
-  const repoRoot = input.repoRoot ?? null;
-
-  const worktreePersonas = worktreeRoot
-    ? await loadPersonas(worktreeRoot, input.warnings)
-    : [];
-  const repoPersonas =
-    repoRoot && repoRoot !== worktreeRoot
-      ? await loadPersonas(repoRoot, input.warnings)
-      : [];
-
-  return appendBuiltInPersonas(
-    mergePersonasWithWorktreePrecedence({
-      worktreePersonas,
-      repoPersonas,
-    }),
-    BUILT_IN_PERSONAS
-  );
-}
-
 export async function loadPersonaBySlug(
   repoRoot: string,
-  slug: string
+  slug: string,
+  runners: CheckoutCommandRunners
+): Promise<PersonaDefinition | null> {
+  const files = folderFiles(repoRoot, runners);
+  return loadPersonaFromCheckout(slug, async (filePath) => {
+    try {
+      return await files.read(filePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+  });
+}
+
+/** Read and parse the first definition present in checkout precedence order. */
+export async function loadPersonaFromCheckout(
+  slug: string,
+  readCheckoutFile: (path: string) => Promise<string | null>
 ): Promise<PersonaDefinition | null> {
   if (slug.includes("/") || slug.includes("\\") || slug.includes("..")) {
     throw new Error("Invalid persona slug.");
   }
   for (const personasDir of PERSONA_DIRS) {
-    const filePath = path.join(repoRoot, personasDir, `${slug}.md`);
+    const filePath = `${personasDir}/${slug}.md`;
     try {
-      return toPersonaDefinition(slug, await readFile(filePath, "utf-8"));
+      const content = await readCheckoutFile(filePath);
+      if (content !== null) return toPersonaDefinition(slug, content);
     } catch (error) {
-      // Only a missing file falls through; anything else must not silently
-      // select a stale legacy copy.
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        throw new Error(
-          `Could not read persona ${path.join(personasDir, `${slug}.md`)}: ${errorMessage(error)}`
-        );
-      }
+      throw new Error(
+        `Could not read persona ${filePath}: ${errorMessage(error)}`
+      );
     }
   }
   return null;

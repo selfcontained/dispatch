@@ -9,15 +9,70 @@ import {
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { buildLaunchEnv } from "../src/agents/acp/launch-env.js";
-import { buildHostEnv } from "../src/agents/acp/host-env.js";
-import { loginShellCommand } from "../src/agents/acp/runtime.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { launchListenerEnv } from "../src/agents/acp/launch-env.js";
+import { buildHostEnv, buildLaunchEnv } from "@dispatch/runner/host/host-env";
+import { hostSearchPath } from "../../../packages/runner/src/host/host-search-path.js";
+import {
+  pathFromWire,
+  sessionFromWire,
+} from "@dispatch/runner-protocol/contract";
+import {
+  localHostEntry,
+  writeLocalHostLaunch,
+} from "../../../packages/runner/src/host/local-host-entry.js";
+import type { HostLaunch } from "@dispatch/runner-protocol/host";
+import { loginShellCommand } from "@dispatch/runner/host/host-command";
 
 const roots: string[] = [];
 afterEach(() => {
   for (const dir of roots.splice(0))
     rmSync(dir, { recursive: true, force: true });
+});
+
+it("preserves the local ACP launch command and its argument boundaries", () => {
+  vi.stubEnv("SHELL", "/bin/zsh");
+  try {
+    expect(
+      loginShellCommand([
+        "/local/dispatch",
+        "agent-host",
+        "--state",
+        "/local/state dir",
+      ])
+    ).toEqual({
+      bin: "/bin/zsh",
+      args: [
+        "-lc",
+        '[ -f "$HOME/.dispatch/env" ] && . "$HOME/.dispatch/env"; exec "$@"',
+        "dispatch-agent-host",
+        "/local/dispatch",
+        "agent-host",
+        "--state",
+        "/local/state dir",
+      ],
+    });
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
+it("keeps the configured PATH behind the workload profile PATH", () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "dispatch-runner-path-"));
+  roots.push(home);
+  mkdirSync(path.join(home, ".dispatch"));
+  writeFileSync(path.join(home, ".dispatch/env"), "export PATH=/profile/bin\n");
+  const command = loginShellCommand(
+    ["/usr/bin/printenv", "PATH"],
+    "/bin/sh",
+    "/fallback with spaces/bin:/usr/bin:/bin"
+  );
+  expect(
+    execFileSync(command.bin, command.args, {
+      env: { HOME: home, PATH: "/usr/bin:/bin" },
+      encoding: "utf8",
+    }).trim()
+  ).toBe("/profile/bin:/fallback with spaces/bin:/usr/bin:/bin");
 });
 
 it("merges shell-provided trust after ~/.dispatch/env and isolates agents and consumers", () => {
@@ -28,17 +83,18 @@ it("merges shell-provided trust after ~/.dispatch/env and isolates agents and co
   const launch = buildLaunchEnv({
     agentId: "test",
     filesDir: root,
-    engine: "codex",
-    config: {
-      port: 7000,
-      tls: { cert: Buffer.from(""), key: Buffer.from("") },
-      dispatchBinDir: "",
-    },
-    base: {
-      TLS_CA: local,
-      DISPATCH_LOCAL_TLS: "1",
-      CODEX_CA_CERTIFICATE: "/server-only.pem",
-    },
+    helperBin: "",
+    env: launchListenerEnv(
+      {
+        port: 7000,
+        tls: { cert: Buffer.from(""), key: Buffer.from("") },
+      },
+      {
+        TLS_CA: local,
+        DISPATCH_LOCAL_TLS: "1",
+        CODEX_CA_CERTIFICATE: "/server-only.pem",
+      }
+    ),
   });
   expect(launch.env.CODEX_CA_CERTIFICATE).toBeUndefined();
   const results: NodeJS.ProcessEnv[] = [];
@@ -70,7 +126,12 @@ it("merges shell-provided trust after ~/.dispatch/env and isolates agents and co
           return [line.slice(0, at), line.slice(at + 1)];
         })
     );
-    const env = buildHostEnv({ ...launch, engine: "codex" }, home, shellEnv);
+    const env = buildHostEnv(
+      { ...launch, engine: "codex" },
+      home,
+      hostSearchPath,
+      shellEnv
+    );
     results.push(env);
     expect(env.DISPATCH_LOCAL_CA_CERTIFICATE).toBeUndefined();
     for (const variable of [
@@ -84,15 +145,24 @@ it("merges shell-provided trust after ~/.dispatch/env and isolates agents and co
       expect(bundle).not.toContain(`${agent} SSL_CERT_FILE corporate root`);
       expect(bundle.match(/BEGIN CERTIFICATE/g)!.length).toBeGreaterThan(10);
     }
-    const fallback = buildHostEnv({ ...launch, engine: "codex" }, home, {
-      ...shellEnv,
-      CODEX_CA_CERTIFICATE: undefined,
-      CURL_CA_BUNDLE: undefined,
-    });
+    const fallback = buildHostEnv(
+      { ...launch, engine: "codex" },
+      home,
+      hostSearchPath,
+      {
+        ...shellEnv,
+        CODEX_CA_CERTIFICATE: undefined,
+        CURL_CA_BUNDLE: undefined,
+        NODE_EXTRA_CA_CERTS: undefined,
+      }
+    );
     expect(readFileSync(fallback.CODEX_CA_CERTIFICATE!, "utf8")).toContain(
       `${agent} SSL_CERT_FILE corporate root`
     );
     expect(readFileSync(fallback.CURL_CA_BUNDLE!, "utf8")).toContain(
+      `${agent} SSL_CERT_FILE corporate root`
+    );
+    expect(readFileSync(fallback.NODE_EXTRA_CA_CERTS!, "utf8")).toContain(
       `${agent} SSL_CERT_FILE corporate root`
     );
   }
@@ -108,6 +178,7 @@ it("preserves the shell trust configuration without managed local TLS", () => {
   const env = buildHostEnv(
     { env: {}, engine: "claude", pathPrefix: [] },
     "/unused",
+    hostSearchPath,
     {
       CODEX_CA_CERTIFICATE: "corp.pem",
       CURL_CA_BUNDLE: "curl.pem",
@@ -153,6 +224,7 @@ it("lets an engine CLI found off PATH run the node installed beside it", () => {
       bins: { claudeBin: "/elsewhere/claude", codexBin: codex },
     },
     root,
+    hostSearchPath,
     { HOME: root, PATH: "/usr/bin:/bin" }
   );
   expect(env.PATH?.split(path.delimiter).slice(0, 4)).toEqual([
@@ -198,13 +270,13 @@ for (const engine of ["claude", "codex", "opencode"] as const) {
         opencodeBin: path.join(localBin, "opencode"),
       },
     };
-    const env = buildHostEnv(launch, root, inherited);
+    const env = buildHostEnv(launch, root, hostSearchPath, inherited);
     expect(
       execFileSync("npx", ["@playwright/mcp"], { env, encoding: "utf8" }).trim()
     ).toBe("mcp-started");
     expect(env.KEEP).toBe("unchanged");
     expect(inherited.PATH).toBe("/usr/bin:/bin");
-    const selected = buildHostEnv(launch, root, {
+    const selected = buildHostEnv(launch, root, hostSearchPath, {
       ...inherited,
       PATH: `${oldBin}:/usr/bin:/bin`,
     });
@@ -220,12 +292,98 @@ for (const engine of ["claude", "codex", "opencode"] as const) {
 it("preserves CLI effort defaults unless the launch explicitly overrides them", () => {
   const shell = { CLAUDE_EFFORT: "low", CLAUDE_CODE_EFFORT_LEVEL: "low" };
   const launch = { env: {}, pathPrefix: [], engine: "claude" as const };
-  expect(buildHostEnv(launch, "/tmp/effort-env", shell)).toMatchObject(shell);
+  expect(
+    buildHostEnv(launch, "/tmp/effort-env", hostSearchPath, shell)
+  ).toMatchObject(shell);
   const overridden = buildHostEnv(
     { ...launch, effort: "high" },
     "/tmp/effort-env",
+    hostSearchPath,
     shell
   );
   expect(overridden.CLAUDE_EFFORT).toBeUndefined();
   expect(overridden.CLAUDE_CODE_EFFORT_LEVEL).toBeUndefined();
 });
+
+for (const engine of ["claude", "codex", "opencode"] as const) {
+  it(`preserves the ${engine} local launch environment`, async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "dispatch-launch-golden-"));
+    roots.push(root);
+    const bins = {
+      claudeBin: path.join(root, "tools/claude/bin/claude"),
+      codexBin: path.join(root, "tools/codex/bin/codex"),
+      opencodeBin: path.join(root, "tools/opencode/bin/opencode"),
+    };
+    for (const bin of Object.values(bins)) {
+      mkdirSync(path.dirname(bin), { recursive: true });
+      writeFileSync(bin, "#!/bin/sh\necho 1.0.0\n", { mode: 0o755 });
+    }
+    const inheritedBin = "/launch-inherited/bin";
+    mkdirSync(path.join(root, ".dispatch"));
+    writeFileSync(
+      path.join(root, ".dispatch/env"),
+      'export PATH="/shell/bin:$PATH"\n'
+    );
+    vi.stubEnv("SHELL", "/bin/sh");
+    const command = localHostEntry().wrap(["/usr/bin/printenv", "PATH"]);
+    const shellPath = execFileSync(command.bin, command.args, {
+      env: { HOME: root, PATH: `${inheritedBin}:/usr/bin:/bin` },
+      encoding: "utf8",
+    })
+      .trim()
+      .split(path.delimiter);
+    // macOS and Linux supply different system PATHs in the login profile.
+    const fixturePath = shellPath.filter(
+      (entry) => entry === inheritedBin || entry === "/shell/bin"
+    );
+    const shellEnv = {
+      HOME: "/dispatch-golden/home",
+      PATH: [...fixturePath, "/usr/bin", "/bin"].join(path.delimiter),
+      DISPATCH_ACP_ADAPTER_COMMAND: '["fixture"]',
+      CLAUDE_CODE_EFFORT_LEVEL: "high",
+      CUSTOM_SHELL_SETTING: "kept",
+    };
+    vi.stubEnv("HOME", shellEnv.HOME);
+    vi.stubEnv(
+      "DISPATCH_LOCAL_RUNNER_LAUNCH",
+      JSON.stringify({
+        filesRoot: path.join(root, "files"),
+        helperBin: "/dispatch/bin",
+        env: launchListenerEnv({ port: 6767, tls: null }),
+        bins,
+      })
+    );
+    try {
+      await writeLocalHostLaunch(root, {
+        session: sessionFromWire("agt_golden"),
+        launchId: "golden",
+        directory: pathFromWire(root),
+        engine,
+        model: null,
+        effort: "medium",
+        access: "full",
+        resume: null,
+        systemText: null,
+        firstText: null,
+        overflowNotice: null,
+        env: {},
+        mcp: [],
+        owner: null,
+      });
+      const launch: HostLaunch = JSON.parse(
+        readFileSync(path.join(root, "launch.json"), "utf8")
+      );
+      const env = buildHostEnv(launch, root, hostSearchPath, shellEnv);
+      expect({
+        ...env,
+        DISPATCH_FILES_DIR: env.DISPATCH_FILES_DIR?.replace(
+          root,
+          "/dispatch-golden"
+        ),
+        PATH: env.PATH?.replace(`${root}/tools`, "/tools"),
+      }).toMatchSnapshot();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+}

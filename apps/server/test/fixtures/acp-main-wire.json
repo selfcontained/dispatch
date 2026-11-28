@@ -1,0 +1,8 @@
+{
+  "main": "6ab845b2b326e244bb890bc85a930faa3c983763",
+  "method": "Evaluated send payload expressions and encodeMessage extracted from pinned origin/main; deterministic driver/journal inputs, no engine or host process.",
+  "welcome": "{\"type\":\"welcome\",\"agentId\":\"agt_mode_test\",\"engine\":\"claude\",\"sessionId\":\"main-session\",\"resumed\":false,\"running\":true,\"mcpInventorySupported\":false,\"backgroundWorkSupported\":true,\"steeringSupported\":true,\"interruptSupported\":true,\"turn\":null,\"journalSeq\":1,\"journalId\":\"main-journal\",\"commands\":[],\"configOptions\":[],\"permissions\":[]}\n",
+  "replay": "{\"type\":\"event\",\"seq\":1,\"at\":\"2026-01-01T00:00:00.000Z\",\"event\":{\"type\":\"update\",\"agentId\":\"agt_mode_test\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"from main\"}}},\"journalId\":\"main-journal\"}\n",
+  "update": "{\"type\":\"event\",\"seq\":2,\"at\":\"2026-01-01T00:00:00.000Z\",\"event\":{\"type\":\"update\",\"agentId\":\"agt_mode_test\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"after adoption\"}}},\"journalId\":\"main-journal\"}\n",
+  "receipt": "{\"type\":\"prompt_accepted\",\"id\":\"main-prompt\"}\n"
+}

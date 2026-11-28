@@ -1,6 +1,7 @@
+import { githubPullRequestUrl } from "../pull-request-reader.js";
+import { mergeRiskScope, type MergeRiskGitHubSource } from "./github-source.js";
 import { retainedEvidence } from "./explanation-evidence.js";
 import { mergeRiskCapacity } from "./budget.js";
-import { readAssessedDiff } from "./explanation-diff.js";
 import type { Pool } from "pg";
 import type { RoutingSettings } from "../../chat/routing-settings.js";
 import {
@@ -9,7 +10,7 @@ import {
   type ExplanationFailure,
 } from "./explanation-client.js";
 
-type Input = { assessmentId: string };
+type Input = { assessmentId: string; url?: string; runnerId?: string | null };
 /**
  * Why no explanation could start. Safe to show and log; never private data.
  * `not_found` means no completed assessment has that id (unknown or pruned).
@@ -30,9 +31,11 @@ export type ExplanationReply =
   | { state: "limited"; reason: "concurrency" }
   | { state: "failed"; reason: ExplanationFailure | "unknown" };
 type Reply = ExplanationReply;
+type ExistingReply = Extract<Reply, { state: "pending" | "ready" | "limited" }>;
 type Assessment = {
   url: string;
   head_sha: string;
+  base_sha: string | null;
   created_at: Date;
   result: Record<string, unknown>;
   /** Null when the record predates evidence retention or retention failed. */
@@ -44,7 +47,8 @@ type Assessment = {
  *
  * Explains one saved assessment by id, as it was made. Nothing about the
  * PR's current head, reviews, status or the in-memory inventory gates it.
- * Request auth and the browser-only route are the only access controls.
+ * The requesting placement must still be able to read the PR with the
+ * credential that supplied the assessment.
  */
 export class RiskExplanations {
   constructor(
@@ -52,18 +56,23 @@ export class RiskExplanations {
       pool: Pool;
       settings: RoutingSettings;
       transport?: typeof fetch;
-      /** Hunks for the assessed commit; injectable so tests never call gh. */
-      readDiff?: typeof readAssessedDiff;
+      /** PR reads as the requesting agent's runner makes them. */
+      github: Pick<MergeRiskGitHubSource, "details" | "diff">;
     }
   ) {}
 
-  private async find(id: string): Promise<Assessment | undefined> {
+  private async find(
+    id: string,
+    url: string | null,
+    scope: string
+  ): Promise<Assessment | undefined> {
     const { rows } = await this.deps.pool.query<Assessment>(
-      `SELECT r.url,r.head_sha,r.created_at,r.result,s.evidence
+      `SELECT r.url,r.head_sha,r.base_sha,r.created_at,r.result,s.evidence
        FROM merge_risk_decision_records r
        LEFT JOIN merge_risk_evidence_snapshots s ON s.assessment_id=r.id
-       WHERE r.id=$1 AND r.status='ok'`,
-      [id]
+       WHERE r.id=$1 AND r.status='ok' AND ($2::text IS NULL OR r.url=$2)
+         AND r.evidence_scope=$3`,
+      [id, url, scope]
     );
     return rows[0];
   }
@@ -77,7 +86,23 @@ export class RiskExplanations {
     const config = await this.deps.settings.configuration();
     if (!config.mergeRiskEnabled || !config.apiKey)
       return { state: "unavailable", reason: "disabled" };
-    const assessment = await this.find(input.assessmentId);
+    const { github } = this.deps;
+    const runnerId = input.runnerId ?? null;
+    // A placement whose reads are scoped to a credential must still read
+    // this PR with the credential that supplied the assessment; one that is
+    // not (local, as on main) needs no read.
+    const scoped = mergeRiskScope(runnerId, undefined) === null;
+    const url = scoped && input.url ? githubPullRequestUrl(input.url) : null;
+    const credential = async () =>
+      url
+        ? (await github.details(runnerId, url).catch(() => null))
+            ?.credentialContext
+        : undefined;
+    const context = scoped ? await credential() : undefined;
+    const scope = mergeRiskScope(runnerId, context);
+    if (scope === null) return { state: "unavailable", reason: "not_found" };
+    const authorized = async () => !scoped || (await credential()) === context;
+    const assessment = await this.find(input.assessmentId, url, scope);
     if (!assessment) return { state: "unavailable", reason: "not_found" };
     const limitedEvidence = assessment.evidence == null;
     // Settings are re-read after every await; a change aborts before spend.
@@ -85,64 +110,26 @@ export class RiskExplanations {
       config === (await this.deps.settings.configuration());
     if (!(await unchanged()))
       return { state: "unavailable", reason: "config_changed" };
-    const client = await this.deps.pool.connect();
-    try {
-      await client.query("BEGIN");
-      const capacity = await mergeRiskCapacity(client);
-      const stored = (
-        await client.query<{
-          status: string;
-          result: {
-            text?: string;
-            limitedEvidence?: boolean;
-            version?: string;
-          };
-        }>(
-          "SELECT status,result FROM merge_risk_explanations WHERE assessment_id=$1",
-          [input.assessmentId]
-        )
-      ).rows[0];
-      // An explanation from an older prompt/model is not reused: it regenerates.
-      if (stored?.status === "pending") {
-        await client.query("COMMIT");
-        return { state: "pending" };
-      }
-      if (
-        stored?.status === "ok" &&
-        stored.result.version === EXPLANATION_VERSION
-      ) {
-        await client.query("COMMIT");
-        return {
-          state: "ready",
-          text: stored.result.text,
-          ...(stored.result.limitedEvidence
-            ? { limitedEvidence: true as const }
-            : {}),
-        };
-      }
-      if (capacity !== "pending") {
-        await client.query("COMMIT");
-        return { state: "limited", reason: "concurrency" };
-      }
-      await client.query(
-        "INSERT INTO merge_risk_explanations(assessment_id,status) VALUES($1,'pending') ON CONFLICT(assessment_id) DO UPDATE SET status='pending',created_at=now()",
-        [input.assessmentId]
-      );
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
+    const existing = await this.reserve(input.assessmentId);
+    if (existing) {
+      if (existing.state === "limited" || (await authorized())) return existing;
+      return { state: "unavailable", reason: "not_found" };
     }
     // Without saved evidence the model may not name files, so no hunks.
     const diff = limitedEvidence
       ? null
-      : await (this.deps.readDiff ?? readAssessedDiff)(
+      : await github.diff(
+          runnerId,
           assessment.url,
+          assessment.base_sha,
           assessment.head_sha,
+          context,
           assessment.evidence
-        ).catch(() => null);
+        );
+    if (!(await authorized())) {
+      await this.finish(input.assessmentId, "stale", { reason: "not_found" });
+      return { state: "unavailable", reason: "not_found" };
+    }
     if (!(await unchanged())) {
       await this.finish(input.assessmentId, "stale", {
         reason: "config_changed",
@@ -164,16 +151,23 @@ export class RiskExplanations {
       ),
       this.deps.transport
     );
-    const current = await unchanged();
+    const stillAuthorized = await authorized();
+    const current = stillAuthorized && (await unchanged());
     // Results from replaced settings retain only accounting, never text.
     const { text, ...accounting } = result;
     await this.finish(input.assessmentId, current ? result.status : "stale", {
       ...accounting,
-      ...(current ? {} : { reason: "config_changed" }),
+      ...(current
+        ? {}
+        : { reason: stillAuthorized ? "config_changed" : "not_found" }),
       ...(current && text ? { text } : {}),
       ...(limitedEvidence ? { limitedEvidence: true } : {}),
     });
-    if (!current) return { state: "unavailable", reason: "config_changed" };
+    if (!current)
+      return {
+        state: "unavailable",
+        reason: stillAuthorized ? "config_changed" : "not_found",
+      };
     return result.status === "ok"
       ? {
           state: "ready",
@@ -185,6 +179,59 @@ export class RiskExplanations {
           reason: result.status === "error" ? result.reason : "unknown",
         };
   }
+  private async reserve(
+    assessmentId: string
+  ): Promise<ExistingReply | undefined> {
+    const client = await this.deps.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const capacity = await mergeRiskCapacity(client);
+      const stored = (
+        await client.query<{
+          status: string;
+          result: {
+            text?: string;
+            limitedEvidence?: boolean;
+            version?: string;
+          };
+        }>(
+          "SELECT status,result FROM merge_risk_explanations WHERE assessment_id=$1",
+          [assessmentId]
+        )
+      ).rows[0];
+      let reply: ExistingReply | undefined;
+      // An explanation from an older prompt/model is regenerated.
+      if (stored?.status === "pending") {
+        reply = { state: "pending" };
+      } else if (
+        stored?.status === "ok" &&
+        stored.result.version === EXPLANATION_VERSION
+      ) {
+        reply = {
+          state: "ready",
+          text: stored.result.text,
+          ...(stored.result.limitedEvidence
+            ? { limitedEvidence: true as const }
+            : {}),
+        };
+      } else if (capacity !== "pending") {
+        reply = { state: "limited", reason: "concurrency" };
+      } else {
+        await client.query(
+          "INSERT INTO merge_risk_explanations(assessment_id,status) VALUES($1,'pending') ON CONFLICT(assessment_id) DO UPDATE SET status='pending',created_at=now()",
+          [assessmentId]
+        );
+      }
+      await client.query("COMMIT");
+      return reply;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   private async finish(id: string, status: string, result: unknown) {
     await this.deps.pool.query(
       `UPDATE merge_risk_explanations SET status=$2,result=(result || $3::jsonb) ||

@@ -1,3 +1,4 @@
+import { localAgentPlacement } from "@/test-utils/__fixtures__/agent-placement";
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -57,6 +58,7 @@ function makeAgent(id: string): Agent {
     name: "launched",
     type: "claude",
     status: "running",
+    placement: localAgentPlacement,
     cwd: "/repo",
     worktreePath: null,
     worktreeBranch: null,
@@ -91,7 +93,11 @@ async function renderDialog(template: Template) {
   );
   // The launch payload only carries a model once the catalog has arrived, so
   // every test starts from the settled state the user actually sees.
-  await waitFor(() => expect(modelSelect().disabled).toBe(false));
+  await waitFor(() => {
+    const trigger = modelSelect();
+    expect(trigger.disabled).toBe(false);
+    expect(trigger.hasAttribute("aria-busy")).toBe(false);
+  });
   return { onOpenChange };
 }
 
@@ -200,6 +206,27 @@ beforeEach(() => {
   apiMock.mockReset();
   launchQueue.length = 0;
   apiMock.mockImplementation(((path: string) => {
+    if (path === "/api/v1/launch-targets")
+      return Promise.resolve({
+        targets: [
+          {
+            key: "fixture-target",
+            dataUrl: "/fixture/data",
+            location: { folders: true },
+          },
+        ],
+      });
+    if (path.startsWith("/api/v1/launch-targets/saved"))
+      return Promise.resolve({ targetKey: "fixture-target" });
+    if (path.startsWith("/fixture/data")) {
+      const q = new URL(path, "http://fixture").searchParams;
+      const type = q.get("agentType") as keyof typeof MODEL_CATALOG.models;
+      const options = MODEL_CATALOG.models[type];
+      return Promise.resolve({
+        catalog: MODEL_CATALOG,
+        effort: options?.find((m) => m.id === q.get("model"))?.effort,
+      });
+    }
     if (path === "/api/v1/agent-models") return Promise.resolve(MODEL_CATALOG);
     const responder = launchQueue.shift();
     if (!responder) throw new Error(`unexpected api call: ${path}`);

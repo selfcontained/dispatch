@@ -5,7 +5,7 @@ import type { Pool } from "pg";
 import type WebSocket from "ws";
 
 import type { AgentManager, AgentRecord } from "../../agents/manager.js";
-import type { CodexResetOutcome } from "../../agents/provider-plans.js";
+import type { CodexResetOutcome } from "@dispatch/runner-protocol/engine-plans";
 import type { DiffStatsRefresher } from "../../agents/diff-stats-refresher.js";
 import type { StreamService } from "../../chat/service.js";
 import type { PublishUiEvent } from "../../server/ui-events.js";
@@ -49,6 +49,7 @@ export type AgentRouteDeps = {
     agentId: string,
     stream: NodeJS.WritableStream
   ) => () => void;
+  observeCheckout?: (agent: AgentRecord) => void;
   diffStatsRefresher: DiffStatsRefresher;
   onArchivedAgentsDeleted: (deletedIds: string[]) => void;
   onArchiveError: (agentId: string, error: unknown) => void;
@@ -64,6 +65,14 @@ export type AgentRouteDeps = {
     force?: boolean;
   }) => Promise<ProviderPlansResponse>) & { invalidate?: () => void };
   /** Spends a Codex limit reset; tests inject one so nothing reaches ChatGPT. */
+  usageForRunner?: (id: string) => {
+    providerPlans: NonNullable<AgentRouteDeps["providerPlans"]>;
+    redeemCodexReset: RedeemCodexReset;
+  };
+  usageForAgent?: (id: string) => Promise<{
+    providerPlans: NonNullable<AgentRouteDeps["providerPlans"]>;
+    redeemCodexReset: RedeemCodexReset;
+  }>;
   redeemCodexReset?: RedeemCodexReset;
   consumeCodexReset?: () => Promise<CodexResetOutcome>;
   /**
@@ -71,9 +80,13 @@ export type AgentRouteDeps = {
    * assignee; absent (tests), `taskId` is refused.
    */
   tasks?: {
-    briefingFor: (
-      taskId: string
-    ) => Promise<{ projectId: string; text: string; name: string }>;
+    briefingFor: (taskId: string) => Promise<{
+      projectId: string;
+      text: string;
+      name: string;
+      /** Files the text names by path, handed to the created agent. */
+      references?: Array<{ source: string; name: string }>;
+    }>;
     assignCreated: (taskId: string, agentId: string) => Promise<void>;
   };
   /** Read per click: the flag is a cold path and must not be cached stale. */

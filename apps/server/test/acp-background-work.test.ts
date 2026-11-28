@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { BackgroundWorkRegistry } from "../src/agents/acp/background-work.js";
+import { BackgroundWorkRegistry } from "@dispatch/runner/host/background-work";
 const spawn = {
   sessionUpdate: "async_task_spawned" as const,
   asyncTaskId: "a",

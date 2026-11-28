@@ -112,26 +112,48 @@ export function removeCwdFromHistory(cwd: string): string[] {
   return next;
 }
 
-export function useCwdHistory() {
+export function useCwdHistory(historyUrl?: string) {
   const [history, setHistory] = useState<string[]>(() => readCwdHistory());
   const [usage, setUsage] = useState<Record<string, number>>(() =>
     readCwdHistoryUsage()
   );
+  const scoped = historyUrl !== undefined;
+  const suggestionsUrl = scoped
+    ? historyUrl
+      ? `${historyUrl}${historyUrl.includes("?") ? "&" : "?"}${new URLSearchParams({ candidates: JSON.stringify(history) })}`
+      : ""
+    : "/api/v1/history/projects";
   const { data: projectOptions = [] } = useQuery<ProjectHistoryOption[]>({
-    queryKey: ["history", "projects", "cwd-suggestions"],
+    queryKey: scoped
+      ? ["history", "projects", "cwd-suggestions", suggestionsUrl]
+      : ["history", "projects", "cwd-suggestions"],
+    enabled: suggestionsUrl !== "",
     queryFn: async () => {
       const payload = await api<{
         projectOptions?: ProjectHistoryOption[];
         projects: string[];
-      }>("/api/v1/history/projects?limit=50");
+      }>(
+        `${suggestionsUrl}${suggestionsUrl.includes("?") ? "&" : "?"}limit=50`
+      );
 
-      return (
+      const options =
         payload.projectOptions ??
         payload.projects.map((path) => ({
           path,
           usageCount: 0,
           latestCreatedAt: "",
-        }))
+        }));
+      if (!scoped) return options;
+      // The target validates browser-only candidates too. They have no server
+      // usage row, but still take their existing browser usage below.
+      const byPath = new Map(options.map((option) => [option.path, option]));
+      return payload.projects.map(
+        (path) =>
+          byPath.get(path) ?? {
+            path,
+            usageCount: 0,
+            latestCreatedAt: "",
+          }
       );
     },
     staleTime: 60_000,
@@ -187,7 +209,8 @@ export function useCwdHistory() {
   );
 
   return {
-    history: mergedHistory,
+    history: scoped ? apiHistory : mergedHistory,
+    suggestionsUrl,
     removableHistory: history,
     historyMetadata,
     add,
@@ -196,7 +219,11 @@ export function useCwdHistory() {
   };
 }
 
-export function useCreateAgentPrefs(cwd: string, agentType: AgentType) {
+export function useCreateAgentPrefs(
+  cwd: string,
+  agentType: AgentType,
+  baseBranchDefault = ""
+) {
   const trimmedCwd = cwd.trim();
   const [persona, setPersona] = useAtom(
     useMemo(() => createPersonaPrefAtom(trimmedCwd), [trimmedCwd])
@@ -205,7 +232,14 @@ export function useCreateAgentPrefs(cwd: string, agentType: AgentType) {
     useMemo(() => createFullAccessPrefAtom(trimmedCwd), [trimmedCwd])
   );
   const [baseBranch, setBaseBranch] = useAtom(
-    useMemo(() => createBaseBranchPrefAtom(trimmedCwd), [trimmedCwd])
+    useMemo(
+      () =>
+        createBaseBranchPrefAtom({
+          key: trimmedCwd,
+          defaultValue: baseBranchDefault,
+        }),
+      [trimmedCwd, baseBranchDefault]
+    )
   );
   const [useWorktree, setUseWorktree] = useAtom(
     useMemo(() => createUseWorktreePrefAtom(trimmedCwd), [trimmedCwd])

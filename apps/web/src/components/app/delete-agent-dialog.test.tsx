@@ -1,3 +1,4 @@
+import { localAgentPlacement } from "@/test-utils/__fixtures__/agent-placement";
 // @vitest-environment jsdom
 import type {
   AgentArchivePreview,
@@ -30,6 +31,7 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     name: "worker-1",
     type: "claude",
     status: "running",
+    placement: localAgentPlacement,
     cwd: "/repo",
     worktreePath: null,
     worktreeBranch: null,
@@ -135,6 +137,26 @@ describe("DeleteAgentDialog", () => {
     expect(
       screen.queryByText("Archive “worker-1” with outstanding changes?")
     ).toBeNull();
+  });
+
+  it("offers only keeping the worktree when its status could not be read", async () => {
+    const agent = makeAgent({ worktreePath: "/checkout" });
+    apiMock.mockResolvedValueOnce({
+      ...noCleanup,
+      worktreeStatusUnreadable: true,
+    });
+    const { onDelete } = renderDialog(agent);
+    const keep = await screen.findByRole("button", {
+      name: "Archive, keep worktree",
+    });
+    expect(
+      screen.getByText("Worktree cleanup failed; leaving on disk.")
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Archive and remove worktree" })
+    ).toBeNull();
+    fireEvent.click(keep);
+    await waitFor(() => expect(onDelete).toHaveBeenCalledWith(agent, "keep"));
   });
 
   it("disables Archive while the worktree status is loading", async () => {

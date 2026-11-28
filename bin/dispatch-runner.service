@@ -1,0 +1,16 @@
+[Unit]
+Description=Dispatch remote runner
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=exec
+ExecStart=/opt/dispatch-runner/dispatch remote-runner /etc/dispatch-runner/runner.json
+UMask=0077
+Restart=on-failure
+RestartSec=5s
+KillMode=process
+Delegate=no
+
+[Install]
+WantedBy=multi-user.target

@@ -1,3 +1,4 @@
+import { localAgentPlacement } from "@/test-utils/__fixtures__/agent-placement";
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -107,6 +108,7 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     name: "worker-1",
     type: "claude",
     status: "running",
+    placement: localAgentPlacement,
     cwd: "/repo/app",
     worktreePath: null,
     worktreeBranch: null,
@@ -1177,6 +1179,26 @@ describe("AgentCardActions and child agents", () => {
     expect(props.setDeleteTarget).toHaveBeenCalledWith(props.agent);
     expect(props.setDeleteConfirmOpen).toHaveBeenCalledWith(true);
     expect(props.setStopTarget).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers Open in IDE only for a checkout on this machine", async () => {
+    const { rerender } = renderCard({ expandedAgentId: AGENT_ID });
+    await openActions();
+    expect(
+      screen
+        .getByRole("menu")
+        .querySelector('[data-testid^="agent-action-ide"]')
+    ).not.toBeNull();
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+
+    rerender({ agent: makeAgent({ checkoutOnServerHost: false }) });
+    await openActions();
+    expect(
+      screen
+        .getByRole("menu")
+        .querySelector('[data-testid^="agent-action-ide"]')
+    ).toBeNull();
+    expect(screen.queryByText(/Open in/)).toBeNull();
   });
 
   it("keeps the overflow menu last, and repeats archive inside it", async () => {

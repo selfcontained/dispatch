@@ -1,0 +1,144 @@
+{
+  "protocol": 1,
+  "toRunner": {
+    "start": {
+      "object": {
+        "type": {
+          "literal": ["start"]
+        },
+        "build": {
+          "object": {
+            "version": "string",
+            "revision": {
+              "optional": "string"
+            }
+          }
+        },
+        "protocol": "integer",
+        "nonce": "string",
+        "roots": {
+          "object": {
+            "state": "string",
+            "files": "string"
+          }
+        },
+        "config": {
+          "object": {
+            "runnerId": "string",
+            "displayName": "string",
+            "engines": {
+              "array": "string"
+            },
+            "hostCommand": {
+              "optional": {
+                "array": "string"
+              }
+            }
+          }
+        },
+        "frozen": {
+          "optional": "boolean"
+        }
+      }
+    },
+    "freeze": {
+      "object": {
+        "type": {
+          "literal": ["freeze"]
+        },
+        "seq": "integer"
+      }
+    },
+    "thaw": {
+      "object": {
+        "type": {
+          "literal": ["thaw"]
+        },
+        "seq": "integer"
+      }
+    },
+    "import": {
+      "object": {
+        "type": {
+          "literal": ["import"]
+        },
+        "seq": "integer",
+        "bindings": {
+          "array": {
+            "object": {
+              "session": "string",
+              "path": "string",
+              "currentPath": {
+                "nullable": "string"
+              },
+              "worktree": {
+                "nullable": {
+                  "object": {
+                    "path": "string",
+                    "branch": {
+                      "nullable": "string"
+                    },
+                    "base": {
+                      "nullable": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "fromRunner": {
+    "ready": {
+      "object": {
+        "type": {
+          "literal": ["ready"]
+        },
+        "build": {
+          "object": {
+            "version": "string",
+            "revision": {
+              "optional": "string"
+            }
+          }
+        },
+        "protocol": "integer",
+        "nonce": "string",
+        "socket": "string",
+        "frozen": "boolean"
+      }
+    },
+    "fence": {
+      "object": {
+        "type": {
+          "literal": ["fence"]
+        },
+        "seq": "integer",
+        "frozen": "boolean"
+      }
+    },
+    "imported": {
+      "object": {
+        "type": {
+          "literal": ["imported"]
+        },
+        "seq": "integer",
+        "added": "integer",
+        "kept": "integer",
+        "invalid": "integer",
+        "frozen": "boolean",
+        "error": {
+          "optional": "string"
+        }
+      }
+    }
+  },
+  "lifeline": "eof",
+  "exit": {
+    "invalid": 64,
+    "locked": 75,
+    "mismatch": 78
+  }
+}

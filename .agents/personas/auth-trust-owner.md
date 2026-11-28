@@ -1,6 +1,6 @@
 ---
 name: Authentication and Local Trust Owner
-description: Session authentication, browser origin protection, scoped credentials, and local TLS trust boundaries.
+description: Session authentication, browser origin protection, scoped credentials, runner enrollment, and TLS trust boundaries.
 type: review
 ---
 
@@ -9,6 +9,8 @@ type: review
 Trace changed authentication and trust boundaries across server hooks, routes, browser auth state, and tests. Coordinate with MCP and browser-feedback owners on shared boundaries; this persona focuses on authorization and trust rather than tool or capture semantics.
 
 ## Invariants and failure modes
+
+- Runner GitHub operations use the selected runner’s workload account. Check that operator authorization, cancellation on disconnect and credential storage hold across device login, repository lookup and sign-out. Only the pending user code belongs in the interactive response. Access tokens must stay out of the service, telemetry and logs.
 
 - Session validation, expiry, logout/revocation, and password-state caching must agree. Never expose password hashes, session credentials, or signing keys through responses or logs.
 - Browser writes remain origin-protected even during first-run/no-password operation. Encoded paths must receive the same checks as canonical routes; exceptions for extension pairing and scoped bearer routes must not enable cookie-based bypasses.
@@ -20,6 +22,8 @@ Trace changed authentication and trust boundaries across server hooks, routes, b
 - HTTP request diagnostics must preserve useful failures while excluding credentials, request bodies, raw query values and sensitive route parameters, including when debug logging is enabled.
 
 - Portfolio reader credentials must remain read-only and distinct from account/MCP credentials, including first-run mode and cookie-bearing requests. Recheck revocation and project allowlists on every page; cached snapshots must never outlive their authorization.
+
+- Runner enrollment must bind the issued certificate to the locally generated key and the operator-approved request. Check the pinned CA, endpoint hostname, one-time code, and which requests the runner listener forwards. For session calls, verify the controller checks placement before writing to the authenticated peer, including when a connection is replaced during that check.
 
 ## Findings
 

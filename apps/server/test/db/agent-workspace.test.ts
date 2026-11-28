@@ -1,3 +1,4 @@
+import { RunnerCallError } from "@dispatch/runner-protocol/contract";
 /**
  * An agent that moves after launch (its own worktree, another repo) reports a
  * workspace. These run real git against temp repos and a real database: the
@@ -32,38 +33,53 @@ const cleanupGitWorktreeSpy = vi.fn(async () => ({
   deletedBranch: false,
 }));
 
-vi.mock("../../src/shared/git/worktree.js", async () => {
-  const actual = await vi.importActual<
-    typeof import("../../src/shared/git/worktree.js")
-  >("../../src/shared/git/worktree.js");
-  return { ...actual, cleanupGitWorktree: cleanupGitWorktreeSpy };
-});
+vi.mock(
+  "../../../../packages/runner/src/workload/shared/git/worktree.js",
+  async () => {
+    const actual = await vi.importActual<
+      typeof import("../../../../packages/runner/src/workload/shared/git/worktree.js")
+    >("../../../../packages/runner/src/workload/shared/git/worktree.js");
+    return { ...actual, cleanupGitWorktree: cleanupGitWorktreeSpy };
+  }
+);
 
 // Lets a test hold one directory's git probe open to reorder it against a
 // workspace change.
 const probeGates = new Map<string, Promise<void>>();
-vi.mock("../../src/shared/git/git-context.js", async () => {
-  const actual = await vi.importActual<
-    typeof import("../../src/shared/git/git-context.js")
-  >("../../src/shared/git/git-context.js");
-  return {
-    ...actual,
-    probeGitContext: async (
-      cwd: string,
-      opts?: Parameters<typeof actual.probeGitContext>[1]
-    ) => {
-      const result = await actual.probeGitContext(cwd, opts);
-      const gate = probeGates.get(cwd);
-      if (gate) {
-        probeGates.delete(cwd);
-        await gate;
-      }
-      return result;
-    },
-  };
-});
+vi.mock(
+  "../../../../packages/runner/src/workload/shared/git/git-context.js",
+  async () => {
+    const actual = await vi.importActual<
+      typeof import("../../../../packages/runner/src/workload/shared/git/git-context.js")
+    >("../../../../packages/runner/src/workload/shared/git/git-context.js");
+    return {
+      ...actual,
+      probeGitContext: async (
+        cwd: string,
+        opts?: Parameters<typeof actual.probeGitContext>[1]
+      ) => {
+        const result = await actual.probeGitContext(cwd, opts);
+        const gate = probeGates.get(cwd);
+        if (gate) {
+          probeGates.delete(cwd);
+          await gate;
+        }
+        return result;
+      },
+    };
+  }
+);
 
 const { AgentManager } = await import("../../src/agents/manager.js");
+const { createMcpHandlers } = await import("../../src/server/mcp-handlers.js");
+const { BindingStore } =
+  await import("../../../../packages/runner/src/local/bindings.js");
+const { workspaceHandlers } =
+  await import("../../../../packages/runner/src/core/workspace.js");
+const { workspaceWorkload } =
+  await import("../../../../packages/runner/src/workload/agents/checkout-worker.js");
+const { readLocalBindings } =
+  await import("../../src/runners/local-bindings.js");
 
 const noopLogger = {
   info: () => {},
@@ -115,11 +131,14 @@ let otherRepo: string;
 beforeAll(async () => {
   pool = await setupTestDb();
   await runTestMigrations();
-  manager = new AgentManager(pool, noopLogger, inertConfig);
 
   root = await realpath(
     await mkdtemp(path.join(os.tmpdir(), "dispatch-agent-workspace-"))
   );
+  manager = new AgentManager(pool, noopLogger, {
+    ...inertConfig,
+    agentStateRoot: path.join(root, "state"),
+  });
   repo = path.join(root, "repo");
   await mkdir(repo);
   git(repo, "init", "-q", "-b", "main");
@@ -159,14 +178,48 @@ async function insertWorktreeAgent(
 }
 
 async function archive(id: string): Promise<void> {
-  await manager.beginArchive(id, "force");
-  await new Promise<void>((resolve, reject) => {
-    void manager.executeArchive(id, {
-      onPhaseChange: () => {},
-      onComplete: () => resolve(),
-      onError: (err) => reject(err),
+  // Archive unit tests supply the real workspace core at the Runner seam.
+  // setWorkspace tests deliberately retain their existing in-process port.
+  const state = await mkdtemp(path.join(root, "archive-state-"));
+  const store = new BindingStore(state);
+  await store.import(await readLocalBindings(pool));
+  const calls = workspaceHandlers(state, store, workspaceWorkload);
+  const child = {
+    connection: { state: "ready", epoch: 1, onChange: () => () => {} },
+    async call(op: string, request: any) {
+      if (op === "session.retire") {
+        if (!request.checkoutPending)
+          await store.retire(String(request.session));
+        return {};
+      }
+      if (op === "workspace.describe")
+        throw new RunnerCallError({
+          code: "not_found",
+          message: "Native hook fixture",
+        });
+      const handler = calls[op as keyof typeof calls];
+      if (!handler) throw new Error(`Unexpected ${op}`);
+      return handler(request, {
+        emit: () => {},
+        receiveBlob: async () => {
+          throw new Error("No blobs");
+        },
+      });
+    },
+  } as unknown as import("@dispatch/runner-protocol/contract").Runner;
+  manager.attachLocalRunner(() => child);
+  try {
+    await manager.beginArchive(id, "force");
+    await new Promise<void>((resolve, reject) => {
+      void manager.executeArchive(id, {
+        onPhaseChange: () => {},
+        onComplete: () => resolve(),
+        onError: reject,
+      });
     });
-  });
+  } finally {
+    manager.attachLocalRunner(() => undefined);
+  }
 }
 
 describe("setWorkspace", () => {
@@ -251,6 +304,123 @@ describe("setWorkspace", () => {
       manager.setWorkspace("agt_a", { path: path.join(root, "missing") })
     ).rejects.toMatchObject({ statusCode: 400 });
     expect((await manager.getAgent("agt_a"))?.workspacePath).toBeNull();
+  });
+});
+
+describe("set_workspace parity", () => {
+  it("returns the same result shape for a local and a runner session", async () => {
+    // A runner reply as the supervisor builds it with the shared git probe.
+    const runnerReply = (body: Record<string, unknown>) => ({
+      path: otherRepo,
+      moved: true,
+      origin: null,
+      ...body,
+    });
+    // Git context is probed after a move, as for a local session.
+    const context = {
+      repoRoot: otherRepo,
+      branch: "fix/wrong-repo",
+      worktreePath: otherRepo,
+      worktreeName: "other",
+      isWorktree: false,
+    };
+    const call = vi.fn(async (_placement: unknown, op: string) =>
+      op === "git.context"
+        ? context
+        : runnerReply({
+            repositoryRoot: otherRepo,
+            checkoutRoot: otherRepo,
+            branch: "fix/wrong-repo",
+          })
+    );
+    const remote = {
+      call,
+    } as unknown as import("../../src/agents/remote/service.js").RemoteRunnerService;
+    const runnerManager = new AgentManager(pool, noopLogger, inertConfig, {
+      remote,
+    });
+    await insertWorktreeAgent("agt_local", launchWorktree, "agt/launch");
+    await pool.query(
+      `INSERT INTO agents (id, name, status, cwd, runner_id) VALUES ($1, $1, 'stopped', $2, 'runner-test')`,
+      ["agt_runner", launchWorktree]
+    );
+    const handlers = (agentManager: InstanceType<typeof AgentManager>) =>
+      createMcpHandlers({
+        agentManager,
+      } as unknown as Parameters<typeof createMcpHandlers>[0]);
+    const move = { path: otherRepo, baseBranch: "main" };
+
+    const local = await handlers(manager).setWorkspace("agt_local", move);
+    const runner = await handlers(runnerManager).setWorkspace(
+      "agt_runner",
+      move
+    );
+    expect(local).toEqual({
+      workspacePath: otherRepo,
+      moved: true,
+      repoRoot: otherRepo,
+      branch: "fix/wrong-repo",
+      baseBranch: "main",
+    });
+    expect(runner).toEqual(local);
+    for (const baseBranch of [" release/2026.11 ", "refs/heads/main", "HEAD"]) {
+      const input = { ...move, baseBranch };
+      const nativeMove = await handlers(manager).setWorkspace(
+        "agt_local",
+        input
+      );
+      expect(nativeMove.baseBranch).toBe(baseBranch.trim());
+      await expect(
+        handlers(runnerManager).setWorkspace("agt_runner", input)
+      ).resolves.toEqual(nativeMove);
+    }
+
+    call.mockClear();
+    for (const baseBranch of ["--all", "has space", "topic..main"]) {
+      const input = { ...move, baseBranch };
+      await expect(
+        handlers(manager).setWorkspace("agt_local", input)
+      ).rejects.toMatchObject({ statusCode: 400 });
+      await expect(
+        handlers(runnerManager).setWorkspace("agt_runner", input)
+      ).rejects.toMatchObject({ statusCode: 400 });
+    }
+    expect(call).not.toHaveBeenCalled();
+    expect((await manager.getAgent("agt_local"))?.workspaceBaseBranch).toBe(
+      "HEAD"
+    );
+    expect(
+      (await runnerManager.getAgent("agt_runner"))?.workspaceBaseBranch
+    ).toBe("HEAD");
+
+    call.mockResolvedValueOnce(
+      runnerReply({
+        path: path.join(otherRepo, "nested"),
+        repositoryRoot: otherRepo,
+        checkoutRoot: otherRepo,
+        branch: "fix/wrong-repo",
+      })
+    );
+    const reset = await runnerManager.setWorkspace("agt_runner", {
+      path: null,
+    });
+    expect(reset.gitContext).toMatchObject({
+      worktreePath: otherRepo,
+      isWorktree: false,
+    });
+
+    // A selection may omit optional Git fields; the result
+    // keeps its shape, and the Git facts come from the context probe.
+    call.mockResolvedValueOnce(runnerReply({}));
+    const legacy = await handlers(runnerManager).setWorkspace(
+      "agt_runner",
+      move
+    );
+    expect(Object.keys(legacy).sort()).toEqual(Object.keys(local).sort());
+    expect(legacy).toMatchObject({
+      repoRoot: otherRepo,
+      branch: "fix/wrong-repo",
+    });
   });
 });
 

@@ -1,10 +1,9 @@
 import type { Effort } from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
-import { discoverPersonas, resolveLaunchPersona } from "../personas/resolve.js";
 import type { Pool } from "pg";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
-import { agentWorkspaceDir } from "../agents/workspace-target.js";
+import { sessionLaunchTarget } from "../runners/saved-location.js";
 import {
   CLI_AGENT_TYPES,
   getEnabledAgentTypes,
@@ -16,26 +15,25 @@ import {
   assemblePersonaPrompt,
   buildStandardFeedbackGuidance,
   MAX_PERSONA_PROMPT_BYTES,
-  loadPersonaBySlug,
+  loadPersonaFromCheckout,
   type PersonaDefinition,
 } from "../personas/loader.js";
 import {
-  collectOwnerReviewFiles,
   launchOwnerReviewPlan,
-  loadCodeowners,
+  parseCodeowners,
   resolveCodeowners,
   type OwnerReviewResult,
 } from "../personas/codeowners.js";
+import { LEGACY_OWNERS_PATH, OWNERS_PATH } from "../personas/paths.js";
 import {
-  refreshRemoteBaseRef,
-  resolveBaseRef,
-} from "../shared/git/base-ref.js";
-import { resolveWorktreeRoot } from "../shared/git/git-context.js";
-import { validateAgentModelChoice } from "../shared/agent-models.js";
-import { getPrStatus } from "../shared/github/pr.js";
-import { runCommand } from "../shared/lib/run-command.js";
+  modelScopeFor,
+  validateAgentModelChoice,
+} from "../shared/agent-models.js";
 import type { PublishUiEvent } from "./mcp-handler-types.js";
 
+import { listPersonas, resolvePersona } from "../personas/resolve.js";
+import { personaScopeFor } from "../personas/persona-scope.js";
+import { readAgentCheckoutFile } from "./mcp-checkout.js";
 import { PERSONA_CONTEXT_ARG } from "../agents/acp/persona-context.js";
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
@@ -48,6 +46,17 @@ export type CreatePersonaHandlersDeps = {
   withStreamFlag: (agent: AgentRecord) => AgentRecord & { hasStream: boolean };
 };
 
+export async function readSessionOwnerRules(
+  manager: AgentManager,
+  agent: AgentRecord
+) {
+  for (const path of [OWNERS_PATH, LEGACY_OWNERS_PATH]) {
+    const content = await readAgentCheckoutFile(manager, agent, path);
+    if (content !== null) return { path, content };
+  }
+  return null;
+}
+
 export type PersonaLaunchOptions = {
   persona: string;
   /** The briefing the launcher wrote: what was built, what to look at. */
@@ -55,7 +64,7 @@ export type PersonaLaunchOptions = {
   agentType?: (typeof CLI_AGENT_TYPES)[number];
   model?: string;
   effort?: Effort | null;
-  /** Internal: launch the exact checkout-local persona validated by the batch. */
+  /** Internal: use a definition already selected by the caller. */
   resolvedPersona?: PersonaDefinition;
   /** Display name; defaults to `<persona>-<parent suffix>`. */
   name?: string;
@@ -73,48 +82,17 @@ export type PreparedPersonaLaunch = {
 };
 
 /**
- * A persona is a profile: instructions plus defaults, applied to an ordinary
- * launch. This resolves the profile against the requester's worktree (repo
- * personas win over built-ins), assembles the briefing, and
- * returns everything `createAgent` needs. Nothing here is review-specific:
- * a QA persona, a docs persona and a reviewer all take this path.
+ * Resolve review personas against the requester's worktree and assemble their
+ * briefing. Task personas use the ordinary agent launch path.
  */
 export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
   const { pool, agentManager, publishUiEvent, withStreamFlag } = deps;
-
-  async function resolveReviewBase(
-    parent: AgentRecord,
-    cwd: string
-  ): Promise<string> {
-    let baseBranch: string | null = parent.workspacePath
-      ? parent.workspaceBaseBranch
-      : (parent.baseBranch ??
-        (parent.worktreePath && parent.worktreeBranch ? "main" : null));
-    if (baseBranch == null) {
-      try {
-        baseBranch =
-          (await getPrStatus({ cwd }, runCommand)).baseRefName ?? null;
-      } catch {
-        /* No PR: use the normal upstream fallback. */
-      }
-    }
-    const allowUpstreamFallback = baseBranch == null;
-    await refreshRemoteBaseRef(cwd, baseBranch, {
-      runCommand,
-      allowUpstreamFallback,
-    });
-    return (
-      (await resolveBaseRef(cwd, baseBranch, {
-        runCommand,
-        allowUpstreamFallback,
-      })) ?? "origin/main"
-    );
-  }
 
   async function preparePersonaLaunch(
     parent: AgentRecord,
     opts: PersonaLaunchOptions
   ): Promise<PreparedPersonaLaunch> {
+    const cwd = sessionLaunchTarget(parent).directory;
     const fallbackReviewType = isCliAgentType(parent.reviewAgentType)
       ? parent.reviewAgentType
       : null;
@@ -126,22 +104,33 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     if (!CLI_AGENT_TYPES.includes(agentType)) {
       throw new Error(`Unsupported agent type "${agentType}".`);
     }
-    if (agentType === "opencode" && !parent.fullAccess) {
+    if (agentType === "opencode" && !parent.fullAccess)
       throw new Error(
         "Permission denied: a restricted agent cannot launch full-access OpenCode agents."
       );
-    }
     const enabledAgentTypes = await getEnabledAgentTypes(pool);
     if (!enabledAgentTypes.includes(agentType)) {
       throw new Error(`${agentType} agents are disabled in settings.`);
     }
-    const model = validateAgentModelChoice(agentType, opts.model);
-    const effort = validateAgentEffort(agentType, opts.effort, model);
+    const scope = await modelScopeFor(parent.placement, agentType, {
+      model: opts.model,
+      effort: opts.effort,
+    });
+    const model = validateAgentModelChoice(
+      agentType,
+      opts.model,
+      undefined,
+      scope
+    );
+    const effort = validateAgentEffort(agentType, opts.effort, model, scope);
 
-    const parentCwd = agentWorkspaceDir(parent) ?? parent.cwd;
     const persona =
       opts.resolvedPersona ??
-      (await resolveLaunchPersona(parentCwd, opts.persona, "review"));
+      (await resolvePersona(
+        personaScopeFor({ manager: agentManager, agent: parent }),
+        opts.persona,
+        "review"
+      ));
     if (!supportsPersonaType(persona, "review"))
       throw new Error(
         `Persona "${opts.persona}" is not available for review launches.`
@@ -154,22 +143,17 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
       PERSONA_CONTEXT_ARG,
       prompt,
     ];
-    if (parent.fullAccess) {
-      const fullAccessArg =
-        agentType === "claude"
-          ? CLAUDE_FULL_ACCESS_ARG
-          : agentType === "codex"
-            ? CODEX_FULL_ACCESS_ARG
-            : null;
-      if (fullAccessArg) agentArgs.push(fullAccessArg);
-    }
+    if (parent.fullAccess && agentType === "claude")
+      agentArgs.push(CLAUDE_FULL_ACCESS_ARG);
+    if (parent.fullAccess && agentType === "codex")
+      agentArgs.push(CODEX_FULL_ACCESS_ARG);
     return {
       persona,
       prompt,
       agentType,
       model,
       effort,
-      cwd: parentCwd,
+      cwd,
       agentArgs,
     };
   }
@@ -182,16 +166,25 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
   async function launchPersonaAgent(
     parentId: string,
     opts: PersonaLaunchOptions
+  ) {
+    const parent = await agentManager.getAgent(parentId);
+    if (!parent) throw new Error("Parent agent not found.");
+    return launchReviewer(parent, opts);
+  }
+
+  async function launchReviewer(
+    parent: AgentRecord,
+    opts: PersonaLaunchOptions,
+    useWorktreeOf?: string
   ): Promise<{
     agentId: string;
     name: string;
     persona: string;
     warnings?: string[];
   }> {
-    const parent = await agentManager.getAgent(parentId);
-    if (!parent) throw new Error("Parent agent not found.");
-    // Lineage stays flat for display; the requester owns workspace, runtime
-    // permissions, provenance and feedback. Never prepare from the display parent.
+    const parentId = parent.id;
+    // Lineage stays flat for display. The requester owns the checkout,
+    // provenance and feedback even when it has a display parent.
     const displayParentId = parent.parentAgentId ?? parentId;
     if (parent.parentAgentId) {
       const displayParent = await agentManager.getAgent(displayParentId);
@@ -215,11 +208,12 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
         role: "review",
         parentAgentId: displayParentId,
         launchedByAgentId: parentId,
+        ...(useWorktreeOf ? { projectId: parent.projectId } : {}),
         personaContext: opts.context,
         initialPrompt: buildPersonaKickoffPrompt(parentId),
         launchContext: { prompt: opts.context },
       },
-      { detachLaunch: true }
+      { detachLaunch: true, ...(useWorktreeOf ? { useWorktreeOf } : {}) }
     );
     const fresh = await agentManager.getAgent(agent.id);
     publishUiEvent({
@@ -253,12 +247,20 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
   ): Promise<OwnerReviewResult> {
     const parent = await agentManager.getAgent(parentId);
     if (!parent) throw new Error("Parent agent not found.");
-    const cwd = agentWorkspaceDir(parent) ?? parent.cwd;
-    const root = await resolveWorktreeRoot(cwd);
-    const config = await loadCodeowners(root);
-    const baseRef = await resolveReviewBase(parent, cwd);
-    const files = await collectOwnerReviewFiles(root, baseRef, runCommand);
-    const resolvedPlan = resolveCodeowners(config, files, baseRef);
+    const changes = await inspectReviewChanges(parent);
+    const readCheckoutFile = (path: string) =>
+      readAgentCheckoutFile(agentManager, parent, path);
+    const owners = await readSessionOwnerRules(agentManager, parent);
+    if (!owners)
+      throw new Error(
+        `No ${OWNERS_PATH} found in this workspace. Add ownership rules before launching owner reviews.`
+      );
+    const config = parseCodeowners(owners.content, owners.path);
+    const resolvedPlan = resolveCodeowners(
+      config,
+      changes.files,
+      changes.baseRef
+    );
     let plan = resolvedPlan;
     let omittedOwners: OwnerReviewResult["omittedOwners"];
     if (opts.personas !== undefined) {
@@ -282,14 +284,14 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
       };
     }
     const selection = omittedOwners === undefined ? {} : { omittedOwners };
-    if (opts.dryRun && opts.personas === undefined)
-      return { ...plan, launched: [], failures: [] };
     // Resolve the whole selection before launching any agent. Ownership is
     // local to this checkout, even though manual persona launches can fall back.
     const selectedPersonas = new Map<string, PersonaDefinition>();
-    for (const owner of plan.owners) {
+    const validateOwners =
+      opts.dryRun && opts.personas === undefined ? [] : plan.owners;
+    for (const owner of validateOwners) {
       const persona =
-        (await loadPersonaBySlug(root, owner.persona)) ??
+        (await loadPersonaFromCheckout(owner.persona, readCheckoutFile)) ??
         getBuiltInPersona(owner.persona);
       if (!persona)
         throw new Error(
@@ -305,30 +307,54 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
         );
       selectedPersonas.set(owner.persona, persona);
     }
+    const author = await agentManager.getAgent(parentId);
+    if (!author) throw new Error("Parent agent not found.");
     if (opts.dryRun)
-      return { ...plan, ...selection, launched: [], failures: [] };
+      return {
+        ...plan,
+        ...selection,
+        launched: [],
+        failures: [],
+      };
     const result = await launchOwnerReviewPlan(
       plan,
       opts.context,
-      (persona, context) =>
-        launchPersonaAgent(parentId, {
-          persona,
-          context,
-          agentType: opts.agentType,
-          model: opts.model,
-          effort: opts.effort,
-          resolvedPersona: selectedPersonas.get(persona),
-        })
+      (persona, context) => {
+        return launchReviewer(
+          author,
+          {
+            persona,
+            context,
+            agentType: opts.agentType,
+            model: opts.model,
+            effort: opts.effort,
+            resolvedPersona: selectedPersonas.get(persona)!,
+          },
+          author.id
+        );
+      }
     );
     return { ...result, ...selection };
   }
 
-  async function listPersonas(agentCwd: string) {
+  async function inspectReviewChanges(agent: AgentRecord) {
+    const reply = await agentManager.inspectCheckout(agent, {
+      kind: "changes",
+      baseBranch: await agentManager.comparisonBase(agent, "review"),
+    });
+    if (reply.kind !== "changes")
+      throw new Error("Runner did not return checkout changes.");
+    return reply;
+  }
+
+  async function listSessionPersonas(agentId: string) {
+    const agent = await agentManager.getAgent(agentId);
+    if (!agent) throw new Error("Agent not found.");
     const {
       personas: loaded,
       warnings,
       refreshing,
-    } = await discoverPersonas(agentCwd, "workspace");
+    } = await listPersonas(personaScopeFor({ manager: agentManager, agent }));
     if (refreshing)
       warnings.push(
         "Default-branch persona catalog is refreshing in the background. This list contains currently available definitions; list again shortly for newly merged personas."
@@ -346,7 +372,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     preparePersonaLaunch,
     launchPersonaAgent,
     launchOwnerReviews,
-    listPersonas,
+    listPersonas: listSessionPersonas,
   };
 }
 

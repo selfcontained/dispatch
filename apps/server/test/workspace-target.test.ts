@@ -1,3 +1,4 @@
+import { resolveWorkspace } from "./helpers/main-workspace.js";
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
@@ -6,11 +7,11 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
-  agentDiffTarget,
+  agentDiffPath,
+  agentStreamDirectory,
   agentWorkspaceDir,
-  detectDefaultBranch,
-  resolveWorkspace,
 } from "../src/agents/workspace-target.js";
+import { detectDefaultBranch } from "../../../packages/runner/src/workload/shared/git/default-branch.js";
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], {
@@ -31,45 +32,75 @@ async function initRepo(dir: string, branch: string): Promise<void> {
   git(dir, "commit", "-q", "--allow-empty", "-m", "init");
 }
 
-describe("agentDiffTarget", () => {
-  it("diffs a moved workspace against its recorded base", () => {
+describe("agentStreamDirectory", () => {
+  it("relativises against the moved workspace, else the engine's directory, like main", () => {
+    const base = { worktreePath: "/repo/wt", gitContext: null };
     expect(
-      agentDiffTarget({
+      agentStreamDirectory({
+        ...base,
+        cwd: "/repo/wt/app",
+        workspacePath: null,
+      })
+    ).toBe("/repo/wt/app");
+    expect(
+      agentStreamDirectory({
+        ...base,
+        cwd: "/repo/wt/app",
+        workspacePath: "/moved",
+      })
+    ).toBe("/moved");
+  });
+
+  it("uses the prepared launch directory for an enrolled session", () => {
+    const agent = {
+      cwd: "/srv/checkout/nested",
+      workspacePath: null,
+      worktreePath: "/srv/checkout",
+      gitContext: { worktreePath: "/srv/checkout", isWorktree: true },
+    };
+    expect(agentStreamDirectory(agent)).toBe("/srv/checkout/nested");
+  });
+});
+
+describe("agentDiffPath", () => {
+  it("uses the moved workspace path", () => {
+    expect(
+      agentDiffPath({
         cwd: "/launch",
         worktreePath: "/launch",
         baseBranch: "main",
         workspacePath: "/other",
         workspaceBaseBranch: "develop",
       })
-    ).toEqual({ path: "/other", baseRef: "develop" });
+    ).toBe("/other");
   });
 
-  it("keeps the managed worktree and its base when not moved", () => {
+  it("keeps the managed worktree path when not moved", () => {
     expect(
-      agentDiffTarget({
+      agentDiffPath({
         cwd: "/wt",
         worktreePath: "/wt",
         baseBranch: null,
         workspacePath: null,
       })
-    ).toEqual({ path: "/wt", baseRef: "main" });
+    ).toBe("/wt");
   });
 
-  it("leaves a plain checkout's base to the resolver", () => {
+  it("uses cwd for a plain checkout", () => {
     expect(
-      agentDiffTarget({ cwd: "/repo", worktreePath: null, baseBranch: null })
-    ).toEqual({ path: "/repo", baseRef: null });
+      agentDiffPath({ cwd: "/repo", worktreePath: null, baseBranch: null })
+    ).toBe("/repo");
   });
 
   it("uses a probed linked worktree for older rows", () => {
     expect(
-      agentDiffTarget({
+      agentDiffPath({
         cwd: "/repo/sub",
         worktreePath: null,
         baseBranch: null,
         gitContext: { worktreePath: "/wt", isWorktree: true },
       })
-    ).toEqual({ path: "/wt", baseRef: "main" });
+    ).toBe("/wt");
   });
 
   it("names the workspace, then the worktree, then cwd", () => {
@@ -159,12 +190,12 @@ describe("resolveWorkspace", () => {
     });
     expect(resolved).toEqual({ path: launchWorktree, baseBranch: "main" });
     expect(
-      agentDiffTarget({
+      agentDiffPath({
         ...agent,
         workspacePath: resolved.path,
         workspaceBaseBranch: resolved.baseBranch,
       })
-    ).toEqual({ path: launchWorktree, baseRef: "main" });
+    ).toBe(launchWorktree);
     expect(agent.baseBranch).toBe("agent/wt");
   });
 

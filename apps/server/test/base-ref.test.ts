@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   refreshRemoteBaseRef,
   resolveBaseRef,
-} from "../src/shared/git/base-ref.js";
+} from "../../../packages/runner/src/workload/shared/git/base-ref.js";
 
 function ok(stdout = "") {
   return { exitCode: 0, stdout, stderr: "" };
@@ -56,11 +56,11 @@ describe("refreshRemoteBaseRef", () => {
     expect(calls).toContain("-C /wt fetch origin release/x --quiet");
   });
 
-  it("can disable upstream fallback and force origin/main semantics", async () => {
+  it("can disable upstream fallback and fetch the repository default", async () => {
     const calls: string[] = [];
     const runCommand = vi.fn(async (_command: string, args: string[]) => {
       calls.push(args.join(" "));
-      return ok("");
+      return args.includes("symbolic-ref") ? ok("origin/master") : ok("");
     });
 
     await refreshRemoteBaseRef("/wt", null, {
@@ -68,7 +68,7 @@ describe("refreshRemoteBaseRef", () => {
       allowUpstreamFallback: false,
     });
 
-    expect(calls).toContain("-C /wt fetch origin main --quiet");
+    expect(calls).toContain("-C /wt fetch origin master --quiet");
     expect(calls).not.toContain("-C /wt rev-parse --abbrev-ref @{upstream}");
   });
 

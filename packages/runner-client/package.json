@@ -1,0 +1,34 @@
+{
+  "name": "@dispatch/runner-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./v1/host": "./src/v1/host.ts",
+    "./v1/node": "./src/v1/node.ts",
+    "./launcher": "./src/launcher/index.ts",
+    "./transport/local-socket": "./src/transport/local-socket.ts",
+    "./session": "./src/session/local-runner.ts",
+    "./host-client": "./src/host-client.ts",
+    "./host-framing": "./src/host-framing.ts",
+    "./session/operations": "./src/session/operations.ts",
+    "./session-files": "./src/session-files.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "dependencies": {
+    "@dispatch/runner-protocol": "workspace:*"
+  },
+  "scripts": {
+    "check": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
+    "test": "vitest run --root .",
+    "surface": "tsx scripts/write-launcher-surface.ts"
+  },
+  "peerDependencies": {
+    "@agentclientprotocol/sdk": "1.8.0"
+  },
+  "devDependencies": {
+    "@agentclientprotocol/sdk": "1.8.0"
+  }
+}

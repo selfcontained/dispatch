@@ -1,0 +1,478 @@
+import { attachedHost } from "./runner-update-hold-fixtures.js";
+/**
+ * A runner update hold against the real ACP runtime and scripted hosts on
+ * real sockets: new work for a held runner waits in the runtime's own queue
+ * and goes out once, in order, when the hold opens. Other runners and local
+ * agents are untouched.
+ */
+import { mkdtempSync, rmSync } from "node:fs";
+import net from "node:net";
+import os from "node:os";
+import path from "node:path";
+
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import type { PromptImage } from "../src/agents/acp/prompt-source.js";
+import { createAcpRuntime } from "../src/agents/acp/runtime.js";
+import { scriptedHost } from "./runner-update-hold-fixtures.js";
+import { RunnerUpdateFenced } from "../src/agents/remote/service.js";
+import {
+  RunnerUpdateHolds,
+  type RunnerHoldState,
+} from "../src/agents/remote/update-hold.js";
+import { localRunnerIn } from "./helpers/local-runner-child.js";
+
+const logger = {
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+  debug: () => {},
+  fatal: () => {},
+  trace: () => {},
+  child: () => logger,
+  level: "silent",
+} as unknown as Parameters<typeof createAcpRuntime>[0]["logger"];
+
+const ATTEMPT = "11111111-1111-4111-8111-111111111111";
+const OTHER_ATTEMPT = "22222222-2222-4222-8222-222222222222";
+
+let cleanup: Array<() => void | Promise<void>> = [];
+afterEach(async () => {
+  for (const run of cleanup.splice(0).reverse()) await run();
+});
+
+function memoryHolds() {
+  let saved: RunnerHoldState = { holds: [], resuming: [] };
+  const holds = new RunnerUpdateHolds({
+    store: {
+      read: async () => saved,
+      write: async (next) => {
+        saved = next;
+      },
+    },
+    logger,
+  });
+  cleanup.push(() => holds.close());
+  return holds;
+}
+
+/**
+ * Agents `agt_held` on runner r1, `agt_other` on runner r2, `agt_local`
+ * native. The runner request seam records every operation by agent.
+ */
+async function fixture(
+  options: {
+    preparePromptFiles?: (
+      agentId: string,
+      images: PromptImage[],
+      text: string
+    ) => Promise<{ images: PromptImage[]; text: string }>;
+    attach?: boolean;
+  } = {}
+) {
+  const stateRoot = mkdtempSync(path.join(os.tmpdir(), "dispatch-hold-"));
+  cleanup.push(() => rmSync(stateRoot, { recursive: true, force: true }));
+  const held = await scriptedHost(cleanup, stateRoot, "agt_held");
+  const other = await scriptedHost(cleanup, stateRoot, "agt_other");
+  const local = await scriptedHost(cleanup, stateRoot, "agt_local");
+  const sockets: Record<string, string> = {
+    agt_held: held.socket,
+    agt_other: other.socket,
+  };
+  const placements: Record<string, string> = {
+    agt_held: "r1",
+    agt_other: "r2",
+  };
+  const operations: string[] = [];
+  /** Refuse the next request of a kind as fenced, after running a hook. */
+  const refuse = new Map<string, () => Promise<void>>();
+  async function observe(op: string, session: string) {
+    const kind = op.slice("session.".length);
+    operations.push(`${kind}:${session}`);
+    const refusal = refuse.get(kind);
+    if (refusal) {
+      refuse.delete(kind);
+      await refusal();
+      throw new RunnerUpdateFenced("The runner is updating.");
+    }
+  }
+  const call = vi.fn(
+    async (_id: string, op: string, { session }: { session: string }) => {
+      await observe(op, session);
+      return op === "session.alive" ? { state: "live" } : {};
+    }
+  );
+  const openStream = vi.fn(
+    async (_id: string, op: string, { session }: { session: string }) => {
+      await observe(op, session);
+      return attachedHost(net.createConnection(sockets[session]!), session);
+    }
+  );
+  const holds = memoryHolds();
+  const runtime = createAcpRuntime({
+    localRunner: localRunnerIn(stateRoot),
+    config: {
+      agentStateRoot: stateRoot,
+      agentRuntime: "acp",
+      dispatchBinDir: "/nonexistent",
+    },
+    logger,
+    hostSeq: async () => ({ seq: 0, journalId: null }),
+    syncJournal: async () => {},
+    placement: async (id) => placements[id] ?? null,
+    remote: { call, openStream, available: () => true } as never,
+    holds,
+    ...(options.preparePromptFiles
+      ? { preparePromptFiles: options.preparePromptFiles }
+      : {}),
+  });
+  if (options.attach !== false)
+    for (const id of ["agt_held", "agt_other", "agt_local"])
+      expect(await runtime.attach(id)).toBe(true);
+  return { runtime, holds, held, other, local, operations, refuse };
+}
+
+/** Let sockets and microtasks run. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
+
+describe("runner update hold in the runtime queue", () => {
+  it("lets only replies scoped to the open turn through a drain", async () => {
+    const { runtime, holds, held } = await fixture();
+    const conversation = { streamId: "agt_held", threadId: "active" };
+    const chat = {
+      source: "chat",
+      chatMessageId: "question",
+      conversation,
+    } as const;
+    held.turn("started", chat);
+    await vi.waitFor(() => expect(runtime.hasOpenTurn("agt_held")).toBe(true));
+    await holds.begin("r1", ATTEMPT, { draining: true });
+    const enqueue = (
+      text: string,
+      source: Partial<typeof chat> & {
+        awaited?: true;
+        correlatedReply?: true;
+        scheduleId?: string;
+      } = {}
+    ) =>
+      runtime.prompt(
+        "agt_held",
+        text,
+        { ...chat, ...source },
+        { delivery: "auto" }
+      );
+    const regular = enqueue("ordinary");
+    const unrelated = runtime.prompt(
+      "agt_held",
+      "unrelated reply",
+      {
+        ...chat,
+        correlatedReply: true,
+        conversation: { ...conversation, threadId: "different" },
+      },
+      { delivery: "auto" }
+    );
+    const scheduled = enqueue("scheduled", { scheduleId: "schedule" });
+    const reply = enqueue("matching answer", { correlatedReply: true });
+    const awaited = enqueue("awaited review", { awaited: true });
+    await Promise.all([reply.accepted, awaited.accepted]);
+    expect(held.steers).toEqual(["matching answer", "awaited review"]);
+    expect(held.prompts).toEqual([]);
+    held.turn("settled");
+    await Promise.all([reply.settled, awaited.settled]);
+    await holds.release("r1", ATTEMPT, "cancelled");
+    await Promise.all([regular.settled, unrelated.settled, scheduled.settled]);
+    const delivered = held.prompts.map(({ text }) => text).join("\n");
+    expect(delivered).toContain("ordinary");
+    expect(delivered).toContain("unrelated reply");
+    expect(delivered).toContain("scheduled");
+    expect(held.steers).toHaveLength(2);
+  });
+
+  it("holds only the held runner's prompts and delivers them once, in order, on release", async () => {
+    const { runtime, holds, held, other, local } = await fixture();
+    await holds.begin("r1", ATTEMPT);
+
+    const queued = ["first", "second", "third"].map((text) =>
+      runtime.prompt("agt_held", text)
+    );
+    const elsewhere = runtime.prompt("agt_other", "on r2");
+    const native = runtime.prompt("agt_local", "local");
+    await Promise.all([elsewhere.settled, native.settled]);
+    await settle();
+
+    expect(other.prompts.map((p) => p.text)).toEqual(["on r2"]);
+    expect(local.prompts.map((p) => p.text)).toEqual(["local"]);
+    expect(held.prompts).toEqual([]);
+    expect(holds.counts("r1")).toMatchObject({ prompts: 3, scheduled: 0 });
+    expect(holds.counts("r2")).toMatchObject({ prompts: 0 });
+
+    expect(await holds.release("r1", ATTEMPT, "committed")).toBe(true);
+    await Promise.all(queued.map((d) => d.settled));
+    await settle();
+    expect(held.prompts.map((p) => p.text)).toEqual([
+      "first",
+      "second",
+      "third",
+    ]);
+    expect(holds.counts("r1")).toMatchObject({ prompts: 0 });
+  });
+
+  it("does not reach for a host on a held runner before release", async () => {
+    const { runtime, holds, held, operations } = await fixture({
+      attach: false,
+    });
+    await holds.begin("r1", ATTEMPT);
+    const delivery = runtime.prompt("agt_held", "first contact");
+    await settle();
+    expect(operations).toEqual([]);
+    await holds.release("r1", ATTEMPT, "committed");
+    await delivery.settled;
+    await settle();
+    expect(operations).toEqual(["attach:agt_held"]);
+    expect(held.prompts.map((p) => p.text)).toEqual(["first contact"]);
+  });
+
+  it("opens the gate exactly once and ignores a stale attempt", async () => {
+    const { runtime, holds, held } = await fixture();
+    await holds.begin("r1", ATTEMPT);
+    const listener = vi.fn();
+    holds.onRelease(listener);
+    const delivery = runtime.prompt("agt_held", "once");
+    await settle();
+
+    expect(await holds.release("r1", OTHER_ATTEMPT, "committed")).toBe(false);
+    await settle();
+    expect(held.prompts).toEqual([]);
+
+    const [a, b] = await Promise.all([
+      holds.release("r1", ATTEMPT, "rolled_back"),
+      holds.release("r1", ATTEMPT, "committed"),
+    ]);
+    expect([a, b]).toEqual([true, false]);
+    await delivery.settled;
+    await settle();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({ runnerId: "r1", outcome: "rolled_back" })
+    );
+    expect(held.prompts.map((p) => p.text)).toEqual(["once"]);
+  });
+
+  it("drops work cancelled during the hold and never sends it", async () => {
+    const { runtime, holds, held } = await fixture();
+    await holds.begin("r1", ATTEMPT);
+    const controller = new AbortController();
+    const scheduled = runtime.prompt(
+      "agt_held",
+      "scheduled",
+      {
+        source: "chat",
+        chatMessageId: "blk_sched",
+        scheduleId: "sch_1",
+        scheduleDeliveryId: "occ_1",
+      },
+      { signal: controller.signal, alone: true }
+    );
+    const post = runtime.prompt("agt_held", "deleted post", {
+      source: "chat",
+      chatMessageId: "blk_post",
+    });
+    const kept = runtime.prompt("agt_held", "kept");
+    await settle();
+    expect(holds.counts("r1")).toMatchObject({ prompts: 2, scheduled: 1 });
+
+    controller.abort();
+    await expect(scheduled.accepted).rejects.toMatchObject({
+      name: "ScheduledDeliveryCancelledError",
+    });
+    expect(
+      runtime.controlQueuedPrompt?.(["agt_held"], "blk_post", "delete")
+    ).toBe(true);
+    await expect(post.accepted).rejects.toMatchObject({
+      name: "QueuedPromptDeletedError",
+    });
+
+    await holds.release("r1", ATTEMPT, "cancelled");
+    await kept.settled;
+    await settle();
+    expect(held.prompts.map((p) => p.text)).toEqual(["kept"]);
+  });
+
+  it("transfers an attachment only after release, once, then delivers the prompt once", async () => {
+    const prepared = vi.fn(
+      async (_agentId: string, images: PromptImage[], text: string) => ({
+        images: images.map((image) => ({
+          path: `/runner/files/${image.runnerName}`,
+          mimeType: image.mimeType,
+        })),
+        text,
+      })
+    );
+    const { runtime, holds, held } = await fixture({
+      preparePromptFiles: prepared,
+    });
+    await holds.begin("r1", ATTEMPT);
+    const delivery = runtime.prompt("agt_held", "see attached", undefined, {
+      images: [
+        { path: "/local/shot.png", mimeType: "image/png", runnerName: "a.png" },
+      ],
+    });
+    await settle();
+    expect(prepared).not.toHaveBeenCalled();
+    expect(held.prompts).toEqual([]);
+
+    await holds.release("r1", ATTEMPT, "committed");
+    await delivery.settled;
+    await settle();
+    expect(prepared).toHaveBeenCalledTimes(1);
+    expect(held.prompts).toEqual([
+      {
+        text: "see attached",
+        images: [{ path: "/runner/files/a.png", mimeType: "image/png" }],
+      },
+    ]);
+  });
+
+  it("steers a runner turn with a text attachment, naming the path it was put at", async () => {
+    const prepared = vi.fn(
+      async (_agentId: string, images: PromptImage[], text: string) => ({
+        images: [],
+        text: text.replace("/local/notes.txt", "/runner/files/notes.txt"),
+      })
+    );
+    const { runtime, held } = await fixture({ preparePromptFiles: prepared });
+    const chat = { source: "chat", chatMessageId: "question" } as const;
+    held.turn("started", chat);
+    await vi.waitFor(() => expect(runtime.hasOpenTurn("agt_held")).toBe(true));
+    const steer = runtime.prompt(
+      "agt_held",
+      "- file: /local/notes.txt (text/plain, 5 B)",
+      { ...chat, chatMessageId: "review", awaited: true },
+      {
+        delivery: "auto",
+        images: [
+          {
+            path: "/local/notes.txt",
+            mimeType: "text/plain",
+            runnerName: "notes.txt",
+          },
+        ],
+      }
+    );
+    await steer.accepted;
+    expect(prepared).toHaveBeenCalledTimes(1);
+    expect(held.steers).toEqual([
+      "- file: /runner/files/notes.txt (text/plain, 5 B)",
+    ]);
+    expect(held.prompts).toEqual([]);
+    held.turn("settled");
+    await steer.settled;
+  });
+
+  it("re-queues a file transfer the fence refused instead of failing the prompt", async () => {
+    let holds!: RunnerUpdateHolds;
+    let refusals = 0;
+    const prepared = vi.fn(
+      async (_agentId: string, images: PromptImage[], text: string) => {
+        if (refusals++ === 0) {
+          // The fence closed while this transfer was on its way.
+          await holds.begin("r1", ATTEMPT);
+          throw new RunnerUpdateFenced("The runner is updating.");
+        }
+        return {
+          images: images.map((image) => ({
+            path: `/runner/files/${image.runnerName}`,
+            mimeType: image.mimeType,
+          })),
+          text,
+        };
+      }
+    );
+    const built = await fixture({ preparePromptFiles: prepared });
+    holds = built.holds;
+    const delivery = built.runtime.prompt("agt_held", "fenced", undefined, {
+      images: [
+        { path: "/local/x.png", mimeType: "image/png", runnerName: "x.png" },
+      ],
+    });
+    const outcome = vi.fn();
+    delivery.accepted.then(
+      () => outcome("accepted"),
+      () => outcome("rejected")
+    );
+    // Refused, then back in the queue.
+    await vi.waitFor(() => {
+      expect(prepared).toHaveBeenCalledTimes(1);
+      expect(holds.counts("r1")).toMatchObject({ prompts: 1 });
+    });
+    expect(outcome).not.toHaveBeenCalled();
+    expect(built.held.prompts).toEqual([]);
+    expect(holds.counts("r1")).toMatchObject({ prompts: 1 });
+
+    await holds.release("r1", ATTEMPT, "committed");
+    await delivery.settled;
+    await settle();
+    expect(outcome).toHaveBeenCalledWith("accepted");
+    expect(prepared).toHaveBeenCalledTimes(2);
+    expect(built.held.prompts.map((p) => p.text)).toEqual(["fenced"]);
+  });
+
+  it("surfaces a fence refusal as an error when no hold is on", async () => {
+    const prepared = vi.fn(async () => {
+      throw new RunnerUpdateFenced("The runner is updating.");
+    });
+    const { runtime, held } = await fixture({ preparePromptFiles: prepared });
+    const delivery = runtime.prompt("agt_held", "unheld", undefined, {
+      images: [
+        { path: "/local/x.png", mimeType: "image/png", runnerName: "x.png" },
+      ],
+    });
+    await expect(delivery.accepted).rejects.toBeInstanceOf(RunnerUpdateFenced);
+    expect(held.prompts).toEqual([]);
+  });
+
+  it("holds stop and discard until release and retries one the fence refused", async () => {
+    const { runtime, holds, operations, refuse } = await fixture();
+    await holds.begin("r1", ATTEMPT);
+    let stopped = false;
+    const stop = runtime.stop("agt_held", false).then(() => {
+      stopped = true;
+    });
+    const otherStop = runtime.stop("agt_other", false);
+    await otherStop;
+    await vi.waitFor(() =>
+      expect(holds.counts("r1")).toMatchObject({ stops: 1 })
+    );
+    expect(operations).toContain("stop:agt_other");
+    expect(operations).not.toContain("stop:agt_held");
+    expect(stopped).toBe(false);
+    expect(holds.counts("r1")).toMatchObject({ stops: 1 });
+
+    await holds.release("r1", ATTEMPT, "committed");
+    await stop;
+    expect(operations.filter((op) => op === "stop:agt_held")).toHaveLength(1);
+
+    // Without a hold, a fence refusal is the caller's error as before.
+    refuse.set("discard", async () => {});
+    await expect(runtime.discard("agt_other")).rejects.toBeInstanceOf(
+      RunnerUpdateFenced
+    );
+
+    // A refusal that arrives once a hold is on waits for it, then goes once.
+    refuse.set("discard", () => holds.begin("r2", ATTEMPT).then(() => {}));
+    let discarded = false;
+    const heldDiscard = runtime.discard("agt_other").then(() => {
+      discarded = true;
+    });
+    await vi.waitFor(() =>
+      expect(holds.counts("r2")).toMatchObject({ stops: 1 })
+    );
+    expect(discarded).toBe(false);
+    await holds.release("r2", ATTEMPT, "fence_released");
+    await heldDiscard;
+    expect(operations.filter((op) => op === "discard:agt_other")).toHaveLength(
+      3
+    );
+  });
+});

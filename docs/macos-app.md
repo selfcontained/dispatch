@@ -233,3 +233,34 @@ database is contacted.
 The notarized SMAppService proof is documented in
 [macos-sparkle-service-proof.md](macos-sparkle-service-proof.md); its scripts and
 results remain for regression investigations.
+
+### The Local runner
+
+Dispatch on this Mac is the **Local** runner. **Settings → Runners** lists it
+with its GitHub account and **Agent engines** (install, sign-in and plan
+limits). It has no connection status, update or revoke controls, because it is
+part of the app.
+
+In **New agent** and the automation forms, **Local** offers **Project** or
+**Folder**. A folder, or a project with a folder on this Mac, launches there and
+creates worktrees where **Settings → Workspace** says. A project with only a
+repository launches from a managed clone in the app's data folder, the same way
+an enrolled runner prepares a checkout. Its branch list comes from the repository
+and its personas from the repository's default branch.
+
+### Session terminals and desktop actions
+
+The Terminal drawer opens the session's effective checkout. The built-in
+runner starts the shell under the Dispatch service's ordinary Mac user.
+An enrolled runner with terminal support starts it under its own workload user
+and reports that machine, user, and checkout in the drawer. A runner that
+doesn't advertise terminal support returns an upgrade message.
+
+| Action                                    | Where it runs                                                                                                                                                                                           |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Open in IDE                               | The operator browser invokes the desktop's VS Code or Cursor URL handler for a native checkout on loopback. The action isn't shown for runner agents, whose checkout is on another machine.             |
+| Copy or paste files and text              | The operator browser owns the clipboard. Uploads transfer file bytes and require no clipboard permission on the runner or service.                                                                      |
+| Open Dispatch, Finder, and Settings links | The menu app opens these on the operator Mac using macOS integration.                                                                                                                                   |
+| Browser Feedback                          | The operator's browser extension captures the tab where it is installed. An enrolled session can receive the resulting evidence.                                                                        |
+| Session Playwright screencast             | The Dispatch service reads a browser debug port on its execution machine for native sessions. Enrolled sessions get an unsupported response until there is a runner-side capture transport.             |
+| Computer-use tools                        | Dispatch has no session computer-use relay. A separately configured tool acts where its own desktop integration runs and needs that machine's OS permissions. Enrollment grants no desktop permissions. |

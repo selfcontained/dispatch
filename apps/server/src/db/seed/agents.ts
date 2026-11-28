@@ -1,5 +1,9 @@
 import type { PoolClient } from "pg";
 
+import {
+  controllerPlacement,
+  runnerIdForPlacement,
+} from "../../runners/placement.js";
 import { seedNow } from "./constants.js";
 
 type AgentStatus =
@@ -79,13 +83,13 @@ export async function seedAgents(client: PoolClient): Promise<void> {
         setup_phase, archive_phase, last_error,
         persona, parent_agent_id, persona_context,
         worktree_path, worktree_branch, base_branch,
-        created_at, updated_at
+        created_at, updated_at, runner_id
       ) VALUES (
         $1,$2,$3,$4,$5,NULL,'[]'::jsonb,false,
         $6,$7,$8,
         $9,$10,NULL,
         $11,$12,$13,
-        $14,$14
+        $14,$14,$15
       )
       `,
       [
@@ -103,6 +107,7 @@ export async function seedAgents(client: PoolClient): Promise<void> {
         agent.worktreeBranch ?? null,
         agent.baseBranch ?? null,
         created,
+        runnerIdForPlacement(controllerPlacement),
       ]
     );
   }

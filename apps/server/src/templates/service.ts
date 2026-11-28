@@ -1,3 +1,14 @@
+import { sameRunner } from "@dispatch/runner-protocol/contract";
+import {
+  controllerPlacement,
+  runnerIdForPlacement,
+} from "../runners/placement.js";
+import {
+  resolveSavedTarget,
+  savedLaunchTarget,
+  storedLocation,
+  targetPlacement,
+} from "../runners/saved-location.js";
 import type { Effort } from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import { ProjectStore } from "../projects/store.js";
@@ -8,12 +19,17 @@ import type { SeedFileInput } from "../agents/file-seed.js";
 import type { AgentManager } from "../agents/manager.js";
 import type { AgentRecord } from "../agents/types.js";
 import type { AgentType } from "../agent-type-settings.js";
-import { resolveLaunchPersona } from "../personas/resolve.js";
+import {
+  savedPersonaScope,
+  type SavedPersonaScope,
+} from "../personas/persona-scope.js";
+import { resolvePersona } from "../personas/resolve.js";
 import { sanitizeAgentName } from "../shared/lib/agent-strings.js";
 import { renderTemplatePrompt } from "./launch-prompt.js";
 import {
   applyAgentConfigDefaults,
   assertModelSelectable,
+  modelScopeFor,
   resolveAgentModelForUpdate,
 } from "../shared/agent-models.js";
 import {
@@ -43,6 +59,8 @@ export type LaunchTemplateInput = {
   startupLinks?: string[];
   /** Text appended after the rendered prompt, before any self-improve footer. */
   appendix?: string;
+  /** Files the appendix names by path, handed to the session at start. */
+  startupReferences?: Array<{ source: string; name: string }>;
   /**
    * The project the agent joins. A project template always launches into its
    * own; a projectless one launches into this one when given.
@@ -72,39 +90,64 @@ export class TemplateService {
   async addTemplate(
     input: AddTemplateInput,
     callerFullAccess?: boolean,
+    personaScope: SavedPersonaScope = savedPersonaScope(this.agentManager),
     /** Internal, from the record being copied; never from HTTP/MCP input. */
     savedModel?: string | null
   ): Promise<TemplateRecord> {
     if (input.agentType === "opencode") input = { ...input, fullAccess: true };
     assertAccessCeiling(input.fullAccess ?? false, callerFullAccess);
+    let projectRoot: string | undefined;
     if (input.projectId) {
       const project = await this.projects.get(input.projectId);
       if (!project) throw new Error("Project not found.");
-      input = { ...input, directory: project.repoRoot };
+      projectRoot = project.repoRoot ?? undefined;
     }
-    if (input.persona)
-      await resolveLaunchPersona(
-        input.directory,
-        input.persona,
-        "task",
-        "catalog"
-      );
-    const template = await this.store.createTemplate({
-      projectId: input.projectId ?? null,
-      name: input.name.trim(),
-      directory: input.directory,
-      description: input.description ?? null,
-      prompt: input.prompt ?? null,
-      ...applyAgentConfigDefaults(input, savedModel),
-      effort: validateAgentEffort(
-        input.agentType ?? "claude",
-        input.effort,
-        input.model
-      ),
-      callable: input.callable ?? true,
-      allowFiles: input.allowFiles ?? true,
-      selfImprove: input.selfImprove ?? false,
+    const target = resolveSavedTarget(input.directory, {
+      ...input,
+      projectId: input.projectId,
+      projectRoot,
     });
+    if (input.directory === "" && !input.projectId)
+      throw new Error("Template directory is required.");
+    if (input.persona)
+      await resolvePersona(
+        personaScope({
+          cwd: target.directory,
+          projectRoot,
+          placement: targetPlacement(target),
+          repository: input.projectId
+            ? async () =>
+                (await this.projects.getRepository(input.projectId!))?.url
+            : null,
+        }),
+        input.persona,
+        "task"
+      );
+    const scope = await modelScopeFor(
+      targetPlacement(target),
+      input.agentType ?? "claude",
+      { model: input.model, effort: input.effort }
+    );
+    const template = await this.store.createTemplate(
+      {
+        projectId: input.projectId ?? null,
+        name: input.name.trim(),
+        directory: target.directory,
+        description: input.description ?? null,
+        prompt: input.prompt ?? null,
+        ...applyAgentConfigDefaults(input, savedModel, scope),
+        effort: validateAgentEffort(
+          input.agentType ?? "claude",
+          input.effort,
+          input.model,
+          scope
+        ),
+        callable: input.callable ?? true,
+        allowFiles: input.allowFiles ?? true,
+        selfImprove: input.selfImprove ?? false,
+      },
+      target[storedLocation]
+    );
     this.logger.info(
       { templateId: template.id, name: template.name },
       "Template added"
@@ -130,8 +173,13 @@ export class TemplateService {
       ...config
     } = source;
     return this.addTemplate(
-      { ...config, name },
+      {
+        ...config,
+        name,
+        runner: runnerIdForPlacement(targetPlacement(source)),
+      },
       callerFullAccess,
+      undefined,
       source.model
     );
   }
@@ -139,7 +187,8 @@ export class TemplateService {
   async updateTemplate(
     id: string,
     input: Partial<AddTemplateInput>,
-    callerFullAccess?: boolean
+    callerFullAccess?: boolean,
+    personaScope: SavedPersonaScope = savedPersonaScope(this.agentManager)
   ): Promise<TemplateRecord> {
     const existing = await this.store.getTemplate(id);
     if (!existing) throw new Error(`Template "${id}" not found.`);
@@ -151,24 +200,46 @@ export class TemplateService {
     );
     const projectId =
       input.projectId === undefined ? existing.projectId : input.projectId;
+    let projectRoot: string | undefined;
     if (projectId) {
       const project = await this.projects.get(projectId);
       if (!project) throw new Error("Project not found.");
-      input = { ...input, directory: project.repoRoot };
+      projectRoot = project.repoRoot ?? undefined;
     }
+    const target = resolveSavedTarget(input.directory ?? existing.directory, {
+      ...input,
+      previous: existing,
+      directorySupplied: Boolean(input.directory),
+      projectId,
+      projectRoot,
+    });
+    if (input.directory === "" && !projectId)
+      throw new Error("Template directory is required.");
+    const targetChanged =
+      Boolean(input.directory) ||
+      projectId !== existing.projectId ||
+      target.directory !== existing.directory ||
+      !sameRunner(targetPlacement(target), targetPlacement(existing));
     const persona =
       input.persona !== undefined ? input.persona : existing.persona;
     if (
       persona &&
       (persona !== existing.persona ||
-        (input.directory !== undefined &&
-          input.directory !== existing.directory))
+        projectId !== existing.projectId ||
+        target.directory !== existing.directory ||
+        !sameRunner(targetPlacement(target), targetPlacement(existing)))
     )
-      await resolveLaunchPersona(
-        input.directory ?? existing.directory,
+      await resolvePersona(
+        personaScope({
+          cwd: target.directory,
+          projectRoot,
+          placement: targetPlacement(target),
+          repository: projectId
+            ? async () => (await this.projects.getRepository(projectId))?.url
+            : null,
+        }),
         persona,
-        "task",
-        "catalog"
+        "task"
       );
     const updates: Parameters<TemplateStore["updateTemplate"]>[1] = {};
     if (input.persona !== undefined) updates.persona = input.persona;
@@ -176,13 +247,32 @@ export class TemplateService {
     if (input.name !== undefined) updates.name = input.name.trim();
     if (input.description !== undefined)
       updates.description = input.description;
-    if (input.directory !== undefined) updates.directory = input.directory;
+    if (targetChanged) Object.assign(updates, target);
     if (input.prompt !== undefined) updates.prompt = input.prompt;
+    const scope = await modelScopeFor(
+      targetPlacement(target),
+      input.agentType ?? existing.agentType,
+      {
+        model:
+          input.model !== undefined
+            ? input.model
+            : input.agentType && input.agentType !== existing.agentType
+              ? null
+              : existing.model,
+        effort:
+          input.effort !== undefined
+            ? input.effort
+            : input.agentType && input.agentType !== existing.agentType
+              ? null
+              : existing.effort,
+      }
+    );
     const nextModel = resolveAgentModelForUpdate({
       inputAgentType: input.agentType,
       inputModel: input.model,
       existingAgentType: existing.agentType,
       existingModel: existing.model,
+      scope,
     });
     const nextEffort = validateAgentEffort(
       input.agentType ?? existing.agentType,
@@ -191,7 +281,8 @@ export class TemplateService {
         : input.agentType && input.agentType !== existing.agentType
           ? null
           : existing.effort,
-      nextModel
+      nextModel,
+      scope
     );
     if (input.effort !== undefined || nextEffort !== existing.effort)
       updates.effort = nextEffort;
@@ -245,9 +336,14 @@ export class TemplateService {
 
   async getTemplateByName(
     directory: string,
-    name: string
+    name: string,
+    runner = "local"
   ): Promise<TemplateRecord | null> {
-    return await this.store.getTemplateByDirectoryAndName(directory, name);
+    return await this.store.getTemplateByDirectoryAndName(
+      directory,
+      name,
+      runner
+    );
   }
 
   async launchTemplate(input: LaunchTemplateInput): Promise<LaunchResult> {
@@ -263,7 +359,15 @@ export class TemplateService {
         type === stored.agentType ? stored.model : null
       );
     }
-    const template = stored ? resolveTemplateLaunch(stored, input) : null;
+    const template = stored
+      ? await resolveTemplateLaunch(
+          stored,
+          input,
+          input.directory && input.directory !== stored.directory
+            ? controllerPlacement
+            : targetPlacement(stored)
+        )
+      : null;
     if (!template) {
       throw new Error(`Template ${input.templateId} not found.`);
     }
@@ -305,17 +409,29 @@ export class TemplateService {
     if (
       template.projectId &&
       input.directory &&
-      input.directory !== template.directory
+      input.directory !== template.directory &&
+      sameRunner(
+        targetPlacement({ directory: input.directory }),
+        controllerPlacement
+      )
     )
       throw new Error("Project template directory cannot be overridden.");
-    const cwd = input.directory ?? template.directory;
-    const agent = await this.agentManager.createAgent({
+    const target =
+      input.directory && input.directory !== template.directory
+        ? {
+            ...template,
+            ...resolveSavedTarget(input.directory, {
+              projectId: template.projectId,
+            }),
+          }
+        : template;
+    const launch = {
       name: input.name?.trim() || sanitizeAgentName(template.name),
       type: resolvedType,
       model: resolvedModel,
       effort: template.effort,
       persona: template.persona ?? undefined,
-      cwd,
+      ...savedLaunchTarget(target),
       initialPrompt: finalPrompt,
       launchContext: {
         links: input.startupLinks ?? [],
@@ -323,9 +439,11 @@ export class TemplateService {
       fullAccess: template.fullAccess,
       ...templateWorktreeConfig(template),
       initialFiles: input.startupFiles ?? [],
+      startupReferences: input.startupReferences,
       templateId: template.id,
       ...(input.projectId ? { projectId: input.projectId } : {}),
-    });
+    };
+    const agent = await this.agentManager.createAgent(launch);
 
     this.logger.info(
       {

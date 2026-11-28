@@ -1,7 +1,11 @@
 import path from "node:path";
 import { AUTHENTICATION_REQUIRED } from "@dispatch/shared";
 
-import type { DriverEvent, DriverUpdate, DriverUsage } from "./driver.js";
+import type {
+  DriverEvent,
+  DriverUpdate,
+  DriverUsage,
+} from "@dispatch/runner-protocol/host";
 import { systemPromptSource, type PromptSource } from "./prompt-source.js";
 import type {
   CompactionPayload,
@@ -395,6 +399,14 @@ export class StreamRecorder {
 
   setCwd(agentId: string, cwd: string): void {
     this.cwd.set(agentId, cwd);
+  }
+
+  /**
+   * Move the root of a session this recorder still relativises against.
+   * A session its host's exit dropped stays dropped until the next start.
+   */
+  updateCwd(agentId: string, cwd: string): void {
+    if (this.cwd.has(agentId)) this.cwd.set(agentId, cwd);
   }
 
   /**

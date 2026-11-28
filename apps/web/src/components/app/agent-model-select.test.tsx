@@ -35,6 +35,20 @@ describe("AgentModelSelect", () => {
     }
   );
 
+  it("shows Use engine setting when the catalog has models but no default", () => {
+    render(
+      <AgentModelSelect
+        value={null}
+        options={OPTIONS}
+        catalogDefault={null}
+        onChange={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId("create-agent-model").textContent).toBe(
+      "Use engine setting"
+    );
+  });
+
   it("shows a saved model that was turned off", () => {
     render(
       <AgentModelSelect
@@ -49,12 +63,12 @@ describe("AgentModelSelect", () => {
     );
   });
 
-  it("keeps the trigger labelled while the catalog loads", () => {
+  it("disables the model picker while the catalog loads", () => {
     render(
       <AgentModelSelect value={null} options={[]} onChange={vi.fn()} loading />
     );
     const trigger = screen.getByTestId("create-agent-model");
-    expect(trigger.textContent).toContain("Loading models…");
+    expect(trigger.textContent).toBe("Loading models…");
     expect(trigger).toHaveProperty("disabled", true);
   });
 });

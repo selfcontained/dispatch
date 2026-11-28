@@ -91,3 +91,11 @@ export function killOwnedProcesses(marker) {
     }
   }
 }
+
+/** The pids of every process still bearing this launch's capability. */
+export function ownedProcessPids(marker) {
+  if (!/^DISPATCH_OWNED_[a-f0-9]{32}=1$/.test(marker))
+    throw new Error("Invalid process ownership marker");
+  if (process.platform === "win32") return [];
+  return members(marker).filter((pid) => pid !== process.pid);
+}

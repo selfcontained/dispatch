@@ -6,13 +6,21 @@ import { useMemo } from "react";
 import { AgentModelSelect } from "@/components/app/agent-model-select";
 import { AgentTypeSelect } from "@/components/app/agent-type-select";
 import { type AgentModelOption } from "@/hooks/use-agent-model-catalog";
-import { engineSummary, useEngines } from "@/hooks/use-engines";
+import {
+  engineSummary,
+  useEngines,
+  type EngineStatus,
+} from "@/hooks/use-engines";
 import { type AgentType } from "@/lib/agent-types";
 
 type AgentEngineFieldsProps = {
   agentType: AgentType;
   onAgentTypeChange: (type: AgentType) => void;
   agentTypes: AgentType[];
+  target?: {
+    engines: EngineStatus[] | null;
+    effort?: import("@dispatch/shared").AgentConfigChoice[];
+  };
   effort?: Effort | null;
   effortDefaultLabel?: string;
   onEffortChange?: (effort: Effort | null) => void;
@@ -28,6 +36,8 @@ type AgentEngineFieldsProps = {
   idPrefix?: string;
 };
 
+const EMPTY_ENGINES: EngineStatus[] = [];
+
 /**
  * The type and model pickers side by side, with the engine Dispatch will
  * drive named underneath. Every dialog that launches an agent shows them the
@@ -37,6 +47,7 @@ export function AgentEngineFields({
   agentType,
   onAgentTypeChange,
   agentTypes,
+  target,
   model,
   effort,
   effortDefaultLabel,
@@ -50,7 +61,8 @@ export function AgentEngineFields({
 }: AgentEngineFieldsProps): JSX.Element {
   // Engines whose CLI this machine does not have: pickable, but the picker
   // says what to install rather than letting the launch fail.
-  const { engines } = useEngines();
+  const native = useEngines(target === undefined);
+  const engines = target ? (target.engines ?? EMPTY_ENGINES) : native.engines;
   const missingEngines = useMemo(
     () =>
       Object.fromEntries(
@@ -96,6 +108,8 @@ export function AgentEngineFields({
         {onEffortChange ? (
           <AgentEffortSelect
             model={model}
+            workload={target !== undefined}
+            workloadChoices={target?.effort}
             inheritLabel={effortDefaultLabel}
             value={effort ?? null}
             onChange={onEffortChange}

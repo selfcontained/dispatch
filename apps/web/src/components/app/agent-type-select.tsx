@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 
+import { Spinner } from "@/components/ui/spinner";
 import { Field } from "@/components/ui/field";
 import {
   Select,
@@ -19,6 +20,7 @@ type AgentTypeSelectProps = {
   onChange: (type: AgentType) => void;
   agentTypes: AgentType[];
   label?: string;
+  loading?: boolean;
   /** Override when a page can render more than one of these, so ids stay
    * unique. */
   id?: string;
@@ -35,6 +37,7 @@ export function AgentTypeSelect({
   onChange,
   agentTypes,
   label = "Type",
+  loading = false,
   id = "agent-type-select",
   testId,
   missing,
@@ -65,11 +68,18 @@ export function AgentTypeSelect({
           if (next) onChange(next as AgentType);
         }}
       >
-        <SelectTrigger data-testid={testId}>
+        <SelectTrigger aria-busy={loading || undefined} data-testid={testId}>
           <SelectValue>{AGENT_TYPE_LABELS[value]}</SelectValue>
         </SelectTrigger>
         <SelectContent>
-          {sortedTypes.map((agentType) => (
+          {loading && (
+            <SelectItem value="__loading__" disabled>
+              <span className="flex items-center gap-2">
+                <Spinner /> Loading agents…
+              </span>
+            </SelectItem>
+          )}
+          {(loading ? [] : sortedTypes).map((agentType) => (
             <SelectItem
               key={agentType}
               value={agentType}

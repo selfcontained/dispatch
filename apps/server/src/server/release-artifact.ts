@@ -14,6 +14,7 @@ import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { childProcessEnv } from "../shared/process/child-environment.js";
 
+import { runnerExecutableMember } from "@dispatch/runner-protocol/update-format";
 import { hashRegular } from "../update-recovery/files.js";
 
 import type { RunCommand } from "./release-helpers.js";
@@ -36,7 +37,8 @@ export function expectedArtifactMember(tag: string): string {
 
 async function tarMemberText(
   tarballPath: string,
-  member: string
+  member: string,
+  maxBytes = Infinity
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn("tar", ["xOf", tarballPath, member], {
@@ -45,7 +47,18 @@ async function tarMemberText(
     });
     const chunks: Buffer[] = [];
     const errors: Buffer[] = [];
-    child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+    let bytes = 0;
+    child.stdout.on("data", (chunk: Buffer) => {
+      bytes += chunk.length;
+      if (bytes > maxBytes) {
+        child.kill();
+        reject(
+          new Error(`Release archive member ${member} exceeds the size limit`)
+        );
+        return;
+      }
+      chunks.push(chunk);
+    });
     child.stderr.on("data", (chunk: Buffer) => errors.push(chunk));
     child.on("error", reject);
     child.on("close", (code) =>
@@ -60,7 +73,7 @@ async function tarMemberText(
   });
 }
 
-async function extractTarMember(
+export async function extractTarMember(
   tarballPath: string,
   member: string,
   destination: string
@@ -75,8 +88,11 @@ async function extractTarMember(
     child.on("error", reject);
     child.on("close", resolve);
   });
-  await pipeline(child.stdout, createWriteStream(destination, { mode: 0o700 }));
-  if ((await exited) !== 0)
+  const [code] = await Promise.all([
+    exited,
+    pipeline(child.stdout, createWriteStream(destination, { mode: 0o700 })),
+  ]);
+  if (code !== 0)
     throw new Error(
       `Unable to extract ${member}: ${Buffer.concat(errors).toString("utf8").trim()}`
     );
@@ -91,19 +107,26 @@ async function sha256File(filePath: string): Promise<string> {
 
 export type RecoveryCapability = { protocol: 1; sha256: string };
 
-/** GitHub's separately fetched asset digest authenticates the manifest and payload. */
+/** GitHub's separately fetched asset digest authenticates the archive. */
+export function verifyReleaseTarballDigest(
+  actualSha256: string,
+  expectedSha256: string
+): void {
+  if (!/^[a-f0-9]{64}$/.test(expectedSha256) || actualSha256 !== expectedSha256)
+    throw new Error(
+      "Release package does not match GitHub's published asset digest"
+    );
+}
+
 export async function verifyRecoveryCapability(input: {
   tarballPath: string;
   tag: string;
   expectedTarballSha256: string;
 }): Promise<RecoveryCapability> {
-  if (
-    !/^[a-f0-9]{64}$/.test(input.expectedTarballSha256) ||
-    (await hashRegular(input.tarballPath)) !== input.expectedTarballSha256
-  )
-    throw new Error(
-      "Release package does not match GitHub's published asset digest"
-    );
+  verifyReleaseTarballDigest(
+    await hashRegular(input.tarballPath),
+    input.expectedTarballSha256
+  );
   const member = expectedArtifactMember(input.tag);
   let manifest: {
     formatVersion?: number;
@@ -132,6 +155,96 @@ export async function verifyRecoveryCapability(input: {
       "Target cannot be trialled safely: recovery protocol v1 capability is missing"
     );
   return { protocol: 1, sha256: capability.sha256 };
+}
+
+export const RUNNER_PLATFORMS = ["linux/x64", "linux/arm64"] as const;
+
+/** The same GitHub CLI provenance policy used by the runner installer. */
+export async function verifyRunnerReleaseAttestation(input: {
+  file: string;
+  bundle: string;
+  repo: string;
+  trustedRoot?: string;
+  runCommand: RunCommand;
+}): Promise<void> {
+  const { file, bundle, repo, trustedRoot, runCommand } = input;
+  await runCommand(
+    "gh",
+    [
+      "attestation",
+      "verify",
+      file,
+      "--hostname",
+      "github.com",
+      "--bundle",
+      bundle,
+      "--repo",
+      repo,
+      "--signer-workflow",
+      `${repo}/.github/workflows/release.yml`,
+      ...(trustedRoot ? ["--custom-trusted-root", trustedRoot] : []),
+    ],
+    { timeoutMs: 120_000 }
+  );
+}
+
+export async function verifyRunnerArchive(input: {
+  archive: string;
+  version: string;
+  revision: string;
+  platform: (typeof RUNNER_PLATFORMS)[number];
+  bootstrapSha256: string;
+  runCommand: RunCommand;
+}): Promise<void> {
+  const { archive, version, revision, platform, bootstrapSha256, runCommand } =
+    input;
+  const identityMember = "dist/bun/BUILD_IDENTITY.json";
+  const bootstrapMember = "bin/install-dispatch-runner.sh";
+  const members = [
+    identityMember,
+    bootstrapMember,
+    "bin/dispatch-runner",
+    "bin/dispatch-runner.service",
+    "bin/dispatch-runner-update@.service",
+    "bin/runner-handoff-v1.py",
+    runnerExecutableMember(version, platform === "linux/x64" ? "x64" : "arm64"),
+  ];
+  const { stdout } = await runCommand("tar", ["tvf", archive]);
+  const entries = stdout.trimEnd().split("\n");
+  const trialAssets = [
+    "bin/dispatch-runner-trial.service",
+    "bin/50-dispatch-trial.conf",
+  ];
+  if (
+    entries.some((entry) =>
+      trialAssets.some((asset) => entry.endsWith(` ${asset}`))
+    )
+  )
+    members.push(...trialAssets);
+  if (entries.length !== members.length)
+    throw new Error("Runner archive contains unexpected members");
+  for (const member of members) {
+    const matches = entries.filter((entry) => entry.endsWith(` ${member}`));
+    if (matches.length !== 1 || !matches[0]?.startsWith("-"))
+      throw new Error(`Runner archive must contain one regular ${member}`);
+  }
+  const identity: unknown = JSON.parse(
+    await tarMemberText(archive, identityMember, 4096)
+  );
+  if (
+    typeof identity !== "object" ||
+    identity === null ||
+    !("revision" in identity) ||
+    identity.revision !== revision ||
+    !("version" in identity) ||
+    identity.version !== version
+  )
+    throw new Error("Runner archive is for a different Dispatch build");
+  const bootstrap = await tarMemberText(archive, bootstrapMember, 256 * 1024);
+  if (createHash("sha256").update(bootstrap).digest("hex") !== bootstrapSha256)
+    throw new Error(
+      "Runner bootstrap does not match the script in the release archive"
+    );
 }
 
 /** Validates a release tarball then atomically replaces the fixed runtime path. */

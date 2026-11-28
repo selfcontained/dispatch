@@ -1,52 +1,46 @@
+import type { Res } from "@dispatch/runner-protocol/contract";
 import type { BackgroundSnapshot } from "@dispatch/shared";
-import type { Effort } from "@dispatch/shared";
 import type { AgentMcpInventoryResponse } from "@dispatch/shared";
 import type { AgentInputState } from "@dispatch/shared";
 import type { AgentPermissionsResponse } from "@dispatch/shared";
 import type { PromptSource, PromptOptions } from "./acp/prompt-source.js";
 import type { FastifyBaseLogger } from "fastify";
 
+import type {} from "@dispatch/runner-protocol";
+import type { BuildIdentity } from "./build-identity.js";
+import type {
+  HostLaunch,
+  PromptReceiptState,
+} from "@dispatch/runner-protocol/host";
 import type { AppConfig } from "../config.js";
-import type { DriverEvent } from "./acp/driver.js";
+import type { DriverEvent } from "@dispatch/runner-protocol/host";
 import type {
   AvailableCommand,
   SessionConfigOption,
 } from "@agentclientprotocol/sdk";
-import type { AcpEngineId, EngineBins } from "./acp/engine-spec.js";
 import { createAcpRuntime, type AcpRuntimeDeps } from "./acp/runtime.js";
 
 /**
  * What the manager hands to `runtime.launch()` to start an agent's host.
- * The workspace (worktree, deps) already exists; this is only about the
- * process. See docs/design/acp-runtime.md.
+ * Native preparation supplies an effective cwd before launch. Enrolled
+ * runners prepare their own session workspace as part of launch.
  */
-export type RuntimeLaunch = {
-  agentId: string;
-  cwd: string;
-  engine: AcpEngineId;
-  /** Missing only in launch files written before permission support (full access). */
-  fullAccess?: boolean;
-  bins: Omit<EngineBins, "adapter">;
-  /** The model to select after the session opens; null keeps the engine's default. */
-  model: string | null;
-  /** Resolved launch effort; null leaves the CLI settings in control. */
-  effort?: Effort | null;
-  systemPrompt: string | null;
-  /** Persona task context delivered with the first ordinary prompt, including on resume. */
-  personaContext?: string | null;
-  mcp: { url: string; token: string };
-  /** Environment additions for the engine child (DISPATCH_*, files dir). */
-  env: Record<string, string>;
-  /** Directories the engine child's PATH is prefixed with. */
-  pathPrefix: string[];
-  /** Resume this ACP session; null opens a new one. */
-  resumeSessionId: string | null;
+export type RuntimeLaunch = Omit<HostLaunch, "bins" | "env" | "pathPrefix"> & {
+  /** The adapter is the runtime's own setting, never a launch's. */
+  bins?: Omit<HostLaunch["bins"], "adapter">;
+  env?: HostLaunch["env"];
+  pathPrefix?: HostLaunch["pathPrefix"];
+  placement?: string;
+  /** Recheck ownership after waiting for a runner whose launch reply was lost. */
+  beforeLaunchReconcile?: () => Promise<void>;
+  requireResume?: true;
 };
 
 export type RuntimeEventListener = (
   agentId: string,
   event: DriverEvent,
-  seq: number
+  seq: number,
+  receivedRemotely?: boolean
 ) => Promise<void> | void;
 
 /**
@@ -65,6 +59,25 @@ export type QueuedPromptAction = "delete" | "send-now" | "interrupt";
  */
 export type QueuedPromptControl = boolean | "interrupt";
 
+export type RunnerHostIdentity = {
+  agentId: string;
+  build: BuildIdentity | undefined;
+  instanceId: string | undefined;
+  quiesceSupported: boolean;
+  /**
+   * The runner connection that carries this host's completed attach: its
+   * welcome and journal replay. Absent while not fully attached.
+   */
+  attachedEpoch?: number;
+};
+
+export type RunnerHostRecycleHold = {
+  quiesce(): Promise<boolean>;
+  current(): boolean;
+  shutdown(): Promise<boolean>;
+  release(): void;
+};
+
 export type AgentRuntime = {
   /** Whether hosts are real processes whose absence means the agent died. */
   tracksProcesses(): boolean;
@@ -75,6 +88,41 @@ export type AgentRuntime = {
   /** Reconnect to a host that outlived the server; false when it is gone. */
   attach(agentId: string): Promise<boolean>;
   isAlive(agentId: string): Promise<boolean>;
+  runnerHosts?(runnerId: string): RunnerHostIdentity[];
+  wakeRunnerDrain?(runnerId: string): void;
+  runnerHostAlive?(runnerId: string, agentId: string): Promise<boolean>;
+  holdForRecycle?(
+    runnerId: string,
+    host: RunnerHostIdentity,
+    drainEpoch?: number,
+    refused?: (reason: string) => void
+  ): RunnerHostRecycleHold | null;
+  /**
+   * A forced update takes over this runner's hosts: their queues outlive
+   * them, and nothing wakes a turn that is about to be cut.
+   */
+  holdRunnerHosts?(runnerId: string): void;
+  /** The host is still there after all: attach to it, keeping its queue. */
+  reattachRunnerHost?(agentId: string): void;
+  releaseRunnerHost?(agentId: string): void;
+  /** The session the attached host runs; undefined while it cannot say. */
+  runnerHostSession?(agentId: string): string | undefined;
+  /** This host is not the agent's session: let go, delivering nothing to it. */
+  disownRunnerHost?(agentId: string): void;
+  releaseRunnerHosts?(runnerId: string): void;
+  /** The open turn, once everything received before the call is recorded. */
+  runnerTurn?(agentId: string): Promise<{ open: boolean; seq?: number } | null>;
+  /**
+   * Interrupt exactly this turn, at most once. True once it no longer runs,
+   * or when this host cannot interrupt it.
+   */
+  interruptRunnerTurn?(agentId: string, seq: number): Promise<boolean>;
+  /** Stop a host without waiting on its update hold or needing a lease. */
+  stopRunnerHost?(runnerId: string, agentId: string): Promise<void>;
+  promptReceipt?(
+    agentId: string,
+    id: string
+  ): Promise<PromptReceiptState | "unsupported" | undefined>;
   /** Inspect an existing session without starting it or submitting chat. */
   getMcpInventory(agentId: string): Promise<AgentMcpInventoryResponse>;
   getBackgroundWork?(agentId: string): Promise<BackgroundSnapshot>;
@@ -136,24 +184,76 @@ export type AgentRuntime = {
   inputState?(agentId: string): AgentInputState;
   cancel(agentId: string): Promise<void>;
   /** Shut the host down; `force` skips the graceful ACP close. */
-  stop(agentId: string, force: boolean): Promise<void>;
+  stop(
+    agentId: string,
+    force: boolean,
+    expectedLaunchId?: string
+  ): Promise<void>;
+  /** Retry a persisted stop without touching the current live channel. */
+  retryStop?(
+    agentId: string,
+    force: boolean,
+    placement: string | null,
+    expectedLaunchId?: string,
+    ownerOnly?: boolean
+  ): Promise<void>;
+  /** Local recovery diagnostics. Capabilities are known only after hello. */
+  inspectNativeHost?(sessionHandle: string): Promise<{
+    sessionHandle: string;
+    processState: "live" | "gone" | "stale";
+    activity: "busy" | "idle" | "unknown";
+    attached: boolean;
+    capabilities: {
+      steering: boolean;
+      interrupt: boolean;
+      mcpInventory: boolean;
+      backgroundWork: boolean;
+    } | null;
+    cursor: { seq: number; journalId: string | null } | null;
+  }>;
   stopIdleHostForRecovery?(agentId: string): Promise<boolean>;
   /** Agents with a live host, for the reconciler. */
   listHosted(): Promise<string[]>;
-  /** The host's pid when it is alive; the root of the agent's process tree. */
-  hostPid(agentId: string): Promise<number | null>;
+  listSessions?(
+    placement: string | null,
+    ownerOnly?: boolean
+  ): Promise<Res<"session.list"> | undefined>;
+  listRunnerSessions?(
+    runnerId: string
+  ): Promise<Res<"session.list"> | undefined>;
+  sampleSessions?(
+    placement: string | null,
+    agentIds: string[]
+  ): Promise<Res<"session.sample">["samples"]>;
+  inventoryLiveness?(): (agentId: string) => Promise<boolean>;
   /** Events in seq order, each delivered once. Listeners run serially per agent. */
   onEvent(listener: RuntimeEventListener): () => void;
   /** Tail of the host's log, for error messages. */
   readLogTail(agentId: string): Promise<string>;
   /** Remove the agent's state directory (archive). */
   discard(agentId: string): Promise<void>;
+  /** Clear Dispatch-side delivery state after stopping a remote host. */
+  clearRemoteState?(agentId: string): Promise<void>;
 };
 
 export function createAgentRuntime(
   config: AppConfig,
   logger: FastifyBaseLogger,
-  deps: Pick<AcpRuntimeDeps, "hostSeq" | "syncJournal" | "classifySteering">
+  deps: Pick<
+    AcpRuntimeDeps,
+    | "hostSeq"
+    | "syncJournal"
+    | "preparePromptFiles"
+    | "remoteInbox"
+    | "recoverRemoteEvent"
+    | "classifySteering"
+    | "remote"
+    | "holds"
+    | "placement"
+    | "localRunner"
+    | "recordLaunch"
+    | "sessionOwner"
+  >
 ): AgentRuntime {
   if (config.agentRuntime === "inert") {
     return createInertRuntime();
@@ -209,9 +309,6 @@ export function createInertRuntime(): AgentRuntime {
     async stop() {},
     async listHosted() {
       return [];
-    },
-    async hostPid() {
-      return null;
     },
     onEvent() {
       return () => {};

@@ -14,10 +14,10 @@ import Fastify from "fastify";
 import {
   ensureLocalTls,
   localTlsNames,
-  localAgentCaBundle,
   watchLocalTls,
 } from "../src/local-tls.js";
 import { registerLocalTrustRoutes } from "../src/routes/local-trust.js";
+import { localAgentCaBundle } from "@dispatch/runner/host/host-env";
 
 const roots: string[] = [];
 function directory() {

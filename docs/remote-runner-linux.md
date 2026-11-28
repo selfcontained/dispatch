@@ -1,0 +1,347 @@
+# Install a managed Dispatch runner on Linux
+
+Use a supported Dispatch release and a Linux x86-64 or ARM64 host with systemd,
+the unified cgroup v2 hierarchy, and systemd's `freeze` and `thaw` commands.
+Install Git, GNU grep, procps (ps), findutils, Bash, curl, tar, util-linux (including `/usr/bin/setpriv` and `flock`),
+`useradd`, GNU coreutils, and a GitHub CLI with `gh attestation verify --bundle`.
+The installer uses the tools already there and installs nothing; it lists
+what it found and names anything missing. The runner uses the workload
+account's own `gh` and `git` from its login shell PATH.
+GitHub CLI verifies the published bundles without a GitHub login.
+The runner must be able to reach the HTTPS address in the pairing command.
+The published binary bundles Bun and runs on glibc-based Linux. Session
+supervision requires a kernel with pidfd signaling (introduced in Linux 5.1).
+For manual source runs, use Bun.
+
+For session routing, recovery, and enrolled limitations, see [How Dispatch runs work on an agent’s machine](runner-architecture.md).
+
+1. In Dispatch, open **Settings → Runners → Add runner**, copy the
+   installation command, and run it on the Linux host. The installer
+   configures the installing user as the workload account and adds
+   `dispatch-runner` to `/usr/local/bin`.
+2. Run the separate connect command on Linux. Copy the service URL from Dispatch Settings:
+
+   ```sh
+   sudo dispatch-runner connect 'https://dispatch.example'
+   ```
+
+   Keep the full URL when copying. For a private certificate it includes a
+   fingerprint. Open the approval link printed by the runner and enter its code. The installed command enables
+   and starts the service once enrollment succeeds. Wait for **Online** in
+   Settings.
+
+3. Select the runner in **Settings → Runners**. Under **Agent engines**, choose **Install** for
+   the engine you want, then **Sign in** for Codex or Claude. The runner uses its
+   bundled package manager and installs any required Node runtime under
+   `~/.local` in the workload user’s home. Credentials
+   belong to that runner's workload account.
+4. In **New agent**, choose the runner in the picker at the top of the
+   dialog. A launch on a runner needs a project with a repository: in
+   **Project or repository**, pick a project, pick one of the repositories
+   the runner can reach, or paste a repository URL. Choosing a repository
+   that has no project yet creates one. Select a base branch for a new
+   worktree or use an existing branch. The runner clones the repository into
+   its own cache, prepares the session checkout, and removes it when the
+   agent is archived. Jobs, templates and task-column triggers choose a
+   runner and project the same way.
+
+The copied command is one line. Over the HTTPS runner listener it is:
+
+```sh
+curl -fsSk --pinnedpubkey 'sha256//<key hash>' https://<host>:<port>/install | sudo bash
+```
+
+curl accepts only the listener key named by the pin, so the script it fetches
+comes from this controller. When runner enrollment is disabled, Settings
+copies `curl -fsSL http://<dispatch origin>/api/v1/runner-artifacts/install | sudo bash`
+instead. The pin changes when the controller reissues its listener
+certificate, so copy the command again rather than reusing an old one.
+
+The script downloads the bootstrap and runner archive from the controller
+for its own build revision. Over the listener, every download trusts only
+the runner CA that the pinned script carries. For a release build, the
+script verifies the bootstrap's signed build provenance against
+`selfcontained/dispatch/.github/workflows/release.yml` before running it.
+The installer selects `dispatch-runner-linux-x64.tar.gz` or
+`dispatch-runner-linux-arm64.tar.gz` on the runner, verifies it with the
+same policy, and extracts the native binary. Each published asset has its
+own `.sigstore.json` attestation. Upgrade a controller whose release
+predates native payloads before installing from it. To preseed an offline
+controller, place the bootstrap, the payload for each architecture you
+use, and their attestation sidecars in `runner-vX.Y.Z/` under the
+Dispatch release cache. The installer
+accepts `--source URL` for the controller's revision-specific artifact
+endpoint and `--cacert FILE` for an HTTPS source; the script supplies them.
+
+To pass installer options, end the command with `| sudo bash -s -- OPTIONS`.
+If the controller serves a dev build, the script refuses and prints the same
+command with `-s -- --allow-unverified-dev-build`. Dev builds use SHA-256
+checks for the bootstrap and archive instead of release attestations. When
+invoking the installer directly, the dev flag requires both `--source URL`
+and `--sha256 HEX` for the archive digest.
+
+The installed Linux executable contains the runner and its workers. From a source checkout, run a mode with `pnpm --filter @dispatch/runner start <mode> [arguments]`. This generates the build identity and embedded stream helper before starting the program.
+
+To prepare a development controller, build the Linux targets from the same
+checkout and revision as the controller. Put the bootstrap and the desired
+native payloads in the directory specified by
+`DISPATCH_RUNNER_ARTIFACT_DEV_DIR`:
+
+```sh
+DISPATCH_BUN_TARGETS=bun-linux-x64,bun-linux-arm64 pnpm run build:bun
+mkdir -p "$DISPATCH_RUNNER_ARTIFACT_DEV_DIR"
+cp bin/install-dispatch-runner.sh "$DISPATCH_RUNNER_ARTIFACT_DEV_DIR/"
+for arch in x64 arm64; do
+  bun scripts/build-standalone-runner.mjs "bun-linux-$arch"
+  bin/pack-release --runner-arch "$arch" \
+    --output "$DISPATCH_RUNNER_ARTIFACT_DEV_DIR/dispatch-runner-linux-$arch.tar.gz"
+done
+```
+
+Release tags are `vX.Y.Z` or a SemVer prerelease such as `vX.Y.Z-staging.1`:
+dot-separated letters, digits and hyphens after the hyphen, no build
+metadata, and no leading zeros in numeric parts. The copied command uses the
+controller's own version, so a controller running a prerelease installs that
+prerelease. Versions order by SemVer: a prerelease is older than its release,
+and `-staging.23` is newer than `-staging.22`.
+
+For a manual installation, set `tag` to the exact published release:
+
+```sh
+(
+  set -e
+  tag=vX.Y.Z
+  dir=$(mktemp -d)
+  trap 'rm -rf -- "$dir"' EXIT
+  base="https://github.com/selfcontained/dispatch/releases/download/$tag"
+  curl -qfsSL --proto '=https' --proto-redir '=https' "$base/install-dispatch-runner.sh" -o "$dir/install.sh"
+  curl -qfsSL --proto '=https' --proto-redir '=https' "$base/install-dispatch-runner.sh.sigstore.json" -o "$dir/install.json"
+  gh attestation verify "$dir/install.sh" --hostname github.com \
+    --bundle "$dir/install.json" --repo selfcontained/dispatch \
+    --signer-workflow selfcontained/dispatch/.github/workflows/release.yml
+  sudo bash "$dir/install.sh" install --tag "$tag"
+)
+```
+
+The service runs the supervisor as root. Sessions run as the non-root user who
+invokes `sudo`, with their home, login profile, `~/.dispatch/env`, and supplementary
+groups. To select another existing account, end the copied command with
+`| sudo bash -s -- --user USER`. Use `| sudo bash -s -- --dedicated-user` to
+create the non-login `dispatch-runner` account with home at `/var/lib/dispatch-runner/home`. The operator provisions
+the dedicated account’s tools and access. Updates keep the configured account.
+The supervisor keeps runner state under `/var/lib/dispatch-runner/runner`.
+The settings and private enrollment key
+under `/etc/dispatch-runner` are root-only. The CA certificate is readable
+by the workload for its scoped Dispatch requests.
+The service is enabled at boot and the supervisor reconnects to Dispatch.
+The managed service supervises connections. Its systemd unit signals only
+the runner daemon on stop or restart. Active agent hosts can keep working
+during that interval, and the next daemon reattaches to them. To shut down
+all work on a machine, stop the agents in Dispatch while the runner is online,
+then stop the unit. A machine reboot ends those processes. The updater still
+checks the whole service cgroup and defers while workload processes remain.
+
+Inspect startup logs with `sudo journalctl -u dispatch-runner.service`.
+For custom engine install paths, edit the `bins` object in
+`/etc/dispatch-runner/runner.json` as root and restart the service while idle.
+
+## Private GitHub repositories
+
+In **Settings → Runners**, select the runner and choose **Sign in to GitHub**.
+Open GitHub in your browser and enter the code shown for that runner. Once
+GitHub approves, the runner shows the account name and configures Git to use
+that login for HTTPS. The runner needs GitHub CLI at `/usr/bin/gh`.
+
+Every agent using that runner’s workload account gets the account’s repository
+access. The CLI stores the credential on that machine. Choose **Sign out** in
+the runner details to remove the login there. To revoke the authorization at
+GitHub, use your GitHub account settings.
+
+In **New agent**, select the runner to search the repositories its account can
+reach. A pasted public HTTPS repository URL works without signing in.
+
+## Update or recover
+
+A runner that supports self-update shows **Update** in its Settings when
+Dispatch serves a newer version. Work goes on while the runner downloads and
+verifies it. Then Dispatch holds new work for that runner, the runner switches
+under its running agents, and each agent moves to the new build when it is
+next idle. Open terminals close. A failed update returns to
+the previous build, and that build needs **Retry** to install again. Dispatch
+never offers a runner an older build or another build of the version it has.
+
+Otherwise, and when an update needs all agents idle, use the command: when
+**Health** shows **Update available** in the runner's Settings, copy its
+update command and run it on the Linux host. It updates the existing managed
+installation to the controller's build and keeps its enrollment and workload
+account. A successful update also refreshes
+`/opt/dispatch-runner/install-dispatch-runner.sh` and the `dispatch-runner`
+command from the verified archive. Running it again on the same build exits
+successfully without restarting the service. Exit status 75 means the update
+was deferred while agents were working; run it again once they finish.
+
+For a manual update from GitHub, run the installed updater with the exact
+target release tag. The tag must have published Linux build provenance.
+
+```sh
+sudo /opt/dispatch-runner/install-dispatch-runner.sh update --tag vX.Y.Z
+```
+
+The updater stages and verifies the complete archive before it makes service
+changes. On the managed systemd unit, compatible updates keep open, idle agents
+running and restart the supervisor. Dispatch reconnects to the existing host
+processes. You can continue the same conversation in its checkout.
+The updater briefly freezes the service and checks the recorded Linux process
+identities. It uses Python 3 for this check when workload processes are present.
+An active turn, an unrelated runner operation, an incompatible release, or a
+custom stop policy that could terminate agents defers the update with exit 75.
+Retry after the reported activity finishes.
+
+A manual install or update never lowers the self-update version floor unless
+you pass `--allow-downgrade`. With that flag, a successful run sets the floor
+to the installed release and prints the new floor, also when the release was
+already installed. Use it when the runner refuses controller updates as
+`downgrade` after a manual downgrade:
+
+```sh
+curl … | sudo bash -s -- --allow-downgrade
+```
+
+The controller cannot lower the floor. A refused update reports the floor as
+`floorVersion` in its status and in `last-stage.json`, and names it in the
+staging unit's journal.
+
+A successful update that changes the build keeps the replaced executable as
+`/opt/dispatch-runner/previous-verified` and records its version, revision and
+digest in `previous-verified.json`. A build too old to report its identity is
+kept without that record. A repair that reinstalls the same build leaves both
+as they were.
+
+The updater retains the previous executable through startup and restores it
+if the replacement fails to start. Settings shows **Online** after reconnection.
+Enrollment, settings, workspace bindings, and managed checkouts are retained.
+Updating before connecting keeps the service stopped.
+
+If an update was interrupted, run:
+
+```sh
+sudo /opt/dispatch-runner/install-dispatch-runner.sh recover
+```
+
+Recovery can also defer while a turn or runner operation is active. It restores
+the previous executable when a replacement is pending, or starts the installed
+executable otherwise.
+
+## Update staging unit
+
+The installer also installs `/etc/systemd/system/dispatch-runner-update@.service`
+(root, 0644) from the verified archive and creates the root-only directories
+`/opt/dispatch-runner/update` and `/var/lib/dispatch-runner/update` (0700).
+Each update replaces the unit with the release's copy. The unit stages one
+signed build and never touches the running service. Its instance is
+`VERSION_linux_ARCH_SHA256`; nothing else is accepted. It runs the installed
+executable as `dispatch runner-update-stage`, which reads the enrolled
+endpoint and CA from `/etc/dispatch-runner/runner.json`, refuses a build lower
+than the installed version or the recorded floor, verifies the Ed25519
+manifest against the keys built into the installed runner, and checks the
+downloaded bytes against the signed digest before writing
+`/opt/dispatch-runner/update/dispatch-<sha256>`. Nothing starts it
+automatically yet.
+
+The staging unit has an empty capability bounding set. After verifying the
+candidate, the updater makes a private copy, hashes it again and uses
+`/usr/bin/systemd-run` to ask PID 1 to mount the copy read-only in a transient
+service running as `nobody`. The probe has no capabilities and runs with
+`NoNewPrivileges`, a five-second runtime limit, 512 MiB of memory and a limit
+of 32 tasks. The staging service bounds the probe's combined output and
+accepts only a valid compatibility response. The probe runs as
+`dispatch-runner-probe-<id>.service`. If it fails, the staging service adds
+that unit's result and exit status to `compatibilityError`, then resets the
+unit.
+
+To stage by hand:
+
+```sh
+sudo systemctl start 'dispatch-runner-update@1.2.3_linux_x64_<sha256>.service'
+sudo cat /var/lib/dispatch-runner/update/last-stage.json
+```
+
+## Runner update trial
+
+After the controller requests activation, systemd starts
+`dispatch-runner-trial.service` independently of the supervisor. The helper
+holds the installer lock, validates the staged build again, pins the old
+binary and stops only the fenced supervisor before replacing its executable.
+The old agent hosts keep running. The supervisor's startup hook recovers an
+interrupted trial before launching the runner at boot.
+
+The trial allows up to four minutes for the supervisor to start, reconnect
+and reattach the retained sessions. A confirmation binds the attempt to the
+exact revision and digest. The helper records the confirmed version floor
+and retains one previous verified executable. Failed trials restore the
+previous executable and require an explicit retry to try the failed digest
+again. A trial whose helper stopped before deciding, for example through a
+crash or reboot, records `trial_interrupted` instead of a timeout or a failed
+boot. On the wire that is `cancelled` with `interrupted: true`, which older
+controllers accept. Inspect `/var/lib/dispatch-runner/update/trial.json` and
+`journalctl -u dispatch-runner-trial.service` for the outcome.
+
+Manual update and uninstall share the same lock and refuse an active update
+fence. Run `sudo /opt/dispatch-runner/install-dispatch-runner.sh uninstall`
+to remove the service and executable after its sessions are closed. Enrollment
+and session data remain on disk.
+
+## Clear a stuck update fence
+
+A pre-activation fence expires six minutes after it was recorded, including
+across supervisor restarts. The longest admitted operations get about five
+minutes, plus time to flush their reply and close terminals. An activation
+request handed to the updater leaves expiry and recovery to the updater.
+
+An unreadable fence is reported in the runner's update advertisement and a
+controller cancel can clear it. The runner's reply reports `fenceCleared`,
+which clears the flag in the controller without a reconnect. The boot hook follows the durable journal and
+leaves unreadable fence records in place for that recovery.
+
+`--clear-unreadable-fence` on the install or update command sets the record
+aside as the last step before the supervisor restarts. A refused downgrade or
+a busy runner leaves the record in place.
+
+| Trial journal           | Readable fence                                                                                                               | Unreadable fence                                                         | Fence absent                                              |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | --------------------------------------------------------- |
+| Absent                  | Defer and clear an activating fence. Preserve a fencing or fenced record.                                                    | Start fenced and advertise `fenceUnreadable`.                            | Start normally.                                           |
+| Pre-swap                | Keep the incumbent and defer. Clear the matching activating fence.                                                           | Keep the incumbent and defer. Start with the damaged fence in place.     | Keep the incumbent and defer.                             |
+| Post-swap before commit | Restore the previous executable and clear the matching activating fence.                                                     | Restore the previous executable and leave the damaged fence in place.    | Restore the previous executable.                          |
+| Committing              | Finish the durable commit and clear the matching activating fence.                                                           | Finish the durable commit and leave the damaged fence in place.          | Finish the durable commit.                                |
+| Terminal                | Clean up trial artifacts and the matching activating fence. Defer an unrelated activating fence. Preserve other fences.      | Clean up trial artifacts and start with the damaged fence in place.      | Clean up trial artifacts and start.                       |
+| Unreadable              | Start only if the installed inode matches the activation helper or the verified predecessor. Preserve the journal and fence. | Require the same verified inode and preserve both records. Start fenced. | Require the same verified inode and preserve the journal. |
+
+The installed inode determines whether the swap happened, including a crash
+between renaming the executable and writing the next journal phase. When the
+journal is unreadable and the installed inode is unverified, the hook refuses
+startup so the administrator can inspect the preserved records.
+
+For manual recovery, add the recovery flag to the command copied from
+Settings:
+
+```sh
+curl … | sudo bash -s -- --clear-unreadable-fence
+```
+
+Add `--allow-unverified-dev-build` as well for a dev controller. To use a
+fixed release instead, run its installer with
+`update --tag vX.Y.Z --clear-unreadable-fence`. `install` accepts the flag only
+where a managed runner is installed. Under the installer lock, the installer
+uses the verified release to check the fence and trial journal. With an absent
+or terminal journal, it renames an unreadable fence to
+`fence.json.unreadable-<id>`, prints the saved path, and updates the runner.
+A readable fence, pending trial, or unreadable journal still blocks this
+recovery.
+
+## Validate installer changes
+
+Run `bash scripts/remote-runner/test-installer.sh` from the worktree root.
+The fixtures use a temporary service state, synthetic signatures, and fake
+systemd commands. They cover retrying installation before and after connect,
+asset verification, both Linux architectures, busy-session deferral,
+replacement, and recovery.

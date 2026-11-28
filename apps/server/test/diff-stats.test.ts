@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RunCommandResult } from "../src/shared/lib/run-command.js";
-import { getDiffStats } from "../src/shared/git/diff-stats.js";
+import { getDiffStats } from "../../../packages/runner/src/workload/shared/git/diff-stats.js";
 
 type CommandKey = string;
 type CommandHandler = () => RunCommandResult;

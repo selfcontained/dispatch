@@ -1,3 +1,9 @@
+import { useState } from "react";
+import { agentListQuery } from "@/hooks/use-agents";
+import { useParams } from "react-router-dom";
+import { LaunchTargetError } from "./launch-target-error";
+import { RunnerPicker } from "./runner-picker";
+import { RunnerProjectPicker } from "./runner-project-picker";
 import { taskAgentName } from "@dispatch/shared";
 import { panelFrame } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -78,8 +84,17 @@ function CreateAgentDialogContent({
   onCreated,
   task = null,
 }: Omit<CreateAgentDialogProps, "open" | "setOpen">): JSX.Element {
+  const { agentId } = useParams();
+  const { data: agents = [] } = useQuery<Agent[]>({
+    ...agentListQuery,
+    enabled: false,
+  });
   const { project, projectId } = useProjectScope();
   const form = useCreateAgentForm({
+    sourceAgentId:
+      !task && agents.some((agent) => agent.id === agentId)
+        ? agentId
+        : undefined,
     enabledAgentTypes,
     initialAgentType,
     resolveDefaultCwd: () => project?.repoRoot ?? resolveDefaultCwd(),
@@ -88,6 +103,7 @@ function CreateAgentDialogContent({
     onCreated,
   });
 
+  const [localProjectMode, setLocalProjectMode] = useState(false);
   return (
     <DialogContent
       aria-describedby={
@@ -103,8 +119,20 @@ function CreateAgentDialogContent({
     >
       {form.step === "config" ? (
         <>
-          <DialogHeader>
+          <DialogHeader
+            className={
+              (form.launch.list.data?.length ?? 0) > 1
+                ? "flex-row items-center justify-between gap-2 space-y-0"
+                : undefined
+            }
+          >
             <DialogTitle>New agent</DialogTitle>
+            <RunnerPicker
+              live
+              targets={form.launch.list.data ?? []}
+              value={form.launch.key}
+              onChange={form.chooseTarget}
+            />
           </DialogHeader>
 
           <DialogForm
@@ -112,10 +140,18 @@ function CreateAgentDialogContent({
             onSubmit={(event) => void form.handleSubmit(event)}
           >
             <DialogBody className="space-y-3">
+              <LaunchTargetError
+                queries={[
+                  form.launch.list,
+                  form.launch.projection,
+                  form.targetData,
+                ]}
+              />
               <AgentEngineFields
                 agentType={form.createType}
                 onAgentTypeChange={form.setCreateType}
-                agentTypes={enabledAgentTypes}
+                agentTypes={form.agentTypes}
+                target={{ engines: form.engines, effort: form.workloadEffort }}
                 effort={form.createEffort}
                 onEffortChange={form.setCreateEffort}
                 model={form.createModel}
@@ -141,11 +177,35 @@ function CreateAgentDialogContent({
 
               {task ? (
                 <TaskContextCard task={task} />
+              ) : form.launch.target?.location.folders === false ? (
+                <RunnerProjectPicker
+                  searchUrl={form.launch.target.location.repositorySearchUrl}
+                  projects={form.launch.target.location.projects ?? []}
+                  projectId={form.createProjectId}
+                  loading={form.launch.list.isLoading}
+                  error={Boolean(form.launch.target.location.error)}
+                  onProject={form.setCreateProjectId}
+                />
               ) : (
                 <div className="space-y-1">
                   <ProjectLocation
                     projectId={form.createProjectId}
                     rememberedProjectId={form.lastProjectId}
+                    onModeChange={setLocalProjectMode}
+                    projectPicker={
+                      form.launch.target?.location.repositorySearchUrl ? (
+                        <RunnerProjectPicker
+                          searchUrl={
+                            form.launch.target.location.repositorySearchUrl
+                          }
+                          projects={form.launch.target.location.projects ?? []}
+                          projectId={form.createProjectId}
+                          loading={form.launch.list.isLoading}
+                          error={Boolean(form.launch.target.location.error)}
+                          onProject={form.setCreateProjectId}
+                        />
+                      ) : undefined
+                    }
                     onChange={(p) => {
                       form.setCreateProjectId(p?.id ?? null);
                     }}
@@ -154,6 +214,7 @@ function CreateAgentDialogContent({
                       value={form.createCwd}
                       onChange={form.setCreateCwd}
                       history={form.cwdHistory}
+                      historyUrl={form.historyUrl}
                       removableHistory={form.removableCwdHistory}
                       historyMetadata={form.cwdHistoryMetadata}
                       onRemoveHistory={form.removeCwdHistory}
@@ -167,11 +228,23 @@ function CreateAgentDialogContent({
 
               <AgentPersonaSelect
                 cwd={form.createCwd}
+                endpoint={
+                  form.createCwd.trim() || form.createProjectId
+                    ? (form.targetData.data?.personasUrl ?? "")
+                    : undefined
+                }
                 value={form.createPersona}
                 onChange={form.setCreatePersona}
               />
               <WorktreeSection
                 cwd={form.createCwd}
+                branchesUrl={form.targetData.branchesUrl}
+                defaultBaseBranch={form.targetData.defaultBaseBranch}
+                reserveExpandedSpace={
+                  form.launch.target?.location.folders === false ||
+                  (localProjectMode && !form.createProjectId) ||
+                  Boolean(form.createProjectId && !form.createCwd)
+                }
                 worktreeAvailable={form.worktreeAvailable}
                 useWorktree={form.createUseWorktree}
                 onUseWorktreeChange={form.setCreateUseWorktree}
@@ -206,7 +279,7 @@ function CreateAgentDialogContent({
                   disabled={
                     form.creating ||
                     !form.locationReady ||
-                    !form.createCwd.trim()
+                    (!form.createProjectId && !form.createCwd.trim())
                   }
                   data-testid="create-agent-with-context"
                   onClick={form.enterContextStep}
@@ -360,7 +433,7 @@ function TaskContextCard({
         </span>
         <span
           className="shrink-0 truncate font-mono text-body-sm text-muted-foreground"
-          title={project?.repoRoot}
+          title={project?.repoRoot ?? undefined}
         >
           {project?.name ?? "…"}
         </span>

@@ -1,3 +1,4 @@
+import { RunnerSettings } from "./runner-settings";
 import { RoutingSettings } from "./routing-settings";
 import { lazy, Suspense } from "react";
 import { Database, Server, Settings } from "lucide-react";
@@ -213,6 +214,7 @@ export function SettingsContent({
             <BrowserExtensionSettings />
           </SettingsPage>
         )}
+        {activeSection === "runners" && <RunnerSettings />}
         {/* Its header holds the history window, so it draws its own. */}
         {activeSection === "resources" && <ServiceResourcesSettings />}
         {activeSection === "updates" && (

@@ -1,8 +1,11 @@
+import { attachedHost } from "./runner-update-hold-fixtures.js";
 /**
  * The runtime's prompt queue against a scripted host on a real socket,
  * where the test decides how the host's messages are framed on the wire.
  */
+import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { sessionFilesWorkload } from "../../../packages/runner/src/workload/agents/checkout-worker.js";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -15,7 +18,7 @@ import {
   ndjsonDecoder,
   type ClientMessage,
   type HostMessage,
-} from "../src/agents/acp/host-protocol.js";
+} from "@dispatch/runner-client/host-framing";
 import type {
   PromptSource,
   PromptImage,
@@ -25,6 +28,7 @@ import {
   COMBINE_MAX_PROMPTS,
   createAcpRuntime,
 } from "../src/agents/acp/runtime.js";
+import { localRunnerIn } from "./helpers/local-runner-child.js";
 
 const logger = {
   info: () => {},
@@ -44,6 +48,21 @@ afterEach(() => {
   for (const run of cleanup.splice(0)) run();
 });
 
+// The scripted socket lives in the test worker. Give it a separate process
+// identity so native liveness follows the same path as it does for a real host.
+function recordFixtureHostPid(dir: string) {
+  const host = spawn(
+    process.execPath,
+    ["-e", "setTimeout(() => {}, 120000)", "--", "agent-host", "--state", dir],
+    { detached: true, stdio: "ignore" }
+  );
+  if (!host.pid) throw new Error("Could not spawn the fixture host process");
+  cleanup.push(() => {
+    host.kill();
+  });
+  writeFileSync(hostFile(dir, "pid"), String(host.pid));
+}
+
 /**
  * A host that answers every prompt with a turn that fails at once, its
  * ack and both turn events written to the socket in a single chunk.
@@ -55,7 +74,7 @@ async function fastFailingHost(): Promise<{
   const stateRoot = mkdtempSync(path.join(os.tmpdir(), "dispatch-queue-"));
   const dir = path.join(stateRoot, agentId);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(hostFile(dir, "pid"), String(process.pid));
+  recordFixtureHostPid(dir);
   const prompts: string[] = [];
   let seq = 0;
   const event = (e: unknown): HostMessage =>
@@ -80,8 +99,11 @@ async function fastFailingHost(): Promise<{
               running: true,
               turn: null,
               journalSeq: seq,
+              ...(message.replayComplete && { journalId: "fixture-journal" }),
             } satisfies HostMessage)
           );
+          if (message.replayComplete)
+            socket.write(encodeMessage({ type: "replay_complete" }));
         } else if (message.type === "prompt") {
           prompts.push(message.text);
           socket.write(
@@ -120,9 +142,41 @@ async function fastFailingHost(): Promise<{
 }
 
 describe("AcpRuntime prompt queue", () => {
+  it("attaches a surviving remote host on the first prompt after service startup", async () => {
+    const { stateRoot, prompts } = await fastFailingHost();
+    const placement = "test-runner";
+    const openStream = vi.fn(async (target, op, input) => {
+      expect(target).toBe(placement);
+      expect(op).toBe("session.attach");
+      expect(input).toEqual({ session: agentId });
+      return attachedHost(
+        net.createConnection(hostFile(path.join(stateRoot, agentId), "socket")),
+        agentId
+      );
+    });
+    const runtime = createAcpRuntime({
+      localRunner: localRunnerIn(stateRoot),
+      config: {
+        agentStateRoot: stateRoot,
+        agentRuntime: "acp",
+        dispatchApiUrl: "https://test.invalid",
+      } as Parameters<typeof createAcpRuntime>[0]["config"],
+      logger,
+      hostSeq: async () => ({ seq: 0, journalId: null }),
+      placement: async () => placement,
+      remote: { openStream, call: vi.fn(), available: () => true },
+    });
+    const delivery = runtime.prompt(agentId, "during service recovery");
+    await Promise.all([delivery.accepted, delivery.settled]);
+    expect(openStream).toHaveBeenCalledTimes(1);
+    expect(prompts).toEqual(["during service recovery"]);
+    await runtime.discard(agentId);
+  });
+
   it("takes the next prompt after a turn whose ack and settle arrive together", async () => {
     const { stateRoot, prompts } = await fastFailingHost();
     const runtime = createAcpRuntime({
+      localRunner: localRunnerIn(stateRoot),
       config: {
         agentStateRoot: stateRoot,
         agentRuntime: "acp",
@@ -156,7 +210,7 @@ describe("AcpRuntime prompt queue", () => {
     const stateRoot = mkdtempSync(path.join(os.tmpdir(), "dispatch-queue-"));
     const dir = path.join(stateRoot, agentId);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(hostFile(dir, "pid"), String(process.pid));
+    recordFixtureHostPid(dir);
     let seq = 0;
     const event = (e: unknown): HostMessage =>
       ({
@@ -222,6 +276,7 @@ describe("AcpRuntime prompt queue", () => {
       rmSync(stateRoot, { recursive: true, force: true });
     });
     const runtime = createAcpRuntime({
+      localRunner: localRunnerIn(stateRoot),
       config: {
         agentStateRoot: stateRoot,
         agentRuntime: "acp",
@@ -261,7 +316,7 @@ describe("AcpRuntime user post priority", () => {
     const stateRoot = mkdtempSync(path.join(os.tmpdir(), "dispatch-queue-"));
     const dir = path.join(stateRoot, agentId);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(hostFile(dir, "pid"), String(process.pid));
+    recordFixtureHostPid(dir);
     let seq = 0;
     const event = (e: unknown): HostMessage =>
       ({
@@ -376,7 +431,7 @@ describe("AcpRuntime legacy host replay", () => {
     const stateRoot = mkdtempSync(path.join(os.tmpdir(), "dispatch-legacy-"));
     const dir = path.join(stateRoot, agentId);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(hostFile(dir, "pid"), String(process.pid));
+    recordFixtureHostPid(dir);
     const hellos: number[] = [];
     const entries: HostMessage[] = [
       {
@@ -438,6 +493,7 @@ describe("AcpRuntime legacy host replay", () => {
     const seen: number[] = [];
     const syncs: boolean[] = [];
     const runtime = createAcpRuntime({
+      localRunner: localRunnerIn(stateRoot),
       config: {
         agentStateRoot: stateRoot,
         agentRuntime: "acp",
@@ -487,7 +543,7 @@ async function heldTurnHost(
   const stateRoot = mkdtempSync(path.join(os.tmpdir(), "dispatch-queue-"));
   const dir = path.join(stateRoot, agentId);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(hostFile(dir, "pid"), String(process.pid));
+  recordFixtureHostPid(dir);
   const prompts: Array<{
     text: string;
     source?: PromptSource;
@@ -645,10 +701,15 @@ function withinSeconds<T>(
 
 async function attached(
   stateRoot: string,
-  classifySteering?: Parameters<typeof createAcpRuntime>[0]["classifySteering"]
+  classifySteering?: Parameters<typeof createAcpRuntime>[0]["classifySteering"],
+  preparePromptFiles?: Parameters<
+    typeof createAcpRuntime
+  >[0]["preparePromptFiles"]
 ) {
   const runtime = createAcpRuntime({
+    localRunner: localRunnerIn(stateRoot),
     classifySteering,
+    preparePromptFiles,
     config: {
       agentStateRoot: stateRoot,
       agentRuntime: "acp",
@@ -1286,6 +1347,50 @@ describe("AcpRuntime delivery during a turn", () => {
     host.settle();
     await Promise.all([work.settled, next.settled]);
   });
+
+  it.each(["auto", "queue"] as const)(
+    "delivers a native composer text attachment through the runner with %s routing",
+    async (delivery) => {
+      const host = await heldTurnHost("injected");
+      const deliver = vi.spyOn(sessionFilesWorkload, "put");
+      deliver.mockClear();
+      const runtime = await attached(
+        host.stateRoot,
+        undefined,
+        async (_id, inputs, text) => {
+          for (const input of inputs)
+            await sessionFilesWorkload.put(input.path, "prompt");
+          return { images: [], text };
+        }
+      );
+      const file = path.join(host.stateRoot, "composer.txt");
+      writeFileSync(file, "text from composer");
+      const work = runtime.prompt(agentId, "work", post(0));
+      await work.accepted;
+      const text = envelope(1, `- file: ${file} (text/plain, 18 B)`);
+      const attachedText = runtime.prompt(agentId, text, post(1), {
+        delivery,
+        images: [
+          { path: file, mimeType: "text/plain", runnerName: "composer.txt" },
+        ],
+      });
+      if (delivery === "queue") {
+        expect(deliver).not.toHaveBeenCalled();
+        expect(host.steers).toEqual([]);
+        host.settle();
+      }
+      await withinSeconds(attachedText.accepted, "native text attachment");
+      expect(deliver).toHaveBeenCalledExactlyOnceWith(file, "prompt");
+      if (delivery === "auto") {
+        expect(host.steers).toEqual([text]);
+        expect(host.prompts).toHaveLength(1);
+      } else {
+        expect(host.prompts[1]).toEqual({ text, source: post(1) });
+      }
+      host.settle();
+      await Promise.all([work.settled, attachedText.settled]);
+    }
+  );
 
   it("steers consecutive messages while explicit queue waits, without canceling", async () => {
     const host = await heldTurnHost("injected");

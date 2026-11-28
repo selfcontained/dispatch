@@ -1,0 +1,12 @@
+[Unit]
+Description=Dispatch runner update trial
+StartLimitIntervalSec=10min
+StartLimitBurst=3
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/flock -w 30 --close /opt/dispatch-runner/install.lock /usr/bin/flock -w 10 --close /var/lib/dispatch-runner/update/stage.lock /opt/dispatch-runner/update/activate-helper runner-update-trial live
+UMask=0077
+Restart=on-failure
+RestartSec=2s
+NoNewPrivileges=yes

@@ -155,36 +155,48 @@ function normalizeLoopItems(items: string[] | null | undefined) {
 }
 
 export type CrudToolCallbacks = {
-  listJobs: (directory?: string) => Promise<unknown>;
+  listJobs: (
+    directory?: string,
+    defaultDirectory?: boolean
+  ) => Promise<unknown>;
   getJobById: (jobId: string) => Promise<unknown>;
-  getJobByName: (directory: string, name: string) => Promise<unknown>;
-  createJob: (input: {
-    name: string;
-    directory: string;
-    projectId?: string | null;
-    persona?: string | null;
-    prompt?: string | null;
-    schedule?: string | null;
-    timeoutMs?: number;
-    needsInputTimeoutMs?: number;
-    agentType?: string;
-    model?: string | null;
-    effort?: Effort | null;
-    useWorktree?: boolean;
-    baseBranch?: string | null;
-    branchName?: string | null;
-    fullAccess?: boolean;
-    autoArchive?: boolean;
-    callable?: boolean;
-    singleton?: boolean;
-    enabled?: boolean;
-    selfImprove?: boolean;
-    continuationEnabled?: boolean;
-    maxIterations?: number | null;
-    completionCriteria?: string[] | null;
-    recoveryInstructions?: string | null;
-  }) => Promise<unknown>;
+  getJobByName: (
+    directory: string,
+    name: string,
+    defaultDirectory?: boolean
+  ) => Promise<unknown>;
+  createJob: (
+    input: {
+      runner?: string;
+      name: string;
+      directory: string;
+      projectId?: string | null;
+      persona?: string | null;
+      prompt?: string | null;
+      schedule?: string | null;
+      timeoutMs?: number;
+      needsInputTimeoutMs?: number;
+      agentType?: string;
+      model?: string | null;
+      effort?: Effort | null;
+      useWorktree?: boolean;
+      baseBranch?: string | null;
+      branchName?: string | null;
+      fullAccess?: boolean;
+      autoArchive?: boolean;
+      callable?: boolean;
+      singleton?: boolean;
+      enabled?: boolean;
+      selfImprove?: boolean;
+      continuationEnabled?: boolean;
+      maxIterations?: number | null;
+      completionCriteria?: string[] | null;
+      recoveryInstructions?: string | null;
+    },
+    defaultDirectory?: boolean
+  ) => Promise<unknown>;
   updateJob: (input: {
+    runner?: string;
     jobId: string;
     name?: string;
     directory?: string;
@@ -213,33 +225,44 @@ export type CrudToolCallbacks = {
   }) => Promise<unknown>;
   deleteJob: (jobId: string) => Promise<unknown>;
   runJob: (jobId: string) => Promise<unknown>;
-  listTemplates: (directory?: string) => Promise<TemplateRecord[]>;
+  listTemplates: (
+    directory?: string,
+    defaultDirectory?: boolean
+  ) => Promise<TemplateRecord[]>;
   getTemplateById: (templateId: string) => Promise<TemplateRecord | null>;
   getTemplateByName: (
     directory: string,
-    name: string
+    name: string,
+    defaultDirectory?: boolean
   ) => Promise<TemplateRecord | null>;
-  createTemplate: (input: {
-    name: string;
-    directory: string;
-    description?: string | null;
-    prompt?: string | null;
-    agentType?: string;
-    model?: string | null;
-    effort?: Effort | null;
-    useWorktree?: boolean;
-    baseBranch?: string | null;
-    branchName?: string | null;
-    fullAccess?: boolean;
-    callable?: boolean;
-    allowFiles?: boolean;
-    selfImprove?: boolean;
-  }) => Promise<unknown>;
+  createTemplate: (
+    input: {
+      runner?: string;
+      name: string;
+      directory: string;
+      projectId?: string | null;
+      description?: string | null;
+      prompt?: string | null;
+      agentType?: string;
+      model?: string | null;
+      effort?: Effort | null;
+      useWorktree?: boolean;
+      baseBranch?: string | null;
+      branchName?: string | null;
+      fullAccess?: boolean;
+      callable?: boolean;
+      allowFiles?: boolean;
+      selfImprove?: boolean;
+    },
+    defaultDirectory?: boolean
+  ) => Promise<unknown>;
   updateTemplate: (
     templateId: string,
     input: {
+      runner?: string;
       name?: string;
       directory?: string;
+      projectId?: string | null;
       description?: string | null;
       prompt?: string | null;
       agentType?: string;
@@ -267,7 +290,11 @@ export function registerCrudTools(
 ): void {
   const { defaultCwd, callbacks } = opts;
 
-  function resolveDir(value: string | undefined): string {
+  function resolveDir(
+    value: string | undefined,
+    projectId?: string | null
+  ): string {
+    if (projectId && !value?.trim()) return "";
     const dir = value?.trim() || defaultCwd?.trim();
     if (!dir) throw new Error("directory is required.");
     return dir;
@@ -295,7 +322,8 @@ export function registerCrudTools(
       async (args) => {
         try {
           const result = await callbacks.listJobs(
-            args.directory?.trim() || defaultCwd
+            args.directory?.trim() || defaultCwd,
+            !args.directory?.trim()
           );
           const listing = Array.isArray(result)
             ? result.map(toJobListing)
@@ -338,7 +366,8 @@ export function registerCrudTools(
             ? await callbacks.getJobById(args.jobId)
             : await callbacks.getJobByName(
                 resolveDir(args.directory),
-                args.name!
+                args.name!,
+                !args.directory?.trim()
               );
           if (!result) return toToolError(new Error("Job not found."));
           return {
@@ -359,6 +388,11 @@ export function registerCrudTools(
         description:
           "Create a new job. Only name is required; everything else has sensible defaults.",
         inputSchema: {
+          runner: z
+            .string()
+            .min(1)
+            .optional()
+            .describe("Runner ID for the saved target."),
           name: z.string().min(1).describe("Job name."),
           directory: dirSchema(),
           projectId: z
@@ -469,14 +503,17 @@ export function registerCrudTools(
         try {
           const { loopEnabled, maxRuns, doneWhen, recoverySteps, ...jobArgs } =
             args;
-          const result = await callbacks.createJob({
-            ...jobArgs,
-            directory: resolveDir(args.directory),
-            continuationEnabled: loopEnabled,
-            maxIterations: maxRuns,
-            completionCriteria: normalizeLoopItems(doneWhen),
-            recoveryInstructions: loopItemsToText(recoverySteps),
-          });
+          const result = await callbacks.createJob(
+            {
+              ...jobArgs,
+              directory: resolveDir(args.directory, args.projectId),
+              continuationEnabled: loopEnabled,
+              maxIterations: maxRuns,
+              completionCriteria: normalizeLoopItems(doneWhen),
+              recoveryInstructions: loopItemsToText(recoverySteps),
+            },
+            !args.directory?.trim()
+          );
           return {
             content: [{ type: "text", text: jsonText(toWriteAck(result)) }],
           };
@@ -495,6 +532,11 @@ export function registerCrudTools(
         description:
           "Update an existing job by jobId. Name and directory are editable configuration. Only pass fields you want to change.",
         inputSchema: {
+          runner: z
+            .string()
+            .min(1)
+            .optional()
+            .describe("Runner ID for the saved target."),
           jobId: z
             .string()
             .min(1)
@@ -503,7 +545,6 @@ export function registerCrudTools(
           directory: z
             .string()
             .trim()
-            .min(1)
             .optional()
             .describe("New working directory. Does not move files."),
           projectId: z
@@ -618,9 +659,7 @@ export function registerCrudTools(
           const result = await callbacks.updateJob({
             ...jobArgs,
             directory:
-              args.directory === undefined
-                ? undefined
-                : resolveDir(args.directory),
+              args.directory === undefined ? undefined : args.directory.trim(),
             continuationEnabled: loopEnabled,
             maxIterations: maxRuns,
             completionCriteria: normalizeLoopItems(doneWhen),
@@ -696,7 +735,8 @@ export function registerCrudTools(
       async (args) => {
         try {
           const result = await callbacks.listTemplates(
-            args.directory?.trim() || defaultCwd
+            args.directory?.trim() || defaultCwd,
+            !args.directory?.trim()
           );
           return {
             content: [
@@ -741,7 +781,8 @@ export function registerCrudTools(
             ? await callbacks.getTemplateById(args.templateId)
             : await callbacks.getTemplateByName(
                 resolveDir(args.directory),
-                args.name!
+                args.name!,
+                !args.directory?.trim()
               );
           if (!result) return toToolError(new Error("Template not found."));
           return {
@@ -767,6 +808,11 @@ export function registerCrudTools(
         description:
           "Create a new template. Only name is required; everything else has sensible defaults.",
         inputSchema: {
+          runner: z
+            .string()
+            .min(1)
+            .optional()
+            .describe("Runner ID for the saved target."),
           name: z.string().min(1).describe("Template name."),
           projectId: z
             .string()
@@ -837,10 +883,13 @@ export function registerCrudTools(
       },
       async (args) => {
         try {
-          const result = await callbacks.createTemplate({
-            ...args,
-            directory: resolveDir(args.directory),
-          });
+          const result = await callbacks.createTemplate(
+            {
+              ...args,
+              directory: resolveDir(args.directory, args.projectId),
+            },
+            !args.directory?.trim()
+          );
           return {
             content: [{ type: "text", text: jsonText(toWriteAck(result)) }],
           };
@@ -859,6 +908,11 @@ export function registerCrudTools(
         description:
           "Update an existing template. Only pass fields you want to change.",
         inputSchema: {
+          runner: z
+            .string()
+            .min(1)
+            .optional()
+            .describe("Runner ID for the saved target."),
           templateId: z.string().describe("Template ID."),
           projectId: z
             .string()

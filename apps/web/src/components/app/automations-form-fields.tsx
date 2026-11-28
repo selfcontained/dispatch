@@ -1,3 +1,9 @@
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import { LaunchTargetError } from "./launch-target-error";
+import type { TemplateTarget } from "./use-template-target";
+import { RunnerPicker } from "./runner-picker";
+import { RunnerProjectPicker } from "./runner-project-picker";
 import { AgentConfigRow } from "./agent-config-row";
 import { Panel } from "@/components/ui/card";
 import type { Effort } from "@dispatch/shared";
@@ -29,8 +35,12 @@ export function TemplateWorktreeOption({
   onCheckedChange,
   onBaseBranchChange,
   onBranchNameChange,
+  branchesUrl,
+  defaultBaseBranch,
 }: {
   checked: boolean;
+  branchesUrl?: string;
+  defaultBaseBranch?: string;
   cwd: string;
   baseBranch: string;
   branchName: string;
@@ -52,6 +62,8 @@ export function TemplateWorktreeOption({
           <div className="ml-8">
             <BranchSelect
               cwd={cwd}
+              sourceUrl={branchesUrl}
+              defaultBaseBranch={defaultBaseBranch}
               baseBranch={baseBranch}
               onBaseBranchChange={onBaseBranchChange}
               worktreeBranch={branchName}
@@ -91,6 +103,7 @@ export function TemplateFullAccessOption({
 }
 
 export interface TemplateConfigFieldsProps {
+  target?: TemplateTarget;
   agentType: AgentType;
   onAgentTypeChange: (value: AgentType) => void;
   persona?: string | null;
@@ -126,7 +139,7 @@ export interface TemplateConfigFieldsProps {
   onPromptChange: (value: string) => void;
   autoFocusName?: boolean;
   /** Shows this location read-only instead of the project/folder picker. */
-  lockedLocation?: { name?: string; repoRoot: string };
+  lockedLocation?: { name?: string; repoRoot: string | null };
 }
 
 export function TemplateConfigFields({
@@ -165,19 +178,35 @@ export function TemplateConfigFields({
   onPromptChange,
   autoFocusName,
   lockedLocation,
+  target,
 }: TemplateConfigFieldsProps): JSX.Element {
   const effortId = useId();
   const {
     options: modelOptions,
     savedOption,
     loading: modelCatalogLoading,
-  } = useAgentModelCatalog(agentType);
+  } = useAgentModelCatalog(
+    agentType,
+    true,
+    target
+      ? { data: target.data.info?.catalog, loading: target.models.loading }
+      : undefined
+  );
   const {
     history: cwdHistory,
     removableHistory: removableCwdHistory,
     historyMetadata: cwdHistoryMetadata,
     remove: removeCwdHistory,
   } = useCwdHistory();
+
+  const historyUrl = target?.launch.target?.historyUrl
+    ? `${target.launch.target.historyUrl}?${new URLSearchParams({ candidates: JSON.stringify(cwdHistory) })}`
+    : "";
+  const folderHistory = useQuery({
+    queryKey: ["launch-folder-history", historyUrl],
+    enabled: Boolean(target && historyUrl),
+    queryFn: () => api<{ projects: string[] }>(historyUrl),
+  });
 
   const detectedArgs = useMemo(
     () => (prompt ? parseTemplateArgs(prompt) : []),
@@ -186,6 +215,16 @@ export function TemplateConfigFields({
 
   return (
     <div className="space-y-3">
+      {target ? (
+        <RunnerPicker
+          targets={target.launch.list.data ?? []}
+          value={target.launch.key}
+          onChange={target.choose}
+        />
+      ) : null}
+      {target ? (
+        <LaunchTargetError queries={[target.launch.list, target.data]} />
+      ) : null}
       <AgentConfigRow
         showModel={modelOptions.length > 0 || modelCatalogLoading}
       >
@@ -200,7 +239,7 @@ export function TemplateConfigFields({
             onModelChange(null);
             onEffortChange(null);
           }}
-          agentTypes={enabledAgentTypes}
+          agentTypes={target?.data.info?.agentTypes ?? enabledAgentTypes}
         />
         {modelOptions.length > 0 || modelCatalogLoading ? (
           <AgentModelSelect
@@ -213,6 +252,8 @@ export function TemplateConfigFields({
         ) : null}
         <AgentEffortSelect
           model={model}
+          workload={Boolean(target)}
+          workloadChoices={target?.data.effort}
           value={effort ?? null}
           onChange={onEffortChange}
           agentType={agentType}
@@ -237,7 +278,16 @@ export function TemplateConfigFields({
         />
       </Field>
 
-      {lockedLocation ? (
+      {target?.launch.target?.location.folders === false ? (
+        <RunnerProjectPicker
+          searchUrl={target.launch.target.location.repositorySearchUrl}
+          projects={target.launch.target.location.projects ?? []}
+          projectId={projectId ?? null}
+          loading={target.launch.list.isLoading}
+          error={Boolean(target.launch.target.location.error)}
+          onProject={(id) => onProjectChange?.(id, "")}
+        />
+      ) : lockedLocation ? (
         <div className="space-y-1.5" data-testid="locked-location">
           <p className="text-body-sm font-medium">Project</p>
           <Panel className="py-2 text-body-md">
@@ -253,6 +303,25 @@ export function TemplateConfigFields({
         <div className="space-y-1">
           <ProjectLocation
             projectId={projectId}
+            projectPicker={
+              target?.launch.target?.location.repositorySearchUrl ? (
+                <RunnerProjectPicker
+                  searchUrl={target.launch.target.location.repositorySearchUrl}
+                  projects={target.launch.target.location.projects ?? []}
+                  projectId={projectId ?? null}
+                  loading={target.launch.list.isLoading}
+                  error={Boolean(target.launch.target.location.error)}
+                  onProject={(id) =>
+                    onProjectChange?.(
+                      id,
+                      target.launch.target?.location.projects?.find(
+                        (p) => p.id === id
+                      )?.repoRoot ?? ""
+                    )
+                  }
+                />
+              ) : undefined
+            }
             onChange={(p) =>
               onProjectChange?.(p?.id ?? null, p?.repoRoot ?? directory)
             }
@@ -261,7 +330,10 @@ export function TemplateConfigFields({
               value={directory}
               onChange={onDirectoryChange}
               placeholder="/path/to/repo"
-              history={cwdHistory}
+              history={
+                target ? (folderHistory.data?.projects ?? []) : cwdHistory
+              }
+              historyUrl={target ? historyUrl : undefined}
               removableHistory={removableCwdHistory}
               historyMetadata={cwdHistoryMetadata}
               onRemoveHistory={removeCwdHistory}
@@ -272,6 +344,11 @@ export function TemplateConfigFields({
 
       <AgentPersonaSelect
         cwd={directory}
+        endpoint={
+          target && (directory.trim() || projectId)
+            ? (target.data.data?.personasUrl ?? "")
+            : undefined
+        }
         value={persona ?? null}
         onChange={onPersonaChange}
       />
@@ -279,6 +356,8 @@ export function TemplateConfigFields({
       <>
         <TemplateWorktreeOption
           checked={useWorktree}
+          branchesUrl={target?.data.branchesUrl}
+          defaultBaseBranch={target?.data.defaultBaseBranch}
           cwd={directory}
           baseBranch={baseBranch}
           branchName={branchName}

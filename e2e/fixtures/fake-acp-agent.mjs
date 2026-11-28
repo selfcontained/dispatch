@@ -5,8 +5,9 @@
 // Codex, usage with cost for Claude and OpenCode, a model option for the
 // three that publish one, nested tool calls for Claude, a permission ask
 // for OpenCode, and honors set_mode for Gemini. It never calls a model and
-// never touches the workspace.
-import { existsSync } from "node:fs";
+// only reads a workspace marker when the runner review fixture requests it.
+import { proveFileTransfer } from "./runner-file-transfer.mjs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { Readable, Writable } from "node:stream";
@@ -68,6 +69,7 @@ if (!PROFILE) {
 
 let conn;
 const cwdBySession = new Map();
+const mcpBySession = new Map();
 const modelBySession = new Map();
 const SLEEP = /sleep:(\d+)/;
 const RUN = /run:(\d+)/;
@@ -128,6 +130,7 @@ const agent = {
       agentInfo: { name: `fake-${ENGINE}`, version: "0.0.0" },
       agentCapabilities: {
         mcpCapabilities: { http: true },
+        promptCapabilities: { image: true },
         sessionCapabilities: { close: {}, resume: {} },
       },
       authMethods: [],
@@ -147,6 +150,7 @@ const agent = {
   async newSession(params) {
     const sessionId = `fake_${ENGINE}_${Date.now()}`;
     cwdBySession.set(sessionId, params.cwd);
+    mcpBySession.set(sessionId, params.mcpServers);
     setTimeout(() => {
       void conn.sessionUpdate({
         sessionId,
@@ -171,6 +175,7 @@ const agent = {
   },
   async resumeSession(params) {
     cwdBySession.set(params.sessionId, params.cwd);
+    mcpBySession.set(params.sessionId, params.mcpServers);
     return { configOptions: configOptions(params.sessionId) };
   },
   async setSessionMode() {
@@ -232,6 +237,21 @@ const agent = {
       const text = params.prompt
         .map((b) => (b.type === "text" ? b.text : ""))
         .join("");
+      if (text.includes("proof-file-transfer")) {
+        const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
+        const {
+          StreamableHTTPClientTransport,
+        } = require("@modelcontextprotocol/sdk/client/streamableHttp.js");
+        await proveFileTransfer(
+          text,
+          params.prompt,
+          { mcpServers: mcpBySession.get(params.sessionId) },
+          Client,
+          StreamableHTTPClientTransport,
+          "/tmp"
+        );
+        return { stopReason: "end_turn" };
+      }
       if (text.includes("background-preview-fixture")) {
         for (const update of [
           {
@@ -267,6 +287,34 @@ const agent = {
       const cwd = cwdBySession.get(params.sessionId) ?? process.cwd();
       const emit = (update) =>
         conn.sessionUpdate({ sessionId: params.sessionId, update });
+      if (text.includes("proof-text-transfer")) {
+        const reference = /^- file: (.+) \(text\/plain,/m.exec(text)?.[1];
+        if (!reference || params.prompt.some((block) => block.type === "image"))
+          throw new Error(
+            "Expected a plain-text attachment path without an ACP image"
+          );
+        const contents = readFileSync(reference, "utf8");
+        if (contents !== "native composer text")
+          throw new Error("Unexpected text attachment contents");
+        await emit({
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            type: "text",
+            text: "Read the native composer text file.",
+          },
+        });
+        return { stopReason: "end_turn" };
+      }
+      if (text.includes("proof-reviewed-checkout")) {
+        const marker = readFileSync(
+          path.join(cwd, "review-marker.txt"),
+          "utf8"
+        ).trim();
+        await emit({
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "Checkout marker " + marker },
+        });
+      }
       const receiptId = params._meta?.["dispatch/steering"]?.id;
       if (receiptId) {
         await new Promise((resolve) => setTimeout(resolve, 250));

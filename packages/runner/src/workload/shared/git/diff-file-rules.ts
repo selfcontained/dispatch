@@ -1,0 +1,87 @@
+export { shouldExcludePath } from "@dispatch/runner-protocol";
+import { openRegularFile } from "../../files/open-workspace-file.js";
+import { realpath } from "node:fs/promises";
+import path from "node:path";
+
+const UNTRACKED_MAX_BYTES = 1_024 * 1_024;
+const BINARY_PROBE_BYTES = 8_192;
+
+/**
+ * Expand git's brace-compressed rename form into the paths it stands for.
+ * `git diff --numstat` reports a move as `apps/{web/src => server/test}/x.ts`
+ * rather than as a plain path, so anything that classifies a numstat row by
+ * where the file *is* has to resolve it first — the raw string matches no
+ * directory rule and misses the destination's extension too.
+ */
+export function resolveRenamePath(raw: string): { dest: string; src?: string } {
+  const braceMatch = /^(.*)\{(.+) => (.+)\}(.*)$/.exec(raw);
+  if (!braceMatch) return { dest: raw };
+  const prefix = braceMatch[1]!;
+  const oldPart = braceMatch[2]!;
+  const newPart = braceMatch[3]!;
+  const suffix = braceMatch[4]!;
+  return {
+    dest: prefix + newPart + suffix,
+    src: prefix + oldPart + suffix,
+  };
+}
+
+export function looksBinary(buffer: Buffer): boolean {
+  const probeLength = Math.min(buffer.length, BINARY_PROBE_BYTES);
+  for (let i = 0; i < probeLength; i++) {
+    if (buffer[i] === 0) return true;
+  }
+  return false;
+}
+
+export function countLines(content: string): number {
+  if (content.length === 0) return 0;
+  const parts = content.split("\n");
+  return parts[parts.length - 1] === "" ? parts.length - 1 : parts.length;
+}
+
+export async function readUntrackedFile(
+  worktreePath: string,
+  filePath: string
+): Promise<{ lines: number; content: string | null }> {
+  const fullPath = path.resolve(worktreePath, filePath);
+  const realWorktree = path.resolve(worktreePath);
+  if (
+    !fullPath.startsWith(realWorktree + path.sep) &&
+    fullPath !== realWorktree
+  ) {
+    return { lines: 0, content: null };
+  }
+  try {
+    const file = await openRegularFile(
+      await realpath(realWorktree),
+      path.relative(realWorktree, fullPath).split(path.sep)
+    );
+    try {
+      const info = await file.stat();
+      if (!info.isFile()) return { lines: 0, content: null };
+      if (info.size === 0) return { lines: 0, content: null };
+      if (info.size > UNTRACKED_MAX_BYTES) return { lines: 0, content: null };
+      const bytes = Buffer.alloc(info.size);
+      let offset = 0;
+      while (offset < bytes.length) {
+        const { bytesRead } = await file.read(
+          bytes,
+          offset,
+          bytes.length - offset,
+          offset
+        );
+        if (!bytesRead) break;
+        offset += bytesRead;
+      }
+      const buffer = bytes.subarray(0, offset);
+      if (looksBinary(buffer)) return { lines: 0, content: null };
+      const text = buffer.toString("utf8");
+      return { lines: countLines(text), content: text };
+    } finally {
+      await file.close();
+    }
+  } catch {
+    return { lines: 0, content: null };
+  }
+}

@@ -1,5 +1,19 @@
+import type { GitHubPullRequestObservation } from "@dispatch/runner-protocol";
+import type { Runner } from "@dispatch/runner-protocol/contract";
 import type { AgentPullRequest } from "@dispatch/shared";
-import { runCommand, type CommandRunner } from "../shared/lib/run-command.js";
+
+const credentialContexts = new WeakMap<AgentPullRequest, string>();
+
+export function pullRequestCredentialContext(pr: AgentPullRequest) {
+  return credentialContexts.get(pr);
+}
+
+export function githubPullRequestTarget(url: string) {
+  const canonical = githubPullRequestUrl(url);
+  if (!canonical) return null;
+  const [, owner, repo, , number] = new URL(canonical).pathname.split("/");
+  return { owner, repo, number: Number(number) };
+}
 
 export function githubPullRequestUrl(value: string): string | null {
   try {
@@ -15,104 +29,72 @@ export function githubPullRequestUrl(value: string): string | null {
   }
 }
 
-/** TTL and in-flight coalescing collapse duplicate scheduler requests. */
-export function createPullRequestReader(run: CommandRunner = runCommand) {
-  const cache = new Map<
-    string,
-    { expires: number; value: Promise<AgentPullRequest> }
-  >();
-  return (url: string, title: string): Promise<AgentPullRequest> => {
+/**
+ * A pull request as its tracking agent's runner reads it: one call for
+ * every placement. A URL that is not a GitHub pull request, like a runner
+ * that cannot answer, is an unavailable read.
+ */
+export function createRunnerPullRequestReader(
+  runnerFor: (runnerId: string | null) => Pick<Runner, "call">
+) {
+  return async (
+    url: string,
+    title: string,
+    runnerId: string | null
+  ): Promise<AgentPullRequest> => {
     const canonical = githubPullRequestUrl(url);
-    const fallback: AgentPullRequest = { url, title, status: "Unavailable" };
-    if (!canonical) return Promise.resolve(fallback);
-    const cached = cache.get(canonical);
-    if (cached && cached.expires > Date.now()) return cached.value;
-    for (const [key, entry] of cache)
-      if (entry.expires <= Date.now()) cache.delete(key);
-    const value = (async (): Promise<AgentPullRequest> => {
-      try {
-        const [, owner, repo, , number] = new URL(canonical).pathname.split(
-          "/"
-        );
-        const result = await run(
-          "gh",
-          [
-            "api",
-            "graphql",
-            "--hostname",
-            "github.com",
-            "-f",
-            `query=${CHECKS_QUERY}`,
-            "-f",
-            `owner=${owner}`,
-            "-f",
-            `repo=${repo}`,
-            "-F",
-            `number=${number}`,
-          ],
-          { timeoutMs: 10_000, allowedExitCodes: [0, 1] }
-        );
-        const response = JSON.parse(result.stdout);
-        const pr = response.data?.repository?.pullRequest;
-        if (!pr) return fallback;
-        const commit = pr.commits?.nodes?.[0]?.commit;
-        const contexts = commit?.statusCheckRollup?.contexts;
-        // A null rollup means no checks; partial/error/truncated data is unavailable.
-        const rollup =
-          !response.errors?.length && commit?.oid === pr.headRefOid
-            ? commit.statusCheckRollup === null
-              ? []
-              : contexts && !contexts.pageInfo?.hasNextPage
-                ? contexts.nodes
-                : undefined
-            : undefined;
-        const status =
-          pr.state === "MERGED"
-            ? "Merged"
-            : pr.state === "CLOSED"
-              ? "Closed"
-              : pr.state === "OPEN"
-                ? pr.isDraft
-                  ? "Draft"
-                  : "Open"
-                : "Unavailable";
-        return {
-          url: canonical,
-          title: typeof pr.title === "string" ? pr.title : title,
-          status,
-          ci: mapPullRequestChecks(pr.headRefOid, rollup),
-        };
-      } catch {
-        return fallback;
-      }
-    })();
-    cache.set(canonical, { expires: Date.now() + 60_000, value });
-    return value;
+    const target = canonical && githubPullRequestTarget(canonical);
+    if (!canonical || !target) return { url, title, status: "Unavailable" };
+    const observation = await runnerFor(runnerId).call(
+      "github.pr.status",
+      target
+    );
+    return projectPullRequest(canonical, title, observation);
   };
 }
 
-const CHECKS_QUERY = `query($owner: String!, $repo: String!, $number: Int!) {
-  repository(owner: $owner, name: $repo) {
-    pullRequest(number: $number) {
-      title state isDraft headRefOid
-      commits(last: 1) { nodes { commit { oid statusCheckRollup {
-        contexts(first: 100) { pageInfo { hasNextPage } nodes {
-          __typename
-          ... on CheckRun { databaseId name status conclusion detailsUrl startedAt completedAt checkSuite { app { slug } workflowRun { workflow { id } } } }
-          ... on StatusContext { context state targetUrl }
-        } }
-      } } } }
-    }
-  }
-}`;
+export {
+  pullRequestQueryArgs,
+  pullRequestObservation,
+} from "@dispatch/runner-protocol/github-pr-observation";
+
+export function projectPullRequest(
+  url: string,
+  title: string,
+  observation: GitHubPullRequestObservation,
+  observedAt?: number
+): AgentPullRequest {
+  const { state, draft, head, rollup, title: observedTitle } = observation;
+  const status =
+    state === "MERGED"
+      ? "Merged"
+      : state === "CLOSED"
+        ? "Closed"
+        : state === "OPEN"
+          ? draft === true
+            ? "Draft"
+            : "Open"
+          : "Unavailable";
+  if (status === "Unavailable") return { url, title, status };
+  const pr: AgentPullRequest = {
+    url,
+    status,
+    title: typeof observedTitle === "string" ? observedTitle : title,
+    ci: mapPullRequestChecks(head, rollup, observedAt),
+  };
+  if (observation.credentialContext)
+    credentialContexts.set(pr, observation.credentialContext);
+  return pr;
+}
 
 /** gh returns the current head rollup (CheckRun and StatusContext), not history. */
 export function mapPullRequestChecks(
   head: unknown,
-  rollup: unknown
+  rollup: unknown,
+  observedAt = Date.now()
 ): NonNullable<AgentPullRequest["ci"]> {
   const ci: NonNullable<AgentPullRequest["ci"]> = {
-    checkedAt: new Date().toISOString(),
+    checkedAt: new Date(observedAt).toISOString(),
     headSha: typeof head === "string" ? head : "",
     availability: "unavailable",
     summary: {
@@ -125,7 +107,7 @@ export function mapPullRequestChecks(
     },
     checks: [],
   };
-  if (!ci.headSha || !Array.isArray(rollup)) return ci;
+  if (!ci.headSha || !Array.isArray(rollup) || rollup.length > 100) return ci;
   const checks = new Map<string, (typeof ci.checks)[number]>();
   const latest = new Map<string, number>();
   for (const raw of rollup) {
@@ -139,6 +121,7 @@ export function mapPullRequestChecks(
         ? "PENDING"
         : "COMPLETED"
       : raw.status;
+    if (typeof status !== "string") return ci;
     const conclusion = context
       ? status === "PENDING"
         ? null
@@ -146,6 +129,7 @@ export function mapPullRequestChecks(
           ? "FAILURE"
           : raw.state
       : raw.conclusion || null;
+    if (conclusion !== null && typeof conclusion !== "string") return ci;
     const url = context ? raw.targetUrl : raw.detailsUrl;
     // Reruns replace earlier attempts of a job from the same provider. In
     // particular an earlier cancelled attempt must not fail a passing rerun.

@@ -9,6 +9,7 @@ import {
   vi,
 } from "vitest";
 import { registerTaskTools } from "../src/shared/mcp/task-tools.js";
+import { readRepositoryRoot } from "./helpers/task-scope.js";
 import { TaskService } from "../src/tasks/service.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
@@ -49,6 +50,7 @@ beforeEach(async () => {
   );
   published = [];
   service = new TaskService({
+    readRepositoryRoot,
     pool,
     filesRoot: "/tmp/task-goals-unused",
     getAgent: async () => null,

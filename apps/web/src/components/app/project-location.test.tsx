@@ -70,3 +70,41 @@ describe("project location", () => {
     expect(menu.className).not.toMatch(/(^|\s)max-h-72(\s|$)/);
   });
 });
+
+it("keeps Folder mode markup identical when the unified project picker is available", () => {
+  const props = { projectId: null, onChange: () => {} };
+  const view = render(
+    <ProjectLocation {...props}>
+      <input aria-label="Folder path" defaultValue="/scratch" />
+    </ProjectLocation>
+  );
+  const before = view.container.innerHTML;
+  view.rerender(
+    <ProjectLocation {...props} projectPicker={<button>Unified picker</button>}>
+      <input aria-label="Folder path" defaultValue="/scratch" />
+    </ProjectLocation>
+  );
+  expect(view.container.innerHTML).toBe(before);
+});
+
+it("puts a selected project folder caption outside the unified picker's layout", () => {
+  const props = {
+    onChange: () => {},
+    projectPicker: <button>Unified picker</button>,
+  };
+  const view = render(
+    <ProjectLocation {...props} projectId={null}>
+      <input aria-label="Folder path" />
+    </ProjectLocation>
+  );
+  fireEvent.click(screen.getByRole("radio", { name: "Project" }));
+  expect(screen.queryByText("/first", { exact: true })).toBeNull();
+  view.rerender(
+    <ProjectLocation {...props} projectId="first">
+      <input aria-label="Folder path" />
+    </ProjectLocation>
+  );
+  const caption = screen.getByText("/first", { exact: true });
+  expect(caption.parentElement?.classList.contains("absolute")).toBe(true);
+  expect(caption.parentElement?.classList.contains("top-full")).toBe(true);
+});

@@ -1,6 +1,18 @@
 import { captureStartupAcpAdapter } from "./startup/acp-adapter.js";
 import { restoreLegacyMacLaunchAgentEnvironment } from "./startup/shell-environment.js";
 
+const loadRunnerComposition = () => import("@dispatch/runner/composition");
+const loadCheckoutWorker = () =>
+  loadRunnerComposition().then((entry) => entry.loadCheckoutWorker());
+async function loadLaunchProbes() {
+  const { createLaunchFolderProbes } = await loadRunnerComposition().then(
+    (entry) => entry.loadLocalWorkspaceProbes()
+  );
+  const { shouldSkipAutomaticMacPathProbe } =
+    await import("./shared/mac-path-privacy.js");
+  return createLaunchFolderProbes(shouldSkipAutomaticMacPathProbe);
+}
+
 // Modes of this binary, checked before anything else so none of them
 // touches the server's environment restoration, database, or config:
 //
@@ -38,22 +50,29 @@ if (process.argv[2]?.startsWith("recovery-")) {
       process.env.DISPATCH_HOST ?? "127.0.0.1",
     ]
   );
-} else if (process.argv[2] === "agent-host") {
-  await import("./agents/acp/host/main.js");
-} else if (process.argv[2] === "claude-acp") {
-  // The dependency patch exports upstream's CLI so the bundled adapter
-  // uses its managed policy, logging, and stdio shutdown behavior.
-  await import("@agentclientprotocol/claude-agent-acp/dispatch-cli");
-} else if (process.argv[2] === "codex-acp") {
-  await import("@agentclientprotocol/codex-acp/dist/index.js");
-} else {
+} else if (!process.argv[2]) {
   await serve();
+} else {
+  const { dispatchRunnerMode } = await loadRunnerComposition();
+  const assets = await import("./generated/runtime-assets.js");
+  const { embeddedBuild } = await import("./agents/build-identity.js");
+  const { shouldSkipAutomaticMacPathProbe } =
+    await import("./shared/mac-path-privacy.js");
+  if (
+    !(await dispatchRunnerMode(
+      process.argv.slice(2),
+      { ...assets, build: embeddedBuild },
+      shouldSkipAutomaticMacPathProbe
+    ))
+  )
+    await serve();
 }
-
 async function serve(): Promise<void> {
   captureStartupAcpAdapter();
   const shellEnvironment = await restoreLegacyMacLaunchAgentEnvironment();
 
+  const { loadInProcessPorts } = await import("./runners/in-process.js");
+  await loadInProcessPorts(loadCheckoutWorker, await loadLaunchProbes());
   const { app, shutdown, start } = await import("./server.js");
 
   if (shellEnvironment.state === "resolved") {

@@ -1,3 +1,4 @@
+import { sessionFromWire } from "@dispatch/runner-protocol/contract";
 import os from "node:os";
 import type { Pool } from "pg";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -64,7 +65,7 @@ describe("ServiceResources", () => {
     const resources = new ServiceResources({
       pool: createPool(),
       probePool: createProbePool(),
-      listAgentProcesses: async () => [],
+      sampleAgentSessions: async () => ({ runningAgentCount: 0, samples: [] }),
       getWorkloads: workloads,
       subsystemTrackers: [],
       processTreeSupported: false,
@@ -97,7 +98,7 @@ describe("ServiceResources", () => {
     const resources = new ServiceResources({
       pool: createPool(),
       probePool: createProbePool(query),
-      listAgentProcesses: async () => [],
+      sampleAgentSessions: async () => ({ runningAgentCount: 0, samples: [] }),
       getWorkloads: workloads,
       subsystemTrackers: [],
       processTreeSupported: false,
@@ -154,7 +155,7 @@ describe("ServiceResources", () => {
     const resources = new ServiceResources({
       pool: createPool(),
       probePool,
-      listAgentProcesses: async () => [],
+      sampleAgentSessions: async () => ({ runningAgentCount: 0, samples: [] }),
       getWorkloads: workloads,
       subsystemTrackers: [],
       processTreeSupported: false,
@@ -183,7 +184,7 @@ describe("ServiceResources", () => {
     const resources = new ServiceResources({
       pool: createPool(),
       probePool: createProbePool(),
-      listAgentProcesses: async () => [{ hostPid: 101 }, { hostPid: null }],
+      sampleAgentSessions: async () => ({ runningAgentCount: 2, samples: [] }),
       getWorkloads: workloads,
       subsystemTrackers: [],
       processTreeSupported: false,
@@ -204,7 +205,7 @@ describe("ServiceResources", () => {
     const resources = new ServiceResources({
       pool: createPool(),
       probePool: createProbePool(),
-      listAgentProcesses: async () => [],
+      sampleAgentSessions: async () => ({ runningAgentCount: 0, samples: [] }),
       getWorkloads: () => ({ ...current }),
       subsystemTrackers: [],
       processTreeSupported: false,
@@ -231,111 +232,94 @@ describe("ServiceResources", () => {
     resources.stop();
   });
 
-  it("keeps a fresh running-agent count when process probing fails", async () => {
-    const runProcessCommand = vi.fn(async () => {
-      throw new Error("ps unavailable");
-    });
+  it("keeps a fresh running-agent count when runner sampling fails", async () => {
     const resources = new ServiceResources({
       pool: createPool(),
       probePool: createProbePool(),
-      listAgentProcesses: async () => [{ hostPid: 101 }, { hostPid: null }],
+      sampleAgentSessions: async () => ({
+        runningAgentCount: 2,
+        samples: [],
+        samplingFailed: true,
+      }),
       getWorkloads: workloads,
       subsystemTrackers: [],
       processTreeSupported: true,
-      runProcessCommand,
     });
-
     resources.start();
     await vi.advanceTimersByTimeAsync(0);
     expect(resources.getSnapshot()).toMatchObject({
       capabilities: { processTreeMetrics: "error" },
       current: { workloads: { runningAgents: 2 } },
     });
-    expect(runProcessCommand).toHaveBeenCalled();
     resources.stop();
   });
 
-  it("sums each live host's process tree from ps", async () => {
-    const runProcessCommand = vi.fn(async () => ({
-      stdout: [
-        "  1     0  50.0  9000", // unrelated
-        "101     1   1.5  1000", // host of agent one
-        "102   101   2.0  2000", // its adapter
-        "103   102   0.5   500", // the engine under the adapter
-        "201     1   9.0  9000", // not a host
-      ].join("\n"),
-      stderr: "",
-      exitCode: 0,
+  const sessionSample = (
+    id: string,
+    cpuPercent: number,
+    rssBytes: number,
+    processCount: number
+  ) => ({
+    session: sessionFromWire(id),
+    supported: true,
+    cpuPercent,
+    rssBytes,
+    processCount,
+    sampledAt: 1,
+    error: null,
+  });
+
+  it("sums process metrics returned by both runners on the original ten-second cadence", async () => {
+    const sampleAgentSessions = vi.fn(async () => ({
+      runningAgentCount: 3,
+      samples: [
+        sessionSample("agt_native", 1.53, 1000 * 1024, 1),
+        sessionSample("agt_enrolled", 2.5, 2500 * 1024, 2),
+      ],
     }));
     const resources = new ServiceResources({
       pool: createPool(),
       probePool: createProbePool(),
-      listAgentProcesses: async () => [{ hostPid: 101 }, { hostPid: null }],
+      sampleAgentSessions,
       getWorkloads: workloads,
       subsystemTrackers: [],
       processTreeSupported: true,
-      runProcessCommand: runProcessCommand as never,
     });
-
     resources.start();
     await vi.advanceTimersByTimeAsync(0);
-    expect(runProcessCommand).toHaveBeenCalledWith(
-      "ps",
-      ["-axo", "pid=,ppid=,%cpu=,rss="],
-      expect.anything()
-    );
     expect(resources.getSnapshot()).toMatchObject({
       capabilities: { processTreeMetrics: "available" },
       current: {
-        workloads: { runningAgents: 2 },
-        agents: { processCount: 3, cpuPercent: 4, rssBytes: 3_500 * 1024 },
+        workloads: { runningAgents: 3 },
+        agents: { processCount: 3, cpuPercent: 4, rssBytes: 3500 * 1024 },
       },
     });
-    resources.stop();
-  });
-
-  it("includes detached child hosts and counts overlapping descendants once", async () => {
-    const resources = new ServiceResources({
-      pool: createPool(),
-      probePool: createProbePool(),
-      getWorkloads: workloads,
-      subsystemTrackers: [],
-      processTreeSupported: true,
-      listAgentProcesses: async () => [
-        { hostPid: 101 },
-        { hostPid: 201 },
-        { hostPid: 102 },
-      ],
-      runProcessCommand: vi.fn(async () => ({
-        stdout:
-          "103 102 1 10\n102 101 1 10\n101 1 1 10\n201 1 1 10\n202 201 1 10",
-        stderr: "",
-        exitCode: 0,
-      })),
-    });
-    resources.start();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(resources.getSnapshot().current.agents).toMatchObject({
-      processCount: 5,
-      rssBytes: 50 * 1024,
-      cpuPercent: 5,
-    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(sampleAgentSessions).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(sampleAgentSessions).toHaveBeenCalledTimes(2);
     resources.stop();
   });
 
   it("clears process values after a successful probe followed by failure", async () => {
-    const runProcessCommand = vi
+    const sampleAgentSessions = vi
       .fn()
-      .mockResolvedValueOnce({ stdout: "101 1 1 10", stderr: "", exitCode: 0 })
-      .mockRejectedValue(new Error("failed"));
+      .mockResolvedValueOnce({
+        runningAgentCount: 1,
+        samples: [sessionSample("agt_native", 1, 10 * 1024, 1)],
+      })
+      .mockResolvedValue({
+        runningAgentCount: 1,
+        samples: [],
+        samplingFailed: true,
+      });
     const resources = new ServiceResources({
       pool: createPool(),
       probePool: createProbePool(),
       getWorkloads: workloads,
       subsystemTrackers: [],
       processTreeSupported: true,
-      listAgentProcesses: async () => [{ hostPid: 101 }],
-      runProcessCommand,
+      sampleAgentSessions,
     });
     resources.start();
     await vi.advanceTimersByTimeAsync(0);
@@ -363,7 +347,7 @@ describe("ServiceResources", () => {
       probePool: createProbePool(),
       artifactProbePool,
       artifactRoots: [],
-      listAgentProcesses: async () => [],
+      sampleAgentSessions: async () => ({ runningAgentCount: 0, samples: [] }),
       getWorkloads: workloads,
       subsystemTrackers: [],
       processTreeSupported: false,
@@ -399,7 +383,7 @@ describe("ServiceResources", () => {
       getWorkloads: workloads,
       subsystemTrackers: [],
       processTreeSupported: false,
-      listAgentProcesses: async () => [],
+      sampleAgentSessions: async () => ({ runningAgentCount: 0, samples: [] }),
       sampleArtifactStorage,
     });
     await vi.advanceTimersByTimeAsync(10_000);
@@ -421,21 +405,18 @@ describe("ServiceResources", () => {
     expect(sampleArtifactStorage).toHaveBeenCalledTimes(2);
   });
 
-  it("skips ps entirely when no agent has a live host", async () => {
-    const runProcessCommand = vi.fn();
+  it("reports zero process usage when runners return no live host samples", async () => {
     const resources = new ServiceResources({
       pool: createPool(),
       probePool: createProbePool(),
-      listAgentProcesses: async () => [{ hostPid: null }],
+      sampleAgentSessions: async () => ({ runningAgentCount: 1, samples: [] }),
       getWorkloads: workloads,
       subsystemTrackers: [],
       processTreeSupported: true,
-      runProcessCommand: runProcessCommand as never,
     });
 
     resources.start();
     await vi.advanceTimersByTimeAsync(0);
-    expect(runProcessCommand).not.toHaveBeenCalled();
     expect(resources.getSnapshot().current.agents).toMatchObject({
       processCount: 0,
       rssBytes: 0,
@@ -447,7 +428,7 @@ describe("ServiceResources", () => {
     const resources = new ServiceResources({
       pool: createPool(),
       probePool: createProbePool(),
-      listAgentProcesses: async () => [],
+      sampleAgentSessions: async () => ({ runningAgentCount: 0, samples: [] }),
       getWorkloads: workloads,
       subsystemTrackers: [],
       processTreeSupported: false,
@@ -473,7 +454,7 @@ describe("ServiceResources", () => {
     const resources = new ServiceResources({
       pool: createPool(),
       probePool: createProbePool(),
-      listAgentProcesses: async () => [],
+      sampleAgentSessions: async () => ({ runningAgentCount: 0, samples: [] }),
       getWorkloads: workloads,
       subsystemTrackers: [],
       processTreeSupported: false,
@@ -523,7 +504,7 @@ describe("ServiceResources", () => {
     const resources = new ServiceResources({
       pool: createPool(),
       probePool: createProbePool(query as never),
-      listAgentProcesses: async () => [],
+      sampleAgentSessions: async () => ({ runningAgentCount: 0, samples: [] }),
       getWorkloads: workloads,
       subsystemTrackers: [],
       processTreeSupported: false,
@@ -563,7 +544,7 @@ describe("ServiceResources", () => {
     const resources = new ServiceResources({
       pool: createPool(),
       probePool: createProbePool(),
-      listAgentProcesses: async () => [],
+      sampleAgentSessions: async () => ({ runningAgentCount: 0, samples: [] }),
       getWorkloads: () => ({ ...current }),
       subsystemTrackers: [],
       processTreeSupported: false,

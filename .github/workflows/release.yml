@@ -304,6 +304,9 @@ jobs:
     permissions:
       contents: read
 
+    outputs:
+      runner_native: ${{ steps.pack.outputs.runner_native }}
+
     steps:
       - uses: actions/checkout@v6
         with:
@@ -389,13 +392,29 @@ jobs:
         run: |
           pnpm run build:bun
         env:
+          DISPATCH_RUNNER_UPDATE_DEV_BUILD: "0"
           DISPATCH_CODESIGN_IDENTITY: "Developer ID Application: Brad Harris (ML8BQ6D727)"
           DISPATCH_MACOS_BUNDLE_ID: dev.bradharris.dispatch
           DISPATCH_NOTARIZE_MACOS_BINARIES: "1"
           DISPATCH_NOTARY_KEYCHAIN_PROFILE: dispatch-release-notary
 
       - name: Pack release artifact
-        run: bin/pack-release --output dispatch-server.tar.gz
+        id: pack
+        run: |
+          bin/pack-release --output dispatch-server.tar.gz
+          # A recovery run may build a tag that predates native runner assets.
+          # Only a pack-release without --runner-arch may skip them.
+          if grep -q -- --runner-arch bin/pack-release; then
+            for arch in x64 arm64; do
+              # Older recovery tags packed the matching server executable.
+              if [[ -f scripts/build-standalone-runner.mjs ]]; then
+                DISPATCH_RUNNER_UPDATE_DEV_BUILD=0 bun scripts/build-standalone-runner.mjs "bun-linux-$arch"
+              fi
+              bin/pack-release --runner-arch "$arch" --output "dispatch-runner-linux-$arch.tar.gz"
+              test -s "dispatch-runner-linux-$arch.tar.gz"
+            done
+            echo "runner_native=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Upload release bundle
         uses: actions/upload-artifact@v7
@@ -405,6 +424,7 @@ jobs:
           path: |
             dist/bun/
             dispatch-server.tar.gz
+            dispatch-runner-linux-*.tar.gz
             release-notes/current.md
           retention-days: 7
 
@@ -510,6 +530,7 @@ jobs:
 
       - run: pnpm run build:bun
         env:
+          DISPATCH_RUNNER_UPDATE_DEV_BUILD: "0"
           DISPATCH_BUN_TARGETS: bun-darwin-${{ env.MAC_ARCH }}
           NODE_OPTIONS: --max-old-space-size=2048
 
@@ -777,6 +798,8 @@ jobs:
 
     permissions:
       contents: write
+      id-token: write
+      attestations: write
 
     steps:
       # Self-hosted workspaces persist between runs; only this run's
@@ -816,6 +839,87 @@ jobs:
           name: ${{ needs.build-macos-app.outputs.artifact_name }}
           path: macos
 
+      - name: Extract runner bootstrap from the tested bundle
+        id: runner-bootstrap
+        env:
+          RUNNER_NATIVE: ${{ needs.build-binaries.outputs.runner_native }}
+        run: |
+          set -euo pipefail
+          # Recovery may publish a tag created before runner installation existed.
+          tar -tzf dispatch-server.tar.gz > release-members.txt
+          if grep -Fxq bin/install-dispatch-runner.sh release-members.txt; then
+            tar -xOzf dispatch-server.tar.gz bin/install-dispatch-runner.sh > install-dispatch-runner.sh
+            test -s install-dispatch-runner.sh
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+          if [ "$RUNNER_NATIVE" = true ] || [ -f dispatch-runner-linux-x64.tar.gz ] || [ -f dispatch-runner-linux-arm64.tar.gz ]; then
+            test -s dispatch-runner-linux-x64.tar.gz
+            test -s dispatch-runner-linux-arm64.tar.gz
+            test -s install-dispatch-runner.sh
+            echo "native=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out release signing tools
+        if: steps.runner-bootstrap.outputs.native == 'true'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: runner-signing
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/sign-runner-update.mjs
+            /scripts/runner-dev-key.mjs
+            /packages/runner-protocol/src/update-format.ts
+            /apps/server/src/server/runner-dev-key.ts
+
+      - name: Set up Node for runner signing
+        if: steps.runner-bootstrap.outputs.native == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Sign native runner manifests
+        if: steps.runner-bootstrap.outputs.native == 'true'
+        env:
+          TAG: ${{ needs.prepare-release.outputs.tag }}
+          RUNNER_UPDATE_SIGNING_KEY: ${{ secrets.RUNNER_UPDATE_SIGNING_KEY }}
+          RUNNER_UPDATE_SIGNING_KEY_ID: ${{ vars.RUNNER_UPDATE_SIGNING_KEY_ID }}
+        run: |
+          set -euo pipefail
+          for arch in x64 arm64; do
+            node --experimental-strip-types runner-signing/scripts/sign-runner-update.mjs \
+              --release "${TAG#v}" "$arch" "dispatch-runner-linux-$arch.tar.gz" \
+              "dispatch-runner-linux-$arch.manifest.json"
+          done
+
+      - name: Attest the Linux-containing release bundle
+        id: attest-bundle
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: dispatch-server.tar.gz
+
+      - name: Attest the runner bootstrap
+        if: steps.runner-bootstrap.outputs.present == 'true'
+        id: attest-runner-bootstrap
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: install-dispatch-runner.sh
+
+      - name: Attest the Linux x64 runner
+        if: steps.runner-bootstrap.outputs.native == 'true'
+        id: attest-runner-x64
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: dispatch-runner-linux-x64.tar.gz
+
+      - name: Attest the Linux arm64 runner
+        if: steps.runner-bootstrap.outputs.native == 'true'
+        id: attest-runner-arm64
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: dispatch-runner-linux-arm64.tar.gz
+
       - name: Create GitHub prerelease from tested artifacts
         run: |
           set -euo pipefail
@@ -827,16 +931,31 @@ jobs:
             echo "error: release $TAG already exists" >&2
             exit 1
           fi
+          cp "$BUNDLE_ATTESTATION" dispatch-server.tar.gz.sigstore.json
+          ASSETS=(dispatch-server.tar.gz dispatch-server.tar.gz.sigstore.json)
+          if [ -n "$BOOTSTRAP_ATTESTATION" ]; then
+            cp "$BOOTSTRAP_ATTESTATION" install-dispatch-runner.sh.sigstore.json
+            ASSETS+=(install-dispatch-runner.sh install-dispatch-runner.sh.sigstore.json)
+          fi
+          if [ -n "$RUNNER_X64_ATTESTATION" ] && [ -n "$RUNNER_ARM64_ATTESTATION" ]; then
+            cp "$RUNNER_X64_ATTESTATION" dispatch-runner-linux-x64.tar.gz.sigstore.json
+            cp "$RUNNER_ARM64_ATTESTATION" dispatch-runner-linux-arm64.tar.gz.sigstore.json
+            ASSETS+=(dispatch-runner-linux-{x64,arm64}.tar.gz{,.sigstore.json} dispatch-runner-linux-{x64,arm64}.manifest.json)
+          fi
           gh release create "$TAG" \
             --repo "${{ github.repository }}" \
             --verify-tag \
             --title "$TAG" \
             --notes-file release-notes/current.md \
             --prerelease \
-            dispatch-server.tar.gz \
+            "${ASSETS[@]}" \
             macos/dispatch-macos-*-arm64.zip
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUNDLE_ATTESTATION: ${{ steps.attest-bundle.outputs.bundle-path }}
+          BOOTSTRAP_ATTESTATION: ${{ steps.attest-runner-bootstrap.outputs.bundle-path }}
+          RUNNER_X64_ATTESTATION: ${{ steps.attest-runner-x64.outputs.bundle-path }}
+          RUNNER_ARM64_ATTESTATION: ${{ steps.attest-runner-arm64.outputs.bundle-path }}
 
   publish-macos-appcast:
     needs:

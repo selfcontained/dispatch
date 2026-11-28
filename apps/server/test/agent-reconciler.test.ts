@@ -1,3 +1,5 @@
+import { RunnerRevoked } from "../src/agents/remote/service.js";
+import { sessionFromWire } from "@dispatch/runner-protocol/contract";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createReconciler } from "../src/agents/reconciler.js";
@@ -110,7 +112,12 @@ const setup = (args: {
   /** Used to seed mocked agent rows that getAgent returns post-mutation. */
   agentsById?: Record<string, AgentRecord>;
   /** Rows returned by the cleanupOrphanedHosts DB query. */
-  cleanupAgentRows?: Array<{ id: string; status: string }>;
+  cleanupAgentRows?: Array<{
+    id: string;
+    cwd: string;
+    runner_id: string;
+    host_launch_id: string;
+  }>;
 }) => {
   const setAgentStatus = vi.fn<
     (id: string, status: AgentStatus, lastError: string | null) => Promise<void>
@@ -126,7 +133,7 @@ const setup = (args: {
       if (text.includes("status IN ('running'")) {
         return { rows: args.activeRows };
       }
-      if (text.includes("id = ANY(")) {
+      if (text.includes("host_launch_id IS NOT NULL")) {
         return { rows: args.cleanupAgentRows ?? [] };
       }
       throw new Error(`Unexpected pool.query SQL: ${text.slice(0, 80)}`);
@@ -245,6 +252,31 @@ describe("reconcileAgentStatuses — reconnect latency", () => {
 });
 
 describe("reconcileAgentStatuses — missing-host detection", () => {
+  it("records a revoked registration even when reconciliation precedes the host disconnect callback", async () => {
+    const runtime = makeRuntime({
+      inventoryLiveness: () => async () => {
+        throw new RunnerRevoked();
+      },
+    });
+    const { reconciler, setAgentStatus, notifyBlocked } = setup({
+      activeRows: [
+        { id: "agt_revoked", status: "running", updatedAt: minutesAgo(2) },
+      ],
+      runtime,
+    });
+    await reconciler.reconcileAgentStatuses();
+    expect(setAgentStatus).toHaveBeenCalledWith(
+      "agt_revoked",
+      "error",
+      RunnerRevoked.reason
+    );
+    expect(notifyBlocked).toHaveBeenCalledWith(
+      "agt_revoked",
+      RunnerRevoked.reason
+    );
+    expect(runtime.readLogTail).not.toHaveBeenCalled();
+  });
+
   it("running agent whose host is gone → settles the stream and flips to stopped", async () => {
     const runtime = makeRuntime({ isAlive: vi.fn().mockResolvedValue(false) });
     const { reconciler, setAgentStatus, notifyBlocked, settleStream } = setup({
@@ -453,88 +485,124 @@ describe("reconcileAgentStatuses — happy path", () => {
 });
 
 describe("cleanupOrphanedHosts", () => {
-  it("returns early when no host is running — no DB query", async () => {
-    const { reconciler, runtime, pool } = setup({ activeRows: [] });
-
-    await reconciler.cleanupOrphanedHosts();
-
-    expect(pool.query).not.toHaveBeenCalled();
-    expect(runtime.stop).not.toHaveBeenCalled();
+  const enrolled = "enrolled";
+  const ended = (id: string, launchId: string, placement = "local") => ({
+    id,
+    cwd: placement === "local" ? "/tmp" : "/srv/checkout",
+    runner_id: placement,
+    host_launch_id: launchId,
+  });
+  const host = (id: string, launchId?: string) => ({
+    session: sessionFromWire(id),
+    state: "live" as const,
+    ...(launchId && { launchId }),
   });
 
-  it("force-stops hosts whose agents are in a terminal DB status (stopped/error)", async () => {
+  it("force-stops a matching ended launch on the local child and an enrolled runner", async () => {
+    const retryStop = vi.fn().mockResolvedValue(undefined);
     const runtime = makeRuntime({
-      listHosted: vi
-        .fn()
-        .mockResolvedValue(["agt_aaa111aaaaaa", "agt_bbb111bbbbbb"]),
+      retryStop,
+      listSessions: async (placement) => ({
+        sessions: placement
+          ? [host("agt_remote", "remote-launch")]
+          : [host("agt_local", "local-launch")],
+      }),
     });
     const { reconciler, pool } = setup({
       activeRows: [],
       runtime,
       cleanupAgentRows: [
-        { id: "agt_aaa111aaaaaa", status: "stopped" },
-        { id: "agt_bbb111bbbbbb", status: "error" },
+        ended("agt_local", "local-launch"),
+        ended("agt_remote", "remote-launch", enrolled),
       ],
     });
-
     await reconciler.cleanupOrphanedHosts();
+    expect(vi.mocked(pool.query).mock.calls[0]?.[0]).toMatch(
+      /status IN \('stopped', 'error'\)/
+    );
+    expect(retryStop).toHaveBeenCalledWith(
+      "agt_local",
+      true,
+      null,
+      "local-launch",
+      true
+    );
+    expect(retryStop).toHaveBeenCalledWith(
+      "agt_remote",
+      true,
+      enrolled,
+      "remote-launch",
+      true
+    );
+    expect(retryStop).toHaveBeenCalledTimes(2);
+    expect(runtime.stop).not.toHaveBeenCalled();
+  });
 
-    expect(vi.mocked(pool.query).mock.calls[0]?.[1]).toEqual([
-      ["agt_aaa111aaaaaa", "agt_bbb111bbbbbb"],
-    ]);
-    expect(runtime.stop).toHaveBeenCalledWith("agt_aaa111aaaaaa", true);
-    expect(runtime.stop).toHaveBeenCalledWith("agt_bbb111bbbbbb", true);
-    expect(runtime.stop).toHaveBeenCalledTimes(2);
+  it("runs the enrolled sweep on subsequent ticks without changing local sweep timing", async () => {
+    const retryStop = vi.fn().mockResolvedValue(undefined);
+    const listSessions = vi.fn(async () => ({
+      sessions: [host("agt_remote", "remote-launch")],
+    }));
+    const { reconciler } = setup({
+      activeRows: [],
+      runtime: makeRuntime({ retryStop, listSessions }),
+      cleanupAgentRows: [
+        ended("agt_local", "local-launch"),
+        ended("agt_remote", "remote-launch", enrolled),
+      ],
+    });
+    await reconciler.cleanupOrphanedHosts("enrolled");
+    expect(listSessions).toHaveBeenCalledExactlyOnceWith(enrolled, true);
+    expect(retryStop).toHaveBeenCalledExactlyOnceWith(
+      "agt_remote",
+      true,
+      enrolled,
+      "remote-launch",
+      true
+    );
+  });
+
+  it.each([
+    ["unknown to the database", host("agt_unknown", "old-launch")],
+    ["on another runner", host("agt_remote", "remote-launch")],
+    ["from another instance", host("agt_local", "different-instance")],
+    ["from a newer launch", host("agt_local", "new-launch")],
+    ["without a verified launch", host("agt_local")],
+  ])("refuses a host %s", async (_reason, suspect) => {
+    const retryStop = vi.fn().mockResolvedValue(undefined);
+    const { reconciler } = setup({
+      activeRows: [],
+      runtime: makeRuntime({
+        retryStop,
+        listSessions: async (placement) => ({
+          sessions: placement ? [] : [suspect],
+        }),
+      }),
+      cleanupAgentRows: [
+        ended("agt_local", "old-launch"),
+        ended("agt_remote", "remote-launch", enrolled),
+      ],
+    });
+    await reconciler.cleanupOrphanedHosts();
+    expect(retryStop).not.toHaveBeenCalled();
   });
 
   it("keeps going when one stop fails", async () => {
-    const runtime = makeRuntime({
-      listHosted: vi.fn().mockResolvedValue(["agt_a", "agt_b"]),
-      stop: vi
-        .fn()
-        .mockRejectedValueOnce(new Error("socket gone"))
-        .mockResolvedValue(undefined),
-    });
+    const retryStop = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("socket gone"))
+      .mockResolvedValue(undefined);
     const { reconciler } = setup({
       activeRows: [],
-      runtime,
-      cleanupAgentRows: [
-        { id: "agt_a", status: "stopped" },
-        { id: "agt_b", status: "stopped" },
-      ],
+      runtime: makeRuntime({
+        retryStop,
+        listSessions: async () => ({
+          sessions: [host("agt_a", "a"), host("agt_b", "b")],
+        }),
+      }),
+      cleanupAgentRows: [ended("agt_a", "a"), ended("agt_b", "b")],
     });
-
-    await expect(reconciler.cleanupOrphanedHosts()).resolves.toBeUndefined();
-    expect(runtime.stop).toHaveBeenCalledTimes(2);
-  });
-
-  it("leaves hosts whose agents are still active alone", async () => {
-    const runtime = makeRuntime({
-      listHosted: vi.fn().mockResolvedValue(["agt_alive1aliv1a"]),
-    });
-    const { reconciler } = setup({
-      activeRows: [],
-      runtime,
-      cleanupAgentRows: [{ id: "agt_alive1aliv1a", status: "running" }],
-    });
-
     await reconciler.cleanupOrphanedHosts();
-    expect(runtime.stop).not.toHaveBeenCalled();
-  });
-
-  it("leaves hosts with no DB record alone (shared state root safety)", async () => {
-    // Could belong to another server instance sharing the state root; only
-    // agents THIS DB knows about are eligible for cleanup.
-    const runtime = makeRuntime({
-      listHosted: vi.fn().mockResolvedValue(["agt_unknwnunknwn"]),
-    });
-    const { reconciler } = setup({
-      activeRows: [],
-      runtime,
-      cleanupAgentRows: [],
-    });
-
-    await reconciler.cleanupOrphanedHosts();
-    expect(runtime.stop).not.toHaveBeenCalled();
+    expect(retryStop).toHaveBeenCalledTimes(2);
   });
 });

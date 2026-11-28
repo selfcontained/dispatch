@@ -22,6 +22,10 @@ export const SETTINGS_PAGES: Record<
     title: "Connections",
     description: "Tools that send work to agents",
   },
+  runners: {
+    title: "Runners",
+    description: "Computers that run your agents",
+  },
   notifications: {
     title: "Notifications",
     description: "How Dispatch gets your attention",

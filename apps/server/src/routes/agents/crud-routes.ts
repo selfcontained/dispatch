@@ -1,7 +1,13 @@
+import { requestedRunnerPlacement } from "../../runners/saved-location.js";
+import { admitLaunch } from "../../agents/launch-admission.js";
+import { sameRunner } from "@dispatch/runner-protocol/contract";
+import {
+  controllerPlacement,
+  runnerIdForPlacement,
+} from "../../runners/placement.js";
+import { isCheckoutStateId } from "@dispatch/runner-protocol";
 import { validateAgentEffort } from "../../shared/agent-effort.js";
 import type { Effort } from "@dispatch/shared";
-import { createReadStream } from "node:fs";
-import { access, constants, realpath } from "node:fs/promises";
 import path from "node:path";
 
 import type { FastifyInstance } from "fastify";
@@ -29,8 +35,16 @@ import {
   CLAUDE_FULL_ACCESS_ARG,
   type AgentRouteDeps,
 } from "./shared.js";
-import { validateAgentModelChoice } from "../../shared/agent-models.js";
-import { getDirectoryIconPath } from "../../shared/directory-icon-cache.js";
+import {
+  modelScopeFor,
+  validateAgentModelChoice,
+} from "../../shared/agent-models.js";
+import {
+  agentIconPath,
+  iconTarget,
+  readAgentIcon,
+} from "../../agents/checkout-icon.js";
+import { sessionRunner } from "../../agents/checkout-runner.js";
 
 export async function registerAgentCrudRoutes(
   app: FastifyInstance,
@@ -144,8 +158,10 @@ export async function registerAgentCrudRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    const baseDir = agent.launchCwd ?? agent.gitContext?.repoRoot ?? agent.cwd;
-    const iconRelPath = await getDirectoryIconPath(deps.pool, baseDir);
+    const runners = deps.agentManager.checkoutReadRunners();
+    const runner = sessionRunner(runners, agent);
+    const target = iconTarget(agent);
+    const iconRelPath = await agentIconPath(deps.pool, runners, agent);
     if (!iconRelPath) {
       return reply.code(404).send({ error: "No repo icon." });
     }
@@ -155,28 +171,22 @@ export async function registerAgentCrudRoutes(
       return reply.code(400).send({ error: "Invalid icon extension." });
     }
 
-    const iconAbsPath = path.join(baseDir, iconRelPath);
-
-    let realIconPath: string;
-    let realBaseDir: string;
-    try {
-      realBaseDir = await realpath(baseDir);
-      realIconPath = await realpath(iconAbsPath);
-    } catch {
-      return reply.code(404).send({ error: "Icon file not found." });
-    }
-
     if (
-      !realIconPath.startsWith(realBaseDir + path.sep) &&
-      realIconPath !== realBaseDir
+      path.isAbsolute(iconRelPath) ||
+      iconRelPath.split(/[\\/]/).includes("..")
     ) {
       return reply.code(400).send({ error: "Invalid icon path." });
     }
 
-    try {
-      await access(realIconPath, constants.R_OK);
-    } catch {
+    const bytes = await readAgentIcon(runner, target, iconRelPath);
+    if (bytes === "outside") {
+      return reply.code(400).send({ error: "Invalid icon path." });
+    }
+    if (bytes === "unreadable") {
       return reply.code(404).send({ error: "Icon file not readable." });
+    }
+    if (!bytes) {
+      return reply.code(404).send({ error: "Icon file not found." });
     }
 
     const contentType =
@@ -194,7 +204,7 @@ export async function registerAgentCrudRoutes(
         "default-src 'none'; style-src 'unsafe-inline'"
       )
       .header("X-Content-Type-Options", "nosniff")
-      .send(createReadStream(realIconPath));
+      .send(bytes);
   });
 
   app.post("/api/v1/agents", async (request, reply) => {
@@ -216,10 +226,27 @@ export async function registerAgentCrudRoutes(
       (typeof body.projectId !== "string" || !body.projectId)
     )
       return reply.code(400).send({ error: "Invalid project." });
+    let requestedPlacement;
+    try {
+      requestedPlacement = requestedRunnerPlacement(body);
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+    const projectTarget =
+      requestedPlacement &&
+      !sameRunner(requestedPlacement, controllerPlacement);
+    if (projectTarget) {
+      if (body.cwd)
+        return reply
+          .code(400)
+          .send({ error: "Choose a project or a folder, not both." });
+      body.cwd = "";
+    }
     // Created for a task: briefed on it in its prompt, placed in its
     // project unless a location was chosen, and assigned once it exists.
-    let taskBriefing: { projectId: string; text: string; name: string } | null =
-      null;
+    let taskBriefing: Awaited<
+      ReturnType<NonNullable<typeof deps.tasks>["briefingFor"]>
+    > | null = null;
     if (body.taskId !== undefined) {
       if (typeof body.taskId !== "string" || !body.taskId)
         return reply.code(400).send({ error: "Invalid taskId." });
@@ -230,19 +257,31 @@ export async function registerAgentCrudRoutes(
       } catch (error) {
         return reply.code(400).send({ error: errorMessage(error) });
       }
-      if (!body.projectId && !body.cwd) body.projectId = taskBriefing.projectId;
     }
-    if (body.projectId && body.cwd)
+    const admission = admitLaunch({
+      phase: "api",
+      caller: taskBriefing ? "task" : "createAgent",
+      projectTarget: Boolean(projectTarget),
+      cwd: body.cwd,
+      projectId:
+        typeof body.projectId === "string" ? body.projectId : undefined,
+      taskProjectId: taskBriefing?.projectId,
+    });
+    if (!admission.ok)
+      return reply
+        .code(admission.statusCode)
+        .send({ error: admission.message });
+    if (
+      projectTarget &&
+      !admission.projectId &&
+      !(typeof body.parentAgentId === "string" && body.parentAgentId)
+    )
       return reply
         .code(400)
-        .send({ error: "Choose a project or a folder, not both." });
+        .send({ error: "Choose a project to launch on this runner." });
+    body.projectId = admission.projectId;
 
-    if (!body.projectId && typeof body?.cwd !== "string") {
-      return reply
-        .code(400)
-        .send({ error: "Body must include cwd as a string." });
-    }
-
+    let repository: unknown;
     let parsedAgentArgs: string[] | undefined;
     let startupLinks: string[] | undefined;
     let fullAccess: boolean | undefined;
@@ -250,6 +289,10 @@ export async function registerAgentCrudRoutes(
     let createNewBranch: boolean | undefined;
 
     try {
+      repository =
+        parsedRequest.isMultipart && typeof body.repository === "string"
+          ? JSON.parse(body.repository)
+          : body.repository;
       parsedAgentArgs = parseOptionalStringArrayField(
         body.agentArgs ?? body.codexArgs,
         "agentArgs",
@@ -319,6 +362,14 @@ export async function registerAgentCrudRoutes(
         .code(400)
         .send({ error: "baseBranch must be a string when provided." });
     }
+    if (
+      body.pullRequest !== undefined &&
+      typeof body.pullRequest !== "string"
+    ) {
+      return reply
+        .code(400)
+        .send({ error: "pullRequest must be a string when provided." });
+    }
 
     if (
       body.initialPrompt !== undefined &&
@@ -352,11 +403,17 @@ export async function registerAgentCrudRoutes(
     let model: string | undefined;
     let effort: Effort | null;
     try {
+      const scope = await modelScopeFor(requestedPlacement, agentType, {
+        model: typeof body.model === "string" ? body.model : undefined,
+        effort: body.effort,
+      });
       model = validateAgentModelChoice(
         agentType,
-        typeof body.model === "string" ? body.model : undefined
+        typeof body.model === "string" ? body.model : undefined,
+        undefined,
+        scope
       );
-      effort = validateAgentEffort(agentType, body.effort, model);
+      effort = validateAgentEffort(agentType, body.effort, model, scope);
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -398,9 +455,11 @@ export async function registerAgentCrudRoutes(
             taskBriefing?.name ||
             undefined,
           type: agentType,
+          placement: requestedPlacement,
           cwd: typeof body.cwd === "string" ? body.cwd : "",
           projectId:
             typeof body.projectId === "string" ? body.projectId : undefined,
+          repository,
           agentArgs: resolvedAgentArgs,
           model,
           effort,
@@ -413,6 +472,8 @@ export async function registerAgentCrudRoutes(
               : undefined,
           baseBranch:
             typeof body.baseBranch === "string" ? body.baseBranch : undefined,
+          pullRequest:
+            typeof body.pullRequest === "string" ? body.pullRequest : undefined,
           worktreeLocation,
           persona: typeof body.persona === "string" ? body.persona : undefined,
           parentAgentId:
@@ -429,6 +490,7 @@ export async function registerAgentCrudRoutes(
             links,
           },
           initialFiles: startupFiles,
+          startupReferences: taskBriefing?.references,
         },
         {
           detachLaunch: true,
@@ -454,7 +516,10 @@ export async function registerAgentCrudRoutes(
 
   app.delete("/api/v1/agents/:id", async (request, reply) => {
     const params = request.params as { id?: unknown };
-    const query = request.query as { cleanupWorktree?: unknown };
+    const query = request.query as {
+      cleanupWorktree?: unknown;
+      checkoutState?: unknown;
+    };
 
     if (typeof params.id !== "string") {
       return reply.code(400).send({ error: "Missing agent id." });
@@ -468,10 +533,17 @@ export async function registerAgentCrudRoutes(
         ? (query.cleanupWorktree as CleanupMode)
         : "auto";
 
+    if (
+      query.checkoutState !== undefined &&
+      !isCheckoutStateId(query.checkoutState)
+    )
+      return reply.code(400).send({ error: "Invalid checkout state." });
+
     try {
       const agent = await deps.agentManager.beginArchive(
         params.id,
-        cleanupWorktree
+        cleanupWorktree,
+        ...(isCheckoutStateId(query.checkoutState) ? [query.checkoutState] : [])
       );
       deps.publishUiEvent({
         type: "agent.upsert",

@@ -7,7 +7,7 @@ import {
 } from "@dispatch/shared";
 import type { AgentManager } from "../agents/manager.js";
 import type { StreamService } from "../chat/service.js";
-import type { DriverEvent } from "../agents/acp/driver.js";
+import type { DriverEvent } from "@dispatch/runner-protocol/host";
 import {
   nextBoundary,
   scheduleMessageSchema,
