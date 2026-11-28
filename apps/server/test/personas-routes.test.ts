@@ -175,20 +175,10 @@ describe("GET /api/v1/personas", () => {
   });
 
   it.each([
-    [
-      "&projectId=prj_test",
-      // Its repository, read on that runner; today's project folder when it
-      // cannot be read there.
-      expect.objectContaining({
-        kind: "repository",
-        fallback: {
-          kind: "project",
-          repoRoot: "/project",
-          runners: expect.any(Function),
-        },
-      }),
-    ],
-    ["", { kind: "builtins" }],
+    // Its repository, read on that runner and nowhere else; without a
+    // project there is nothing to read there, and the runner says so.
+    ["&projectId=prj_test", { kind: "repository", read: expect.any(Function) }],
+    ["", { kind: "repository", read: expect.any(Function) }],
   ])("scopes a runner listing with query suffix %s", async (suffix, scope) => {
     const { listPersonas } = await import("../src/personas/resolve.js");
     const response = await app.inject({

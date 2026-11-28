@@ -452,18 +452,6 @@ describe("shared remote persona catalog", () => {
   it.each([
     ["local folder", (root: string) => personaScopeFor({ cwd: root })],
     ["local project", (root: string) => personaScopeFor({ projectRoot: root })],
-    [
-      // A runner project without a repository (or a runner that cannot read
-      // it) keeps today's answer: the project's folder.
-      "runner project",
-      (root: string) =>
-        launchPersonaScope({ checkoutReadRunners: () => ({}) } as never, {
-          placement: { runner: "rnr_test" } as never,
-          cwd: "/srv/checkout",
-          projectRoot: root,
-          repository: null,
-        }),
-    ],
   ] as const)(
     "lists the same task definition it resolves for a %s",
     async (_name, target) => {
@@ -478,6 +466,27 @@ describe("shared remote persona catalog", () => {
       );
     }
   );
+
+  it("never lists the controller's copy of a runner project", async () => {
+    await publish("catalog instructions");
+    const scope = launchPersonaScope(
+      { checkoutReadRunners: () => ({}) } as never,
+      {
+        placement: { runner: "rnr_test" } as never,
+        cwd: "/srv/checkout",
+        projectRoot: checkout,
+        repository: null,
+      }
+    );
+    const listed = await listPersonas(scope, "task", true);
+    expect(listed.personas).toEqual([]);
+    expect(listed.warnings).toEqual([
+      "Could not read default-branch files from the runner.",
+    ]);
+    await expect(resolvePersona(scope, "builder", "task")).rejects.toThrow(
+      'Persona "builder" not found.'
+    );
+  });
 
   it("limits a runner repository without a project to built-ins", async () => {
     const scope = launchPersonaScope(
