@@ -66,14 +66,18 @@ export function sessionFor(endpoint: LocalEndpoint | null) {
  */
 export function startTestLocalRunner(
   stateRoot: string,
-  options: { env?: Record<string, string>; backoffMs?: number } = {}
+  options: {
+    env?: Record<string, string>;
+    backoffMs?: number;
+    entry?: string;
+  } = {}
 ): TestLocalRunner {
   const session = sessionFor(null);
   const pids: number[] = [];
   let current: LaunchedRunner | null = null;
   const waiters: Array<() => void> = [];
   const supervisor: RunnerSupervisor = superviseRunner({
-    command: [bun, entry, "local-runner"],
+    command: [bun, options.entry ?? entry, "local-runner"],
     env: {
       PATH: process.env.PATH,
       HOME: process.env.HOME,

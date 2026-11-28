@@ -75,7 +75,8 @@ export async function setupAgentWorkspace(
 export async function installWorkspaceDependencies(
   worktreePath: string,
   logger: WorkspaceLogger,
-  onProgress?: (progress: WorkspaceProgress) => Promise<void>
+  onProgress?: (progress: WorkspaceProgress) => Promise<void>,
+  installTimeoutMs = 120_000
 ): Promise<boolean> {
   await onProgress?.({ phase: "deps" });
   for (const [lockfile, bin, args] of LOCKFILE_INSTALL_COMMANDS) {
@@ -91,7 +92,7 @@ export async function installWorkspaceDependencies(
       await runCommand(bin, [...args], {
         cwd: worktreePath,
         env: withToolSearchPath(),
-        timeoutMs: 120_000,
+        timeoutMs: installTimeoutMs,
       });
       logger.info(
         { worktreePath, packageManager: bin },

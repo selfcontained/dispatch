@@ -13,6 +13,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import {
@@ -133,6 +134,11 @@ async function fixture(
   if (options.interrupt) await writeFile(crash, "");
   const child = startTestLocalRunner(hosts, {
     backoffMs: 250,
+    ...(options.install === "timeout" && {
+      entry: fileURLToPath(
+        new URL("./fixtures/local-runner-timeout-entry.ts", import.meta.url)
+      ),
+    }),
     env: {
       GIT_CONFIG_GLOBAL: config,
       GIT_CONFIG_NOSYSTEM: "1",
@@ -143,13 +149,6 @@ async function fixture(
       NPM_CONFIG_AUDIT: "false",
       NPM_CONFIG_FUND: "false",
       ...(options.interrupt && { RUNNER_DIE_AFTER_CREATE: crash }),
-      ...(options.install === "timeout" && {
-        RUNNER_FIXTURE_INSTALL_TIMEOUT_MS: "1000",
-        RUNNER_FIXTURE_INSTALL_TIMEOUT_LOG: path.join(
-          root,
-          "install-timeout-injections"
-        ),
-      }),
     },
   });
   cleanups.push(() => child.stop());
@@ -538,13 +537,6 @@ it.each(["discard", "archive"] as const)(
     expect(await readFile(path.join(f.home, "npm-invocations"), "utf8")).toBe(
       "install\n"
     );
-    const injected = JSON.parse(
-      (
-        await readFile(path.join(f.root, "install-timeout-injections"), "utf8")
-      ).trim()
-    );
-    expect(injected).toMatchObject({ command: "npm", timeoutMs: 1000 });
-    expect(injected.originalTimeoutMs).toBeGreaterThan(injected.timeoutMs);
     expect(f.steps).toContainEqual(
       expect.objectContaining({
         phase: "dependencies",

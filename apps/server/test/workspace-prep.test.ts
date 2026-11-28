@@ -12,7 +12,10 @@ vi.mock(
   })
 );
 
-const { setupAgentWorkspace: setupWorkloadWorkspace } =
+const {
+  setupAgentWorkspace: setupWorkloadWorkspace,
+  installWorkspaceDependencies,
+} =
   await import("../../../packages/runner/src/workload/agents/workspace-prep.js");
 const { withToolSearchPath } =
   await import("../src/shared/lib/tool-environment.js");
@@ -225,3 +228,16 @@ function setupAgentWorkspace(
     progress
   );
 }
+
+it("passes an explicitly supplied install deadline without changing the default", async () => {
+  await writeFile(path.join(worktreePath, "package-lock.json"), "{}");
+  await installWorkspaceDependencies(
+    worktreePath,
+    noopLogger,
+    undefined,
+    1_000
+  );
+  expect(vi.mocked(runCommand).mock.calls[0]?.[2]?.timeoutMs).toBe(1_000);
+  await installWorkspaceDependencies(worktreePath, noopLogger);
+  expect(vi.mocked(runCommand).mock.calls[1]?.[2]?.timeoutMs).toBe(120_000);
+});
