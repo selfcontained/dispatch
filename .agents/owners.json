@@ -248,6 +248,7 @@
         "apps/server/src/routes/projects.ts",
         "apps/server/test/*project*",
         "apps/server/test/local-repository-launch.test.ts",
+        "apps/server/test/local-repository-borrowing-child.test.ts",
         "e2e/*project*",
         "apps/web/src/components/app/project-*",
         "apps/web/src/hooks/use-projects*",
