@@ -56,11 +56,14 @@ const emptyCatalog: PersonaCatalog = {
   updatedAt: null,
 };
 
+const RUNNER_FILES_UNREADABLE =
+  "Could not read default-branch files from the runner.";
+
 /**
  * A runner that cannot read the repository: an older peer, one that is
  * offline or drops the connection, or a repository URL a launch would
- * refuse. Those keep today's answer; only a failure the runner reports
- * reaches the user.
+ * refuse. Those answer as a runner session does, with built-ins and a
+ * warning; only a failure the runner reports reaches the user.
  */
 const readsElsewhere = (error: unknown) =>
   !(error instanceof RunnerCallError) ||
@@ -80,7 +83,6 @@ async function personaSources(scope: PersonaScope): Promise<Sources> {
   if (scope.kind === "repository") {
     // No checkout exists yet: only the repository's default branch, read
     // on the runner the launch goes to and parsed here.
-    const fallback = await personaSources(scope.fallback);
     return {
       load: () => [],
       loadSlug: () => null,
@@ -92,7 +94,7 @@ async function personaSources(scope: PersonaScope): Promise<Sources> {
           });
         } catch (error) {
           if (!readsElsewhere(error)) throw error;
-          return fallback ? fallback.catalog(wait) : emptyCatalog;
+          return { ...emptyCatalog, warnings: [RUNNER_FILES_UNREADABLE] };
         }
       },
     };
@@ -151,7 +153,7 @@ export async function listPersonas(
         if (scope.kind !== "session") throw error;
         return {
           ...emptyCatalog,
-          warnings: ["Could not read default-branch files from the runner."],
+          warnings: [RUNNER_FILES_UNREADABLE],
         };
       })
     : emptyCatalog;

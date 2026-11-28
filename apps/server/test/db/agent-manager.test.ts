@@ -1280,8 +1280,27 @@ describe("AgentManager", () => {
         [projectId]
       );
       let online = true;
+      // The launch reads its persona from the repository on the runner; the
+      // first read never answers, so the create stops before preparing.
+      const personaFiles = vi
+        .fn()
+        .mockImplementationOnce(() => new Promise(() => {}))
+        .mockImplementation(() => ({
+          hasOrigin: true,
+          files: [
+            {
+              path: ".agents/personas/builder.md",
+              content: "---\ntype: task\n---\nbuild",
+            },
+          ],
+          warnings: [],
+          refreshing: false,
+          updatedAt: 1,
+          truncated: false,
+        }));
       const { call, remote } = enrolledFixture(
         {
+          "checkout.defaultFiles": personaFiles,
           "workspace.resume": () => null,
           "workspace.prepare": () => ({
             path: cwd,
@@ -1296,58 +1315,49 @@ describe("AgentManager", () => {
         runtime,
         remote,
       });
-      const catalog = vi
-        .spyOn(personaCatalog, "get")
-        .mockImplementationOnce(() => new Promise(() => {}));
-      try {
-        const created = await first.createAgent(
-          {
-            ...target,
-            projectId,
-            persona: "builder",
-            useWorktree: true,
-            worktreeBranch: "recover/remote",
-          },
-          { detachLaunch: true }
-        );
-        expect(created.status).toBe("creating");
-        await vi.waitFor(() => expect(catalog).toHaveBeenCalled());
-        expect(call.mock.calls.map(([, op]) => op)).not.toContain(
-          "workspace.prepare"
-        );
-        expect(runtime.launch).not.toHaveBeenCalled();
+      const created = await first.createAgent(
+        {
+          ...target,
+          projectId,
+          persona: "builder",
+          useWorktree: true,
+          worktreeBranch: "recover/remote",
+        },
+        { detachLaunch: true }
+      );
+      expect(created.status).toBe("creating");
+      await vi.waitFor(() => expect(personaFiles).toHaveBeenCalled());
+      expect(call.mock.calls.map(([, op]) => op)).not.toContain(
+        "workspace.prepare"
+      );
+      expect(runtime.launch).not.toHaveBeenCalled();
 
-        call.mockClear();
-        online = false;
-        const retryRuntime = createSpyRuntime();
-        retryRuntime.isAlive.mockResolvedValue(true);
-        const restarted = new AgentManager(pool, noopLogger, testConfig, {
-          runtime: retryRuntime,
-          remote,
-        });
-        expect(await restarted.restoreRunningAgents()).toMatchObject({
-          lost: [created.id],
-        });
-        expect(await restarted.getAgent(created.id)).toMatchObject({
-          status: "stopped",
-        });
-        expect(retryRuntime.isAlive).not.toHaveBeenCalled();
-        expect(call).not.toHaveBeenCalled();
+      call.mockClear();
+      online = false;
+      const retryRuntime = createSpyRuntime();
+      retryRuntime.isAlive.mockResolvedValue(true);
+      const restarted = new AgentManager(pool, noopLogger, testConfig, {
+        runtime: retryRuntime,
+        remote,
+      });
+      expect(await restarted.restoreRunningAgents()).toMatchObject({
+        lost: [created.id],
+      });
+      expect(await restarted.getAgent(created.id)).toMatchObject({
+        status: "stopped",
+      });
+      expect(retryRuntime.isAlive).not.toHaveBeenCalled();
+      expect(call).not.toHaveBeenCalled();
 
-        online = true;
-        expect(await restarted.startAgent(created.id)).toMatchObject({
-          status: "running",
-        });
-        expect(call.mock.calls.map(([, op]) => op)).toContain(
-          "workspace.resume"
-        );
-        expect(
-          call.mock.calls.filter(([, op]) => op === "workspace.prepare")
-        ).toHaveLength(1);
-        expect(retryRuntime.launch).toHaveBeenCalledTimes(1);
-      } finally {
-        catalog.mockRestore();
-      }
+      online = true;
+      expect(await restarted.startAgent(created.id)).toMatchObject({
+        status: "running",
+      });
+      expect(call.mock.calls.map(([, op]) => op)).toContain("workspace.resume");
+      expect(
+        call.mock.calls.filter(([, op]) => op === "workspace.prepare")
+      ).toHaveLength(1);
+      expect(retryRuntime.launch).toHaveBeenCalledTimes(1);
     });
 
     it("carries MCP new and existing checkout intent to the runner launch request", async () => {

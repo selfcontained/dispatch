@@ -41,8 +41,6 @@ export type PersonaScope =
   | {
       kind: "repository";
       read: RepositoryFiles;
-      /** What this target read before the runner could (an older runner). */
-      fallback: FolderOrProject;
     };
 
 /** Chooses where a persona saved on a job or template is resolved. */
@@ -100,6 +98,8 @@ export function personaScopeFor(
  * runner, as main reads it. A launch on any other runner reads its project's
  * repository there, from the runner's repository cache at the remote's
  * default branch, as main's catalog reads the origin's default branch.
+ * A Local project with no folder reads its repository the same way, through
+ * the local runner. Nothing else stands in when a runner cannot answer.
  */
 export function launchPersonaScope(
   manager: Pick<AgentManager, "checkoutReadRunners">,
@@ -111,15 +111,12 @@ export function launchPersonaScope(
     source?: "catalog" | "workspace";
   }
 ): PersonaScope {
-  if (sameRunner(target.placement, controllerPlacement))
-    return folderOrProject(target, () => manager.checkoutReadRunners());
-  // Nothing on that runner names a folder; without a repository there is
-  // nothing there to read before launch, as before.
-  const fallback = folderOrProject({ projectRoot: target.projectRoot }, () =>
-    manager.checkoutReadRunners()
-  );
   const { repository: of } = target;
-  if (!of) return fallback;
+  if (
+    sameRunner(target.placement, controllerPlacement) &&
+    (target.cwd || target.projectRoot || !of)
+  )
+    return folderOrProject(target, () => manager.checkoutReadRunners());
   const runner = runnerDirectory(manager.checkoutReadRunners()).for(
     target.placement
   );
@@ -127,6 +124,8 @@ export function launchPersonaScope(
     kind: "repository",
     async read(dirs, wait) {
       const repository = typeof of === "function" ? await of() : of;
+      // Nothing on that runner names a folder: a project without a
+      // repository has nothing there to read before launch.
       if (!repository)
         throw new RunnerCallError({
           code: "unsupported",
@@ -138,7 +137,6 @@ export function launchPersonaScope(
         wait,
       });
     },
-    fallback,
   };
 }
 

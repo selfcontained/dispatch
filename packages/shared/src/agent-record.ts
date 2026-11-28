@@ -69,6 +69,11 @@ export type AgentRecord = {
   placement: Placement;
   /** Runner to address for engine sign-in, supplied by the client projection. */
   engineLoginRunnerId?: string;
+  /**
+   * The checkout is on the machine Dispatch serves from, so a desktop there
+   * can open it (Open in IDE). Supplied by the client projection.
+   */
+  checkoutOnServerHost?: boolean;
   cwd: string;
   /** Directory requested at creation, before any managed worktree changed cwd. */
   launchCwd?: string | null;

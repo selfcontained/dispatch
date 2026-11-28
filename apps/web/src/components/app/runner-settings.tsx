@@ -40,6 +40,7 @@ import { RunnerGitHubAccount } from "./runner-github-account";
 import { isRunnerHealthFresh, RunnerHealthDetails } from "./runner-health";
 import { RunnerOnboarding, RunnerPairingRequests } from "./runner-onboarding";
 import { RunnerUpdateStatus } from "./runner-update";
+import { SettingsPage } from "./settings-layout";
 
 const STATUS_LABEL: Record<RunnerStatus, string> = {
   pending: "Waiting to pair",
@@ -108,10 +109,12 @@ export function RunnerSettings(): JSX.Element {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: runnersQueryKey });
       setNotice("Revoked runners cleared.");
-      heading.current?.focus();
+      list.current?.focus();
     },
   });
   const heading = useRef<HTMLHeadingElement>(null);
+  // The list's own title is the page header; focus returns to the list.
+  const list = useRef<HTMLElement>(null);
   const previousRunner = useRef<string | null>(null);
   const selectedId = params.get("runner");
   const inDetail = selectedId !== null;
@@ -137,7 +140,7 @@ export function RunnerSettings(): JSX.Element {
       const row = document.getElementById(
         `runner-select-${encodeURIComponent(previousRunner.current)}`
       );
-      (row ?? heading.current)?.focus();
+      (row ?? list.current)?.focus();
       previousRunner.current = null;
     }
   }, [selectedId, selected?.id, loading, loadFailed]);
@@ -156,185 +159,182 @@ export function RunnerSettings(): JSX.Element {
   }
 
   return (
-    <section
-      aria-labelledby="runner-settings-heading"
-      data-testid="runner-settings"
-      className="mx-auto w-full min-w-0 max-w-4xl space-y-4 p-4 md:p-6"
+    <SettingsPage
+      page="runners"
+      actions={inDetail ? undefined : <RunnerOnboarding />}
     >
-      {inDetail ? (
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className="-ml-2 gap-1.5"
-          onClick={backToList}
-        >
-          <ArrowLeft className="size-4" aria-hidden="true" />
-          Back to runners
-        </Button>
-      ) : (
-        <header className="flex items-center justify-between gap-3">
+      <section
+        {...(inDetail
+          ? { "aria-labelledby": "runner-settings-heading" }
+          : { "aria-label": "Runners", tabIndex: -1, ref: list })}
+        data-testid="runner-settings"
+        className="min-w-0 space-y-4 focus:outline-none"
+      >
+        {inDetail && (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="-ml-2 gap-1.5"
+            onClick={backToList}
+          >
+            <ArrowLeft className="size-4" aria-hidden="true" />
+            Back to runners
+          </Button>
+        )}
+
+        {!inDetail && (
+          <>
+            <RunnerPairingRequests />
+            <p
+              role="status"
+              className={cn(
+                "text-body-md text-muted-foreground",
+                !notice && "sr-only"
+              )}
+            >
+              {notice}
+            </p>
+          </>
+        )}
+
+        {inDetail && !selected && (
           <h2
             id="runner-settings-heading"
             tabIndex={-1}
             ref={heading}
             className="text-heading-lg focus:outline-none"
           >
-            Runners
+            {loading || loadFailed ? "Runner details" : "Runner unavailable"}
           </h2>
-          <RunnerOnboarding />
-        </header>
-      )}
+        )}
 
-      {!inDetail && (
-        <>
-          <RunnerPairingRequests />
-          <p
-            role="status"
-            className={cn(
-              "text-body-md text-muted-foreground",
-              !notice && "sr-only"
-            )}
-          >
-            {notice}
+        {loading ? (
+          <p className="text-body-md text-muted-foreground" role="status">
+            Loading runners…
           </p>
-        </>
-      )}
-
-      {inDetail && !selected && (
-        <h2
-          id="runner-settings-heading"
-          tabIndex={-1}
-          ref={heading}
-          className="text-heading-lg focus:outline-none"
-        >
-          {loading || loadFailed ? "Runner details" : "Runner unavailable"}
-        </h2>
-      )}
-
-      {loading ? (
-        <p className="text-body-md text-muted-foreground" role="status">
-          Loading runners…
-        </p>
-      ) : loadFailed ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="text-body-md text-danger" role="alert">
-            Could not load runners.
-          </p>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => void runners.refetch()}
-          >
-            Try again
-          </Button>
-        </div>
-      ) : inDetail ? (
-        selected ? (
-          <RunnerDetail
-            key={selected.id}
-            runner={selected}
-            heading={heading}
-            onRevoked={() => onRevoked(selected)}
-          />
-        ) : (
-          <p className="text-body-md text-muted-foreground">
-            This runner is no longer connected.
-          </p>
-        )
-      ) : (
-        <>
-          {roster.length === 0 ? (
-            <p className="text-body-md text-muted-foreground">
-              No connected runners.
+        ) : loadFailed ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-body-md text-danger" role="alert">
+              Could not load runners.
             </p>
-          ) : (
-            <ul
-              className="divide-y divide-border rounded-md border border-border"
-              data-testid="runner-list"
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => void runners.refetch()}
             >
-              {roster.map((runner) => {
-                const next = new URLSearchParams(listParams);
-                next.set("runner", runner.id);
-                return (
-                  <li
-                    key={runner.id}
-                    data-testid={`runner-${runner.id}`}
-                    data-status={runner.status}
-                  >
-                    <Link
-                      className="flex min-h-12 w-full items-center gap-3 rounded-md px-3 py-2.5 text-body-md font-medium text-foreground transition-colors focus-ring-inset hover:bg-surface-hover"
-                      id={`runner-select-${encodeURIComponent(runner.id)}`}
-                      data-testid={`runner-select-${runner.id}`}
-                      to={{ search: next.toString(), hash: location.hash }}
-                      state={{ runnerListSearch: listSearch }}
-                      onClick={() => setNotice("")}
-                    >
-                      <Server
-                        className="size-4 shrink-0 text-muted-foreground"
-                        aria-hidden="true"
-                      />
-                      <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-                        <span className="max-w-full truncate">
-                          {runner.name}
-                        </span>
-                        <RunnerStatusLabel
-                          runner={runner}
-                          checkedAt={checkedAt}
-                        />
-                      </span>
-                      <ChevronRight
-                        className="size-4 shrink-0 text-muted-foreground"
-                        aria-hidden="true"
-                      />
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-
-          {history.length > 0 && (
-            <details className="text-body-md text-muted-foreground">
-              <summary className="w-fit cursor-pointer rounded-sm py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                Revoked runners ({history.length})
-              </summary>
-              <ul className="mt-1 divide-y divide-border">
-                {history.map((runner) => (
-                  <li
-                    key={runner.id}
-                    className="flex items-center justify-between gap-2 px-3 py-2"
-                    data-testid={`runner-${runner.id}`}
-                    data-status="revoked"
-                  >
-                    <span className="min-w-0 break-words">{runner.name}</span>
-                    <RunnerStatusLabel runner={runner} />
-                  </li>
-                ))}
-              </ul>
-              <Button
-                type="button"
-                size="sm"
-                className="mt-2"
-                disabled={clearRevoked.isPending}
-                onClick={() => {
-                  setNotice("");
-                  clearRevoked.mutate(history.map((runner) => runner.id));
-                }}
+              Try again
+            </Button>
+          </div>
+        ) : inDetail ? (
+          selected ? (
+            <RunnerDetail
+              key={selected.id}
+              runner={selected}
+              heading={heading}
+              onRevoked={() => onRevoked(selected)}
+            />
+          ) : (
+            <p className="text-body-md text-muted-foreground">
+              This runner is no longer connected.
+            </p>
+          )
+        ) : (
+          <>
+            {roster.length === 0 ? (
+              <p className="text-body-md text-muted-foreground">
+                No connected runners.
+              </p>
+            ) : (
+              <ul
+                className="divide-y divide-border rounded-md border border-border"
+                data-testid="runner-list"
               >
-                {clearRevoked.isPending ? "Clearing…" : "Clear revoked runners"}
-              </Button>
-              {clearRevoked.isError && (
-                <p className="mt-2 text-body-md text-danger" role="alert">
-                  {clearRevoked.error.message}
-                </p>
-              )}
-            </details>
-          )}
-        </>
-      )}
-    </section>
+                {roster.map((runner) => {
+                  const next = new URLSearchParams(listParams);
+                  next.set("runner", runner.id);
+                  return (
+                    <li
+                      key={runner.id}
+                      data-testid={`runner-${runner.id}`}
+                      data-status={runner.status}
+                    >
+                      <Link
+                        className="flex min-h-12 w-full items-center gap-3 rounded-md px-3 py-2.5 text-body-md font-medium text-foreground transition-colors focus-ring-inset hover:bg-surface-hover"
+                        id={`runner-select-${encodeURIComponent(runner.id)}`}
+                        data-testid={`runner-select-${runner.id}`}
+                        to={{ search: next.toString(), hash: location.hash }}
+                        state={{ runnerListSearch: listSearch }}
+                        onClick={() => setNotice("")}
+                      >
+                        <Server
+                          className="size-4 shrink-0 text-muted-foreground"
+                          aria-hidden="true"
+                        />
+                        <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+                          <span className="max-w-full truncate">
+                            {runner.name}
+                          </span>
+                          <RunnerStatusLabel
+                            runner={runner}
+                            checkedAt={checkedAt}
+                          />
+                        </span>
+                        <ChevronRight
+                          className="size-4 shrink-0 text-muted-foreground"
+                          aria-hidden="true"
+                        />
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+
+            {history.length > 0 && (
+              <details className="text-body-md text-muted-foreground">
+                <summary className="w-fit cursor-pointer rounded-sm py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  Revoked runners ({history.length})
+                </summary>
+                <ul className="mt-1 divide-y divide-border">
+                  {history.map((runner) => (
+                    <li
+                      key={runner.id}
+                      className="flex items-center justify-between gap-2 px-3 py-2"
+                      data-testid={`runner-${runner.id}`}
+                      data-status="revoked"
+                    >
+                      <span className="min-w-0 break-words">{runner.name}</span>
+                      <RunnerStatusLabel runner={runner} />
+                    </li>
+                  ))}
+                </ul>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="mt-2"
+                  disabled={clearRevoked.isPending}
+                  onClick={() => {
+                    setNotice("");
+                    clearRevoked.mutate(history.map((runner) => runner.id));
+                  }}
+                >
+                  {clearRevoked.isPending
+                    ? "Clearing…"
+                    : "Clear revoked runners"}
+                </Button>
+                {clearRevoked.isError && (
+                  <p className="mt-2 text-body-md text-danger" role="alert">
+                    {clearRevoked.error.message}
+                  </p>
+                )}
+              </details>
+            )}
+          </>
+        )}
+      </section>
+    </SettingsPage>
   );
 }
 

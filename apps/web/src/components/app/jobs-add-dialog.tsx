@@ -4,12 +4,15 @@ import { AgentEffortSelect } from "./agent-effort-select";
 import { ProjectLocation } from "./project-location";
 import { useProjectScope } from "@/hooks/use-projects";
 import { ChevronDown } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
+import { LaunchTargetError } from "./launch-target-error";
+import { RunnerPicker } from "./runner-picker";
+import { RunnerProjectPicker } from "./runner-project-picker";
+import { useJobTarget } from "./use-job-target";
 
 import { PathInput } from "@/components/app/path-input";
 import { AgentPersonaSelect } from "@/components/app/agent-persona-select";
 import { AgentModelSelect } from "@/components/app/agent-model-select";
-import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import { useCwdHistory } from "@/components/app/create-agent-dialog-utils";
 import {
   JobAgentTypeField,
@@ -105,8 +108,24 @@ export function AddJobFlow({
   const [persona, setPersona] = useState<string | null>(null);
   const [effort, setEffort] = useState<Effort | null>(null);
   const [model, setModel] = useState<string | null>(null);
-  const { options: modelOptions, loading: modelCatalogLoading } =
-    useAgentModelCatalog(agentType);
+  const onTargetAgentTypes = useCallback(
+    (types: AgentType[]) => {
+      const next = types.find(isCliAgentType);
+      if (types.includes(agentType) || !next) return;
+      setAgentType(next);
+      setModel(null);
+      setEffort(null);
+    },
+    [agentType]
+  );
+  const target = useJobTarget({
+    directory,
+    projectId,
+    agentType,
+    model,
+    onAgentTypes: onTargetAgentTypes,
+  });
+  const { options: modelOptions, loading: modelCatalogLoading } = target.models;
   const [fullAccess, setFullAccess] = useState(false);
   const [useWorktree, setUseWorktree] = useState(false);
   const [baseBranch, setBaseBranch] = useState("main");
@@ -135,7 +154,10 @@ export function AddJobFlow({
   );
   const canAdd =
     !!displayName.trim() &&
-    !!directory.trim() &&
+    target.launch.selectionReady &&
+    (target.byProject
+      ? target.projects.some((p) => p.id === projectId)
+      : !!directory.trim() || target.byRepository) &&
     !!prompt.trim() &&
     !scheduleError &&
     (!continuation.enabled ||
@@ -149,6 +171,25 @@ export function AddJobFlow({
       <DialogBody className="grid min-w-0 gap-4">
         <div className="min-w-0">
           <div className="grid min-w-0 gap-3 md:grid-cols-2">
+            <div className="min-w-0 space-y-3 empty:hidden md:col-span-2">
+              <RunnerPicker
+                targets={target.launch.list.data ?? []}
+                value={target.launch.key}
+                onChange={(key) => {
+                  setModel(null);
+                  setEffort(null);
+                  setPersona(null);
+                  setProjectId(null);
+                  setDirectory("");
+                  setBaseBranch(
+                    target.launch.list.data?.find((t) => t.key === key)
+                      ?.defaultBaseBranch ?? "main"
+                  );
+                  target.launch.choose(key);
+                }}
+              />
+              <LaunchTargetError queries={[target.launch.list, target.data]} />
+            </div>
             <Field id="job-display-name" label="Name" className="md:col-span-2">
               <Input
                 value={displayName}
@@ -156,29 +197,67 @@ export function AddJobFlow({
                 placeholder="e.g. Daily cleanup"
               />
             </Field>
-            <div className="min-w-0 space-y-1 md:col-span-2">
-              <ProjectLocation
-                projectId={projectId}
-                onChange={(p) => {
-                  setProjectId(p?.id ?? null);
-                  if (p) setDirectory(p.repoRoot ?? "");
-                }}
-              >
-                <PathInput
-                  value={directory}
-                  onChange={setDirectory}
-                  placeholder="~/code/project"
-                  id="job-directory"
-                  history={cwdHistory}
-                  removableHistory={removableCwdHistory}
-                  historyMetadata={cwdHistoryMetadata}
-                  onRemoveHistory={removeCwdHistory}
-                  data-testid="job-directory-input"
+            {target.byProject ? (
+              <div className="min-w-0 md:col-span-2">
+                <RunnerProjectPicker
+                  searchUrl={target.searchUrl}
+                  projects={target.projects}
+                  projectId={projectId}
+                  loading={target.launch.list.isLoading}
+                  error={Boolean(target.launch.target?.location.error)}
+                  onProject={setProjectId}
                 />
-              </ProjectLocation>
-            </div>
+              </div>
+            ) : (
+              <div className="min-w-0 space-y-1 md:col-span-2">
+                <ProjectLocation
+                  projectId={projectId}
+                  projectPicker={
+                    target.searchUrl ? (
+                      <RunnerProjectPicker
+                        searchUrl={target.searchUrl}
+                        projects={target.projects}
+                        projectId={projectId}
+                        loading={target.launch.list.isLoading}
+                        error={Boolean(target.launch.target?.location.error)}
+                        onProject={(id) => {
+                          setProjectId(id);
+                          setDirectory(
+                            target.projects.find((p) => p.id === id)
+                              ?.repoRoot ?? ""
+                          );
+                        }}
+                      />
+                    ) : undefined
+                  }
+                  onChange={(p) => {
+                    setProjectId(p?.id ?? null);
+                    if (p) setDirectory(p.repoRoot ?? "");
+                  }}
+                >
+                  <PathInput
+                    value={directory}
+                    onChange={setDirectory}
+                    placeholder="~/code/project"
+                    id="job-directory"
+                    history={cwdHistory}
+                    removableHistory={removableCwdHistory}
+                    historyMetadata={cwdHistoryMetadata}
+                    onRemoveHistory={removeCwdHistory}
+                    data-testid="job-directory-input"
+                  />
+                </ProjectLocation>
+              </div>
+            )}
             <AgentPersonaSelect
               cwd={directory}
+              endpoint={
+                target.byRepository
+                  ? projectId
+                    ? (target.data.data?.personasUrl ?? "")
+                    : ""
+                  : undefined
+              }
               value={persona}
               onChange={setPersona}
             />
@@ -202,7 +281,10 @@ export function AddJobFlow({
             >
               <JobAgentTypeField
                 value={agentType}
-                agentTypes={enabledAgentTypes}
+                agentTypes={
+                  (target.byProject && target.data.info?.agentTypes) ||
+                  enabledAgentTypes
+                }
                 onChange={(nextAgentType) => {
                   setAgentType(nextAgentType);
                   setModel(null);
@@ -222,6 +304,8 @@ export function AddJobFlow({
               ) : null}
               <AgentEffortSelect
                 model={model}
+                workload={target.byProject}
+                workloadChoices={target.data.effort}
                 value={effort}
                 onChange={setEffort}
                 agentType={agentType}
@@ -350,6 +434,14 @@ export function AddJobFlow({
                   onCheckedChange={setUseWorktree}
                   onBaseBranchChange={setBaseBranch}
                   onBranchNameChange={setBranchName}
+                  branchesUrl={
+                    target.byRepository ? target.data.branchesUrl : undefined
+                  }
+                  defaultBaseBranch={
+                    target.byRepository
+                      ? target.data.defaultBaseBranch
+                      : undefined
+                  }
                   testIdPrefix="job-create"
                 />
                 {agentType !== "opencode" && (
@@ -387,7 +479,8 @@ export function AddJobFlow({
             const trimmedDirectory = directory.trim();
             void onAddJob({
               name: displayName.trim(),
-              directory: trimmedDirectory,
+              directory: target.byProject ? "" : trimmedDirectory,
+              ...target.launch.fields,
               projectId,
               displayName: displayName.trim(),
               prompt: prompt.trim(),
@@ -421,7 +514,9 @@ export function AddJobFlow({
                   }
                 : {}),
             })
-              .then(() => addCwdHistory(trimmedDirectory))
+              .then(() => {
+                if (!target.byRepository) addCwdHistory(trimmedDirectory);
+              })
               .catch(setSubmitError);
           }}
         >
