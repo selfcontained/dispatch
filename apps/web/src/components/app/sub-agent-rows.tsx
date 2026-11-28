@@ -274,7 +274,7 @@ export function SubAgentRows({
             review.done && `${review.done} resolved`,
           ]
             .filter(Boolean)
-            .join(", ")}. Open the newest review with open findings`}
+            .join(", ")}. Open the newest archived review with open findings`}
           data-agent-control="true"
           data-testid="sub-agent-reviews-open"
           onClick={() => {

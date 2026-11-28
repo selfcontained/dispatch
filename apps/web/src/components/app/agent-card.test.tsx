@@ -1342,7 +1342,7 @@ describe("AgentCardActions and child agents", () => {
     // With no row to reach them, the totals line opens the open findings.
     expect(
       screen.getByRole("button", {
-        name: "Reviews: 2 open findings, 1 resolved. Open the newest review with open findings",
+        name: "Reviews: 2 open findings, 1 resolved. Open the newest archived review with open findings",
       })
     ).toBeTruthy();
     cleanup();
