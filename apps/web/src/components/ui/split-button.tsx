@@ -28,21 +28,26 @@ export interface SplitButtonProps extends Omit<
 }
 
 // Each half drawn with its own shadow casts it across the seam onto the
-// other's translucent fill. The pair shares one shadow on the wrapper instead.
+// other's translucent fill. The pair shares one shadow instead, painted on an
+// overlay above both halves so the theme's inset top highlight stays visible.
 const halfShadow = "shadow-none hover:shadow-none";
 
-function wrapperShadow(
-  variant: ButtonProps["variant"],
-  disabled: boolean | undefined
-) {
-  if (variant === "primary") {
-    return cn(
-      "shadow-elev-primary",
-      !disabled && "hover:shadow-elev-primary-hover"
-    );
-  }
-  if (variant === "secondary") return "shadow-elev-control";
-  return undefined;
+const overlay =
+  "relative after:pointer-events-none after:absolute after:inset-0 after:rounded-md after:content-['']";
+
+function sharedShadow(variant: ButtonProps["variant"], inactive: boolean) {
+  const shadow =
+    variant === "primary"
+      ? cn(
+          "after:shadow-elev-primary",
+          !inactive && "hover:after:shadow-elev-primary-hover"
+        )
+      : variant === "secondary"
+        ? "after:shadow-elev-control"
+        : undefined;
+  if (!shadow) return undefined;
+  // Matches the halves' disabled-state fade, without fading them twice.
+  return cn(overlay, shadow, inactive && "after:opacity-50");
 }
 
 /** A primary action and a menu of its variations, drawn as one control. */
@@ -91,7 +96,7 @@ const SplitButton = React.forwardRef<HTMLButtonElement, SplitButtonProps>(
       <div
         className={cn(
           "inline-flex min-w-0 max-w-full items-stretch rounded-md",
-          wrapperShadow(variant, disabled)
+          sharedShadow(variant, Boolean(disabled || props.pending))
         )}
       >
         {main}
