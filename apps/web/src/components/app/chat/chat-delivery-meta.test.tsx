@@ -43,7 +43,7 @@ function receipt(delivery: BlockDelivery[]) {
 }
 function renderHeld(
   agent: {
-    engineLoginRunnerId?: string;
+    runnerId?: string;
     cwd: string;
     activity: string;
     currentTurn: unknown;
@@ -69,7 +69,7 @@ function renderHeld(
     }
   );
 }
-const remote = { engineLoginRunnerId: "run_1", cwd: "/w" };
+const remote = { runnerId: "run_1", cwd: "/w" };
 function ui(delivery: BlockDelivery[]) {
   return (
     <>

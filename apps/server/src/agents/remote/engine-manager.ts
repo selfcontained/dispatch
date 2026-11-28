@@ -1,5 +1,9 @@
 import type { AgentModelOption } from "../../shared/agent-models.js";
 import type { createRunnerUsage } from "../codex-reset.js";
+import {
+  PLUGIN_ID,
+  type PluginEngine,
+} from "@dispatch/runner-protocol/plugin-engines";
 import { runnerPluginChecker } from "../../routes/plugin.js";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
@@ -22,7 +26,10 @@ import {
 } from "@dispatch/runner-protocol/engine-management";
 
 import type { AcpEngineId } from "@dispatch/runner-protocol/host";
-import type { EngineUpdateOperations } from "../engine-update-operations.js";
+import {
+  engineStatusPresentation,
+  type EngineUpdateOperations,
+} from "../engine-update-operations.js";
 import type { EngineCalls } from "../../runners/local.js";
 
 /**
@@ -122,7 +129,9 @@ export class EngineManager {
         ok: true,
         capability: {
           type: "provider_usage",
-          usage: await this.deps.engineActions.usage(scope).providerPlans(),
+          usage: await this.deps.engineActions
+            .usage(scope)
+            .providerPlans(operation.force ? { force: true } : undefined),
         },
       };
     }
@@ -288,17 +297,12 @@ export class EngineManager {
 
   /** Whether each signed-in engine's CLI is signed in on this placement, and as whom. */
   async signInStatus(scope: EngineScope): Promise<EngineAuthStatus[]> {
-    // Locally, only the sign-in is asked for: no version or update probes,
-    // so this costs what main's sign-in check did.
-    const entries =
-      scope.kind === "local"
-        ? ((
-            await this.deps.local.engines.call("engine.list", {
-              refresh: true,
-              include: ["signIn"],
-            })
-          ).entries as EngineInventoryEntry[])
-        : ((await this.inventory(scope)) ?? []);
+    const entries = (
+      await this.deps.engineActions.calls(scope).call("engine.list", {
+        refresh: true,
+        include: ["signIn"],
+      })
+    ).entries;
     return LOGIN_ENGINES.map((engine) => {
       const entry = entries.find((candidate) => candidate.id === engine);
       const installed = entry?.installed ?? false;
@@ -344,6 +348,27 @@ export class EngineManager {
       this.logins.set(key, logins);
     }
     logins.set(login.engine as RunnerEngine, login.id);
+  }
+
+  async presentation(scope: EngineScope) {
+    return engineStatusPresentation(
+      this.deps.engineActions.calls(scope),
+      this.deps.engineActions.updates(scope)
+    );
+  }
+
+  async plugins(
+    scope: EngineScope,
+    engines: readonly PluginEngine[],
+    forceRefresh = false
+  ) {
+    const plugins = runnerPluginChecker(
+      this.deps.engineActions.calls(scope),
+      PLUGIN_ID
+    );
+    return Promise.all(
+      engines.map((engine) => plugins.getStatus(engine, { forceRefresh }))
+    );
   }
 
   async operations(scope: EngineScope) {

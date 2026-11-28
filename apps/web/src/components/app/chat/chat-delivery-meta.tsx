@@ -84,7 +84,7 @@ function useWaitingOnRunner(held: readonly string[]): boolean {
     const agent = agents?.find((entry) => entry.id === id);
     if (!agent || agent.currentTurn || agent.activity === "working")
       return undefined;
-    return agent.engineLoginRunnerId;
+    return agent.runnerId;
   });
   const eligible = runnerIds.length > 0 && runnerIds.every(Boolean);
   const { data: runners } = useRunners({ enabled: eligible, poll: eligible });

@@ -1,3 +1,4 @@
+import type { EngineScope } from "@dispatch/runner-protocol/engine-management";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { CheckCircle2, Loader2 } from "lucide-react";
 
@@ -21,14 +22,14 @@ import { isLoginActive, useEngineLogin } from "@/hooks/use-engine-login";
  */
 export function EngineSignIn({
   engine,
-  runnerId,
+  scope,
   since,
   onSignedIn,
   extra,
   primary = false,
 }: {
   engine: EngineLoginEngine;
-  runnerId?: string;
+  scope?: EngineScope;
   /**
    * Only a login that ended after this shows how it ended (and fires
    * `onSignedIn`); an older one leaves the Sign in button. ISO time.
@@ -43,7 +44,7 @@ export function EngineSignIn({
   /** Sign in is the one primary action, as in a failed turn's Alert. */
   primary?: boolean;
 }): JSX.Element {
-  const flow = useEngineLogin(engine, runnerId);
+  const flow = useEngineLogin(engine, scope);
   const { login } = flow;
   const [code, setCode] = useState("");
   const recent =

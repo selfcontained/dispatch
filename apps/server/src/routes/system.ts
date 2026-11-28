@@ -60,7 +60,7 @@ import { engineUpdatePort } from "../agents/engine-update-operations.js";
 import {
   EngineUpdateOperations,
   engineOperationStore,
-  runnerEngineStatuses,
+  engineStatusPresentation,
 } from "../agents/engine-update-operations.js";
 import {
   ACP_ENGINE_IDS,
@@ -211,16 +211,9 @@ export async function registerSystemRoutes(
     app.get(`${prefix}/engines`, async (request) => {
       const { engineCalls: targetEngines, engineUpdates: targetUpdates } =
         resolve(request);
-      const operations = await targetUpdates.read();
       return {
         canManage: (await deps.canManageEngineUpdates?.(request)) ?? false,
-        engines: (await runnerEngineStatuses(targetEngines)).map((engine) => ({
-          ...engine,
-          update: {
-            ...engine.update,
-            operation: operations[engine.id] ?? null,
-          },
-        })),
+        engines: await engineStatusPresentation(targetEngines, targetUpdates),
       };
     });
 

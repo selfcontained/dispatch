@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/collapsible";
 import { Markdown } from "@/components/ui/markdown";
 import { api, ApiError } from "@/lib/api";
-import type { EngineStatus, EngineUpdateOperation } from "@/hooks/use-engines";
+import type { EngineStatus } from "@/hooks/use-engines";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -25,6 +25,13 @@ import { LoadError } from "@/components/ui/async-boundary";
 import { errorStatus, failureHint } from "@/lib/errors";
 import { MAC_APP_UPDATE_QUERY_KEY } from "@/hooks/use-mac-app-update";
 import type { MacAppUpdateSnapshot } from "@dispatch/shared";
+import { engineStatusKey } from "@/hooks/use-engines";
+import { engineScopeQuery, LOCAL_ENGINE_SCOPE } from "@/lib/engine-management";
+import { runnerEnginesKey } from "@/hooks/use-runner-engines";
+import type {
+  EngineScope,
+  EngineOperationAck,
+} from "@dispatch/runner-protocol/engine-management";
 import { Spinner } from "@/components/ui/spinner";
 
 type EngineUpdates = { engines: EngineStatus[]; canManage?: boolean };
@@ -72,42 +79,39 @@ function InstallationDetails({
 function EngineRow({
   engine,
   canManage,
+  scope,
 }: {
   engine: EngineStatus;
   canManage: boolean;
+  scope: EngineScope;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
   const previousOperation = useRef<string | undefined>();
-  const checking = useIsFetching({ queryKey: ["system-engines"] }) > 0;
+  const checking = useIsFetching({ queryKey: engineStatusKey(scope) }) > 0;
   const update = useMutation({
     onMutate: () => {
       previousOperation.current = engine.update?.operation?.id;
     },
-    mutationFn: () =>
-      api<{ operation: EngineUpdateOperation }>(
-        `/api/v1/system/engines/${engine.id}/update`,
+    mutationFn: async () => {
+      const { ack } = await api<{ ack: EngineOperationAck }>(
+        "/api/v1/engine-management/operations",
         {
           method: "POST",
           signal: AbortSignal.timeout(15_000),
+          body: JSON.stringify({
+            scope,
+            operation: { type: "update", engine: engine.id },
+          }),
         }
-      ),
-    onSuccess: ({ operation }) => {
-      queryClient.setQueryData<EngineUpdates>(
-        ["system-engines"],
-        (data) =>
-          data && {
-            ...data,
-            engines: data.engines.map((item) =>
-              item.id === engine.id && item.update
-                ? { ...item, update: { ...item.update, operation } }
-                : item
-            ),
-          }
       );
+      if (!ack.ok) throw new Error(ack.error);
     },
     onSettled: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["system-engines"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: engineStatusKey(scope) }),
+        queryClient.invalidateQueries({ queryKey: runnerEnginesKey(scope) }),
+      ]);
     },
   });
   const metadata = engine.update;
@@ -252,7 +256,7 @@ function EngineRow({
               disabled={checking}
               onClick={() =>
                 void queryClient.invalidateQueries({
-                  queryKey: ["system-engines"],
+                  queryKey: engineStatusKey(scope),
                 })
               }
             >
@@ -321,10 +325,13 @@ export function enginesLoadState({
   return restartExpected ? "restarting" : "reconnecting";
 }
 
-export function EngineUpdatesCard(): JSX.Element {
+export function EngineUpdatesCard({
+  scope = LOCAL_ENGINE_SCOPE,
+}: { scope?: EngineScope } = {}): JSX.Element {
   const query = useQuery<EngineUpdates>({
-    queryKey: ["system-engines"],
-    queryFn: () => api("/api/v1/system/engines"),
+    queryKey: engineStatusKey(scope),
+    queryFn: () =>
+      api(`/api/v1/engine-management/status?${engineScopeQuery(scope)}`),
     staleTime: 0,
     refetchInterval: (query) =>
       query.state.data?.engines.some(
@@ -433,6 +440,7 @@ export function EngineUpdatesCard(): JSX.Element {
           <EngineRow
             key={engine.id}
             engine={engine}
+            scope={scope}
             canManage={query.data?.canManage === true}
           />
         ))}

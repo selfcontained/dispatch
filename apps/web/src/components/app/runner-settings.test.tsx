@@ -614,8 +614,9 @@ it("reads engines, plugins and usage again when an update ends", async () => {
   await screen.findByText("Runner update in progress");
   const keys = [
     ["runner-engines", engineScopeKey({ kind: "runner", runnerId: "build" })],
-    ["runner-plugin", "build"],
-    ["runner-provider-usage", "build"],
+    ["plugin", "status", "scope=runner&runnerId=build"],
+    ["usage-plans", "scope=runner&runnerId=build"],
+    ["engine-status", "scope=runner&runnerId=build"],
   ];
   for (const queryKey of keys)
     expect(invalidate).not.toHaveBeenCalledWith({ queryKey });

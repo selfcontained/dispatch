@@ -395,6 +395,18 @@ export async function runnerEngineStatuses(engines: EngineCalls) {
   );
 }
 
+/** One presentation for the scoped engine API and its legacy Local aliases. */
+export async function engineStatusPresentation(
+  engines: EngineCalls,
+  updates: EngineUpdateOperations
+) {
+  const operations = await updates.read();
+  return (await runnerEngineStatuses(engines)).map((engine) => ({
+    ...engine,
+    update: { ...engine.update, operation: operations[engine.id] ?? null },
+  }));
+}
+
 /** Observe transitions only after the operation store has durably committed. */
 export function observeModelUpdates(
   store: EngineOperationStore,

@@ -153,6 +153,8 @@ it("walks a Codex-style device sign-in to the waiting state", async () => {
   vi.mocked(api).mockImplementation(
     async (path: string, init?: RequestInit) => {
       if (init?.method === "POST") {
+        if (JSON.parse(String(init.body)).operation.type === "login_status")
+          return { ack: { ok: true } };
         const ack: EngineOperationAck = {
           ok: true,
           login: {
@@ -172,13 +174,17 @@ it("walks a Codex-style device sign-in to the waiting state", async () => {
   );
 
   renderWithClient({ kind: "local" });
-  await waitFor(() => screen.getByTestId("runner-engine-claude-sign-in"));
-  fireEvent.click(screen.getByTestId("runner-engine-claude-sign-in"));
+  await waitFor(() => screen.getByTestId("engine-sign-in-start"));
+  await waitFor(() =>
+    expect(screen.getByTestId("engine-sign-in-start")).toHaveProperty(
+      "disabled",
+      false
+    )
+  );
+  fireEvent.click(screen.getByTestId("engine-sign-in-start"));
 
   await waitFor(() => expect(screen.getByText("ABCD-1234")).toBeTruthy());
-  expect(
-    screen.getByDisplayValue("https://auth.example.com/device")
-  ).toBeTruthy();
+  expect(screen.getByText("https://auth.example.com/device")).toBeTruthy();
 });
 
 it("surfaces a failed update instead of silently reporting success", async () => {
@@ -230,11 +236,13 @@ it("shows an up-to-date update as a success message, not a failure", async () =>
 
 it("polls login status and reflects a device sign-in settling on its own", async () => {
   let loginPolls = 0;
+  let started = false;
   vi.mocked(api).mockImplementation(
     async (path: string, init?: RequestInit) => {
       if (init?.method === "POST") {
         const body = JSON.parse(init.body as string);
         if (body.operation.type === "login_start") {
+          started = true;
           return {
             ack: {
               ok: true,
@@ -253,6 +261,7 @@ it("polls login status and reflects a device sign-in settling on its own", async
         // login_status: settle to "succeeded" on the second poll, the
         // way a self-driven device flow finishes without the user
         // submitting anything.
+        if (!started) return { ack: { ok: true } };
         loginPolls += 1;
         const settled = loginPolls >= 2;
         return {
@@ -263,7 +272,12 @@ it("polls login status and reflects a device sign-in settling on its own", async
               engine: "claude",
               status: settled ? "succeeded" : "waiting",
               needsCode: false,
-              ...(settled ? { detail: "me@example.com" } : {}),
+              ...(settled
+                ? {
+                    detail: "me@example.com",
+                    finishedAt: new Date().toISOString(),
+                  }
+                : {}),
               expiresAt: new Date().toISOString(),
             },
           },
@@ -274,8 +288,14 @@ it("polls login status and reflects a device sign-in settling on its own", async
   );
 
   renderWithClient({ kind: "local" });
-  await waitFor(() => screen.getByTestId("runner-engine-claude-sign-in"));
-  fireEvent.click(screen.getByTestId("runner-engine-claude-sign-in"));
+  await waitFor(() => screen.getByTestId("engine-sign-in-start"));
+  await waitFor(() =>
+    expect(screen.getByTestId("engine-sign-in-start")).toHaveProperty(
+      "disabled",
+      false
+    )
+  );
+  fireEvent.click(screen.getByTestId("engine-sign-in-start"));
 
   await waitFor(() => expect(screen.getByText("ABCD-1234")).toBeTruthy());
   await waitFor(

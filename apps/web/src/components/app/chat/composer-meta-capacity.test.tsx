@@ -53,8 +53,16 @@ function mount(
     byModel: [],
   };
   apiMock.mockImplementation(async (url) => {
-    if (url === "/api/v1/usage/plans")
-      return { checkedAt: new Date().toISOString(), providers };
+    if (url === "/api/v1/engine-management/operations")
+      return {
+        ack: {
+          ok: true,
+          capability: {
+            type: "provider_usage",
+            usage: { checkedAt: new Date().toISOString(), providers },
+          },
+        },
+      };
     if (url.endsWith("/usage")) return usage;
     if (url.endsWith("/config")) return { running: false, options: [] };
     return { models: {} };
@@ -62,7 +70,7 @@ function mount(
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  client.setQueryData(["usage-plans"], {
+  client.setQueryData(["usage-plans", "scope=local"], {
     checkedAt: new Date().toISOString(),
     providers,
   });

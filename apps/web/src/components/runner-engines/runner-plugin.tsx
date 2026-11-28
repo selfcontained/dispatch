@@ -1,8 +1,7 @@
 import type { EngineScope } from "@dispatch/runner-protocol/engine-management";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { LoadingButton } from "@/components/ui/button";
-import { runnerEngineCapability } from "@/hooks/use-runner-engines";
+import { usePluginStatus, useUpdatePlugin } from "@/hooks/use-plugin-status";
 
 export function RunnerPlugin({
   scope,
@@ -11,45 +10,19 @@ export function RunnerPlugin({
   scope: EngineScope;
   engine: "codex" | "claude";
 }) {
-  const client = useQueryClient();
-  const queryKey = [
-    "runner-plugin",
-    scope.kind === "local" ? "local" : scope.runnerId,
-    engine,
-  ];
-  const plugin = "dispatch@dispatch";
-  const status = useQuery({
-    queryKey,
-    retry: false,
-    queryFn: async () =>
-      (
-        await runnerEngineCapability(
-          scope,
-          { type: "plugin_status", engine, plugin },
-          "plugin_status"
-        )
-      ).status,
-  });
-  const change = useMutation({
-    mutationFn: async (action: "install" | "update") =>
-      (
-        await runnerEngineCapability(
-          scope,
-          {
-            type: action === "install" ? "plugin_install" : "plugin_update",
-            engine,
-            plugin,
-          },
-          "plugin_status"
-        )
-      ).status,
-    onSuccess: (data) => client.setQueryData(queryKey, data),
-    onError: () => client.invalidateQueries({ queryKey }),
-  });
-  const current = status.data;
+  const status = usePluginStatus(scope);
+  const current = status.data?.statuses.find(
+    (item) => item.agentType === engine
+  );
+  const change = useUpdatePlugin(
+    current?.installed ? "update" : "install",
+    scope
+  );
+  if (status.data && !current) return null;
   const action = current?.installed ? "update" : "install";
   const offered =
-    current?.actions.includes(action) &&
+    current &&
+    !current.detectionError &&
     (action === "install" || current.updateAvailable);
 
   return (
@@ -73,7 +46,7 @@ export function RunnerPlugin({
         <LoadingButton
           size="sm"
           loading={change.isPending || status.isFetching}
-          onClick={() => change.mutate(action)}
+          onClick={() => change.mutate(engine)}
         >
           {change.isPending
             ? action === "install"
