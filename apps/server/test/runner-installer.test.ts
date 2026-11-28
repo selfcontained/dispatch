@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmod,
@@ -427,6 +427,57 @@ it("reports when the dev controller has no payload for the host", async () => {
   expect(result.code).toBe(1);
   expect(result.stderr).toContain("No dev runner payload");
   expect(result.log).toEqual([]);
+});
+
+/** The Linux installer's own tag check, run as the copied command runs it. */
+function installerAcceptsTag(tag: string) {
+  const installer = path.resolve(
+    import.meta.dirname,
+    "../../../bin/install-dispatch-runner.sh"
+  );
+  return (
+    spawnSync(
+      "bash",
+      ["-c", 'source "$1" && valid_release_tag "$2"', "check", installer, tag],
+      { encoding: "utf8" }
+    ).status === 0
+  );
+}
+
+describe("controller and installer agree on release tags", () => {
+  const accepted = [
+    "1.7.40",
+    "1.7.40-staging.22",
+    "1.7.28-dev",
+    "2.0.0-rc.1",
+    "0.0.0-0",
+    "1.2.3-01a",
+  ];
+  const refused = [
+    "1.7.40-",
+    "1.7.40-staging..22",
+    "1.7.40-staging.01",
+    "01.7.40-staging.22",
+    "1.7.40-staging.22+build",
+    "1.7.40-staging.22;id",
+    "1.7.40-$(id)",
+    "1.7.40-staging 22",
+  ];
+  it.each(accepted)(
+    "the installer accepts the tag copied for %s",
+    (version) => {
+      const script = runnerInstallScript({ ...release, version });
+      const tag = /install --tag (\S+) --source/.exec(script)?.[1];
+      expect(tag).toBe(`v${version}`);
+      expect(installerAcceptsTag(tag!)).toBe(true);
+    }
+  );
+  it.each(refused)("both refuse %j", (version) => {
+    expect(() => runnerInstallScript({ ...release, version })).toThrow(
+      "Invalid runner version"
+    );
+    expect(installerAcceptsTag(`v${version}`)).toBe(false);
+  });
 });
 
 describe("runner install script validation", () => {

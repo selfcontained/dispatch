@@ -126,6 +126,12 @@ describe("engine-management routes", () => {
       agentForClient({ ...storedAgent, placement: controllerPlacement }, false)
         .engineLoginRunnerId
     ).toBeUndefined();
+    // Open in IDE is offered only for a checkout on this machine.
+    expect(agent.checkoutOnServerHost).toBe(false);
+    expect(
+      agentForClient({ ...storedAgent, placement: controllerPlacement }, false)
+        .checkoutOnServerHost
+    ).toBe(true);
 
     const engines = fakeEngines();
     const login = {

@@ -152,7 +152,11 @@ export function AgentActionsMenu({
   >(null);
   const [pathCopied, copyPath] = useCopyText();
   const dir = agent.workspacePath ?? agent.cwd;
-  const ideOptions = useIdeLaunchOptions(dir, enabledIdes);
+  const ideOptions = useIdeLaunchOptions(
+    dir,
+    enabledIdes,
+    agent.checkoutOnServerHost !== false
+  );
   const isReviewer = agent.role === "review";
   const archiving = agent.status === "archiving";
   const subagent = variant === "subagent";

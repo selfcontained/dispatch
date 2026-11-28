@@ -9,7 +9,6 @@ import React from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
-  Archive,
   ChevronDown,
   Clipboard,
   Play,
@@ -30,7 +29,6 @@ import {
 import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
 import { ChatUnreadBadge } from "@/components/app/chat/chat-unread-badge";
 import { type Agent } from "@/components/app/types";
-import type { AgentReviewSummary } from "@dispatch/shared";
 import { IconButton } from "@/components/ui/icon-button";
 import { RowButton } from "@/components/ui/row-button";
 import { agentRoute, THREAD_PARAM } from "@/lib/agent-routes";
@@ -38,20 +36,18 @@ import { useAgentReviewSummary } from "@/hooks/use-agent-review-summary";
 import { useFirstAgentWithTurnLabel } from "@/hooks/use-agent-turn-label";
 import { cn } from "@/lib/utils";
 
-type ReviewEntry = AgentReviewSummary["agents"][string];
-
-/** A review whose reviewer has been archived: kept, but not a sub agent. */
-type ArchivedReview = ReviewEntry & { agentId: string };
+type ReviewSummary = ReturnType<typeof useAgentReviewSummary>["data"];
 
 /**
- * Reviews of `parentId`'s work whose reviewers have since been archived.
- * The review summary outlives the agent list, which drops archived agents.
+ * Reviews of `parentId`'s work whose reviewers have since been archived. They
+ * count in the totals but are not sub agents; the review itself stays in the
+ * Inbox's review list.
  */
 function archivedReviewsOf(
   parentId: string | undefined,
   childAgents: Agent[],
-  reviews: ReturnType<typeof useAgentReviewSummary>["data"]
-): ArchivedReview[] {
+  reviews: ReviewSummary
+) {
   if (!parentId) return [];
   const live = new Set(childAgents.map((c) => c.id));
   return Object.entries(reviews?.agents ?? {})
@@ -59,23 +55,19 @@ function archivedReviewsOf(
       ([id, review]) =>
         review.archived && review.toAgentId === parentId && !live.has(id)
     )
-    .map(([agentId, review]) => ({ ...review, agentId }))
-    .sort(
-      (a, b) =>
-        b.createdAt.localeCompare(a.createdAt) ||
-        a.agentId.localeCompare(b.agentId)
-    );
+    .map(([, review]) => review);
 }
 
 /** Review totals across the sub agents that review, and archived reviewers. */
 function reviewTotals(
+  parentId: string | undefined,
   childAgents: Agent[],
-  reviews: ReturnType<typeof useAgentReviewSummary>["data"],
-  archived: ArchivedReview[]
+  reviews: ReviewSummary
 ) {
   const reviewers = childAgents.filter(
     (c) => reviews?.agents?.[c.id] || c.role === "review"
   );
+  const archived = archivedReviewsOf(parentId, childAgents, reviews);
   if (!reviewers.length && !archived.length) return null;
   let open = 0;
   let done = 0;
@@ -93,7 +85,18 @@ function reviewTotals(
     open += s.openFindings;
     if (s.status === "resolved") done += 1;
   }
-  return { total: reviewers.length + archived.length, open, done, running };
+  // No row reaches an archived reviewer's open findings, so the totals line
+  // opens the newest such review.
+  const pending = archived
+    .filter((s) => s.openFindings > 0)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  return {
+    total: reviewers.length + archived.length,
+    open,
+    done,
+    running,
+    pending,
+  };
 }
 
 /** A clean review raised nothing; a resolved one had findings, all settled. */
@@ -112,7 +115,7 @@ export function SubAgentRows({
   viewingId,
   actions,
 }: {
-  /** The agent whose card this is; its archived reviewers' reviews stay. */
+  /** The agent whose card this is; its archived reviewers still count. */
   parentId?: string;
   childAgents: Agent[];
   seats: Record<string, number>;
@@ -123,12 +126,13 @@ export function SubAgentRows({
   actions: SubAgentActions;
 }) {
   const [expanded, setExpanded] = React.useState(false);
+  const navigate = useNavigate();
   const reviews = useAgentReviewSummary();
   const firstActive = useFirstAgentWithTurnLabel(
     childAgents.filter((child) => child.currentTurn)
   );
-  const archived = archivedReviewsOf(parentId, childAgents, reviews.data);
-  if (childAgents.length === 0 && archived.length === 0) return null;
+  const review = reviewTotals(parentId, childAgents, reviews.data);
+  if (childAgents.length === 0 && !review) return null;
   const isReviewer = (c: Agent) =>
     Boolean(reviews.data?.agents?.[c.id]) || c.role === "review";
   const isLive = (c: Agent) => Boolean(c.currentTurn) && c.status === "running";
@@ -144,25 +148,54 @@ export function SubAgentRows({
   const hiddenWorking = childAgents.filter(
     (c) => isLive(c) && !shown.includes(c)
   ).length;
-  const review = reviewTotals(childAgents, reviews.data, archived);
   const liveCount = childAgents.filter(isLive).length;
+
+  const reviewLine = review ? (
+    <>
+      <ClipboardCheck aria-hidden="true" className="size-icon-md text-faint" />
+      <span className="text-foreground">Reviews</span>
+      <span className="flex items-center gap-1.5">
+        {review.running ? (
+          <ReviewChip
+            tone="running"
+            count={review.running}
+            label={`${review.running} reviewing`}
+          />
+        ) : null}
+        {review.open ? (
+          <ReviewChip
+            tone="open"
+            count={review.open}
+            label={`${review.open} open findings`}
+          />
+        ) : null}
+        {review.done ? (
+          <ReviewChip
+            tone="done"
+            count={review.done}
+            label={`${review.done} resolved`}
+          />
+        ) : null}
+      </span>
+    </>
+  ) : null;
 
   return (
     <div className="flex flex-col" data-testid="sub-agent-rows">
-      <RowButton
-        className={cn(
-          ROW_GRID,
-          "-mx-1.5 min-h-7 w-[calc(100%+0.75rem)] rounded-md px-1.5 text-left text-label-sm pointer-coarse:min-h-9"
-        )}
-        data-agent-control="true"
-        data-testid="sub-agents-toggle"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((e) => !e)}
-      >
-        <Users aria-hidden="true" className="size-icon-md text-faint" />
-        <span className="flex min-w-0 items-baseline gap-1.5 truncate">
-          {childAgents.length ? (
-            <>
+      {childAgents.length ? (
+        <>
+          <RowButton
+            className={cn(
+              ROW_GRID,
+              "-mx-1.5 min-h-7 w-[calc(100%+0.75rem)] rounded-md px-1.5 text-left text-label-sm pointer-coarse:min-h-9"
+            )}
+            data-agent-control="true"
+            data-testid="sub-agents-toggle"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((e) => !e)}
+          >
+            <Users aria-hidden="true" className="size-icon-md text-faint" />
+            <span className="flex min-w-0 items-baseline gap-1.5 truncate">
               <span className="text-foreground">
                 {childAgents.length} sub agent
                 {childAgents.length === 1 ? "" : "s"}
@@ -174,57 +207,20 @@ export function SubAgentRows({
               ) : (
                 <span className="text-faint">· idle</span>
               )}
-            </>
-          ) : null}
-          {archived.length ? (
-            <span
-              className={childAgents.length ? "text-faint" : "text-foreground"}
-            >
-              {childAgents.length ? "· " : ""}
-              {archived.length} archived reviewer
-              {archived.length === 1 ? "" : "s"}
             </span>
-          ) : null}
-        </span>
-        <ChevronDown
-          aria-hidden="true"
-          className={cn(
-            "size-icon-md text-faint transition-transform",
-            expanded && "rotate-180"
-          )}
-        />
-      </RowButton>
-      <div className="flex flex-col">
-        <AnimatePresence initial={false}>
-          {shown.map((c) => (
-            <motion.div
-              key={c.id}
-              layout="position"
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.18, ease: "easeOut" }}
-              className="-mx-1.5 overflow-hidden"
-            >
-              <SubAgentRow
-                agent={c}
-                seat={seats[c.id] ?? null}
-                review={reviews.data?.agents?.[c.id]}
-                reviewer={isReviewer(c)}
-                viewing={c.id === viewingId}
-                actions={actions}
-                onNavigate={onNavigate}
-                onOpen={() => {
-                  onNavigate?.();
-                  onOpenAgent(c);
-                }}
-              />
-            </motion.div>
-          ))}
-          {expanded
-            ? archived.map((r) => (
+            <ChevronDown
+              aria-hidden="true"
+              className={cn(
+                "size-icon-md text-faint transition-transform",
+                expanded && "rotate-180"
+              )}
+            />
+          </RowButton>
+          <div className="flex flex-col">
+            <AnimatePresence initial={false}>
+              {shown.map((c) => (
                 <motion.div
-                  key={r.agentId}
+                  key={c.id}
                   layout="position"
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: "auto", opacity: 1 }}
@@ -232,57 +228,69 @@ export function SubAgentRows({
                   transition={{ duration: 0.18, ease: "easeOut" }}
                   className="-mx-1.5 overflow-hidden"
                 >
-                  <ArchivedReviewRow review={r} onNavigate={onNavigate} />
+                  <SubAgentRow
+                    agent={c}
+                    seat={seats[c.id] ?? null}
+                    review={reviews.data?.agents?.[c.id]}
+                    reviewer={isReviewer(c)}
+                    viewing={c.id === viewingId}
+                    actions={actions}
+                    onNavigate={onNavigate}
+                    onOpen={() => {
+                      onNavigate?.();
+                      onOpenAgent(c);
+                    }}
+                  />
                 </motion.div>
-              ))
-            : null}
-        </AnimatePresence>
-        {!expanded && hiddenWorking > 0 ? (
-          <RowButton
-            dense
-            data-agent-control="true"
-            onClick={() => setExpanded(true)}
-            className={cn(
-              ROW_GRID,
-              "min-h-6 text-label-xs text-faint hover:text-foreground"
-            )}
-          >
-            <span />
-            <span>+ {hiddenWorking} more working</span>
-            <span />
-          </RowButton>
-        ) : null}
-      </div>
-      {review ? (
+              ))}
+            </AnimatePresence>
+            {!expanded && hiddenWorking > 0 ? (
+              <RowButton
+                dense
+                data-agent-control="true"
+                onClick={() => setExpanded(true)}
+                className={cn(
+                  ROW_GRID,
+                  "min-h-6 text-label-xs text-faint hover:text-foreground"
+                )}
+              >
+                <span />
+                <span>+ {hiddenWorking} more working</span>
+                <span />
+              </RowButton>
+            ) : null}
+          </div>
+        </>
+      ) : null}
+      {review?.pending ? (
+        <RowButton
+          className={cn(
+            ROW_GRID,
+            "-mx-1.5 mt-1 min-h-7 w-[calc(100%+0.75rem)] rounded-md px-1.5 text-left text-label-sm pointer-coarse:min-h-9"
+          )}
+          aria-label={`Reviews: ${[
+            review.running && `${review.running} reviewing`,
+            `${review.open} open findings`,
+            review.done && `${review.done} resolved`,
+          ]
+            .filter(Boolean)
+            .join(", ")}. Open the newest archived review with open findings`}
+          data-agent-control="true"
+          data-testid="sub-agent-reviews-open"
+          onClick={() => {
+            const pending = review.pending!;
+            onNavigate?.();
+            navigate({
+              pathname: agentRoute(pending.streamId),
+              search: `?${new URLSearchParams({ [THREAD_PARAM]: pending.threadId })}`,
+            });
+          }}
+        >
+          {reviewLine}
+        </RowButton>
+      ) : review ? (
         <div className={cn(ROW_GRID, "mt-1 min-h-7 text-label-sm")}>
-          <ClipboardCheck
-            aria-hidden="true"
-            className="size-icon-md text-faint"
-          />
-          <span className="text-foreground">Reviews</span>
-          <span className="flex items-center gap-1.5">
-            {review.running ? (
-              <ReviewChip
-                tone="running"
-                count={review.running}
-                label={`${review.running} reviewing`}
-              />
-            ) : null}
-            {review.open ? (
-              <ReviewChip
-                tone="open"
-                count={review.open}
-                label={`${review.open} open findings`}
-              />
-            ) : null}
-            {review.done ? (
-              <ReviewChip
-                tone="done"
-                count={review.done}
-                label={`${review.done} resolved`}
-              />
-            ) : null}
-          </span>
+          {reviewLine}
         </div>
       ) : null}
     </div>
@@ -325,63 +333,6 @@ function ReviewChip({
       <Icon aria-hidden="true" className="size-3" />
       {count !== undefined ? <span>{count}</span> : null}
     </span>
-  );
-}
-
-/**
- * A review left by a reviewer that has since been archived: who reviewed,
- * how it stands, and the review itself one click away at the reviewer's
- * home, where its findings and their threads stay.
- */
-function ArchivedReviewRow({
-  review,
-  onNavigate,
-}: {
-  review: ArchivedReview;
-  onNavigate?: () => void;
-}) {
-  const navigate = useNavigate();
-  // The name, not the persona: two reviewers can share a persona.
-  const name = review.name;
-  return (
-    <RowButton
-      className={cn(
-        ROW_GRID,
-        "min-h-8 w-full rounded-md px-1.5 py-1 text-left text-label-sm hover:bg-surface-hover"
-      )}
-      aria-label={`Open review by ${name} (archived)`}
-      data-agent-control="true"
-      data-testid={`archived-review-${review.agentId}`}
-      onClick={() => {
-        onNavigate?.();
-        navigate({
-          pathname: agentRoute(review.streamId),
-          search: `?${new URLSearchParams({ [THREAD_PARAM]: review.threadId })}`,
-        });
-      }}
-    >
-      <span className="flex justify-center">
-        <Archive aria-hidden="true" className="size-icon-md text-faint" />
-      </span>
-      <span className="flex min-w-0 items-baseline gap-1.5">
-        <span
-          className="min-w-0 truncate text-foreground"
-          title={review.persona ?? undefined}
-        >
-          {name}
-        </span>
-        <span className="shrink-0 text-faint">archived</span>
-      </span>
-      {review.openFindings ? (
-        <ReviewChip
-          tone="open"
-          count={review.openFindings}
-          label={`${review.openFindings} open findings`}
-        />
-      ) : (
-        <ReviewChip tone="done" label={resolvedLabel(review)} />
-      )}
-    </RowButton>
   );
 }
 

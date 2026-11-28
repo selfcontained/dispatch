@@ -123,7 +123,10 @@ type Input<K extends WorkerOp | "checkout.exec" | "checkout.write"> = {
   request: Omit<Req<K>, "target">;
   selector?: Selector;
 } & (K extends "checkout.exec" ? { selector: Selector } : unknown) &
-  (K extends "git.context" ? { checkoutBranch?: string } : unknown);
+  (K extends "git.context" ? { checkoutBranch?: string } : unknown) &
+  (K extends "git.branches" | "git.defaultBranch"
+    ? { repository?: string }
+    : unknown);
 
 /**
  * Compile `exclude` patterns: regular-expression literals, `/source/flags`.
@@ -720,7 +723,8 @@ export function createCheckoutWorkload() {
           return (await readGitQuery(
             op,
             input.directory,
-            input.request
+            input.request,
+            (input as Input<"git.branches">).repository
           )) as Res<K>;
         if (op === "checkout.exec")
           return (await execCheckoutCommand(

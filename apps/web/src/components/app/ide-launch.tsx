@@ -76,9 +76,12 @@ export type IdeLaunchOption = {
  */
 export function useIdeLaunchOptions(
   path: string,
-  enabledIdes: IdeType[] = []
+  enabledIdes: IdeType[] = [],
+  /** False for a checkout on another machine: the action is not offered. */
+  openable = true
 ): IdeLaunchOption[] {
   const [preferredIde, setPreferredIde] = useAtom(preferredIdeAtom);
+  if (!openable) return [];
   const orderedEnabled = IDE_TYPES.filter((ide) => enabledIdes.includes(ide));
   const fallback = <Code2 className="size-icon-md" />;
   if (!isLoopbackHost()) {

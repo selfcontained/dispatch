@@ -441,9 +441,10 @@ export type AgentReviewSummary = {
       /** The agent whose work was reviewed. */
       toAgentId: string | null;
       createdAt: string;
-      /** The reviewer, which may since have been archived. */
-      name: string;
-      persona: string | null;
+      /**
+       * The reviewer has been archived. Kept only while the reviewed agent
+       * is live, so its outcome still counts on that agent's card.
+       */
       archived: boolean;
     }
   >;

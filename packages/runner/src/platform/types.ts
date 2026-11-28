@@ -51,7 +51,8 @@ export type Selector = "current" | "launch" | "moved";
 /**
  * A workload operation's input: the request without its target, and the
  * directory the core resolved the target to. The workload never sees a
- * session handle, and the core never touches the directory itself. A
+ * session handle, and the core never touches the directory itself. Repository
+ * branch reads instead carry a URL; their directory is unused. A
  * command also gets the selector, since a command in the current checkout
  * runs at that checkout's root and one in a named checkout runs in it.
  */
@@ -60,7 +61,10 @@ export type WorkerInput<K extends WorkloadOp> = {
   request: Omit<Req<K>, "target">;
   selector?: Selector;
 } & (K extends ExecOp ? { selector: Selector } : unknown) &
-  (K extends "git.context" ? { checkoutBranch?: string } : unknown);
+  (K extends "git.context" ? { checkoutBranch?: string } : unknown) &
+  (K extends "git.branches" | "git.defaultBranch"
+    ? { repository?: string }
+    : unknown);
 
 export type RunOptions = { signal?: AbortSignal };
 

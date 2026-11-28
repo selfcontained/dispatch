@@ -1,4 +1,11 @@
 import {
+  localSessionRunner,
+  enrolledSessionRunner,
+  type SessionRunners,
+  type SessionRunner,
+} from "./session.js";
+export type { SessionRunners, SessionRunner } from "./session.js";
+import {
   localRunnerSettings,
   enrolledRunnerSettings,
   type RunnerSettings,
@@ -230,6 +237,38 @@ export function runnerDirectory(
     },
     defaultPlacement: () => controllerPlacement,
   } satisfies CheckoutDirectory;
+}
+
+/** Session operations select their carrier once; lifecycle callers use one Runner. */
+export function sessionRunnerDirectory(
+  { child, remote }: SessionRunners,
+  launchWatch: { timeoutMs: number; pollMs: number }
+) {
+  const local = localSessionRunner(child, () => localDescription, launchWatch);
+  const enrolled = new Map<string, SessionRunner>();
+  return {
+    for(placement: Placement): SessionRunner {
+      if (samePlacement(placement, controllerPlacement)) return local;
+      const id = runnerIdToWire(placementRunner(placement));
+      let runner = enrolled.get(id);
+      if (!runner) {
+        runner = enrolledSessionRunner(
+          remote,
+          id,
+          () =>
+            remote
+              ?.runnerDescriptions?.()
+              .find((entry) => runnerIdToWire(entry.runnerId) === id) ?? {
+              ...localDescription,
+              runnerId: placementRunner(placement),
+              displayName: id,
+            }
+        );
+        enrolled.set(id, runner);
+      }
+      return runner;
+    },
+  };
 }
 
 export function terminalBackendFor(

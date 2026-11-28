@@ -49,7 +49,12 @@ async function setup(remote = false) {
             : placementForRunner("fixture"),
       }),
     },
-    runners: {},
+    runners: {
+      managementList: async () => [
+        { id: "local", name: "Local", kind: "local", repositoryPicker: true },
+        { id: "fixture", name: "Fixture", status: "offline" },
+      ],
+    },
     templates: {},
     tasks: {},
   } as never);

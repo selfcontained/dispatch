@@ -105,6 +105,27 @@ describe("POST /api/v1/jobs (create)", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it("accepts an empty directory for an enrolled project and rejects it for a local job", async () => {
+    const projectId = "enrolled-job-project";
+    await ctx.pool.query(
+      "INSERT INTO projects (id, name, repo_root) VALUES ($1, 'Enrolled job project', NULL) ON CONFLICT (id) DO NOTHING",
+      [projectId]
+    );
+    const job = await createJob("enrolled-job", {
+      projectId,
+      runner: "fixture-runner",
+      directory: "",
+    });
+    expect(job.directory).toBe("");
+    const local = await authedInject("POST", "/api/v1/jobs", {
+      name: "empty-local",
+      directory: "  ",
+      prompt: "test",
+    });
+    expect(local.statusCode).toBe(400);
+    expect(local.json().error).toBe("Job directory is required.");
+  });
+
   it("rejects enabled without schedule", async () => {
     const res = await authedInject("POST", "/api/v1/jobs", {
       name: "no-sched",

@@ -22,7 +22,14 @@ import type { AgentRecord, WorktreeCleanupMode } from "./types.js";
 export type ArchiveCheckoutAgent = Pick<
   AgentRecord,
   "id" | "cwd" | "worktreePath" | "baseBranch" | "worktreeBranch"
-> & { repositorySource?: boolean };
+> &
+  Partial<RepositoryArchiveState>;
+
+type RepositoryArchiveState = {
+  repositorySource: boolean;
+  preparationPending: boolean;
+  repositoryBranchCreated: boolean;
+};
 
 /** A row's session on the agent's runner, through the directory. */
 export function archiveRunner(
@@ -42,14 +49,19 @@ export function archiveRunner(
 export async function withRepositorySource<T extends ArchiveCheckoutAgent>(
   pool: Pool,
   agent: T
-): Promise<T & { repositorySource: boolean }> {
-  const result = await pool.query<{ repositorySource: boolean }>(
-    `SELECT COALESCE((runner_preparation->'source' ? 'repository') OR (runner_preparation->'source' ? 'session'), false) AS "repositorySource" FROM agents WHERE id = $1`,
+): Promise<T & RepositoryArchiveState> {
+  const result = await pool.query<RepositoryArchiveState>(
+    `SELECT COALESCE((runner_preparation->'source' ? 'repository') OR (runner_preparation->'source' ? 'session'), false) AS "repositorySource",
+            COALESCE(runner_preparation->'pending' = 'true'::jsonb, false) AS "preparationPending",
+            COALESCE(runner_preparation #>> '{source,checkout,kind}' = 'new', false) AS "repositoryBranchCreated"
+       FROM agents WHERE id = $1`,
     [agent.id]
   );
   return {
     ...agent,
     repositorySource: result.rows[0]?.repositorySource ?? false,
+    preparationPending: result.rows[0]?.preparationPending ?? false,
+    repositoryBranchCreated: result.rows[0]?.repositoryBranchCreated ?? false,
   };
 }
 
@@ -214,4 +226,17 @@ export function archiveReleaseState(
 ): string | null {
   if (!authorizesArchiveRelease(mode, checkout)) return null;
   return checkout?.stateId ?? UNOBSERVED_STATE;
+}
+
+/** A kept checkout that never bound is still located by its preparation receipt. */
+export function retainsPreparationLocator(
+  agent: ArchiveCheckoutAgent,
+  outcome: { kind: string }
+): boolean {
+  return (
+    outcome.kind === "kept" &&
+    Boolean(
+      agent.repositorySource && agent.preparationPending && !agent.worktreePath
+    )
+  );
 }
