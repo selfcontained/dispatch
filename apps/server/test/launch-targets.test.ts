@@ -50,17 +50,17 @@ async function setup(
     if (req.headers.authorization !== "Bearer fixture")
       return reply.code(401).send({ error: "Unauthorized" });
   });
-  app.get("/api/runners", async () => ({
-    runners: [
-      {
-        id: "fixture",
-        name: "Fixture",
-        repositoryPicker: true,
-        status: "offline",
-      },
-      { id: "gone", name: "Gone", status: "revoked" },
-    ],
-  }));
+  const runnerRows = [
+    { id: "local", name: "Local", kind: "local", repositoryPicker: true },
+    {
+      id: "fixture",
+      name: "Fixture",
+      repositoryPicker: true,
+      status: "offline",
+    },
+    { id: "gone", name: "Gone", status: "revoked" },
+  ];
+  app.get("/api/runners", async () => ({ runners: runnerRows }));
   app.get("/api/v1/app/settings/agent-types", async () => ({
     enabledAgentTypes,
   }));
@@ -136,6 +136,7 @@ async function setup(
       }),
     } as never,
     runners: {
+      managementList: async () => runnerRows,
       for: (placement) => ({
         call: (op, input) => branches(placement, op, input),
       }),
@@ -387,4 +388,19 @@ it("offers Local repository search and reads repository-only branches without a 
   expect(branches).toHaveBeenCalledWith(controllerPlacement, "git.branches", {
     target: { repository: "https://github.com/fixture/repo" },
   });
+});
+
+it("lists Local once when the directory already contains the Local runner", async () => {
+  const { targets } = await setup();
+  expect(targets.map((target) => target.name)).toEqual(["Local", "Fixture"]);
+  expect(new Set(targets.map((target) => target.key)).size).toBe(
+    targets.length
+  );
+  expect(new Set(targets.map((target) => target.name)).size).toBe(
+    targets.length
+  );
+  expect(new Set(targets.map((target) => target.branchesUrl)).size).toBe(
+    targets.length
+  );
+  expect(targets[0].location.kind).toBe("folder");
 });

@@ -86,6 +86,15 @@ it("lists a folderless project's branches through Local and enrolled workload pa
   const runners = runnerDirectory({
     child: () => child.session,
     remote: {
+      list: async () => [
+        {
+          id: "fixture",
+          name: "Fixture",
+          status: "online",
+          engineManagement: true,
+          githubManagement: true,
+        },
+      ],
       call: async (_runner, op, input) =>
         enrolled.calls[op](input, {} as never),
     } as never,
