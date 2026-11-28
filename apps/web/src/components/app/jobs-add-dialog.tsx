@@ -252,7 +252,7 @@ export function AddJobFlow({
             <AgentPersonaSelect
               cwd={directory}
               endpoint={
-                target.byProject
+                target.byRepository
                   ? projectId
                     ? (target.data.data?.personasUrl ?? "")
                     : ""
@@ -515,7 +515,7 @@ export function AddJobFlow({
                 : {}),
             })
               .then(() => {
-                if (!target.byProject) addCwdHistory(trimmedDirectory);
+                if (!target.byRepository) addCwdHistory(trimmedDirectory);
               })
               .catch(setSubmitError);
           }}

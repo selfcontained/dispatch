@@ -343,7 +343,7 @@ export function SettingsTab({
           <AgentPersonaSelect
             cwd={directory}
             endpoint={
-              target.byProject
+              target.byRepository
                 ? projectId
                   ? (target.data.data?.personasUrl ?? "")
                   : ""
@@ -530,7 +530,7 @@ export function SettingsTab({
                   setLocationEdit((current) =>
                     current === submittedLocation ? null : current
                   );
-                  if (!target.byProject) addCwdHistory(directory.trim());
+                  if (!target.byRepository) addCwdHistory(directory.trim());
                   setSaved(true);
                 })
                 .catch((error) => {

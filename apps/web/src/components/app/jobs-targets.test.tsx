@@ -276,6 +276,12 @@ it("creates a Local job from a repository-only project using the shared picker",
   );
   fireEvent.click(await screen.findByRole("radio", { name: "Project" }));
   await chooseProject();
+  // Its personas and branches come from the project target, not a folder.
+  await waitFor(() =>
+    expect(
+      request.mock.calls.some(([url]) => url === "/api/v1/personas?fixture")
+    ).toBe(true)
+  );
   fireEvent.change(screen.getByLabelText("Name"), {
     target: { value: "Nightly" },
   });
