@@ -28,14 +28,14 @@ export function enrolledSessions(
       }),
       "session.list": ({ owner }) => supervisor.listSessions(owner),
       "session.sample": ({ sessions }) => supervisor.sampleSessions(sessions),
-      "session.logs": async ({ session }) => {
+      "session.logs": async ({ session, lines }) => {
         const id = sessionToWire(session);
         if (!(await supervisor.isBound(id)))
           throw new RunnerCallError({
             code: "not_found",
             message: "Agent is not bound to this workspace",
           });
-        return { text: await supervisor.log(id) };
+        return { text: await supervisor.log(id, Math.max(0, lines)) };
       },
       "session.stop": async ({
         session,
@@ -115,8 +115,12 @@ export function enrolledSessions(
     opens: {
       "session.attach": async ({ session }) => {
         const id = sessionToWire(session);
-        const socket =
-          (await supervisor.isBound(id)) && (await supervisor.attach(id));
+        if (!(await supervisor.isBound(id)))
+          throw new RunnerCallError({
+            code: "not_found",
+            message: "Session is not bound to this runner.",
+          });
+        const socket = await supervisor.attach(id);
         if (!socket)
           throw new RunnerCallError({
             code: "host_gone",

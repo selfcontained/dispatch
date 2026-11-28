@@ -24,6 +24,7 @@ type Recycling = {
   recycled: Set<string>;
   timer?: NodeJS.Timeout;
   early?: boolean;
+  refused: Map<string, string>;
 };
 
 export class RunnerHostRecycler {
@@ -52,8 +53,17 @@ export class RunnerHostRecycler {
       old: new Set(),
       inFlight: new Set(),
       recycled: new Set(),
+      refused: new Map(),
     };
     this.runs.set(update.runnerId, run);
+    this.deps.logger.info(
+      {
+        runnerId: update.runnerId,
+        attemptId: update.attemptId,
+        revision: update.revision,
+      },
+      "Runner host recycling started"
+    );
     this.scan(run);
   }
 
@@ -98,20 +108,40 @@ export class RunnerHostRecycler {
     const { update } = run;
     const active = () => this.runs.get(update.runnerId) === run;
     if (!active()) return;
-    const old = this.deps
-      .hosts(update.runnerId)
-      .filter(
-        (host) =>
-          host.build?.revision && host.build.revision !== update.revision
+    const hosts = this.deps.hosts(update.runnerId);
+    const refused = (host: RunnerHostIdentity, reason: string) => {
+      const state = `${host.instanceId}:${reason}`;
+      if (run.refused.get(host.agentId) === state) return;
+      run.refused.set(host.agentId, state);
+      this.deps.logger.info(
+        {
+          runnerId: update.runnerId,
+          attemptId: update.attemptId,
+          agentId: host.agentId,
+          hostInstanceId: host.instanceId,
+          hostBuild: host.build,
+          reason,
+        },
+        "Runner host recycle deferred"
       );
+    };
+    for (const host of hosts)
+      if (!host.build?.revision) refused(host, "missing_build_identity");
+    const old = hosts.filter(
+      (host) => host.build?.revision && host.build.revision !== update.revision
+    );
     run.old = new Set(old.map((host) => host.agentId));
     for (const host of old) {
-      if (
-        !host.instanceId ||
-        !host.quiesceSupported ||
-        run.inFlight.has(host.agentId)
-      )
+      if (!host.instanceId) {
+        refused(host, "missing_host_instance");
         continue;
+      }
+      if (!host.quiesceSupported) {
+        refused(host, "quiesce_unsupported");
+        continue;
+      }
+      if (run.inFlight.has(host.agentId)) continue;
+      run.refused.delete(host.agentId);
       run.inFlight.add(host.agentId);
       const restart = this.deps
         .recycle(update, host, active)

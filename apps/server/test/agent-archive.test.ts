@@ -1093,6 +1093,7 @@ describe("executeArchive", () => {
                 },
               };
             if (op === "workspace.release") return { removed: true };
+            if (op === "session.discard") return {};
             throw new Error("Unexpected operation " + op);
           }
         );
@@ -1114,7 +1115,7 @@ describe("executeArchive", () => {
           online
             ? release
               ? ["workspace.observe", "workspace.release"]
-              : ["workspace.observe"]
+              : ["workspace.observe", "session.discard"]
             : []
         );
         expect(pool.query).toHaveBeenCalledWith(

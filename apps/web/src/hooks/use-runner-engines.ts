@@ -142,7 +142,7 @@ export function useRunnerEngineLoginStatus(
 export async function runnerEngineCapability<
   T extends EngineCapabilityResult["type"],
 >(
-  runnerId: string,
+  runnerId: string | EngineScope,
   operation: EngineCapabilityOperation,
   type: T
 ): Promise<Extract<EngineCapabilityResult, { type: T }>> {
@@ -150,7 +150,13 @@ export async function runnerEngineCapability<
     "/api/v1/engine-management/operations",
     {
       method: "POST",
-      body: JSON.stringify({ scope: { kind: "runner", runnerId }, operation }),
+      body: JSON.stringify({
+        scope:
+          typeof runnerId === "string"
+            ? { kind: "runner", runnerId }
+            : runnerId,
+        operation,
+      }),
     }
   );
   if (!ack.ok) throw new Error(ack.error);
@@ -182,7 +188,8 @@ export function useRunnerModelCatalog(
 
 export function useRunnerProviderUsage(
   runnerId: string | null,
-  enabled: boolean
+  enabled: boolean,
+  scope?: EngineScope
 ) {
   return useQuery({
     queryKey: ["runner-provider-usage", runnerId],
@@ -191,7 +198,7 @@ export function useRunnerProviderUsage(
     queryFn: async () =>
       (
         await runnerEngineCapability(
-          runnerId!,
+          scope ?? runnerId!,
           { type: "provider_usage" },
           "provider_usage"
         )

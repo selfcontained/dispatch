@@ -781,7 +781,10 @@ describe("runner session supervision", () => {
       firstText: null,
       overflowNotice: null,
       mcp: [server],
-      env: {},
+      env: {
+        CONFORMANCE_LITERAL: "literal ; $HOME",
+        CONFORMANCE_UNICODE: "café",
+      },
       owner: null,
     };
     await expect(
@@ -810,6 +813,7 @@ describe("runner session supervision", () => {
     const payload: HostLaunch = JSON.parse(
       await readFile(path.join(dir, "launch.json"), "utf8")
     );
+    expect(payload.env).toMatchObject(request.env);
     expect(payload.mcp).toEqual({
       name: server.name,
       url: server.url,
@@ -829,7 +833,7 @@ describe("runner session supervision", () => {
     const bindings = path.join(state, "bindings");
     const before = await readdir(bindings);
     await expect(opens["session.attach"]({ session })).rejects.toMatchObject({
-      code: "host_gone",
+      code: "not_found",
     });
     await expect(calls["session.alive"]({ session })).resolves.toEqual({
       state: "gone",
@@ -1425,6 +1429,36 @@ describe("runner session supervision", () => {
     expect(processes.cleanupLegacy.mock.calls).toEqual([[marker]]);
   });
 
+  it("serves contract line limits and typed lifecycle errors through enrolled handlers", async () => {
+    const runner = await start();
+    const fixture = launch();
+    await startHost(runner, fixture);
+    const { calls } = enrolledSessions(runner, () => {});
+    const session = sessionFromWire(agentId);
+    await writeFile(
+      path.join(state, "bindings", "logs", agentId),
+      "first\n" + "middle\n".repeat(1000) + "last\n"
+    );
+    expect(await calls["session.logs"]({ session, lines: 1 })).toEqual({
+      text: "last",
+    });
+    expect(await calls["session.logs"]({ session, lines: 3 })).toEqual({
+      text: "middle\nmiddle\nlast",
+    });
+    expect(await calls["session.logs"]({ session, lines: 0 })).toEqual({
+      text: "",
+    });
+    await expect(calls["session.discard"]({ session })).rejects.toMatchObject({
+      code: "busy",
+    });
+    await expect(
+      startHost(runner, {
+        ...fixture,
+        launch: { ...fixture.launch, launchId: randomUUID() },
+      })
+    ).rejects.toMatchObject({ code: "conflict" });
+  });
+
   it("reads a bounded UTF-8 tail from a large guest log", async () => {
     const running = await start();
     await startHost(running, launch());
@@ -1805,6 +1839,30 @@ describe("runner session supervision", () => {
       startHost(running, { ...sharedLaunch(reviewerId), agentId })
     ).rejects.toThrow();
     expect(processes.spawn).toHaveBeenCalledTimes(2);
+  });
+
+  it("discards a retired borrower host and binding without deleting its owner checkout", async () => {
+    const runner = await start();
+    await startHost(runner, launch());
+    await runner.stop(agentId, true);
+    processes.spawn.mockResolvedValueOnce();
+    await startHost(runner, sharedLaunch());
+    const checkout = await runner.checkoutDirectory(agentId);
+    await writeFile(path.join(checkout, "owner-sentinel"), "keep");
+    const host = path.join(state, "hosts", reviewerId);
+    expect((await stat(host)).isDirectory()).toBe(true);
+    await enrolledSessions(runner, () => {}).calls["session.discard"]({
+      session: sessionFromWire(reviewerId),
+    });
+    await expect(stat(host)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await runner.isBound(reviewerId)).toBe(false);
+    await expect(
+      readFile(path.join(state, "bindings", reviewerId))
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(path.join(checkout, "owner-sentinel"), "utf8")).toBe(
+      "keep"
+    );
+    expect(await runner.isBound(agentId)).toBe(true);
   });
 
   it("binds a nested managed reviewer directly to the durable checkout owner", async () => {

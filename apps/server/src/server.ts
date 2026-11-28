@@ -1636,10 +1636,12 @@ async function registerRoutes() {
     app,
     runnerDirectory(agentManager.checkoutReadRunners())
   );
+  registerRunnerGitHub(
+    app,
+    runnerDirectory(agentManager.checkoutReadRunners()),
+    (id) => pullRequests.invalidateRunner(id)
+  );
   if (remoteRunner) {
-    registerRunnerGitHub(app, remoteRunner, (id) =>
-      pullRequests.invalidateRunner(id)
-    );
     registerRunnerInstaller(app, {
       runners: remoteRunner,
       artifacts: runnerArtifacts,
@@ -1656,6 +1658,7 @@ async function registerRoutes() {
     tasks: taskService,
   });
   await registerRunnerRoutes(app, {
+    directory: runnerDirectory(agentManager.checkoutReadRunners()),
     runners: remoteRunner,
     updates: runnerUpdates,
   });

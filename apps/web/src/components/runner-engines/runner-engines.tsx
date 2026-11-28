@@ -239,12 +239,9 @@ function EngineRow({
         </div>
       </div>
 
-      {capabilities &&
-        scope.kind === "runner" &&
-        entry.installed &&
-        entry.id !== "opencode" && (
-          <RunnerPlugin runnerId={scope.runnerId} engine={entry.id} />
-        )}
+      {capabilities && entry.installed && entry.id !== "opencode" && (
+        <RunnerPlugin scope={scope} engine={entry.id} />
+      )}
 
       {operation.isError && (
         <p role="alert" className="text-body-sm text-danger">

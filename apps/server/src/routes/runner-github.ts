@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import type { RemoteRunnerService } from "../agents/remote/service.js";
+import type { Runners } from "@dispatch/runner-protocol/contract";
+import { placementForRunner } from "../runners/placement.js";
 
 declare module "fastify" {
   interface FastifyContextConfig {
@@ -10,7 +11,7 @@ declare module "fastify" {
 
 export function registerRunnerGitHub(
   app: FastifyInstance,
-  runners: Pick<RemoteRunnerService, "githubAccount">,
+  runners: Pick<Runners, "for">,
   onIdentityChange?: (runnerId: string) => void
 ) {
   const identities = new Map<string, string | null>();
@@ -29,7 +30,22 @@ export function registerRunnerGitHub(
       async handler(req, reply) {
         reply.header("Cache-Control", "no-store");
         const id = req.params.id;
-        const result = await runners.githubAccount(id, operation);
+        const runner = runners.for(placementForRunner(id));
+        const result = await (
+          operation === "status"
+            ? runner.call("github.account", {})
+            : operation === "logout"
+              ? runner.call("github.logout", {})
+              : runner.call(
+                  operation === "login"
+                    ? "github.login.start"
+                    : "github.login.cancel",
+                  { requestId: crypto.randomUUID() }
+                )
+        ).catch(() => ({
+          status: "unavailable" as const,
+          message: "The runner could not report its GitHub account.",
+        }));
         if (result.status === "signed-in" || result.status === "signed-out") {
           const login = result.status === "signed-in" ? result.login : null;
           if (identities.get(id) !== login) {

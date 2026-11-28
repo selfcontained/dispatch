@@ -1159,6 +1159,11 @@ export function createLocalCheckoutRunner(
           input.target &&
           typeof input.target === "object" &&
           "repository" in input.target) ||
+        op === "github.account" ||
+        op === "github.login.start" ||
+        op === "github.login.cancel" ||
+        op === "github.logout" ||
+        op === "github.branches" ||
         op === "github.repositories" ||
         op === "workspace.prepare" ||
         op === "workspace.resume" ||

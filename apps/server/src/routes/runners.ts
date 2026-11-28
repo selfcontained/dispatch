@@ -9,6 +9,10 @@ import {
 } from "../agents/remote/service.js";
 
 type RunnerRouteDeps = {
+  directory?: Pick<
+    import("../runners/directory.js").CheckoutDirectory,
+    "managementList"
+  >;
   runners?: RemoteRunnerService;
   updates?: RunnerUpdateCoordinator;
 };
@@ -57,9 +61,12 @@ export async function registerRunnerRoutes(
     app.get(base, async (request) => {
       const { includeCleared } = request.query as { includeCleared?: string };
       const runners =
-        (await deps.runners?.list(includeCleared === "true")) ?? [];
+        (await (deps.directory?.managementList(includeCleared === "true") ??
+          deps.runners?.list(includeCleared === "true"))) ?? [];
       return {
         runners: runners.map((runner) => {
+          if ("kind" in runner && runner.kind === "local") return runner;
+          if (!("status" in runner)) return runner;
           if (runner.status === "revoked") return runner;
           const update = deps.updates?.view(
             runner.id,

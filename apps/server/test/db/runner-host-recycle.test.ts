@@ -707,3 +707,41 @@ it.each(["stop", "archive"] as const)(
     }
   }
 );
+
+it("logs a concrete runtime refusal once until its reason changes", async () => {
+  const f = await fixture();
+  const info = vi.spyOn(logger, "info");
+  const runtime = f.manager["runtime"];
+  const original = runtime.holdForRecycle;
+  try {
+    await f.start("agt_recycle_diagnostic");
+    const host = runtime.runnerHosts?.("r1")[0];
+    if (!host) throw new Error("No attached host");
+    runtime.holdForRecycle = (_runner, _host, _epoch, refused) => {
+      refused?.("delivery_in_progress");
+      return null;
+    };
+    for (let i = 0; i < 2; i++)
+      expect(
+        await f.manager["recycleRunnerHost"](update, host, () => true)
+      ).toBe(false);
+    const entries = info.mock.calls.filter(
+      ([fields]) =>
+        typeof fields === "object" &&
+        fields !== null &&
+        "reason" in fields &&
+        fields.reason === "delivery_in_progress"
+    );
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.[0]).toMatchObject({
+      runnerId: "r1",
+      agentId: host.agentId,
+      attemptId: update.attemptId,
+      reason: "delivery_in_progress",
+    });
+  } finally {
+    runtime.holdForRecycle = original;
+    info.mockRestore();
+    await f.close();
+  }
+});

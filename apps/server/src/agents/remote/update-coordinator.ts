@@ -1923,17 +1923,50 @@ export class RunnerUpdateCoordinator {
 
   /** Move hosts to the last confirmed build while the runner still runs it. */
   private resumeRecycling(runnerId: string) {
-    if (this.active(runnerId) || this.opening.has(runnerId)) return;
+    if (this.active(runnerId) || this.opening.has(runnerId)) {
+      this.options.logger.info(
+        {
+          runnerId,
+          reason: this.active(runnerId)
+            ? "update_in_progress"
+            : "update_request_opening",
+        },
+        "Runner host recycling deferred"
+      );
+      return;
+    }
     const { service, agents } = this.options;
     const confirmed = this.records.get(runnerId)?.confirmed;
     const advert = service.selfUpdate(runnerId)?.advert;
-    if (!confirmed || !advert) return;
+    if (!confirmed || !advert) {
+      this.options.logger.info(
+        {
+          runnerId,
+          reason: !confirmed ? "no_confirmed_update" : "missing_update_advert",
+        },
+        "Runner host recycling deferred"
+      );
+      return;
+    }
     if (
       advert.revision === confirmed.revision &&
       advert.installedSha256 === confirmed.sha256
     )
       agents.startRunnerHostRecycling({ runnerId, ...confirmed });
-    else agents.stopRunnerHostRecycling(runnerId);
+    else {
+      this.options.logger.info(
+        {
+          runnerId,
+          reason: "installed_build_mismatch",
+          confirmedRevision: confirmed.revision,
+          installedRevision: advert.revision,
+          confirmedSha256: confirmed.sha256,
+          installedSha256: advert.installedSha256,
+        },
+        "Runner host recycling deferred"
+      );
+      agents.stopRunnerHostRecycling(runnerId);
+    }
   }
 
   // --- Frames ---

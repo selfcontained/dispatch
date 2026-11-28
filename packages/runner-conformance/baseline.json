@@ -7,27 +7,9 @@
   },
   {
     "lane": "local",
-    "scenario": "github.account/pending",
-    "task": "T32",
-    "reason": "No executable scenario exists on either lane for github.account; /pending fails before calling the runner."
-  },
-  {
-    "lane": "local",
     "scenario": "github.login.start/pending",
     "task": "T32",
     "reason": "No executable scenario exists on either lane for github.login.start; /pending fails before calling the runner."
-  },
-  {
-    "lane": "local",
-    "scenario": "github.login.cancel/pending",
-    "task": "T32",
-    "reason": "No executable scenario exists on either lane for github.login.cancel; /pending fails before calling the runner."
-  },
-  {
-    "lane": "local",
-    "scenario": "github.logout/pending",
-    "task": "T32",
-    "reason": "No executable scenario exists on either lane for github.logout; /pending fails before calling the runner."
   },
   {
     "lane": "local",
@@ -175,12 +157,6 @@
   },
   {
     "lane": "local",
-    "scenario": "git.base/fallback",
-    "task": "T16",
-    "reason": "Local child does not register git.base; real child returns unsupported."
-  },
-  {
-    "lane": "local",
     "scenario": "terminal.open/interactive",
     "task": "T21",
     "reason": "Local terminal handler requires target.path and does not resolve contract target.session; real child returns Invalid native terminal binding."
@@ -229,42 +205,6 @@
   },
   {
     "lane": "remote",
-    "scenario": "session.launch/conflict",
-    "task": "T23",
-    "reason": "v1 returns failed for a duplicate live session with a different launch ID; expected conflict"
-  },
-  {
-    "lane": "remote",
-    "scenario": "session.launch/environment",
-    "task": "T24",
-    "reason": "v1 drops caller-supplied launch environment values"
-  },
-  {
-    "lane": "remote",
-    "scenario": "session.attach/unknown",
-    "task": "T23",
-    "reason": "v1 returns failed for an unbound session; expected host_gone"
-  },
-  {
-    "lane": "remote",
-    "scenario": "session.discard/busy",
-    "task": "T26",
-    "reason": "v1 returns failed when discarding a live session; expected busy"
-  },
-  {
-    "lane": "remote",
-    "scenario": "session.logs/line-limit",
-    "task": "T23",
-    "reason": "v1 ignores the requested line count and returns a fixed log tail"
-  },
-  {
-    "lane": "remote",
-    "scenario": "session.logs/unknown",
-    "task": "T23",
-    "reason": "v1 returns failed for an unbound session; expected not_found"
-  },
-  {
-    "lane": "remote",
     "scenario": "workspace.describe/binding-and-missing",
     "task": "T16",
     "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
@@ -301,9 +241,9 @@
   },
   {
     "lane": "remote",
-    "scenario": "github.account/pending",
+    "scenario": "github.account/signed-out",
     "task": "T32",
-    "reason": "scenario not written yet"
+    "reason": "Written, not yet run on remote: isolated signed-out gh fixture; remote lane not authorized."
   },
   {
     "lane": "remote",
@@ -313,15 +253,15 @@
   },
   {
     "lane": "remote",
-    "scenario": "github.login.cancel/pending",
+    "scenario": "github.login.cancel/no-login",
     "task": "T32",
-    "reason": "scenario not written yet"
+    "reason": "Written, not yet run on remote: isolated signed-out gh fixture; remote lane not authorized."
   },
   {
     "lane": "remote",
-    "scenario": "github.logout/pending",
+    "scenario": "github.logout/already-signed-out",
     "task": "T32",
-    "reason": "scenario not written yet"
+    "reason": "Written, not yet run on remote: isolated signed-out gh fixture; remote lane not authorized."
   },
   {
     "lane": "remote",
@@ -474,12 +414,6 @@
     "reason": "scenario not written yet"
   },
   {
-    "lane": "local",
-    "scenario": "workspace.prepare/repository",
-    "task": "T18",
-    "reason": "Local session.discard removes host state but leaves its managed checkout; the shared preparation scenario verifies discard removes the owned worktree."
-  },
-  {
     "lane": "remote",
     "scenario": "checkout.access/present-and-missing",
     "task": "T40",
@@ -502,5 +436,11 @@
     "scenario": "git.remoteHeads/local-bare",
     "task": "T40",
     "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "local",
+    "scenario": "workspace.prepare/repository",
+    "task": "T18",
+    "reason": "Local repository discard deletes its unpublished branch (local/workspace.ts:26); subsequent reuse cannot find local feature or origin feature. Remote discard retains that branch, so the shared reuse assertion fails."
   }
 ]

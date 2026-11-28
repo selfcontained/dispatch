@@ -154,6 +154,16 @@ describe("runner control API", () => {
     expect(listed.json()).toEqual({
       runners: [
         {
+          id: "local",
+          name: "Local",
+          kind: "local",
+          engineScope: { kind: "local" },
+          engineManagement: true,
+          engineCapabilities: true,
+          githubManagement: true,
+          repositoryPicker: true,
+        },
+        {
           id: body.id,
           name: "lima",
           status: "pending",
@@ -188,7 +198,11 @@ describe("runner control API", () => {
       url: "/api/runners",
       headers: { cookie },
     });
-    expect(after.json().runners[0].status).toBe("revoked");
+    expect(
+      after
+        .json()
+        .runners.find((runner: { id: string }) => runner.id === body.id).status
+    ).toBe("revoked");
     const missing = await ctx.app.inject({
       method: "DELETE",
       url: "/api/runners/rnr_missing",

@@ -11,7 +11,9 @@ export type RunnerStatus = "pending" | "online" | "offline" | "revoked";
 export type Runner = {
   id: string;
   name: string;
-  status: RunnerStatus;
+  kind?: "local" | "enrolled";
+  engineScope?: import("@dispatch/runner-protocol/engine-management").EngineScope;
+  status?: RunnerStatus;
   engineManagement?: true;
   engineCapabilities?: true;
   githubManagement?: boolean;
@@ -31,7 +33,7 @@ export const runnerInstallerQueryKey = ["runner-installer"] as const;
  * The wanted build is cached for minutes and follows Dispatch's build. Read
  * it again when what is shown beside it moves, or Dispatch's version does.
  */
-export function useWantedBuildRefresh({ health, update }: Runner) {
+export function useWantedBuildRefresh({ health, update, kind }: Runner) {
   const queryClient = useQueryClient();
   const shown = JSON.stringify([
     health?.version,
@@ -41,11 +43,12 @@ export function useWantedBuildRefresh({ health, update }: Runner) {
     update?.result,
   ]);
   useEffect(() => {
+    if (kind === "local") return;
     const refresh = () =>
       void queryClient.invalidateQueries({ queryKey: runnerInstallerQueryKey });
     refresh();
     return subscribeServerVersion(refresh);
-  }, [queryClient, shown]);
+  }, [queryClient, shown, kind]);
 }
 
 export function useRunners(

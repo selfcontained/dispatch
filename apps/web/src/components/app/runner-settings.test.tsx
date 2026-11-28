@@ -626,3 +626,36 @@ it("reads engines, plugins and usage again when an update ends", async () => {
       expect(invalidate).toHaveBeenCalledWith({ queryKey });
   });
 });
+
+it("opens Local with existing management sections and local engine scope, without enrolled-machine controls", async () => {
+  const local: Runner = {
+    id: "local",
+    name: "Local",
+    kind: "local",
+    engineScope: { kind: "local" },
+    engineManagement: true,
+    engineCapabilities: true,
+    githubManagement: true,
+    repositoryPicker: true,
+  };
+  vi.mocked(api).mockImplementation(async (path) => {
+    if (path === "/api/runners") return { runners: [local] };
+    if (path === "/api/v1/runners/connect") return { requests: [] };
+    if (path.startsWith("/api/v1/engine-management/inventory")) {
+      expect(new URL(path, "http://fixture").searchParams.get("scope")).toBe(
+        "local"
+      );
+      return { entries: [] };
+    }
+    throw new Error(`Unexpected endpoint ${path}`);
+  });
+  renderSettings();
+  fireEvent.click(await screen.findByTestId("runner-select-local"));
+  expect(await screen.findByTestId("runner-detail")).toBeTruthy();
+  expect(await screen.findByText("GitHub for Local")).toBeTruthy();
+  expect(await screen.findByTestId("runner-engines")).toBeTruthy();
+  expect(screen.queryByTestId("runner-status-local")).toBeNull();
+  expect(screen.queryByTestId("runner-actions-local")).toBeNull();
+  expect(screen.queryByText("Available when the runner is online.")).toBeNull();
+  expect(screen.getByTestId("search").textContent).toBe("?runner=local");
+});

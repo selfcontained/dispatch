@@ -99,6 +99,8 @@ export type ArchivePolicy = {
   failure: "kept" | "pending";
   /** The runner refuses to release a checkout while its host still runs. */
   awaitsStoppedHost: boolean;
+  /** Retire a borrower host and its binding without touching the owner checkout. */
+  discardBorrowedSession?: boolean;
 };
 
 /** Main's archive rule, for the runner on this machine. */
@@ -117,9 +119,25 @@ export const enrolledArchivePolicy: ArchivePolicy = {
   forceSkipsObserve: false,
   failure: "pending",
   awaitsStoppedHost: true,
+  discardBorrowedSession: true,
 };
 
-interface CheckoutDirectory extends Runners {
+export interface CheckoutDirectory extends Runners {
+  managementList(includeCleared?: boolean): Promise<
+    Array<
+      | import("../agents/remote/service.js").RunnerSummary
+      | {
+          id: string;
+          name: string;
+          kind: "local";
+          engineScope: { kind: "local" };
+          engineManagement: true;
+          engineCapabilities: true;
+          githubManagement: true;
+          repositoryPicker: true;
+        }
+    >
+  >;
   for(placement: Placement): Runner & RunnerComposition;
 }
 
@@ -165,7 +183,7 @@ export function runnerDirectory(
             manifestMaxBytes: null,
             cleanupBudgetMs: boundAgent?.repositorySource ? undefined : 60_000,
             archive: boundAgent?.repositorySource
-              ? enrolledArchivePolicy
+              ? { ...enrolledArchivePolicy, discardBorrowedSession: false }
               : localArchivePolicy,
           }
         );
@@ -197,6 +215,21 @@ export function runnerDirectory(
           archive: enrolledArchivePolicy,
         }
       );
+    },
+    async managementList(includeCleared = false) {
+      return [
+        {
+          id: "local",
+          name: "Local",
+          kind: "local" as const,
+          engineScope: { kind: "local" as const },
+          engineManagement: true as const,
+          engineCapabilities: true as const,
+          githubManagement: true as const,
+          repositoryPicker: true as const,
+        },
+        ...((await remote?.list(includeCleared)) ?? []),
+      ];
     },
     list() {
       return [localDescription, ...(remote?.runnerDescriptions?.() ?? [])].map(

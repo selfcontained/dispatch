@@ -738,11 +738,17 @@ const pullRequests = localPullRequestStatus();
 const evidence = localPullRequestEvidence();
 
 /** The `posix-user` platform's GitHub port: the user's own `gh`. */
-const repositorySearch = new GitHubRunnerExecutor(process.env, (bin, args) => ({
-  bin,
-  args,
-}));
+const repositorySearch = new GitHubRunnerExecutor(
+  process.env,
+  (bin, args) => ({
+    bin,
+    args,
+  }),
+  undefined,
+  { resolve: async (tool) => tool, invalidate() {} }
+);
 export const githubWorkload = {
+  management: repositorySearch,
   async repositories({
     query,
   }: Req<"github.repositories">): Promise<Res<"github.repositories">> {
