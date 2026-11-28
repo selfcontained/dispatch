@@ -1841,6 +1841,30 @@ describe("runner session supervision", () => {
     expect(processes.spawn).toHaveBeenCalledTimes(2);
   });
 
+  it("discards a retired borrower host and binding without deleting its owner checkout", async () => {
+    const runner = await start();
+    await startHost(runner, launch());
+    await runner.stop(agentId, true);
+    processes.spawn.mockResolvedValueOnce();
+    await startHost(runner, sharedLaunch());
+    const checkout = await runner.checkoutDirectory(agentId);
+    await writeFile(path.join(checkout, "owner-sentinel"), "keep");
+    const host = path.join(state, "hosts", reviewerId);
+    expect((await stat(host)).isDirectory()).toBe(true);
+    await enrolledSessions(runner, () => {}).calls["session.discard"]({
+      session: sessionFromWire(reviewerId),
+    });
+    await expect(stat(host)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await runner.isBound(reviewerId)).toBe(false);
+    await expect(
+      readFile(path.join(state, "bindings", reviewerId))
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(path.join(checkout, "owner-sentinel"), "utf8")).toBe(
+      "keep"
+    );
+    expect(await runner.isBound(agentId)).toBe(true);
+  });
+
   it("binds a nested managed reviewer directly to the durable checkout owner", async () => {
     const nested = "agt_nested";
     const running = await start();

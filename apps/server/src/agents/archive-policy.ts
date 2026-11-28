@@ -58,6 +58,7 @@ export type ArchiveExecutor = {
   release(expectedState: string | null): Promise<CheckoutReleaseResult>;
   /** Capable peers carry out the caller's decision without a snapshot. */
   releaseBound?: () => Promise<boolean>;
+  discardBorrowed?: () => Promise<void>;
   observedCoOwner?: (
     observation: CheckoutObservation
   ) => Promise<string | null>;
@@ -125,6 +126,10 @@ export async function finishArchiveCheckout(
     }
     if (budget?.aborted) return { kind: "kept", reason: "failed" };
     if (executor.releaseBound) {
+      if (observation?.ownership === "borrowed" && executor.discardBorrowed) {
+        await executor.discardBorrowed();
+        return { kind: "kept", reason: "notAuthorized" };
+      }
       if (hooks.durations && observation)
         hooks.durations.outstandingChangesCheck = Date.now() - started;
       if (
@@ -332,6 +337,11 @@ export function archiveExecutor(
     releaseBound: async () =>
       (await runner.call("workspace.release", { session, ...decision }))
         .removed,
+    ...(policy.discardBorrowedSession && {
+      discardBorrowed: async () => {
+        await runner.call("session.discard", { session });
+      },
+    }),
     observedCoOwner: (observation) => observedCoOwner(pool, agent, observation),
   };
 }

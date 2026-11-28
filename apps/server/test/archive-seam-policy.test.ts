@@ -69,6 +69,11 @@ function fixtureRunner(policy: "local" | "enrolled", f: Fixture = {}) {
               : CLEAN,
       };
     }
+    if (op === "session.discard") {
+      if (f.release === "unknown_outcome" || f.release === "failed")
+        throw new RunnerCallError({ code: f.release, message: "discard" });
+      return {};
+    }
     if (op === "workspace.release") {
       if (f.release === "unknown_outcome" || f.release === "failed")
         throw new RunnerCallError({ code: f.release, message: "release" });
@@ -155,6 +160,7 @@ describe("the composition gives each runner its archive policy", () => {
       forceSkipsObserve: false,
       failure: "pending",
       awaitsStoppedHost: true,
+      discardBorrowedSession: true,
     });
   });
 });
@@ -165,7 +171,21 @@ describe("a runner-prepared worktree row that records its folder", () => {
   it("still observes ownership on force, and keeps a borrowed checkout", async () => {
     const borrowed = run("enrolled", "force", { ownership: "borrowed" }, row);
     expect(await borrowed.outcome).toEqual(kept("notAuthorized"));
-    expect(borrowed.ops()).toEqual(["workspace.observe"]);
+    expect(borrowed.ops()).toEqual(["workspace.observe", "session.discard"]);
+  });
+
+  it("keeps a borrower archive retryable when retiring its host fails", async () => {
+    const failed = run(
+      "enrolled",
+      "force",
+      { ownership: "borrowed", release: "failed" },
+      row
+    );
+    expect(await failed.outcome).toEqual({
+      kind: "pending",
+      reason: "unavailable",
+    });
+    expect(failed.ops()).toEqual(["workspace.observe", "session.discard"]);
   });
 
   it("keeps the checkout a live review borrower holds (the runner's borrower list)", async () => {

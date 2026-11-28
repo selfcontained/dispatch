@@ -99,6 +99,8 @@ export type ArchivePolicy = {
   failure: "kept" | "pending";
   /** The runner refuses to release a checkout while its host still runs. */
   awaitsStoppedHost: boolean;
+  /** Retire a borrower host and its binding without touching the owner checkout. */
+  discardBorrowedSession?: boolean;
 };
 
 /** Main's archive rule, for the runner on this machine. */
@@ -117,6 +119,7 @@ export const enrolledArchivePolicy: ArchivePolicy = {
   forceSkipsObserve: false,
   failure: "pending",
   awaitsStoppedHost: true,
+  discardBorrowedSession: true,
 };
 
 export interface CheckoutDirectory extends Runners {
@@ -180,7 +183,7 @@ export function runnerDirectory(
             manifestMaxBytes: null,
             cleanupBudgetMs: boundAgent?.repositorySource ? undefined : 60_000,
             archive: boundAgent?.repositorySource
-              ? enrolledArchivePolicy
+              ? { ...enrolledArchivePolicy, discardBorrowedSession: false }
               : localArchivePolicy,
           }
         );
