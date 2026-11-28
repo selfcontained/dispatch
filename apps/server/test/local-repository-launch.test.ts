@@ -261,3 +261,126 @@ it("waits for in-flight repository preparation before claiming archive", async (
   await archive;
   expect(claim).toHaveBeenCalledTimes(1);
 });
+
+it.each(["child", "independent", "review", "descendant"] as const)(
+  "records a Local repository-source %s through its launcher's session binding",
+  async (kind) => {
+    const root = await mkdtemp(join(tmpdir(), "local-borrowed-launch-"));
+    const recorded = new Error("recorded");
+    const parent = {
+      id: "agt_parent",
+      cwd: "/managed/feature",
+      worktreePath: "/managed/feature",
+      projectId: "project",
+      placement: controllerPlacement,
+      role: "standard",
+      fullAccess: false,
+    };
+    const insertAgentRecord = vi.fn().mockRejectedValue(recorded);
+    const prepareCreateInputs = vi.fn(async (input, cwd) => ({
+      id: "agt_borrower",
+      type: "codex",
+      name: "Borrower",
+      filesDir: join(root, "files"),
+      originalCwd: cwd,
+      checkout: null,
+    }));
+    const manager = Object.assign(Object.create(AgentManager.prototype), {
+      config: { agentRuntime: "acp" },
+      getAgent: vi.fn(async () => parent),
+      pool: {
+        query: vi.fn(async (sql: string) => ({
+          rows: sql.includes("runner_preparation")
+            ? [
+                {
+                  runner_preparation: {
+                    source:
+                      kind === "descendant"
+                        ? { session: "agt_root" }
+                        : {
+                            repository: "https://github.com/org/repo",
+                            checkout: { kind: "default" },
+                          },
+                    copyIgnored: [],
+                    installDependencies: false,
+                  },
+                },
+              ]
+            : [{ repo_root: null, repository: "https://github.com/org/repo" }],
+        })),
+      },
+      launchDirectory: vi.fn(() => {
+        throw new Error("must use session source");
+      }),
+      prepareCreateInputs,
+      insertAgentRecord,
+    }) as AgentManager;
+    try {
+      await expect(
+        manager.createAgent(
+          {
+            cwd: parent.cwd,
+            type: "codex",
+            useWorktree: false,
+            launchedByAgentId: parent.id,
+            ...(kind !== "independent" && { parentAgentId: parent.id }),
+            ...(kind === "review" && {
+              role: "review",
+              persona: "code-review",
+            }),
+          },
+          kind === "review" ? { useWorktreeOf: parent.id } : {}
+        )
+      ).rejects.toBe(recorded);
+      expect(insertAgentRecord).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ projectId: "project" }),
+        controllerPlacement,
+        null,
+        expect.objectContaining({ source: { session: parent.id } }),
+        parent.id,
+        null
+      );
+      expect(prepareCreateInputs).toHaveBeenCalledWith(
+        expect.anything(),
+        parent.cwd,
+        expect.anything(),
+        true
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+);
+
+it("leaves a Local external-folder launcher on the existing directory preparation path", async () => {
+  const parent = {
+    id: "agt_external",
+    cwd: "/external",
+    projectId: null,
+    placement: controllerPlacement,
+  };
+  const manager = Object.assign(Object.create(AgentManager.prototype), {
+    getAgent: vi.fn(async () => parent),
+    pool: {
+      query: vi.fn(async () => ({
+        rows: [{ runner_preparation: { source: { directory: "/external" } } }],
+      })),
+    },
+  });
+  const target = await manager.resolveCreateTarget(
+    {
+      cwd: parent.cwd,
+      type: "codex",
+      parentAgentId: parent.id,
+      launchedByAgentId: parent.id,
+      useWorktree: false,
+    },
+    {}
+  );
+  expect(target).toMatchObject({
+    repositorySource: false,
+    checkoutOwner: null,
+    directory: undefined,
+  });
+});

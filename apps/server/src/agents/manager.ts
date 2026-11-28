@@ -2404,15 +2404,32 @@ export class AgentManager {
     // own checkout (it names a repository) is not (T36).
     const launcherId = input.launchedByAgentId ?? input.parentAgentId;
     const launcher =
-      location &&
       launcherId &&
       !(input.templateId !== undefined && input.repository !== undefined)
         ? launcherId === parent?.id
           ? parent
           : await this.getAgent(launcherId)
         : null;
+    // Repository-source Local launches share the same session binding model
+    // as enrolled launches. Plain directory receipts stay on the native path.
+    const localOwner = !location
+      ? (checkoutOwner ??
+        (input.launcherFolder === undefined &&
+        launcher &&
+        sameRunner(placement, launcher.placement)
+          ? launcher
+          : null))
+      : null;
+    const localOwnerPreparation = localOwner
+      ? await this.localPreparation(localOwner.id)
+      : null;
+    const localSessionSource = Boolean(
+      localOwnerPreparation &&
+      ("repository" in localOwnerPreparation.source ||
+        "session" in localOwnerPreparation.source)
+    );
     if (
-      location &&
+      (location || localSessionSource) &&
       launcher &&
       folder === undefined &&
       sameRunner(placement, launcher.placement)
@@ -2421,10 +2438,8 @@ export class AgentManager {
       // An independent agent belongs to its folder's project.
       if (!input.parentAgentId) input.projectId = checkoutOwner.projectId;
       const parentLocation = sessionLocation(placement);
-      if (parentLocation) {
-        location = parentLocation;
-        input.cwd = checkoutOwner.cwd;
-      }
+      if (parentLocation) location = parentLocation;
+      input.cwd = checkoutOwner.cwd;
     }
     // The named folder, resolved on that runner as its account with main's
     // rules and errors, before anything is recorded.
@@ -2461,14 +2476,16 @@ export class AgentManager {
         input.cwd = projectRoot;
       }
     }
-    const repositorySource = Boolean(
-      !location &&
-      input.projectId &&
-      projectRepository &&
-      !projectRoot &&
-      !input.cwd &&
-      !input.parentAgentId
-    );
+    const repositorySource =
+      localSessionSource ||
+      Boolean(
+        !location &&
+        input.projectId &&
+        projectRepository &&
+        !projectRoot &&
+        !input.cwd &&
+        !input.parentAgentId
+      );
     const unscoped = !input.projectId && !input.parentAgentId;
     // Membership inherited from a parent (including no project) and
     // explicit/template selections remain authoritative.
@@ -2570,7 +2587,9 @@ export class AgentManager {
       (location || repositorySource) && !checkoutOwner && !launcherDirectory
     );
     const borrowed = Boolean(
-      location && checkoutOwner && input.useWorktree === false
+      (location || repositorySource) &&
+      checkoutOwner &&
+      input.useWorktree === false
     );
     const admission = admitLaunch({
       phase: "manager",
@@ -2679,7 +2698,7 @@ export class AgentManager {
       input.useWorktree = false;
     const sourceCheckout =
       checkoutOwner &&
-      location &&
+      (location || repositorySource) &&
       input.useWorktree !== false &&
       input.pullRequest
         ? await runnerDirectory(this.checkoutReadRunners(), checkoutOwner)
@@ -2755,7 +2774,7 @@ export class AgentManager {
       // The request a local launch from that folder records, prepared on
       // the child's own session before its host starts.
       preparation = localPreparation(launcherDirectory, worktree);
-    } else if (checkoutOwner && location) {
+    } else if (checkoutOwner && (location || repositorySource)) {
       preparation = {
         source: { session: sessionFromWire(checkoutOwner.id) },
         ...(worktree && { worktree: runnerWorktree(worktree) }),
@@ -3537,7 +3556,9 @@ export class AgentManager {
     ).rows[0];
     const binding =
       recordedBinding?.runner_preparation &&
-      (placement || "repository" in recordedBinding.runner_preparation.source)
+      (placement ||
+        "repository" in recordedBinding.runner_preparation.source ||
+        "session" in recordedBinding.runner_preparation.source)
         ? recordedBinding
         : undefined;
     const steps = this.runnerWorkspaceProgress(
