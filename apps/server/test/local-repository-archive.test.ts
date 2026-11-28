@@ -35,7 +35,9 @@ afterEach(async () => {
 const git = async (cwd: string, ...args: string[]) =>
   (await runCommand("git", ["-C", cwd, ...args])).stdout;
 
-async function fixture() {
+async function fixture(
+  options: { interrupt?: boolean; existingBranch?: boolean } = {}
+) {
   const root = await realpath(
     await mkdtemp(path.join(os.tmpdir(), "local-repo-archive-"))
   );
@@ -69,6 +71,35 @@ async function fixture() {
       ),
     })
   );
+  const installStarted = path.join(root, "install-started");
+  const allowInstall = path.join(root, "allow-install");
+  const installLog = path.join(root, "install-log");
+  const bin = path.join(root, "bin");
+  if (options.interrupt) {
+    await mkdir(bin);
+    await writeFile(
+      path.join(source, "package.json"),
+      '{"name":"partial","private":true}'
+    );
+    await writeFile(path.join(source, "pnpm-lock.yaml"), "");
+    await writeFile(path.join(source, ".gitignore"), "installed\n");
+    await writeFile(
+      path.join(bin, "pnpm"),
+      `#!${process.execPath}
+const fs = require('node:fs');
+fs.writeFileSync(${JSON.stringify(installStarted)}, JSON.stringify({ pid: process.pid, path: process.cwd() }));
+fs.appendFileSync(${JSON.stringify(installLog)}, 'install\\n');
+const finish = () => fs.writeFileSync('installed', 'yes');
+if (fs.existsSync(${JSON.stringify(allowInstall)})) finish();
+else {
+  const timer = setInterval(() => {
+    if (fs.existsSync(${JSON.stringify(allowInstall)})) { clearInterval(timer); finish(); }
+  }, 20);
+}
+`,
+      { mode: 0o700 }
+    );
+  }
   await git(source, "add", ".");
   await git(source, "commit", "-qm", "base");
   await git(root, "clone", "-q", "--bare", source, remote);
@@ -82,32 +113,60 @@ async function fixture() {
     repository,
   ]);
   const child = startTestLocalRunner(hosts, {
-    env: { GIT_CONFIG_GLOBAL: config, GIT_CONFIG_NOSYSTEM: "1" },
+    env: {
+      GIT_CONFIG_GLOBAL: config,
+      GIT_CONFIG_NOSYSTEM: "1",
+      PATH: bin + path.delimiter + process.env.PATH,
+    },
   });
   cleanups.push(() => child.stop());
   await child.ready();
   const session = sessionFromWire("agt_archive_repository");
-  const prepared = await child.session.call("workspace.prepare", {
-    session,
-    source: {
-      repository,
-      checkout: { kind: "new", branch: "feature/archive" },
+  const branch = options.existingBranch ? "main" : "feature/archive";
+  const abort = new AbortController();
+  const preparation = child.session.call(
+    "workspace.prepare",
+    {
+      session,
+      source: {
+        repository,
+        checkout: options.existingBranch
+          ? { kind: "branch", branch }
+          : { kind: "new", branch },
+      },
+      copyIgnored: [],
+      installDependencies: Boolean(options.interrupt),
     },
-    copyIgnored: [],
-    installDependencies: false,
-  });
-  const checkout = displayPath(prepared.path);
+    { signal: abort.signal }
+  );
+  let checkout: string;
+  if (options.interrupt) {
+    const result = preparation.catch((error: unknown) => error);
+    await expect.poll(() => existsSync(installStarted)).toBe(true);
+    const installing = JSON.parse(await readFile(installStarted, "utf8"));
+    checkout = installing.path;
+    abort.abort();
+    process.kill(child.current()!.pid, "SIGKILL");
+    // This test owns the package-manager pid too; do not orphan it when the
+    // parent is killed (launchd handles its service process group in production).
+    process.kill(installing.pid, "SIGKILL");
+    await result;
+    await child.ready(1);
+  } else {
+    checkout = displayPath((await preparation).path);
+  }
   const agent = {
     id: String(session),
     type: "codex",
     status: "stopped",
     placement: controllerPlacement,
-    cwd: checkout,
-    worktreePath: checkout,
-    worktreeBranch: "feature/archive",
-    baseBranch: "main",
+    cwd: options.interrupt ? "" : checkout,
+    worktreePath: options.interrupt ? null : checkout,
+    worktreeBranch: options.interrupt ? null : branch,
+    baseBranch: options.interrupt ? null : "main",
     workspacePath: null,
-    launchCwd: checkout,
+    launchCwd: options.interrupt ? "" : checkout,
+    setupPhase: options.interrupt ? "deps" : null,
     archivePhase: null,
     archiveCleanupMode: "auto",
     lastError: null,
@@ -117,7 +176,16 @@ async function fixture() {
   const pool = {
     query: vi.fn(async (sql: string, values: unknown[] = []) => {
       if (sql.includes('AS "repositorySource"'))
-        return { rows: [{ repositorySource: true }], rowCount: 1 };
+        return {
+          rows: [
+            {
+              repositorySource: true,
+              preparationPending: Boolean(options.interrupt),
+              repositoryBranchCreated: !options.existingBranch,
+            },
+          ],
+          rowCount: 1,
+        };
       if (sql.includes("SET status = 'archiving'")) {
         agent.status = "archiving";
         agent.archiveCleanupMode = values[1] as WorktreeCleanupMode;
@@ -183,6 +251,9 @@ async function fixture() {
     agent,
     checkout,
     clone: receipt.source as string,
+    allowInstall,
+    installLog,
+    branch,
     hookLog,
     deps,
     callbacks,
@@ -304,4 +375,46 @@ it("discards a real Local repository checkout while retaining its unpublished br
       "utf8"
     )
   ).toBe("committed work\n");
+});
+
+it.each([false, true])(
+  "archives after the real child dies during dependency installation (existing branch=%s)",
+  async (existingBranch) => {
+    const f = await fixture({ interrupt: true, existingBranch });
+    expect(
+      (await f.child.session.call("session.alive", { session: f.session }))
+        .state
+    ).toBe("gone");
+    expect(f.agent.worktreePath).toBeNull();
+    expect(existsSync(f.checkout)).toBe(true);
+    await beginArchive(f.deps, f.agent.id, "force");
+    await executeArchive(f.deps, f.agent.id, f.callbacks);
+    expect(f.callbacks.onError).not.toHaveBeenCalled();
+    expect(f.deleted()).toBe(true);
+    expect(existsSync(f.checkout)).toBe(false);
+    expect(existsSync(path.join(f.hosts, f.agent.id))).toBe(false);
+    expect(existsSync(f.hookLog)).toBe(false);
+    expect(await git(f.clone, "worktree", "list", "--porcelain")).not.toContain(
+      `worktree ${f.checkout}\n`
+    );
+    expect(await readFile(f.installLog, "utf8")).toBe("install\n");
+    expect(await git(f.clone, "branch", "--list", f.branch)).toBe(
+      existingBranch ? "main" : ""
+    );
+  }
+);
+
+it("resumes the same incomplete repository worktree and reruns dependency preparation", async () => {
+  const f = await fixture({ interrupt: true });
+  await writeFile(f.allowInstall, "");
+  const resumed = await f.child.session.call("workspace.resume", {
+    session: f.session,
+  });
+  expect(resumed && displayPath(resumed.path)).toBe(f.checkout);
+  expect(resumed?.worktree?.branch).toBe(f.branch);
+  expect(await readFile(path.join(f.checkout, "installed"), "utf8")).toBe(
+    "yes"
+  );
+  expect(await readFile(f.installLog, "utf8")).toBe("install\ninstall\n");
+  await f.child.session.call("session.discard", { session: f.session });
 });
