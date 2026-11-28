@@ -258,6 +258,7 @@ describe("runner session supervision", () => {
       | "gid"
       | "bindingWritten"
       | "observeCheckout"
+      | "forgetPreparedCheckout"
     >
   ) {
     supervisor = await createSessionSupervisor(
@@ -1894,6 +1895,59 @@ describe("runner session supervision", () => {
     await expect(
       readFile(path.join(state, "bindings", agentId))
     ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("keeps owner metadata usable until its last borrower retires", async () => {
+    const runner = await start();
+    await startHost(runner, launch());
+    await runner.stop(agentId, true);
+    processes.spawn.mockResolvedValueOnce();
+    await startHost(runner, sharedLaunch());
+    await runner.stop(reviewerId, true);
+    const checkout = await runner.checkoutDirectory(agentId);
+    const handler = enrolledSessions(runner, () => {}).calls["session.retire"];
+    await expect(
+      handler({ session: sessionFromWire(agentId) })
+    ).rejects.toMatchObject({
+      code: "busy",
+    });
+    await expect(
+      stat(path.join(state, "hosts", agentId))
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await runner.checkoutDirectory(reviewerId)).toBe(checkout);
+    expect(await runner.isBound(agentId)).toBe(true);
+    await handler({ session: sessionFromWire(reviewerId) });
+    await handler({ session: sessionFromWire(agentId) });
+    expect(await runner.isBound(agentId)).toBe(false);
+    expect((await stat(checkout)).isDirectory()).toBe(true);
+    expect(
+      (await readdir(path.join(state, "bindings"))).filter(
+        (name) => name.startsWith(agentId) && !name.endsWith(".retired")
+      )
+    ).toEqual([]);
+  });
+
+  it("retries preparation metadata cleanup after the active binding is gone", async () => {
+    const forget = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("temporary metadata failure"))
+      .mockResolvedValue(undefined);
+    const runner = await start(undefined, { forgetPreparedCheckout: forget });
+    await startHost(runner, launch());
+    await runner.stop(agentId, true);
+    const checkout = await runner.checkoutDirectory(agentId);
+    await writeFile(path.join(checkout, "kept"), "do not remove");
+    const handler = enrolledSessions(runner, () => {}).calls["session.retire"];
+    await expect(
+      handler({ session: sessionFromWire(agentId) })
+    ).rejects.toThrow("temporary metadata failure");
+    expect(await runner.isBound(agentId)).toBe(false);
+    await handler({ session: sessionFromWire(agentId) });
+    expect(forget).toHaveBeenCalledTimes(2);
+    expect(forget).toHaveBeenLastCalledWith(agentId);
+    expect(await readFile(path.join(checkout, "kept"), "utf8")).toBe(
+      "do not remove"
+    );
   });
 
   it("binds a nested managed reviewer directly to the durable checkout owner", async () => {

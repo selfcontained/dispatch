@@ -217,6 +217,10 @@ export async function createRemoteWorkspacePreparation(
         )) !== null
       );
     },
+    /** Drop only preparation metadata after retirement; never remove a kept checkout. */
+    async forget(session: string) {
+      await fs.rm(join(paths.receipts, storageKey(session)));
+    },
     async remove(session: string) {
       const dir = join(paths.receipts, storageKey(session));
       const raw = await fs.read(join(dir, RECEIPT_FILE));
