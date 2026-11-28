@@ -6,13 +6,18 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { api } from "@/lib/api";
 import type { Project } from "@/hooks/use-projects";
 import { ProjectEditor } from "./project-editor";
 import { readProjectLogoColors } from "./project-logo-color";
 
-const { mutateRepository } = vi.hoisted(() => ({ mutateRepository: vi.fn() }));
+const { mutateRepository, mutateProject } = vi.hoisted(() => ({
+  mutateRepository: vi.fn(),
+  mutateProject: vi.fn(),
+}));
 vi.mock("@/hooks/use-repository-project", () => ({
   useRepositoryProject: () => ({ mutate: mutateRepository }),
 }));
@@ -42,26 +47,32 @@ beforeAll(() => {
 });
 
 vi.mock("@/hooks/use-projects", () => ({
-  useProjectActions: () => ({ mutate: vi.fn() }),
+  useProjectActions: () => ({ mutate: mutateProject }),
 }));
 vi.mock("./create-agent-dialog-utils", () => ({
   useCwdHistory: () => ({ history: [] }),
 }));
 vi.mock("@/lib/api", () => ({
-  api: async (url: string) =>
+  api: vi.fn(async (url: string) =>
     url.endsWith("/repository")
       ? { url: "https://github.com/org/project" }
-      : {
-          dataUrl: "data:image/png;base64,logo",
-          path: null,
-          source: "repository",
-        },
+      : url.includes("/path-info?")
+        ? { exists: true, isDirectory: true, isGitRepo: true }
+        : {
+            dataUrl: "data:image/png;base64,logo",
+            path: null,
+            source: "repository",
+          }
+  ),
 }));
 vi.mock("./project-logo-color", () => ({
   readProjectLogoColors: vi.fn(() => ["#ec3b80", "#00918c"]),
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
 
 function mount(project?: Project) {
   render(
@@ -182,9 +193,67 @@ it("edits a repository-only project's identity with its repository and icon prev
     await screen.findByText("https://github.com/org/project")
   ).toBeTruthy();
   expect(await screen.findByAltText("Project icon preview")).toBeTruthy();
-  expect(screen.queryByText("Folder", { exact: true })).toBeNull();
+  expect((screen.getByLabelText("Folder") as HTMLInputElement).value).toBe("");
   expect(screen.getByRole("button", { name: "Save changes" })).toHaveProperty(
     "disabled",
     false
   );
+});
+
+it("attaches a Local folder while keeping the repository identity visible", async () => {
+  const project: Project = {
+    id: "repo-only",
+    name: "Repository",
+    repoRoot: null,
+    extraRoots: [],
+    color: "#123456",
+    iconOverride: null,
+    createdAt: "",
+    updatedAt: "",
+  };
+  mount(project);
+  await screen.findByText("https://github.com/org/project");
+  chooseFolder("/local/project");
+  expect(screen.getByText("https://github.com/org/project")).toBeTruthy();
+  await waitFor(() =>
+    expect(vi.mocked(api)).toHaveBeenCalledWith(
+      "/api/v1/projects/icon-preview?repoRoot=%2Flocal%2Fproject"
+    )
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() =>
+    expect(mutateProject).toHaveBeenCalledWith(
+      {
+        id: project.id,
+        name: project.name,
+        repoRoot: "/local/project",
+        color: project.color,
+        iconOverride: null,
+      },
+      expect.objectContaining({ onSuccess: expect.any(Function) })
+    )
+  );
+});
+
+it("keeps an existing folder read-only and permits appearance-only repository edits", async () => {
+  const project: Project = {
+    id: "repo-only",
+    name: "Repository",
+    repoRoot: null,
+    extraRoots: [],
+    color: "#123456",
+    iconOverride: null,
+    createdAt: "",
+    updatedAt: "",
+  };
+  mount(project);
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  expect(mutateProject).toHaveBeenCalledWith(
+    expect.objectContaining({ repoRoot: "" }),
+    expect.anything()
+  );
+  cleanup();
+  mount({ ...project, repoRoot: "/existing/folder" });
+  expect(screen.queryByLabelText("Folder")).toBeNull();
+  expect(screen.getByText("/existing/folder")).toBeTruthy();
 });

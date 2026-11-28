@@ -191,7 +191,7 @@ export function useProjectActions() {
   const qc = useQueryClient();
   const invalidate = () =>
     Promise.all(
-      ["projects", "agents", "templates", "jobs"].map((key) =>
+      ["projects", "launch-targets", "agents", "templates", "jobs"].map((key) =>
         qc.invalidateQueries({ queryKey: [key] })
       )
     );

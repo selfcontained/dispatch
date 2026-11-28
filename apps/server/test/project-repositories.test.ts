@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Fastify from "fastify";
@@ -418,6 +418,145 @@ it("merges into the oldest project and preserves non-colliding project data", as
       { id: 3, project_id: "old", agent_id: "b" },
       { id: 4, project_id: "other", agent_id: "a" },
     ]);
+  } finally {
+    await app.close();
+    await teardownTestDb();
+  }
+});
+
+it.each([
+  "git@EXAMPLE.COM:owner/repo.git",
+  "https://EXAMPLE.COM/owner/repo.git/",
+])(
+  "attaches a matching Local folder without creating another project (%s)",
+  async (origin) => {
+    const pool = await setupTestDb();
+    const app = await projectApp(pool);
+    try {
+      await migrate(pool);
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/v1/projects",
+        payload: { name: "Repository", color: "#123456", repository },
+      });
+      const id = created.json().id;
+      const folder = await checkout(origin);
+      const saved = await app.inject({
+        method: "PATCH",
+        url: `/api/v1/projects/${id}`,
+        payload: { name: "Attached", color: "#123456", repoRoot: folder },
+      });
+      expect(saved.statusCode, saved.body).toBe(200);
+      expect(saved.json()).toMatchObject({
+        id,
+        name: "Attached",
+        repoRoot: await realpath(folder),
+      });
+      expect(await new ProjectStore(pool).getRepository(id)).toEqual({
+        url: repository,
+      });
+      const matches = await app.inject(
+        `/api/v1/projects?repository=${encodeURIComponent(repository)}`
+      );
+      expect(matches.json().map((p: { id: string }) => p.id)).toEqual([id]);
+      const duplicate = await app.inject({
+        method: "POST",
+        url: "/api/v1/projects",
+        payload: { name: "Duplicate", color: "#123456", repository },
+      });
+      expect(duplicate.statusCode).toBe(409);
+      // Appearance edits and an empty optional folder never detach it, even
+      // when the attached folder is no longer readable.
+      await rm(folder, { recursive: true, force: true });
+      for (const repoRoot of [saved.json().repoRoot, ""]) {
+        const appearance = await app.inject({
+          method: "PATCH",
+          url: `/api/v1/projects/${id}`,
+          payload: { name: "Renamed", color: "#123456", repoRoot },
+        });
+        expect(appearance.statusCode, appearance.body).toBe(200);
+        expect(appearance.json().repoRoot).toBe(saved.json().repoRoot);
+      }
+    } finally {
+      await app.close();
+      await teardownTestDb();
+    }
+  }
+);
+
+it("rejects mismatched, ambiguous and missing origins before changing a project", async () => {
+  const pool = await setupTestDb();
+  const app = await projectApp(pool);
+  try {
+    await migrate(pool);
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/projects",
+      payload: { name: "Original", color: "#123456", repository },
+    });
+    const id = created.json().id;
+    for (const folder of [
+      await checkout("https://example.com/other/repo"),
+      await checkout(),
+      await checkout(repository, repository),
+    ]) {
+      const saved = await app.inject({
+        method: "PATCH",
+        url: `/api/v1/projects/${id}`,
+        payload: { name: "Changed", color: "#654321", repoRoot: folder },
+      });
+      expect(saved.statusCode).toBe(400);
+      expect(saved.json()).toEqual({
+        error: "Folder repository does not match this project.",
+      });
+      expect(await new ProjectStore(pool).get(id)).toMatchObject({
+        name: "Original",
+        repoRoot: null,
+        color: "#123456",
+      });
+    }
+  } finally {
+    await app.close();
+    await teardownTestDb();
+  }
+});
+
+it("does not replace an attached folder, including concurrent attachment attempts", async () => {
+  const pool = await setupTestDb();
+  const app = await projectApp(pool);
+  try {
+    await migrate(pool);
+    const store = new ProjectStore(pool);
+    const appearance = {
+      name: "Original",
+      color: "#123456",
+      iconOverride: null,
+    };
+    const project = await store.create({
+      ...appearance,
+      repoRoot: null,
+      repository,
+    });
+    const folders = [await checkout(repository), await checkout(repository)];
+    const results = await Promise.all(
+      folders.map((repoRoot) =>
+        store.update(project.id, { ...appearance, repoRoot })
+      )
+    );
+    expect(results.filter(Boolean)).toHaveLength(1);
+    const attached = (await store.get(project.id))!;
+    const other = folders.find((root) => root !== attached.repoRoot)!;
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/projects/${project.id}`,
+      payload: { ...appearance, repoRoot: other },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      error: "This project already has a folder.",
+    });
+    expect((await store.get(project.id))!.repoRoot).toBe(attached.repoRoot);
+    expect(await store.getRepository(project.id)).toEqual({ url: repository });
   } finally {
     await app.close();
     await teardownTestDb();
