@@ -126,6 +126,32 @@ describe("POST /api/v1/jobs (create)", () => {
     expect(local.json().error).toBe("Job directory is required.");
   });
 
+  it("saves a local project that launches by repository without a folder", async () => {
+    await ctx.pool.query(
+      "INSERT INTO projects (id, name, repo_root, repository) VALUES ('repo-only-job', 'Repo only', NULL, 'https://github.com/o/repo-only-job'), ('rooted-job', 'Rooted', '/tmp/rooted-job', NULL) ON CONFLICT (id) DO NOTHING"
+    );
+    const job = await createJob("repo-only", {
+      projectId: "repo-only-job",
+      directory: "",
+    });
+    expect(job.directory).toBe("");
+    const rooted = await authedInject("POST", "/api/v1/jobs", {
+      name: "rooted-empty",
+      projectId: "rooted-job",
+      directory: "",
+      prompt: "test",
+    });
+    expect(rooted.statusCode).toBe(400);
+    expect(rooted.json().error).toBe("Job directory is required.");
+    const local = await createJob("local-folder");
+    const cleared = await authedInject("PATCH", "/api/v1/jobs", {
+      jobId: local.id,
+      directory: "",
+    });
+    expect(cleared.statusCode).toBe(400);
+    expect(cleared.json().error).toBe("Job directory is required.");
+  });
+
   it("rejects enabled without schedule", async () => {
     const res = await authedInject("POST", "/api/v1/jobs", {
       name: "no-sched",

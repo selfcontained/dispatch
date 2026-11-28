@@ -119,9 +119,9 @@ async function chooseRunner() {
 }
 
 async function chooseProject() {
-  fireEvent.keyDown(await screen.findByTestId("create-agent-runner-project"), {
-    key: "Enter",
-  });
+  fireEvent.click(
+    await screen.findByRole("combobox", { name: "Project or repository" })
+  );
   fireEvent.click(await screen.findByRole("option", { name: "Repository" }));
 }
 
@@ -245,4 +245,48 @@ it("reads a saved runner job's target through its template and saves without a f
   const payload = onUpdateJob.mock.calls[0]![0];
   expect(payload).not.toHaveProperty("directory");
   expect(payload).not.toHaveProperty("runner");
+});
+
+it("creates a Local job from a repository-only project using the shared picker", async () => {
+  const local = {
+    ...controller,
+    location: {
+      kind: "folder",
+      repositorySearchUrl: "/fixture/repository-search",
+      projects: [
+        {
+          id: "project",
+          name: "Repository",
+          repoRoot: null,
+          repository: "https://github.com/org/repo",
+        },
+      ],
+    },
+  };
+  fixture([local]);
+  const onAddJob = vi.fn().mockResolvedValue(undefined);
+  mount(
+    <AddJobDialog open onOpenChange={vi.fn()}>
+      <AddJobFlow
+        onAddJob={onAddJob}
+        isAdding={false}
+        enabledAgentTypes={["claude", "codex"]}
+      />
+    </AddJobDialog>
+  );
+  fireEvent.click(await screen.findByRole("radio", { name: "Project" }));
+  await chooseProject();
+  fireEvent.change(screen.getByLabelText("Name"), {
+    target: { value: "Nightly" },
+  });
+  fireEvent.change(screen.getByLabelText("Task prompt"), {
+    target: { value: "Do it." },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Create job" }));
+  await waitFor(() => expect(onAddJob).toHaveBeenCalled());
+  expect(onAddJob.mock.calls[0]![0]).toMatchObject({
+    projectId: "project",
+    directory: "",
+  });
+  expect(onAddJob.mock.calls[0]![0]).not.toHaveProperty("runner");
 });

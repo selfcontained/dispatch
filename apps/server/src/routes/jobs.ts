@@ -11,11 +11,6 @@ import { controllerPlacement } from "../runners/placement.js";
 import { requestedRunnerPlacement } from "../runners/saved-location.js";
 import type { PublishUiEvent } from "../server/ui-events.js";
 
-const directoryField = z
-  .string()
-  .trim()
-  .min(1, "Job directory is required.")
-  .transform(resolveTilde);
 const JobIdentitySchema = z.object({
   jobId: z.string().min(1, "Job ID is required."),
 });
@@ -56,11 +51,18 @@ const AddJobBodySchema = z.object({
 });
 const UpdateJobBodySchema = AddJobBodySchema.omit({ displayName: true })
   .partial()
-  .extend({ ...JobIdentitySchema.shape, directory: directoryField.optional() });
+  .extend(JobIdentitySchema.shape);
 
-/** A folder is required only for a job saved on this computer. */
-function directoryMissing(body: { directory: string; runner?: string }) {
-  if (body.directory) return false;
+/**
+ * A folder is required only for a job saved on this computer, unless it
+ * names a project the computer launches by repository (the service checks).
+ */
+function directoryMissing(body: {
+  directory: string;
+  runner?: string;
+  projectId?: string | null;
+}) {
+  if (body.directory || body.projectId) return false;
   try {
     return sameRunner(
       requestedRunnerPlacement(body) ?? controllerPlacement,
@@ -112,7 +114,13 @@ export async function registerJobRoutes(
     } catch (error) {
       const message = errorMessage(error);
       return reply
-        .code(/effort|is turned off for/i.test(message) ? 400 : 500)
+        .code(
+          /effort|is turned off for|^Job directory is required\.$/i.test(
+            message
+          )
+            ? 400
+            : 500
+        )
         .send({ error: message });
     }
   });
@@ -127,7 +135,13 @@ export async function registerJobRoutes(
     } catch (error) {
       const message = errorMessage(error);
       return reply
-        .code(/effort|is turned off for/i.test(message) ? 400 : 500)
+        .code(
+          /effort|is turned off for|^Job directory is required\.$/i.test(
+            message
+          )
+            ? 400
+            : 500
+        )
         .send({ error: message });
     }
   });

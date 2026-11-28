@@ -33,10 +33,15 @@ export function useJobTarget({
   );
   // A target that launches by project, not by folder.
   const byProject = launch.target?.location.kind === "project";
+  const projects = launch.target?.location.projects ?? [];
+  const project = projects.find((p) => p.id === projectId);
+  // A project without a folder here launches from its repository, so its
+  // branches come from the target as a project target's do.
+  const byRepository = byProject || Boolean(project && !project.repoRoot);
   const data = useLaunchTargetData(
     launch.target,
     { directory, projectId, agentType, model },
-    byProject
+    byRepository
   );
   const models = useAgentModelCatalog(
     agentType,
@@ -65,7 +70,10 @@ export function useJobTarget({
     data,
     models,
     byProject,
-    projects: byProject ? (launch.target?.location.projects ?? []) : [],
+    byRepository,
+    projects,
+    /** Set when the target can search repositories and create projects. */
+    searchUrl: launch.target?.location.repositorySearchUrl,
   };
 }
 export type JobTarget = ReturnType<typeof useJobTarget>;

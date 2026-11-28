@@ -146,7 +146,7 @@ export function SettingsTab({
     target.launch.selectionReady &&
     (target.byProject
       ? target.projects.some((p) => p.id === projectId)
-      : !!directory.trim()) &&
+      : !!directory.trim() || target.byRepository) &&
     !scheduleError &&
     !!msFromMinutes(timeoutMinutes) &&
     !!msFromMinutes(needsInputTimeoutMinutes);
@@ -267,6 +267,7 @@ export function SettingsTab({
           {target.byProject ? (
             <div className="md:col-span-2">
               <RunnerProjectPicker
+                searchUrl={target.searchUrl}
                 projects={target.projects}
                 projectId={projectId}
                 loading={target.launch.list.isLoading}
@@ -286,6 +287,26 @@ export function SettingsTab({
               </label>
               <ProjectLocation
                 projectId={projectId}
+                projectPicker={
+                  target.searchUrl ? (
+                    <RunnerProjectPicker
+                      searchUrl={target.searchUrl}
+                      projects={target.projects}
+                      projectId={projectId}
+                      loading={target.launch.list.isLoading}
+                      error={Boolean(target.launch.target?.location.error)}
+                      onProject={(id) =>
+                        setLocationEdit({
+                          id: job.id,
+                          projectId: id,
+                          directory:
+                            target.projects.find((p) => p.id === id)
+                              ?.repoRoot ?? "",
+                        })
+                      }
+                    />
+                  ) : undefined
+                }
                 onChange={(project) =>
                   setLocationEdit({
                     id: job.id,
@@ -398,9 +419,11 @@ export function SettingsTab({
             onCheckedChange={setUseWorktree}
             onBaseBranchChange={setBaseBranch}
             onBranchNameChange={setBranchName}
-            branchesUrl={target.byProject ? target.data.branchesUrl : undefined}
+            branchesUrl={
+              target.byRepository ? target.data.branchesUrl : undefined
+            }
             defaultBaseBranch={
-              target.byProject ? target.data.defaultBaseBranch : undefined
+              target.byRepository ? target.data.defaultBaseBranch : undefined
             }
             testIdPrefix={`job-settings-${job.id}`}
           />

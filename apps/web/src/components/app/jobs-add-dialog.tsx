@@ -157,7 +157,7 @@ export function AddJobFlow({
     target.launch.selectionReady &&
     (target.byProject
       ? target.projects.some((p) => p.id === projectId)
-      : !!directory.trim()) &&
+      : !!directory.trim() || target.byRepository) &&
     !!prompt.trim() &&
     !scheduleError &&
     (!continuation.enabled ||
@@ -200,6 +200,7 @@ export function AddJobFlow({
             {target.byProject ? (
               <div className="min-w-0 md:col-span-2">
                 <RunnerProjectPicker
+                  searchUrl={target.searchUrl}
                   projects={target.projects}
                   projectId={projectId}
                   loading={target.launch.list.isLoading}
@@ -211,6 +212,24 @@ export function AddJobFlow({
               <div className="min-w-0 space-y-1 md:col-span-2">
                 <ProjectLocation
                   projectId={projectId}
+                  projectPicker={
+                    target.searchUrl ? (
+                      <RunnerProjectPicker
+                        searchUrl={target.searchUrl}
+                        projects={target.projects}
+                        projectId={projectId}
+                        loading={target.launch.list.isLoading}
+                        error={Boolean(target.launch.target?.location.error)}
+                        onProject={(id) => {
+                          setProjectId(id);
+                          setDirectory(
+                            target.projects.find((p) => p.id === id)
+                              ?.repoRoot ?? ""
+                          );
+                        }}
+                      />
+                    ) : undefined
+                  }
                   onChange={(p) => {
                     setProjectId(p?.id ?? null);
                     if (p) setDirectory(p.repoRoot ?? "");
@@ -416,10 +435,12 @@ export function AddJobFlow({
                   onBaseBranchChange={setBaseBranch}
                   onBranchNameChange={setBranchName}
                   branchesUrl={
-                    target.byProject ? target.data.branchesUrl : undefined
+                    target.byRepository ? target.data.branchesUrl : undefined
                   }
                   defaultBaseBranch={
-                    target.byProject ? target.data.defaultBaseBranch : undefined
+                    target.byRepository
+                      ? target.data.defaultBaseBranch
+                      : undefined
                   }
                   testIdPrefix="job-create"
                 />
