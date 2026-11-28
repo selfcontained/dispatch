@@ -6,6 +6,9 @@ import { type JobService, WebhookNotFoundError } from "../jobs/service.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import { parseInput } from "../shared/lib/parse-input.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
+import { sameRunner } from "@dispatch/runner-protocol/contract";
+import { controllerPlacement } from "../runners/placement.js";
+import { requestedRunnerPlacement } from "../runners/saved-location.js";
 import type { PublishUiEvent } from "../server/ui-events.js";
 
 const directoryField = z
@@ -22,7 +25,8 @@ const RunJobBodySchema = JobIdentitySchema.extend({
 const JobEnableDisableBodySchema = JobIdentitySchema;
 const AddJobBodySchema = z.object({
   name: z.string().trim().min(1, "Job name is required."),
-  directory: directoryField,
+  // A runner target saves its project, not a folder; see the add route.
+  directory: z.string().trim().transform(resolveTilde),
   runner: z.string().min(1).optional(),
   projectId: z.string().min(1).nullable().optional(),
   displayName: z.string().optional(),
@@ -52,7 +56,20 @@ const AddJobBodySchema = z.object({
 });
 const UpdateJobBodySchema = AddJobBodySchema.omit({ displayName: true })
   .partial()
-  .extend(JobIdentitySchema.shape);
+  .extend({ ...JobIdentitySchema.shape, directory: directoryField.optional() });
+
+/** A folder is required only for a job saved on this computer. */
+function directoryMissing(body: { directory: string; runner?: string }) {
+  if (body.directory) return false;
+  try {
+    return sameRunner(
+      requestedRunnerPlacement(body) ?? controllerPlacement,
+      controllerPlacement
+    );
+  } catch {
+    return false;
+  }
+}
 const JobHistoryParamsSchema = JobIdentitySchema.extend({
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
@@ -86,6 +103,8 @@ export async function registerJobRoutes(
   app.post("/api/v1/jobs", async (request, reply) => {
     const parsed = parseInput(AddJobBodySchema, request.body, reply);
     if (!parsed) return;
+    if (directoryMissing(parsed))
+      return reply.code(400).send({ error: "Job directory is required." });
     try {
       const result = await deps.jobService.addJob(parsed);
       deps.publishUiEvent({ type: "job.changed" });

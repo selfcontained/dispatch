@@ -139,8 +139,13 @@ export function JobWorktreeOption({
   onBaseBranchChange,
   onBranchNameChange,
   testIdPrefix,
+  branchesUrl,
+  defaultBaseBranch,
 }: {
   checked: boolean;
+  /** A runner target's branch list; this computer reads `cwd`. */
+  branchesUrl?: string;
+  defaultBaseBranch?: string;
   cwd: string;
   baseBranch: string;
   branchName: string;
@@ -164,6 +169,8 @@ export function JobWorktreeOption({
           <div className="ml-8">
             <BranchSelect
               cwd={cwd}
+              sourceUrl={branchesUrl}
+              defaultBaseBranch={defaultBaseBranch}
               baseBranch={baseBranch}
               onBaseBranchChange={onBaseBranchChange}
               worktreeBranch={branchName}

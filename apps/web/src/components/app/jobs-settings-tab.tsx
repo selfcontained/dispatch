@@ -4,7 +4,11 @@ import { AgentEffortSelect } from "./agent-effort-select";
 import { useProjects } from "@/hooks/use-projects";
 import { ProjectLocation } from "@/components/app/project-location";
 import { Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { LaunchTargetError } from "./launch-target-error";
+import { RunnerPicker } from "./runner-picker";
+import { RunnerProjectPicker } from "./runner-project-picker";
+import { useJobTarget } from "./use-job-target";
 
 import {
   JobAgentTypeField,
@@ -19,7 +23,6 @@ import { AgentPersonaSelect } from "@/components/app/agent-persona-select";
 import { PathInput } from "@/components/app/path-input";
 import { useCwdHistory } from "@/components/app/create-agent-dialog-utils";
 import { AgentModelSelect } from "@/components/app/agent-model-select";
-import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import {
   cronError,
   minutesFromMs,
@@ -28,7 +31,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { type UpdateJobConfig, type Job } from "@/hooks/use-jobs";
-import { type AgentType, type CliAgentType } from "@/lib/agent-types";
+import {
+  type AgentType,
+  type CliAgentType,
+  isCliAgentType,
+} from "@/lib/agent-types";
 import { Alert } from "@/components/ui/alert";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Card } from "@/components/ui/card";
@@ -88,12 +95,30 @@ export function SettingsTab({
   const [persona, setPersona] = useState<string | null>(job.persona ?? null);
   const [effort, setEffort] = useState<Effort | null>(job.effort ?? null);
   const [model, setModel] = useState<string | null>(job.model);
+  const onTargetAgentTypes = useCallback(
+    (types: AgentType[]) => {
+      const next = types.find(isCliAgentType);
+      if (types.includes(agentType) || !next) return;
+      setAgentType(next);
+      setModel(null);
+      setEffort(null);
+    },
+    [agentType]
+  );
+  const target = useJobTarget({
+    templateId: job.templateId,
+    directory,
+    projectId,
+    agentType,
+    model,
+    onAgentTypes: onTargetAgentTypes,
+  });
   const {
     options: modelOptions,
     savedOption,
     loading: modelCatalogLoading,
     normalizeModel,
-  } = useAgentModelCatalog(agentType);
+  } = target.models;
   const [fullAccess, setFullAccess] = useState(job.fullAccess);
   const [useWorktree, setUseWorktree] = useState(job.useWorktree);
   const [baseBranch, setBaseBranch] = useState(job.baseBranch ?? "main");
@@ -118,7 +143,10 @@ export function SettingsTab({
   );
   const canSave =
     !!displayName.trim() &&
-    !!directory.trim() &&
+    target.launch.selectionReady &&
+    (target.byProject
+      ? target.projects.some((p) => p.id === projectId)
+      : !!directory.trim()) &&
     !scheduleError &&
     !!msFromMinutes(timeoutMinutes) &&
     !!msFromMinutes(needsInputTimeoutMinutes);
@@ -126,7 +154,9 @@ export function SettingsTab({
   // Reset form state only when switching to a different job — not on every
   // refetch of the same job.  SSE-driven invalidations change volatile fields
   // (updatedAt, lastRun*, nextRun) which would otherwise clobber unsaved edits.
+  const { reset: resetTarget } = target.launch;
   useEffect(() => {
+    resetTarget();
     setDisplayName(job.name);
     setLocationEdit(null);
     setSchedule(job.schedule ?? "");
@@ -206,6 +236,24 @@ export function SettingsTab({
           These values are used when the schedule or Run button starts this job.
         </p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <div className="space-y-3 empty:hidden md:col-span-2">
+            <RunnerPicker
+              targets={target.launch.list.data ?? []}
+              value={target.launch.key}
+              onChange={(key) => {
+                setModel(null);
+                setEffort(null);
+                setPersona(null);
+                setLocationEdit({ id: job.id, projectId: null, directory: "" });
+                setBaseBranch(
+                  target.launch.list.data?.find((t) => t.key === key)
+                    ?.defaultBaseBranch ?? "main"
+                );
+                target.launch.choose(key);
+              }}
+            />
+            <LaunchTargetError queries={[target.launch.list, target.data]} />
+          </div>
           <Field
             id={`settings-name-${job.id}`}
             label="Name"
@@ -216,37 +264,51 @@ export function SettingsTab({
               onChange={(event) => setDisplayName(event.target.value)}
             />
           </Field>
-          <div className="space-y-1 md:col-span-2">
-            <label
-              className="text-body-sm font-medium"
-              htmlFor={`settings-directory-${job.id}`}
-            >
-              Working directory
-            </label>
-            <ProjectLocation
-              projectId={projectId}
-              onChange={(project) =>
-                setLocationEdit({
-                  id: job.id,
-                  projectId: project?.id ?? null,
-                  directory: project?.repoRoot ?? directory,
-                })
-              }
-            >
-              <PathInput
-                id={`settings-directory-${job.id}`}
-                value={directory}
-                onChange={(directory) =>
-                  setLocationEdit({ id: job.id, projectId: null, directory })
+          {target.byProject ? (
+            <div className="md:col-span-2">
+              <RunnerProjectPicker
+                projects={target.projects}
+                projectId={projectId}
+                loading={target.launch.list.isLoading}
+                error={Boolean(target.launch.target?.location.error)}
+                onProject={(id) =>
+                  setLocationEdit({ id: job.id, projectId: id, directory: "" })
                 }
-                placeholder="/path/to/repo"
-                history={cwdHistory}
-                removableHistory={removableCwdHistory}
-                historyMetadata={cwdHistoryMetadata}
-                onRemoveHistory={removeCwdHistory}
               />
-            </ProjectLocation>
-          </div>
+            </div>
+          ) : (
+            <div className="space-y-1 md:col-span-2">
+              <label
+                className="text-body-sm font-medium"
+                htmlFor={`settings-directory-${job.id}`}
+              >
+                Working directory
+              </label>
+              <ProjectLocation
+                projectId={projectId}
+                onChange={(project) =>
+                  setLocationEdit({
+                    id: job.id,
+                    projectId: project?.id ?? null,
+                    directory: project?.repoRoot ?? directory,
+                  })
+                }
+              >
+                <PathInput
+                  id={`settings-directory-${job.id}`}
+                  value={directory}
+                  onChange={(directory) =>
+                    setLocationEdit({ id: job.id, projectId: null, directory })
+                  }
+                  placeholder="/path/to/repo"
+                  history={cwdHistory}
+                  removableHistory={removableCwdHistory}
+                  historyMetadata={cwdHistoryMetadata}
+                  onRemoveHistory={removeCwdHistory}
+                />
+              </ProjectLocation>
+            </div>
+          )}
           <JobScheduleField
             id={`settings-schedule-${job.id}`}
             schedule={schedule}
@@ -259,6 +321,13 @@ export function SettingsTab({
           />
           <AgentPersonaSelect
             cwd={directory}
+            endpoint={
+              target.byProject
+                ? projectId
+                  ? (target.data.data?.personasUrl ?? "")
+                  : ""
+                : undefined
+            }
             value={persona}
             onChange={setPersona}
           />
@@ -268,7 +337,10 @@ export function SettingsTab({
           >
             <JobAgentTypeField
               value={agentType}
-              agentTypes={enabledAgentTypes}
+              agentTypes={
+                (target.byProject && target.data.info?.agentTypes) ||
+                enabledAgentTypes
+              }
               onChange={(nextAgentType) => {
                 setAgentType(nextAgentType);
                 setModel(null);
@@ -289,6 +361,8 @@ export function SettingsTab({
             ) : null}
             <AgentEffortSelect
               model={model}
+              workload={target.byProject}
+              workloadChoices={target.data.effort}
               value={effort}
               onChange={setEffort}
               agentType={agentType}
@@ -324,6 +398,10 @@ export function SettingsTab({
             onCheckedChange={setUseWorktree}
             onBaseBranchChange={setBaseBranch}
             onBranchNameChange={setBranchName}
+            branchesUrl={target.byProject ? target.data.branchesUrl : undefined}
+            defaultBaseBranch={
+              target.byProject ? target.data.defaultBaseBranch : undefined
+            }
             testIdPrefix={`job-settings-${job.id}`}
           />
           {agentType !== "opencode" && (
@@ -406,7 +484,8 @@ export function SettingsTab({
               void onUpdateJob({
                 jobId: job.id,
                 name: displayName.trim(),
-                directory: directory.trim(),
+                ...(target.byProject ? {} : { directory: directory.trim() }),
+                ...target.launch.fields,
                 ...(membershipChanged ? { projectId } : {}),
                 schedule: schedule.trim() || null,
                 timeoutMs: msFromMinutes(timeoutMinutes),
@@ -428,7 +507,7 @@ export function SettingsTab({
                   setLocationEdit((current) =>
                     current === submittedLocation ? null : current
                   );
-                  addCwdHistory(directory.trim());
+                  if (!target.byProject) addCwdHistory(directory.trim());
                   setSaved(true);
                 })
                 .catch((error) => {
