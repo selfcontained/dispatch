@@ -42,6 +42,7 @@ import {
   runnerError,
   sessionFromWire,
   type Req,
+  type RunnerError,
 } from "@dispatch/runner-protocol/contract";
 import { UpdateAdmission, type FenceStore } from "./update-admission.js";
 import {
@@ -235,6 +236,72 @@ async function runCheckoutWorker(
   });
   if (status !== "0") throw new Error(stderr || "Checkout worker failed.");
   return Buffer.concat(stdout).toString("utf8");
+}
+
+/** Stream a read's bytes, returning a typed worker failure when none were sent. */
+export function streamCheckoutRead(
+  command: [string, ...string[]],
+  env: NodeJS.ProcessEnv,
+  input: string,
+  signal: AbortSignal,
+  onFailure: (error: RunnerError) => void = (error) =>
+    console.error("Checkout read worker failed.", JSON.stringify(error))
+): Readable {
+  signal.throwIfAborted();
+  const worker = startCheckoutWorker(command, env, input);
+  let stderr = Buffer.alloc(0);
+  const errors = (async () => {
+    for await (const chunk of worker.stderr)
+      stderr = Buffer.concat([stderr, Buffer.from(chunk)]).subarray(-2048);
+  })();
+  const done = Promise.all([worker.exited, errors]);
+  void done.catch(() => {});
+  const stop = () => stopCheckoutWorker(worker);
+  signal.addEventListener("abort", stop, { once: true });
+  async function* output() {
+    let completed = false;
+    let sent = false;
+    try {
+      for await (const chunk of worker.stdout) {
+        sent = true;
+        yield chunk;
+      }
+      const [status] = await done;
+      if (status !== "0")
+        throw new RunnerCallError({
+          code: "failed",
+          message: `Checkout read worker failed (status ${status}).${stderr.length ? " " + stderr.toString("utf8").trim() : ""}`,
+          details: { status },
+        });
+      completed = true;
+    } catch (error) {
+      if (signal.aborted) throw error;
+      const failure: RunnerError =
+        error instanceof RunnerCallError
+          ? {
+              code: error.code,
+              message: error.message,
+              ...(error.details === undefined
+                ? {}
+                : { details: error.details }),
+            }
+          : {
+              code: "failed",
+              message: error instanceof Error ? error.message : String(error),
+            };
+      onFailure(failure);
+      stop();
+      // A partial JSON reply cannot be followed by another envelope. Fail only
+      // that stream; the client keeps the connection and reports its failure.
+      if (sent) throw new RunnerCallError(failure);
+      yield Buffer.from(JSON.stringify({ error: failure }));
+      completed = true;
+    } finally {
+      signal.removeEventListener("abort", stop);
+      if (!completed) stop();
+    }
+  }
+  return Readable.from(output(), { objectMode: false });
 }
 
 /** The workload process owns the command. Its parent only forwards bounded
@@ -791,31 +858,13 @@ export async function runRemoteRunner(
                 JSON.stringify(input),
                 active
               ),
-            read(cwd, input, active) {
-              const worker = startCheckoutWorker(
+            read: (cwd, input, active) =>
+              streamCheckoutRead(
                 [setpriv, ...childArgs, ...self("runner-worker"), "read", cwd],
                 { ...env, GIT_TERMINAL_PROMPT: "0", GH_PROMPT_DISABLED: "1" },
-                JSON.stringify(input)
-              );
-              worker.stderr.resume();
-              const stop = () => stopCheckoutWorker(worker);
-              active.addEventListener("abort", stop, { once: true });
-              const done = worker.exited;
-              void done.catch(() => {});
-              async function* output() {
-                let completed = false;
-                try {
-                  yield* worker.stdout;
-                  if ((await done) !== "0")
-                    throw new Error("The checkout read worker failed.");
-                  completed = true;
-                } finally {
-                  active.removeEventListener("abort", stop);
-                  if (!completed) stop();
-                }
-              }
-              return Readable.from(output(), { objectMode: false });
-            },
+                JSON.stringify(input),
+                active
+              ),
           },
           signal
         );
