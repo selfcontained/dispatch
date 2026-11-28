@@ -385,7 +385,16 @@ export async function registerLaunchTargetRoutes(
           return a.localeCompare(b);
         }),
       };
-    } catch {
+    } catch (error) {
+      request.log.error(
+        {
+          err: error,
+          runnerId: selectedTarget.id,
+          projectId: q.projectId,
+          target,
+        },
+        "Failed to list remote branches."
+      );
       return reply.code(500).send({ error: "Failed to list remote branches." });
     }
   });

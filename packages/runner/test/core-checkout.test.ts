@@ -338,6 +338,31 @@ describe("core checkout writes", () => {
 });
 
 describe("core repository reads", () => {
+  it.each(["git.branches", "git.defaultBranch"] as const)(
+    "passes %s repository reads to the workload without a folder or clone",
+    async (op) => {
+      const result =
+        op === "git.branches"
+          ? { branches: ["main"], defaultBranch: "main" }
+          : { branch: "main", currentBranch: null };
+      const { connection, calls } = await harness(() => result);
+      await expect(
+        connection.call(op, {
+          target: { repository: "https://github.com/org/repo" },
+        })
+      ).resolves.toEqual(result);
+      expect(calls).toEqual([
+        {
+          op,
+          input: {
+            directory: "",
+            repository: "https://github.com/org/repo",
+            request: {},
+          },
+        },
+      ]);
+    }
+  );
   const files = {
     hasOrigin: true,
     files: [],
