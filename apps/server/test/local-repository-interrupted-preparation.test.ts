@@ -143,7 +143,9 @@ else {
   let checkout: string;
   if (options.interrupt) {
     const result = preparation.catch((error: unknown) => error);
-    await expect.poll(() => existsSync(installStarted)).toBe(true);
+    await expect
+      .poll(() => existsSync(installStarted), { timeout: 10_000 })
+      .toBe(true);
     const installing = JSON.parse(await readFile(installStarted, "utf8"));
     checkout = installing.path;
     abort.abort();

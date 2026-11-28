@@ -16,6 +16,8 @@ The local adapter normally calls the child over an authenticated socket. The ser
 
 An enrolled runner connects outbound over authenticated TLS. Dispatch selects the connection using its registration and checks session ownership before sending. The runner resolves the handle against its bindings. A lost enrolled read returns `unavailable`. A lost mutation acknowledgement returns `unknown_outcome` because automatic replay could execute the command twice. See the [Linux installation guide](remote-runner-linux.md).
 
+Session lifecycle, file delivery, and human terminals select a Runner through the directory. The client owns file tokens and transfer plumbing: Local uploads hand over the existing path without reading it, while enrolled uploads copy bytes and deduplicate references by digest. Bound Local downloads stream over the socket without the enrolled 20 MiB collection limit; native reads remain available for recovery and older peers. Terminal callers use a session target. The Local adapter still resolves that target from the controller row until the remaining row-to-binding adoption work lands.
+
 ## Keeping the boundary intact
 
 Run `node scripts/check-runner-boundary.mjs --strict` to check placement reads, controller access to workload resources, local side channels, package imports, web dependencies on runner internals, and known restrictions. Use `--print` to locate a violation. The baseline and move ledger must remain empty. CI checks the source and baseline history. Behavioral coverage comes from [the conformance package](../packages/runner-conformance) and the local parity oracle, which compares the head with [pinned main](../scripts/runner-local-parity/main-pin.json).

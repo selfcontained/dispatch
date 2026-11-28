@@ -4,6 +4,7 @@
  * `workspace` exist so far; process, layout and private-state parts arrive
  * with the families that need them.
  */
+import type { Readable } from "node:stream";
 import type { Req, Res } from "@dispatch/runner-protocol/contract";
 
 /**
@@ -250,6 +251,10 @@ export interface WorkspacePort {
    * a missing file; otherwise the path is handed over as it is.
    */
   putFile?(path: string, file: { mustExist: boolean }): Promise<string>;
+  /** Uncapped streaming reads as the workload; close is called on success, error and cancellation. */
+  readFileStream?(
+    source: string
+  ): Promise<{ source: Readable; close(): Promise<void> }>;
   /** Inline session files, opened by the workload rather than the transport. */
   fileBytes?: {
     put(directory: string, name: string, data: string): Promise<string>;

@@ -1,6 +1,7 @@
 import {
   deliverSessionFile,
   readSessionFileBytes,
+  readSessionFileStream,
 } from "../files/session-bytes.js";
 import { promisify } from "node:util";
 import { childProcessEnv } from "../shared/process/child-environment.js";
@@ -1256,6 +1257,7 @@ const repositoryCache = {
 };
 
 export const workspaceWorkload = {
+  readFileStream: (source: string) => readSessionFileStream(source, false),
   fileBytes: {
     async put(directory: string, name: string, data: string) {
       await mkdir(directory, { recursive: true });

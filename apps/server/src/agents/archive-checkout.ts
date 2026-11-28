@@ -227,3 +227,16 @@ export function archiveReleaseState(
   if (!authorizesArchiveRelease(mode, checkout)) return null;
   return checkout?.stateId ?? UNOBSERVED_STATE;
 }
+
+/** A kept checkout that never bound is still located by its preparation receipt. */
+export function retainsPreparationLocator(
+  agent: ArchiveCheckoutAgent,
+  outcome: { kind: string }
+): boolean {
+  return (
+    outcome.kind === "kept" &&
+    Boolean(
+      agent.repositorySource && agent.preparationPending && !agent.worktreePath
+    )
+  );
+}

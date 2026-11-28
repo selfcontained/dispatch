@@ -45,6 +45,7 @@ const WORKSPACE_DIR = "/opt/conformance-checkout";
 const UID = 1500;
 const MANAGED_STATE = "/var/lib/runner-managed";
 const BARE_REMOTE = "/opt/conformance-origin.git";
+const REPOSITORY_URL = "https://github.com/fixture/conformance";
 const SESSION = sessionFromWire("conformance-session");
 
 const run = (command: string, args: string[], input?: string) =>
@@ -207,6 +208,8 @@ chmod 600 ${WORKSPACE_DIR}/.root-only
 printf guard > ${WORKSPACE_DIR}/.exec-probe
 install -d -o ${UID} -g ${UID} -m 755 ${BARE_REMOTE}
 setpriv --reuid=${UID} --regid=${UID} --clear-groups git clone --bare ${WORKSPACE_DIR} ${BARE_REMOTE}
+git config --file /home/workload/.gitconfig url.file://${BARE_REMOTE}.insteadOf ${REPOSITORY_URL}
+chown ${UID}:${UID} /home/workload/.gitconfig
 install -m 600 /etc/runner/managed.json /run/cfg/managed.json
 /opt/bin/runner remote-runner /run/cfg/managed.json &
 exec /opt/bin/runner remote-runner /run/cfg/runner.json
@@ -431,7 +434,7 @@ export async function startRemoteLane(): Promise<Lane> {
       },
       workspace: {
         runner: checked(managed.runner),
-        repository: `file://${BARE_REMOTE}`,
+        repository: REPOSITORY_URL,
         selectionDirectory: "/workspace-selection",
         async interrupt(session) {
           const receipt = `${MANAGED_STATE}/bindings/workspace/${key(session)}/workspace-preparation`;

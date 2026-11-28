@@ -6,6 +6,7 @@ import type { Pool } from "pg";
 import {
   archiveRunner,
   withRepositorySource,
+  retainsPreparationLocator,
   type ArchiveCheckoutAgent,
 } from "./archive-checkout.js";
 import {
@@ -263,23 +264,16 @@ export async function finishCheckout(
     hooks,
     runner
   );
-  // Until binding, the receipt is a kept checkout's only locator, so the
-  // host is retired as pending and its state stays.
-  const keepsReceipt =
-    checkoutAgent.repositorySource &&
-    checkoutAgent.preparationPending &&
-    outcome.kind !== "released" &&
-    !agent.worktreePath;
+  const retainMetadata =
+    outcome.kind === "pending" ||
+    retainsPreparationLocator(checkoutAgent, outcome);
   if (stopped) {
     try {
       await runner.call("session.retire", {
         session: sessionFromWire(agent.id),
-        ...((outcome.kind === "pending" || keepsReceipt) && {
-          checkoutPending: true,
-        }),
+        ...(retainMetadata && { checkoutPending: true }),
       });
-      if (outcome.kind !== "pending" && !keepsReceipt)
-        await deps.runtime?.clearRemoteState?.(agent.id);
+      if (!retainMetadata) await deps.runtime?.clearRemoteState?.(agent.id);
     } catch (err) {
       deps.logger.warn(
         { err, agentId: agent.id },

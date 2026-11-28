@@ -1,3 +1,4 @@
+import { repositoryReadDirectory } from "../../../core/checkout.js";
 import { checkoutCommandTimeoutMs } from "./checkout-timeout.js";
 import { Readable } from "node:stream";
 import {
@@ -97,9 +98,14 @@ export function enrolledCheckouts(
           : await run(
               target && "path" in target
                 ? displayPath(target.path)
-                : op === "git.origin"
-                  ? (input as Req<"git.origin">).path
-                  : undefined
+                : target && "repository" in target && op === "git.roots"
+                  ? await repositoryReadDirectory(
+                      target.repository,
+                      worker.repositoryClone
+                    )
+                  : op === "git.origin"
+                    ? (input as Req<"git.origin">).path
+                    : undefined
             );
       if (raw === null) throw missing();
       return workerData(op, raw);
@@ -136,12 +142,10 @@ export function enrolledCheckouts(
     const { target, ...request } = input;
     const reply = (text: string) => Readable.from([Buffer.from(text)]);
     if (op === "checkout.defaultFiles" && "repository" in target) {
-      if (!worker.repositoryClone)
-        throw new RunnerCallError({
-          code: "unsupported",
-          message: "This runner does not read repository files.",
-        });
-      const cwd = await worker.repositoryClone(target.repository);
+      const cwd = await repositoryReadDirectory(
+        target.repository,
+        worker.repositoryClone
+      );
       return reply(
         await worker.run(
           "read",

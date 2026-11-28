@@ -11,7 +11,7 @@ import {
   runnerIdFromWire,
 } from "@dispatch/runner-protocol/contract";
 import { embeddedBuild } from "../src/agents/build-identity.js";
-import { localTerminal } from "../src/runners/local.js";
+import { terminalBackendFor } from "../src/runners/directory.js";
 import { controllerPlacement } from "../src/runners/placement.js";
 
 it.skipIf(process.getuid?.() === 0 || process.platform === "win32")(
@@ -75,13 +75,16 @@ it.skipIf(process.getuid?.() === 0 || process.platform === "win32")(
       });
       runner.setEndpoint(child.ready);
       await runner.call("runner.describe", {});
-      const backend = localTerminal(() => runner, {
-        id: "agent",
-        cwd: state,
-        worktreePath: null,
-        workspacePath: workspace,
-        placement: controllerPlacement,
-      });
+      const backend = terminalBackendFor(
+        { child: () => runner },
+        {
+          id: "agent",
+          cwd: state,
+          worktreePath: null,
+          workspacePath: workspace,
+          placement: controllerPlacement,
+        }
+      );
       const open = async () => {
         let output = "";
         const terminal = await backend(

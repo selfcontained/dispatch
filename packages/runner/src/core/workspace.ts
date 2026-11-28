@@ -33,6 +33,7 @@ import { isDeepStrictEqual } from "node:util";
  * with main's branch rules. The receipt records the repository too, so a
  * repeat or `resume` finishes the same checkout.
  */
+import { Readable } from "node:stream";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, join, normalize, resolve, sep } from "node:path";
@@ -892,8 +893,11 @@ export function workspaceHandlers(
       return { path: pathFromWire(await port.putFile(path, { mustExist })) };
     },
 
-    ...(port.fileBytes && {
-      async "files.get"({ session, path: source }: Req<"files.get">) {
+    ...((port.fileBytes || port.readFileStream) && {
+      async "files.get"(
+        { session, path: source }: Req<"files.get">,
+        context: ConnectionContext
+      ) {
         const binding = await store.get(sessionToWire(session));
         if (!binding)
           throw new RunnerCallError({
@@ -908,6 +912,67 @@ export function workspaceHandlers(
         const file = isAbsolute(source)
           ? source
           : `${binding.currentPath ?? binding.checkout.path}/${source}`;
+        if (context.sendFile && port.readFileStream) {
+          try {
+            const opened = await port.readFileStream(file);
+            const digest = createHash("sha256");
+            let size = 0;
+            const source = Readable.from(
+              (async function* () {
+                for await (const chunk of opened.source) {
+                  const bytes = Buffer.isBuffer(chunk)
+                    ? chunk
+                    : Buffer.from(chunk);
+                  size += bytes.length;
+                  digest.update(bytes);
+                  yield bytes;
+                }
+              })()
+            );
+            try {
+              context.signal?.throwIfAborted();
+              const blob = await context.sendFile(source);
+              return {
+                name: basename(file),
+                size,
+                digest: digest.digest("hex"),
+                blob,
+              };
+            } finally {
+              source.destroy();
+              opened.source.destroy();
+              await opened.close();
+            }
+          } catch (error) {
+            if (error instanceof RunnerCallError) throw error;
+            const failure = error as NodeJS.ErrnoException;
+            const errno = failure?.code;
+            throw new RunnerCallError({
+              code:
+                errno === "ENOENT" || errno === "ENOTDIR"
+                  ? "not_found"
+                  : errno === "EACCES" || errno === "EPERM"
+                    ? "forbidden"
+                    : "failed",
+              message: error instanceof Error ? error.message : String(error),
+              details: {
+                ...(errno !== undefined && { errno }),
+                ...(typeof failure?.errno === "number" && {
+                  nativeErrno: failure.errno,
+                }),
+                ...(failure?.syscall !== undefined && {
+                  syscall: failure.syscall,
+                }),
+                ...(failure?.path !== undefined && { path: failure.path }),
+              },
+            });
+          }
+        }
+        if (!port.fileBytes)
+          throw new RunnerCallError({
+            code: "unsupported",
+            message: "Inline session files are unavailable.",
+          });
         const bytes = await port.fileBytes!.get(file);
         return {
           name: basename(source),

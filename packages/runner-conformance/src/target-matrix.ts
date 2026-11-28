@@ -1,5 +1,6 @@
 import {
   displayPath,
+  RunnerCallError,
   pathFromWire,
   sessionFromWire,
   type Runner,
@@ -240,6 +241,24 @@ async function binding(fixture: LaneFixture) {
     repository: fixture.workspace.repository,
   };
 }
+// These are explicit rejections in the enrolled handlers, not missing Local
+// implementations: read streams require sessions (except defaultFiles), and
+// watches/context/base reject repository targets. Keep the same assertions on
+// both lanes rather than treating their shared refusal as a parked Local gap.
+const rejectedRepositoryTargets = new Set<OpName>([
+  "checkout.access",
+  "checkout.read",
+  "checkout.list",
+  "checkout.preview",
+  "checkout.index",
+  "checkout.stats",
+  "checkout.diff",
+  "checkout.changes",
+  "checkout.image",
+  "checkout.watch",
+  "git.context",
+  "git.base",
+]);
 /** One definition per operation/kind, used without adaptation on both lanes. */
 export const targetMatrix: readonly Scenario[] = cases.flatMap((test) =>
   (["session", "path", "repository"] as const).map((kind) => ({
@@ -253,6 +272,19 @@ export const targetMatrix: readonly Scenario[] = cases.flatMap((test) =>
           : kind === "path"
             ? { path: pathFromWire(f.path) }
             : { repository: f.repository };
+      if (
+        (kind === "repository" && rejectedRepositoryTargets.has(test.op)) ||
+        (kind === "path" && test.op === "checkout.watch")
+      ) {
+        try {
+          await test.read(f.runner, target);
+        } catch (error) {
+          if (error instanceof RunnerCallError && error.code === "invalid")
+            return;
+          throw error;
+        }
+        throw new Error(`${test.op} accepted an invalid ${kind} target`);
+      }
       await test.read(f.runner, target);
     },
   }))

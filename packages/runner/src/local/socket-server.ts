@@ -290,7 +290,7 @@ export function serveOperationSocket(
         );
     }
     if (streams.handle(message)) return;
-    if (endpoint.kind === "enrolled" && socketCancel.check(message)) {
+    if (socketCancel.check(message)) {
       commands.get(message.id)?.abort();
       return;
     }
@@ -367,9 +367,13 @@ export function serveOperationSocket(
       })();
       return;
     }
+    const fileStream =
+      op === "files.get" &&
+      (endpoint.kind === "enrolled" || message.fileStream === true);
     const command =
-      endpoint.kind === "enrolled" &&
-      (spec?.cancellable || spec?.kind === "open")
+      (endpoint.kind === "enrolled" &&
+        (spec?.cancellable || spec?.kind === "open")) ||
+      fileStream
         ? new AbortController()
         : undefined;
     if (command) commands.set(id, command);
@@ -431,14 +435,13 @@ export function serveOperationSocket(
           });
         },
       }),
-      ...(endpoint.kind === "enrolled" &&
-        op === "files.get" && {
-          async sendFile(source: Readable) {
-            const blob = downloadStream(id);
-            await streams.send(blob, source);
-            return blob;
-          },
-        }),
+      ...(fileStream && {
+        async sendFile(source: Readable) {
+          const blob = downloadStream(id);
+          await streams.send(blob, source, command?.signal);
+          return blob;
+        },
+      }),
       emit(event) {
         if (!answered && spec?.events?.check(event))
           write({ id, event: event as Json });

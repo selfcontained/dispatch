@@ -47,7 +47,7 @@ const git = async (cwd: string, ...args: string[]) =>
 
 async function fixture(
   options: {
-    install?: "done" | "failed";
+    install?: "done" | "failed" | "timeout";
     interrupt?: boolean;
     pickBranches?: boolean;
     defaultBranch?: string;
@@ -106,11 +106,13 @@ async function fixture(
     );
     await writeFile(
       path.join(source, "fixture-install.sh"),
-      `printf 'local install\\n' > .dependency-step\nexit ${options.install === "failed" ? 7 : 0}\n`
+      options.install === "timeout"
+        ? "printf 'local install\\n' > .dependency-step\nprintf '%s' \"$$\" > .dependency-pid\nwhile :; do :; done\n"
+        : `printf 'local install\\n' > .dependency-step\nexit ${options.install === "failed" ? 7 : 0}\n`
     );
     await writeFile(
       path.join(source, ".gitignore"),
-      ".dependency-step\nnode_modules/\n"
+      ".dependency-step\n.dependency-pid\nnode_modules/\n"
     );
   }
   await git(source, "add", ".");
@@ -148,6 +150,13 @@ async function fixture(
       NPM_CONFIG_AUDIT: "false",
       NPM_CONFIG_FUND: "false",
       ...(options.interrupt && { RUNNER_DIE_AFTER_CREATE: crash }),
+      ...(options.install === "timeout" && {
+        RUNNER_FIXTURE_INSTALL_TIMEOUT_MS: "1000",
+        RUNNER_FIXTURE_INSTALL_TIMEOUT_LOG: path.join(
+          root,
+          "install-timeout-injections"
+        ),
+      }),
     },
   });
   cleanups.push(() => child.stop());
@@ -222,7 +231,16 @@ async function fixture(
   const pool = {
     query: vi.fn(async (sql: string, values: unknown[] = []) => {
       if (sql.includes('AS "repositorySource"'))
-        return { rows: [{ repositorySource: true }], rowCount: 1 };
+        return {
+          rows: [
+            {
+              repositorySource: true,
+              preparationPending: Boolean(options.interrupt),
+              repositoryBranchCreated: true,
+            },
+          ],
+          rowCount: 1,
+        };
       if (sql.includes("SET status = 'archiving'")) {
         agent.status = "archiving";
         agent.archiveCleanupMode = values[1] as WorktreeCleanupMode;
@@ -476,12 +494,9 @@ const interruptedCleanup = async (action: "discard" | "archive") => {
 };
 it("cleans a repository worktree interrupted before binding (discard)", () =>
   interruptedCleanup("discard"));
-// Known red: archive hooks query an unbound session before receipt-aware release.
-// Remove .fails when the owning builder fixes this; all cleanup assertions stay intact.
-it.fails(
-  "cleans a repository worktree interrupted before binding (archive)",
-  () => interruptedCleanup("archive")
-);
+// The integration base keeps preparation metadata available to archive hooks and release.
+it("cleans a repository worktree interrupted before binding (archive)", () =>
+  interruptedCleanup("archive"));
 
 it("launches a repository-only project through branch picking, preparation, install and archive", async () => {
   const f = await fixture({ install: "done", pickBranches: true });
@@ -588,3 +603,59 @@ it("launches, compares, reviews and archives against master without an explicit 
     /[a-f0-9]{40}/
   );
 });
+
+it.each(["discard", "archive"] as const)(
+  "cleans a repository-only launch after the real install command times out (%s)",
+  async (action) => {
+    const f = await fixture({ install: "timeout", pickBranches: true });
+    expect(await readFile(path.join(f.home, "npm-invocations"), "utf8")).toBe(
+      "install\n"
+    );
+    const injected = JSON.parse(
+      (
+        await readFile(path.join(f.root, "install-timeout-injections"), "utf8")
+      ).trim()
+    );
+    expect(injected).toMatchObject({ command: "npm", timeoutMs: 1000 });
+    expect(injected.originalTimeoutMs).toBeGreaterThan(injected.timeoutMs);
+    expect(f.steps).toContainEqual(
+      expect.objectContaining({
+        phase: "dependencies",
+        status: "failed",
+        detail: expect.stringContaining("timeoutMs=1000"),
+      })
+    );
+    expect(f.steps.at(-1)?.phase).toBe("ready");
+    const pid = Number(
+      await readFile(path.join(f.checkout, ".dependency-pid"), "utf8")
+    );
+    expect(pid).toBeGreaterThan(0);
+    await vi.waitFor(() => {
+      expect(() => process.kill(pid, 0)).toThrowError(
+        expect.objectContaining({ code: "ESRCH" })
+      );
+    });
+    if (action === "discard")
+      await f.child.session.call("session.discard", { session: f.session });
+    else {
+      await beginArchive(f.deps, f.agent.id, "force");
+      await executeArchive(f.deps, f.agent.id, f.callbacks);
+      expect(f.callbacks.onError).not.toHaveBeenCalled();
+      expect(f.callbacks.onComplete).toHaveBeenCalledWith([f.agent.id]);
+    }
+    expect(existsSync(f.checkout)).toBe(false);
+    expect(existsSync(path.join(f.hosts, f.agent.id))).toBe(false);
+    expect(
+      existsSync(
+        path.join(
+          f.hosts,
+          ".bindings",
+          createHash("sha256").update(f.agent.id).digest("hex") + ".json"
+        )
+      )
+    ).toBe(false);
+    expect(
+      (await git(f.clone, "branch", "--list", "feature/archive")).trim()
+    ).toBe(action === "discard" ? "feature/archive" : "");
+  }
+);

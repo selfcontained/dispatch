@@ -27,7 +27,6 @@ import {
   type RunnerDescription,
 } from "@dispatch/runner-protocol/contract";
 import { RUNNER_WIRE_VERSION } from "@dispatch/runner-protocol";
-import { typedTerminal } from "../terminal/typed.js";
 import type { CheckoutSession } from "./directory.js";
 import {
   selfCommand,
@@ -37,7 +36,6 @@ import {
 } from "@dispatch/runner-client/launcher";
 import { LocalRunnerSession } from "@dispatch/runner-client/session";
 export { operationChannel } from "@dispatch/runner-client/session";
-import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { childProcessEnv } from "../shared/process/child-environment.js";
 import { inProcessPorts } from "./in-process.js";
@@ -48,14 +46,24 @@ import type {
 export type { InProcessEngines } from "@dispatch/runner-protocol/in-process";
 import { LOCAL_RUNNER_ID } from "./placement.js";
 import {
-  sessionFileBlob,
-  sessionFileBytesBlob,
-} from "../files/session-file-blob.js";
+  withSessionFiles,
+  localSessionFiles,
+} from "@dispatch/runner-client/session-files";
 import {
   agentDiffPath,
   agentWorkspaceDir,
 } from "../agents/workspace-target.js";
 import { selectWorkspaceFromResolution } from "./workspace-selection.js";
+
+// Public file helpers enter through the same client boundary as session calls.
+export {
+  withSessionFileBlob,
+  sessionFileBlob,
+  sessionFileBytesBlob,
+  takeSessionFileBytes,
+  type SessionFileSource,
+  type SessionFileBlob,
+} from "@dispatch/runner-client/session-files";
 
 /** Checkout reads the local runner child serves (T09). */
 const CHILD_READS = new Set<CallName>([
@@ -883,76 +891,7 @@ export function createLocalCheckoutRunner(
     return { info: {}, channel: pulses(directory) };
   }
 
-  /**
-   * Session files for the bound session. A put hands the file over where it
-   * is, so its path is the one the agent opens: in the child when it is
-   * ready and holds the session (the socket passes the path in place, with
-   * no read), once; else, and when the child never received it, the same
-   * port in process (R3). A lost reply is the caller's answer. A get stays
-   * in process: the local socket has no
-   * frame that returns bytes, and main's one read returns them unencoded.
-   */
-  async function files<K extends "files.put" | "files.get">(
-    op: K,
-    input: Req<K>
-  ): Promise<Res<K>> {
-    if (sessionToWire(input.session) !== agent?.id)
-      throw new RunnerCallError({
-        code: "invalid",
-        message: "Invalid session file binding.",
-      });
-    if (op === "files.put") {
-      const file = sessionFileBlob((input as Req<"files.put">).blob);
-      const local = child as
-        | (Runner & Partial<Pick<LocalRunnerSession, "sendBlob">>)
-        | undefined;
-      const held = local?.sendBlob
-        ? await readAttempt(
-            "workspace.describe",
-            { session: input.session },
-            (child, read) => childBinding(child, input.session, read)
-          )
-        : null;
-      if (local?.sendBlob && held?.value) {
-        // The app's token stays here; the child gets a path in place. One
-        // attempt for the call and its blob, both settled before anything
-        // else happens: no waiter is left behind.
-        const blob = `file:${randomUUID()}`;
-        const [answer] = await Promise.allSettled([
-          local.call(
-            "files.put",
-            { ...(input as Req<"files.put">), blob },
-            once<CallOptions<"files.put">>()
-          ),
-          local.sendBlob(blob, {
-            path: file.path,
-            inPlace: { mustExist: file.purpose === "prompt" },
-          }),
-        ]);
-        if (answer.status === "fulfilled") return answer.value as Res<K>;
-        // Only a put the child never received is made here.
-        if (!neverSent(answer.reason)) throw answer.reason;
-      }
-      mayWriteHere();
-      return {
-        path: pathFromWire(
-          await sessionFilesWorkload.put(file.path, file.purpose)
-        ),
-      } as Res<K>;
-    }
-    // One read, as main: the caller takes these bytes back by `blob`.
-    const source = (input as Req<"files.get">).path;
-    const bytes = await sessionFilesWorkload.get(source);
-    return {
-      name: path.basename(source),
-      size: bytes.length,
-      // The transport's, from the bytes `blob` names, when it needs it.
-      digest: "",
-      blob: sessionFileBytesBlob(bytes),
-    } as Res<K>;
-  }
-
-  return {
+  const runner: Runner = {
     describe: () => description,
     connection: child?.connection ?? {
       state: "unavailable",
@@ -1117,10 +1056,6 @@ export function createLocalCheckoutRunner(
           input as Req<"git.defaultBranch">,
           options as CallOptions<"git.defaultBranch">
         ) as Promise<Res<K>>;
-      if (op === "files.put" || op === "files.get")
-        return files(op as "files.put", input as Req<"files.put">) as Promise<
-          Res<K>
-        >;
       if (op === "checkout.exec")
         return exec(
           input as Req<"checkout.exec">,
@@ -1147,6 +1082,32 @@ export function createLocalCheckoutRunner(
       input: Req<K>,
       options?: CallOptions<K>
     ): Promise<{ info: Res<K>; channel: CallerChannel<K> }> {
+      if (op === "terminal.open") {
+        const target = (input as Req<"terminal.open">).target;
+        if ("session" in target) {
+          if (!agent || sessionToWire(target.session) !== agent.id)
+            throw new RunnerCallError({
+              code: "invalid",
+              message: "Invalid checkout binding.",
+            });
+          // Row-to-binding adoption remains an A3 concern. Preserve the same
+          // cwd for sessions which have not yet been imported by the child.
+          input = {
+            ...input,
+            target: {
+              path: pathFromWire(
+                agent.workspacePath ?? agent.worktreePath ?? agent.cwd
+              ),
+            },
+          };
+        }
+        if (!child)
+          throw new RunnerCallError({
+            code: "unavailable",
+            message: "The session runner is unavailable.",
+          });
+        return child.open(op, input, options);
+      }
       if (op !== "checkout.watch")
         throw new RunnerCallError({
           code: "unsupported",
@@ -1158,6 +1119,24 @@ export function createLocalCheckoutRunner(
       ) as Promise<{ info: Res<K>; channel: CallerChannel<K> }>;
     },
   };
+  return withSessionFiles(
+    runner,
+    agent?.id,
+    localSessionFiles({
+      peer: child,
+      async bound(session, signal) {
+        const held = await readAttempt(
+          "workspace.describe",
+          { session },
+          (child, read) => childBinding(child, session, read),
+          { signal }
+        );
+        return !!held?.value;
+      },
+      fallback: sessionFilesWorkload,
+      mayWrite: mayWriteHere,
+    })
+  );
 }
 
 /** An in-process watch as the caller's end of a `checkout.watch` channel. */
@@ -1684,25 +1663,6 @@ export function startLocalRunnerProcess(options: {
       await supervisor.stop(graceMs);
     },
   };
-}
-
-export function localTerminal(
-  child: (() => Runner | undefined) | undefined,
-  agent: CheckoutSession
-) {
-  return typedTerminal(async () => {
-    const runner = child?.();
-    if (!runner) throw new Error("The session runner is unavailable.");
-    return runner.open("terminal.open", {
-      target: {
-        path: pathFromWire(
-          agent.workspacePath ?? agent.worktreePath ?? agent.cwd
-        ),
-      },
-      cols: 80,
-      rows: 24,
-    });
-  });
 }
 
 /** The adapter owns target routing and disconnected-inventory presentation. */
