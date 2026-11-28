@@ -1404,12 +1404,18 @@ export const workspaceWorkload = {
     report: (step: {
       status: "done" | "failed";
       detail: string;
-    }) => Promise<void>
+    }) => Promise<void>,
+    installTimeoutMs?: number
   ) {
-    await installWorkspaceDependencies(directory, stepLog, async (step) => {
-      if (step.status)
-        await report({ status: step.status, detail: step.detail ?? "" });
-    });
+    await installWorkspaceDependencies(
+      directory,
+      stepLog,
+      async (step) => {
+        if (step.status)
+          await report({ status: step.status, detail: step.detail ?? "" });
+      },
+      installTimeoutMs
+    );
   },
   async git(directory: string) {
     const probed = await probeGitContext(directory);
