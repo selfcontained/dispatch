@@ -65,7 +65,8 @@ export function BranchSelect({
   const [reportedDefault, setReportedDefault] = useState("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [remoteBranches, setRemoteBranches] = useState<string[]>([]);
-  const [branchesLoading, setBranchesLoading] = useState(false);
+  const [loadingSource, setLoadingSource] = useState<string | null>(null);
+  const branchesLoading = loadingSource === source;
   const [fetchedForCwd, setFetchedForCwd] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   if (disabled && dropdownOpen) setDropdownOpen(false);
@@ -74,7 +75,7 @@ export function BranchSelect({
     const trimmed = source;
     if (!trimmed || disabled || pendingSource.current === trimmed) return;
     pendingSource.current = trimmed;
-    setBranchesLoading(true);
+    setLoadingSource(trimmed);
     setFetchError(null);
     try {
       const result = await api<{ branches: string[]; defaultBranch?: string }>(
@@ -92,7 +93,7 @@ export function BranchSelect({
     } finally {
       if (pendingSource.current === trimmed) pendingSource.current = null;
       if (activeSource.current === trimmed) {
-        setBranchesLoading(false);
+        setLoadingSource(null);
         setFetchedForCwd(trimmed);
       }
     }

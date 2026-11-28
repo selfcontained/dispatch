@@ -763,6 +763,33 @@ it.each(["Local", "Runner A"])(
     expect(worktree.getAttribute("data-state")).toBe("checked");
     const starting = screen.getByRole("combobox", { name: "Starting branch" });
     await waitFor(() => expect(starting).toHaveProperty("disabled", false));
+    const hostPath =
+      host === "Runner A" ? "/fixture/runner" : "/fixture/controller";
+    await waitFor(() =>
+      expect(
+        vi.mocked(api).mock.calls.some(([path]) => {
+          const url = new URL(path, "http://fixture");
+          return (
+            url.pathname === hostPath &&
+            url.searchParams.get("projectId") === task.projectId
+          );
+        })
+      ).toBe(true)
+    );
+    await waitFor(() =>
+      expect(
+        vi.mocked(api).mock.calls.some(([path]) => {
+          const url = new URL(path, "http://fixture");
+          return (
+            url.pathname === `${hostPath}/branches` &&
+            url.searchParams.get("projectId") === task.projectId
+          );
+        })
+      ).toBe(true)
+    );
+    await waitFor(() =>
+      expect(starting.querySelector(".animate-spin")).toBeNull()
+    );
     const branch = screen.getByRole("textbox", { name: "New branch name" });
     expect(branch).toHaveProperty("disabled", false);
     fireEvent.change(branch, { target: { value: "feature/task-repository" } });
