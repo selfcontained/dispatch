@@ -23,6 +23,40 @@ import { localHostEntry } from "../../../../packages/runner/src/host/local-host-
 import { createLaunchFolderProbes } from "../../../../packages/runner/src/workload/agents/local-workspace-probes.js";
 import { shouldSkipAutomaticMacPathProbe } from "../../src/shared/mac-path-privacy.js";
 
+// Only this test entry can shorten the real install command deadline. Keep the
+// production installer, command runner, signal handling, and exit cleanup intact.
+if (process.env.RUNNER_FIXTURE_INSTALL_TIMEOUT_MS) {
+  const timeoutMs = Number(process.env.RUNNER_FIXTURE_INSTALL_TIMEOUT_MS);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 1_000)
+    throw new Error("Invalid fixture install timeout");
+  const commands =
+    await import("../../../../packages/runner/src/workload/shared/lib/run-command.js");
+  const actual = commands.runCommand;
+  const { mock } = await import("bun:test");
+  mock.module(
+    "../../../../packages/runner/src/workload/shared/lib/run-command.js",
+    () => ({
+      ...commands,
+      runCommand: (...args: Parameters<typeof actual>) => {
+        const [command, argv, options] = args;
+        if (command === "npm" && argv.length === 1 && argv[0] === "install") {
+          if (process.env.RUNNER_FIXTURE_INSTALL_TIMEOUT_LOG)
+            appendFileSync(
+              process.env.RUNNER_FIXTURE_INSTALL_TIMEOUT_LOG,
+              JSON.stringify({
+                command,
+                originalTimeoutMs: options?.timeoutMs,
+                timeoutMs,
+              }) + "\n"
+            );
+          return actual(command, argv, { ...options, timeoutMs });
+        }
+        return actual(...args);
+      },
+    })
+  );
+}
+
 const dieOnce = (marker: string | undefined) => {
   if (marker && existsSync(marker)) {
     rmSync(marker);
