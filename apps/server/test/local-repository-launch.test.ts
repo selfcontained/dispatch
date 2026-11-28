@@ -421,3 +421,38 @@ it("leaves a Local external-folder launcher on the existing directory preparatio
     directory: undefined,
   });
 });
+
+it.each([undefined, "/other"])(
+  "preserves a different Local folder named by a repository-source launcher (marker: %s)",
+  async (launcherFolder) => {
+    const parent = {
+      id: "owner",
+      cwd: "/managed",
+      projectId: null,
+      placement: controllerPlacement,
+    };
+    const query = vi.fn(async () => ({
+      rows: [{ runner_preparation: { source: { repository: "/origin.git" } } }],
+    }));
+    const manager = Object.assign(Object.create(AgentManager.prototype), {
+      getAgent: async () => parent,
+      pool: { query },
+    });
+    const input = {
+      cwd: "/other",
+      type: "codex",
+      parentAgentId: parent.id,
+      launchedByAgentId: parent.id,
+      useWorktree: false,
+      ...(launcherFolder && { launcherFolder }),
+    };
+    const target = await manager.resolveCreateTarget(input, {});
+    expect(input.cwd).toBe("/other");
+    expect(target).toMatchObject({
+      checkoutOwner: null,
+      repositorySource: false,
+      directory: undefined,
+    });
+    expect(query).not.toHaveBeenCalled();
+  }
+);
