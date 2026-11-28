@@ -8,7 +8,6 @@ import {
   render,
   screen,
   waitFor,
-  within,
 } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
@@ -1303,10 +1302,9 @@ describe("AgentCardActions and child agents", () => {
     expect(screen.queryByTestId("sub-agents-toggle")).toBeNull();
   });
 
-  it("keeps archived reviewers' reviews on the reopened parent, never as sub agents", async () => {
+  it("counts archived reviewers' reviews without listing them as sub agents", async () => {
     const entry = (
       name: string,
-      persona: string,
       toAgentId: string,
       archived: boolean,
       openFindings: number,
@@ -1317,8 +1315,6 @@ describe("AgentCardActions and child agents", () => {
       reviewId: `rv_${name}`,
       toAgentId,
       createdAt: "2026-07-15T12:00:00.000Z",
-      name,
-      persona,
       archived,
       status: openFindings ? ("open" as const) : ("resolved" as const),
       openFindings,
@@ -1326,24 +1322,10 @@ describe("AgentCardActions and child agents", () => {
     });
     const summary = (archived: boolean) => ({
       agents: {
-        agt_react: entry(
-          "react",
-          "frontend-react-review",
-          AGENT_ID,
-          archived,
-          2,
-          2
-        ),
-        agt_clean: entry("clean", "code-review", AGENT_ID, archived, 0, 0),
-        // Another parent's reviewer never shows on this card.
-        agt_elsewhere: entry(
-          "elsewhere",
-          "code-review",
-          "agt_other",
-          true,
-          1,
-          1
-        ),
+        agt_react: entry("react", AGENT_ID, archived, 2, 2),
+        agt_clean: entry("clean", AGENT_ID, archived, 0, 0),
+        // Another parent's reviewer never counts on this card.
+        agt_elsewhere: entry("elsewhere", "agt_other", true, 1, 1),
       },
     });
     let reviews = summary(false);
@@ -1367,39 +1349,37 @@ describe("AgentCardActions and child agents", () => {
         screen.getAllByRole("img", { name: "2 open findings" })
       ).toHaveLength(2)
     );
-    // While they live, reviewers are sub agent rows, not archived ones.
-    expect(screen.queryByTestId("archived-review-agt_react")).toBeNull();
+    expect(screen.getByTestId("sub-agent-agt_react")).toBeTruthy();
     cleanup();
 
-    // Archive both reviewers, then leave and reopen the parent.
+    // Archive both reviewers, then leave and reopen the parent: no rows for
+    // them, but their outcomes still count once each.
     reviews = summary(true);
     renderCard({ childAgents: [], expandedAgentId: AGENT_ID });
-    const toggle = await screen.findByTestId("sub-agents-toggle");
-    expect(toggle.textContent).toBe("2 archived reviewers");
-    expect(toggle.textContent).not.toContain("sub agent");
-    fireEvent.click(toggle);
-    const react = screen.getByTestId("archived-review-agt_react");
-    const clean = screen.getByTestId("archived-review-agt_clean");
-    expect(react.textContent).toContain("react");
-    expect(react.textContent).toContain("archived");
-    expect(within(react).getByRole("img").getAttribute("aria-label")).toBe(
-      "2 open findings"
-    );
-    // A clean review reads as clean, not as no review at all.
-    expect(within(clean).getByRole("img").getAttribute("aria-label")).toBe(
-      "Clean review"
-    );
-    expect(screen.queryByTestId("archived-review-agt_elsewhere")).toBeNull();
+    await screen.findByRole("img", { name: "1 resolved" });
+    expect(screen.getByRole("img", { name: "2 open findings" })).toBeTruthy();
+    expect(screen.queryByTestId("sub-agents-toggle")).toBeNull();
     expect(screen.queryByTestId("sub-agent-agt_react")).toBeNull();
-    // The totals still count both reviews, once each.
-    expect(screen.getByRole("img", { name: "1 resolved" })).toBeTruthy();
+    expect(screen.queryByText(/archived/)).toBeNull();
+    // With no row to reach them, the totals line opens the open findings.
     expect(
-      screen.getAllByRole("img", { name: "2 open findings" })
-    ).toHaveLength(2);
-    // Its row opens the original review at the reviewer's home.
-    expect(react.getAttribute("aria-label")).toBe(
-      "Open review by react (archived)"
-    );
+      screen.getByRole("button", {
+        name: "Reviews: 2 open findings, 1 resolved. Open the newest archived review with open findings",
+      })
+    ).toBeTruthy();
+    cleanup();
+
+    // Once those findings are resolved, the totals are only a count.
+    reviews = {
+      agents: {
+        agt_react: entry("react", AGENT_ID, true, 0, 2),
+        agt_clean: entry("clean", AGENT_ID, true, 0, 0),
+        agt_elsewhere: entry("elsewhere", "agt_other", true, 1, 1),
+      },
+    };
+    renderCard({ childAgents: [], expandedAgentId: AGENT_ID });
+    await screen.findByRole("img", { name: "2 resolved" });
+    expect(screen.queryByTestId("sub-agent-reviews-open")).toBeNull();
   });
 
   it("gives each sub agent its own menu, last in its row", async () => {

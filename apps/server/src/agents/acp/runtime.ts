@@ -14,15 +14,13 @@ import {
   type Res,
   operations,
 } from "@dispatch/runner-protocol/contract";
-import {
-  localHostChannel,
-  readLocalSession,
-  requestLocalSession as callLocalSession,
-  type LocalSessionRunner,
-} from "../../runners/local.js";
+import type { LocalSessionRunner } from "../../runners/local.js";
+import { sessionRunnerDirectory } from "../../runners/directory.js";
+import { sessionHostChannel } from "../../runners/session.js";
 import {
   controllerPlacement,
   runnerIdForPlacement,
+  placementForEnrolledId,
 } from "../../runners/placement.js";
 
 import type { FastifyBaseLogger } from "fastify";
@@ -62,7 +60,6 @@ import type { RunnerUpdateHolds } from "../remote/update-hold.js";
 import type { RemoteEventInbox } from "../remote/event-inbox.js";
 import {
   createHostSessionClient,
-  enrolledHostStream,
   type HostSessionClient,
   type HostQuiesceLease,
   isUpdateAcknowledgementLost,
@@ -471,10 +468,12 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
 
   const placementOf = async (agentId: string) =>
     deps.placement?.(agentId) ?? null;
-  const remoteService = () => {
-    if (!deps.remote) throw new RunnerUnavailable("Remote runner is disabled.");
-    return deps.remote;
-  };
+  const sessionDirectory = sessionRunnerDirectory(
+    { child: deps.localRunner, remote: deps.remote },
+    { timeoutMs: LAUNCH_TIMEOUT_MS, pollMs: LAUNCH_EXIT_POLL_MS }
+  );
+  const sessionRunnerAt = (placement?: string | null) =>
+    sessionDirectory.for(placementForEnrolledId(placement));
 
   const controllerId = runnerIdForPlacement(controllerPlacement);
   const runnerIdAt = (placement?: string | null) => placement ?? controllerId;
@@ -575,170 +574,49 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     operation: SessionLifecycleOperation,
     request?: Req<"session.launch">
   ): Promise<SessionResult> {
-    if (!placement) return requestLocalSession(operation, request);
-    const runner = runnerIdAt(placement);
+    const runner = sessionRunnerAt(placement);
     const session = sessionFromWire(operation.agentId);
-    const service = remoteService();
-    try {
-      switch (operation.kind) {
-        case "launch":
-          if (!request || request.session !== session)
-            throw new Error("Missing or mismatched launch request");
-          await service.call(runner, "session.launch", request);
-          return {};
-        case "attach": {
-          const { channel } = await service.openStream(
-            runner,
-            "session.attach",
-            { session }
-          );
-          return { channel: enrolledHostStream(channel, operation.agentId) };
-        }
-        case "log":
-          return {
-            value: (
-              await service.call(runner, "session.logs", {
-                session,
-                lines: LOG_TAIL_LINES,
-              })
-            ).text,
-          };
-        case "alive":
-          return {
-            value:
-              (await service.call(runner, "session.alive", { session }))
-                .state === "live",
-          };
-        case "discard":
-          await service.call(runner, "session.discard", { session });
-          return {};
-        case "stop": {
-          const { force, expectedLaunchId, expectedOwner } = operation;
-          await service.call(runner, "session.stop", {
-            session,
-            force,
-            expectedLaunchId,
-            expectedOwner,
-          });
-          return {};
-        }
-      }
-    } catch (error) {
-      if (!(error instanceof RunnerCallError)) throw error;
-      if (error.code === "host_gone") throw new RunnerHostGone(error.message);
-      if (error.code === "unavailable")
-        throw new RunnerUnavailable(error.message);
-      if (error.code === "unknown_outcome")
-        throw new RunnerAcknowledgementLost(error.message);
-      if (error.code === "fenced") throw new RunnerUpdateFenced(error.message);
-      throw error;
-    }
-  }
-
-  function localChild(): LocalSessionRunner {
-    const child = deps.localRunner?.();
-    if (!child)
-      throw new RunnerCallError({
-        code: "unavailable",
-        message: "The local runner is unavailable",
-      });
-    return child;
-  }
-
-  /**
-   * Local hosts are started, stopped, attached, checked and read only
-   * through the runner child; the app never spawns or signals one.
-   */
-  async function requestLocalSession(
-    operation: SessionLifecycleOperation,
-    request?: Req<"session.launch">
-  ): Promise<SessionResult> {
-    const { agentId } = operation;
-    const session = sessionFromWire(agentId);
     switch (operation.kind) {
       case "launch": {
-        if (!request || sessionToWire(request.session) !== agentId)
+        if (!request || sessionToWire(request.session) !== operation.agentId)
           throw new Error("Missing or mismatched launch request");
-        const child = localChild();
-        await callLocalSession(child, "session.launch", request);
-        // The child answers once the host runs; it may still exit before
-        // it answers the app, which fails the launch at once, as before.
-        let exited = false;
-        let watching = true;
-        const deadline = Date.now() + LAUNCH_TIMEOUT_MS;
-        void (async () => {
-          while (watching && !exited && Date.now() < deadline) {
-            await new Promise((r) => setTimeout(r, LAUNCH_EXIT_POLL_MS));
-            if (!watching) return;
-            try {
-              const { state } = await child.call(
-                "session.alive",
-                { session },
-                { wait: false }
-              );
-              if (state === "gone") exited = true;
-            } catch {
-              // Unavailable is not gone.
-            }
-          }
-        })();
-        return {
-          launchExited: () => exited,
-          launchSettled: () => {
-            watching = false;
+        let observation: SessionResult = {};
+        await runner.call("session.launch", request, {
+          observeLaunch: (value) => {
+            observation = value;
           },
-        };
+        });
+        return observation;
       }
-      case "stop": {
-        try {
-          await localChild().call(
-            "session.stop",
-            {
-              session,
-              force: operation.force,
-              ...(operation.expectedLaunchId !== undefined && {
-                expectedLaunchId: operation.expectedLaunchId,
-              }),
-              ...(operation.expectedOwner !== undefined && {
-                expectedOwner: operation.expectedOwner,
-              }),
-            },
-            { wait: false, timeoutMs: 30_000 }
-          );
-        } catch (error) {
-          if (error instanceof RunnerCallError && error.code === "timeout")
-            throw new RunnerAcknowledgementLost(error.message);
-          throw error;
-        }
-        return {};
-      }
-      case "discard": {
-        await callLocalSession(localChild(), "session.discard", { session });
-        return {};
-      }
-      case "attach": {
-        return { channel: await localHostChannel(localChild(), agentId) };
-      }
-      case "alive": {
-        const { state } = await readLocalSession(
-          localChild(),
-          "session.alive",
-          { session }
-        );
-        return { value: state === "live" };
-      }
-      case "log": {
-        const text = await readLocalSession(localChild(), "session.logs", {
-          session,
-          lines: LOG_TAIL_LINES,
-        })
-          .then(({ text }) => text.trim())
-          .catch(() => "");
+      case "attach":
+        return { channel: await sessionHostChannel(runner, operation.agentId) };
+      case "log":
         return {
-          value: text
-            ? `\n\nHost log (last ${LOG_TAIL_LINES} lines):\n${text}`
-            : "",
+          value: (
+            await runner.call(
+              "session.logs",
+              { session, lines: LOG_TAIL_LINES },
+              { hostLog: true }
+            )
+          ).text,
         };
+      case "alive":
+        return {
+          value:
+            (await runner.call("session.alive", { session })).state === "live",
+        };
+      case "discard":
+        await runner.call("session.discard", { session });
+        return {};
+      case "stop": {
+        const { force, expectedLaunchId, expectedOwner } = operation;
+        await runner.call("session.stop", {
+          session,
+          force,
+          ...(expectedLaunchId !== undefined && { expectedLaunchId }),
+          ...(expectedOwner !== undefined && { expectedOwner }),
+        });
+        return {};
       }
     }
   }
@@ -2210,7 +2088,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     },
 
     async inspectNativeHost(agentId) {
-      const { state } = await readLocalSession(localChild(), "session.alive", {
+      const { state } = await sessionRunnerAt(null).call("session.alive", {
         session: sessionFromWire(agentId),
       });
       const process = { sessionHandle: agentId, processState: state };
@@ -2277,11 +2155,15 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         // The child waits for it to exit and never signals it (served while
         // the runner is frozen for an update's probation).
         try {
-          await callLocalSession(localChild(), "session.stop", {
-            session: sessionFromWire(agentId),
-            force: false,
-            idleOnly: true,
-          });
+          await sessionRunnerAt(null).call(
+            "session.stop",
+            {
+              session: sessionFromWire(agentId),
+              force: false,
+              idleOnly: true,
+            },
+            { wait: true }
+          );
         } catch (error) {
           if (error instanceof RunnerCallError && error.code === "busy")
             return false;
@@ -2305,11 +2187,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     async listSessions(placement, ownerOnly) {
       const owner = ownerOnly ? await deps.sessionOwner?.() : null;
       if (owner === undefined) return undefined;
-      if (!placement)
-        return readLocalSession(localChild(), "session.list", { owner });
-      const result = await deps.remote?.call(placement, "session.list", {
-        owner,
-      });
+      const runner = sessionRunnerAt(placement);
+      if (!runner.enabled) return undefined;
+      const result = await runner.call("session.list", { owner });
       if (result === undefined) return undefined;
       if (!operations["session.list"].response.check(result))
         throw new Error("Invalid runner session list");
@@ -2361,14 +2241,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     async sampleSessions(placement, agentIds) {
       if (!agentIds.length) return [];
       const request = { sessions: agentIds.map(sessionFromWire) };
-      if (!placement)
-        return (await readLocalSession(localChild(), "session.sample", request))
-          .samples;
-      const result = await deps.remote?.call(
-        placement,
-        "session.sample",
-        request
-      );
+      const runner = sessionRunnerAt(placement);
+      if (!runner.enabled) return [];
+      const result = await runner.call("session.sample", request);
       if (result === undefined) return [];
       if (!operations["session.sample"].response.check(result))
         throw new Error("Invalid runner session samples");

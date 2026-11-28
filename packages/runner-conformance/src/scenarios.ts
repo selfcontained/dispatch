@@ -1,3 +1,4 @@
+import { targetMatrix } from "./target-matrix.js";
 import { createHash } from "node:crypto";
 /*
  * One scenario set for every implementation of the contract. A scenario talks
@@ -34,6 +35,7 @@ export type LaneFixture = {
   session: SessionHandle;
   /** Writes a file at a relative path in the session's checkout. */
   seed(path: string, content: string): Promise<void>;
+  github?: { signedIn(value: boolean): Promise<void> };
   workspace?: {
     runner: Runner;
     repository: string;
@@ -1449,7 +1451,67 @@ const offlineScenarios: readonly Scenario[] = [
   },
 ];
 
+const fakeGitHub: Scenario[] = [
+  {
+    op: "github.account",
+    id: "github.account/signed-in-path-only",
+    async run({ runner, github }) {
+      expect(github, "Missing isolated gh fixture");
+      await github.signedIn(true);
+      try {
+        const account = await runner.call("github.account", {});
+        expect(
+          account.status === "signed-in" && account.login === "fixture-user",
+          "PATH-only gh account was not used"
+        );
+      } finally {
+        await github.signedIn(false);
+      }
+    },
+  },
+  {
+    op: "github.repositories",
+    id: "github.repositories/path-only",
+    async run({ runner, github }) {
+      expect(github, "Missing isolated gh fixture");
+      await github.signedIn(true);
+      try {
+        const v = await runner.call("github.repositories", { query: "sample" });
+        expect(
+          v.repositories.length === 1 &&
+            v.repositories[0]?.name === "fixture/sample",
+          "Wrong PATH-only repository search results"
+        );
+      } finally {
+        await github.signedIn(false);
+      }
+    },
+  },
+  {
+    op: "github.branches",
+    id: "github.branches/path-only",
+    async run({ runner, github }) {
+      expect(github, "Missing isolated gh fixture");
+      await github.signedIn(true);
+      try {
+        const v = await runner.call("github.branches", {
+          owner: "fixture",
+          repo: "sample",
+        });
+        expect(
+          v.defaultBranch === "main" && v.branches.includes("feature/fixture"),
+          "Wrong PATH-only GitHub branch results"
+        );
+      } finally {
+        await github.signedIn(false);
+      }
+    },
+  },
+];
+
 export const remoteScenarios: readonly Scenario[] = [
+  ...targetMatrix,
+  ...fakeGitHub,
   workspaceRelease,
   workspaceObserveOwnership,
   ...checkoutReads,
@@ -1460,6 +1522,9 @@ export const remoteScenarios: readonly Scenario[] = [
   putFile,
   ...scenarios.filter(
     ({ op }) =>
+      !fakeGitHub.some(
+        (scenario) => scenario.op === op && op !== "github.account"
+      ) &&
       op !== interactiveTerminal.op &&
       op !== putFile.op &&
       op !== workspaceRelease.op &&

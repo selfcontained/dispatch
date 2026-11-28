@@ -259,7 +259,7 @@ if "$root/archive/bin/pack-release" --runner-arch riscv64 > "$root/pack-error" 2
 grep -Fq 'expects x64 or arm64' "$root/pack-error"
 if "$root/archive/bin/pack-release" --runner-arch x64 > "$root/pack-error" 2>&1; then exit 1; fi
 grep -Fq 'expected one Linux x64 runner and a build identity' "$root/pack-error"
-for version in 1.0.0 1.0.1; do
+for version in 1.0.0 1.0.1 1.0.2-staging.1; do
   release="$root/releases/v$version"
   mkdir -p "$release"
   for arch in x64 arm64; do
@@ -340,6 +340,49 @@ for fixture in invalid default explicit; do
   [[ ! -e "$fixture_root/state/home" && ! -e "$fixture_root/account" ]] || fail
   [[ -z "$(find "$fixture_root" -path '* home/*' -print)" ]] || fail
 done
+unset fixture_root
+
+# Release tags: the exact form the controller copies, a SemVer prerelease
+# included, and nothing a shell could interpret. Ordering follows SemVer.
+(
+  source bin/install-dispatch-runner.sh
+  for tag in v1.7.40 v1.7.40-staging.22 v0.0.0-0 v1.2.3-01a v2.0.0-rc.1 v1.7.28-dev; do
+    valid_release_tag "$tag" || fail
+  done
+  for tag in 1.7.40 v1.7 v01.7.40 v1.7.40- v1.7.40-staging..22 v1.7.40-staging.01 \
+    v1.7.40+build 'v1.7.40-a;id' 'v1.7.40-a b' 'v1.7.40-$(id)' 'v1.7.40-`id`' \
+    "v1.7.40-a'" $'v1.7.40-a\nx' ''; do
+    if valid_release_tag "$tag"; then fail; fi
+  done
+  while read -r left right expected; do
+    [[ "$(release_order "$left" "$right")" == "$expected" ]] || fail
+  done <<'ORDER'
+v1.7.40-staging.22 v1.7.40-staging.23 -1
+v1.7.40-staging.9 v1.7.40-staging.10 -1
+v1.7.40-staging.23 v1.7.40 -1
+v1.7.40 v1.7.40-staging.23 1
+v1.7.40 v1.7.40 0
+v1.7.39 v1.7.40-rc.1 -1
+v1.8.0-alpha v1.8.0-alpha.1 -1
+v1.8.0-alpha.1 v1.8.0-alpha.beta -1
+v1.8.0-beta.11 v1.8.0-rc.1 -1
+v10.0.0 v9.99.99 1
+ORDER
+)
+
+# A prerelease installs and updates like a release, is recorded, and still
+# refuses a lower release without --allow-downgrade.
+fixture_root="$root/prerelease"
+mkdir -p "$fixture_root/installer home"
+ln -s "$root/releases" "$fixture_root/releases"
+ln -s "$root/public.pem" "$fixture_root/public.pem"
+SUDO_USER=installer run install v1.0.1
+run update v1.0.2-staging.1
+grep -Fq ' v1.0.2-staging.1' "$fixture_root/runtime/installed-release" || fail
+grep -Fq 'version=1.0.2-staging.1' "$fixture_root/runtime/dispatch" || fail
+expect_status 1 update v1.0.1
+grep -Fq 'version=1.0.2-staging.1' "$fixture_root/runtime/dispatch" || fail
+expect_status 1 install 'v1.0.2-staging.1;id'
 unset fixture_root
 
 # Dependencies: tools already present are reported and left alone; a missing

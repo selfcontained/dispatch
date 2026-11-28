@@ -734,8 +734,8 @@ export function scanSource(file, source, declared = new Set()) {
     const locators = [...source.matchAll(/runner:\/\//gi)];
     // This migration copies placement out of historical locators once.
     const historicalBackfill =
-      file === server + "db/migrations/0065_agent_runner_id.sql" ||
-      file === server + "db/migrations/0066_saved_launch_locations.sql";
+      file === server + "db/migrations/0066_agent_runner_id.sql" ||
+      file === server + "db/migrations/0067_saved_launch_locations.sql";
     for (const _ of locators.slice(historicalBackfill ? 1 : 0))
       hit("R1 locator", "runner:// in SQL");
     return hits;

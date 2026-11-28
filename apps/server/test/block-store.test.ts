@@ -64,27 +64,35 @@ async function seedAgentPosts(streamId: string, n: number, from = 0) {
 }
 
 describe("BlockStore.reviewSummary", () => {
-  it("retains resolved reviews from archived authors", async () => {
+  it("keeps an archived author's review only while the reviewed agent is live", async () => {
     const review = await store.insert({
       streamId: GONE,
       author: agent(GONE),
       toAgentId: A,
       kind: "review",
     });
-    // Enough to show who reviewed whom once the reviewer leaves the agent list.
+    // Enough to count the outcome on the reviewed agent's card.
     expect((await store.reviewSummary()).agents[GONE]).toEqual({
       streamId: GONE,
       threadId: review.id,
       reviewId: review.id,
       toAgentId: A,
       createdAt: review.createdAt,
-      name: "Gone",
-      persona: null,
       archived: true,
       status: "resolved",
       openFindings: 0,
       findingCount: 0,
     });
+    // Its latest review addresses an archived agent: nothing live shows it,
+    // so the summary does not carry it.
+    await store.insert({
+      streamId: GONE,
+      author: agent(GONE),
+      toAgentId: GONE,
+      kind: "review",
+    });
+    const summary = await store.reviewSummary();
+    expect(summary.agents[GONE]?.toAgentId).toBe(A);
   });
   it("ignores malformed shown IDs and findings outside the review's stream", async () => {
     const review = await store.insert({
