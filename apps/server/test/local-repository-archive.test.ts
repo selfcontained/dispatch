@@ -144,7 +144,7 @@ async function fixture(
       NPM_CONFIG_FUND: "false",
       ...(options.interrupt && { RUNNER_DIE_AFTER_CREATE: crash }),
       ...(options.install === "timeout" && {
-        RUNNER_FIXTURE_INSTALL_TIMEOUT_MS: "500",
+        RUNNER_FIXTURE_INSTALL_TIMEOUT_MS: "1000",
         RUNNER_FIXTURE_INSTALL_TIMEOUT_LOG: path.join(
           root,
           "install-timeout-injections"
@@ -543,13 +543,13 @@ it.each(["discard", "archive"] as const)(
         await readFile(path.join(f.root, "install-timeout-injections"), "utf8")
       ).trim()
     );
-    expect(injected).toMatchObject({ command: "npm", timeoutMs: 500 });
+    expect(injected).toMatchObject({ command: "npm", timeoutMs: 1000 });
     expect(injected.originalTimeoutMs).toBeGreaterThan(injected.timeoutMs);
     expect(f.steps).toContainEqual(
       expect.objectContaining({
         phase: "dependencies",
         status: "failed",
-        detail: expect.stringContaining("timeoutMs=500"),
+        detail: expect.stringContaining("timeoutMs=1000"),
       })
     );
     expect(f.steps.at(-1)?.phase).toBe("ready");
