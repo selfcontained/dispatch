@@ -875,3 +875,98 @@ describe("inline session files", () => {
     ).rejects.toThrow("Not a regular file");
   });
 });
+
+it("preserves borrowed Local bindings across restart imports and an ordered parent/child release", async () => {
+  const { root, state, store, connection, calls } = await harness();
+  const repo = repository(root);
+  const prepared = await connection.call(
+    "workspace.prepare",
+    request("owner", repo, {
+      name: "owned",
+      branch: "owned",
+      base: "main",
+      create: true,
+    })
+  );
+  const tree = String(prepared.path);
+  const borrow = {
+    ...request("child", tree),
+    source: { session: sessionFromWire("owner") },
+  };
+  await connection.call("workspace.prepare", borrow);
+  expect(await store.get("child")).toMatchObject({
+    source: "prepare",
+    borrowedFrom: "owner",
+    checkout: { ownership: "external" },
+  });
+
+  // A replacement runner imports controller rows before adopting its hosts.
+  const replacement = new BindingStore(state);
+  const ownerIdentity = (await replacement.get("owner"))!.checkout.identity;
+  await replacement.import([
+    {
+      session: "owner",
+      path: tree,
+      currentPath: null,
+      worktree: { path: tree, branch: "owned", base: "main" },
+    },
+    { session: "child", path: tree, currentPath: null, worktree: null },
+    {
+      session: "external",
+      path: repo,
+      currentPath: null,
+      worktree: { path: repo, branch: "main", base: "main" },
+    },
+  ]);
+  const handlers = workspaceHandlers(state, replacement, port(calls));
+  const context = { receiveBlob: async () => {}, emit() {} };
+  expect(await handlers["workspace.prepare"]!(borrow, context)).toMatchObject({
+    path: tree,
+    worktree: null,
+  });
+  expect((await replacement.get("owner"))!.checkout.identity).toBe(
+    ownerIdentity
+  );
+  expect(await replacement.get("child")).toMatchObject({
+    source: "prepare",
+    borrowedFrom: "owner",
+  });
+  expect(
+    await handlers["workspace.observe"]!(
+      { session: sessionFromWire("child") },
+      context
+    )
+  ).toMatchObject({ ownership: "borrowed", owner: "owner", checkout: null });
+  expect((await replacement.get("external"))!.checkout.ownership).toBe(
+    "external"
+  );
+
+  // Cascade order: a borrower never removes the parent's dirty checkout.
+  writeFileSync(join(tree, "dirty"), "must survive the child");
+  expect(
+    await handlers["workspace.release"]!(
+      {
+        session: sessionFromWire("child"),
+        deleteBranch: true,
+        originalBranch: "owned",
+      },
+      context
+    )
+  ).toEqual({ removed: false });
+  expect(readFileSync(join(tree, "dirty"), "utf8")).toBe(
+    "must survive the child"
+  );
+  await replacement.forget("child"); // host retirement is archive's separate responsibility
+  expect(
+    await handlers["workspace.release"]!(
+      {
+        session: sessionFromWire("owner"),
+        deleteBranch: true,
+        originalBranch: "owned",
+      },
+      context
+    )
+  ).toEqual({ removed: true });
+  expect(existsSync(tree)).toBe(false);
+  expect(existsSync(repo)).toBe(true);
+});
