@@ -269,7 +269,11 @@ export async function finishCheckout(
   if (
     checkoutAgent.repositorySource &&
     !enrolledRunnerId(agent.placement) &&
-    outcome.kind !== "pending"
+    outcome.kind !== "pending" &&
+    // Until binding, the receipt is the kept checkout's only locator.
+    (outcome.kind === "released" ||
+      !checkoutAgent.preparationPending ||
+      agent.worktreePath)
   ) {
     // session.discard owns repository checkouts. Archive has already decided
     // whether to remove or keep this one; clear only the stopped host's state.
@@ -443,7 +447,7 @@ export async function executeArchive(
     const tDb = Date.now();
 
     await pool.query(
-      "UPDATE agents SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = CASE WHEN $2 THEN archive_cleanup_mode END, archive_checkout_state = CASE WHEN $2 THEN archive_checkout_state END, runner_cleanup_pending = $2, updated_at = NOW() WHERE id = $1",
+      "UPDATE agents SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = CASE WHEN $2 THEN archive_cleanup_mode END, archive_checkout_state = CASE WHEN $2 THEN archive_checkout_state END, runner_cleanup_pending = $2, runner_preparation = CASE WHEN $2 THEN runner_preparation ELSE runner_preparation - 'pending' END, updated_at = NOW() WHERE id = $1",
       [id, runnerCleanupPending]
     );
     durations.db = Date.now() - tDb;
@@ -640,7 +644,7 @@ export async function deleteAgentDirect(
 
   await pool.query(
     `UPDATE agents
-     SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = CASE WHEN $2 THEN archive_cleanup_mode END, archive_checkout_state = CASE WHEN $2 THEN archive_checkout_state END, runner_cleanup_pending = $2, updated_at = NOW()
+     SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = CASE WHEN $2 THEN archive_cleanup_mode END, archive_checkout_state = CASE WHEN $2 THEN archive_checkout_state END, runner_cleanup_pending = $2, runner_preparation = CASE WHEN $2 THEN runner_preparation ELSE runner_preparation - 'pending' END, updated_at = NOW()
      WHERE id = $1`,
     [id, runnerCleanupPending]
   );

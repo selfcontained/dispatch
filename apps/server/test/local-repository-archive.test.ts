@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { Pool } from "pg";
 import { afterEach, expect, it, vi } from "vitest";
 import {
   sessionFromWire,
@@ -36,7 +37,7 @@ const git = async (cwd: string, ...args: string[]) =>
   (await runCommand("git", ["-C", cwd, ...args])).stdout;
 
 async function fixture(
-  options: { interrupt?: boolean; existingBranch?: boolean } = {}
+  options: { interrupt?: boolean; existingBranch?: boolean; pool?: Pool } = {}
 ) {
   const root = await realpath(
     await mkdtemp(path.join(os.tmpdir(), "local-repo-archive-"))
@@ -171,25 +172,51 @@ else {
     archiveCleanupMode: "auto",
     lastError: null,
   } as AgentRecord;
+  if (options.pool) {
+    await options.pool.query(
+      `INSERT INTO agents (id, name, type, status, cwd, setup_phase, runner_preparation)
+       VALUES ($1, $1, 'codex', 'stopped', '', 'deps', $2::jsonb)`,
+      [
+        agent.id,
+        JSON.stringify({
+          source: {
+            repository,
+            checkout: {
+              kind: options.existingBranch ? "branch" : "new",
+              branch,
+            },
+          },
+          copyIgnored: [],
+          installDependencies: true,
+          pending: true,
+        }),
+      ]
+    );
+  }
   let deleted = false;
   const events: string[] = [];
   const pool = {
     query: vi.fn(async (sql: string, values: unknown[] = []) => {
+      const actual = options.pool
+        ? await options.pool.query(sql, values)
+        : undefined;
       if (sql.includes('AS "repositorySource"'))
-        return {
-          rows: [
-            {
-              repositorySource: true,
-              preparationPending: Boolean(options.interrupt),
-              repositoryBranchCreated: !options.existingBranch,
-            },
-          ],
-          rowCount: 1,
-        };
+        return (
+          actual ?? {
+            rows: [
+              {
+                repositorySource: true,
+                preparationPending: Boolean(options.interrupt),
+                repositoryBranchCreated: !options.existingBranch,
+              },
+            ],
+            rowCount: 1,
+          }
+        );
       if (sql.includes("SET status = 'archiving'")) {
         agent.status = "archiving";
         agent.archiveCleanupMode = values[1] as WorktreeCleanupMode;
-        return { rows: [{ id: agent.id }], rowCount: 1 };
+        return actual ?? { rows: [{ id: agent.id }], rowCount: 1 };
       }
       if (sql.includes("SET archive_cleanup_mode = 'keep'"))
         agent.archiveCleanupMode = "keep";
@@ -197,7 +224,7 @@ else {
         deleted = true;
         events.push("deleted");
       }
-      return { rows: [], rowCount: 0 };
+      return actual ?? { rows: [], rowCount: 0 };
     }),
   };
   const runtime = {
@@ -418,3 +445,48 @@ it("resumes the same incomplete repository worktree and reruns dependency prepar
   expect(await readFile(f.installLog, "utf8")).toBe("install\ninstall\n");
   await f.child.session.call("session.discard", { session: f.session });
 });
+
+it.each(["archive", "cascade", "keep", "pending"])(
+  "settles the real database's preparation marker after interrupted %s cleanup",
+  async (mode) => {
+    const { setupTestDb, runTestMigrations, teardownTestDb } =
+      await import("./db/setup.js");
+    const pool = await setupTestDb();
+    try {
+      await runTestMigrations();
+      const f = await fixture({ interrupt: true, pool });
+      if (mode === "pending") f.deps.localRunnerChild = () => undefined;
+      if (mode === "cascade") await deleteAgentDirect(f.deps, f.agent.id);
+      else {
+        await beginArchive(
+          f.deps,
+          f.agent.id,
+          mode === "keep" ? "keep" : "force"
+        );
+        await executeArchive(f.deps, f.agent.id, f.callbacks);
+        expect(f.callbacks.onError).not.toHaveBeenCalled();
+      }
+      const {
+        rows: [row],
+      } = await pool.query(
+        `SELECT deleted_at IS NOT NULL AS deleted, runner_cleanup_pending AS cleanup,
+              runner_preparation ? 'pending' AS pending
+       FROM agents WHERE id = $1`,
+        [f.agent.id]
+      );
+      expect(row).toEqual({
+        deleted: true,
+        cleanup: mode === "pending",
+        pending: mode === "pending",
+      });
+      expect(existsSync(f.checkout)).toBe(
+        mode === "keep" || mode === "pending"
+      );
+      expect(
+        existsSync(path.join(f.hosts, f.agent.id, "workspace-preparation"))
+      ).toBe(mode === "keep" || mode === "pending");
+    } finally {
+      await teardownTestDb();
+    }
+  }
+);
