@@ -232,7 +232,12 @@ export function checkoutHandlers(
           code: "unsupported",
           message: "This runner writes in the checkouts it holds",
         });
-      const dir = await directory(target, op);
+      const repository =
+        "repository" in target &&
+        (op === "git.branches" || op === "git.defaultBranch")
+          ? target.repository
+          : undefined;
+      const dir = repository === undefined ? await directory(target, op) : "";
       const requested = "session" in target ? target.checkout : undefined;
       const selector: Selector =
         requested === "owned" ? "launch" : (requested ?? "current");
@@ -246,7 +251,11 @@ export function checkoutHandlers(
           op as WorkloadOp,
           (command
             ? { directory: dir, request, selector }
-            : { directory: dir, request }) as never,
+            : {
+                directory: dir,
+                request,
+                ...(repository === undefined ? {} : { repository }),
+              }) as never,
           {}
         );
       } catch (error) {

@@ -293,7 +293,10 @@ export function archiveExecutor(
   const session = sessionFromWire(agent.id);
   const decision = {
     deleteBranch: Boolean(
-      agent.worktreeBranch && agent.worktreeBranch !== agent.baseBranch
+      (agent.worktreeBranch && agent.worktreeBranch !== agent.baseBranch) ||
+      (!agent.worktreeBranch &&
+        agent.repositorySource &&
+        agent.repositoryBranchCreated)
     ),
     originalBranch: agent.worktreeBranch,
   };

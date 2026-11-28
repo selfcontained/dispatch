@@ -4694,7 +4694,8 @@ export class AgentManager {
       >(
         `SELECT id, cwd, worktree_path AS "worktreePath", base_branch AS "baseBranch",
                 worktree_branch AS "worktreeBranch", archive_cleanup_mode AS mode, runner_id,
-                COALESCE(runner_preparation->'source' ? 'repository', false) AS "repositorySource"
+                COALESCE(runner_preparation->'source' ? 'repository', false) AS "repositorySource",
+                COALESCE(runner_preparation #>> '{source,checkout,kind}' = 'new', false) AS "repositoryBranchCreated"
          FROM agents WHERE deleted_at IS NOT NULL AND
            (runner_cleanup_pending OR runner_preparation->'pending' = 'true'::jsonb) ORDER BY id`
       );

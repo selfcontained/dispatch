@@ -96,6 +96,10 @@ async function skipArchiveHook(
   agent: AgentRecord
 ): Promise<boolean> {
   if (agent.worktreePath) return false;
+  const source = await withRepositorySource(pool, agent);
+  // A preparation interrupted before binding never started an agent host.
+  // Its receipt can release the checkout without running hooks or installing.
+  if (source.repositorySource && source.preparationPending) return true;
   const { rows } = await pool.query<{ borrowed: boolean }>(
     `SELECT EXISTS (
       SELECT 1 FROM agents a WHERE a.id = $1 AND (
@@ -265,7 +269,11 @@ export async function finishCheckout(
   if (
     checkoutAgent.repositorySource &&
     !enrolledRunnerId(agent.placement) &&
-    outcome.kind !== "pending"
+    outcome.kind !== "pending" &&
+    // Until binding, the receipt is the kept checkout's only locator.
+    (outcome.kind === "released" ||
+      !checkoutAgent.preparationPending ||
+      agent.worktreePath)
   ) {
     // session.discard owns repository checkouts. Archive has already decided
     // whether to remove or keep this one; clear only the stopped host's state.
@@ -335,22 +343,29 @@ export async function executeArchive(
     const t = Date.now();
     try {
       if ((await deps.waitForRunner?.(agent)) === false) return;
-      await runLifecycleHook(
-        "stop",
-        agent,
-        logger,
-        {
-          remote: deps.remote,
-          child: deps.localRunnerChild,
-        },
-        deps.whileFenced && ((request) => deps.whileFenced!(agent, request))
-      ).catch((err) => {
-        if (err instanceof LifecycleSuperseded) throw err;
-        logger.warn(
-          { err, agentId: id },
-          "Stop hook failed during archive; continuing"
-        );
-      });
+      if (
+        !(
+          source.repositorySource &&
+          source.preparationPending &&
+          !agent.worktreePath
+        )
+      )
+        await runLifecycleHook(
+          "stop",
+          agent,
+          logger,
+          {
+            remote: deps.remote,
+            child: deps.localRunnerChild,
+          },
+          deps.whileFenced && ((request) => deps.whileFenced!(agent, request))
+        ).catch((err) => {
+          if (err instanceof LifecycleSuperseded) throw err;
+          logger.warn(
+            { err, agentId: id },
+            "Stop hook failed during archive; continuing"
+          );
+        });
       deps.beginStopStream(id);
       await runtime.stop(id, true);
       await deps.settleStream(id);
@@ -432,7 +447,7 @@ export async function executeArchive(
     const tDb = Date.now();
 
     await pool.query(
-      "UPDATE agents SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = CASE WHEN $2 THEN archive_cleanup_mode END, archive_checkout_state = CASE WHEN $2 THEN archive_checkout_state END, runner_cleanup_pending = $2, updated_at = NOW() WHERE id = $1",
+      "UPDATE agents SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = CASE WHEN $2 THEN archive_cleanup_mode END, archive_checkout_state = CASE WHEN $2 THEN archive_checkout_state END, runner_cleanup_pending = $2, runner_preparation = CASE WHEN $2 THEN runner_preparation ELSE runner_preparation - 'pending' END, updated_at = NOW() WHERE id = $1",
       [id, runnerCleanupPending]
     );
     durations.db = Date.now() - tDb;
@@ -514,24 +529,31 @@ export async function deleteAgentDirect(
     // and letting a fresh archive take this agent mid-teardown.
     try {
       if ((await deps.waitForRunner?.(agent)) === false) return [];
-      await runLifecycleHook(
-        "stop",
-        agent,
-        logger,
-        {
-          remote: deps.remote,
-          child: deps.localRunnerChild,
-        },
-        deps.whileFenced &&
-          ((request) =>
-            deps.whileFenced!({ ...agent, status: "archiving" }, request))
-      ).catch((err) => {
-        if (err instanceof LifecycleSuperseded) throw err;
-        logger.warn(
-          { err, agentId: id },
-          "Stop hook failed during delete; continuing"
-        );
-      });
+      if (
+        !(
+          source.repositorySource &&
+          source.preparationPending &&
+          !agent.worktreePath
+        )
+      )
+        await runLifecycleHook(
+          "stop",
+          agent,
+          logger,
+          {
+            remote: deps.remote,
+            child: deps.localRunnerChild,
+          },
+          deps.whileFenced &&
+            ((request) =>
+              deps.whileFenced!({ ...agent, status: "archiving" }, request))
+        ).catch((err) => {
+          if (err instanceof LifecycleSuperseded) throw err;
+          logger.warn(
+            { err, agentId: id },
+            "Stop hook failed during delete; continuing"
+          );
+        });
       deps.beginStopStream(id);
       await runtime.stop(id, true);
       await deps.settleStream(id);
@@ -622,7 +644,7 @@ export async function deleteAgentDirect(
 
   await pool.query(
     `UPDATE agents
-     SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = CASE WHEN $2 THEN archive_cleanup_mode END, archive_checkout_state = CASE WHEN $2 THEN archive_checkout_state END, runner_cleanup_pending = $2, updated_at = NOW()
+     SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = CASE WHEN $2 THEN archive_cleanup_mode END, archive_checkout_state = CASE WHEN $2 THEN archive_checkout_state END, runner_cleanup_pending = $2, runner_preparation = CASE WHEN $2 THEN runner_preparation ELSE runner_preparation - 'pending' END, updated_at = NOW()
      WHERE id = $1`,
     [id, runnerCleanupPending]
   );

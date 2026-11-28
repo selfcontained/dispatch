@@ -16,6 +16,7 @@ import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { TemplateService } from "../templates/service.js";
 import type { TaskService } from "../tasks/service.js";
+import type { CheckoutDirectory } from "../runners/directory.js";
 import {
   controllerPlacement,
   placementForRunner,
@@ -67,7 +68,7 @@ const query = (values: Record<string, string | undefined>) => {
 export async function registerLaunchTargetRoutes(
   app: FastifyInstance,
   deps: {
-    runners: Pick<Runners, "for">;
+    runners: Pick<Runners, "for"> & Pick<CheckoutDirectory, "managementList">;
     agents: Pick<AgentManager, "getAgent">;
     templates: Pick<TemplateService, "getTemplate">;
     tasks: Pick<TaskService, "store">;
@@ -96,42 +97,26 @@ export async function registerLaunchTargetRoutes(
     }
     return response.json() as T;
   }
-  async function targets(request: FastifyRequest): Promise<Target[]> {
+  async function targets(): Promise<Target[]> {
     const controller = runnerIdForPlacement(controllerPlacement);
-    const { runners } = await read<{
-      runners: Array<{
-        id: string;
-        name: string;
-        status: string;
-        repositoryPicker?: boolean;
-      }>;
-    }>(request, "/api/runners");
-    return [
-      {
-        key: keyFor(controller),
-        id: controller,
-        name: "Local",
+    const runners = await deps.runners.managementList();
+    return runners
+      .filter((runner) => !("status" in runner) || runner.status !== "revoked")
+      .map((runner) => ({
+        key: keyFor(runner.id),
+        id: runner.id,
+        name: runner.name,
+        status: "status" in runner ? runner.status : "online",
         location: {
-          kind: "folder" as const,
-          repositorySearchUrl: `/api/v1/runners/${encodeURIComponent(controller)}/repository-search`,
+          kind:
+            runner.id === controller
+              ? ("folder" as const)
+              : ("project" as const),
+          ...(runner.repositoryPicker && {
+            repositorySearchUrl: `/api/v1/runners/${encodeURIComponent(runner.id)}/repository-search`,
+          }),
         },
-        status: "online",
-      },
-      ...runners
-        .filter((r) => r.status !== "revoked")
-        .map((r) => ({
-          key: keyFor(r.id),
-          id: r.id,
-          name: r.name,
-          status: r.status,
-          location: {
-            kind: "project" as const,
-            ...(r.repositoryPicker && {
-              repositorySearchUrl: `/api/v1/runners/${encodeURIComponent(r.id)}/repository-search`,
-            }),
-          },
-        })),
-    ];
+      }));
   }
   const fields = (target: Target) =>
     target.location.kind === "folder" ? {} : { runner: target.id };
@@ -149,7 +134,7 @@ export async function registerLaunchTargetRoutes(
   });
   async function selected(request: FastifyRequest) {
     const { key } = request.params as { key: string };
-    const target = (await targets(request)).find((t) => t.key === key);
+    const target = (await targets()).find((t) => t.key === key);
     if (!target)
       throw Object.assign(new Error("Runner not found."), { statusCode: 404 });
     return target;
@@ -160,7 +145,7 @@ export async function registerLaunchTargetRoutes(
       : undefined;
   }
   app.get(ROOT, async (request) => {
-    const choices = await targets(request);
+    const choices = await targets();
     let projectError: string | undefined;
     let repositories: Array<Project & { repository: string | null }> = [];
     if (choices.length) {
@@ -251,7 +236,7 @@ export async function registerLaunchTargetRoutes(
       if (!agent)
         throw Object.assign(new Error("Agent not found."), { statusCode: 404 });
       const runner = runnerIdForPlacement(agent.placement);
-      const target = (await targets(request)).find((t) => t.id === runner);
+      const target = (await targets()).find((t) => t.id === runner);
       if (!target)
         throw Object.assign(new Error("Runner not found."), {
           statusCode: 404,
@@ -302,7 +287,7 @@ export async function registerLaunchTargetRoutes(
         statusCode: 404,
       });
     const idOnServer = runnerIdForPlacement(targetPlacement(saved));
-    const target = (await targets(request)).find((t) => t.id === idOnServer);
+    const target = (await targets()).find((t) => t.id === idOnServer);
     return {
       targetKey: keyFor(idOnServer),
       inherited,
@@ -385,7 +370,16 @@ export async function registerLaunchTargetRoutes(
           return a.localeCompare(b);
         }),
       };
-    } catch {
+    } catch (error) {
+      request.log.error(
+        {
+          err: error,
+          runnerId: selectedTarget.id,
+          projectId: q.projectId,
+          target,
+        },
+        "Failed to list remote branches."
+      );
       return reply.code(500).send({ error: "Failed to list remote branches." });
     }
   });

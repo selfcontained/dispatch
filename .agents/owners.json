@@ -253,6 +253,8 @@
         "apps/server/test/local-repository-launch.test.ts",
         "apps/server/test/local-repository-borrowing-child.test.ts",
         "apps/server/test/local-repository-archive.test.ts",
+        "apps/server/test/local-repository-interrupted-preparation.test.ts",
+        "apps/server/test/local-repository-branches.test.ts",
         "e2e/*project*",
         "apps/web/src/components/app/project-*",
         "apps/web/src/hooks/use-projects*",

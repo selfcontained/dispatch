@@ -1,5 +1,8 @@
 import { registerLaunchTargetRoutes } from "../src/routes/launch-targets.js";
-import { runnerDirectory } from "../src/runners/directory.js";
+import {
+  runnerDirectory,
+  type CheckoutDirectory,
+} from "../src/runners/directory.js";
 import { placementForRunner } from "../src/runners/placement.js";
 import {
   RunnerCallError,
@@ -57,7 +60,11 @@ function repository(defaultBranch: string, count: number, detached = false) {
   if (detached) git("checkout", "--detach");
   return root;
 }
-async function setup(runners: Pick<Runners, "for"> = runnerDirectory({})) {
+async function setup(
+  runners: Pick<CheckoutDirectory, "for" | "managementList"> = runnerDirectory(
+    {}
+  )
+) {
   const app = Fastify();
   apps.push(app);
   await registerSystemRoutes(app, {} as never);
