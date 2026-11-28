@@ -18,6 +18,9 @@ const DEV_FLAG = "--allow-unverified-dev-build";
 const ORIGIN =
   /^https?:\/\/(?:[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?|\[[0-9A-Fa-f:.]+\])(?::\d{1,5})?$/;
 const SHA256 = /^[a-f0-9]{64}$/;
+/** Release or prerelease semver, with only shell-safe tag characters. */
+const VERSION =
+  /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?$/;
 /** Base64 SHA-256 of a DER SubjectPublicKeyInfo, as curl's --pinnedpubkey takes it. */
 const PIN = /^[A-Za-z0-9+/]{43}=$/;
 const PEM =
@@ -77,7 +80,7 @@ export function runnerInstallScript(input: RunnerInstallScript) {
   checkOrigin(origin);
   if (!/^[a-f0-9]{7,40}$/.test(revision))
     throw new Error("Invalid runner revision");
-  if (!/^\d+\.\d+\.\d+$/.test(version))
+  if (version !== version.trim() || !VERSION.test(version))
     throw new Error("Invalid runner version");
   if (
     dev &&
