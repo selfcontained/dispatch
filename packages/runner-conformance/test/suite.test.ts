@@ -9,7 +9,11 @@ import {
 } from "@dispatch/runner-protocol/contract";
 import { checked, ContractViolation } from "../src/checked.js";
 import { compareBaseline, readBaseline, type Result } from "../src/run.js";
-import { scenarios } from "../src/scenarios.js";
+import {
+  localScenarios,
+  remoteScenarios,
+  scenarios,
+} from "../src/scenarios.js";
 
 const baseline = readBaseline();
 
@@ -21,7 +25,11 @@ describe("coverage", () => {
   });
 
   it("names a task for every red entry and lists each once", () => {
-    const ids = new Set(scenarios.map((scenario) => scenario.id));
+    const ids = new Set(
+      [...scenarios, ...localScenarios, ...remoteScenarios].map(
+        (scenario) => scenario.id
+      )
+    );
     const seen = new Set<string>();
     for (const entry of baseline) {
       expect(["local", "remote", "adapter"]).toContain(entry.lane);
@@ -32,6 +40,29 @@ describe("coverage", () => {
       expect(seen.has(key), key).toBe(false);
       seen.add(key);
     }
+  });
+});
+
+describe("local coverage", () => {
+  it("runs portable checkout, terminal and transfer scenarios rather than placeholders", () => {
+    const ids = new Set(localScenarios.map(({ id }) => id));
+    for (const id of [
+      "checkout.read/large",
+      "checkout.read/bytes",
+      "checkout.list/entries",
+      "terminal.open/interactive",
+      "files.put/bytes",
+      "git.defaultBranch/checkout-path",
+      "git.base/fallback",
+      "runner.health/success",
+    ])
+      expect(ids.has(id), id).toBe(true);
+    expect(
+      baseline.filter(
+        ({ lane, reason }) =>
+          lane === "local" && reason === "no local runner child yet"
+      )
+    ).toEqual([]);
   });
 });
 

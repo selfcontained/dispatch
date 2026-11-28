@@ -93,7 +93,26 @@ export async function startLocalLane(): Promise<Lane> {
   mkdirSync(dirname(engine));
   writeFileSync(engine, FIXTURE_ENGINE);
   chmodSync(engine, 0o755);
-  run("git", ["init", "-q", checkout]);
+  run("git", ["init", "-q", "-b", "main", checkout]);
+  run("git", [
+    "-C",
+    checkout,
+    "-c",
+    "user.name=Fixture",
+    "-c",
+    "user.email=fixture@example.invalid",
+    "commit",
+    "--allow-empty",
+    "-qm",
+    "base",
+  ]);
+  mkdirSync(join(checkout, "file-list"));
+  for (let i = 0; i < 1050; i++)
+    writeFileSync(join(checkout, "file-list", `${i}.txt`), "");
+  writeFileSync(
+    join(checkout, ".git/info/exclude"),
+    "/file-list/\n/conformance/\n"
+  );
 
   const session = new LocalRunnerSession({
     description: {

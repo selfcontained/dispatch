@@ -6,7 +6,7 @@
 import { startLocalLane } from "./lanes/local.js";
 import { startRemoteLane } from "./lanes/remote.js";
 import { walkthrough } from "./reference-client.js";
-import { remoteScenarios } from "./scenarios.js";
+import { localScenarios, remoteScenarios } from "./scenarios.js";
 import { turnText } from "./session.js";
 import {
   compareBaseline,
@@ -39,7 +39,7 @@ const results: Result[] = await runLane(
         return { ...started, close: async () => {} };
       }
     : start,
-  lane === "remote" ? remoteScenarios : undefined
+  lane === "remote" ? remoteScenarios : localScenarios
 );
 const baseline = readBaseline();
 errors.push(...compareBaseline(lane, results, baseline));

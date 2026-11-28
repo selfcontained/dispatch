@@ -486,8 +486,7 @@ export const scenarios: readonly Scenario[] = [
     .map(pending),
 ];
 
-// These replace the T09 pending cases on the Linux lane. The local lane
-// retains its existing baseline until it has its own fixture.
+// Portable checkout scenarios shared by the local and enrolled child lanes.
 const readPath = "checkout-reads/content.txt";
 const readText = "workload café\n".repeat(24_000);
 const checkoutReads: Scenario[] = [
@@ -1119,5 +1118,29 @@ export const remoteScenarios: readonly Scenario[] = [
       !runnerGitQueries.some((scenario) => scenario.op === op) &&
       !checkoutReads.some((scenario) => scenario.op === op) &&
       !workspacePreparation.some((scenario) => scenario.op === op)
+  ),
+];
+
+/** Existing portable scenarios run against the real local child too. */
+export const localScenarios: readonly Scenario[] = [
+  {
+    id: "runner.health/success",
+    op: "runner.health",
+    async run({ runner }) {
+      await runner.call("runner.health", {});
+    },
+  },
+  ...checkoutReads,
+  ...runnerGitQueries.filter(({ op }) => op !== "git.branches"),
+  interactiveTerminal,
+  putFile,
+  ...scenarios.filter(
+    ({ op }) =>
+      !checkoutReads.some((scenario) => scenario.op === op) &&
+      op !== "runner.health" &&
+      op !== "git.defaultBranch" &&
+      op !== "git.base" &&
+      op !== interactiveTerminal.op &&
+      op !== putFile.op
   ),
 ];
