@@ -246,22 +246,31 @@ export async function finishCheckout(
   durations: Record<string, number>,
   onCleanupStart?: () => Promise<void>
 ): Promise<boolean> {
-  agent = await withRepositorySource(deps.pool, agent);
+  const checkoutAgent = await withRepositorySource(deps.pool, agent);
   const hooks = { durations, onCleanupStart };
   // Release on the runner that owns the binding. An offline release stays pending.
   const outcome = await archiveCheckout(
     deps.pool,
     deps.logger,
-    agent,
+    checkoutAgent,
     mode,
     stopped,
     hooks,
     archiveRunner(
       { child: deps.localRunnerChild, remote: deps.remote },
-      agent,
+      checkoutAgent,
       agent.placement
     )
   );
+  if (
+    checkoutAgent.repositorySource &&
+    !enrolledRunnerId(agent.placement) &&
+    outcome.kind !== "pending"
+  ) {
+    // session.discard owns repository checkouts. Archive has already decided
+    // whether to remove or keep this one; clear only the stopped host's state.
+    await deps.runtime?.clearRemoteState?.(agent.id);
+  }
   return outcome.kind === "pending";
 }
 
@@ -316,7 +325,9 @@ export async function executeArchive(
   const durations: Record<string, number> = {};
 
   try {
-    const agent = await deps.getRequiredAgent(id);
+    const target = await deps.getRequiredAgent(id);
+    const source = await withRepositorySource(pool, target);
+    const agent = source.repositorySource ? source : target;
     const cleanupWorktree = agent.archiveCleanupMode ?? "auto";
     let stopped = false;
 
@@ -347,7 +358,7 @@ export async function executeArchive(
       // stream is already in the database.
       if (enrolledRunnerId(agent.placement ?? controllerPlacement))
         await runtime.clearRemoteState?.(id);
-      else await runtime.discard(id);
+      else if (!source.repositorySource) await runtime.discard(id);
       stopped = true;
     } catch (err) {
       if (err instanceof LifecycleSuperseded) return;
@@ -466,7 +477,9 @@ export async function deleteAgentDirect(
   const { pool, logger, runtime, diffStatsRefresher } = deps;
   const deleteStart = Date.now();
   const durations: Record<string, number> = {};
-  const agent = await deps.getRequiredAgent(id);
+  const target = await deps.getRequiredAgent(id);
+  const source = await withRepositorySource(pool, target);
+  const agent = source.repositorySource ? source : target;
 
   const mode = cascadeMode();
   // Claim before any teardown — an agent's own archive and an ancestor's
@@ -493,7 +506,8 @@ export async function deleteAgentDirect(
   let stopped = false;
   if (
     agent.status !== "stopped" ||
-    enrolledRunnerId(agent.placement ?? controllerPlacement)
+    enrolledRunnerId(agent.placement ?? controllerPlacement) ||
+    source.repositorySource
   ) {
     const t = Date.now();
     // Not stopAgent: it writes `stopping`/`stopped`, releasing the claim above
@@ -525,7 +539,7 @@ export async function deleteAgentDirect(
       // stream is already in the database.
       if (enrolledRunnerId(agent.placement ?? controllerPlacement))
         await runtime.clearRemoteState?.(id);
-      else await runtime.discard(id);
+      else if (!source.repositorySource) await runtime.discard(id);
       stopped = true;
     } catch (err) {
       if (err instanceof LifecycleSuperseded) return [];

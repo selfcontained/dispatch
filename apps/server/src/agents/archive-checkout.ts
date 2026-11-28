@@ -42,7 +42,7 @@ export function archiveRunner(
 export async function withRepositorySource<T extends ArchiveCheckoutAgent>(
   pool: Pool,
   agent: T
-): Promise<T> {
+): Promise<T & { repositorySource: boolean }> {
   const result = await pool.query<{ repositorySource: boolean }>(
     `SELECT COALESCE(runner_preparation->'source' ? 'repository', false) AS "repositorySource" FROM agents WHERE id = $1`,
     [agent.id]

@@ -4724,6 +4724,11 @@ export class AgentManager {
             archive
           );
           if (outcome.kind === "pending") continue;
+          if (
+            agent.repositorySource &&
+            !enrolledRunnerId(placementFromRow(agent))
+          )
+            await this.runtime.clearRemoteState?.(id);
           await this.pool.query(
             `UPDATE agents SET runner_cleanup_pending = false, archive_cleanup_mode = NULL, archive_checkout_state = NULL,
              runner_preparation = runner_preparation - 'pending' WHERE id = $1`,

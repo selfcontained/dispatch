@@ -700,8 +700,7 @@ export function workspaceHandlers(
                 message: "This runner does not release bound checkouts.",
               });
             const removed = await port.release(session, pending.checkout, {
-              deleteBranch:
-                input.deleteBranch || pending.receipt.request.create,
+              deleteBranch: input.deleteBranch,
               originalBranch: input.originalBranch ?? pending.checkout.branch,
             });
             if (!removed) return { removed: false };
