@@ -1,12 +1,6 @@
 [
   {
     "lane": "local",
-    "scenario": "files.get/bytes",
-    "task": "T11",
-    "reason": "no byte-return frame on the local socket: files.get stays in process"
-  },
-  {
-    "lane": "local",
     "scenario": "github.login.start/pending",
     "task": "T32",
     "reason": "No executable scenario exists on either lane for github.login.start; /pending fails before calling the runner."
@@ -154,12 +148,6 @@
     "scenario": "update.cancel/pending",
     "task": "L3",
     "reason": "No executable scenario exists on either lane for update.cancel; /pending fails before calling the runner."
-  },
-  {
-    "lane": "local",
-    "scenario": "files.put/bytes",
-    "task": "T12",
-    "reason": "Local files.put waits for an out-of-band blob path; contract inline bytes never satisfy receiveBlobPath and the call times out."
   },
   {
     "lane": "local",

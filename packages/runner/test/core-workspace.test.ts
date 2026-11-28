@@ -4,7 +4,7 @@
  * their events, what is recorded and bound, and what is refused.
  */
 import { execFileSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   copyFileSync,
   existsSync,
@@ -189,7 +189,7 @@ function port(calls: string[]): WorkspacePort {
   };
 }
 
-async function harness() {
+async function harness(fileBytes?: WorkspacePort["fileBytes"]) {
   const root = temp();
   const state = join(root, "state");
   mkdirSync(state);
@@ -201,7 +201,12 @@ async function harness() {
   const server = await serveSocket(
     socket,
     nonce,
-    { calls: workspaceHandlers(state, store, port(calls)) },
+    {
+      calls: workspaceHandlers(state, store, {
+        ...port(calls),
+        ...(fileBytes && { fileBytes }),
+      }),
+    },
     fence
   );
   const connection = await LocalSocketConnection.connect({ socket, nonce });
@@ -782,5 +787,91 @@ describe("path.resolve", () => {
     expect(calls).toEqual([
       'resolve /launch {"projectRoot":true,"canonical":["/a","/b"],"git":false}',
     ]);
+  });
+});
+
+describe("inline session files", () => {
+  async function files() {
+    const { mkdir } = await import("node:fs/promises");
+    const { deliverSessionFile, readSessionFileBytes } =
+      await import("../src/workload/files/session-bytes.js");
+    const fixture = await harness({
+      async put(directory, name, data) {
+        await mkdir(directory, { recursive: true });
+        await deliverSessionFile(directory, name, data);
+        return join(directory, name);
+      },
+      get: readSessionFileBytes,
+    });
+    const repo = repository(fixture.root);
+    await fixture.store.import([
+      { session: "files", path: repo, currentPath: null, worktree: null },
+    ]);
+    return { ...fixture, repo };
+  }
+  const input = (text: string) => ({
+    session: sessionFromWire("files"),
+    name: "résumé (1).txt",
+    size: Buffer.byteLength(text),
+    digest: createHash("sha256").update(text).digest("hex"),
+    blob: Buffer.from(text).toString("base64"),
+  });
+
+  it("round trips inline bytes and preserves the previous file on invalid metadata", async () => {
+    const { connection, repo } = await files();
+    const request = input("hello ✓");
+    const { path } = await connection.call("files.put", request);
+    expect(readFileSync(String(path), "utf8")).toBe("hello ✓");
+    const result = await connection.call("files.get", {
+      session: request.session,
+      path: String(path),
+    });
+    expect(result).toEqual({
+      name: request.name,
+      size: request.size,
+      digest: request.digest,
+      blob: request.blob,
+    });
+    for (const invalid of [
+      { ...input("other"), size: 0 },
+      { ...input("other"), digest: request.digest },
+      { ...request, name: "../escape" },
+    ])
+      await expect(connection.call("files.put", invalid)).rejects.toMatchObject(
+        { code: "invalid" }
+      );
+    expect(readFileSync(String(path), "utf8")).toBe("hello ✓");
+    expect(existsSync(join(repo, "escape"))).toBe(false);
+    writeFileSync(join(repo, "relative.txt"), "selected checkout");
+    expect(
+      (
+        await connection.call("files.get", {
+          session: request.session,
+          path: "relative.txt",
+        })
+      ).blob
+    ).toBe(Buffer.from("selected checkout").toString("base64"));
+  });
+
+  it("rejects unbound sessions and nonregular download sources", async () => {
+    const { connection, repo } = await files();
+    await expect(
+      connection.call("files.put", {
+        ...input("secret"),
+        session: sessionFromWire("missing"),
+      })
+    ).rejects.toMatchObject({ code: "not_found" });
+    await expect(
+      connection.call("files.get", {
+        session: sessionFromWire("missing"),
+        path: repo,
+      })
+    ).rejects.toMatchObject({ code: "not_found" });
+    await expect(
+      connection.call("files.get", {
+        session: sessionFromWire("files"),
+        path: repo,
+      })
+    ).rejects.toThrow("Not a regular file");
   });
 });
