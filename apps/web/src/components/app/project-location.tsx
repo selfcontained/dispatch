@@ -64,13 +64,15 @@ export function ProjectLocation({
   const lastProjectId = useRef(rememberedProjectId ?? projectId);
   const project = projects.find((p) => p.id === projectId);
   const picker = projectPicker && (
-    <div>
+    <div className="relative">
       {projectPicker}
-      <div className="flex h-5 items-center justify-end text-body-sm text-muted-foreground">
-        <span className="truncate" title={project?.repoRoot ?? undefined}>
-          {project?.repoRoot}
-        </span>
-      </div>
+      {project?.repoRoot && (
+        <div className="absolute inset-x-0 top-full flex h-3 items-center justify-end text-label-xs leading-3 text-muted-foreground">
+          <span className="truncate" title={project.repoRoot}>
+            {project.repoRoot}
+          </span>
+        </div>
+      )}
     </div>
   );
   const select = (p: Project | null) => {
