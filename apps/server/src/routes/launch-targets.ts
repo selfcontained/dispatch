@@ -30,7 +30,7 @@ type Target = {
   key: string;
   name: string;
   id: string;
-  location: { kind: "folder" | "project" };
+  location: { kind: "folder" | "project"; repositorySearchUrl?: string };
   status: string;
 };
 type Project = {
@@ -99,14 +99,22 @@ export async function registerLaunchTargetRoutes(
   async function targets(request: FastifyRequest): Promise<Target[]> {
     const controller = runnerIdForPlacement(controllerPlacement);
     const { runners } = await read<{
-      runners: Array<{ id: string; name: string; status: string }>;
+      runners: Array<{
+        id: string;
+        name: string;
+        status: string;
+        repositoryPicker?: boolean;
+      }>;
     }>(request, "/api/runners");
     return [
       {
         key: keyFor(controller),
         id: controller,
-        name: "This computer",
-        location: { kind: "folder" as const },
+        name: "Local",
+        location: {
+          kind: "folder" as const,
+          repositorySearchUrl: `/api/v1/runners/${encodeURIComponent(controller)}/repository-search`,
+        },
         status: "online",
       },
       ...runners
@@ -116,7 +124,12 @@ export async function registerLaunchTargetRoutes(
           id: r.id,
           name: r.name,
           status: r.status,
-          location: { kind: "project" as const },
+          location: {
+            kind: "project" as const,
+            ...(r.repositoryPicker && {
+              repositorySearchUrl: `/api/v1/runners/${encodeURIComponent(r.id)}/repository-search`,
+            }),
+          },
         })),
     ];
   }
@@ -150,7 +163,7 @@ export async function registerLaunchTargetRoutes(
     const choices = await targets(request);
     let projectError: string | undefined;
     let repositories: Array<Project & { repository: string | null }> = [];
-    if (choices.some((t) => t.location.kind === "project")) {
+    if (choices.length) {
       try {
         const projects = await read<Project[]>(request, "/api/v1/projects");
         repositories = await Promise.all(
@@ -178,14 +191,14 @@ export async function registerLaunchTargetRoutes(
     return {
       targets: choices.map((t) => ({
         ...publicTarget(t),
-        location:
-          t.location.kind === "project"
-            ? {
-                ...t.location,
-                projects: repositories.filter((p) => p.repository),
-                ...(projectError && { error: projectError }),
-              }
-            : t.location,
+        location: {
+          ...t.location,
+          projects:
+            t.location.kind === "project"
+              ? repositories.filter((p) => p.repository)
+              : repositories,
+          ...(projectError && { error: projectError }),
+        },
       })),
     };
   });
@@ -318,6 +331,16 @@ export async function registerLaunchTargetRoutes(
       () => Promise<Req<"git.branches">["target"]>
     > = {
       folder: async () => {
+        if (q.projectId) {
+          const p = await project(request, q.projectId);
+          if (p && !p.repoRoot) {
+            const repository = await read<{ url: string | null }>(
+              request,
+              `/api/v1/projects/${encodeURIComponent(q.projectId)}/repository`
+            );
+            if (repository.url) return { repository: repository.url };
+          }
+        }
         if (typeof q.directory !== "string" || !q.directory.trim())
           throw Object.assign(new Error("cwd query parameter is required."), {
             statusCode: 400,
@@ -376,7 +399,7 @@ export async function registerLaunchTargetRoutes(
       model?: string;
     };
     const p = await project(request, q.projectId);
-    const requestedDirectory = p?.repoRoot ?? q.directory ?? "";
+    const requestedDirectory = p ? (p.repoRoot ?? "") : (q.directory ?? "");
     const directory =
       target.location.kind === "folder" &&
       !sameRunner(
@@ -419,7 +442,11 @@ export async function registerLaunchTargetRoutes(
           ...entry,
           install: metadata.engines.find((m) => m.id === entry.id)?.install,
         })) ?? null;
-      agentTypes = inventory.entries?.map((e) => e.id) ?? agentTypes;
+      agentTypes = inventory.entries
+        ? settings.enabledAgentTypes.filter((id) =>
+            inventory.entries!.some((entry) => entry.id === id)
+          )
+        : agentTypes;
       if (agentTypes.length && !agentTypes.includes(engine))
         engine = agentTypes[0]!;
       const { ack } = await read<{
@@ -490,9 +517,12 @@ export async function registerLaunchTargetRoutes(
       branchesUrl: `${ROOT}/${target.key}/branches?${branchQuery}`,
       personasUrl: `/api/v1/personas?${query({ cwd: located.directory, ...(target.location.kind === "project" && { runner: target.id }), projectId: q.projectId, type: "task" })}`,
       defaults: {
-        baseBranch: target.location.kind === "folder" ? "main" : "",
+        baseBranch:
+          target.location.kind === "folder" && !(p && !p.repoRoot)
+            ? "main"
+            : "",
         preferenceKey:
-          target.location.kind === "folder"
+          target.location.kind === "folder" && !(p && !p.repoRoot)
             ? directory.trim()
             : JSON.stringify([target.key, q.projectId ?? null]),
         launchFields: fields(target),

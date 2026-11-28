@@ -1632,11 +1632,14 @@ async function registerRoutes() {
     compiled: import.meta.url.startsWith("file:///$bunfs/root/"),
   });
   runnerUpdateArtifacts = runnerArtifacts;
+  registerRunnerRepositorySearch(
+    app,
+    runnerDirectory(agentManager.checkoutReadRunners())
+  );
   if (remoteRunner) {
     registerRunnerGitHub(app, remoteRunner, (id) =>
       pullRequests.invalidateRunner(id)
     );
-    registerRunnerRepositorySearch(app, remoteRunner);
     registerRunnerInstaller(app, {
       runners: remoteRunner,
       artifacts: runnerArtifacts,

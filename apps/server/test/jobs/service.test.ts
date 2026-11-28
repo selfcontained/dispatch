@@ -9,6 +9,7 @@ import {
   vi,
 } from "vitest";
 import type { Pool } from "pg";
+import { placementForRunner } from "../../src/runners/placement.js";
 
 import { setupTestDb, teardownTestDb, runTestMigrations } from "../db/setup.js";
 import { JobService, WebhookNotFoundError } from "../../src/jobs/service.js";
@@ -734,6 +735,70 @@ describe("JobService", () => {
       await service.shutdown();
     });
   });
+
+  it.each(["local", "runner-jobs"])(
+    "creates, edits and runs a repository-only project job on %s",
+    async (runner) => {
+      const id = `job-repository-${runner}`;
+      await pool.query(
+        "INSERT INTO projects(id,name,repo_root,repository) VALUES($1,'Repository job',NULL,$2) ON CONFLICT(id) DO NOTHING",
+        [id, `https://github.com/job-fixture/${runner}`]
+      );
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
+      try {
+        const job = await service.addJob({
+          name: `repository-${runner}`,
+          directory: "",
+          projectId: id,
+          runner,
+          prompt: "Repository work",
+          useWorktree: true,
+          baseBranch: "main",
+          branchName: "feature/job",
+        });
+        expect(job.directory).toBe("");
+        expect(
+          (
+            await pool.query("SELECT project_id FROM templates WHERE id = $1", [
+              job.templateId,
+            ])
+          ).rows[0].project_id
+        ).toBe(id);
+        const edited = await service.updateJob({
+          jobId: job.id,
+          directory: "",
+          name: `repository-${runner}-edited`,
+        });
+        expect(edited.directory).toBe("");
+        expect((await service.getJobByName("", edited.name, runner))?.id).toBe(
+          job.id
+        );
+        vi.mocked(mockAgentManager.createAgent).mockResolvedValue({
+          id: "agt_job_repository",
+          status: "running",
+          cwd: "/managed/checkout",
+        } as never);
+        await service.runJob({ jobId: job.id, wait: false });
+        expect(mockAgentManager.createAgent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            cwd: "",
+            projectId: id,
+            placement: placementForRunner(runner),
+            useWorktree: true,
+            worktreeBranch: "feature/job",
+          }),
+          expect.anything()
+        );
+      } finally {
+        await service.shutdown();
+      }
+    }
+  );
 
   describe("addJob validation", () => {
     it("rejects invalid cron expression", async () => {

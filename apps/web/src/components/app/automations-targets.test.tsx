@@ -24,7 +24,7 @@ vi.mock("@/hooks/use-projects", () => ({
 const request = vi.mocked(api);
 const controller = {
   key: "opaque-controller",
-  name: "This computer",
+  name: "Local",
   status: "online",
   dataUrl: "/fixture/controller",
   location: { kind: "folder" },
@@ -257,9 +257,7 @@ it("puts the target first and re-derives the engine and required project for an 
       .getByRole("button", { name: "Create template" })
       .hasAttribute("disabled")
   ).toBe(true);
-  fireEvent.keyDown(screen.getByTestId("create-agent-runner-project"), {
-    key: "Enter",
-  });
+  fireEvent.click(screen.getByTestId("create-agent-runner-project"));
   fireEvent.click(await screen.findByRole("option", { name: "Repository" }));
   fireEvent.change(screen.getByPlaceholderText("template name"), {
     target: { value: "Fixture template" },
@@ -339,3 +337,53 @@ it.each([
     );
   }
 );
+
+it("creates a Local template from a repository-only project using the shared picker", async () => {
+  const repo = {
+    id: "project",
+    name: "Repository",
+    repoRoot: null,
+    repository: "https://github.com/org/repo",
+  };
+  const local = {
+    ...controller,
+    location: {
+      kind: "folder",
+      repositorySearchUrl: "/fixture/repository-search",
+      projects: [repo],
+    },
+  };
+  fixture([local]);
+  mount(
+    <CreateTemplateDialog
+      open
+      onOpenChange={vi.fn()}
+      enabledAgentTypes={["claude", "codex"]}
+    />
+  );
+  const mode = await screen.findByRole("radio", { name: "Project" });
+  fireEvent.click(mode);
+  const picker = await screen.findByRole("combobox", {
+    name: "Project or repository",
+  });
+  fireEvent.click(picker);
+  fireEvent.click(await screen.findByRole("option", { name: "Repository" }));
+  fireEvent.change(screen.getByPlaceholderText("template name"), {
+    target: { value: "Local repository" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Create template" }));
+  await waitFor(() =>
+    expect(
+      request.mock.calls.some(
+        ([url, init]) => url === "/api/v1/templates" && init?.method === "POST"
+      )
+    ).toBe(true)
+  );
+  const body = request.mock.calls.find(
+    ([url, init]) => url === "/api/v1/templates" && init?.method === "POST"
+  )![1]!.body;
+  expect(JSON.parse(String(body))).toMatchObject({
+    projectId: "project",
+    directory: "",
+  });
+});

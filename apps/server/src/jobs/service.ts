@@ -895,12 +895,12 @@ export class JobService {
     const requestedDirectory =
       input.directory === undefined
         ? previousDirectory
-        : normalizeJobDirectory(input.directory, input);
+        : normalizeJobDirectory(input.directory, { ...input, projectId });
     const previousTarget = backingTemplate ?? existing;
     const target = resolveSavedTarget(requestedDirectory, {
       ...input,
       previous: previousTarget,
-      directorySupplied: input.directory !== undefined,
+      directorySupplied: Boolean(input.directory),
       projectId,
       projectRoot: projectDirectory,
     });
@@ -1660,7 +1660,7 @@ function normalizeNullableString(
 
 function normalizeJobDirectory(
   directory: string,
-  target: { runner?: string }
+  target: { runner?: string; projectId?: string | null }
 ): string {
   if (
     !sameRunner(
@@ -1669,7 +1669,10 @@ function normalizeJobDirectory(
     )
   )
     return "";
-  if (!directory.trim()) throw new Error("Job directory is required.");
+  if (!directory.trim()) {
+    if (target.projectId) return "";
+    throw new Error("Job directory is required.");
+  }
   const trimmed = directory.trim();
   return normalizePath(resolveTilde(trimmed));
 }

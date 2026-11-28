@@ -466,6 +466,7 @@ export class AgentManager {
   private readonly drainedHostHolds = new Map<string, RunnerHostRecycleHold>();
   private readonly hostRecycler: RunnerHostRecycler;
   private readonly recyclingHosts = new Set<string>();
+  private readonly preparingRepositories = new Set<string>();
   private readonly stoppingOrArchiving = new Map<string, number>();
   private endRunnerResume?: (id: string) => Promise<void>;
 
@@ -484,7 +485,7 @@ export class AgentManager {
       return action();
     };
     try {
-      return await (serialize
+      return await (serialize || this.preparingRepositories.has(id)
         ? this.serializeLifecycle(id, terminate)
         : terminate());
     } finally {
@@ -2459,12 +2460,19 @@ export class AgentManager {
         input.cwd = projectRoot;
       }
     }
+    const repositorySource = Boolean(
+      !location &&
+      input.projectId &&
+      projectRepository &&
+      !projectRoot &&
+      !input.cwd &&
+      !input.parentAgentId
+    );
     const unscoped = !input.projectId && !input.parentAgentId;
     // Membership inherited from a parent (including no project) and
     // explicit/template selections remain authoritative.
-    let directory: LaunchDirectory | null | undefined = location
-      ? null
-      : undefined;
+    let directory: LaunchDirectory | null | undefined =
+      location || repositorySource ? null : undefined;
     if (!location && unscoped) {
       const projects = (
         await this.pool.query(
@@ -2518,6 +2526,7 @@ export class AgentManager {
       launcherDirectory,
       projectRoot,
       projectRepository,
+      repositorySource,
       checkoutOwner,
     };
   }
@@ -2545,6 +2554,7 @@ export class AgentManager {
       location,
       checkoutOwner,
       projectRepository,
+      repositorySource,
       launcherDirectory,
     }: Awaited<ReturnType<AgentManager["resolveCreateTarget"]>>
   ) {
@@ -2556,14 +2566,14 @@ export class AgentManager {
       remote.permitsAgentMcp(location)
     );
     const projectSource = Boolean(
-      location && !checkoutOwner && !launcherDirectory
+      (location || repositorySource) && !checkoutOwner && !launcherDirectory
     );
     const borrowed = Boolean(
       location && checkoutOwner && input.useWorktree === false
     );
     const admission = admitLaunch({
       phase: "manager",
-      remote: location !== null,
+      remote: location !== null || repositorySource,
       input: checkoutOwner
         ? { ...input, repository: undefined }
         : projectSource
@@ -2617,6 +2627,7 @@ export class AgentManager {
       placement,
       projectRoot,
       projectRepository,
+      repositorySource,
       checkoutOwner,
     }: Awaited<ReturnType<AgentManager["resolveCreateTarget"]>>,
     {
@@ -2705,9 +2716,11 @@ export class AgentManager {
         }
       : {
           ...(checkoutOwner &&
-            location && { defaultBranch: async () => "main" }),
+            (location || repositorySource) && {
+              defaultBranch: async () => "main",
+            }),
           ...(origin &&
-            location && {
+            (location || repositorySource) && {
               repository: async () => origin,
               pullRequestHead,
               ...(checkoutOwner && { forkPullRequests: false }),
@@ -2750,7 +2763,7 @@ export class AgentManager {
       };
     } else if (
       origin &&
-      location &&
+      (location || repositorySource) &&
       !borrowed &&
       (p.checkout || projectSource || input.projectId)
     ) {
@@ -2939,46 +2952,69 @@ export class AgentManager {
       runnerPrepared: boolean;
     };
     try {
-      await opts.preparePersona?.();
-      const progress = this.workspaceProgress(id, opts.type);
-      // Prepared by the local runner, which binds the session to it.
-      const workspace = opts.directory
-        ? await prepareLocalWorkspace(
-            this.localRunnerChild(),
-            id,
-            opts.directory,
-            opts.worktree,
-            progress
-          ).catch(asWorktreeError)
-        : null;
-      if (workspace) await this.storePreparedWorkspace(id, workspace);
-      const agent = await this.getRequiredAgent(id);
-      const runnerId = enrolledRunnerId(agent.placement);
-      let runnerPrepared = false;
-      if (opts.preparation && !(runnerId && this.holds?.isHeld(runnerId))) {
-        try {
-          const steps = this.runnerWorkspaceProgress(agent, true);
+      const prepare = async () => {
+        await opts.preparePersona?.();
+        const progress = this.workspaceProgress(id, opts.type);
+        // Prepared by the local runner, which binds the session to it.
+        const workspace = opts.directory
+          ? await prepareLocalWorkspace(
+              this.localRunnerChild(),
+              id,
+              opts.directory,
+              opts.worktree,
+              progress
+            ).catch(asWorktreeError)
+          : null;
+        if (workspace) await this.storePreparedWorkspace(id, workspace);
+        const agent = await this.getRequiredAgent(id);
+        const runnerId = enrolledRunnerId(agent.placement);
+        let runnerPrepared = false;
+        if (opts.preparation && !(runnerId && this.holds?.isHeld(runnerId))) {
           try {
-            await this.prepareRunnerWorkspace(
-              agent,
-              opts.preparation,
-              false,
-              steps.onEvent
-            );
-            runnerPrepared = true;
-          } finally {
-            await steps.settled();
+            const steps = this.runnerWorkspaceProgress(agent, true);
+            try {
+              await this.prepareRunnerWorkspace(
+                agent,
+                opts.preparation,
+                false,
+                steps.onEvent
+              );
+              runnerPrepared = true;
+            } finally {
+              await steps.settled();
+            }
+          } catch (error) {
+            if (
+              !(
+                isUpdateFenced(error) &&
+                runnerId &&
+                this.holds?.isHeld(runnerId)
+              )
+            )
+              throw error;
           }
-        } catch (error) {
-          if (
-            !(isUpdateFenced(error) && runnerId && this.holds?.isHeld(runnerId))
-          )
-            throw error;
         }
+        const chatLaunchPost = await opts.resolveLaunchPost();
+        await opts.beforeLaunch?.(id);
+        return { agent, workspace, chatLaunchPost, runnerPrepared };
+      };
+      if (opts.preparation && "repository" in opts.preparation.source) {
+        this.preparingRepositories.add(id);
+        try {
+          prepared = await this.serializeLifecycle(id, async () => {
+            const current = await this.getRequiredAgent(id);
+            if (current.status !== "creating")
+              throw new LifecycleSuperseded(
+                "The agent was archived before workspace preparation."
+              );
+            return prepare();
+          });
+        } finally {
+          this.preparingRepositories.delete(id);
+        }
+      } else {
+        prepared = await prepare();
       }
-      const chatLaunchPost = await opts.resolveLaunchPost();
-      await opts.beforeLaunch?.(id);
-      prepared = { agent, workspace, chatLaunchPost, runnerPrepared };
     } catch (error) {
       return this.failLaunch(id, error);
     }
@@ -3377,7 +3413,7 @@ export class AgentManager {
   ) {
     const { directory, placement } = checkoutRunners(
       this.checkoutReadRunners(),
-      agent
+      { ...agent, repositorySource: "repository" in preparation.source }
     );
     const runner = directory.for(placement);
     const session = sessionFromWire(agent.id);
@@ -3393,9 +3429,9 @@ export class AgentManager {
       ));
     const cwd = displayPath(prepared.path);
     const worktree = prepared.worktree;
-    await this.pool.query(
+    const recorded = await this.pool.query(
       `UPDATE agents SET cwd = $2, launch_cwd = COALESCE(NULLIF(launch_cwd, ''), $2), worktree_branch = $3, base_branch = COALESCE(base_branch, $4),
-       worktree_path = $5, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL`,
+       worktree_path = $5, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL RETURNING id`,
       [
         agent.id,
         cwd,
@@ -3404,6 +3440,18 @@ export class AgentManager {
         worktree ? displayPath(worktree.path) : null,
       ]
     );
+    if (recorded.rowCount === 0) {
+      // Archive may have won while preparation was in flight. Release through
+      // the same receipt-aware runner operation; recovery retries a lost reply.
+      await runner.call("workspace.release", {
+        session,
+        deleteBranch: Boolean(worktree && worktree.branch !== worktree.base),
+        originalBranch: worktree?.branch ?? null,
+      });
+      throw new LifecycleSuperseded(
+        "The agent was archived during workspace preparation."
+      );
+    }
     agent.cwd = cwd;
     agent.launchCwd ||= cwd;
     if (worktree) {
@@ -3480,13 +3528,17 @@ export class AgentManager {
           ? `${remoteMcpOrigin}/api/mcp/jobs/${opts.jobRunId}/${agent.id}`
           : `${remoteMcpOrigin}/api/mcp/${agent.id}`)
       : dispatchMcpUrl(this.config, agent.id, opts.jobRunId);
-    const binding = placement
-      ? (
-          await this.pool.query<{
-            runner_preparation: RecordedPreparation | null;
-          }>("SELECT runner_preparation FROM agents WHERE id = $1", [agent.id])
-        ).rows[0]
-      : undefined;
+    const recordedBinding = (
+      await this.pool.query<{ runner_preparation: RecordedPreparation | null }>(
+        "SELECT runner_preparation FROM agents WHERE id = $1",
+        [agent.id]
+      )
+    ).rows[0];
+    const binding =
+      recordedBinding?.runner_preparation &&
+      (placement || "repository" in recordedBinding.runner_preparation.source)
+        ? recordedBinding
+        : undefined;
     const steps = this.runnerWorkspaceProgress(
       agent,
       Boolean(binding?.runner_preparation)
@@ -3649,7 +3701,9 @@ export class AgentManager {
       runner_preparation: RecordedPreparation | null;
     }>("SELECT runner_preparation FROM agents WHERE id = $1", [id]);
     const recorded = rows[0]?.runner_preparation;
-    return recorded && "directory" in recorded.source ? recorded : null;
+    if (!recorded) return null;
+    const { pending: _pending, ...request } = recorded;
+    return request;
   }
 
   private async startAgentClaimed(
@@ -4574,8 +4628,10 @@ export class AgentManager {
         }
       >(
         `SELECT id, cwd, worktree_path AS "worktreePath", base_branch AS "baseBranch",
-                worktree_branch AS "worktreeBranch", archive_cleanup_mode AS mode, runner_id
-         FROM agents WHERE runner_cleanup_pending AND deleted_at IS NOT NULL ORDER BY id`
+                worktree_branch AS "worktreeBranch", archive_cleanup_mode AS mode, runner_id,
+                COALESCE(runner_preparation->'source' ? 'repository', false) AS "repositorySource"
+         FROM agents WHERE deleted_at IS NOT NULL AND
+           (runner_cleanup_pending OR runner_preparation->'pending' = 'true'::jsonb) ORDER BY id`
       );
       for (const agent of rows) {
         const { id, mode } = agent;
@@ -4586,10 +4642,12 @@ export class AgentManager {
             placementFromRow(agent)
           );
           if (archive.archive.awaitsStoppedHost) {
-            if (!this.remote) continue;
+            if (enrolledRunnerId(placementFromRow(agent)) && !this.remote)
+              continue;
             await this.runtime.stop(id, true);
             await this.streamRecorder.settleStopped(id);
-            await this.runtime.clearRemoteState?.(id);
+            if (enrolledRunnerId(placementFromRow(agent)))
+              await this.runtime.clearRemoteState?.(id);
           }
           const outcome = await archiveCheckout(
             this.pool,
@@ -4602,7 +4660,8 @@ export class AgentManager {
           );
           if (outcome.kind === "pending") continue;
           await this.pool.query(
-            "UPDATE agents SET runner_cleanup_pending = false, archive_cleanup_mode = NULL, archive_checkout_state = NULL WHERE id = $1",
+            `UPDATE agents SET runner_cleanup_pending = false, archive_cleanup_mode = NULL, archive_checkout_state = NULL,
+             runner_preparation = runner_preparation - 'pending' WHERE id = $1`,
             [id]
           );
         } catch (err) {

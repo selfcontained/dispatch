@@ -46,7 +46,7 @@ function RunnerOption({
   );
 }
 
-/** "Runs on" picker: This computer by default, or a paired runner. */
+/** "Runs on" picker: Local by default, or a paired runner. */
 export function RunnerPicker({
   targets,
   value,

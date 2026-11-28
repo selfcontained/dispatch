@@ -90,6 +90,7 @@ import {
 import { installWorkspaceDependencies } from "./workspace-prep.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import {
+  GitHubRunnerExecutor,
   localPullRequestEvidence,
   localPullRequestStatus,
 } from "./remote/github-runner-executor.js";
@@ -737,7 +738,19 @@ const pullRequests = localPullRequestStatus();
 const evidence = localPullRequestEvidence();
 
 /** The `posix-user` platform's GitHub port: the user's own `gh`. */
+const repositorySearch = new GitHubRunnerExecutor(process.env, (bin, args) => ({
+  bin,
+  args,
+}));
 export const githubWorkload = {
+  async repositories({
+    query,
+  }: Req<"github.repositories">): Promise<Res<"github.repositories">> {
+    return (await repositorySearch.handle(
+      { type: "repositorySearch", query },
+      AbortSignal.timeout(18_000)
+    )) as Res<"github.repositories">;
+  },
   pullRequestHead({ cwd, ...target }: Req<"github.pr.head">) {
     return getPullRequestHead({
       ...target,

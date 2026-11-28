@@ -108,7 +108,10 @@ export function resolveSavedTarget(
         ? targetPlacement(previous)
         : targetPlacement({ directory });
   const runner = runnerIdForPlacement(placement);
-  if (sameRunner(placement, controllerPlacement)) {
+  if (
+    sameRunner(placement, controllerPlacement) &&
+    !(options.projectId && !options.projectRoot && directory === "")
+  ) {
     const path = resolveLaunchLocation(options.projectRoot ?? directory);
     return { directory: path, [storedLocation]: { runner, path } };
   }
@@ -124,7 +127,10 @@ export function savedLaunchTarget(
 ) {
   const placement = targetPlacement(target);
   const location = target[storedLocation];
-  if (sameRunner(placement, controllerPlacement))
+  if (
+    sameRunner(placement, controllerPlacement) &&
+    !(location && "projectId" in location)
+  )
     return {
       placement,
       cwd: location && "path" in location ? location.path : target.directory,
@@ -152,7 +158,8 @@ export function normalizeSavedDirectory(
     typeof location === "string"
       ? placementForRunner(location)
       : targetPlacement({ directory, [storedLocation]: location });
-  return sameRunner(placement, controllerPlacement)
+  return sameRunner(placement, controllerPlacement) &&
+    !(typeof location === "object" && "projectId" in location)
     ? resolveLaunchLocation(directory)
     : "";
 }

@@ -169,7 +169,29 @@ export async function registerProjectRoutes(
         [project.id, icon.bytes, icon.mime]
       );
   };
-  app.get("/api/v1/projects", () => store.list());
+  app.get<{ Querystring: { repository?: string } }>(
+    "/api/v1/projects",
+    async (request, reply) => {
+      const projects = await store.list();
+      if (request.query.repository === undefined) return projects;
+      let repository: string;
+      try {
+        repository = projectRepositoryUrl(request.query.repository);
+      } catch {
+        return reply
+          .code(400)
+          .send({ error: "Choose a valid HTTPS repository URL." });
+      }
+      const matches = await Promise.all(
+        projects.map(async (project) =>
+          (await store.getRepository(project.id))?.url === repository
+            ? project
+            : null
+        )
+      );
+      return matches.filter((project) => project !== null);
+    }
+  );
   app.get<{ Params: { id: string } }>(
     "/api/v1/projects/:id",
     async (request, reply) => {
@@ -204,9 +226,10 @@ export async function registerProjectRoutes(
           request.query.repoRoot!,
           agents?.checkoutReadRunners() ?? {}
         ).catch(() => null));
-      const icon = root
-        ? await readProjectIcon(pool, agents, { repoRoot: root })
-        : null;
+      const icon =
+        saved || root
+          ? await readProjectIcon(pool, agents, saved ?? { repoRoot: root })
+          : null;
       if (icon)
         return {
           dataUrl: `data:${icon.mime};base64,${icon.bytes.toString("base64")}`,

@@ -642,6 +642,40 @@ export function workspaceHandlers(
     return finish(session, dir, receipt, emit);
   }
 
+  // An interrupted preparation may own a worktree before its binding was written.
+  // Read its receipt without completing dependencies or creating another checkout.
+  async function interrupted(session: string) {
+    const dir = sessionDir(stateRoot, receiptKey(session));
+    const receipt = await readReceipt(dir);
+    if (!receipt) return null;
+    const checkout = receipt.worktree ?? receipt.pending;
+    if (!checkout) return { dir, receipt, checkout: null };
+    const identity = await port.identity(checkout.path);
+    if (identity) {
+      if (receipt.worktree) {
+        if (identity !== receipt.worktree.identity)
+          throw refused("The prepared worktree was removed or replaced.");
+      } else {
+        if (
+          (await port.identity(receipt.source)) !== receipt.sourceIdentity ||
+          !(await (port.madeForUs ?? madeForUs)(
+            checkout.path,
+            receipt.source,
+            checkout.branch
+          ))
+        )
+          throw refused("The prepared worktree was removed or replaced.");
+      }
+    }
+    return {
+      dir,
+      receipt,
+      checkout: identity
+        ? { path: checkout.path, identity, branch: checkout.branch }
+        : null,
+    };
+  }
+
   const emitter =
     (context: ConnectionContext) =>
     (progress: Progress): void =>
@@ -652,7 +686,26 @@ export function workspaceHandlers(
       const session = sessionToWire(input.session);
       return serialize(session, async () => {
         const held = await store.get(session);
-        if (!held) return { removed: true };
+        if (!held) {
+          const pending = await interrupted(session);
+          if (!pending) return { removed: true };
+          if (pending.checkout) {
+            if (!port.release)
+              throw new RunnerCallError({
+                code: "unsupported",
+                message: "This runner does not release bound checkouts.",
+              });
+            const removed = await port.release(session, pending.checkout, {
+              deleteBranch:
+                input.deleteBranch || pending.receipt.request.create,
+              originalBranch: input.originalBranch ?? pending.checkout.branch,
+            });
+            if (!removed) return { removed: false };
+          }
+          await rm(join(pending.dir, RECEIPT_FILE), { force: true });
+          await store.forget?.(session);
+          return { removed: true };
+        }
         if (held.checkout.ownership === "external") return { removed: false };
         if (!port.release || !store.forget)
           throw new RunnerCallError({
@@ -683,42 +736,62 @@ export function workspaceHandlers(
      */
     async "workspace.observe"(input: Req<"workspace.observe">) {
       const session = sessionToWire(input.session);
-      const held = await store.get(session);
-      if (!held)
-        throw new RunnerCallError({
-          code: "not_found",
-          message: "No checkout is bound to this session",
-        });
-      if (held.borrowedFrom)
+      return serialize(session, async () => {
+        const held = await store.get(session);
+        if (!held) {
+          const pending = await interrupted(session);
+          if (!pending)
+            throw new RunnerCallError({
+              code: "not_found",
+              message: "No checkout is bound to this session",
+            });
+          const state =
+            pending.checkout && input.policy !== "ownership"
+              ? await port.observe?.(pending.checkout.path)
+              : null;
+          return {
+            ownership: "owned" as const,
+            owner: session,
+            borrowers: [],
+            checkout: state
+              ? { ...state, path: pathFromWire(state.path) }
+              : null,
+          };
+        }
+        if (held.borrowedFrom)
+          return {
+            ownership: "borrowed" as const,
+            owner: held.borrowedFrom,
+            borrowers: [],
+            checkout: null,
+          };
+        if (held.checkout.ownership === "external")
+          return {
+            ownership: "external" as const,
+            owner: null,
+            borrowers: [],
+            checkout: null,
+          };
+        // `ownership` asks who owns it, not its state: nothing is read.
+        let state = null;
+        if (
+          held.checkout.ownership === "owned" &&
+          input.policy !== "ownership"
+        ) {
+          if (!port.observe)
+            throw new RunnerCallError({
+              code: "failed",
+              message: "Checkout observation is unavailable.",
+            });
+          state = await port.observe(held.checkout.path);
+        }
         return {
-          ownership: "borrowed" as const,
-          owner: held.borrowedFrom,
+          ownership: "owned" as const,
+          owner: session,
           borrowers: [],
-          checkout: null,
+          checkout: state && { ...state, path: pathFromWire(state.path) },
         };
-      if (held.checkout.ownership === "external")
-        return {
-          ownership: "external" as const,
-          owner: null,
-          borrowers: [],
-          checkout: null,
-        };
-      // `ownership` asks who owns it, not its state: nothing is read.
-      let state = null;
-      if (held.checkout.ownership === "owned" && input.policy !== "ownership") {
-        if (!port.observe)
-          throw new RunnerCallError({
-            code: "failed",
-            message: "Checkout observation is unavailable.",
-          });
-        state = await port.observe(held.checkout.path);
-      }
-      return {
-        ownership: "owned" as const,
-        owner: session,
-        borrowers: [],
-        checkout: state && { ...state, path: pathFromWire(state.path) },
-      };
+      });
     },
 
     /**

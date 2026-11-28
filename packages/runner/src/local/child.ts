@@ -31,6 +31,7 @@ import {
 } from "./lock.js";
 import { serveSocket, type Handlers } from "./socket-server.js";
 import { localSessionHandlers } from "./sessions.js";
+import { repositoryWorkspaceDisposer } from "./workspace.js";
 import type { SessionCoreFactory } from "../core/sessions.js";
 import type { PosixHostEntry } from "../platform/posix-user/sessions.js";
 import { checkoutHandlers, checkoutOpens } from "../core/checkout.js";
@@ -236,6 +237,9 @@ export async function runLocalRunner(
     capabilities: {},
   };
   const extra = options.handlers?.(message, fence!);
+  const workspace = options.platform?.workspace
+    ? workspaceHandlers(message.roots.state, store!, options.platform.workspace)
+    : {};
   // Host directories are named under the root exactly as the app names
   // them in each host's command line, which identifies the host.
   const sessions = options.sessions
@@ -244,6 +248,10 @@ export async function runLocalRunner(
         entry: options.sessions.entry,
         command: message.config.hostCommand,
         createSessions: options.sessions.createSessions,
+        discardWorkspace: repositoryWorkspaceDisposer(
+          message.roots.state,
+          workspace
+        ),
         fence: fence!,
         boundDirectory: async (key) => {
           const binding = await store!.get(key).catch(() => null);
@@ -259,9 +267,6 @@ export async function runLocalRunner(
         repository &&
           repositoryClone(repository, join(message.roots.state, "repositories"))
       )
-    : {};
-  const workspace = options.platform?.workspace
-    ? workspaceHandlers(message.roots.state, store!, options.platform.workspace)
     : {};
   const github = options.platform ? githubHandlers(options.platform) : {};
   const engines = options.platform ? engineHandlers(options.platform) : {};

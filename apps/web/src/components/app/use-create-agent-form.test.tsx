@@ -156,7 +156,7 @@ function pasteEvent(options: {
 
 const controller = {
   key: "opaque-controller",
-  name: "This computer",
+  name: "Local",
   status: "online",
   location: { kind: "folder" },
   dataUrl: "/fixture/controller",
@@ -1279,4 +1279,108 @@ it("takes folder list, counts and icons from the selected target response", asyn
       url.startsWith("/api/v1/history/projects")
     )
   ).toBe(false);
+});
+
+it.each([false, true])(
+  "launches a repository-only project without a folder (Local: %s)",
+  async (local) => {
+    const original = apiMock.getMockImplementation()!;
+    const target = {
+      ...(local ? controller : repositoryTarget),
+      location: {
+        kind: local ? "folder" : "project",
+        projects: [
+          {
+            id: "repo-only",
+            name: "Repo",
+            repoRoot: null,
+            repository: "https://github.com/org/repo",
+          },
+        ],
+      },
+    };
+    apiMock.mockImplementation(async (path, init) => {
+      if (path === "/api/v1/launch-targets") return { targets: [target] };
+      if (path === "/api/v1/projects") return target.location.projects;
+      return original(path, init);
+    });
+    const { result } = await setup();
+    act(() => {
+      result.current.setCreateProjectId("repo-only");
+      result.current.setCreateCwd("");
+    });
+    await waitFor(() => expect(result.current.locationReady).toBe(true));
+    await act(async () => {
+      await result.current.handleSubmit(submitEvent());
+    });
+    expect(agentsPostJson()).toMatchObject({
+      projectId: "repo-only",
+      ...(local ? {} : { runner: "fixture" }),
+    });
+    expect(agentsPostJson()).not.toHaveProperty("cwd");
+  }
+);
+
+it("keeps a source Local agent's repository-only project instead of turning its managed checkout into a Folder launch", async () => {
+  const project = {
+    id: "repository-project",
+    repoRoot: null,
+    repository: "https://github.com/source/repository",
+  };
+  queryClient.setQueryData(["projects"], [project]);
+  queryClient.setQueryDefaults(["projects"], { staleTime: Infinity });
+  const fallback = apiMock.getMockImplementation()!;
+  apiMock.mockImplementation((url, init) =>
+    url === "/api/v1/launch-targets"
+      ? Promise.resolve({
+          targets: [
+            {
+              ...controller,
+              location: { kind: "folder", projects: [project] },
+            },
+          ],
+        })
+      : url.startsWith("/api/v1/launch-targets/saved/agent/")
+        ? Promise.resolve({
+            targetKey: controller.key,
+            projectId: project.id,
+            directory: "/managed/repository/worktree",
+          })
+        : fallback(url, init)
+  );
+  const { result } = await setup({ sourceAgentId: "source" });
+  await waitFor(() => expect(result.current.createProjectId).toBe(project.id));
+  expect(result.current.createCwd).toBe("");
+  expect(result.current.worktreeAvailable).toBe(true);
+  await act(async () => result.current.handleSubmit(submitEvent()));
+  expect(agentsPostJson()).toMatchObject({ projectId: project.id });
+  expect(agentsPostJson()).not.toHaveProperty("cwd");
+});
+
+it("still probes Git for a folder-backed project without a repository origin", async () => {
+  const project = {
+    id: "folder-no-origin",
+    repoRoot: "/folder/no-origin",
+    repository: null,
+  };
+  queryClient.setQueryData(["projects"], [project]);
+  queryClient.setQueryDefaults(["projects"], { staleTime: Infinity });
+  const fallback = apiMock.getMockImplementation()!;
+  apiMock.mockImplementation((url, init) =>
+    url === "/api/v1/launch-targets"
+      ? Promise.resolve({
+          targets: [
+            {
+              ...controller,
+              location: { kind: "folder", projects: [project] },
+            },
+          ],
+        })
+      : url.includes("/path-info?path=")
+        ? Promise.resolve(REPO_INFO)
+        : fallback(url, init)
+  );
+  const { result } = await setup({ initialProjectId: project.id });
+  await waitFor(() => expect(result.current.worktreeAvailable).toBe(true));
+  expect(result.current.createCwd).toBe(project.repoRoot);
 });

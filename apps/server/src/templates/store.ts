@@ -159,7 +159,11 @@ export class TemplateStore {
   ): Promise<TemplateRecord | null> {
     const result = await this.pool.query(
       `SELECT ${this.columns()} FROM templates WHERE directory = $1 AND name = $2 AND COALESCE(location->>'runner', 'local') = $3`,
-      [normalizeSavedDirectory(directory, runner), name, runner]
+      [
+        directory === "" ? "" : normalizeSavedDirectory(directory, runner),
+        name,
+        runner,
+      ]
     );
     return result.rows[0] ? mapTemplate(result.rows[0]) : null;
   }

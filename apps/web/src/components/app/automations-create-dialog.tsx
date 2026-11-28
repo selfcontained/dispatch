@@ -106,11 +106,17 @@ function CreateTemplateDialogContent({
     (target.launch.target?.location.kind === "project"
       ? Boolean(
           draft.projectId &&
-          target.launch.target.location.projects?.some(
+          target.launch.target?.location.projects?.some(
             (p) => p.id === draft.projectId
           )
         )
-      : (projectOverride?.repoRoot ?? draft.directory).trim());
+      : Boolean(
+          (projectOverride?.repoRoot ?? draft.directory).trim() ||
+          (draft.projectId &&
+            target.launch.target?.location.projects?.some(
+              (p) => p.id === draft.projectId
+            ))
+        ));
 
   return (
     <DialogContent
