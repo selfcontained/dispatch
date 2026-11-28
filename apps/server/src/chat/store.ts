@@ -1188,16 +1188,29 @@ export class BlockStore {
       archived: boolean;
       findings: Array<{ state: BlockFindingState | null }>;
     }>(
-      `WITH latest AS (
-         SELECT DISTINCT ON (b.author_agent_id) b.*,
-                (a.deleted_at IS NOT NULL) AS reviewer_archived
-           FROM blocks b
-           JOIN agents a ON a.id = b.author_agent_id
-          WHERE b.kind = 'review' AND b.author_kind = 'agent'
-            AND (a.deleted_at IS NULL OR EXISTS (
-              SELECT 1 FROM agents t
-               WHERE t.id = b.to_agent_id AND t.deleted_at IS NULL))
-          ORDER BY b.author_agent_id, b.created_at DESC, b.id DESC
+      `WITH live AS (SELECT id FROM agents WHERE deleted_at IS NULL),
+       latest AS (
+         -- A live reviewer's latest review.
+         SELECT r.*, false AS reviewer_archived
+           FROM live a
+           CROSS JOIN LATERAL (
+             SELECT b.* FROM blocks b
+              WHERE b.author_agent_id = a.id
+                AND b.kind = 'review' AND b.author_kind = 'agent'
+              ORDER BY b.created_at DESC, b.id DESC
+              LIMIT 1
+           ) r
+         UNION ALL
+         -- An archived reviewer's latest review of a live agent. Reached
+         -- from the live agent, so archived history is never scanned.
+         SELECT * FROM (
+           SELECT DISTINCT ON (b.author_agent_id) b.*, true AS reviewer_archived
+             FROM live t
+             JOIN blocks b ON b.to_agent_id = t.id
+              AND b.kind = 'review' AND b.author_kind = 'agent'
+             JOIN agents a ON a.id = b.author_agent_id AND a.deleted_at IS NOT NULL
+            ORDER BY b.author_agent_id, b.created_at DESC, b.id DESC
+         ) archived
        )
        SELECT r.author_agent_id, r.stream_id, COALESCE(r.thread_id, r.id)::text AS thread_id,
               r.id::text AS review_id, r.to_agent_id, r.created_at,
