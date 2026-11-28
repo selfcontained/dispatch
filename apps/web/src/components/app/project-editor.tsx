@@ -97,8 +97,14 @@ export function ProjectEditor({
       api(
         `/api/v1/projects/icon-preview?${new URLSearchParams(project ? { projectId: project.id } : { repoRoot: previewRoot })}`
       ),
-    enabled: source === "folder" && !!previewRoot.trim(),
+    enabled: Boolean(project) || (source === "folder" && !!previewRoot.trim()),
     staleTime: 0,
+  });
+  const savedRepository = useQuery({
+    queryKey: ["project-repository", project?.id],
+    enabled: Boolean(project && !project.repoRoot),
+    queryFn: () =>
+      api<{ url: string | null }>(`/api/v1/projects/${project!.id}/repository`),
   });
   const iconSrc =
     icon ??
@@ -217,12 +223,14 @@ export function ProjectEditor({
                 </>
               ) : project ? (
                 <div className="space-y-1.5">
-                  <p className="text-body-sm font-medium">Folder</p>
+                  <p className="text-body-sm font-medium">
+                    {repoRoot ? "Folder" : "Repository"}
+                  </p>
                   <p
-                    title={repoRoot}
-                    className="truncate text-body-sm text-muted-foreground"
+                    title={repoRoot || savedRepository.data?.url || undefined}
+                    className="h-5 truncate text-body-sm text-muted-foreground"
                   >
-                    {repoRoot}
+                    {repoRoot || savedRepository.data?.url}
                   </p>
                 </div>
               ) : (
@@ -277,12 +285,23 @@ export function ProjectEditor({
                             : preview.isError
                               ? "Couldn’t load the icon"
                               : preview.data?.dataUrl
-                                ? "From folder"
-                                : "No folder icon"}
+                                ? project && !repoRoot
+                                  ? "From repository"
+                                  : "From folder"
+                                : project && !repoRoot
+                                  ? "No repository icon"
+                                  : "No folder icon"}
                       </p>
                       <Popover>
                         <PopoverTrigger asChild>
-                          <IconButton size="icon-xs" label="About folder icons">
+                          <IconButton
+                            size="icon-xs"
+                            label={
+                              project && !repoRoot
+                                ? "About repository icons"
+                                : "About folder icons"
+                            }
+                          >
                             <Info />
                           </IconButton>
                         </PopoverTrigger>
@@ -291,8 +310,8 @@ export function ProjectEditor({
                           side="top"
                         >
                           Add .dispatch/logo.svg or .dispatch/logo.png to the
-                          folder to use it automatically. Upload an image to
-                          override it.
+                          {project && !repoRoot ? "repository" : "folder"} to
+                          use it automatically. Upload an image to override it.
                           {preview.data?.path && (
                             <p className="mt-2 break-all text-muted-foreground">
                               {preview.data.path}

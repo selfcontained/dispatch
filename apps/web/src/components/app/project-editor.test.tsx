@@ -48,11 +48,14 @@ vi.mock("./create-agent-dialog-utils", () => ({
   useCwdHistory: () => ({ history: [] }),
 }));
 vi.mock("@/lib/api", () => ({
-  api: async () => ({
-    dataUrl: "data:image/png;base64,logo",
-    path: null,
-    source: "repository",
-  }),
+  api: async (url: string) =>
+    url.endsWith("/repository")
+      ? { url: "https://github.com/org/project" }
+      : {
+          dataUrl: "data:image/png;base64,logo",
+          path: null,
+          source: "repository",
+        },
 }));
 vi.mock("./project-logo-color", () => ({
   readProjectLogoColors: vi.fn(() => ["#ec3b80", "#00918c"]),
@@ -160,5 +163,28 @@ it("creates a project from a repository URL on a chosen runner", async () => {
   expect(mutateRepository).toHaveBeenCalledWith(
     expect.objectContaining({ name: "new-repo", repository: url }),
     expect.anything()
+  );
+});
+
+it("edits a repository-only project's identity with its repository and icon preview", async () => {
+  mount({
+    id: "repository-project",
+    name: "Repository project",
+    repoRoot: null,
+    extraRoots: [],
+    color: "#74b85c",
+    iconOverride: null,
+    createdAt: "2026-01-01",
+    updatedAt: "2026-01-01",
+  });
+  expect(screen.getByText("Repository", { exact: true })).toBeTruthy();
+  expect(
+    await screen.findByText("https://github.com/org/project")
+  ).toBeTruthy();
+  expect(await screen.findByAltText("Project icon preview")).toBeTruthy();
+  expect(screen.queryByText("Folder", { exact: true })).toBeNull();
+  expect(screen.getByRole("button", { name: "Save changes" })).toHaveProperty(
+    "disabled",
+    false
   );
 });

@@ -279,7 +279,11 @@ export function registerCrudTools(
 ): void {
   const { defaultCwd, callbacks } = opts;
 
-  function resolveDir(value: string | undefined): string {
+  function resolveDir(
+    value: string | undefined,
+    projectId?: string | null
+  ): string {
+    if (projectId && !value?.trim()) return "";
     const dir = value?.trim() || defaultCwd?.trim();
     if (!dir) throw new Error("directory is required.");
     return dir;
@@ -489,7 +493,7 @@ export function registerCrudTools(
           const result = await callbacks.createJob(
             {
               ...jobArgs,
-              directory: resolveDir(args.directory),
+              directory: resolveDir(args.directory, args.projectId),
               continuationEnabled: loopEnabled,
               maxIterations: maxRuns,
               completionCriteria: normalizeLoopItems(doneWhen),
@@ -528,7 +532,6 @@ export function registerCrudTools(
           directory: z
             .string()
             .trim()
-            .min(1)
             .optional()
             .describe("New working directory. Does not move files."),
           projectId: z
@@ -643,9 +646,7 @@ export function registerCrudTools(
           const result = await callbacks.updateJob({
             ...jobArgs,
             directory:
-              args.directory === undefined
-                ? undefined
-                : resolveDir(args.directory),
+              args.directory === undefined ? undefined : args.directory.trim(),
             continuationEnabled: loopEnabled,
             maxIterations: maxRuns,
             completionCriteria: normalizeLoopItems(doneWhen),
@@ -870,7 +871,7 @@ export function registerCrudTools(
           const result = await callbacks.createTemplate(
             {
               ...args,
-              directory: resolveDir(args.directory),
+              directory: resolveDir(args.directory, args.projectId),
             },
             !args.directory?.trim()
           );

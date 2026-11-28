@@ -107,7 +107,7 @@ export class TemplateService {
       projectId: input.projectId,
       projectRoot,
     });
-    if (input.directory === "" && (target.directory !== "" || !input.projectId))
+    if (input.directory === "" && !input.projectId)
       throw new Error("Template directory is required.");
     if (input.persona)
       await resolvePersona(
@@ -213,7 +213,7 @@ export class TemplateService {
       projectId,
       projectRoot,
     });
-    if (input.directory === "" && (target.directory !== "" || !projectId))
+    if (input.directory === "" && !projectId)
       throw new Error("Template directory is required.");
     const targetChanged =
       Boolean(input.directory) ||

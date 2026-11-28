@@ -748,10 +748,6 @@ export class TaskService {
       throw invalid(RESTRICTED_LAUNCH_REASON);
     if (template.persona) {
       const placement = targetPlacement(template);
-      const project =
-        template.projectId && !sameRunner(placement, controllerPlacement)
-          ? await this.projects.get(template.projectId)
-          : null;
       await resolvePersona(
         this.deps.personaScope({
           placement,

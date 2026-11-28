@@ -8,11 +8,7 @@ import { parseInput } from "../shared/lib/parse-input.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import type { PublishUiEvent } from "../server/ui-events.js";
 
-const directoryField = z
-  .string()
-  .trim()
-  .min(1, "Job directory is required.")
-  .transform(resolveTilde);
+const directoryField = z.string().trim().transform(resolveTilde);
 const JobIdentitySchema = z.object({
   jobId: z.string().min(1, "Job ID is required."),
 });
@@ -20,7 +16,7 @@ const RunJobBodySchema = JobIdentitySchema.extend({
   wait: z.boolean().optional(),
 });
 const JobEnableDisableBodySchema = JobIdentitySchema;
-const AddJobBodySchema = z.object({
+const JobBodySchema = z.object({
   name: z.string().trim().min(1, "Job name is required."),
   directory: directoryField,
   runner: z.string().min(1).optional(),
@@ -50,7 +46,11 @@ const AddJobBodySchema = z.object({
   completionCriteria: z.array(z.string().trim().min(1)).nullable().optional(),
   recoveryInstructions: z.string().nullable().optional(),
 });
-const UpdateJobBodySchema = AddJobBodySchema.omit({ displayName: true })
+const AddJobBodySchema = JobBodySchema.refine(
+  (input) => Boolean(input.directory || input.projectId),
+  { message: "Job directory is required.", path: ["directory"] }
+);
+const UpdateJobBodySchema = JobBodySchema.omit({ displayName: true })
   .partial()
   .extend(JobIdentitySchema.shape);
 const JobHistoryParamsSchema = JobIdentitySchema.extend({
@@ -93,7 +93,11 @@ export async function registerJobRoutes(
     } catch (error) {
       const message = errorMessage(error);
       return reply
-        .code(/effort|is turned off for/i.test(message) ? 400 : 500)
+        .code(
+          /effort|is turned off for|Job directory is required/i.test(message)
+            ? 400
+            : 500
+        )
         .send({ error: message });
     }
   });
@@ -108,7 +112,11 @@ export async function registerJobRoutes(
     } catch (error) {
       const message = errorMessage(error);
       return reply
-        .code(/effort|is turned off for/i.test(message) ? 400 : 500)
+        .code(
+          /effort|is turned off for|Job directory is required/i.test(message)
+            ? 400
+            : 500
+        )
         .send({ error: message });
     }
   });
