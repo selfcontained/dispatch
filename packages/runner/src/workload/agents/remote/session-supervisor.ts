@@ -229,6 +229,8 @@ type SupervisorOptions = {
     agentId: string
   ) => Promise<Res<"workspace.resume">>;
   removePreparedCheckout?: (session: string) => Promise<boolean>;
+  /** Preparation metadata only, after the checkout decision has completed. */
+  forgetPreparedCheckout?: (session: string) => Promise<void>;
   /**
    * The runner core's binding store, told after this supervisor changed a
    * session's binding files, so it records them.
@@ -598,6 +600,27 @@ export async function createSessionSupervisor(
       entry.gid === config.gid &&
       (entry.mode & 0o777) === checkoutAncestorMode
     );
+  }
+
+  /** The session's metadata, independently of whether its checkout was kept. */
+  async function forgetSessionBinding(key: string, agentId: string) {
+    for (const file of [
+      repositoryFile(key),
+      planFile(key),
+      dependenciesFile(key),
+      cwdFile(key),
+      selectedFile(key),
+      borrowedFile(key),
+      borrowedFromFile(key),
+      launchFile(key),
+      path.join(bindings, key),
+    ])
+      await rm(file, { force: true });
+    await syncBindings();
+    await recordBinding(agentId);
+    // Last: a failed metadata removal is retryable through session.retire,
+    // including after its active binding has already gone.
+    await config.forgetPreparedCheckout?.(agentId);
   }
 
   async function managedDirectory(key: string) {
@@ -1235,20 +1258,7 @@ export async function createSessionSupervisor(
         await cleanLegacyHost(key);
         await removeGuestDirectory(path.join(hostRoot, key));
         await core.removeLog(key);
-        for (const file of [
-          repositoryFile(key),
-          planFile(key),
-          dependenciesFile(key),
-          cwdFile(key),
-          selectedFile(key),
-          borrowedFile(key),
-          borrowedFromFile(key),
-          launchFile(key),
-          path.join(bindings, key),
-        ])
-          await rm(file, { force: true });
-        await syncBindings();
-        await recordBinding(agentId);
+        await forgetSessionBinding(key, agentId);
         return true;
       });
     },
@@ -1503,12 +1513,12 @@ export async function createSessionSupervisor(
         await removeGuestDirectory(dir);
         await core.removeLaunch(key);
         if (checkoutPending) return;
-        await rm(selectedFile(key), { force: true });
-        await rm(borrowedFile(key), { force: true });
-        await rm(borrowedFromFile(key), { force: true });
-        await rm(path.join(bindings, key), { force: true });
-        await syncBindings();
-        await recordBinding(agentId);
+        if ((await checkoutBorrowers(key)).length)
+          throw new RunnerCallError({
+            code: "busy",
+            message: "Runner checkout is still in use by a borrower.",
+          });
+        await forgetSessionBinding(key, agentId);
       });
     },
     async log(agentId: string, lines?: number) {

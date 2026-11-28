@@ -359,6 +359,7 @@ type WorkspacePreparationFactory = (options: {
     bindingWritten(session: string): Promise<void>;
     hasReceipt(session: string): Promise<boolean>;
     remove(session: string): Promise<boolean>;
+    forget?(session: string): Promise<void>;
     /** A repository's cached clone, as a launch from that repository uses it. */
     repositoryClone?(url: string): Promise<string>;
   }
@@ -658,6 +659,8 @@ export async function runRemoteRunner(
     },
     removePreparedCheckout: (session) =>
       workspacePreparation?.remove(session) ?? Promise.resolve(false),
+    forgetPreparedCheckout: (session) =>
+      workspacePreparation?.forget?.(session) ?? Promise.resolve(),
     bindingWritten: (agentId) =>
       workspacePreparation?.bindingWritten(agentId) ?? Promise.resolve(),
   });
