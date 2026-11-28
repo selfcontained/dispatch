@@ -1,339 +1,219 @@
 [
   {
     "lane": "local",
-    "scenario": "runner.health/pending",
-    "task": "L1",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
-    "scenario": "terminal.open/pending",
-    "task": "T21",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
-    "scenario": "workspace.prepare/pending",
-    "task": "T18",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
-    "scenario": "workspace.resume/pending",
-    "task": "T26",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
-    "scenario": "workspace.describe/pending",
-    "task": "T16",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
-    "scenario": "workspace.select/pending",
-    "task": "T16",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
-    "scenario": "workspace.observe/pending",
-    "task": "T16",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
-    "scenario": "workspace.release/pending",
-    "task": "T20",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
-    "scenario": "path.resolve/pending",
-    "task": "T17",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
-    "scenario": "path.complete/pending",
-    "task": "T17",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
-    "scenario": "checkout.list/pending",
-    "task": "T09",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
-    "scenario": "checkout.read/pending",
-    "task": "T09",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
-    "scenario": "checkout.write/pending",
-    "task": "T35",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
-    "scenario": "checkout.preview/pending",
-    "task": "T09",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
-    "scenario": "checkout.index/pending",
-    "task": "T09",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
-    "scenario": "checkout.stats/pending",
-    "task": "T09",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
-    "scenario": "checkout.diff/pending",
-    "task": "T09",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
-    "scenario": "checkout.image/pending",
-    "task": "T09",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
-    "scenario": "checkout.changes/pending",
-    "task": "T09",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
-    "scenario": "checkout.defaultFiles/pending",
-    "task": "T09",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
-    "scenario": "checkout.watch/pending",
-    "task": "T09",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
-    "scenario": "files.put/pending",
-    "task": "T12",
-    "reason": "the local child takes a file in place; files.put/bytes sends bytes for a new path and reads them back with files.get"
-  },
-  {
-    "lane": "local",
     "scenario": "files.get/bytes",
     "task": "T11",
     "reason": "no byte-return frame on the local socket: files.get stays in process"
   },
   {
     "lane": "local",
-    "scenario": "git.context/pending",
-    "task": "T15",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
-    "scenario": "git.defaultBranch/pending",
-    "task": "T16",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
-    "scenario": "git.branches/pending",
-    "task": "T16",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
-    "scenario": "git.base/pending",
-    "task": "T16",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
     "scenario": "github.account/pending",
     "task": "T32",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for github.account; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "github.login.start/pending",
     "task": "T32",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for github.login.start; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "github.login.cancel/pending",
     "task": "T32",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for github.login.cancel; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "github.logout/pending",
     "task": "T32",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for github.logout; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "github.repositories/pending",
     "task": "T32",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for github.repositories; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "github.branches/pending",
     "task": "T32",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for github.branches; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "github.pr.head/pending",
     "task": "T40",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for github.pr.head; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "github.pr.status/pending",
     "task": "T32",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for github.pr.status; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "github.pr.details/pending",
     "task": "T33",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for github.pr.details; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "github.pr.diff/pending",
     "task": "T33",
-    "reason": "no local runner child yet"
-  },
-  {
-    "lane": "local",
-    "scenario": "engine.list/pending",
-    "task": "T28",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for github.pr.diff; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.install/pending",
     "task": "T29",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for engine.install; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.update/pending",
     "task": "T29",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for engine.update; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.operation/pending",
     "task": "T29",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for engine.operation; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.login.start/pending",
     "task": "T28",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for engine.login.start; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.login.submit/pending",
     "task": "T28",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for engine.login.submit; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.login.status/pending",
     "task": "T28",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for engine.login.status; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.login.cancel/pending",
     "task": "T28",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for engine.login.cancel; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.models/pending",
     "task": "T30",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for engine.models; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.usage/pending",
     "task": "T31",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for engine.usage; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.quota.reset/pending",
     "task": "T31",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for engine.quota.reset; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.plugin.status/pending",
     "task": "T29",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for engine.plugin.status; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.plugin.apply/pending",
     "task": "T29",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for engine.plugin.apply; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "port.connect/pending",
     "task": "T39",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for port.connect; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "update.offer/pending",
     "task": "L3",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for update.offer; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "update.fence/pending",
     "task": "L3",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for update.fence; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "update.activate/pending",
     "task": "L3",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for update.activate; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "update.confirm/pending",
     "task": "L3",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for update.confirm; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "update.cancel/pending",
     "task": "L3",
-    "reason": "no local runner child yet"
+    "reason": "No executable scenario exists on either lane for update.cancel; /pending fails before calling the runner."
+  },
+  {
+    "lane": "local",
+    "scenario": "git.base/fallback",
+    "task": "T16",
+    "reason": "Local child does not register git.base; real child returns unsupported."
+  },
+  {
+    "lane": "local",
+    "scenario": "terminal.open/interactive",
+    "task": "T21",
+    "reason": "Local terminal handler requires target.path and does not resolve contract target.session; real child returns Invalid native terminal binding."
+  },
+  {
+    "lane": "local",
+    "scenario": "files.put/bytes",
+    "task": "T12",
+    "reason": "Local files.put waits for an out-of-band blob path; contract inline bytes never satisfy receiveBlobPath and the call times out."
+  },
+  {
+    "lane": "local",
+    "scenario": "engine.update.inspect/pending",
+    "task": "T29",
+    "reason": "No executable scenario exists on either lane for engine.update.inspect; /pending fails before calling the runner."
+  },
+  {
+    "lane": "local",
+    "scenario": "engine.update.spawn/pending",
+    "task": "T29",
+    "reason": "No executable scenario exists on either lane for engine.update.spawn; /pending fails before calling the runner."
+  },
+  {
+    "lane": "local",
+    "scenario": "engine.update.release/pending",
+    "task": "T29",
+    "reason": "No executable scenario exists on either lane for engine.update.release; /pending fails before calling the runner."
+  },
+  {
+    "lane": "local",
+    "scenario": "engine.update.probe/pending",
+    "task": "T29",
+    "reason": "No executable scenario exists on either lane for engine.update.probe; /pending fails before calling the runner."
   },
   {
     "lane": "remote",
@@ -385,39 +265,39 @@
   },
   {
     "lane": "remote",
-    "scenario": "workspace.describe/pending",
+    "scenario": "workspace.describe/binding-and-missing",
     "task": "T16",
-    "reason": "scenario not written yet"
+    "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
   },
   {
     "lane": "remote",
-    "scenario": "workspace.select/pending",
+    "scenario": "workspace.select/move-and-reset",
     "task": "T16",
-    "reason": "scenario not written yet"
+    "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
   },
   {
     "lane": "remote",
-    "scenario": "path.resolve/pending",
+    "scenario": "path.resolve/existing-and-missing",
     "task": "T17",
-    "reason": "scenario not written yet"
+    "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
   },
   {
     "lane": "remote",
-    "scenario": "path.complete/pending",
+    "scenario": "path.complete/prefix-and-limit",
     "task": "T17",
-    "reason": "not on wire v1: controller-machine probe today (D7)"
+    "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
   },
   {
     "lane": "remote",
-    "scenario": "checkout.write/pending",
+    "scenario": "checkout.write/create-update-and-stale",
     "task": "T35",
-    "reason": "not on wire v1: local-only today (persona authoring)"
+    "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
   },
   {
     "lane": "remote",
-    "scenario": "git.context/pending",
+    "scenario": "git.context/bound-checkout",
     "task": "T15",
-    "reason": "not on wire v1: local probe today; v1 roots and sessionCheckout carry parts"
+    "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
   },
   {
     "lane": "remote",
@@ -481,9 +361,9 @@
   },
   {
     "lane": "remote",
-    "scenario": "engine.list/pending",
+    "scenario": "engine.list/presence-only",
     "task": "T28",
-    "reason": "scenario not written yet"
+    "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
   },
   {
     "lane": "remote",
@@ -592,5 +472,35 @@
     "scenario": "update.cancel/pending",
     "task": "L3",
     "reason": "scenario not written yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "workspace.prepare/repository",
+    "task": "T18",
+    "reason": "Local session.discard removes host state but leaves its managed checkout; the shared preparation scenario verifies discard removes the owned worktree."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.access/present-and-missing",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "git.roots/bound-and-checkout-only",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "git.origin/no-remote",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "git.remoteHeads/local-bare",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
   }
 ]

@@ -37,6 +37,9 @@ export type LaneFixture = {
   workspace?: {
     runner: Runner;
     repository: string;
+    selectionDirectory?: string;
+    /** Remote's fixed-directory fixture disables repository resume; local enables it. */
+    configuredResume?: "empty" | "unsupported";
     interrupt(session: SessionHandle): Promise<void>;
     proveIsolation(session: SessionHandle, path: string): Promise<void>;
     proveRelease(
@@ -486,8 +489,7 @@ export const scenarios: readonly Scenario[] = [
     .map(pending),
 ];
 
-// These replace the T09 pending cases on the Linux lane. The local lane
-// retains its existing baseline until it has its own fixture.
+// Portable checkout scenarios shared by the local and enrolled child lanes.
 const readPath = "checkout-reads/content.txt";
 const readText = "workload café\n".repeat(24_000);
 const checkoutReads: Scenario[] = [
@@ -911,10 +913,16 @@ const workspacePreparation: Scenario[] = [
       expect(workspace, "Missing managed runner fixture.");
       const { runner, repository } = workspace;
       const session = sessionFromWire("prepare-new");
-      await rejectsWith(
-        configured.call("workspace.resume", { session }),
-        "unsupported"
-      );
+      if (workspace.configuredResume === "empty")
+        expect(
+          (await configured.call("workspace.resume", { session })) === null,
+          "An unknown configured session unexpectedly resumed."
+        );
+      else
+        await rejectsWith(
+          configured.call("workspace.resume", { session }),
+          "unsupported"
+        );
       const request = {
         session,
         source: { repository, checkout: { kind: "new", branch: "feature" } },
@@ -1102,10 +1110,313 @@ const workspaceRelease: Scenario = {
   },
 };
 
+/** Offline contract checks: all paths and repositories come from the lane. */
+const offlineScenarios: readonly Scenario[] = [
+  {
+    op: "workspace.describe",
+    id: "workspace.describe/binding-and-missing",
+    async run({ runner, session }) {
+      const binding = await runner.call("workspace.describe", { session });
+      expect(
+        displayPath(binding.path).startsWith("/"),
+        "Binding path must be absolute."
+      );
+      expect(
+        !binding.moved && binding.origin === null,
+        "Unexpected initial checkout binding."
+      );
+      await rejectsWith(
+        runner.call("workspace.describe", { session: UNKNOWN_SESSION }),
+        "not_found"
+      );
+    },
+  },
+  {
+    op: "workspace.select",
+    id: "workspace.select/move-and-reset",
+    async run({ runner, session, seed, workspace }) {
+      const before = await runner.call("workspace.describe", { session });
+      await seed("offline/nested/file.txt", "nested");
+      const selected = await runner.call("workspace.select", {
+        session,
+        path: pathFromWire(displayPath(before.path) + "/offline/nested"),
+      });
+      expect(
+        selected.path === before.path && !selected.moved,
+        "Selecting a Git subdirectory must select its checkout root."
+      );
+      await rejectsWith(
+        runner.call("workspace.select", {
+          session,
+          path: pathFromWire(displayPath(before.path) + "/offline/missing"),
+        }),
+        "invalid"
+      );
+      expect(
+        workspace?.selectionDirectory,
+        "Missing workspace selection fixture."
+      );
+      try {
+        const moved = await runner.call("workspace.select", {
+          session,
+          path: pathFromWire(workspace.selectionDirectory),
+        });
+        expect(
+          moved.moved &&
+            displayPath(moved.path) === workspace.selectionDirectory,
+          "Selecting another directory did not move the session."
+        );
+        const described = await runner.call("workspace.describe", { session });
+        expect(
+          described.path === moved.path && described.moved,
+          "Selection was not retained in its binding."
+        );
+      } finally {
+        await runner.call("workspace.select", { session, path: null });
+      }
+      const reset = await runner.call("workspace.select", {
+        session,
+        path: null,
+      });
+      expect(
+        reset.path === before.path && !reset.moved,
+        "Reset changed the original checkout."
+      );
+    },
+  },
+  {
+    op: "path.resolve",
+    id: "path.resolve/existing-and-missing",
+    async run({ runner, session }) {
+      const binding = await runner.call("workspace.describe", { session });
+      const path = displayPath(binding.path);
+      const resolved = await runner.call("path.resolve", {
+        path,
+        git: false,
+        canonical: [path, path + "/offline/missing"],
+      });
+      expect(
+        resolved.exists &&
+          resolved.isDirectory &&
+          resolved.canonicalPath === binding.path &&
+          resolved.git === null,
+        "Path resolution lost directory identity or ignored git:false."
+      );
+      expect(
+        resolved.canonical?.[0] === binding.path &&
+          resolved.canonical[1] === null,
+        "Canonical results must retain request order and missing paths."
+      );
+      const missing = await runner.call("path.resolve", {
+        path: path + "/offline/missing",
+        git: false,
+      });
+      expect(
+        !missing.exists &&
+          !missing.isDirectory &&
+          missing.canonicalPath === null,
+        "Missing path resolved as present."
+      );
+    },
+  },
+  {
+    op: "path.complete",
+    id: "path.complete/prefix-and-limit",
+    async run({ runner, session, seed }) {
+      await seed("offline/completion/alpha/file", "a");
+      await seed("offline/completion/alpine/file", "b");
+      const binding = await runner.call("workspace.describe", { session });
+      const prefix = displayPath(binding.path) + "/offline/completion/al";
+      const all = await runner.call("path.complete", { prefix, limit: 20 });
+      expect(
+        all.completions.includes(prefix + "pha") &&
+          all.completions.includes(prefix + "pine"),
+        "Completion missed matching directories."
+      );
+      const limited = await runner.call("path.complete", { prefix, limit: 1 });
+      expect(
+        limited.completions.length === 1 &&
+          all.completions.includes(limited.completions[0]!),
+        "Completion did not honor its limit."
+      );
+    },
+  },
+  {
+    op: "checkout.access",
+    id: "checkout.access/present-and-missing",
+    async run({ runner, session, seed }) {
+      await seed("offline/access.txt", "access");
+      expect(
+        await runner.call("checkout.access", {
+          target: { session },
+          path: "offline/access.txt",
+        }),
+        "Existing file was inaccessible."
+      );
+      expect(
+        !(await runner.call("checkout.access", {
+          target: { session },
+          path: "offline/missing.txt",
+        })),
+        "Missing file was accessible."
+      );
+    },
+  },
+  {
+    op: "checkout.write",
+    id: "checkout.write/create-update-and-stale",
+    async run({ runner, session }) {
+      const target = { session };
+      const path = "offline/written.txt";
+      const data = "created café\n";
+      const created = await runner.call("checkout.write", {
+        target,
+        path,
+        data,
+        expectedDigest: null,
+      });
+      expect(
+        created.digest === createHash("sha256").update(data).digest("hex"),
+        "Write digest differs from bytes."
+      );
+      const updated = await runner.call("checkout.write", {
+        target,
+        path,
+        data: "updated\n",
+        expectedDigest: created.digest,
+      });
+      await rejectsWith(
+        runner.call("checkout.write", {
+          target,
+          path,
+          data: "stale\n",
+          expectedDigest: created.digest,
+        }),
+        "stale"
+      );
+      const read = await runner.call("checkout.read", {
+        target,
+        path,
+        encoding: "utf8",
+        maxBytes: null,
+      });
+      expect(
+        read?.data === "updated\n" && read.digest === updated.digest,
+        "Stale write changed committed content."
+      );
+      await rejectsWith(
+        runner.call("checkout.write", {
+          target,
+          path: "../escape.txt",
+          data: "escape",
+          expectedDigest: null,
+        }),
+        "forbidden"
+      );
+    },
+  },
+  {
+    op: "git.context",
+    id: "git.context/bound-checkout",
+    async run({ runner, session }) {
+      const binding = await runner.call("workspace.describe", { session });
+      const context = await runner.call("git.context", { target: { session } });
+      expect(
+        context?.branch === "main" &&
+          context.worktreePath === binding.path &&
+          !context.isWorktree,
+        "Git context differs from bound primary checkout."
+      );
+    },
+  },
+  {
+    op: "git.roots",
+    id: "git.roots/bound-and-checkout-only",
+    async run({ runner, session }) {
+      const binding = await runner.call("workspace.describe", { session });
+      const roots = await runner.call("git.roots", { target: { session } });
+      expect(
+        roots.checkoutRoot === binding.path &&
+          roots.repositoryRoot === binding.path,
+        "Git roots differ from primary checkout."
+      );
+      const checkout = await runner.call("git.roots", {
+        target: { session },
+        checkoutOnly: true,
+      });
+      expect(
+        checkout.checkoutRoot === binding.path,
+        "Independent checkout probe lost checkout root."
+      );
+    },
+  },
+  {
+    op: "git.origin",
+    id: "git.origin/no-remote",
+    async run({ runner, session }) {
+      const binding = await runner.call("workspace.describe", { session });
+      expect(
+        (await runner.call("git.origin", { path: displayPath(binding.path) }))
+          .url === null,
+        "Origin appeared on a checkout without a remote."
+      );
+    },
+  },
+  {
+    op: "git.remoteHeads",
+    id: "git.remoteHeads/local-bare",
+    async run({ runner, workspace }) {
+      expect(workspace, "Missing offline repository fixture.");
+      const querySession = sessionFromWire("remote-heads-query");
+      const prepared = await workspace.runner.call("workspace.prepare", {
+        session: querySession,
+        source: {
+          repository: workspace.repository,
+          checkout: { kind: "new", branch: "remote-heads-query" },
+        },
+        copyIgnored: [],
+        installDependencies: false,
+      });
+      const { branches } = await runner.call("git.remoteHeads", {
+        path: displayPath(prepared.path),
+      });
+      expect(
+        branches.includes("main") && new Set(branches).size === branches.length,
+        "Bare repository heads were missing or duplicated."
+      );
+    },
+  },
+  {
+    op: "engine.list",
+    id: "engine.list/presence-only",
+    async run({ runner }) {
+      const { entries } = await runner.call("engine.list", {
+        refresh: false,
+        include: [],
+      });
+      expect(
+        entries.length > 0 &&
+          new Set(entries.map((row) => row.id)).size === entries.length,
+        "Engine inventory is empty or duplicated."
+      );
+      expect(
+        entries.every(
+          (row) =>
+            row.version === null &&
+            row.signedIn === null &&
+            row.actions.length === 0
+        ),
+        "Presence-only inventory probed excluded details."
+      );
+    },
+  },
+];
+
 export const remoteScenarios: readonly Scenario[] = [
   workspaceRelease,
   workspaceObserveOwnership,
   ...checkoutReads,
+  ...offlineScenarios,
   ...runnerGitQueries,
   ...workspacePreparation,
   interactiveTerminal,
@@ -1118,6 +1429,19 @@ export const remoteScenarios: readonly Scenario[] = [
       op !== workspaceObserveOwnership.op &&
       !runnerGitQueries.some((scenario) => scenario.op === op) &&
       !checkoutReads.some((scenario) => scenario.op === op) &&
-      !workspacePreparation.some((scenario) => scenario.op === op)
+      !workspacePreparation.some((scenario) => scenario.op === op) &&
+      !offlineScenarios.some((scenario) => scenario.op === op)
   ),
+];
+
+/** Every executable remote scenario also runs against the real local child. */
+export const localScenarios: readonly Scenario[] = [
+  {
+    id: "runner.health/success",
+    op: "runner.health",
+    async run({ runner }) {
+      await runner.call("runner.health", {});
+    },
+  },
+  ...remoteScenarios.filter(({ op }) => op !== "runner.health"),
 ];

@@ -9,7 +9,11 @@ import {
 } from "@dispatch/runner-protocol/contract";
 import { checked, ContractViolation } from "../src/checked.js";
 import { compareBaseline, readBaseline, type Result } from "../src/run.js";
-import { scenarios } from "../src/scenarios.js";
+import {
+  localScenarios,
+  remoteScenarios,
+  scenarios,
+} from "../src/scenarios.js";
 
 const baseline = readBaseline();
 
@@ -21,7 +25,11 @@ describe("coverage", () => {
   });
 
   it("names a task for every red entry and lists each once", () => {
-    const ids = new Set(scenarios.map((scenario) => scenario.id));
+    const ids = new Set(
+      [...scenarios, ...localScenarios, ...remoteScenarios].map(
+        (scenario) => scenario.id
+      )
+    );
     const seen = new Set<string>();
     for (const entry of baseline) {
       expect(["local", "remote", "adapter"]).toContain(entry.lane);
@@ -32,6 +40,95 @@ describe("coverage", () => {
       expect(seen.has(key), key).toBe(false);
       seen.add(key);
     }
+  });
+});
+
+describe("local coverage", () => {
+  it("shares every requested offline operation and keeps credentialed operations pending", () => {
+    for (const op of [
+      "workspace.prepare",
+      "workspace.resume",
+      "workspace.describe",
+      "workspace.select",
+      "workspace.observe",
+      "workspace.release",
+      "path.resolve",
+      "path.complete",
+      "checkout.write",
+      "checkout.access",
+      "git.context",
+      "git.branches",
+      "git.roots",
+      "git.origin",
+      "git.remoteHeads",
+      "engine.list",
+    ]) {
+      const local = localScenarios.filter(
+        (s) => s.op === op && !s.id.endsWith("/pending")
+      );
+      expect(local.length, op).toBeGreaterThan(0);
+      for (const scenario of local)
+        expect(remoteScenarios.includes(scenario), scenario.id).toBe(true);
+    }
+    for (const op of [
+      "github.account",
+      "github.login.start",
+      "github.logout",
+      "engine.login.start",
+      "engine.update",
+      "port.connect",
+      "update.offer",
+    ])
+      expect(
+        localScenarios
+          .filter((s) => s.op === op)
+          .every((s) => s.id.endsWith("/pending")),
+        op
+      ).toBe(true);
+  });
+
+  it("runs every executable remote scenario locally and leaves only shared coverage gaps", () => {
+    const ids = new Set(localScenarios.map(({ id }) => id));
+    for (const scenario of remoteScenarios.filter(
+      ({ id }) => !id.endsWith("/pending")
+    ))
+      expect(ids.has(scenario.id), scenario.id).toBe(true);
+    for (const scenario of localScenarios.filter(({ id }) =>
+      id.endsWith("/pending")
+    )) {
+      expect(
+        remoteScenarios.some(
+          ({ op, id }) => op === scenario.op && !id.endsWith("/pending")
+        ),
+        scenario.id
+      ).toBe(false);
+      expect(
+        baseline.find(
+          ({ lane, scenario: id }) => lane === "local" && id === scenario.id
+        )?.reason
+      ).toContain("No executable scenario exists on either lane");
+    }
+  });
+
+  it("runs portable checkout, terminal and transfer scenarios rather than placeholders", () => {
+    const ids = new Set(localScenarios.map(({ id }) => id));
+    for (const id of [
+      "checkout.read/large",
+      "checkout.read/bytes",
+      "checkout.list/entries",
+      "terminal.open/interactive",
+      "files.put/bytes",
+      "git.defaultBranch/checkout-path",
+      "git.base/fallback",
+      "runner.health/success",
+    ])
+      expect(ids.has(id), id).toBe(true);
+    expect(
+      baseline.filter(
+        ({ lane, reason }) =>
+          lane === "local" && reason === "no local runner child yet"
+      )
+    ).toEqual([]);
   });
 });
 
