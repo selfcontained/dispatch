@@ -2,6 +2,12 @@ import { useQuery } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 
+import type { EngineScope } from "@dispatch/runner-protocol/engine-management";
+import { LOCAL_ENGINE_SCOPE, engineScopeQuery } from "@/lib/engine-management";
+
+export const engineStatusKey = (scope: EngineScope) =>
+  ["engine-status", engineScopeQuery(scope)] as const;
+
 export type EngineUpdateOperation = {
   id: string;
   engineId: string;
@@ -44,15 +50,19 @@ export type EngineStatus = {
   };
 };
 
-export function useEngines(enabled = true): {
+export function useEngines(
+  enabled = true,
+  scope: EngineScope = LOCAL_ENGINE_SCOPE
+): {
   engines: EngineStatus[];
   /** Absent while the check is in flight, so nothing reads as missing yet. */
   loaded: boolean;
 } {
   const { data } = useQuery<{ engines: EngineStatus[] }>({
-    queryKey: ["system-engines"],
+    queryKey: engineStatusKey(scope),
     enabled,
-    queryFn: () => api("/api/v1/system/engines"),
+    queryFn: () =>
+      api(`/api/v1/engine-management/status?${engineScopeQuery(scope)}`),
     staleTime: 60_000,
   });
   return { engines: data?.engines ?? [], loaded: data !== undefined };

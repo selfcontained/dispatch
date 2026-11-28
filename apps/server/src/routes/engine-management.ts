@@ -4,7 +4,7 @@ import {
   isEngineCapabilityOperation,
   isEngineOperation,
 } from "@dispatch/runner-protocol/engine-management";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import * as z from "zod/v4";
 
 import {
@@ -86,8 +86,41 @@ const currentLoginSchema = z.object({
 export async function registerEngineManagementRoutes(
   app: FastifyInstance,
   manager: EngineManager,
-  options: { enabledAgentTypes?: () => Promise<readonly string[]> } = {}
+  options: {
+    enabledAgentTypes?: () => Promise<readonly string[]>;
+    canManageEngineUpdates?: (request: FastifyRequest) => Promise<boolean>;
+  } = {}
 ): Promise<void> {
+  app.get("/api/v1/engine-management/status", async (request, reply) => {
+    const scope = parseScopeQuery(request.query);
+    if (!scope)
+      return reply.code(400).send({ error: "Invalid or missing scope." });
+    return {
+      engines: await manager.presentation(scope),
+      canManage: (await options.canManageEngineUpdates?.(request)) ?? false,
+    };
+  });
+  app.get("/api/v1/engine-management/auth", async (request, reply) => {
+    const scope = parseScopeQuery(request.query);
+    if (!scope)
+      return reply.code(400).send({ error: "Invalid or missing scope." });
+    return { engines: await manager.signInStatus(scope) };
+  });
+  app.get("/api/v1/engine-management/plugins", async (request, reply) => {
+    const scope = parseScopeQuery(request.query);
+    if (!scope)
+      return reply.code(400).send({ error: "Invalid or missing scope." });
+    const enabled = (await options.enabledAgentTypes?.()) ?? PLUGIN_AGENT_TYPES;
+    const query = request.query as { refresh?: string };
+    return {
+      statuses: await manager.plugins(
+        scope,
+        PLUGIN_AGENT_TYPES.filter((engine) => enabled.includes(engine)),
+        query.refresh === "true" || query.refresh === "1"
+      ),
+    };
+  });
+
   app.get("/api/v1/engine-management/inventory", async (request, reply) => {
     const scope = parseScopeQuery(request.query);
     if (!scope) {

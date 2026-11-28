@@ -8,6 +8,7 @@ import type {
 } from "@dispatch/shared";
 import type {
   EngineOperation,
+  EngineScope,
   EngineOperationAck,
 } from "@dispatch/runner-protocol/engine-management";
 
@@ -25,13 +26,16 @@ export function isLoginEngine(
   return type === "claude" || type === "codex";
 }
 
-const AUTH_KEY = ["system-engines-auth"] as const;
+import { LOCAL_ENGINE_SCOPE, engineScopeQuery } from "@/lib/engine-management";
+export const engineAuthKey = (scope: EngineScope) =>
+  ["engine-auth", engineScopeQuery(scope)] as const;
 
 /** Whether each engine's CLI is signed in on the server, and as whom. */
-export function useEngineAuth() {
+export function useEngineAuth(scope: EngineScope = LOCAL_ENGINE_SCOPE) {
   return useQuery<{ engines: EngineAuthStatus[] }>({
-    queryKey: AUTH_KEY,
-    queryFn: () => api("/api/v1/system/engines/auth"),
+    queryKey: engineAuthKey(scope),
+    queryFn: () =>
+      api(`/api/v1/engine-management/auth?${engineScopeQuery(scope)}`),
     staleTime: 30_000,
   });
 }
@@ -44,12 +48,15 @@ export function isLoginActive(login: EngineLogin | null | undefined): boolean {
   );
 }
 
-export function engineLoginKey(engine: EngineLoginEngine) {
-  return ["engine-login", engine] as const;
+export function engineLoginKey(
+  engine: EngineLoginEngine,
+  scope: EngineScope = LOCAL_ENGINE_SCOPE
+) {
+  return ["engine-login", engine, engineScopeQuery(scope)] as const;
 }
 
-async function runnerLoginRequest(
-  runnerId: string,
+async function engineLoginRequest(
+  scope: EngineScope,
   engine: EngineLoginEngine,
   operation:
     | Extract<EngineOperation, { type: `login_${string}` }>
@@ -59,7 +66,7 @@ async function runnerLoginRequest(
     "/api/v1/engine-management/operations",
     {
       method: "POST",
-      body: JSON.stringify({ scope: { kind: "runner", runnerId }, operation }),
+      body: JSON.stringify({ scope, operation }),
     }
   );
   if (!ack.ok) throw new Error(ack.error);
@@ -77,25 +84,23 @@ async function runnerLoginRequest(
  * while it waits on the person. `start` gets the link (joining one under
  * way), `submitCode` hands Claude its code, `cancel` gives it up.
  */
-export function useEngineLogin(engine: EngineLoginEngine, runnerId?: string) {
+export function useEngineLogin(
+  engine: EngineLoginEngine,
+  scope: EngineScope = LOCAL_ENGINE_SCOPE
+) {
   const queryClient = useQueryClient();
-  const key = runnerId
-    ? [...engineLoginKey(engine), runnerId]
-    : engineLoginKey(engine);
+  const key = engineLoginKey(engine, scope);
   const current = useQuery<{ login: EngineLogin | null }>({
     queryKey: key,
-    ...(runnerId ? { retry: false } : {}),
+    retry: false,
     queryFn: () =>
-      runnerId
-        ? runnerLoginRequest(runnerId, engine, { type: "login_status", engine })
-        : api(`/api/v1/system/engines/${engine}/login`),
+      engineLoginRequest(scope, engine, { type: "login_status", engine }),
     refetchInterval: (query) =>
       isLoginActive(query.state.data?.login) ? 1_500 : false,
   });
   const login = current.data?.login ?? null;
   const set = async (data: { login: EngineLogin | null }) => {
-    if (runnerId)
-      await queryClient.cancelQueries({ queryKey: key, exact: true });
+    await queryClient.cancelQueries({ queryKey: key, exact: true });
     queryClient.setQueryData(key, data);
   };
   const start = useMutation<
@@ -104,16 +109,11 @@ export function useEngineLogin(engine: EngineLoginEngine, runnerId?: string) {
     { restart?: boolean }
   >({
     mutationFn: (body) =>
-      runnerId
-        ? runnerLoginRequest(runnerId, engine, {
-            type: "login_start",
-            engine,
-            ...body,
-          })
-        : api(`/api/v1/system/engines/${engine}/login`, {
-            method: "POST",
-            body: JSON.stringify(body),
-          }),
+      engineLoginRequest(scope, engine, {
+        type: "login_start",
+        engine,
+        ...body,
+      }),
     onSuccess: set,
   });
   const submitCode = useMutation<
@@ -122,40 +122,31 @@ export function useEngineLogin(engine: EngineLoginEngine, runnerId?: string) {
     { loginId: string; code: string }
   >({
     mutationFn: ({ loginId, code }) =>
-      runnerId
-        ? runnerLoginRequest(runnerId, engine, {
-            type: "login_submit",
-            loginId,
-            code,
-          })
-        : api(`/api/v1/system/engines/logins/${loginId}/code`, {
-            method: "POST",
-            body: JSON.stringify({ code }),
-          }),
+      engineLoginRequest(scope, engine, {
+        type: "login_submit",
+        loginId,
+        code,
+      }),
     onSuccess: set,
   });
   const cancel = useMutation<{ login: EngineLogin | null }, Error, string>({
     mutationFn: (loginId) =>
-      runnerId
-        ? runnerLoginRequest(runnerId, engine, {
-            type: "login_cancel",
-            loginId,
-          })
-        : api(`/api/v1/system/engines/logins/${loginId}`, { method: "DELETE" }),
+      engineLoginRequest(scope, engine, { type: "login_cancel", loginId }),
     onSuccess: set,
   });
   const succeeded = login?.status === "succeeded";
+  const runnerId = scope.kind === "runner" ? scope.runnerId : null;
   useEffect(() => {
+    const scope: EngineScope =
+      runnerId === null ? LOCAL_ENGINE_SCOPE : { kind: "runner", runnerId };
     if (succeeded) {
-      const queryKey = runnerId
-        ? runnerEnginesKey({ kind: "runner", runnerId })
-        : AUTH_KEY;
-      void queryClient.invalidateQueries({ queryKey });
+      void queryClient.invalidateQueries({ queryKey: runnerEnginesKey(scope) });
+      void queryClient.invalidateQueries({ queryKey: engineAuthKey(scope) });
     }
   }, [succeeded, queryClient, runnerId]);
   return {
     login,
-    loaded: current.data !== undefined || (!!runnerId && current.isError),
+    loaded: current.data !== undefined || current.isError,
     error: start.error ?? submitCode.error ?? cancel.error ?? null,
     starting: start.isPending,
     submitting: submitCode.isPending,

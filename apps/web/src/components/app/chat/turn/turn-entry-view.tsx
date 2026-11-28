@@ -170,10 +170,10 @@ export function TurnAnswer({
     turn.agentId === ctx.agentId
       ? ctx.agentType
       : ctx.peers?.[turn.agentId]?.agentType;
-  const engineLoginRunnerId =
+  const engineScope =
     turn.agentId === ctx.agentId
-      ? ctx.engineLoginRunnerId
-      : ctx.peers?.[turn.agentId]?.engineLoginRunnerId;
+      ? ctx.engineScope
+      : ctx.peers?.[turn.agentId]?.engineScope;
   const onResend = ctx.onResendAfterSignIn;
   const authFailed = turn.errorKind === AUTHENTICATION_REQUIRED;
   const sincePending = retryPending;
@@ -191,7 +191,7 @@ export function TurnAnswer({
               <EngineSignIn
                 primary
                 engine={engine}
-                runnerId={engineLoginRunnerId}
+                scope={engineScope}
                 since={failedAt}
                 // A sign-in that succeeded after this turn failed sends it
                 // again, wherever it was started from.
@@ -216,7 +216,7 @@ export function TurnAnswer({
       authFailed,
       turn.retry,
       engine,
-      engineLoginRunnerId,
+      engineScope,
       onResend,
       sincePending,
       failedAt,

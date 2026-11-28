@@ -114,7 +114,10 @@ function renderSection(): void {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
-  client.setQueryData(["system-engines"], { engines: [], canManage: false });
+  client.setQueryData(["engine-status", "scope=local"], {
+    engines: [],
+    canManage: false,
+  });
   render(
     <QueryClientProvider client={client}>
       <UpdatesSection stream={{} as UseReleaseStreamResult} />

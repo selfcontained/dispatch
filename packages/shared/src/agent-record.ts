@@ -1,4 +1,5 @@
 import type { GitContext as AgentGitContext } from "@dispatch/runner-protocol/git-context";
+import type { EngineScope } from "@dispatch/runner-protocol/engine-management";
 import type { Placement } from "@dispatch/runner-protocol/contract";
 import type { Effort } from "./agent-types.js";
 import type { AgentInputState } from "./conversation-delivery.js";
@@ -67,8 +68,10 @@ export type AgentRecord = {
   role: AgentRole;
   status: AgentStatus;
   placement: Placement;
-  /** Runner to address for engine sign-in, supplied by the client projection. */
-  engineLoginRunnerId?: string;
+  /** Engine-management destination, supplied by the client projection. */
+  engineScope?: EngineScope;
+  /** Runner directory identity, supplied by the client projection. */
+  runnerId?: string;
   /**
    * The checkout is on the machine Dispatch serves from, so a desktop there
    * can open it (Open in IDE). Supplied by the client projection.

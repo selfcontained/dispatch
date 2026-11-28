@@ -1,3 +1,5 @@
+import { pluginStatusKey } from "@/hooks/use-plugin-status";
+import { providerPlansKey, useProviderPlans } from "@/hooks/use-agent-usage";
 import type { RunnerEngine } from "@dispatch/runner-protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
@@ -5,14 +7,12 @@ import { useEffect } from "react";
 import {
   engineScopeKey,
   type EngineInventoryEntry,
-  type EngineCapabilityOperation,
-  type EngineCapabilityResult,
-  type EngineLoginView,
   type EngineOperation,
   type EngineOperationAck,
   type EngineScope,
 } from "@dispatch/runner-protocol/engine-management";
 
+import { engineStatusKey } from "@/hooks/use-engines";
 import { api } from "@/lib/api";
 
 /**
@@ -30,11 +30,7 @@ import { api } from "@/lib/api";
  * (`apps/server/src/agents/remote/engine-manager.ts`).
  */
 
-function scopeQuery(scope: EngineScope): string {
-  const params = new URLSearchParams({ scope: scope.kind });
-  if (scope.kind === "runner") params.set("runnerId", scope.runnerId);
-  return params.toString();
-}
+import { engineScopeQuery as scopeQuery } from "@/lib/engine-management";
 
 export function runnerEnginesKey(scope: EngineScope) {
   return ["runner-engines", engineScopeKey(scope)] as const;
@@ -78,8 +74,9 @@ export function useEnginesRefreshAfterUpdate(
     return () => {
       for (const queryKey of [
         runnerEnginesKey({ kind: "runner", runnerId }),
-        ["runner-plugin", runnerId],
-        ["runner-provider-usage", runnerId],
+        pluginStatusKey({ kind: "runner", runnerId }),
+        providerPlansKey({ kind: "runner", runnerId }),
+        engineStatusKey({ kind: "runner", runnerId }),
       ])
         void queryClient.invalidateQueries({ queryKey });
     };
@@ -98,73 +95,13 @@ export function useRunnerEngineOperation(scope: EngineScope) {
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: key });
+      void queryClient.invalidateQueries({ queryKey: engineStatusKey(scope) });
     },
   });
 }
 
-function isLoginActive(login: EngineLoginView | null | undefined): boolean {
-  return (
-    login?.status === "starting" ||
-    login?.status === "waiting" ||
-    login?.status === "verifying"
-  );
-}
-
-/**
- * A sign-in's current view, polled while it's active. `login_start`'s own
- * response only captures the moment it returned — the CLI's output
- * (a code being verified, a device flow finishing on its own) arrives
- * asynchronously after that, and this is the only way to observe it.
- * Pass `null` to disable polling when nothing is in flight.
- */
-export function useRunnerEngineLoginStatus(
-  scope: EngineScope,
-  loginId: string | null
-) {
-  return useQuery<{ ack: EngineOperationAck }>({
-    queryKey: [...runnerEnginesKey(scope), "login", loginId],
-    enabled: loginId !== null,
-    queryFn: () =>
-      api(`/api/v1/engine-management/operations`, {
-        method: "POST",
-        body: JSON.stringify({
-          scope,
-          operation: { type: "login_status", loginId },
-        }),
-      }),
-    refetchInterval: (query) => {
-      const ack = query.state.data?.ack;
-      return ack?.ok && isLoginActive(ack.login) ? 1_500 : false;
-    },
-  });
-}
-
-export async function runnerEngineCapability<
-  T extends EngineCapabilityResult["type"],
->(
-  runnerId: string | EngineScope,
-  operation: EngineCapabilityOperation,
-  type: T
-): Promise<Extract<EngineCapabilityResult, { type: T }>> {
-  const { ack } = await api<{ ack: EngineOperationAck }>(
-    "/api/v1/engine-management/operations",
-    {
-      method: "POST",
-      body: JSON.stringify({
-        scope:
-          typeof runnerId === "string"
-            ? { kind: "runner", runnerId }
-            : runnerId,
-        operation,
-      }),
-    }
-  );
-  if (!ack.ok) throw new Error(ack.error);
-  if (ack.capability?.type !== type)
-    throw new Error("The runner did not return the requested engine data.");
-  return ack.capability as Extract<EngineCapabilityResult, { type: T }>;
-}
-
+export { runnerEngineCapability } from "@/lib/engine-management";
+import { runnerEngineCapability } from "@/lib/engine-management";
 export function useRunnerModelCatalog(
   runnerId: string | null,
   engine: RunnerEngine,
@@ -191,17 +128,8 @@ export function useRunnerProviderUsage(
   enabled: boolean,
   scope?: EngineScope
 ) {
-  return useQuery({
-    queryKey: ["runner-provider-usage", runnerId],
-    enabled: Boolean(runnerId && enabled),
-    retry: false,
-    queryFn: async () =>
-      (
-        await runnerEngineCapability(
-          scope ?? runnerId!,
-          { type: "provider_usage" },
-          "provider_usage"
-        )
-      ).usage,
-  });
+  return useProviderPlans(
+    Boolean(runnerId && enabled),
+    scope ?? { kind: "runner", runnerId: runnerId ?? "" }
+  );
 }

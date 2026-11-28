@@ -180,3 +180,28 @@ it("does not carry personas or preferences from the previous folder while the ne
     expect(result.current.data?.personasUrl).toBe("/next-personas")
   );
 });
+
+it.each(["scope=local", "scope=runner&runnerId=r1"])(
+  "refreshes launch models after scoped engine metadata changes: %s",
+  async (scope) => {
+    request.mockResolvedValue({
+      catalog: { models: {} },
+      agentTypes: ["codex"],
+    });
+    const { Wrapper, client } = wrapper();
+    const { result } = renderHook(
+      () =>
+        useLaunchTargetData(targets[0], {
+          directory: "/repo",
+          agentType: "codex",
+        }),
+      { wrapper: Wrapper }
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const before = request.mock.calls.length;
+    act(() => client.setQueryData(["engine-status", scope], { engines: [] }));
+    await waitFor(() =>
+      expect(request.mock.calls.length).toBeGreaterThan(before)
+    );
+  }
+);

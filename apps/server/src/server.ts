@@ -1424,6 +1424,7 @@ async function registerRoutes() {
   });
   await registerEngineLoginRoutes(app, engineManager);
   await registerEngineManagementRoutes(app, engineManager, {
+    canManageEngineUpdates,
     enabledAgentTypes: () => getEnabledAgentTypes(pool),
   });
   await registerUpdateRecoveryRoutes(app, updateRecoveryRuntime.routeDeps);

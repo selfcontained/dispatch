@@ -121,11 +121,15 @@ describe("engine-management routes", () => {
       placement: placementForRunner("runner-42"),
     } as AgentRecord;
     const agent = agentForClient(storedAgent, false);
-    expect(agent.engineLoginRunnerId).toBe("runner-42");
+    expect(agent.engineScope).toEqual({
+      kind: "runner",
+      runnerId: "runner-42",
+    });
+    expect(agent.runnerId).toBe("runner-42");
     expect(
       agentForClient({ ...storedAgent, placement: controllerPlacement }, false)
-        .engineLoginRunnerId
-    ).toBeUndefined();
+        .engineScope
+    ).toEqual({ kind: "local" });
     // Open in IDE is offered only for a checkout on this machine.
     expect(agent.checkoutOnServerHost).toBe(false);
     expect(
@@ -149,7 +153,7 @@ describe("engine-management routes", () => {
     });
     const app = Fastify();
     await registerEngineManagementRoutes(app, manager);
-    const scope = { kind: "runner", runnerId: agent.engineLoginRunnerId };
+    const scope = agent.engineScope;
     const request = (operation: Record<string, unknown>) =>
       app.inject({
         method: "POST",

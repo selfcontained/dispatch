@@ -73,7 +73,7 @@ export type EngineLoginView = {
 /** Optional runner-wide operations negotiated with engineCapabilities. */
 export type EngineCapabilityOperation =
   | { type: "model_catalog"; engine: RunnerEngine; model?: string }
-  | { type: "provider_usage" }
+  | { type: "provider_usage"; force?: boolean }
   | { type: "codex_reset"; account: string; requestId: string }
   | {
       type: "plugin_status" | "plugin_install" | "plugin_update";
@@ -277,8 +277,9 @@ export function isEngineOperation(value: unknown): value is EngineOperation {
     case "contract":
       return isEngineHostCall(value.call);
     case "status":
-    case "provider_usage":
       return true;
+    case "provider_usage":
+      return value.force === undefined || typeof value.force === "boolean";
     case "model_catalog":
       return (
         isRunnerEngine(value.engine) &&

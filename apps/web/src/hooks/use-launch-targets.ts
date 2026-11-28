@@ -123,10 +123,10 @@ export function useLaunchTargetData(
       client.getQueryCache().subscribe((event) => {
         if (
           event.type === "updated" &&
-          event.query.queryKey.length === 1 &&
-          ["agent-models", "system-engines"].includes(
-            String(event.query.queryKey[0])
-          ) &&
+          ((event.query.queryKey.length === 1 &&
+            event.query.queryKey[0] === "agent-models") ||
+            (event.query.queryKey.length === 2 &&
+              event.query.queryKey[0] === "engine-status")) &&
           ["invalidate", "success"].includes(event.action.type)
         ) {
           void client.invalidateQueries(

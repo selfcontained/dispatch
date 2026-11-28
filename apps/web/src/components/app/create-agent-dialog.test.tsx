@@ -178,7 +178,8 @@ function mount(
     if (path.startsWith("/api/v1/git/branches?"))
       return { branches: ["trunk", "release"], defaultBranch: "trunk" };
     if (path.startsWith("/api/v1/personas?")) return { personas: [] };
-    if (path === "/api/v1/system/engines") return { engines: [] };
+    if (path === "/api/v1/engine-management/status?scope=local")
+      return { engines: [] };
     if (path === "/api/v1/system/defaults") return { homeDir: "/repo" };
     if (path.includes("/path-info?"))
       return { exists: true, isDirectory: true, isGitRepo: false };

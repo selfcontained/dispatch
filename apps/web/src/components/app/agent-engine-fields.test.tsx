@@ -148,7 +148,8 @@ beforeEach(() => {
         agentTypes: enabledAgentTypes,
         engineOptions: engines,
       };
-    if (path === "/api/v1/system/engines") return { engines };
+    if (path === "/api/v1/engine-management/status?scope=local")
+      return { engines };
     if (path === "/api/v1/agent-models") return { models };
     return [];
   });

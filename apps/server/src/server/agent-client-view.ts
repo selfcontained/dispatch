@@ -1,7 +1,11 @@
 import type { AgentRecord } from "../agents/manager.js";
 import { PERSONA_CONTEXT_ARG } from "../agents/acp/persona-context.js";
 import { sameRunner } from "@dispatch/runner-protocol/contract";
-import { controllerPlacement, enrolledRunnerId } from "../runners/placement.js";
+import { engineScopeForRunner } from "../runners/local.js";
+import {
+  controllerPlacement,
+  runnerIdForPlacement,
+} from "../runners/placement.js";
 
 /** API responses and SSE share this projection; launch metadata stays server-side. */
 export function agentForClient<T extends AgentRecord>(
@@ -20,7 +24,8 @@ export function agentForClient<T extends AgentRecord>(
     ...agent,
     agentArgs,
     hasStream,
-    engineLoginRunnerId: enrolledRunnerId(agent.placement),
+    engineScope: engineScopeForRunner(runnerIdForPlacement(agent.placement)),
+    runnerId: runnerIdForPlacement(agent.placement),
     checkoutOnServerHost: sameRunner(agent.placement, controllerPlacement),
   };
 }

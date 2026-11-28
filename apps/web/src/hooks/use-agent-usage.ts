@@ -8,12 +8,30 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAtom } from "jotai";
 import { useEffect } from "react";
 
+import type { EngineScope } from "@dispatch/runner-protocol/engine-management";
+import { LOCAL_ENGINE_SCOPE, engineScopeQuery } from "@/lib/engine-management";
+import { runnerEngineCapability } from "@/lib/engine-management";
+import { createClientId } from "@/lib/client-id";
 import { api } from "@/lib/api";
 import { atomWithLocalStorage } from "@/lib/store";
 
 const configKey = (agentId: string | null) => ["agent-config", agentId];
 const usageKey = (agentId: string | null) => ["agent-usage", agentId];
-const PLANS_KEY = ["usage-plans"];
+export const providerPlansKey = (scope: EngineScope) =>
+  ["usage-plans", engineScopeQuery(scope)] as const;
+type PlansReport = ProviderPlansResponse & { codexResetAccount?: string };
+async function readProviderPlans(
+  scope: EngineScope,
+  force = false
+): Promise<PlansReport> {
+  return (
+    await runnerEngineCapability(
+      scope,
+      { type: "provider_usage", ...(force && { force: true }) },
+      "provider_usage"
+    )
+  ).usage;
+}
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -94,22 +112,43 @@ export type CodexResetResult = {
  * Spend one of the Codex account's limit resets. Only ever sent from the
  * confirmed dialog; the plans are read again once it answers.
  */
-export function useConsumeCodexReset() {
+export function useConsumeCodexReset(scope: EngineScope = LOCAL_ENGINE_SCOPE) {
   const queryClient = useQueryClient();
   return useMutation<CodexResetResult, Error, void>({
-    mutationFn: () =>
-      api("/api/v1/usage/codex/resets/consume", { method: "POST" }),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: PLANS_KEY }),
+    mutationFn: async () => {
+      const report = queryClient.getQueryData<PlansReport>(
+        providerPlansKey(scope)
+      );
+      const account =
+        report?.codexResetAccount ??
+        (await readProviderPlans(scope)).codexResetAccount;
+      if (!account)
+        throw new Error(
+          "Codex did not confirm the reset. Check usage before trying again."
+        );
+      return runnerEngineCapability(
+        scope,
+        { type: "codex_reset", account, requestId: createClientId() },
+        "codex_reset"
+      );
+    },
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: providerPlansKey(scope) }),
   });
 }
 
 /** How much of the subscription plans the engines' logins have used. */
-export function useProviderPlans(enabled: boolean) {
+export function useProviderPlans(
+  enabled: boolean,
+  scope: EngineScope = LOCAL_ENGINE_SCOPE
+) {
   const queryClient = useQueryClient();
-  const [last, setLast] = useAtom(lastPlansAtom);
+  const [stored, setLast] = useAtom(lastPlansAtom);
+  const local = scope.kind === "local";
+  const last = local ? stored : null;
   const query = useQuery<ProviderPlansResponse>({
-    queryKey: PLANS_KEY,
-    queryFn: () => api("/api/v1/usage/plans"),
+    queryKey: providerPlansKey(scope),
+    queryFn: () => readProviderPlans(scope),
     enabled,
     staleTime: 60_000,
     // Read when enabled; the usage chip enables this while mounted, without
@@ -122,11 +161,12 @@ export function useProviderPlans(enabled: boolean) {
     initialDataUpdatedAt: last ? Date.parse(last.checkedAt) || 0 : undefined,
   });
   useEffect(() => {
-    if (query.data) setLast(query.data);
-  }, [query.data, setLast]);
+    if (local && query.data) setLast(query.data);
+  }, [query.data, setLast, local]);
   const refresh = useMutation<ProviderPlansResponse, Error, void>({
-    mutationFn: () => api("/api/v1/usage/plans?force=1"),
-    onSuccess: (data) => queryClient.setQueryData(PLANS_KEY, data),
+    mutationFn: () => readProviderPlans(scope, true),
+    onSuccess: (data) =>
+      queryClient.setQueryData(providerPlansKey(scope), data),
   });
   return { ...query, refresh };
 }

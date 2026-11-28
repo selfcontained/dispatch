@@ -636,7 +636,7 @@ describe("TurnEntryView", () => {
               name: "Child",
               agentType: "claude",
               relation: "child",
-              engineLoginRunnerId: runnerId,
+              engineScope: { kind: "runner", runnerId: runnerId! },
             },
           },
           onResendAfterSignIn: vi.fn(),
@@ -653,25 +653,20 @@ describe("TurnEntryView", () => {
       fireEvent.click(screen.getByTestId("engine-sign-in-cancel"));
       await screen.findByTestId("engine-sign-in-start");
       expect(calls).toEqual(
-        runnerId
-          ? [
-              { type: "login_status", engine: "claude" },
-              { type: "login_start", engine: "claude", restart: false },
-              { type: "login_status", engine: "claude" },
-              { type: "login_submit", loginId: "login-42", code: "test-code" },
-              { type: "login_cancel", loginId: "login-42" },
-            ].map((operation) => [
-              operationsUrl,
-              "POST",
-              { scope: { kind: "runner", runnerId }, operation },
-            ])
-          : [
-              [engineUrl, "GET", undefined],
-              [engineUrl, "POST", { restart: false }],
-              [engineUrl, "GET", undefined],
-              [`${loginUrl}/code`, "POST", { code: "test-code" }],
-              [loginUrl, "DELETE", undefined],
-            ]
+        [
+          { type: "login_status", engine: "claude" },
+          { type: "login_start", engine: "claude", restart: false },
+          { type: "login_status", engine: "claude" },
+          { type: "login_submit", loginId: "login-42", code: "test-code" },
+          { type: "login_cancel", loginId: "login-42" },
+        ].map((operation) => [
+          operationsUrl,
+          "POST",
+          {
+            scope: runnerId ? { kind: "runner", runnerId } : { kind: "local" },
+            operation,
+          },
+        ])
       );
     }
   );
