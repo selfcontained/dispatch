@@ -198,6 +198,7 @@ describe("launch target adapter", () => {
     expect(targets[0].key).not.toBe("local");
     expect(targets[0].selectionFields).toEqual({ runner: "local" });
     expect(targets[0].launchFields).toEqual({});
+    expect(targets[0].name).toBe("Local");
   });
   it("delegates the controller reads unchanged, including availability and missing engines", async () => {
     const { get, targets } = await setup();

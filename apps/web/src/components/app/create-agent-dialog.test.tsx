@@ -63,7 +63,7 @@ function mount(
         targets: [
           {
             key: "controller-choice",
-            name: "This computer",
+            name: "Local",
             status: "online",
             location: { kind: "folder" },
             dataUrl: "/fixture/controller",
@@ -250,7 +250,9 @@ it("requires a runner project and loads branches from its repository", async () 
   fireEvent.keyDown(machine, { key: "ArrowDown" });
   fireEvent.click(screen.getByRole("option", { name: /Runner A/ }));
 
-  const project = screen.getByRole("combobox", { name: "Project" });
+  const project = screen.getByRole("combobox", {
+    name: "Project or repository",
+  });
   const submit = screen.getByRole("button", { name: "Create agent" });
   expect(project.getAttribute("aria-required")).toBe("true");
   expect(submit).toHaveProperty("disabled", true);
@@ -363,7 +365,9 @@ it.each([true, false])(
     fireEvent.keyDown(machine, { key: "ArrowDown" });
     fireEvent.click(screen.getByRole("option", { name: /Runner A/ }));
     await act(async () => {});
-    fireEvent.click(screen.getByRole("combobox", { name: "Project" }));
+    fireEvent.click(
+      screen.getByRole("combobox", { name: "Project or repository" })
+    );
     await screen.findByPlaceholderText(
       "Search projects or your repos, or paste a URL"
     );
@@ -378,7 +382,8 @@ it.each([true, false])(
     );
     await waitFor(() =>
       expect(
-        screen.getByRole("combobox", { name: "Project" }).textContent
+        screen.getByRole("combobox", { name: "Project or repository" })
+          .textContent
       ).toContain("new-repo")
     );
     const posts = vi
@@ -438,7 +443,9 @@ it("shows project repository details and annotates linked repository rows withou
     ],
   });
   const onRepository = mountRepositoryPicker();
-  fireEvent.click(screen.getByRole("combobox", { name: "Project" }));
+  fireEvent.click(
+    screen.getByRole("combobox", { name: "Project or repository" })
+  );
   const projectRow = screen.getByRole("option", { name: "Repo project" });
   expect(within(projectRow).getByText("acme/repo")).toBeTruthy();
   expect(within(projectRow).getByLabelText("Selected")).toBeTruthy();
@@ -464,7 +471,9 @@ it("shows project repository details and annotates linked repository rows withou
 it("displays a pasted URL as owner/repo while selecting its original URL", async () => {
   const onRepository = mountRepositoryPicker();
   await act(async () => {});
-  fireEvent.click(screen.getByRole("combobox", { name: "Project" }));
+  fireEvent.click(
+    screen.getByRole("combobox", { name: "Project or repository" })
+  );
   const url = "https://github.com/acme/pasted-repo.git";
   fireEvent.change(
     screen.getByPlaceholderText(
@@ -484,7 +493,9 @@ it("presents search failures as status text rather than selectable rows", async 
   vi.mocked(api).mockRejectedValue(new Error("offline"));
   mountRepositoryPicker();
   await act(async () => {});
-  fireEvent.click(screen.getByRole("combobox", { name: "Project" }));
+  fireEvent.click(
+    screen.getByRole("combobox", { name: "Project or repository" })
+  );
   fireEvent.change(
     screen.getByPlaceholderText(
       "Search projects or your repos, or paste a URL"
@@ -511,7 +522,9 @@ it("keeps the list height fixed across loading, results, empty and error states"
   );
   mountRepositoryPicker();
   await act(async () => {});
-  fireEvent.click(screen.getByRole("combobox", { name: "Project" }));
+  fireEvent.click(
+    screen.getByRole("combobox", { name: "Project or repository" })
+  );
   const list = screen.getByRole("listbox");
   const fixedClass = list.className;
   expect(fixedClass.split(" ")).toContain("h-80");

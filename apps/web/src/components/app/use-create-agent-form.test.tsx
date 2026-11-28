@@ -156,7 +156,7 @@ function pasteEvent(options: {
 
 const controller = {
   key: "opaque-controller",
-  name: "This computer",
+  name: "Local",
   status: "online",
   location: { kind: "folder" },
   dataUrl: "/fixture/controller",

@@ -129,7 +129,9 @@ it("creates a project from a repository URL on a chosen runner", async () => {
   fireEvent.click(screen.getByRole("option", { name: "Repository" }));
   await act(async () => {});
   expect(screen.queryByLabelText("Folder")).toBeNull();
-  fireEvent.click(screen.getByRole("combobox", { name: "Repository" }));
+  fireEvent.click(
+    screen.getByRole("combobox", { name: "Project or repository" })
+  );
   const url = "https://github.com/example/new-repo";
   fireEvent.change(
     screen.getByPlaceholderText(

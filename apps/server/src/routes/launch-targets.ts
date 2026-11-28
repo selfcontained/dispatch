@@ -110,7 +110,7 @@ export async function registerLaunchTargetRoutes(
       {
         key: keyFor(controller),
         id: controller,
-        name: "This computer",
+        name: "Local",
         location: { kind: "folder" as const },
         status: "online",
       },

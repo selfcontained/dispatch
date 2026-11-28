@@ -173,7 +173,7 @@ export function RunnerRepositoryPicker({
   return (
     <div className="space-y-1">
       <label id={labelId} className="text-body-md text-muted-foreground">
-        {onProject ? "Project" : "Repository"}
+        Project or repository
       </label>
       <div className="flex gap-1">
         <Popover open={open} onOpenChange={changeOpen}>

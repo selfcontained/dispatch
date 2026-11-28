@@ -24,7 +24,7 @@ vi.mock("@/hooks/use-projects", () => ({
 const request = vi.mocked(api);
 const controller = {
   key: "opaque-controller",
-  name: "This computer",
+  name: "Local",
   status: "online",
   dataUrl: "/fixture/controller",
   location: { kind: "folder" },
