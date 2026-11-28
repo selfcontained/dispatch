@@ -13,12 +13,14 @@ const script =
        })();`
     : mode === "exit"
       ? `process.stderr.write('x'.repeat(16384), () => process.exit(42));`
-      : `process.stderr.write('install pending'); setInterval(() => {}, 1000);`;
+      : mode === "kill"
+        ? `process.on('SIGTERM', () => {}); process.stderr.write(String(process.pid)); setInterval(() => {}, 1000);`
+        : `process.stderr.write('install pending'); setInterval(() => {}, 1000);`;
 try {
   const result = await runCommand(
     mode === "missing" ? "/dispatch/nonexistent-command" : node!,
     ["-e", script],
-    { timeoutMs: mode === "timeout" ? 500 : 10_000 }
+    { timeoutMs: mode === "timeout" || mode === "kill" ? 500 : 10_000 }
   );
   console.log(
     JSON.stringify({

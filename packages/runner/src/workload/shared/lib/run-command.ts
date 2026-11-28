@@ -19,101 +19,6 @@ export type RunCommandResult = {
 
 const stderrTailLength = 8 * 1024;
 
-/** Bun's native process handle avoids its node:child_process bridge. */
-async function runBunCommand(
-  command: string,
-  args: string[],
-  options: RunCommandOptions
-): Promise<RunCommandResult> {
-  const child = Bun.spawn([command, ...args], {
-    cwd: options.cwd,
-    env: { ...childProcessEnv(), ...options.env },
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  let stdout = "";
-  let stderr = "";
-  const read = async (
-    stream: ReadableStream<Uint8Array>,
-    append: (text: string) => void
-  ) => {
-    const reader = stream.getReader();
-    const decoder = new TextDecoder();
-    try {
-      for (;;) {
-        const chunk = await reader.read();
-        if (chunk.done) break;
-        append(decoder.decode(chunk.value, { stream: true }));
-      }
-      append(decoder.decode());
-    } finally {
-      reader.releaseLock();
-    }
-  };
-  // Start both drains before waiting for exit: either socket can fill while
-  // the other is quiet. Keep draining even after a timeout until the child dies.
-  const completed = Promise.all([
-    child.exited,
-    read(child.stdout, (text) => (stdout += text)),
-    read(child.stderr, (text) => (stderr += text)),
-  ]);
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  let hardKill: ReturnType<typeof setTimeout> | undefined;
-  const timedOut = new Promise<never>((_resolve, reject) => {
-    if (typeof options.timeoutMs !== "number" || options.timeoutMs <= 0) return;
-    timeout = setTimeout(() => {
-      try {
-        child.kill("SIGTERM");
-      } catch {}
-      hardKill = setTimeout(() => {
-        try {
-          child.kill("SIGKILL");
-        } catch {}
-      }, 5_000);
-      hardKill.unref();
-      reject(
-        Object.assign(
-          new Error(
-            `Command timed out (${command} ${args.join(" ")}), timeoutMs=${options.timeoutMs}`
-          ),
-          {
-            timedOut: true,
-            timeoutMs: options.timeoutMs,
-            stderrTail: stderr.trim().slice(-stderrTailLength),
-          }
-        )
-      );
-    }, options.timeoutMs);
-  });
-  void child.exited.then(() => {
-    if (hardKill) clearTimeout(hardKill);
-  });
-  try {
-    const [exitCode] = await Promise.race([completed, timedOut]);
-    if (!(options.allowedExitCodes ?? [0]).includes(exitCode)) {
-      throw Object.assign(
-        new Error(
-          `Command failed (${command} ${args.join(" ")}), exitCode=${exitCode}, stderr=${stderr.trim()}`
-        ),
-        {
-          timedOut: false,
-          exitCode,
-          signal: child.signalCode,
-          stderrTail: stderr.trim().slice(-stderrTailLength),
-        }
-      );
-    }
-    return {
-      exitCode,
-      stdout: options.trimOutput === false ? stdout : stdout.trim(),
-      stderr: stderr.trim(),
-    };
-  } finally {
-    if (timeout) clearTimeout(timeout);
-  }
-}
-
 /** Injectable runner shape used by git/gh helpers so tests can fake commands. */
 export type CommandRunner = (
   command: string,
@@ -132,8 +37,6 @@ export async function runCommand(
   args: string[],
   options: RunCommandOptions = {}
 ): Promise<RunCommandResult> {
-  if (typeof Bun !== "undefined")
-    return await runBunCommand(command, args, options);
   return await new Promise<RunCommandResult>((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,

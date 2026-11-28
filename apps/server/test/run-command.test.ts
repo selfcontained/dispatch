@@ -106,7 +106,7 @@ it("keeps exit details and the stderr tail for runner commands", async () => {
   });
 });
 
-it("drains both output sockets and records failures in a compiled Bun runner", async () => {
+it("drains both output sockets, kills timed-out children and records failures in a compiled runner", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "compiled-command-"));
   const binary = path.join(root, "command");
   const fixture = fileURLToPath(
@@ -144,6 +144,24 @@ it("drains both output sockets and records failures in a compiled Bun runner", a
       stderrTail: "install pending",
     });
     expect(await run("missing")).toMatchObject({ code: "ENOENT" });
+    const killed = await run("kill");
+    expect(killed).toMatchObject({ timedOut: true, timeoutMs: 500 });
+    const pid = Number(killed.stderrTail);
+    expect(pid).toBeGreaterThan(0);
+    await expect
+      .poll(
+        () => {
+          try {
+            process.kill(pid, 0);
+            return true;
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+            return false;
+          }
+        },
+        { timeout: 2_000 }
+      )
+      .toBe(false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
