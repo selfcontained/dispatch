@@ -34,9 +34,9 @@ import {
 import {
   useAgentConfig,
   useAgentUsage,
-  useProviderPlans,
   useSetAgentConfig,
 } from "@/hooks/use-agent-usage";
+import { useScopedProviderUsage } from "@/hooks/use-runner-engines";
 import { cn } from "@/lib/utils";
 
 import {
@@ -302,13 +302,15 @@ function UsageChip({
   // Read once on mount (including a closed chip), then use the shared cache.
   // No network polling: the local clock alone keeps expiry reminders current.
   const scope = agent?.engineScope ?? LOCAL_ENGINE_SCOPE;
-  const plans = useProviderPlans(true, scope);
+  const plans = useScopedProviderUsage(scope, true, open);
   const { isStale, refetch } = plans;
   const now = useNow(true);
-  const expiring = (plans.data?.providers ?? []).some(
-    (plan) =>
-      plan.engine === "codex" && hasExpiringResets(plan.limitResets, now)
-  );
+  const expiring =
+    plans.configured !== false &&
+    (plans.data?.providers ?? []).some(
+      (plan) =>
+        plan.engine === "codex" && hasExpiringResets(plan.limitResets, now)
+    );
   const percent = contextRemainingPercent(usage);
   const usageLabel = percent === null ? "Usage" : `Context: ${percent}% left`;
   return (
@@ -317,7 +319,7 @@ function UsageChip({
       onOpenChange={(next) => {
         setOpen(next);
         // Preserve the old open-time stale refresh without forcing a provider read.
-        if (next && isStale) void refetch();
+        if (next && plans.configured !== false && isStale) void refetch();
       }}
     >
       <PopoverTrigger asChild>
@@ -370,7 +372,13 @@ function UsageChip({
         {agent ? (
           <UsageDetails usage={usage} agentType={agent.type ?? null} />
         ) : null}
-        <PlanLimits enabled={open} plans={plans} now={now} scope={scope} />
+        <PlanLimits
+          enabled={open}
+          plans={plans}
+          now={now}
+          scope={scope}
+          configured={plans.configured}
+        />
       </PopoverContent>
     </Popover>
   );
