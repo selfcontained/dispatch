@@ -50,6 +50,7 @@ import { getDiffStatsComputation } from "../shared/git/diff-stats.js";
 import { getAgentDiffImage } from "../shared/git/diff-image.js";
 import {
   inspectCheckout,
+  readRecordedBase,
   inspectionRoot,
   observeGitCheckout,
   resolveInspectionRoots,
@@ -239,6 +240,18 @@ async function work<K extends WorkerOp>(
   op: K,
   { directory, request, selector }: Input<K>
 ): Promise<unknown> {
+  // Repository launches record the resolved default branch on their feature
+  // branch. A null comparison base asks the checkout to resolve it; do this
+  // before the legacy Git helpers fall back to main.
+  if (
+    (op === "checkout.stats" ||
+      op === "checkout.diff" ||
+      op === "checkout.image") &&
+    "base" in request &&
+    request.base === null
+  ) {
+    request = { ...request, base: await readRecordedBase(directory) };
+  }
   switch (op) {
     case "checkout.access": {
       const file = nativeEntry(

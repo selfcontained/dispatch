@@ -1384,3 +1384,136 @@ it("still probes Git for a folder-backed project without a repository origin", a
   await waitFor(() => expect(result.current.worktreeAvailable).toBe(true));
   expect(result.current.createCwd).toBe(project.repoRoot);
 });
+
+it.each([controller, repositoryTarget])(
+  "keeps explicit type, model and effort through a project change on $name",
+  async (target) => {
+    const projects = [
+      {
+        id: "choice-a",
+        repoRoot: null,
+        repository: "https://github.com/org/a",
+      },
+      {
+        id: "choice-b",
+        repoRoot: null,
+        repository: "https://github.com/org/b",
+      },
+    ];
+    const catalog = {
+      models: {
+        claude: [
+          {
+            id: "haiku",
+            label: "Haiku",
+            effort: [{ value: "high", name: "High" }],
+          },
+          { id: "sonnet", label: "Sonnet" },
+        ],
+      },
+      defaults: { claude: "sonnet" },
+    };
+    const fallback = apiMock.getMockImplementation()!;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    apiMock.mockImplementation(async (url, init) => {
+      if (url === "/api/v1/launch-targets")
+        return {
+          targets: [
+            { ...target, location: { ...target.location, projects } },
+            {
+              ...repositoryTarget,
+              key: "second-host",
+              dataUrl: "/fixture/second-host",
+              location: { kind: "project", projects },
+            },
+          ],
+        };
+      if (url === "/api/v1/projects") return projects;
+      if (url.startsWith("/fixture/") && !url.includes("branches")) {
+        const data = (await fallback(url, init)) as Record<string, unknown>;
+        const projectId = new URL(url, "http://fixture").searchParams.get(
+          "projectId"
+        );
+        if (projectId === "choice-b") await pending;
+        return {
+          ...data,
+          catalog,
+          defaults: { baseBranch: "", preferenceKey: projectId ?? "initial" },
+        };
+      }
+      return fallback(url, init);
+    });
+    jotaiStore.set(createAgentModelPrefAtom("claude:choice-b"), "sonnet");
+    const { result } = await setup({ initialProjectId: "choice-a" });
+    await waitFor(() => expect(result.current.modelOptions).toHaveLength(2));
+    act(() => {
+      result.current.setCreateModel("haiku");
+    });
+    await waitFor(() => expect(result.current.workloadEffort).toBeDefined());
+    act(() => {
+      result.current.setCreateEffort("high");
+      result.current.setCreateProjectId("choice-b");
+    });
+    expect(result.current.createModel).toBe("haiku");
+    expect(result.current.createType).toBe("claude");
+    expect(result.current.createEffort).toBe("high");
+    await act(async () => {
+      release();
+    });
+    await waitFor(() =>
+      expect(result.current.targetData.data?.defaults.preferenceKey).toBe(
+        "choice-b"
+      )
+    );
+    act(() => result.current.chooseTarget("second-host"));
+    expect(result.current.createModel).toBe("haiku");
+    expect(result.current.createEffort).toBe("high");
+    await waitFor(() => expect(result.current.targetData.isSuccess).toBe(true));
+    expect(result.current.createModel).toBe("haiku");
+    expect(result.current.createType).toBe("claude");
+    expect(result.current.createEffort).toBe("high");
+    await act(async () => result.current.handleSubmit(submitEvent()));
+    expect(agentsPostJson()).toMatchObject({
+      model: "haiku",
+      effort: "high",
+      type: "claude",
+      projectId: "choice-b",
+    });
+  }
+);
+
+it("clears an explicit model only after the new target confirms it is unavailable", async () => {
+  const fallback = apiMock.getMockImplementation()!;
+  apiMock.mockImplementation(async (url, init) => {
+    if (url === "/api/v1/launch-targets")
+      return { targets: [controller, repositoryTarget] };
+    if (url.startsWith("/fixture/")) {
+      const data = (await fallback(url, init)) as Record<string, unknown>;
+      return {
+        ...data,
+        catalog: {
+          models: {
+            claude: [
+              {
+                id: url.startsWith(controller.dataUrl) ? "haiku" : "sonnet",
+                label: "Model",
+              },
+            ],
+          },
+        },
+      };
+    }
+    return fallback(url, init);
+  });
+  const { result } = await setup();
+  await waitFor(() => expect(result.current.modelOptions).toHaveLength(1));
+  act(() => {
+    result.current.setCreateModel("haiku");
+    result.current.chooseTarget(repositoryTarget.key);
+  });
+  expect(result.current.createModel).toBe("haiku");
+  await waitFor(() => expect(result.current.createModel).toBeNull());
+});

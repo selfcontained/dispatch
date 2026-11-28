@@ -305,3 +305,37 @@ it("shows the reported default before opening without changing the implicit payl
   );
   expect(changed).not.toHaveBeenCalled();
 });
+
+it("does not carry an old request's spinner into a disabled target", async () => {
+  stubLayout();
+  const first = Promise.withResolvers<{
+    branches: string[];
+    defaultBranch: string;
+  }>();
+  vi.mocked(api)
+    .mockReturnValueOnce(first.promise)
+    .mockResolvedValue({ branches: ["master"], defaultBranch: "master" });
+  const view = render(<BranchSelect {...props} sourceUrl="/fixture/first" />, {
+    wrapper: wrapper(),
+  });
+  await waitFor(() => expect(api).toHaveBeenCalledTimes(1));
+  expect(
+    screen
+      .getByTestId("branch-select-base-branch")
+      .querySelector(".animate-spin")
+  ).not.toBeNull();
+  view.rerender(
+    <BranchSelect {...props} sourceUrl="/fixture/second" disabled />
+  );
+  await act(async () =>
+    first.resolve({ branches: ["old"], defaultBranch: "old" })
+  );
+  const control = screen.getByTestId("branch-select-base-branch");
+  expect(control).toHaveProperty("disabled", true);
+  expect(control.querySelector(".animate-spin")).toBeNull();
+  expect(api).toHaveBeenCalledTimes(1);
+  view.rerender(<BranchSelect {...props} sourceUrl="/fixture/second" />);
+  await waitFor(() => expect(control.textContent).toBe("master"));
+  expect(control).toHaveProperty("disabled", false);
+  expect(vi.mocked(api).mock.calls[1]).toEqual(["/fixture/second"]);
+});
