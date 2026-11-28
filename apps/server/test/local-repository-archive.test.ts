@@ -472,17 +472,13 @@ it.fails(
   () => interruptedCleanup("archive")
 );
 
-// Known red: core/checkout.ts rejects target.repository in git.branches.
-it.fails(
-  "launches a repository-only project through branch picking, preparation, install and archive",
-  async () => {
-    const f = await fixture({ install: "done", pickBranches: true });
-    await beginArchive(f.deps, f.agent.id, "force");
-    await executeArchive(f.deps, f.agent.id, f.callbacks);
-    expect(f.callbacks.onError).not.toHaveBeenCalled();
-    expect(existsSync(f.checkout)).toBe(false);
-  }
-);
+it("launches a repository-only project through branch picking, preparation, install and archive", async () => {
+  const f = await fixture({ install: "done", pickBranches: true });
+  await beginArchive(f.deps, f.agent.id, "force");
+  await executeArchive(f.deps, f.agent.id, f.callbacks);
+  expect(f.callbacks.onError).not.toHaveBeenCalled();
+  expect(existsSync(f.checkout)).toBe(false);
+});
 
 it.each(["discard", "archive"] as const)(
   "removes clean and dirty installed checkouts without orphaned host/binding files (%s)",
