@@ -145,6 +145,131 @@ it("streams a workload checkout reply and preserves its typed failure", async ()
   ).rejects.toMatchObject({ code: "forbidden" });
 });
 
+it("reports a failed worker reply stream without claiming the connection closed", async () => {
+  const { client, socket } = await pair({
+    calls: { "session.alive": () => ({ state: "live" }) },
+    checkoutRead: async () =>
+      Readable.from(
+        (async function* () {
+          yield Buffer.from('{"data":');
+          throw new Error("Worker exited while writing its reply");
+        })()
+      ),
+  });
+  const error = await client
+    .call("checkout.stats", {
+      target: { session },
+      base: null,
+      uncommitted: true,
+      exclude: [],
+    })
+    .catch((error) => error);
+  expect(socket.destroyed).toBe(false);
+  await expect(client.call("session.alive", { session })).resolves.toEqual({
+    state: "live",
+  });
+  expect(error).toMatchObject({ code: "failed" });
+});
+
+it.each(["empty", "partial", "typed"] as const)(
+  "returns a real worker's %s failure and keeps the enrolled socket alive",
+  async (mode) => {
+    const { streamCheckoutRead } =
+      await import("../src/workload/agents/remote/runner.js");
+    const { enrolledCheckouts } =
+      await import("../src/workload/agents/remote/checkout-operations.js");
+    const report = vi.fn();
+    const prefix =
+      mode === "partial"
+        ? `process.stdout.write(${JSON.stringify('{"data":')});`
+        : "";
+    const script =
+      mode === "typed"
+        ? `process.stdout.write(JSON.stringify({error:{code:"forbidden",message:"fixture denied"}}));`
+        : `${prefix}process.stderr.write("x".repeat(10_000)+"fixture crash tail");process.exit(17);`;
+    const reads = enrolledCheckouts(
+      { checkoutDirectory: async () => "/fixture" } as never,
+      {
+        read: (_cwd: string, input: unknown, signal: AbortSignal) =>
+          streamCheckoutRead(
+            [process.execPath, "-e", script],
+            process.env,
+            JSON.stringify(input),
+            signal,
+            report
+          ),
+      } as never,
+      new AbortController().signal
+    );
+    const { client, socket } = await pair({
+      ...reads,
+      calls: { ...reads.calls, "session.alive": () => ({ state: "live" }) },
+    });
+    const error = await client
+      .call("checkout.stats", {
+        target: { session },
+        base: null,
+        uncommitted: true,
+        exclude: [],
+      })
+      .catch((error) => error);
+    expect(error).toMatchObject({
+      code: mode === "typed" ? "forbidden" : "failed",
+    });
+    expect(error.message).not.toContain("connection closed");
+    if (mode === "empty") {
+      expect(error.message).toContain("fixture crash tail");
+      expect(error.details).toEqual({ status: "17" });
+    }
+    if (mode === "typed") expect(report).not.toHaveBeenCalled();
+    else {
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: "failed",
+          details: { status: "17" },
+          message: expect.stringContaining("fixture crash tail"),
+        })
+      );
+      expect(Buffer.byteLength(report.mock.calls[0]![0].message)).toBeLessThan(
+        2200
+      );
+    }
+    expect(socket.destroyed).toBe(false);
+    await expect(client.call("session.alive", { session })).resolves.toEqual({
+      state: "live",
+    });
+  }
+);
+
+it("returns a native Bun worker failure with its stderr instead of dropping the reply", async () => {
+  const { json, text } = await import("node:stream/consumers");
+  const module = new URL(
+    "../src/workload/agents/remote/runner.ts",
+    import.meta.url
+  ).href;
+  const worker =
+    'process.stderr.write("native worker fault");process.exit(23);';
+  const entry = `import {streamCheckoutRead} from ${JSON.stringify(module)}; for await (const bytes of streamCheckoutRead([process.execPath,"-e",${JSON.stringify(worker)}], process.env,"{}",new AbortController().signal)) process.stdout.write(bytes);`;
+  const child = spawn("bun", ["-e", entry], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  cleanup.push(() => child.kill());
+  const [reply, stderr, status] = await Promise.all([
+    json(child.stdout),
+    text(child.stderr),
+    once(child, "exit"),
+  ]);
+  expect(status).toEqual([0, null]);
+  expect(reply).toMatchObject({
+    error: {
+      code: "failed",
+      details: { status: "23" },
+      message: expect.stringContaining("native worker fault"),
+    },
+  });
+  expect(stderr).toContain("Checkout read worker failed.");
+}, 15_000);
+
 it("cancels a waiting enrolled checkout read before its stream opens", async () => {
   const started = Promise.withResolvers<void>();
   const stopped = Promise.withResolvers<void>();

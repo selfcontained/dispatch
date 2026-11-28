@@ -88,8 +88,8 @@ async function fixture(
       path.join(bin, "pnpm"),
       `#!${process.execPath}
 const fs = require('node:fs');
-fs.writeFileSync(${JSON.stringify(installStarted)}, JSON.stringify({ pid: process.pid, path: process.cwd() }));
 fs.appendFileSync(${JSON.stringify(installLog)}, 'install\\n');
+fs.writeFileSync(${JSON.stringify(installStarted)}, JSON.stringify({ pid: process.pid, path: process.cwd() }));
 const finish = () => fs.writeFileSync('installed', 'yes');
 if (fs.existsSync(${JSON.stringify(allowInstall)})) finish();
 else {

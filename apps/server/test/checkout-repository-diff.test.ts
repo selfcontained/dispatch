@@ -2,12 +2,12 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { Readable } from "node:stream";
 import { json } from "node:stream/consumers";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { sessionFromWire } from "@dispatch/runner-protocol/contract";
 import { BindingStore } from "../../../packages/runner/src/local/bindings.js";
 import { checkoutHandlers } from "../../../packages/runner/src/core/checkout.js";
+import { streamCheckoutRead } from "../../../packages/runner/src/workload/agents/remote/runner.js";
 import { enrolledCheckouts } from "../../../packages/runner/src/workload/agents/remote/checkout-operations.js";
 import { checkoutWorkload } from "./helpers/checkout-workload.js";
 
@@ -73,16 +73,16 @@ it.each(["local", "enrolled"] as const)(
       } as never,
       {
         read: (directory, selection: any) =>
-          Readable.from(
-            (async function* () {
-              yield JSON.stringify({
-                data: await checkoutWorkload.run(
-                  selection.op,
-                  { directory, request: selection.request },
-                  {}
-                ),
-              });
-            })()
+          streamCheckoutRead(
+            [
+              "bun",
+              "-e",
+              `import {runCheckoutWorker} from ${JSON.stringify(new URL("../../../packages/runner/src/workload/agents/checkout-worker.ts", import.meta.url).href)}; await runCheckoutWorker(["read",process.argv[1]], {});`,
+              directory,
+            ],
+            process.env,
+            JSON.stringify(selection),
+            new AbortController().signal
           ),
       } as never,
       new AbortController().signal

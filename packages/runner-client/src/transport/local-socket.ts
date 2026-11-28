@@ -529,7 +529,17 @@ export class LocalSocketConnection {
           }
           this.settle(pending, value);
         },
-        (error: unknown) =>
+        (error: unknown) => {
+          // A worker or transfer can fail while the enrolled connection is
+          // healthy. Preserve that read failure instead of reporting a redial.
+          if (
+            this.enrolled &&
+            enrolledReads.has(pending.op as OpName) &&
+            this.connected &&
+            error instanceof RunnerCallError &&
+            error.code !== "unavailable"
+          )
+            return pending.reject(error);
           pending.reject(
             this.lostReply(
               pending,
@@ -543,7 +553,8 @@ export class LocalSocketConnection {
                     `The ${pending.op} reply did not arrive`
                   )
             )
-          )
+          );
+        }
       );
       return;
     }
