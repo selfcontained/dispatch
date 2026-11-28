@@ -1182,6 +1182,26 @@ describe("AgentCardActions and child agents", () => {
     expect(props.setStopTarget).toHaveBeenCalledTimes(1);
   });
 
+  it("offers Open in IDE only for a checkout on this machine", async () => {
+    const { rerender } = renderCard({ expandedAgentId: AGENT_ID });
+    await openActions();
+    expect(
+      screen
+        .getByRole("menu")
+        .querySelector('[data-testid^="agent-action-ide"]')
+    ).not.toBeNull();
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+
+    rerender({ agent: makeAgent({ checkoutOnServerHost: false }) });
+    await openActions();
+    expect(
+      screen
+        .getByRole("menu")
+        .querySelector('[data-testid^="agent-action-ide"]')
+    ).toBeNull();
+    expect(screen.queryByText(/Open in/)).toBeNull();
+  });
+
   it("keeps the overflow menu last, and repeats archive inside it", async () => {
     const child = makeChild({ role: "standard", persona: undefined });
     const { props } = renderCard({
