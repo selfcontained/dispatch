@@ -644,3 +644,38 @@ it("denies agent MCP after the agent's runner registration is revoked", async ()
   );
   expect(deps.jobService.getActiveRunForAgent).not.toHaveBeenCalled();
 });
+
+describe("repository-only Local MCP scope", () => {
+  it.each([false, true])(
+    "uses project identity unless the workspace moved (%j)",
+    async (moved) => {
+      const deps = createMockDeps();
+      const agent = await deps.agentManager.getAgent();
+      deps.agentManager.getAgent.mockResolvedValue({
+        ...agent,
+        projectId: "prj_repo",
+        workspacePath: moved ? "/moved" : null,
+      } as typeof agent);
+      vi.mocked(deps.pool.query).mockResolvedValue({
+        rows: [{ repoRoot: null, repository: "https://github.com/o/r" }],
+      } as never);
+      const app = Fastify();
+      await registerMcpRoutes(app, deps as never);
+      try {
+        const result = await app.inject({
+          method: "POST",
+          url: "/api/mcp/agt_test1",
+          payload: {},
+        });
+        expect(result.statusCode).toBe(200);
+        expect(
+          vi.mocked(handleMcpRequest).mock.calls.at(-1)?.[3]
+        ).toMatchObject({
+          brainRepoRoot: moved ? "/repo" : "https://github.com/o/r",
+        });
+      } finally {
+        await app.close();
+      }
+    }
+  );
+});

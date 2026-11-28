@@ -160,10 +160,10 @@ it("agrees with TypeScript identities for stored rows, including borrowed reposi
     },
     {
       id: "project-repo",
-      runner: "fixture",
-      launch: "/srv/shared-launch",
+      runner: "local",
+      launch: "/managed/cache/checkout",
       root: null,
-      cwd: "/srv/shared-launch",
+      cwd: "/managed/cache/checkout",
       project: { repoRoot: null, repository: "https://example.com/b" },
       repository: null,
     },
@@ -210,7 +210,9 @@ it("agrees with TypeScript identities for stored rows, including borrowed reposi
       ]
     );
     const expected =
-      identityKey(placement, row.launch ?? row.root ?? row.cwd) ??
+      (row.runner === "local" && row.project?.repoRoot === null
+        ? row.project.repository
+        : identityKey(placement, row.launch ?? row.root ?? row.cwd)) ??
       (row.project
         ? projectKey(row.project)
         : sessionRepositoryKey(row.repository));
@@ -247,16 +249,17 @@ it("filters runner projects and keeps local folders separate in agent pagination
     INSERT INTO agents (id,cwd,launch_cwd,runner_id,project_id,created_at) VALUES
     ('a','/srv/shared-launch','/srv/shared-launch','fixture','p1','2026-01-01T00:00:00Z'),
     ('b','/srv/shared-launch','/srv/shared-launch','fixture','p2','2026-01-02T00:00:00Z'),
-    ('c','/work/local','/work/local','local','p1','2026-01-03T00:00:00Z')`);
+    ('c','/work/local','/work/local','local',null,'2026-01-03T00:00:00Z'),
+    ('d','/managed/checkout','/managed/checkout','local','p1','2026-01-04T00:00:00Z')`);
   await pool.query("UPDATE agents SET updated_at=created_at");
   const remote = (
     await app.inject(
       "/api/v1/history/agents?project=https://example.com/alpha&limit=1"
     )
   ).json();
-  expect(remote.total, JSON.stringify(remote)).toBe(1);
-  expect(remote.agents[0].project).toBe("https://example.com/alpha");
-  expect(remote.agents.map((a: { id: string }) => a.id)).toEqual(["a"]);
+  expect(remote.total, JSON.stringify(remote)).toBe(2);
+  expect(remote.agents[0].cwd).toBe("/managed/checkout");
+  expect(remote.agents.map((a: { id: string }) => a.id)).toEqual(["d"]);
   const local = (
     await app.inject("/api/v1/history/agents?project=/work/local")
   ).json();

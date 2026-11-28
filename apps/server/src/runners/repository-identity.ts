@@ -5,7 +5,8 @@
  * root its runner reports, and its project.
  *
  * - A root on the controller's machine is its own key, byte for byte what
- *   main stores (Brain memory and task boards are found by these bytes).
+ *   main stores. An unmoved repository-only project instead uses its stored
+ *   repository, the same key on every runner.
  * - Any other runner's session takes its project's key: the primary root's
  *   path key when the project has a folder, else its repository. With no
  *   project, it takes its recorded repository, normalized as a project's
@@ -43,7 +44,9 @@ export type RepositorySession = {
   placement: Placement;
   /** The session's repository root as its runner reports it; read only on the controller's machine. */
   repositoryRoot: () => Promise<string | null>;
-  /** The session's project, or null when it has none; read only for other runners. */
+  /** An explicitly moved Local workspace keeps its own repository scope. */
+  moved?: boolean;
+  /** The session's project, or null when it has none. */
   project: () => Promise<ProjectIdentity | null>;
   /**
    * The repository the session's checkout was made from
@@ -67,9 +70,13 @@ export function sessionRepositoryKey(url: string | null): string | null {
 export async function repositoryKey(
   session: RepositorySession
 ): Promise<string | null> {
-  if (sameRunner(session.placement, controllerPlacement))
-    return session.repositoryRoot();
+  const local = sameRunner(session.placement, controllerPlacement);
+  if (local && session.moved) return session.repositoryRoot();
   const project = await session.project();
+  if (local)
+    return project?.repoRoot === null && project.repository
+      ? project.repository
+      : session.repositoryRoot();
   if (project) return projectKey(project);
   // Owner decision (T34, option A): no recorded repository, no key, as a
   // local folder outside Git has none.
@@ -117,13 +124,17 @@ export function repositoryRecord<T extends { url: string }>(
 
 /**
  * SQL twin of the launch-folder identity rule, as an agents relation with a
- * resolved history_identity column. The local arm keeps main's folder bytes;
- * the other arm reads canonical keys at their persistence boundaries. Keeping
+ * resolved history_identity column. Local folders keep their launch bytes;
+ * repository-only projects share their stored key on every runner. Keeping
  * the arms set-based avoids costly scalar subplans (and JIT) on local history.
  */
 export const HISTORY_IDENTITY_SQL = `(
-  SELECT a.*, COALESCE(a.launch_cwd, a.git_context->>'repoRoot', a.cwd) AS history_identity
-  FROM agents a WHERE a.runner_id = 'local'
+  SELECT a.*, CASE WHEN p.repo_root IS NULL AND p.repository IS NOT NULL
+      THEN p.repository
+      ELSE COALESCE(a.launch_cwd, a.git_context->>'repoRoot', a.cwd) END AS history_identity
+  FROM agents a
+  LEFT JOIN projects p ON p.id = a.project_id
+  WHERE a.runner_id = 'local'
   UNION ALL
   SELECT a.*, CASE WHEN p.id IS NOT NULL
       THEN COALESCE(p.repo_root, p.repository)

@@ -111,6 +111,7 @@ async function checkoutContext(
   // One key (D5, D8) for Brain, the agent list and PR-risk visibility.
   const repositoryScope = await repositoryKey({
     placement: callerPlacement,
+    moved: Boolean(agent.workspacePath),
     repositoryRoot: async () => repoRoot,
     project: async () =>
       agent.projectId
