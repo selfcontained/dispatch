@@ -2416,6 +2416,9 @@ export class AgentManager {
       ? (checkoutOwner ??
         (input.launcherFolder === undefined &&
         launcher &&
+        (!input.cwd ||
+          input.cwd === launcher.cwd ||
+          input.cwd === reviewerWorkspace(launcher)) &&
         sameRunner(placement, launcher.placement)
           ? launcher
           : null))
