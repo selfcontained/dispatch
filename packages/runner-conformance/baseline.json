@@ -423,6 +423,6 @@
     "lane": "local",
     "scenario": "workspace.prepare/repository",
     "task": "T18",
-    "reason": "Local repository discard deletes its unpublished branch (local/workspace.ts:26); subsequent reuse cannot find local feature or origin feature. Remote discard retains that branch, so the shared reuse assertion fails."
+    "reason": "Rechecked after merging runner/repo-search-ui (c1e83bc22): discard removes the checkout but deletes its unpublished branch (packages/runner/src/local/workspace.ts:27). Subsequent reuse fetches absent origin/feature. Remote discard preserves the branch; the unchanged shared scenario still fails on local."
   }
 ]
