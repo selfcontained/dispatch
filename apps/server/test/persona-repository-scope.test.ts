@@ -105,6 +105,40 @@ describe("launchPersonaScope (D7)", () => {
     });
   });
 
+  it("reads a Local project with no folder from its repository on the local runner", async () => {
+    const call = vi.fn(async () =>
+      files("---\ntype: task\nname: B\ndescription: d\n---\nfrom the repo")
+    );
+    const runners = {
+      checkoutReadRunners: vi.fn(() => ({ child: () => ({ call }) })),
+    } as never;
+    const scope = launchPersonaScope(runners, {
+      placement: controllerPlacement,
+      cwd: "",
+      repository: async () => "https://github.com/o/r",
+    });
+    expect(scope.kind).toBe("repository");
+    expect((await resolvePersona(scope, "builder", "task")).body).toBe(
+      "from the repo"
+    );
+    const [op, input] = call.mock.calls[0] as unknown as [string, unknown];
+    expect(op).toBe("checkout.defaultFiles");
+    expect(input).toMatchObject({
+      target: { repository: "https://github.com/o/r" },
+    });
+  });
+
+  it("keeps a Local folder or a project folder on the folder read", () => {
+    for (const target of [{ cwd: "/work" }, { projectRoot: "/project" }])
+      expect(
+        launchPersonaScope(manager, {
+          placement: controllerPlacement,
+          repository: "https://example.com/o/r",
+          ...target,
+        }).kind
+      ).not.toBe("repository");
+  });
+
   it("reads the project's repository on any other runner", () => {
     expect(
       launchPersonaScope(manager, {

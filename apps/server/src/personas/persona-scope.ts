@@ -98,7 +98,8 @@ export function personaScopeFor(
  * runner, as main reads it. A launch on any other runner reads its project's
  * repository there, from the runner's repository cache at the remote's
  * default branch, as main's catalog reads the origin's default branch.
- * Nothing on the controller stands in when that runner cannot answer.
+ * A Local project with no folder reads its repository the same way, through
+ * the local runner. Nothing else stands in when a runner cannot answer.
  */
 export function launchPersonaScope(
   manager: Pick<AgentManager, "checkoutReadRunners">,
@@ -110,9 +111,12 @@ export function launchPersonaScope(
     source?: "catalog" | "workspace";
   }
 ): PersonaScope {
-  if (sameRunner(target.placement, controllerPlacement))
-    return folderOrProject(target, () => manager.checkoutReadRunners());
   const { repository: of } = target;
+  if (
+    sameRunner(target.placement, controllerPlacement) &&
+    (target.cwd || target.projectRoot || !of)
+  )
+    return folderOrProject(target, () => manager.checkoutReadRunners());
   const runner = runnerDirectory(manager.checkoutReadRunners()).for(
     target.placement
   );
