@@ -1505,6 +1505,7 @@ async function madeForUs(at: string, source: string, branch: string) {
 }
 
 const workspaceSteps = {
+  "workspace.defaultBranch": workspaceWorkload.defaultBranch,
   "workspace.canonical": workspaceWorkload.canonical,
   "workspace.locate": workspaceWorkload.locate,
   "workspace.identity": workspaceWorkload.identity,
