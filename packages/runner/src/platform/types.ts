@@ -26,6 +26,7 @@ export const WORKER_OPS = [
   "git.context",
   "git.defaultBranch",
   "git.branches",
+  "git.base",
   "git.origin",
   "git.roots",
 ] as const;

@@ -157,12 +157,6 @@
   },
   {
     "lane": "local",
-    "scenario": "git.base/fallback",
-    "task": "T16",
-    "reason": "Local child does not register git.base; real child returns unsupported."
-  },
-  {
-    "lane": "local",
     "scenario": "terminal.open/interactive",
     "task": "T21",
     "reason": "Local terminal handler requires target.path and does not resolve contract target.session; real child returns Invalid native terminal binding."
