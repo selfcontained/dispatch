@@ -4,8 +4,9 @@ import {
   sessionFromWire,
   type Req,
   type Res,
+  type OpenName,
 } from "@dispatch/runner-protocol/contract";
-import type { LocalRunnerSession } from "./local-runner.js";
+import type { LocalRunnerSession, SessionCallOptions } from "./local-runner.js";
 import {
   encodeHostFrame,
   mapIncomingFrames,
@@ -27,15 +28,38 @@ export async function localHostChannel(
   child: LocalSessionRunner,
   agentId: string
 ): Promise<Duplex> {
-  const { channel } = await unavailableAfter(ATTACH_WAIT_MS, (signal) =>
-    child.openStream(
-      "session.attach",
-      { session: sessionFromWire(agentId) },
-      { wait: true, signal }
-    )
+  const { channel } = await openLocalSession(child, "session.attach", {
+    session: sessionFromWire(agentId),
+  });
+  return sessionHostStream(channel, agentId);
+}
+
+/** A bounded channel open through a restarting Local runner. */
+export function openLocalSession<K extends OpenName>(
+  child: LocalSessionRunner,
+  op: K,
+  input: Req<K>,
+  options: SessionCallOptions<K> = {}
+) {
+  return unavailableAfter(ATTACH_WAIT_MS, (signal) =>
+    child.openStream(op, input, {
+      ...options,
+      wait: true,
+      signal: joinedSignal(signal, options.signal),
+    })
   );
-  return mapIncomingFrames(channel, (message) =>
-    encodeHostFrame(message as HostMessage, agentId)
+}
+
+/** Adapt the contract's session channel for a v1 HostClient, on either transport. */
+export function sessionHostStream(
+  channel: Duplex,
+  agentId: string,
+  maxFrameBytes?: number
+): Duplex {
+  return mapIncomingFrames(
+    channel,
+    (message) => encodeHostFrame(message as HostMessage, agentId),
+    maxFrameBytes
   );
 }
 
@@ -55,9 +79,17 @@ export function readLocalSession<
     | "session.logs"
     | "session.list"
     | "session.sample",
->(child: LocalSessionRunner, op: K, input: Req<K>): Promise<Res<K>> {
+>(
+  child: LocalSessionRunner,
+  op: K,
+  input: Req<K>,
+  options: SessionCallOptions<K> = {}
+): Promise<Res<K>> {
   return unavailableAfter(SESSION_READ_WAIT_MS, (signal) =>
-    child.call(op, input, { signal })
+    child.call(op, input, {
+      ...options,
+      signal: joinedSignal(signal, options.signal),
+    })
   );
 }
 
@@ -80,11 +112,23 @@ const SESSION_WRITE_WAIT_MS = {
  */
 export function requestLocalSession<
   K extends keyof typeof SESSION_WRITE_WAIT_MS,
->(child: LocalSessionRunner, op: K, input: Req<K>): Promise<Res<K>> {
+>(
+  child: LocalSessionRunner,
+  op: K,
+  input: Req<K>,
+  options: SessionCallOptions<K> = {}
+): Promise<Res<K>> {
   return unavailableAfter(SESSION_WRITE_WAIT_MS[op], (signal) =>
-    child.call(op, input, { signal, timeoutMs: null })
+    child.call(op, input, {
+      ...options,
+      signal: joinedSignal(signal, options.signal),
+      timeoutMs: null,
+    })
   );
 }
+
+const joinedSignal = (deadline: AbortSignal, caller?: AbortSignal) =>
+  caller ? AbortSignal.any([deadline, caller]) : deadline;
 
 async function unavailableAfter<T>(
   ms: number,
@@ -111,9 +155,11 @@ async function unavailableAfter<T>(
 export async function launchLocalSession(
   child: LocalSessionRunner,
   request: Req<"session.launch">,
-  options: { timeoutMs: number; pollMs: number }
+  options: { timeoutMs: number; pollMs: number; signal?: AbortSignal }
 ) {
-  await requestLocalSession(child, "session.launch", request);
+  await requestLocalSession(child, "session.launch", request, {
+    signal: options.signal,
+  });
   let exited = false;
   let watching = true;
   const deadline = Date.now() + options.timeoutMs;

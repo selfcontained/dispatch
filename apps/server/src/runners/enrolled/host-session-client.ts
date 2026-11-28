@@ -1,19 +1,4 @@
 import {
-  encodeHostFrame,
-  mapIncomingFrames,
-  type HostMessage,
-} from "@dispatch/runner-client/v1/host";
-import type { Duplex } from "node:stream";
-
-export function enrolledHostStream(channel: Duplex, id: string) {
-  return mapIncomingFrames(
-    channel,
-    (message) => encodeHostFrame(message as HostMessage, id),
-    32 * 1024 * 1024
-  );
-}
-
-import {
   HostClient,
   type HostClientDeps,
   UpdateAcknowledgementLost,

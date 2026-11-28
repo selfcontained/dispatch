@@ -126,3 +126,35 @@ it("stops the early-exit poll when the caller finishes its handshake", async () 
   expect(observation.launchExited()).toBe(false);
   expect(call).toHaveBeenCalledTimes(1);
 });
+
+it("preserves caller cancellation rather than relabeling it as an unavailable deadline", async () => {
+  const caller = new AbortController();
+  const call = vi.fn(
+    (_op: string, _input: unknown, { signal }: { signal: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        signal.addEventListener(
+          "abort",
+          () =>
+            reject(
+              new RunnerCallError({
+                code: "cancelled",
+                message: "caller cancelled",
+              })
+            ),
+          { once: true }
+        );
+      })
+  );
+  const result = readLocalSession(
+    child(call),
+    "session.alive",
+    { session },
+    { signal: caller.signal }
+  );
+  const rejected = expect(result).rejects.toMatchObject({
+    code: "cancelled",
+    message: "caller cancelled",
+  });
+  caller.abort();
+  await rejected;
+});

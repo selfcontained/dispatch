@@ -36,6 +36,7 @@ import {
   type LauncherBinding,
 } from "@dispatch/runner-client/launcher";
 import { LocalRunnerSession } from "@dispatch/runner-client/session";
+export { operationChannel } from "@dispatch/runner-client/session";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { childProcessEnv } from "../shared/process/child-environment.js";
@@ -1375,6 +1376,8 @@ export type LocalRunner = Omit<Runner, "call"> &
 
 export {
   localHostChannel,
+  openLocalSession,
+  sessionHostStream,
   launchLocalSession,
   readLocalSession,
   requestLocalSession,
