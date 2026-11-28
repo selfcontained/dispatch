@@ -1,4 +1,4 @@
-import { storedLocation, targetPlacement } from "../runners/saved-location.js";
+import { targetPlacement } from "../runners/saved-location.js";
 import type { Effort } from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import { AGENT_TYPES, type AgentType } from "../agent-type-settings.js";
@@ -35,16 +35,9 @@ export async function resolveTemplateLaunch(
         ? template.model
         : null;
   const workspace = templateWorktreeConfig(template);
-  // A folder keeps main's default base. A project launched from its
-  // repository (on Local or a runner) without a saved base starts from the
-  // repository's own default branch, which the runner resolves.
-  const location = template[storedLocation];
-  const fromFolder = !location || "path" in location;
   const baseBranch = workspace.baseBranch?.trim()
     ? normalizeBaseBranch(workspace.baseBranch)
-    : workspace.useWorktree && fromFolder
-      ? "main"
-      : null;
+    : null;
   const branchName = workspace.worktreeBranch?.trim()
     ? assertSafeRefName(workspace.worktreeBranch, "worktreeBranch")
     : null;

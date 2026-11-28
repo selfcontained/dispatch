@@ -143,7 +143,7 @@ describe("agentComparisonBase", () => {
     for (const use of USES) {
       await expect(
         agentComparisonBase(agentFor(LOCAL, shape), use)
-      ).resolves.toBe("main");
+      ).resolves.toBeNull();
       await expect(
         agentComparisonBase(agentFor(REMOTE, shape), use, shape.launch)
       ).resolves.toBeNull();
@@ -153,17 +153,17 @@ describe("agentComparisonBase", () => {
     }
   });
 
-  it("matches main's local Changes and review defaults", async () => {
+  it("does not invent a default when Local cannot resolve its checkout", async () => {
     const probed = {
       cwd: "/repo",
       worktreePath: null,
       baseBranch: null,
       gitContext: { worktreePath: "/repo", isWorktree: true },
     };
-    await expect(agentComparisonBase(probed, "changes")).resolves.toBe("main");
+    await expect(agentComparisonBase(probed, "changes")).resolves.toBeNull();
     await expect(agentComparisonBase(probed, "review")).resolves.toBeNull();
     const unnamed = { cwd: "/wt", worktreePath: "/wt", baseBranch: null };
-    await expect(agentComparisonBase(unnamed, "changes")).resolves.toBe("main");
+    await expect(agentComparisonBase(unnamed, "changes")).resolves.toBeNull();
     await expect(agentComparisonBase(unnamed, "review")).resolves.toBeNull();
     expect(agentDiffPath(probed)).toBe("/repo");
   });

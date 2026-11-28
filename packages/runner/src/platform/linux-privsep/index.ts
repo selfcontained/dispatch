@@ -128,6 +128,7 @@ export async function createRemoteWorkspacePreparation(
       );
       return removed;
     },
+    defaultBranch: (path) => step("defaultBranch", path),
     canonical: (path) => step("canonical", path),
     locate: (path) => step("locate", path),
     identity: (path) => step("identity", path),

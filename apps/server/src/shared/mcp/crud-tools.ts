@@ -155,9 +155,16 @@ function normalizeLoopItems(items: string[] | null | undefined) {
 }
 
 export type CrudToolCallbacks = {
-  listJobs: (directory?: string) => Promise<unknown>;
+  listJobs: (
+    directory?: string,
+    defaultDirectory?: boolean
+  ) => Promise<unknown>;
   getJobById: (jobId: string) => Promise<unknown>;
-  getJobByName: (directory: string, name: string) => Promise<unknown>;
+  getJobByName: (
+    directory: string,
+    name: string,
+    defaultDirectory?: boolean
+  ) => Promise<unknown>;
   createJob: (
     input: {
       runner?: string;
@@ -218,11 +225,15 @@ export type CrudToolCallbacks = {
   }) => Promise<unknown>;
   deleteJob: (jobId: string) => Promise<unknown>;
   runJob: (jobId: string) => Promise<unknown>;
-  listTemplates: (directory?: string) => Promise<TemplateRecord[]>;
+  listTemplates: (
+    directory?: string,
+    defaultDirectory?: boolean
+  ) => Promise<TemplateRecord[]>;
   getTemplateById: (templateId: string) => Promise<TemplateRecord | null>;
   getTemplateByName: (
     directory: string,
-    name: string
+    name: string,
+    defaultDirectory?: boolean
   ) => Promise<TemplateRecord | null>;
   createTemplate: (
     input: {
@@ -311,7 +322,8 @@ export function registerCrudTools(
       async (args) => {
         try {
           const result = await callbacks.listJobs(
-            args.directory?.trim() || defaultCwd
+            args.directory?.trim() || defaultCwd,
+            !args.directory?.trim()
           );
           const listing = Array.isArray(result)
             ? result.map(toJobListing)
@@ -354,7 +366,8 @@ export function registerCrudTools(
             ? await callbacks.getJobById(args.jobId)
             : await callbacks.getJobByName(
                 resolveDir(args.directory),
-                args.name!
+                args.name!,
+                !args.directory?.trim()
               );
           if (!result) return toToolError(new Error("Job not found."));
           return {
@@ -722,7 +735,8 @@ export function registerCrudTools(
       async (args) => {
         try {
           const result = await callbacks.listTemplates(
-            args.directory?.trim() || defaultCwd
+            args.directory?.trim() || defaultCwd,
+            !args.directory?.trim()
           );
           return {
             content: [
@@ -767,7 +781,8 @@ export function registerCrudTools(
             ? await callbacks.getTemplateById(args.templateId)
             : await callbacks.getTemplateByName(
                 resolveDir(args.directory),
-                args.name!
+                args.name!,
+                !args.directory?.trim()
               );
           if (!result) return toToolError(new Error("Template not found."));
           return {

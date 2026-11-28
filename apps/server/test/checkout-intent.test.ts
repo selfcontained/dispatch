@@ -27,13 +27,12 @@ import { createGitWorktree } from "../../../packages/runner/src/workload/shared/
 import { runnerWorktree } from "../src/agents/workspace-launch.js";
 
 /**
- * What the local runner checks out for a request it is sent (its core's
- * rule, run for real in local-workspace-preparation.test.ts): the base
- * defaults to `main`, and without a new branch the base is checked out.
+ * The checkout request sent to core. An omitted base remains omitted;
+ * real repository defaults and replay are tested in core-workspace.test.ts.
  */
 function checkedOut(request: Parameters<typeof runnerWorktree>[0]) {
   const sent = runnerWorktree(request);
-  const base = sent.base ?? "main";
+  const base = sent.base;
   return { branch: sent.create ? sent.branch : base, base };
 }
 
@@ -232,7 +231,7 @@ it.each([
         ).toBe(branch);
         expect(
           await agentComparisonBase({ ...agent, baseBranch: null }, use)
-        ).toBe(use === "review" ? "main" : branch);
+        ).toBe(branch);
       }
       const changes = await readAgentView(agent, {
         kind: "diff",
@@ -258,7 +257,7 @@ it.each([
   }
 );
 
-it("defaults a native Create Agent request to main even when the Git default is trunk", async () => {
+it("defaults a native Create Agent request to its Git default trunk", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "dispatch-native-base-"));
   try {
     git(root, "init", "-b", "trunk", "repo");
@@ -275,7 +274,7 @@ it("defaults a native Create Agent request to main even when the Git default is 
           ...context,
           ...options,
         });
-        expect(intent.normalizedBaseBranch).toBe("main");
+        expect(intent.normalizedBaseBranch).toBe("trunk");
         throw prepared;
       }
     );
@@ -299,14 +298,14 @@ it("defaults a native Create Agent request to main even when the Git default is 
   }
 });
 
-it("uses main for a native worktree request with no recorded base", () => {
+it("leaves an unpicked native worktree base for the runner to resolve", () => {
   expect(checkedOut({ branch: "feature", createNewBranch: true })).toEqual({
     branch: "feature",
-    base: "main",
+    base: undefined,
   });
   expect(checkedOut({ branch: "", createNewBranch: false })).toEqual({
-    branch: "main",
-    base: "main",
+    branch: undefined,
+    base: undefined,
   });
 });
 

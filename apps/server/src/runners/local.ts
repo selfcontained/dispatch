@@ -746,27 +746,51 @@ export function createLocalCheckoutRunner(
     );
   }
 
-  /** A folder's default branch: in the child when it serves this session, else in process (R3). */
+  /** Read the selected checkout's default through its child, with Local's read fallback. */
   async function defaultBranch(
     input: Req<"git.defaultBranch">,
     options?: CallOptions<"git.defaultBranch">
   ): Promise<Res<"git.defaultBranch">> {
     const { target } = input;
-    if (!("path" in target))
-      throw new RunnerCallError({
-        code: "unsupported",
-        message: "The default branch is read for a path.",
-      });
-    const answered = await readAttempt(
-      "git.defaultBranch",
-      input,
-      (child, read) => child.call("git.defaultBranch", input, read),
-      options
-    );
+    if ("repository" in target) {
+      if (!child)
+        throw new RunnerCallError({
+          code: "unavailable",
+          message: "The local runner is unavailable",
+        });
+      return child.call("git.defaultBranch", input, options);
+    }
+    let directory: string;
+    let atChild = true;
+    if ("path" in target) directory = displayPath(target.path);
+    else {
+      if (sessionToWire(target.session) !== agent?.id)
+        throw new RunnerCallError({
+          code: "invalid",
+          message: "Invalid native checkout binding.",
+        });
+      const selector = target.checkout ?? "current";
+      const selected = commandDirectory(agent, selector);
+      if (!selected)
+        throw new RunnerCallError({
+          code: "not_found",
+          message: "The session checkout is unavailable.",
+        });
+      directory = selected;
+      atChild = await childHolds(target.session, selector, directory, options);
+    }
+    const answered =
+      atChild &&
+      (await readAttempt(
+        "git.defaultBranch",
+        input,
+        (child, read) => child.call("git.defaultBranch", input, read),
+        options
+      ));
     if (answered) return answered.value;
     return checkoutWorkload.run(
       "git.defaultBranch",
-      { directory: displayPath(target.path), request: {} },
+      { directory, request: {} },
       { signal: options?.signal }
     );
   }

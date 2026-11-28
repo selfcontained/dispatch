@@ -1,3 +1,4 @@
+import { detectDefaultBranch } from "../shared/git/default-branch.js";
 import { DefaultBranchFiles } from "./default-branch-files.js";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -233,7 +234,7 @@ async function inspectChanges(
     try {
       baseBranch = (await getPrStatus({ cwd: root }, run)).baseRefName;
     } catch {
-      // No usable PR; the base helpers fall back to the upstream or main.
+      // No usable PR; the base helpers fall back to the upstream or repository default.
     }
   }
   const options = {
@@ -243,8 +244,7 @@ async function inspectChanges(
   await refreshRemoteBaseRef(root, baseBranch, options);
   const baseRef =
     (await resolveBaseRef(root, baseBranch, options)) ?? unresolvedBase;
-  if (!baseRef)
-    throw new Error("Could not resolve checkout base (origin/main fallback)");
+  if (!baseRef) throw new Error("Could not resolve checkout base.");
   const [{ stdout: head }, { stdout: base }] = await Promise.all([
     run("git", ["rev-parse", "--verify", "HEAD"], { cwd: root }),
     run(
@@ -355,12 +355,13 @@ async function readArchiveChanges(root: string) {
   if (tracking?.exitCode === 0 && tracking.stdout) upstream = tracking.stdout;
   const remoteBranch = upstream?.startsWith("origin/")
     ? upstream.slice("origin/".length)
-    : "main";
-  await run("git", ["fetch", "origin", remoteBranch, "--quiet"], {
-    cwd: root,
-    allowedExitCodes: [0, 1, 128],
-    timeoutMs: 15_000,
-  });
+    : await detectDefaultBranch(root, run);
+  if (remoteBranch)
+    await run("git", ["fetch", "origin", remoteBranch, "--quiet"], {
+      cwd: root,
+      allowedExitCodes: [0, 1, 128],
+      timeoutMs: 15_000,
+    });
   const baseRef = await resolveBaseRef(root, upstream, {
     runCommand: run,
     onError(error) {

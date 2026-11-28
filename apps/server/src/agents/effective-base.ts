@@ -35,7 +35,7 @@ export type LaunchCheckout = RunnerRepository["checkout"] | null | undefined;
  * and passed explicitly to the local and runner executors alike. A moved
  * workspace uses the base recorded when it moved. Otherwise the launch base
  * applies, then the repository's default. Null means the executor resolves
- * it (recorded base, PR base, upstream, main).
+ * it (recorded base, PR base, upstream, repository default).
  */
 export async function agentComparisonBase(
   agent: ComparisonBaseAgent,
@@ -54,12 +54,6 @@ export async function agentComparisonBase(
   const storedBase = !isRunner || existingBranch ? agent.baseBranch : null;
   const launchBase =
     launch?.kind === "new" ? launch.base : (storedBase ?? existingBranch);
-  if (!isRunner && use === "review") {
-    return (
-      agent.baseBranch ??
-      (agent.worktreePath && agent.worktreeBranch ? "main" : null)
-    );
-  }
   if (launchBase) return launchBase;
 
   const managed =
@@ -71,10 +65,10 @@ export async function agentComparisonBase(
   const cwd = managed && !isRunner ? recordedDiffDirectory(agent) : null;
   if (!cwd) return null;
   // Main's chain: the repository's default, the checkout's current branch,
-  // then "main". Main's probes never fail the read, and neither does this.
+  // with no invented branch when neither is known. Probes never fail the read.
   const { branch, currentBranch } = await runnerDirectory(runners)
     .for(agent.placement ?? controllerPlacement)
     .call("git.defaultBranch", { target: { path: pathFromWire(cwd) } })
     .catch(() => ({ branch: null, currentBranch: null }));
-  return branch ?? currentBranch ?? "main";
+  return branch ?? currentBranch ?? null;
 }

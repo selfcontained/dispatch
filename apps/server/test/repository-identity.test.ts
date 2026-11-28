@@ -40,8 +40,11 @@ describe("repository identity (D5, D8)", () => {
     expect(identityKey(runner, "/home/runner/repo")).toBeNull();
   });
 
-  it("a controller session reads its root and never its project", async () => {
-    const project = vi.fn();
+  it("a folder-backed controller session keeps its root rather than its project folder", async () => {
+    const project = vi.fn(async () => ({
+      repoRoot: "/stored",
+      repository: "https://github.com/o/r",
+    }));
     await expect(
       repositoryKey({
         placement: controllerPlacement,
@@ -57,6 +60,39 @@ describe("repository identity (D5, D8)", () => {
         project,
       })
     ).resolves.toBeNull();
+    expect(project).toHaveBeenCalledTimes(2);
+  });
+
+  it("shares a repository-only project's key on Local and runners without reading clone paths", async () => {
+    const repositoryRoot = vi.fn(async () => "/managed/repositories/hash/repo");
+    for (const placement of [controllerPlacement, runner]) {
+      expect(
+        await repositoryKey({
+          placement,
+          repositoryRoot,
+          project: async () => ({
+            repoRoot: null,
+            repository: "https://github.com/o/r",
+          }),
+        })
+      ).toBe("https://github.com/o/r");
+    }
+    expect(repositoryRoot).not.toHaveBeenCalled();
+  });
+
+  it("keeps an explicitly moved Local workspace in its physical repository scope", async () => {
+    const project = vi.fn(async () => ({
+      repoRoot: null,
+      repository: "https://github.com/o/r",
+    }));
+    expect(
+      await repositoryKey({
+        placement: controllerPlacement,
+        moved: true,
+        repositoryRoot: async () => "/moved/repo",
+        project,
+      })
+    ).toBe("/moved/repo");
     expect(project).not.toHaveBeenCalled();
   });
 
@@ -240,7 +276,8 @@ describe("option A readiness: a session's repository key equals its project's", 
 describe("loop handoff on a runner", () => {
   async function handoffKey(
     project: { repoRoot: string | null; repository: string | null } | null,
-    recorded: string | null = null
+    recorded: string | null = null,
+    placement = runner
   ) {
     const keys: string[] = [];
     const service = new JobService(
@@ -276,7 +313,10 @@ describe("loop handoff on a runner", () => {
       agentId: "agt_r",
       chainId: null,
       chainIteration: 1,
-      config: resolveSavedTarget("", { runner: "rnr_identity" }),
+      config: resolveSavedTarget("", {
+        runner: placement === controllerPlacement ? "local" : "rnr_identity",
+        projectId: project ? "prj_r" : undefined,
+      }),
     });
     return keys[0];
   }
@@ -290,6 +330,16 @@ describe("loop handoff on a runner", () => {
     ).resolves.toBe("/srv/repo");
     await expect(
       handoffKey({ repoRoot: null, repository: "https://github.com/o/r" })
+    ).resolves.toBe("https://github.com/o/r");
+  });
+
+  it("a repository-only Local run writes to the same key as its successor", async () => {
+    await expect(
+      handoffKey(
+        { repoRoot: null, repository: "https://github.com/o/r" },
+        null,
+        controllerPlacement
+      )
     ).resolves.toBe("https://github.com/o/r");
   });
 

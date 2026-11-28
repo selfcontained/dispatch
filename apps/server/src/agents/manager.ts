@@ -2726,9 +2726,27 @@ export class AgentManager {
           ...(cwd !== undefined && { cwd: pathFromWire(cwd) }),
         });
     const selectedDirectory = launcherDirectory ?? directory;
+    const defaultCheckoutBranch = async () => {
+      const target = checkoutOwner
+        ? {
+            session: sessionFromWire(checkoutOwner.id),
+            checkout: "current" as const,
+          }
+        : selectedDirectory
+          ? { path: pathFromWire(selectedDirectory.canonicalPath) }
+          : null;
+      if (!target) return undefined;
+      const result = await runnerDirectory(
+        this.checkoutReadRunners(),
+        checkoutOwner ?? undefined
+      )
+        .for(placement)
+        .call("git.defaultBranch", { target });
+      return result.branch ?? result.currentBranch ?? undefined;
+    };
     const checkoutContext = selectedDirectory
       ? {
-          defaultBranch: async () => "main",
+          defaultBranch: defaultCheckoutBranch,
           ...(selectedDirectory.git.status === "ok" &&
             selectedDirectory.git.value && {
               repository: async () => selectedDirectory.origin ?? undefined,
@@ -2740,7 +2758,7 @@ export class AgentManager {
       : {
           ...(checkoutOwner &&
             (location || repositorySource) && {
-              defaultBranch: async () => "main",
+              defaultBranch: defaultCheckoutBranch,
             }),
           ...(origin &&
             (location || repositorySource) && {

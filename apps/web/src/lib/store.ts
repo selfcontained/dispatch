@@ -220,7 +220,7 @@ export const createFullAccessPrefAtom = atomFamily((cwd: string) =>
 );
 type BranchPreference = string | { key: string; defaultValue: string };
 const branchPreference = (value: BranchPreference) =>
-  typeof value === "string" ? { key: value, defaultValue: "main" } : value;
+  typeof value === "string" ? { key: value, defaultValue: "" } : value;
 export const createBaseBranchPrefAtom = atomFamily(
   (value: BranchPreference) => {
     const config = branchPreference(value);

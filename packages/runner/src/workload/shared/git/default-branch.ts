@@ -8,7 +8,8 @@ import { runCommand, type CommandRunner } from "../lib/run-command.js";
  */
 export async function detectDefaultBranch(
   dir: string,
-  run: CommandRunner = runCommand
+  run: CommandRunner = runCommand,
+  onError?: (error: unknown) => void
 ): Promise<string | null> {
   const opts = {
     allowedExitCodes: [0, 1, 128],
@@ -18,7 +19,10 @@ export async function detectDefaultBranch(
     "git",
     ["-C", dir, "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD"],
     opts
-  ).catch(() => null);
+  ).catch((error) => {
+    onError?.(error);
+    return null;
+  });
   const fromOrigin = originHead?.exitCode === 0 ? originHead.stdout.trim() : "";
   if (fromOrigin.startsWith("origin/")) {
     return fromOrigin.slice("origin/".length);
@@ -29,7 +33,10 @@ export async function detectDefaultBranch(
         "git",
         ["-C", dir, "rev-parse", "--verify", "--quiet", ref],
         opts
-      ).catch(() => null);
+      ).catch((error) => {
+        onError?.(error);
+        return null;
+      });
       if (found?.exitCode === 0 && found.stdout.trim()) return branch;
     }
   }

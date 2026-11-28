@@ -87,6 +87,9 @@ export function ProjectEditor({
     const timer = setTimeout(() => setPreviewRoot(repoRoot), 300);
     return () => clearTimeout(timer);
   }, [repoRoot]);
+  const attachingFolder = Boolean(
+    project && !project.repoRoot && previewRoot.trim()
+  );
   const preview = useQuery<{
     dataUrl: string | null;
     path: string | null;
@@ -95,7 +98,7 @@ export function ProjectEditor({
     queryKey: ["project-icon-preview", project?.id, previewRoot],
     queryFn: () =>
       api(
-        `/api/v1/projects/icon-preview?${new URLSearchParams(project ? { projectId: project.id } : { repoRoot: previewRoot })}`
+        `/api/v1/projects/icon-preview?${new URLSearchParams(project && !attachingFolder ? { projectId: project.id } : { repoRoot: previewRoot })}`
       ),
     enabled: Boolean(project) || (source === "folder" && !!previewRoot.trim()),
     staleTime: 0,
@@ -108,7 +111,9 @@ export function ProjectEditor({
   });
   const iconSrc =
     icon ??
-    (project || repoRoot === previewRoot ? preview.data?.dataUrl : null);
+    (project?.repoRoot || repoRoot === previewRoot
+      ? preview.data?.dataUrl
+      : null);
   const logoColors =
     logoPalette?.src === iconSrc ? logoPalette?.colors : undefined;
   const color =
@@ -222,17 +227,32 @@ export function ProjectEditor({
                   />
                 </>
               ) : project ? (
-                <div className="space-y-1.5">
-                  <p className="text-body-sm font-medium">
-                    {repoRoot ? "Folder" : "Repository"}
-                  </p>
-                  <p
-                    title={repoRoot || savedRepository.data?.url || undefined}
-                    className="h-5 truncate text-body-sm text-muted-foreground"
-                  >
-                    {repoRoot || savedRepository.data?.url}
-                  </p>
-                </div>
+                <>
+                  <div className="space-y-1.5">
+                    <p className="text-body-sm font-medium">
+                      {project.repoRoot ? "Folder" : "Repository"}
+                    </p>
+                    <p
+                      title={
+                        project.repoRoot ||
+                        savedRepository.data?.url ||
+                        undefined
+                      }
+                      className="h-5 truncate text-body-sm text-muted-foreground"
+                    >
+                      {project.repoRoot || savedRepository.data?.url}
+                    </p>
+                  </div>
+                  {!project.repoRoot && (
+                    <PathInput
+                      id="project-repo"
+                      label="Folder"
+                      value={repoRoot}
+                      onChange={setRepoRoot}
+                      history={history}
+                    />
+                  )}
+                </>
               ) : (
                 <PathInput
                   id="project-repo"

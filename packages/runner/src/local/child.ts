@@ -239,7 +239,7 @@ export async function runLocalRunner(
     protocol: RUNNER_WIRE_VERSION,
     engines: message.config.engines,
     capabilities: {
-      sources: { directory: true, repository: true, defaultBaseBranch: "main" },
+      sources: { directory: true, repository: true, defaultBaseBranch: "" },
     },
   };
   const extra = options.handlers?.(message, fence!);

@@ -24,15 +24,18 @@ import { controllerPlacement, enrolledRunnerId } from "../runners/placement.js";
 import {
   identityKey,
   PROJECT_IDENTITY_SQL,
+  projectIdentities,
   repositoryKey,
   SESSION_REPOSITORY_SQL,
   type ProjectIdentity,
 } from "../runners/repository-identity.js";
 import {
   defaultSavedTarget,
+  requestedRunnerPlacement,
   normalizeSavedDirectory,
   targetPlacement,
   sessionLaunchTarget,
+  type SavedTarget,
 } from "../runners/saved-location.js";
 import * as telemetry from "../agents/telemetry.js";
 import type { LoginLinkStore } from "../auth.js";
@@ -111,6 +114,7 @@ async function checkoutContext(
   // One key (D5, D8) for Brain, the agent list and PR-risk visibility.
   const repositoryScope = await repositoryKey({
     placement: callerPlacement,
+    moved: Boolean(agent.workspacePath),
     repositoryRoot: async () => repoRoot,
     project: async () =>
       agent.projectId
@@ -226,34 +230,91 @@ function buildCrudCallbacks(
       ? personaScopeFor({ manager: deps.agentManager, agent })
       : savedPersonaScope(deps.agentManager)(target);
 
-  // The default directory names the caller's session. A supplied native folder
-  // uses the controller's directory namespace, as saved launches do.
-  const scopeFor = (directory: string) =>
-    directory === agent.cwd ? callerPlacement : controllerPlacement;
+  const project = projectIdentities(
+    async (id) =>
+      (await deps.pool.query<ProjectIdentity>(PROJECT_IDENTITY_SQL, [id]))
+        .rows[0] ?? null
+  );
+  // Saved repository targets belong to a project, never to its managed clone.
+  async function callerProject(defaultDirectory?: boolean) {
+    if (!defaultDirectory || !agent.projectId) return null;
+    if (!sameRunner(callerPlacement, controllerPlacement))
+      return agent.projectId;
+    if (agent.workspacePath) return null;
+    const identity = await project(agent.projectId);
+    return identity?.repoRoot === null && identity.repository
+      ? agent.projectId
+      : null;
+  }
+  async function scopeFor(directory: string, defaultDirectory?: boolean) {
+    const placement =
+      defaultDirectory || directory === agent.cwd
+        ? callerPlacement
+        : controllerPlacement;
+    const projectId = await callerProject(defaultDirectory);
+    return {
+      placement,
+      projectId,
+      directory: projectId
+        ? ""
+        : normalizeSavedDirectory(directory, runnerIdForPlacement(placement)),
+    };
+  }
+  function matches(
+    target: SavedTarget,
+    scope: Awaited<ReturnType<typeof scopeFor>>
+  ) {
+    return (
+      target.directory === scope.directory &&
+      sameRunner(targetPlacement(target), scope.placement) &&
+      (!scope.projectId || target.projectId === scope.projectId)
+    );
+  }
+  async function defaultTarget<T extends SavedTarget & { runner?: string }>(
+    input: T,
+    defaultDirectory?: boolean
+  ) {
+    const target = defaultSavedTarget(input, agent, defaultDirectory);
+    const projectId = await callerProject(defaultDirectory);
+    return projectId &&
+      sameRunner(
+        requestedRunnerPlacement(target) ?? controllerPlacement,
+        callerPlacement
+      )
+      ? {
+          ...target,
+          directory: "",
+          projectId:
+            input.projectId === undefined ? projectId : input.projectId,
+        }
+      : target;
+  }
+
   return {
-    listJobs: async (directory) => {
+    listJobs: async (directory, defaultDirectory) => {
       const jobs = await deps.jobService.listJobs();
       if (!directory) return jobs;
-      const placement = scopeFor(directory);
-      const resolved = normalizeSavedDirectory(
-        directory,
-        runnerIdForPlacement(placement)
-      );
-      return jobs.filter(
-        (j) =>
-          j.directory === resolved && sameRunner(targetPlacement(j), placement)
-      );
+      const scope = await scopeFor(directory, defaultDirectory);
+      return jobs.filter((job) => matches(job, scope));
     },
     getJobById: (jobId) => deps.jobService.getJobById(jobId),
-    getJobByName: (directory, name) =>
-      deps.jobService.getJobByName(
+    getJobByName: async (directory, name, defaultDirectory) => {
+      const scope = await scopeFor(directory, defaultDirectory);
+      if (scope.projectId)
+        return (
+          (await deps.jobService.listJobs()).find(
+            (job) => job.name === name && matches(job, scope)
+          ) ?? null
+        );
+      return deps.jobService.getJobByName(
         directory,
         name,
-        runnerIdForPlacement(scopeFor(directory))
-      ),
-    createJob: (input, defaultDirectory) =>
+        runnerIdForPlacement(scope.placement)
+      );
+    },
+    createJob: async (input, defaultDirectory) =>
       deps.jobService.addJob(
-        defaultSavedTarget(input, agent, defaultDirectory) as AddJobInput,
+        (await defaultTarget(input, defaultDirectory)) as AddJobInput,
         callerFullAccess,
         personaScope
       ),
@@ -270,30 +331,31 @@ function buildCrudCallbacks(
         wait: false,
         callerFullAccess,
       }),
-    listTemplates: async (directory) => {
+    listTemplates: async (directory, defaultDirectory) => {
       const templates = await deps.templateService.listTemplates();
       if (!directory) return templates;
-      const placement = scopeFor(directory);
-      const resolved = normalizeSavedDirectory(
-        directory,
-        runnerIdForPlacement(placement)
-      );
-      return templates.filter(
-        (t) =>
-          t.directory === resolved && sameRunner(targetPlacement(t), placement)
-      );
+      const scope = await scopeFor(directory, defaultDirectory);
+      return templates.filter((template) => matches(template, scope));
     },
     getTemplateById: (templateId) =>
       deps.templateService.getTemplate(templateId),
-    getTemplateByName: (directory, name) =>
-      deps.templateService.getTemplateByName(
+    getTemplateByName: async (directory, name, defaultDirectory) => {
+      const scope = await scopeFor(directory, defaultDirectory);
+      if (scope.projectId)
+        return (
+          (await deps.templateService.listTemplates()).find(
+            (template) => template.name === name && matches(template, scope)
+          ) ?? null
+        );
+      return deps.templateService.getTemplateByName(
         directory,
         name,
-        runnerIdForPlacement(scopeFor(directory))
-      ),
-    createTemplate: (input, defaultDirectory) =>
+        runnerIdForPlacement(scope.placement)
+      );
+    },
+    createTemplate: async (input, defaultDirectory) =>
       deps.templateService.addTemplate(
-        defaultSavedTarget(input, agent, defaultDirectory) as AddTemplateInput,
+        (await defaultTarget(input, defaultDirectory)) as AddTemplateInput,
         callerFullAccess,
         personaScope
       ),

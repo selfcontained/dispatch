@@ -41,7 +41,7 @@ export type BranchSelectProps = {
 export function BranchSelect({
   cwd,
   sourceUrl,
-  defaultBaseBranch = "main",
+  defaultBaseBranch = "",
   baseBranch,
   onBaseBranchChange,
   worktreeBranch,

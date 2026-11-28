@@ -1,8 +1,8 @@
 /*
  * A repository whose default branch is not `main`: a saved launch with no
  * explicit base starts from the repository's default branch on Local and on
- * a runner, an explicit base is used as saved, and a folder keeps main's
- * default. The real Local runner prepares the checkout.
+ * a runner, and an explicit base is used as saved. The real Local runner
+ * prepares the checkout.
  */
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -94,11 +94,11 @@ it.each([
   }
 );
 
-it("keeps main's default base for a folder template", async () => {
+it("leaves a folder template's base to its repository too", async () => {
   const { resolved } = await launchCheckout(
     template({ runner: "local", path: "/work/repo" }, null)
   );
-  expect(resolved.baseBranch).toBe("main");
+  expect(resolved.baseBranch).toBeNull();
 });
 
 it("prepares a Local worktree from the repository's default branch when it is master", async () => {

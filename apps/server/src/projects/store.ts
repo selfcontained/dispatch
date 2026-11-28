@@ -66,13 +66,24 @@ export class ProjectStore {
   }
   async update(
     id: string,
-    input: Pick<ProjectRecord, "name" | "color" | "iconOverride">
+    input: Pick<ProjectRecord, "name" | "color" | "iconOverride"> & {
+      repoRoot?: string;
+    }
   ): Promise<ProjectRecord | null> {
     return (
       (
         await this.pool.query(
-          `UPDATE projects SET name=$2,color=$3,icon_override=$4,updated_at=now() WHERE id=$1 RETURNING ${columns}`,
-          [id, input.name, input.color, input.iconOverride]
+          `UPDATE projects SET name=$2,color=$3,icon_override=$4,
+             repo_root=COALESCE(repo_root,$5),updated_at=now()
+           WHERE id=$1 AND ($5::text IS NULL OR repo_root IS NULL OR repo_root=$5)
+           RETURNING ${columns}`,
+          [
+            id,
+            input.name,
+            input.color,
+            input.iconOverride,
+            input.repoRoot ?? null,
+          ]
         )
       ).rows[0] ?? null
     );

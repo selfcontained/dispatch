@@ -322,7 +322,7 @@ describe("launch target adapter", () => {
     expect(data.defaults.launchFields).toEqual({});
     expect(data.defaults.baseBranch).toBe("main");
     expect((await get(data.branchesUrl)).json()).toEqual({
-      branches: ["main", "develop"],
+      branches: ["develop", "main"],
       defaultBranch: "develop",
     });
     expect((await get("/api/v1/agent-models")).body).toBe(before);

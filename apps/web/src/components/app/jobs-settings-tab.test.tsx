@@ -321,7 +321,7 @@ describe("save payload", () => {
     expect(onUpdateJob).toHaveBeenLastCalledWith({
       ...basePayload(),
       useWorktree: true,
-      baseBranch: "main",
+      baseBranch: "",
       branchName: "loop-branch",
     });
   });

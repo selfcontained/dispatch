@@ -222,7 +222,7 @@ export function useCwdHistory(historyUrl?: string) {
 export function useCreateAgentPrefs(
   cwd: string,
   agentType: AgentType,
-  baseBranchDefault = "main"
+  baseBranchDefault = ""
 ) {
   const trimmedCwd = cwd.trim();
   const [persona, setPersona] = useAtom(

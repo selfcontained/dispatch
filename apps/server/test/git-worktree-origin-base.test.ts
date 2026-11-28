@@ -43,6 +43,36 @@ describe("origin-qualified worktree bases", () => {
     await rm(tempRoot, { recursive: true, force: true });
   });
 
+  it("plans and cleans a master-default worktree without a base override", async () => {
+    await git("branch", "-m", "main", "master");
+    await git("push", "origin", "master");
+    await git("push", "origin", ":main");
+    await git(
+      "symbolic-ref",
+      "refs/remotes/origin/HEAD",
+      "refs/remotes/origin/master"
+    );
+    const worktree = await createGitWorktree({
+      cwd: repo,
+      name: "Implicit base",
+      createNewBranch: true,
+    });
+    expect(worktree).toMatchObject({
+      baseBranch: "master",
+      baseRef: "origin/master",
+    });
+    const cleanup = await cleanupGitWorktree({
+      cwd: worktree.worktreePath,
+      deleteBranch: true,
+    });
+    expect(cleanup).toMatchObject({
+      baseBranch: "master",
+      deletedBranch: true,
+    });
+    expect(await git("branch", "--list", "main")).toBe("");
+    expect(await git("rev-parse", "master")).toBe(localSha);
+  });
+
   const cases = ["main", "feature/x"].flatMap((branch) =>
     [false, true].flatMap((qualified) =>
       [false, true].flatMap((createNewBranch) =>

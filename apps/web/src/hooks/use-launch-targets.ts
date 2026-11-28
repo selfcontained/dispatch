@@ -216,7 +216,7 @@ export function useLaunchTargetData(
       base.data?.branchesUrl ??
       (target?.branchesUrl ? `${target.branchesUrl}?${branchParams}` : ""),
     defaultBaseBranch:
-      base.data?.defaults?.baseBranch ?? target?.defaultBaseBranch ?? "main",
+      base.data?.defaults?.baseBranch ?? target?.defaultBaseBranch ?? "",
     info,
     effort,
     catalogLoading: base.isLoading && !info,

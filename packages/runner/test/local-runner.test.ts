@@ -245,7 +245,7 @@ describe("local runner child (real processes)", () => {
     expect(runnerIdToWire(description.runnerId)).toBe("local");
     expect(description.build).toEqual({ version: "0.0.0-test" });
     expect(description.capabilities).toEqual({
-      sources: { directory: true, repository: true, defaultBaseBranch: "main" },
+      sources: { directory: true, repository: true, defaultBaseBranch: "" },
     });
     const health = await callLocalSocket(
       r.socket!,

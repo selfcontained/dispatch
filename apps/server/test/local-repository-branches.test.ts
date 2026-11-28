@@ -27,7 +27,7 @@ it("lists a folderless project's branches through Local and enrolled workload pa
     execFileSync("git", ["-C", source, ...args], {
       stdio: ["ignore", "pipe", "pipe"],
     });
-  git("init", "-q", "-b", "main");
+  git("init", "-q", "-b", "master");
   git(
     "-c",
     "user.name=Test",
@@ -70,6 +70,16 @@ it("lists a folderless project's branches through Local and enrolled workload pa
     entry,
     `import { runCheckoutWorker } from ${JSON.stringify(worker)}; await runCheckoutWorker(process.argv.slice(2), { launchProbes: {} as never });`
   );
+  expect(
+    JSON.parse(
+      execFileSync("bun", [entry, "workspace.defaultBranch"], {
+        env,
+        input: JSON.stringify([source]),
+        encoding: "utf8",
+        timeout: 10_000,
+      })
+    )
+  ).toEqual({ data: "master" });
   const enrolled = enrolledCheckouts(
     {} as never,
     {
@@ -136,13 +146,13 @@ it("lists a folderless project's branches through Local and enrolled workload pa
     );
     expect(result.statusCode, result.body).toBe(200);
     expect(result.json()).toEqual({
-      branches: ["main", "develop"],
-      defaultBranch: "main",
+      branches: ["master", "develop"],
+      defaultBranch: "master",
     });
   }
   expect(
     await child.session.call("git.defaultBranch", { target: { repository } })
-  ).toEqual({ branch: "main", currentBranch: null });
+  ).toEqual({ branch: "master", currentBranch: null });
   expect(existsSync(path.join(hosts, "repositories"))).toBe(false);
   const cause = new RunnerCallError({
     code: "failed",

@@ -311,9 +311,57 @@ export async function registerProjectRoutes(
   app.patch<{ Params: { id: string } }>(
     "/api/v1/projects/:id",
     async (request, reply) => {
-      const input = parseInput(appearance, request.body, reply);
+      const input = parseInput(
+        appearance.extend({ repoRoot: z.string().optional() }),
+        request.body,
+        reply
+      );
       if (!input) return;
-      const result = await store.update(request.params.id, input);
+      const existing = await store.get(request.params.id);
+      if (!existing)
+        return reply.code(404).send({ error: "Project not found." });
+      const folder = input.repoRoot?.trim() ? input.repoRoot : undefined;
+      let repoRoot: string | undefined;
+      if (folder && existing.repoRoot && folder !== existing.repoRoot)
+        return reply
+          .code(400)
+          .send({ error: "This project already has a folder." });
+      if (folder && !existing.repoRoot) {
+        try {
+          repoRoot = await resolveProjectRoot(
+            folder,
+            agents?.checkoutReadRunners() ?? {}
+          );
+        } catch {
+          return reply.code(400).send({ error: "Choose an existing folder." });
+        }
+        const repository = await store.getRepository(existing.id);
+        const origin = await inferProjectRepository(
+          repoRoot,
+          agents?.checkoutReadRunners() ?? {}
+        );
+        if (
+          !repository?.url ||
+          !origin ||
+          projectRepositoryUrl(origin) !== projectRepositoryUrl(repository.url)
+        )
+          return reply.code(400).send({
+            error: "Folder repository does not match this project.",
+          });
+      }
+      let result;
+      try {
+        result = await store.update(request.params.id, { ...input, repoRoot });
+      } catch (error) {
+        if ((error as { code?: string }).code !== "23505") throw error;
+        return reply
+          .code(409)
+          .send({ error: "This folder already has a project." });
+      }
+      if (!result && (await store.get(request.params.id)))
+        return reply
+          .code(409)
+          .send({ error: "This project already has a folder." });
       if (result) {
         await snapshotRepositoryIcon(result);
         publishUiEvent({ type: "project.changed" });

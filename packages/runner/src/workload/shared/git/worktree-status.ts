@@ -1,3 +1,4 @@
+import { detectDefaultBranch } from "./default-branch.js";
 import type { WorktreeStatus } from "@dispatch/runner-protocol";
 export type { WorktreeStatus } from "@dispatch/runner-protocol";
 import { resolveBaseRef } from "./base-ref.js";
@@ -96,7 +97,7 @@ export async function hasOutstandingChanges(
  * rebases, and main moving forward with releases. Differing trees mean
  * the branch carries real changes; we then list them with `git diff`.
  *
- * Falls back through `@{upstream}` → `origin/main` → `main` for the base
+ * Falls back through `@{upstream}` → the repository default for the base
  * ref. Returns `{ false, [] }` on any git failure (couldn't determine,
  * treat as clean).
  */
@@ -105,7 +106,7 @@ export async function getUnmergedChanges(
 ): Promise<UnmergedChanges> {
   try {
     // Discover the upstream tracking branch (set at worktree creation time).
-    // Falls back to origin/main for older worktrees that don't have one.
+    // Falls back to the repository default for older worktrees without one.
     let upstreamRef: string | null = null;
     try {
       const upstream = await runCommand(
@@ -123,16 +124,17 @@ export async function getUnmergedChanges(
     // Determine which remote branch to fetch
     const remoteBranch = upstreamRef?.startsWith("origin/")
       ? upstreamRef.slice("origin/".length)
-      : "main";
+      : await detectDefaultBranch(worktreePath);
 
-    await runCommand(
-      "git",
-      ["-C", worktreePath, "fetch", "origin", remoteBranch, "--quiet"],
-      { allowedExitCodes: [0, 1, 128], timeoutMs: 15_000 }
-    );
+    if (remoteBranch)
+      await runCommand(
+        "git",
+        ["-C", worktreePath, "fetch", "origin", remoteBranch, "--quiet"],
+        { allowedExitCodes: [0, 1, 128], timeoutMs: 15_000 }
+      );
 
     // Resolve the base ref through the shared fallback chain: prefer
-    // upstream, then `@{upstream}`, then `origin/main`, then `main`.
+    // upstream, then `@{upstream}`, then the repository default.
     const baseRef = await resolveBaseRef(worktreePath, upstreamRef);
     if (!baseRef) {
       return { hasUnmergedCommits: false, changedFiles: [] };

@@ -48,7 +48,7 @@ describe("templateDraftFrom", () => {
       effort: null,
       persona: null,
       useWorktree: false,
-      baseBranch: "main",
+      baseBranch: "",
       branchName: "",
       fullAccess: false,
       callable: true,
@@ -126,9 +126,9 @@ describe("templateConfigFromDraft", () => {
   it("nulls an empty branch name but keeps the base branch", () => {
     expect(
       templateConfigFromDraft(
-        draft({ useWorktree: true, baseBranch: "main", branchName: "" })
+        draft({ useWorktree: true, baseBranch: "", branchName: "" })
       )
-    ).toMatchObject({ baseBranch: "main", branchName: null });
+    ).toMatchObject({ baseBranch: "", branchName: null });
   });
 
   it("trims the description to null when it is blank", () => {

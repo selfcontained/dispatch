@@ -227,6 +227,7 @@ async function addressableAgents<
     // The same repository key (D5, D8) the sender's own scope came from.
     const aKey = await repositoryKey({
       placement: a.placement ?? controllerPlacement,
+      moved: Boolean(a.workspacePath),
       repositoryRoot: () =>
         // agent cwd not in a git repo — skip
         repositoryRoot(a).catch(() => null),

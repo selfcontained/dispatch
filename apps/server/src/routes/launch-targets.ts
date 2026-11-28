@@ -359,10 +359,8 @@ export async function registerLaunchTargetRoutes(
       return {
         ...result,
         branches: [...result.branches].sort((a, b) => {
-          if (a === "main") return -1;
-          if (b === "main") return 1;
-          if (a === "master") return -1;
-          if (b === "master") return 1;
+          if (a === result.defaultBranch) return -1;
+          if (b === result.defaultBranch) return 1;
           return a.localeCompare(b);
         }),
       };
