@@ -239,6 +239,26 @@ describe("runLifecycleHook", () => {
     );
   });
 
+  // These unit tests exercise native hook I/O and identity guards in external
+  // folders. Ownership decisions are supplied at the Runner boundary; real
+  // imported/prepared ownership is covered by the real-child archive suites.
+  const ownershipFixture = {
+    connection: { state: "ready", epoch: 1, onChange: () => () => {} },
+    async call(op: string) {
+      if (op === "workspace.observe")
+        return {
+          ownership: "external",
+          owner: null,
+          borrowers: [],
+          checkout: null,
+        };
+      throw new RunnerCallError({
+        code: "not_found",
+        message: "No checkout binding in native hook fixture",
+      });
+    },
+  } as unknown as Runner;
+  const nativeRunners = { child: () => ownershipFixture };
   function localArchiveAgent(): AgentRecord {
     return {
       id: "agt_hook",
@@ -254,6 +274,7 @@ describe("runLifecycleHook", () => {
       {
         pool: { query: async () => ({ rows: [] }) } as unknown as Pool,
         getRequiredAgent: async () => localArchiveAgent(),
+        localRunnerChild: () => ownershipFixture,
       },
       localArchiveAgent().id,
       vi.fn()
@@ -293,7 +314,7 @@ describe("runLifecycleHook", () => {
       ]);
     });
     await supplyManifest(() =>
-      runLifecycleHook("archive", localArchiveAgent(), logger, {})
+      runLifecycleHook("archive", localArchiveAgent(), logger, nativeRunners)
     );
     expect(await readFile(path.join(root, "invoked"), "utf8")).toBe(
       "agt_hook\n"
@@ -321,7 +342,12 @@ describe("runLifecycleHook", () => {
             },
           })
         );
-      await runLifecycleHook("archive", localArchiveAgent(), logger, {});
+      await runLifecycleHook(
+        "archive",
+        localArchiveAgent(),
+        logger,
+        nativeRunners
+      );
       expect(await readFile(path.join(root, "invoked"), "utf8")).toBe(
         edited ? "edited\n" : "agt_hook\n"
       );
@@ -337,9 +363,9 @@ describe("runLifecycleHook", () => {
       "archive",
       localArchiveAgent(),
       logger,
-      {},
+      nativeRunners,
       async (request) => {
-        if (++calls === 2)
+        if (++calls === 3)
           await writeFile(
             manifest,
             JSON.stringify({ ...JSON.parse(archiveManifest), tools: [] })
@@ -366,9 +392,9 @@ describe("runLifecycleHook", () => {
         "archive",
         { ...localArchiveAgent(), cwd: selected },
         logger,
-        {},
+        nativeRunners,
         async (request) => {
-          if (++calls === 2) {
+          if (++calls === 3) {
             await rename(selected, parked);
             await mkdir(selected);
           }
@@ -410,7 +436,7 @@ describe("runLifecycleHook", () => {
         "archive",
         { ...localArchiveAgent(), cwd: selected },
         logger,
-        {}
+        nativeRunners
       )
     ).rejects.toThrow(observed.message);
     expect(launchDirectory).toBe(expected);
@@ -424,7 +450,7 @@ describe("runLifecycleHook", () => {
     expect((await previewLocalArchive()).cleanupDescriptions).toEqual([]);
     vi.mocked(readFile).mockRejectedValueOnce(failure);
     await expect(
-      runLifecycleHook("archive", localArchiveAgent(), logger, {})
+      runLifecycleHook("archive", localArchiveAgent(), logger, nativeRunners)
     ).resolves.toBeUndefined();
   });
 
@@ -449,7 +475,7 @@ describe("runLifecycleHook", () => {
     const manifest = path.join(root, ".dispatch/tools.json");
     await mkdir(manifest, { recursive: true });
     await expect(
-      runLifecycleHook("archive", localArchiveAgent(), logger, {})
+      runLifecycleHook("archive", localArchiveAgent(), logger, nativeRunners)
     ).resolves.toBeUndefined();
     await rm(manifest, { recursive: true });
     await writeFile(
@@ -457,7 +483,7 @@ describe("runLifecycleHook", () => {
       JSON.stringify({ hooks: { archive: { command: [] } } })
     );
     await expect(
-      runLifecycleHook("archive", localArchiveAgent(), logger, {})
+      runLifecycleHook("archive", localArchiveAgent(), logger, nativeRunners)
     ).rejects.toThrow('Hook "archive" must include a non-empty command array.');
   });
 
@@ -487,7 +513,7 @@ describe("runLifecycleHook", () => {
         worktreePath: worktree,
       } as AgentRecord,
       logger,
-      {}
+      nativeRunners
     );
 
     await expect(readFile(path.join(launch, "archived"), "utf8")).resolves.toBe(
@@ -511,7 +537,7 @@ describe("runLifecycleHook", () => {
           placement: controllerPlacement,
         } as AgentRecord,
         logger,
-        {}
+        nativeRunners
       )
     ).rejects.toThrow(
       "Command failed (sh -c echo reason >&2; exit 3), exitCode=3, stderr=reason"
@@ -594,6 +620,7 @@ describe("runLifecycleHook", () => {
       "checkout.exec",
       "workspace.observe",
       "workspace.release",
+      "session.retire",
     ]);
     expect(call).toHaveBeenCalledWith(
       "checkout.exec",
@@ -634,6 +661,7 @@ describe("runLifecycleHook", () => {
     });
     try {
       const runners = {
+        ...nativeRunners,
         recordArchivePhase: async (phase: AgentRecord["archivePhase"]) => {
           agent.archivePhase = phase;
         },
@@ -706,7 +734,11 @@ describe("runLifecycleHook", () => {
     } as unknown as Pool;
 
     await expect(
-      previewArchive({ pool, getRequiredAgent }, "parent", vi.fn())
+      previewArchive(
+        { pool, getRequiredAgent, localRunnerChild: () => ownershipFixture },
+        "parent",
+        vi.fn()
+      )
     ).resolves.toEqual({
       worktreeStatus: null,
       subAgentCount: 1,

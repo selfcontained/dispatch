@@ -106,7 +106,12 @@ it("imports each live local row once with main's ownership, and no other row", a
   );
   // A reviewer whose cwd is another session's worktree.
   await insert("reviewer", { cwd: wt("created") });
-  // Not imported: archived and another runner.
+  await insert(
+    "pending-archive",
+    worktreeRow("created"),
+    "UPDATE agents SET deleted_at = NOW(), runner_cleanup_pending = true WHERE id = $1"
+  );
+  // Not imported: completed archives and another runner.
   await insert(
     "gone-row",
     worktreeRow("created"),
@@ -126,6 +131,7 @@ it("imports each live local row once with main's ownership, and no other row", a
       "deleted",
       "moved",
       "plain",
+      "pending-archive",
       "reviewer",
       "switched",
     ].sort()
@@ -150,7 +156,7 @@ it("imports each live local row once with main's ownership, and no other row", a
     });
   });
   expect(await runner.importBindings(bindings, 10_000)).toMatchObject({
-    added: 7,
+    added: 8,
     kept: 0,
     invalid: 0,
     frozen: false,
@@ -158,7 +164,7 @@ it("imports each live local row once with main's ownership, and no other row", a
   // The next start sends the same list: nothing changes.
   expect(
     await runner.importBindings(await readLocalBindings(pool), 10_000)
-  ).toMatchObject({ added: 0, kept: 7 });
+  ).toMatchObject({ added: 0, kept: 8 });
 
   const stored = (session: string) => {
     const file = join(
@@ -183,6 +189,7 @@ it("imports each live local row once with main's ownership, and no other row", a
     branch: "switched",
   });
   expect(stored("archiving")?.checkout.ownership).toBe("owned");
+  expect(stored("pending-archive")?.checkout.ownership).toBe("owned");
   expect(stored("reviewer")?.checkout.ownership).toBe("external");
   for (const absent of ["gone-row", "remote", "locator"])
     expect(stored(absent)).toBeNull();

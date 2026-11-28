@@ -225,15 +225,21 @@ export async function observedCoOwner(
   const { rows } = await pool.query<{ id: string }>(
     `SELECT id FROM agents WHERE deleted_at IS NULL AND id <> $1
       AND runner_id = (SELECT runner_id FROM agents WHERE id = $1)
-      AND ((role = 'review' AND id = ANY($2::text[])) OR (cwd = $3 AND
-        (worktree_path = $4 OR workspace_path = $4 OR worktree_branch = $5)))
+      AND (id = ANY($2::text[]) OR runner_worktree_owner = $1
+        OR workspace_path = ANY($3::text[]) OR cwd = ANY($3::text[])
+        OR worktree_path = ANY($3::text[]) OR launch_cwd = ANY($3::text[])
+        OR ($4::text IS NOT NULL AND worktree_branch = $4))
       LIMIT 1`,
     [
       agent.id,
       observation.borrowers,
-      agent.cwd,
-      // Shown on the row only: this legacy rule (N35) is decided at T40.
-      null,
+      [
+        ...new Set(
+          [agent.worktreePath, observation.checkout?.path].filter(
+            (p): p is string => Boolean(p)
+          )
+        ),
+      ],
       agent.worktreeBranch,
     ]
   );

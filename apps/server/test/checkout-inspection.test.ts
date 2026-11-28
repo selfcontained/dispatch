@@ -1,3 +1,6 @@
+import { BindingStore } from "../../../packages/runner/src/local/bindings.js";
+import { workspaceHandlers } from "../../../packages/runner/src/core/workspace.js";
+import { workspaceWorkload } from "../../../packages/runner/src/workload/agents/checkout-worker.js";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   existsSync,
@@ -644,13 +647,45 @@ it("rejects malformed and oversized stdin with stderr and no reply", () => {
 });
 
 /** The local runner's session for a row, with no child: the port in process. */
-function localSession(row: {
+async function localSession(row: {
   id: string;
   worktreePath: string;
   worktreeBranch: string;
   baseBranch: string;
 }) {
-  return archiveRunner({}, { ...row, cwd: repo }, controllerPlacement);
+  const state = path.join(fixture, "runner-state");
+  const store = new BindingStore(state);
+  await store.import([
+    {
+      session: row.id,
+      path: row.worktreePath,
+      currentPath: null,
+      worktree: {
+        path: row.worktreePath,
+        branch: row.worktreeBranch,
+        base: row.baseBranch,
+      },
+    },
+  ]);
+  const calls = workspaceHandlers(state, store, workspaceWorkload);
+  const child = {
+    connection: { state: "ready", epoch: 1, onChange: () => () => {} },
+    async call(op: string, request: any) {
+      const handler = calls[op as keyof typeof calls];
+      if (!handler) throw new Error(`Unexpected ${op}`);
+      return handler(request, {
+        emit: () => {},
+        receiveBlob: async () => {
+          throw new Error("No blobs in this fixture");
+        },
+      });
+    },
+  } as unknown as Runner;
+  return archiveRunner(
+    { child: () => child },
+    { ...row, cwd: repo },
+    controllerPlacement
+  );
 }
 
 async function observeThrough(runner: Runner, id: string) {
@@ -672,14 +707,14 @@ async function releaseThrough(
 }
 
 describe("native runner checkout release", () => {
-  function adapter() {
+  async function adapter() {
     const binding = {
-      id: "agent/fixture",
+      id: "agent-fixture",
       worktreePath: checkout,
       worktreeBranch: "feature",
       baseBranch: "main",
     };
-    const runner = localSession(binding);
+    const runner = await localSession(binding);
     return {
       observe: () => observeThrough(runner, binding.id),
       release: (_expectedState: string) => releaseThrough(runner, binding),
@@ -689,7 +724,7 @@ describe("native runner checkout release", () => {
   it("removes a clean switched worktree and deletes the pre-existing current branch", async () => {
     git(repo, "branch", "user-owned", "main");
     git(checkout, "switch", "user-owned");
-    const runner = adapter();
+    const runner = await adapter();
     const { checkout: observed } = await runner.observe();
     expect(observed).toMatchObject({
       branch: "user-owned",
@@ -703,7 +738,7 @@ describe("native runner checkout release", () => {
   });
 
   it("removes the owned branch when it is still checked out", async () => {
-    const runner = adapter();
+    const runner = await adapter();
     const { checkout: observed } = await runner.observe();
     expect(observed?.branch).toBe("feature");
     expect(await runner.release(observed!.stateId)).toBe("released");
@@ -731,7 +766,7 @@ describe("native runner checkout release", () => {
     ],
   ])("observes and removes a worktree with %s", async (_name, dirty) => {
     dirty();
-    const runner = adapter();
+    const runner = await adapter();
     const { checkout: observed } = await runner.observe();
     expect(observed?.uncommittedFiles.length).toBeGreaterThan(0);
     expect(await runner.release(observed!.stateId)).toBe("released");
@@ -741,7 +776,7 @@ describe("native runner checkout release", () => {
 
   it("removes a native checkout edited after the runner observed it", async () => {
     put(checkout, "draft.txt", "first version");
-    const runner = adapter();
+    const runner = await adapter();
     const { checkout: observed } = await runner.observe();
     expect(observed?.uncommittedFiles).toEqual(["?? draft.txt"]);
     put(checkout, "draft.txt", "second version");
@@ -767,7 +802,7 @@ describe("archive checkout parity", () => {
     async ({ mode, state, placement }) => {
       const logger = { warn: vi.fn() } as unknown as FastifyBaseLogger;
       const agent = {
-        id: "agent/fixture",
+        id: "agent-fixture",
         cwd: repo,
         worktreePath: checkout,
         worktreeBranch: "feature",
@@ -778,7 +813,7 @@ describe("archive checkout parity", () => {
         git(checkout, "add", "draft.txt");
         git(checkout, "commit", "-m", "Unmerged change");
       }
-      const runner = localSession(agent);
+      const runner = await localSession(agent);
       const observation = await observeThrough(runner, agent.id);
       expect(observation.checkout).toBeTruthy();
       let expectedState = state === "changed" ? "1".repeat(64) : null;

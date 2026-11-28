@@ -969,6 +969,12 @@ export function createLocalCheckoutRunner(
             code: "unavailable",
             message: "The local runner is unavailable",
           });
+        if (
+          op === "workspace.release" ||
+          op === "session.retire" ||
+          op === "session.discard"
+        )
+          mayWriteHere();
         const archiveOperation =
           op === "workspace.observe" ||
           op === "workspace.release" ||

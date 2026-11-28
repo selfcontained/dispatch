@@ -40,7 +40,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import {
   launcherBinding,
@@ -306,6 +306,8 @@ export class BindingStore {
   async borrowers(session: string): Promise<string[]> {
     if (!this.files.list) return [];
     const owner = await this.get(session);
+    const ownerPath =
+      owner && ((await real(owner.checkout.path)) ?? owner.checkout.path);
     const result: string[] = [];
     for (const name of await this.files.list()) {
       if (!/^[a-f0-9]{64}\.json$/.test(name)) continue;
@@ -315,11 +317,19 @@ export class BindingStore {
       if (!record.session || name !== fileName(record.session))
         throw new Error("Invalid stored checkout binding.");
       if (record.session === session) continue;
+      const current =
+        record.currentPath &&
+        ((await real(record.currentPath)) ?? record.currentPath);
+      const checkoutPath =
+        (await real(record.checkout.path)) ?? record.checkout.path;
       if (
         record.borrowedFrom === session ||
         (owner &&
-          record.checkout.path === owner.checkout.path &&
-          (record.borrowedFrom || record.checkout.ownership === "external"))
+          ((checkoutPath === ownerPath &&
+            (record.borrowedFrom ||
+              record.checkout.ownership === "external")) ||
+            current === ownerPath ||
+            current?.startsWith(ownerPath + sep)))
       )
         result.push(record.session);
     }

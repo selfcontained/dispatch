@@ -14,6 +14,7 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -1013,6 +1014,46 @@ it("keeps a checkout while borrowers hold it, including after the intermediate b
       session: sessionFromWire("owner"),
       deleteBranch: true,
       originalBranch: "borrowed",
+    })
+  ).toEqual({ removed: true });
+  expect(existsSync(tree)).toBe(false);
+  expect(existsSync(repo)).toBe(true);
+});
+
+it("holds an owned checkout for another session's moved workspace without claiming the moved folder", async () => {
+  const { root, connection, store } = await harness();
+  const repo = repository(root);
+  const prepared = await connection.call(
+    "workspace.prepare",
+    request("owner", repo, {
+      name: "moved-hold",
+      branch: "moved-hold",
+      base: "main",
+      create: true,
+    })
+  );
+  const tree = String(prepared.path),
+    alias = join(root, "checkout-alias");
+  symlinkSync(tree, alias);
+  await store.import([
+    { session: "visitor", path: repo, currentPath: alias, worktree: null },
+  ]);
+  expect((await store.get("visitor"))!.checkout.ownership).toBe("external");
+  expect(await store.borrowers("owner")).toEqual(["visitor"]);
+  expect(
+    await connection.call("workspace.release", {
+      session: sessionFromWire("owner"),
+      deleteBranch: true,
+      originalBranch: "moved-hold",
+    })
+  ).toEqual({ removed: false });
+  expect(existsSync(tree)).toBe(true);
+  await store.select("visitor", null);
+  expect(
+    await connection.call("workspace.release", {
+      session: sessionFromWire("owner"),
+      deleteBranch: true,
+      originalBranch: "moved-hold",
     })
   ).toEqual({ removed: true });
   expect(existsSync(tree)).toBe(false);

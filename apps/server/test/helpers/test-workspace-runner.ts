@@ -15,6 +15,7 @@ import type { AgentManager } from "../../src/agents/manager.js";
 import { checkoutWorkload } from "./checkout-workload.js";
 import { workspaceWorkload } from "../../../../packages/runner/src/workload/agents/checkout-worker.js";
 import { localLaunchSettings } from "../../src/agents/acp/launch-env.js";
+import { readLocalBindings } from "../../src/runners/local-bindings.js";
 import { localRunnerIn } from "./local-runner-child.js";
 
 /** Direct manager tests keep their Git mocks in this process. The app
@@ -34,20 +35,17 @@ export function withTestWorkspaceRunner(
     ) {
       super(pool, log, config, options);
       const directory = config.agentStateRoot;
-      const handlers = workspaceHandlers(
-        directory,
-        new BindingStore(directory),
-        {
-          ...workspaceWorkload,
-          async plan(spec) {
-            return {
-              path: join(directory, "mock-worktree"),
-              branch: spec.branch,
-              taken: false,
-            };
-          },
-        }
-      );
+      const store = new BindingStore(directory);
+      const handlers = workspaceHandlers(directory, store, {
+        ...workspaceWorkload,
+        async plan(spec) {
+          return {
+            path: join(directory, "mock-worktree"),
+            branch: spec.branch,
+            taken: false,
+          };
+        },
+      });
       const unsupported = () =>
         new RunnerCallError({
           code: "unsupported",
@@ -85,22 +83,34 @@ export function withTestWorkspaceRunner(
             );
             const row = rows[0];
             if (op === "workspace.observe") {
-              const borrowers = row?.worktree_path
+              const owner = row?.worktree_path
+                ? row
+                : (
+                    await pool.query<typeof row>(
+                      "SELECT id, cwd, worktree_path, worktree_branch FROM agents WHERE worktree_path=$1 AND (deleted_at IS NULL OR runner_cleanup_pending) ORDER BY id LIMIT 1",
+                      [row?.cwd]
+                    )
+                  ).rows[0];
+              const borrowers = owner?.worktree_path
                 ? (
                     await pool.query<{ id: string }>(
-                      "SELECT id FROM agents WHERE id <> $1 AND deleted_at IS NULL AND (cwd=$2 OR worktree_path=$2)",
-                      [id, row.worktree_path]
+                      `SELECT id FROM agents WHERE id <> $1 AND deleted_at IS NULL AND (cwd=$2 OR workspace_path=$2 OR worktree_path=$2) AND (worktree_path IS NOT NULL OR workspace_path=$2 OR NOT COALESCE(runner_preparation->'source' ? 'directory', false)) ORDER BY id`,
+                      [owner.id, owner.worktree_path]
                     )
                   ).rows.map((r) => r.id)
                 : [];
               return {
-                ownership: row?.worktree_path ? "owned" : "external",
-                owner: row?.worktree_path ? id : null,
+                ownership: !owner?.worktree_path
+                  ? "external"
+                  : owner.id === id
+                    ? "owned"
+                    : "borrowed",
+                owner: owner?.worktree_path ? owner.id : null,
                 borrowers,
                 checkout:
-                  row?.worktree_path &&
+                  owner?.worktree_path &&
                   !(request as Req<"workspace.observe">).policy
-                    ? await workspaceWorkload.observe(row.worktree_path)
+                    ? await workspaceWorkload.observe(owner.worktree_path)
                     : null,
               } as Res<K>;
             }
@@ -114,8 +124,19 @@ export function withTestWorkspaceRunner(
                 )),
             } as Res<K>;
           }
-          if (op.startsWith("session."))
-            return sessions().call(op, request, opts);
+          if (op.startsWith("session.")) {
+            const result = await sessions().call(op, request, opts);
+            if (
+              op === "session.retire" &&
+              !(request as Req<"session.retire">).checkoutPending
+            )
+              await store.retire(
+                String((request as Req<"session.retire">).session)
+              );
+            return result;
+          }
+          if (op === "workspace.observe" || op === "workspace.release")
+            await store.import(await readLocalBindings(pool));
           // Persona fixture files use the same native workload as production.
           if (op === "checkout.list" || op === "checkout.read") {
             const read = request as Req<"checkout.list"> | Req<"checkout.read">;

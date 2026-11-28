@@ -83,7 +83,9 @@ const {
   LAUNCH_CONTEXT_WRITE_TIMEOUT_MS,
   UPDATE_RESUME_MESSAGE,
 } = await import("../../src/agents/manager.js");
-const AgentManager = withTestWorkspaceRunner(HostAgentManager);
+const AgentManager = withTestWorkspaceRunner(HostAgentManager, {
+  recordedArchiveFixture: true,
+});
 const { StreamService, launchBlockId } =
   await import("../../src/chat/service.js");
 const { createAgentMcpToken } = await import("../../src/auth.js");
@@ -3841,15 +3843,29 @@ describe("AgentManager", () => {
                    FROM agents WHERE id = 'pending-owner'`
                 );
                 expect(row).toEqual({
-                  runner_cleanup_pending: false,
-                  archive_cleanup_mode: null,
-                  archive_checkout_state: null,
+                  runner_cleanup_pending: true,
+                  archive_cleanup_mode: "force",
+                  archive_checkout_state: "1".repeat(64),
                 });
+              });
+              // The hold is retryable, rather than a permanent keep decision.
+              await pool.query(
+                "UPDATE agents SET deleted_at=NOW() WHERE id='active-borrower'"
+              );
+              await manager.reconcileAgentStatuses();
+              await vi.waitFor(async () => {
+                expect(
+                  (
+                    await pool.query(
+                      "SELECT runner_cleanup_pending FROM agents WHERE id='pending-owner'"
+                    )
+                  ).rows[0].runner_cleanup_pending
+                ).toBe(false);
               });
             }
           );
-          expect(Boolean(await realpath(tree).catch(() => null))).toBe(true);
-          expect(Boolean(git("branch", "--list", "feature"))).toBe(true);
+          expect(Boolean(await realpath(tree).catch(() => null))).toBe(false);
+          expect(Boolean(git("branch", "--list", "feature"))).toBe(false);
         } finally {
           await rm(repo, { recursive: true, force: true });
         }
@@ -3992,7 +4008,7 @@ describe("AgentManager", () => {
       await archiveAgent(agent.id);
 
       expect(runtime.stop).toHaveBeenCalledWith(agent.id, true);
-      expect(discard).toHaveBeenCalledWith(agent.id);
+      expect(discard).not.toHaveBeenCalled();
       expect(await manager.getAgent(agent.id)).toBeNull();
     });
 
@@ -5670,7 +5686,7 @@ describe("AgentManager", () => {
         expect(rows[0]?.archive_checkout_state).toBeNull();
       });
 
-      it("beginArchive keeps the observed state for a local row", async () => {
+      it("beginArchive uses the same bound release decision on Local", async () => {
         const agent = await manager.createAgent({
           cwd: "/tmp",
           useWorktree: false,
@@ -5684,7 +5700,7 @@ describe("AgentManager", () => {
           "SELECT archive_checkout_state FROM agents WHERE id = $1",
           [agent.id]
         );
-        expect(rows[0]?.archive_checkout_state).toBe("1".repeat(64));
+        expect(rows[0]?.archive_checkout_state).toBeNull();
       });
     });
 

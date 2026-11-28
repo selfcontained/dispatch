@@ -70,7 +70,7 @@ export function bindingFromRow(row: LocalBindingRow): LocalBinding | null {
 
 /**
  * Every live local agent row, archives still in progress included. Deleted
- * rows are done: main already removed or kept their checkout.
+ * rows are done unless their checkout cleanup is still pending.
  */
 export async function readLocalBindings(
   pool: Pick<Pool, "query">
@@ -82,7 +82,7 @@ export async function readLocalBindings(
             base_branch AS "baseBranch",
             workspace_path AS "workspacePath"
        FROM agents
-      WHERE deleted_at IS NULL AND runner_id = $1
+      WHERE (deleted_at IS NULL OR runner_cleanup_pending) AND runner_id = $1
       ORDER BY created_at, id`,
     [runnerIdToWire(LOCAL_RUNNER_ID)]
   );
