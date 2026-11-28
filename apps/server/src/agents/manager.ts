@@ -465,6 +465,7 @@ export class AgentManager {
   private readonly runnerDrainReceipts = new Map<string, Set<string>>();
   private readonly drainedHostHolds = new Map<string, RunnerHostRecycleHold>();
   private readonly hostRecycler: RunnerHostRecycler;
+  private readonly recycleDeferrals = new Map<string, string>();
   private readonly recyclingHosts = new Set<string>();
   private readonly preparingRepositories = new Set<string>();
   private readonly stoppingOrArchiving = new Map<string, number>();
@@ -3872,12 +3873,19 @@ export class AgentManager {
 
   /** Cancel future leases. A host that accepted shutdown still needs cleanup. */
   stopRunnerHostRecycling(runnerId: string): void {
+    this.clearRecycleDeferrals(runnerId);
     this.hostRecycler.stop(runnerId);
   }
 
   /** Before a new update holds the runner: stop and finish what is in flight. */
   settleRunnerHostRecycling(runnerId: string): Promise<void> {
+    this.clearRecycleDeferrals(runnerId);
     return this.hostRecycler.stopAndSettle(runnerId);
+  }
+
+  private clearRecycleDeferrals(runnerId: string) {
+    for (const key of this.recycleDeferrals.keys())
+      if (key.startsWith(`${runnerId}:`)) this.recycleDeferrals.delete(key);
   }
 
   /**
@@ -4186,6 +4194,25 @@ export class AgentManager {
     active: () => boolean
   ): Promise<boolean> {
     const id = host.agentId;
+    const key = `${update.runnerId}:${id}`;
+    const defer = (reason: string) => {
+      const state = `${update.attemptId}:${host.instanceId}:${reason}`;
+      if (this.recycleDeferrals.get(key) !== state) {
+        this.recycleDeferrals.set(key, state);
+        this.logger.info(
+          {
+            runnerId: update.runnerId,
+            agentId: id,
+            attemptId: update.attemptId,
+            hostInstanceId: host.instanceId,
+            hostBuild: host.build,
+            reason,
+          },
+          "Runner host recycle deferred"
+        );
+      }
+      return false;
+    };
     const eligible = () => !this.stoppingOrArchiving.has(id);
     const targetOnline = () => {
       const advert = this.remote?.selfUpdate(update.runnerId)?.advert;
@@ -4194,23 +4221,33 @@ export class AgentManager {
         advert.installedSha256 === update.sha256
       );
     };
-    if (!eligible() || this.lifecycleOperations.has(id) || !targetOnline())
-      return false;
-    const hold = this.runtime.holdForRecycle?.(update.runnerId, host);
-    if (!hold) return false;
+    if (!eligible()) return defer("lifecycle_ended");
+    if (this.lifecycleOperations.has(id)) return defer("lifecycle_in_progress");
+    if (!targetOnline()) return defer("runner_build_changed");
+    let refusal = "host_hold_unavailable";
+    const hold = this.runtime.holdForRecycle?.(
+      update.runnerId,
+      host,
+      undefined,
+      (reason) => {
+        refusal = reason;
+      }
+    );
+    if (!hold) return defer(refusal);
     this.recyclingHosts.add(id);
     try {
-      if (!(await hold.quiesce()) || !eligible() || !active()) return false;
+      if (!(await hold.quiesce())) return defer("host_not_quiescent");
+      if (!eligible()) return defer("lifecycle_ended");
+      if (!active()) return defer("recycle_pass_superseded");
       return await this.serializeLifecycle(id, async () => {
         const agent = await this.getAgent(id);
-        if (
-          agent?.status !== "running" ||
-          !agent.cliSessionId ||
-          !isOnEnrolledRunner(agent.placement, update.runnerId)
-        )
-          return false;
+        if (agent?.status !== "running") return defer("agent_not_running");
+        if (!agent.cliSessionId) return defer("missing_cli_session");
+        if (!isOnEnrolledRunner(agent.placement, update.runnerId))
+          return defer("placement_changed");
         const location = sessionLocation(agent.placement);
-        if (!location || !this.remote?.available(location)) return false;
+        if (!location || !this.remote?.available(location))
+          return defer("runner_unavailable");
 
         // There is no engine-side wait token for Dispatch children. A live
         // child (including a reviewer) can still owe this session a reply.
@@ -4221,21 +4258,19 @@ export class AgentManager {
            LIMIT 1`,
           [id]
         );
-        if (
-          children.rows.length ||
-          !eligible() ||
-          !active() ||
-          !targetOnline() ||
-          this.holds?.isHeld(update.runnerId) ||
-          !hold.current() ||
-          !(await hold.shutdown())
-        )
-          return false;
+        if (children.rows.length) return defer("live_dependents");
+        if (!eligible()) return defer("lifecycle_ended");
+        if (!active()) return defer("recycle_pass_superseded");
+        if (!targetOnline()) return defer("runner_build_changed");
+        if (this.holds?.isHeld(update.runnerId))
+          return defer("runner_update_hold");
+        if (!hold.current()) return defer("quiesce_lease_lost");
+        if (!(await hold.shutdown())) return defer("shutdown_refused");
 
         const restarted = await this.restartHostLocked(agent, {
           mayStart: () => eligible() && targetOnline(),
         });
-        return (
+        const confirmed =
           restarted.status === "running" &&
           restarted.cliSessionId === agent.cliSessionId &&
           this.runtime
@@ -4245,8 +4280,10 @@ export class AgentManager {
                 replacement.agentId === id &&
                 replacement.instanceId !== host.instanceId &&
                 replacement.build?.revision === update.revision
-            ) === true
-        );
+            ) === true;
+        if (!confirmed) return defer("replacement_not_confirmed");
+        this.recycleDeferrals.delete(key);
+        return true;
       });
     } finally {
       this.recyclingHosts.delete(id);

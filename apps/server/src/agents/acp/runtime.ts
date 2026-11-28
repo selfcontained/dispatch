@@ -1617,26 +1617,38 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         if (entry.runnerId === runnerId) void pump(agentId, entry);
     },
 
-    holdForRecycle(runnerId, host, drainEpoch) {
+    holdForRecycle(runnerId, host, drainEpoch, refused) {
       const { agentId } = host;
       const entry = live.get(agentId);
       const drain = drainEpoch !== undefined;
-      if (
-        !entry ||
-        entry.runnerId !== runnerId ||
+      let reason: string | undefined;
+      if (!entry) reason = "host_not_attached";
+      else if (entry.runnerId !== runnerId) reason = "placement_changed";
+      else if (
         !host.instanceId ||
-        entry.client.welcome?.hostInstanceId !== host.instanceId ||
-        entry.client.welcome?.quiesceSupported !== true ||
-        (drain
-          ? entry.channelEpoch !== drainEpoch ||
-            !entry.client.isReady() ||
-            entry.turnOpen ||
-            recycleHolds.has(agentId)
-          : held(entry)) ||
-        entry.pumping ||
-        entry.deliveryInterrupts.size
+        entry.client.welcome?.hostInstanceId !== host.instanceId
       )
+        reason = "host_instance_changed";
+      else if (entry.client.welcome?.quiesceSupported !== true)
+        reason = "quiesce_unsupported";
+      else if (
+        drain &&
+        (entry.channelEpoch !== drainEpoch || !entry.client.isReady())
+      )
+        reason = "connection_changed";
+      else if (drain && entry.turnOpen) reason = "turn_open";
+      else if (drain && recycleHolds.has(agentId)) reason = "host_already_held";
+      else if (!drain && held(entry))
+        reason =
+          deps.holds?.isHeld(entry.runnerId) === true
+            ? "runner_update_hold"
+            : "host_already_held";
+      else if (entry.pumping) reason = "delivery_in_progress";
+      else if (entry.deliveryInterrupts.size) reason = "interrupt_in_progress";
+      if (reason || !entry) {
+        refused?.(reason ?? "host_not_attached");
         return null;
+      }
       const hold = { entry, restarting: false };
       recycleHolds.set(agentId, hold);
       let lease: HostQuiesceLease | null = null;

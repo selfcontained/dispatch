@@ -94,7 +94,8 @@ export type AgentRuntime = {
   holdForRecycle?(
     runnerId: string,
     host: RunnerHostIdentity,
-    drainEpoch?: number
+    drainEpoch?: number,
+    refused?: (reason: string) => void
   ): RunnerHostRecycleHold | null;
   /**
    * A forced update takes over this runner's hosts: their queues outlive

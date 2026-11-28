@@ -17,7 +17,7 @@ it("coalesces settlement retries and keeps a bounded fallback scan", async () =>
   const recycler = new RunnerHostRecycler({
     hosts: () => [host],
     recycle,
-    logger: { warn: vi.fn() } as unknown as FastifyBaseLogger,
+    logger: { warn: vi.fn(), info: vi.fn() } as unknown as FastifyBaseLogger,
   });
   const update = {
     runnerId: "r1",
@@ -63,7 +63,7 @@ it("settles the restarts already under way when it is stopped", async () => {
     ],
     recycle: () =>
       new Promise<boolean>((resolve) => (finish = () => resolve(true))),
-    logger: { warn: vi.fn() } as unknown as FastifyBaseLogger,
+    logger: { warn: vi.fn(), info: vi.fn() } as unknown as FastifyBaseLogger,
   });
   recycler.start({
     runnerId: "r1",
@@ -87,7 +87,7 @@ it("stops a running pass before settling it", async () => {
   const recycler = new RunnerHostRecycler({
     hosts: () => [],
     recycle: async () => false,
-    logger: { warn: vi.fn() } as unknown as FastifyBaseLogger,
+    logger: { warn: vi.fn(), info: vi.fn() } as unknown as FastifyBaseLogger,
   });
   recycler.start({
     runnerId: "r1",
@@ -109,7 +109,7 @@ it("counts only hosts that report a different revision from the confirmed build"
   const recycler = new RunnerHostRecycler({
     hosts: () => hosts,
     recycle,
-    logger: { warn: vi.fn() } as unknown as FastifyBaseLogger,
+    logger: { warn: vi.fn(), info: vi.fn() } as unknown as FastifyBaseLogger,
   });
   recycler.start({
     runnerId: "r1",
@@ -142,5 +142,36 @@ it("counts only hosts that report a different revision from the confirmed build"
     expect.objectContaining({ agentId: "agt_old" }),
     expect.any(Function)
   );
+  recycler.stop("r1");
+});
+
+it("logs unsupported and unidentified hosts once per refusal, without bypassing safeguards", async () => {
+  vi.useFakeTimers();
+  const info = vi.fn();
+  const recycle = vi.fn(async () => true);
+  const recycler = new RunnerHostRecycler({
+    hosts: () => [
+      { agentId: "unknown" },
+      {
+        agentId: "legacy",
+        instanceId: "old",
+        build: { version: "1", revision: "a".repeat(40) },
+        quiesceSupported: false,
+      },
+    ],
+    recycle,
+    logger: { info, warn: vi.fn() } as unknown as FastifyBaseLogger,
+  });
+  recycler.start({
+    runnerId: "r1",
+    attemptId: "attempt",
+    revision: "b".repeat(40),
+    sha256: "c".repeat(64),
+  });
+  await vi.advanceTimersByTimeAsync(10000);
+  expect(recycle).not.toHaveBeenCalled();
+  expect(
+    info.mock.calls.map(([fields]) => fields.reason).filter(Boolean)
+  ).toEqual(["missing_build_identity", "quiesce_unsupported"]);
   recycler.stop("r1");
 });
