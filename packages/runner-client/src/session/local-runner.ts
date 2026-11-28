@@ -279,6 +279,15 @@ export class LocalRunnerSession implements Runner {
     return { info, channel: operationChannel(op, channel) };
   }
 
+  /** Uncapped Local download, read once on the live connection. */
+  async getFile(
+    input: Req<"files.get">,
+    signal?: AbortSignal
+  ): Promise<Buffer> {
+    const connection = await this.connected(false, signal);
+    return connection.collectFile(input, { maxBytes: null });
+  }
+
   /** Hand the runner a blob it expects; on this transport a path may be sent. */
   async sendBlob(
     id: string,

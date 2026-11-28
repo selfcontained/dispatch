@@ -82,7 +82,12 @@ export const socketHello = object({
 });
 /** Cancel an outstanding cancellable operation on the enrolled connection. */
 export const socketCancel = object({ id: integer, cancel: literal(true) });
-export const socketRequest = object({ id: integer, op: string, input: json });
+export const socketRequest = object({
+  id: integer,
+  op: string,
+  input: json,
+  fileStream: optional(literal(true)),
+});
 export const socketReply = union(
   object({ id: integer, ok: literal(true), value: json }),
   object({
@@ -564,7 +569,8 @@ export class LocalSocketConnection {
     signal: AbortSignal | undefined,
     timeoutMs: number | null,
     before?: (id: number) => void,
-    onEvent?: (event: unknown) => void
+    onEvent?: (event: unknown) => void,
+    fileStream = false
   ): { id: number; reply: Promise<unknown> } {
     const id = this.nextId++;
     const reply = new Promise<unknown>((resolve, reject) => {
@@ -580,8 +586,9 @@ export class LocalSocketConnection {
         this.streams.interrupt(replyStream(id), "cancelled");
         const spec = (operations as Record<string, OperationSpec>)[op];
         if (
-          !this.enrolled ||
+          !(this.enrolled || fileStream) ||
           !(
+            fileStream ||
             spec?.cancellable ||
             spec?.kind === "open" ||
             isCheckoutReadName(op)
@@ -625,7 +632,12 @@ export class LocalSocketConnection {
       });
       try {
         before?.(id);
-        this.send({ id, op, input });
+        this.send({
+          id,
+          op,
+          input,
+          ...(fileStream && { fileStream: true as const }),
+        });
       } catch {
         this.pending.delete(id);
         done();
@@ -744,8 +756,15 @@ export class LocalSocketConnection {
     }
   }
 
-  async collectFile(input: Req<"files.get">): Promise<Buffer> {
-    const bytes = new ReceiveBuffer(MAX_SESSION_FILE_BYTES);
+  async collectFile(
+    input: Req<"files.get">,
+    options: { maxBytes?: number | null } = {}
+  ): Promise<Buffer> {
+    const bytes = new ReceiveBuffer(
+      options.maxBytes === null
+        ? Infinity
+        : (options.maxBytes ?? MAX_SESSION_FILE_BYTES)
+    );
     let overflow = false;
     try {
       await this.getFile(
@@ -809,8 +828,6 @@ export class LocalSocketConnection {
     sink: Writable,
     signal?: AbortSignal
   ): Promise<Res<"files.get">> {
-    if (!this.enrolled)
-      throw fail("invalid", "File downloads require an enrolled connection");
     const controller = new AbortController();
     const active = signal
       ? AbortSignal.any([signal, controller.signal])
@@ -823,15 +840,20 @@ export class LocalSocketConnection {
       null,
       (id) => {
         transfer = this.streams.receive(downloadStream(id), sink, active);
-      }
+      },
+      undefined,
+      !this.enrolled
     );
-    try {
-      const [value] = await Promise.all([reply, transfer]);
+    const checkedReply = reply.then((value) => {
       if (
         !operations["files.get"].response.check(value) ||
         value.blob !== downloadStream(id)
       )
         throw fail("invalid", "Invalid runner file response.");
+      return value;
+    });
+    try {
+      const [value] = await Promise.all([checkedReply, transfer]);
       return value;
     } finally {
       controller.abort();

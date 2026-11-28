@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { open, rename, unlink, writeFile, realpath } from "node:fs/promises";
 import path from "node:path";
-import type { Readable } from "node:stream";
+import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import {
   isSessionFileName,
@@ -17,6 +17,30 @@ async function openSessionFile(source: string) {
   try {
     if (!(await file.stat()).isFile()) throw new Error("Not a regular file.");
     return file;
+  } catch (error) {
+    await file.close();
+    throw error;
+  }
+}
+
+/** Stream regular files without a size cap; Local retains readFile semantics for other file types. */
+export async function readSessionFileStream(
+  source: string,
+  regularOnly = true
+) {
+  const file = regularOnly
+    ? await openSessionFile(source)
+    : await open(source, constants.O_RDONLY);
+  try {
+    if (!(await file.stat()).isFile()) {
+      const bytes = await file.readFile();
+      await file.close();
+      return { source: Readable.from([bytes]), close: async () => {} };
+    }
+    return {
+      source: file.createReadStream({ autoClose: false }),
+      close: () => file.close(),
+    };
   } catch (error) {
     await file.close();
     throw error;
@@ -48,10 +72,11 @@ export async function collectFile(source: string, legacy: boolean) {
     );
     return;
   }
-  const file = await openSessionFile(source);
+  const file = await readSessionFileStream(source);
   try {
-    await pipeline(file.createReadStream({ autoClose: false }), process.stdout);
+    await pipeline(file.source, process.stdout);
   } finally {
+    file.source.destroy();
     await file.close();
   }
 }
