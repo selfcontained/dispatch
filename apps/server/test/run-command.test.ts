@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { runCommand } from "../src/shared/lib/run-command.js";
+import { runCommand as runWorkloadCommand } from "../../../packages/runner/src/workload/shared/lib/run-command.js";
 
-describe("runCommand", () => {
+describe.each([
+  ["server", runCommand],
+  ["runner", runWorkloadCommand],
+])("%s runCommand", (_name, runCommand) => {
   it("captures stdout from a successful command", async () => {
     const result = await runCommand("echo", ["hello"]);
     expect(result.exitCode).toBe(0);
@@ -74,3 +82,69 @@ describe("runCommand", () => {
     expect(result.stdout).toBe("");
   });
 });
+
+it("keeps exit details and the stderr tail for runner commands", async () => {
+  await expect(
+    runWorkloadCommand("sh", ["-c", "printf 'install denied' >&2; exit 42"])
+  ).rejects.toMatchObject({
+    timedOut: false,
+    exitCode: 42,
+    stderrTail: "install denied",
+  });
+  await expect(
+    runWorkloadCommand(
+      "sh",
+      ["-c", "printf 'still installing' >&2; exec sleep 10"],
+      {
+        timeoutMs: 100,
+      }
+    )
+  ).rejects.toMatchObject({
+    timedOut: true,
+    timeoutMs: 100,
+    stderrTail: "still installing",
+  });
+});
+
+it("drains both output sockets and records failures in a compiled Bun runner", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "compiled-command-"));
+  const binary = path.join(root, "command");
+  const fixture = fileURLToPath(
+    new URL("./fixtures/run-command.ts", import.meta.url)
+  );
+  try {
+    await runCommand(
+      "bun",
+      ["build", "--compile", fixture, "--outfile", binary],
+      {
+        timeoutMs: 30_000,
+      }
+    );
+    const run = async (mode: string) =>
+      JSON.parse(
+        (
+          await runCommand(binary, [process.execPath, mode], {
+            timeoutMs: 15_000,
+          })
+        ).stdout
+      );
+    expect(await run("output")).toEqual({
+      exitCode: 0,
+      stdoutLength: 16 * 1024 * 1024,
+      stderrLength: 16 * 1024 * 1024,
+    });
+    expect(await run("exit")).toMatchObject({
+      exitCode: 42,
+      timedOut: false,
+      stderrTail: "x".repeat(8192),
+    });
+    expect(await run("timeout")).toMatchObject({
+      timedOut: true,
+      timeoutMs: 500,
+      stderrTail: "install pending",
+    });
+    expect(await run("missing")).toMatchObject({ code: "ENOENT" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 30_000);

@@ -110,7 +110,14 @@ export async function installWorkspaceDependencies(
         detail: `${bin} install failed; continuing launch; dependencies may be incomplete. ${error instanceof Error ? error.message : String(error)}`,
       });
       logger.warn(
-        { err: error, worktreePath, packageManager: bin },
+        {
+          err:
+            error instanceof Error
+              ? { ...error, name: error.name, message: error.message }
+              : { message: String(error) },
+          worktreePath,
+          packageManager: bin,
+        },
         "Dependency install failed."
       );
       return false;

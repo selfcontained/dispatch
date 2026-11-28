@@ -128,6 +128,8 @@
         "scripts/remote-runner/codex-offline-preflight.sh",
         "apps/server/src/shared/process/**",
         "apps/server/src/shared/lib/run-command.ts",
+        "apps/server/test/run-command.test.ts",
+        "apps/server/test/fixtures/run-command.ts",
         "apps/server/src/shared/lib/tool-environment.ts",
         "apps/server/src/server/agent-*.ts",
         "apps/server/src/shared/git/**",

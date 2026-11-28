@@ -181,6 +181,31 @@ describe("setupAgentWorkspace — auto deps install", () => {
 
     expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(warnSpy.mock.calls[0]?.[1]).toBe("Dependency install failed.");
+    expect(
+      JSON.parse(JSON.stringify(warnSpy.mock.calls[0]?.[0]))
+    ).toMatchObject({
+      err: { name: "Error", message: "install crashed" },
+      packageManager: "pnpm",
+      worktreePath,
+    });
+  });
+
+  it.each([
+    { timedOut: true, timeoutMs: 120_000, stderrTail: "fetching packages" },
+    { timedOut: false, exitCode: 42, stderrTail: "install denied" },
+  ])("logs serializable command diagnostics: %j", async (diagnostics) => {
+    await writeFile(path.join(worktreePath, "pnpm-lock.yaml"), "");
+    vi.mocked(runCommand).mockRejectedValue(
+      Object.assign(new Error("pnpm install failed"), diagnostics)
+    );
+    const logger = { info: vi.fn(), warn: vi.fn() };
+    await setupAgentWorkspace(originalCwd, worktreePath, logger);
+    expect(
+      JSON.parse(JSON.stringify(logger.warn.mock.calls[0]?.[0]))
+    ).toMatchObject({
+      err: { message: "pnpm install failed", ...diagnostics },
+    });
+    expect(vi.mocked(runCommand).mock.calls[0]?.[2]?.timeoutMs).toBe(120_000);
   });
 });
 
