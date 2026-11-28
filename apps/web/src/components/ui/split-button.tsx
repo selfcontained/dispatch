@@ -27,6 +27,24 @@ export interface SplitButtonProps extends Omit<
   hint?: React.ReactNode;
 }
 
+// Each half drawn with its own shadow casts it across the seam onto the
+// other's translucent fill. The pair shares one shadow on the wrapper instead.
+const halfShadow = "shadow-none hover:shadow-none";
+
+function wrapperShadow(
+  variant: ButtonProps["variant"],
+  disabled: boolean | undefined
+) {
+  if (variant === "primary") {
+    return cn(
+      "shadow-elev-primary",
+      !disabled && "hover:shadow-elev-primary-hover"
+    );
+  }
+  if (variant === "secondary") return "shadow-elev-control";
+  return undefined;
+}
+
 /** A primary action and a menu of its variations, drawn as one control. */
 const SplitButton = React.forwardRef<HTMLButtonElement, SplitButtonProps>(
   (
@@ -61,7 +79,7 @@ const SplitButton = React.forwardRef<HTMLButtonElement, SplitButtonProps>(
           className={cn(
             "min-w-0",
             !!hint && "disabled:pointer-events-auto",
-            !!menu && "rounded-r-none border-r-0",
+            !!menu && cn("rounded-r-none border-r-0", halfShadow),
             className
           )}
           {...props}
@@ -70,7 +88,12 @@ const SplitButton = React.forwardRef<HTMLButtonElement, SplitButtonProps>(
     );
     if (!menu) return main;
     return (
-      <div className="inline-flex min-w-0 max-w-full items-stretch">
+      <div
+        className={cn(
+          "inline-flex min-w-0 max-w-full items-stretch rounded-md",
+          wrapperShadow(variant, disabled)
+        )}
+      >
         {main}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -85,6 +108,7 @@ const SplitButton = React.forwardRef<HTMLButtonElement, SplitButtonProps>(
                 data-testid={menuTestId}
                 className={cn(
                   "w-7 shrink-0 rounded-l-none border-l px-0",
+                  halfShadow,
                   variant === "primary"
                     ? "border-l-primary-foreground/tint-strong"
                     : "border-l-edge"
