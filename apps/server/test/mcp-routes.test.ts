@@ -1,3 +1,5 @@
+import { resolveSavedTarget } from "../src/runners/saved-location.js";
+import { PROJECT_IDENTITY_SQL } from "../src/runners/repository-identity.js";
 import { placementForRunner } from "../src/runners/placement.js";
 import {
   afterAll,
@@ -673,6 +675,162 @@ describe("repository-only Local MCP scope", () => {
         ).toMatchObject({
           brainRepoRoot: moved ? "/repo" : "https://github.com/o/r",
         });
+      } finally {
+        await app.close();
+      }
+    }
+  );
+});
+
+describe("implicit MCP saved-project defaults", () => {
+  it.each(["local", "fixture"])(
+    "scopes names, lists and creates to the caller's project on %s",
+    async (runner) => {
+      const deps = createMockDeps();
+      const agent = {
+        ...(await deps.agentManager.getAgent()),
+        projectId: "prj_repo",
+        placement: placementForRunner(runner),
+        cwd: "/managed/cache/checkout",
+      };
+      deps.agentManager.getAgent.mockResolvedValue(agent);
+      deps.agentManager.permitsRemoteAgentMcp.mockReturnValue(true);
+      vi.mocked(deps.pool.query).mockImplementation(
+        async (sql) =>
+          ({
+            rows:
+              sql === PROJECT_IDENTITY_SQL
+                ? [{ repoRoot: null, repository: "https://github.com/o/r" }]
+                : [],
+          }) as never
+      );
+      const saved = (id: string, projectId: string, targetRunner = runner) => ({
+        ...resolveSavedTarget("", { runner: targetRunner, projectId }),
+        id,
+        name: "daily",
+        projectId,
+      });
+      const own = saved("own", "prj_repo");
+      const other = saved("other", "prj_other");
+      const elsewhere = saved(
+        "elsewhere",
+        "prj_repo",
+        runner === "local" ? "fixture" : "local"
+      );
+      deps.jobService.listJobs.mockResolvedValue([
+        other,
+        elsewhere,
+        own,
+      ] as never);
+      deps.templateService.listTemplates.mockResolvedValue([
+        other,
+        elsewhere,
+        own,
+      ] as never);
+      const app = Fastify();
+      await registerMcpRoutes(app, deps as never);
+      try {
+        expect(
+          (
+            await app.inject({
+              method: "POST",
+              url: "/api/mcp/agt_test1",
+              payload: {},
+            })
+          ).statusCode
+        ).toBe(200);
+        const callbacks = vi
+          .mocked(handleMcpRequest)
+          .mock.calls.at(-1)?.[3]?.crudTools;
+        expect(await callbacks!.listJobs(agent.cwd, true)).toEqual([own]);
+        expect(await callbacks!.listTemplates(agent.cwd, true)).toEqual([own]);
+        expect(await callbacks!.getJobByName(agent.cwd, "daily", true)).toEqual(
+          own
+        );
+        expect(
+          await callbacks!.getTemplateByName(agent.cwd, "daily", true)
+        ).toEqual(own);
+        expect(
+          await callbacks!.getJobByName(agent.cwd, "missing", true)
+        ).toBeNull();
+        for (const create of [callbacks!.createJob, callbacks!.createTemplate])
+          await create({ name: "new", directory: agent.cwd }, true);
+        const target = {
+          name: "new",
+          directory: "",
+          projectId: "prj_repo",
+          runner,
+        };
+        expect(deps.jobService.addJob).toHaveBeenCalledWith(
+          target,
+          false,
+          expect.any(Function)
+        );
+        expect(deps.templateService.addTemplate).toHaveBeenCalledWith(
+          target,
+          false,
+          expect.any(Function)
+        );
+        // An explicitly supplied Local folder remains a folder, including the caller's path.
+        if (runner === "local") {
+          await callbacks!.createTemplate(
+            { name: "folder", directory: agent.cwd },
+            false
+          );
+          expect(deps.templateService.addTemplate).toHaveBeenLastCalledWith(
+            { name: "folder", directory: agent.cwd, runner: "local" },
+            false,
+            expect.any(Function)
+          );
+          await callbacks!.getTemplateByName(agent.cwd, "daily", false);
+          expect(deps.templateService.getTemplateByName).toHaveBeenCalledWith(
+            agent.cwd,
+            "daily",
+            "local"
+          );
+        }
+      } finally {
+        await app.close();
+      }
+    }
+  );
+
+  it.each(["folder", "moved"])(
+    "preserves implicit Local %s targets",
+    async (kind) => {
+      const deps = createMockDeps();
+      const agent = {
+        ...(await deps.agentManager.getAgent()),
+        projectId: "prj_repo",
+        workspacePath: kind === "moved" ? "/moved" : null,
+      };
+      deps.agentManager.getAgent.mockResolvedValue(agent);
+      vi.mocked(deps.pool.query).mockResolvedValue({
+        rows: [
+          {
+            repoRoot: kind === "folder" ? "/repo" : null,
+            repository: "https://github.com/o/r",
+          },
+        ],
+      } as never);
+      const app = Fastify();
+      await registerMcpRoutes(app, deps as never);
+      try {
+        await app.inject({
+          method: "POST",
+          url: "/api/mcp/agt_test1",
+          payload: {},
+        });
+        const callbacks = vi
+          .mocked(handleMcpRequest)
+          .mock.calls.at(-1)?.[3]?.crudTools;
+        const directory = agent.workspacePath ?? agent.cwd;
+        await callbacks!.createTemplate({ name: "old", directory }, true);
+        expect(deps.templateService.addTemplate).toHaveBeenCalledWith(
+          { name: "old", directory, runner: "local" },
+          false,
+          expect.any(Function)
+        );
       } finally {
         await app.close();
       }
