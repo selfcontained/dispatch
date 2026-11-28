@@ -94,6 +94,7 @@
         "apps/server/test/helpers/main-local-hosts.ts",
         "apps/server/test/local-runner-host-adoption.test.ts",
         "apps/server/test/local-runner-sole-spawner.test.ts",
+        "apps/server/test/local-runner-management.test.ts",
         "apps/server/test/helpers/recycle-acp-fixture.ts",
         "apps/server/test/helpers/test-workspace-runner.ts",
         "apps/server/test/lifecycle-hooks.test.ts",
