@@ -55,7 +55,9 @@ function mount(
   response: object = catalog,
   withRunner = false,
   initialEntry = "/agents?project=p1",
-  localPicker = false
+  localPicker = false,
+  task: { id: string; title: string; projectId: string } | null = null,
+  repositoryOnly = false
 ) {
   vi.mocked(api).mockImplementation(async (path) => {
     if (path === "/api/v1/agent-models") return response;
@@ -74,7 +76,7 @@ function mount(
                   {
                     id: "p1",
                     name: "Sample Project",
-                    repoRoot: "/repo",
+                    repoRoot: repositoryOnly ? null : "/repo",
                     repository: "https://github.com/example/project",
                   },
                   {
@@ -106,7 +108,7 @@ function mount(
                       {
                         id: "p1",
                         name: "Sample Project",
-                        repoRoot: "/repo",
+                        repoRoot: repositoryOnly ? null : "/repo",
                         repository: "https://github.com/example/project.git",
                       },
                     ],
@@ -129,12 +131,18 @@ function mount(
         catalog: response,
         agentTypes: [...types],
         engineOptions: [],
-        directory: target.pathname === "/fixture/controller" ? "/repo" : "",
+        directory:
+          !repositoryOnly && target.pathname === "/fixture/controller"
+            ? "/repo"
+            : "",
         personasUrl: "/api/v1/personas?fixture=1",
         branchesUrl: `${target.pathname}/branches?projectId=p1`,
         defaults: {
           preferenceKey: target.pathname,
-          baseBranch: target.pathname === "/fixture/controller" ? "main" : "",
+          baseBranch:
+            !repositoryOnly && target.pathname === "/fixture/controller"
+              ? "main"
+              : "",
           launchFields:
             target.pathname === "/fixture/controller"
               ? {}
@@ -144,7 +152,11 @@ function mount(
     }
     if (path === "/api/v1/projects") {
       return [
-        { id: "p1", name: "Sample Project", repoRoot: "/repo" },
+        {
+          id: "p1",
+          name: "Sample Project",
+          repoRoot: repositoryOnly ? null : "/repo",
+        },
         { id: "p2", name: "Folder Only", repoRoot: "/folder" },
       ];
     }
@@ -181,6 +193,7 @@ function mount(
         <MemoryRouter initialEntries={[initialEntry]}>
           <CreateAgentDialog
             open
+            task={task}
             enabledAgentTypes={[...types]}
             initialAgentType={type}
             setOpen={vi.fn()}
@@ -678,3 +691,76 @@ it("lets Local search for its first project without an existing project", async 
   fireEvent.click(screen.getByRole("radio", { name: "Project" }));
   await screen.findByRole("combobox", { name: "Project or repository" });
 });
+
+it.each(["Local", "Runner A"])(
+  "task launch on %s enables branches for its repository-only project",
+  async (host) => {
+    const task = {
+      id: "task-repository",
+      title: "Build repository task",
+      projectId: "p1",
+    };
+    mount("codex", catalog, true, "/agents", true, task, true);
+    const original = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation((path, init) => {
+      if (path === "/api/v1/agents" && init?.method === "POST")
+        return Promise.resolve({ agent: { id: "task-agent", type: "codex" } });
+      if (path === "/api/v1/tasks/task-repository/briefing")
+        return Promise.resolve({ projectId: "p1", text: "Task briefing" });
+      return original(path, init);
+    });
+    const machine = await screen.findByRole("combobox", { name: "Runs on" });
+    if (host === "Runner A") {
+      fireEvent.keyDown(machine, { key: "ArrowDown" });
+      fireEvent.click(screen.getByRole("option", { name: /Runner A/ }));
+    }
+    expect(screen.getByTestId("create-agent-task").textContent).toContain(
+      task.title
+    );
+    expect(screen.queryByTestId("project-location")).toBeNull();
+    expect(screen.queryByTestId("create-agent-cwd")).toBeNull();
+    expect(
+      screen.queryByRole("combobox", { name: "Project or repository" })
+    ).toBeNull();
+    const worktree = screen.getByRole("checkbox", {
+      name: "Create managed git worktree",
+    });
+    await waitFor(() => expect(worktree).toHaveProperty("disabled", false));
+    expect(worktree.getAttribute("data-state")).toBe("checked");
+    const starting = screen.getByRole("combobox", { name: "Starting branch" });
+    await waitFor(() => expect(starting).toHaveProperty("disabled", false));
+    const branch = screen.getByRole("textbox", { name: "New branch name" });
+    expect(branch).toHaveProperty("disabled", false);
+    fireEvent.change(branch, { target: { value: "feature/task-repository" } });
+    fireEvent.click(starting);
+    fireEvent.click(await screen.findByRole("option", { name: "release" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create agent" }));
+    await waitFor(() =>
+      expect(
+        vi
+          .mocked(api)
+          .mock.calls.some(
+            ([path, init]) =>
+              path === "/api/v1/agents" && init?.method === "POST"
+          )
+      ).toBe(true)
+    );
+    const call = vi
+      .mocked(api)
+      .mock.calls.find(
+        ([path, init]) => path === "/api/v1/agents" && init?.method === "POST"
+      )!;
+    const payload = JSON.parse(String(call[1]!.body));
+    expect(payload).toMatchObject({
+      projectId: "p1",
+      taskId: task.id,
+      useWorktree: true,
+      createNewBranch: true,
+      baseBranch: "release",
+      worktreeBranch: "feature/task-repository",
+    });
+    expect(payload).not.toHaveProperty("cwd");
+    if (host === "Runner A") expect(payload.runner).toBe("runner-a");
+    else expect(payload).not.toHaveProperty("runner");
+  }
+);
