@@ -20,6 +20,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Runner } from "@/hooks/use-runners";
 import { api } from "@/lib/api";
 import { noteServerVersion } from "@/lib/version";
+import { PageChromeContext } from "@/components/ui/page-header";
 import { RunnerSettings } from "./runner-settings";
 
 vi.mock("@/lib/api", () => ({
@@ -70,6 +71,38 @@ function renderSettings(
     </QueryClientProvider>
   );
 }
+
+it("keeps the shell's way back to the settings menu on the list and a runner", async () => {
+  vi.mocked(api).mockImplementation(async (path) => {
+    if (path === "/api/runners") return { runners: [online] };
+    if (path === "/api/v1/runners/connect") return { requests: [] };
+    if (path.startsWith("/api/v1/engine-management/inventory"))
+      return { entries: [] };
+    throw new Error(`Unexpected endpoint ${path}`);
+  });
+  render(
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <PageChromeContext.Provider
+        value={{ leading: <button type="button">Open sidebar</button> }}
+      >
+        <MemoryRouter initialEntries={["/settings/runners"]}>
+          <RunnerSettings />
+        </MemoryRouter>
+      </PageChromeContext.Provider>
+    </QueryClientProvider>
+  );
+  expect(
+    screen.getByRole("heading", { level: 1, name: "Runners" })
+  ).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Open sidebar" })).toBeTruthy();
+  fireEvent.click(await screen.findByTestId("runner-select-build"));
+  await screen.findByRole("heading", { name: "Build machine" });
+  expect(screen.getByRole("button", { name: "Open sidebar" })).toBeTruthy();
+});
 
 it("scopes details and confirmation to the selected runner and records a revocation", async () => {
   let revoked = false;
