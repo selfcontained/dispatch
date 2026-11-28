@@ -737,3 +737,26 @@ describe("job effort", () => {
     expect(result.json().error).toBeTruthy();
   });
 });
+
+it("creates and edits a Local repository-only project job without a directory", async () => {
+  const projectId = "job-route-repository";
+  await ctx.pool.query(
+    "INSERT INTO projects(id,name,repo_root,repository) VALUES($1,'Repository job',NULL,'https://github.com/job-route/repository')",
+    [projectId]
+  );
+  const created = await authedInject("POST", "/api/v1/jobs", {
+    name: "Repository job",
+    directory: "",
+    projectId,
+    prompt: "Work",
+  });
+  expect(created.statusCode).toBe(200);
+  expect(created.json().directory).toBe("");
+  const changed = await authedInject("PATCH", "/api/v1/jobs", {
+    jobId: created.json().id,
+    directory: "",
+    prompt: "Changed work",
+  });
+  expect(changed.statusCode).toBe(200);
+  expect(changed.json().directory).toBe("");
+});

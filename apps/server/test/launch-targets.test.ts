@@ -39,6 +39,13 @@ async function setup(
   const app = Fastify();
   apps.push(app);
   let catalogFailure = false;
+  let enabledAgentTypes = ["claude", "codex"];
+  let inventory: Array<{
+    id: string;
+    installed: boolean;
+    signedIn: boolean;
+  }> | null = [{ id: "codex", installed: false, signedIn: false }];
+  const operations = vi.fn();
   app.addHook("onRequest", async (req, reply) => {
     if (req.headers.authorization !== "Bearer fixture")
       return reply.code(401).send({ error: "Unauthorized" });
@@ -55,7 +62,7 @@ async function setup(
     ],
   }));
   app.get("/api/v1/app/settings/agent-types", async () => ({
-    enabledAgentTypes: ["claude", "codex"],
+    enabledAgentTypes,
   }));
   app.get("/api/v1/agent-models", async () => catalog);
   app.get("/api/v1/system/engines", async (req) => ({
@@ -87,22 +94,25 @@ async function setup(
     query: req.query,
   }));
   app.get("/api/v1/engine-management/inventory", async () => ({
-    entries: [{ id: "codex", installed: false, signedIn: false }],
+    entries: inventory,
   }));
-  app.post("/api/v1/engine-management/operations", async () => ({
-    ack: catalogFailure
-      ? { ok: false, error: "Fixture unavailable" }
-      : {
-          ok: true,
-          capability: {
-            type: "model_catalog",
-            catalog: {
-              models: [{ id: "runner-model", effort: [{ value: "medium" }] }],
-              defaultModel: "runner-model",
+  app.post("/api/v1/engine-management/operations", async (request) => {
+    operations(request.body);
+    return {
+      ack: catalogFailure
+        ? { ok: false, error: "Fixture unavailable" }
+        : {
+            ok: true,
+            capability: {
+              type: "model_catalog",
+              catalog: {
+                models: [{ id: "runner-model", effort: [{ value: "medium" }] }],
+                defaultModel: "runner-model",
+              },
             },
           },
-        },
-  }));
+    };
+  });
   app.get("/api/v1/templates", async () => [template]);
   const branches = vi.fn(async (placement, op, input) => ({
     branches: ["develop", "main"],
@@ -155,6 +165,13 @@ async function setup(
     get,
     targets,
     branches,
+    operations,
+    enableAgentTypes: (types: string[]) => {
+      enabledAgentTypes = types;
+    },
+    setInventory: (entries: typeof inventory) => {
+      inventory = entries;
+    },
     failCatalog: () => {
       catalogFailure = true;
     },
@@ -249,6 +266,40 @@ describe("launch target adapter", () => {
     const personas = (await get(data.personasUrl)).json();
     expect(personas.query.projectId).toBe("project");
     expect(personas.query.runner).toBe("fixture");
+  });
+  it("applies enabled agent types to runner choices and catalog selection", async () => {
+    const { get, targets, operations, enableAgentTypes, setInventory } =
+      await setup();
+    enableAgentTypes(["codex"]);
+    setInventory([
+      { id: "claude", installed: true, signedIn: true },
+      { id: "codex", installed: false, signedIn: false },
+    ]);
+    const local = await get(
+      `${targets[0].dataUrl}?directory=%2Frepo&agentType=codex`
+    );
+    const runner = await get(
+      `${targets[1].dataUrl}?projectId=project&agentType=claude`
+    );
+    expect(local.json().agentTypes).toEqual(["codex"]);
+    expect(runner.statusCode).toBe(200);
+    expect(runner.json().agentTypes).toEqual(["codex"]);
+    expect(runner.json().catalog.models.codex[0].id).toBe("runner-model");
+    expect(operations).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: { type: "model_catalog", engine: "codex" },
+      })
+    );
+  });
+  it("keeps the enabled types when the runner inventory has not arrived", async () => {
+    const { get, targets, enableAgentTypes, setInventory } = await setup();
+    enableAgentTypes(["codex"]);
+    setInventory(null);
+    const response = await get(
+      `${targets[1].dataUrl}?projectId=project&agentType=codex`
+    );
+    expect(response.statusCode).toBe(200);
+    expect(response.json().agentTypes).toEqual(["codex"]);
   });
   it("projects saved targets separately without altering existing template bytes", async () => {
     const { get, targets } = await setup();

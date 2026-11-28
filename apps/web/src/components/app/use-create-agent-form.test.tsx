@@ -1320,3 +1320,67 @@ it.each([false, true])(
     expect(agentsPostJson()).not.toHaveProperty("cwd");
   }
 );
+
+it("keeps a source Local agent's repository-only project instead of turning its managed checkout into a Folder launch", async () => {
+  const project = {
+    id: "repository-project",
+    repoRoot: null,
+    repository: "https://github.com/source/repository",
+  };
+  queryClient.setQueryData(["projects"], [project]);
+  queryClient.setQueryDefaults(["projects"], { staleTime: Infinity });
+  const fallback = apiMock.getMockImplementation()!;
+  apiMock.mockImplementation((url, init) =>
+    url === "/api/v1/launch-targets"
+      ? Promise.resolve({
+          targets: [
+            {
+              ...controller,
+              location: { kind: "folder", projects: [project] },
+            },
+          ],
+        })
+      : url.startsWith("/api/v1/launch-targets/saved/agent/")
+        ? Promise.resolve({
+            targetKey: controller.key,
+            projectId: project.id,
+            directory: "/managed/repository/worktree",
+          })
+        : fallback(url, init)
+  );
+  const { result } = await setup({ sourceAgentId: "source" });
+  await waitFor(() => expect(result.current.createProjectId).toBe(project.id));
+  expect(result.current.createCwd).toBe("");
+  expect(result.current.worktreeAvailable).toBe(true);
+  await act(async () => result.current.handleSubmit(submitEvent()));
+  expect(agentsPostJson()).toMatchObject({ projectId: project.id });
+  expect(agentsPostJson()).not.toHaveProperty("cwd");
+});
+
+it("still probes Git for a folder-backed project without a repository origin", async () => {
+  const project = {
+    id: "folder-no-origin",
+    repoRoot: "/folder/no-origin",
+    repository: null,
+  };
+  queryClient.setQueryData(["projects"], [project]);
+  queryClient.setQueryDefaults(["projects"], { staleTime: Infinity });
+  const fallback = apiMock.getMockImplementation()!;
+  apiMock.mockImplementation((url, init) =>
+    url === "/api/v1/launch-targets"
+      ? Promise.resolve({
+          targets: [
+            {
+              ...controller,
+              location: { kind: "folder", projects: [project] },
+            },
+          ],
+        })
+      : url.includes("/path-info?path=")
+        ? Promise.resolve(REPO_INFO)
+        : fallback(url, init)
+  );
+  const { result } = await setup({ initialProjectId: project.id });
+  await waitFor(() => expect(result.current.worktreeAvailable).toBe(true));
+  expect(result.current.createCwd).toBe(project.repoRoot);
+});

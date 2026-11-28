@@ -1356,6 +1356,61 @@ describe("triggers", () => {
       ]);
   });
 
+  it.each(["local", "runner-test"])(
+    "launches a repository-only task project through its %s template and column trigger",
+    async (runner) => {
+      await pool.query(
+        "UPDATE projects SET repo_root = NULL, repository = $2 WHERE id = $1",
+        [projectId, "https://github.com/tasks/repository-only"]
+      );
+      const saved = template({
+        id: TEMPLATE_ID,
+        ...resolveSavedTarget("", { runner, projectId }),
+        useWorktree: true,
+        baseBranch: "main",
+        branchName: "feature/task-repository",
+      });
+      const createAgent = vi.fn(async () => {
+        const id = `agt_repository_${++agentSeq}`;
+        await insertAgent(id, "running", "Repository builder");
+        return { id } as AgentRecord;
+      });
+      const templates = new TemplateService(
+        pool,
+        { createAgent } as never,
+        { info: vi.fn() } as never
+      );
+      service = build(filesRoot, {
+        getTemplate: async (id) => (id === TEMPLATE_ID ? saved : null),
+        launchTemplate: async (input) =>
+          (await templates.launchTemplate(input)).agent,
+      });
+      const ready = await columnId("ready");
+      await service.updateColumn(ready, {
+        trigger: { templateId: TEMPLATE_ID, assign: false, runner },
+      });
+      const task = await service.createTask(
+        { projectId, title: "Launch from repository task" },
+        USER
+      );
+      await service.updateTask(task.id, { columnId: ready }, USER);
+      await service.launchAgent(task.id, { templateId: TEMPLATE_ID }, USER);
+      expect(createAgent).toHaveBeenCalledTimes(2);
+      for (const args of createAgent.mock.calls)
+        expect(args).toEqual([
+          expect.objectContaining({
+            cwd: "",
+            projectId,
+            placement: placementForRunner(runner),
+            templateId: TEMPLATE_ID,
+            useWorktree: true,
+            baseBranch: "main",
+            worktreeBranch: "feature/task-repository",
+          }),
+        ]);
+    }
+  );
+
   it.each(["local", "offline-fixture"])(
     "stores only runner %s and resolves its project folder at launch",
     async (runner) => {

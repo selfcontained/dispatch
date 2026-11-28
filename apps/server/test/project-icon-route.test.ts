@@ -257,6 +257,25 @@ describe("GET /api/v1/projects/:id/icon: a project with no folder", () => {
     return id;
   }
 
+  it("previews a repository-only project's icon from its agent checkout before an icon snapshot exists", async () => {
+    const id = await repositoryProject();
+    const newest = await runnerAgent(
+      id,
+      { "favicon.svg": "<svg>preview</svg>" },
+      "2026-03-01"
+    );
+    served.length = 0;
+    const response = await app.inject({
+      url: `/api/v1/projects/icon-preview?projectId=${id}`,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      dataUrl: `data:image/svg+xml;base64,${Buffer.from("<svg>preview</svg>").toString("base64")}`,
+      source: "repository",
+    });
+    expect(served).toContain(`checkout.read ${newest}`);
+  });
+
   it("shows the icon of its newest agent's checkout, read on that agent's runner", async () => {
     const id = await repositoryProject();
     await runnerAgent(id, { "favicon.svg": "<svg>old</svg>" }, "2026-01-01");

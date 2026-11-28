@@ -76,11 +76,16 @@ export function useCreateAgentForm({
   const [locationChoice, setLocationChoice] = useState<{
     projectId: string | null;
   } | null>(null);
+  const projectedProject = (launch.target?.location.projects ?? projects).find(
+    (project) => project.id === launch.projection.data?.projectId
+  );
   const selectedProjectId = task
     ? task.projectId
     : locationChoice
       ? locationChoice.projectId
-      : sourceAgentId && launch.target?.location.kind === "project"
+      : sourceAgentId &&
+          (launch.target?.location.kind === "project" ||
+            (projectedProject && !projectedProject.repoRoot))
         ? (launch.projection.data?.projectId ?? null)
         : (initialProjectId ??
           (locationPref?.mode === "project" ? locationPref.projectId : null));
@@ -283,7 +288,11 @@ export function useCreateAgentForm({
   );
 
   useEffect(() => {
-    if (!createProjectId || (project && "repository" in project)) return;
+    if (
+      !createProjectId ||
+      (project && "repository" in project && project.repository)
+    )
+      return;
     const controller = new AbortController();
     void api<CwdPathInfo>(
       `/api/v1/system/path-info?path=${encodeURIComponent(createCwd.trim())}`,

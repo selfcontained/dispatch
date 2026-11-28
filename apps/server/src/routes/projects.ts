@@ -226,9 +226,10 @@ export async function registerProjectRoutes(
           request.query.repoRoot!,
           agents?.checkoutReadRunners() ?? {}
         ).catch(() => null));
-      const icon = root
-        ? await readProjectIcon(pool, agents, { repoRoot: root })
-        : null;
+      const icon =
+        saved || root
+          ? await readProjectIcon(pool, agents, saved ?? { repoRoot: root })
+          : null;
       if (icon)
         return {
           dataUrl: `data:${icon.mime};base64,${icon.bytes.toString("base64")}`,

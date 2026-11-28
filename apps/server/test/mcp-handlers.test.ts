@@ -1153,6 +1153,60 @@ describe("createMcpHandlers", () => {
       }
     });
 
+    it.each(["local", "runner-repository"])(
+      "launches a repository-only project template on %s through its saved project source",
+      async (runner) => {
+        deps.agentManager.getAgent.mockResolvedValue(localParent);
+        deps.templateService.getTemplate.mockResolvedValue(
+          templateRecord({
+            projectId: "repository-project",
+            useWorktree: true,
+            ...resolveSavedTarget("", {
+              runner,
+              projectId: "repository-project",
+            }),
+          })
+        );
+        await handlers.launchAgent("agt_test1", {
+          prompt: "Repository work",
+          templateId: "tmpl_123",
+          child: false,
+        });
+        expect(lastLaunch()[0]).toMatchObject({
+          cwd: "",
+          projectId: "repository-project",
+          placement: placementForRunner(runner),
+          repository: {},
+          useWorktree: true,
+        });
+        expect(lastLaunch()[0]).not.toHaveProperty("parentAgentId");
+      }
+    );
+    it.each(["local", "runner-repository"])(
+      "launches a child of a repository-only project session on %s in its prepared checkout",
+      async (runner) => {
+        deps.agentManager.getAgent.mockResolvedValue({
+          ...localParent,
+          placement: placementForRunner(runner),
+          projectId: "repository-project",
+          cwd: "/managed/repository/current",
+          worktreePath: "/managed/repository/current",
+        });
+        await handlers.launchAgent("agt_test1", {
+          prompt: "Child work",
+          useWorktree: true,
+          createNewBranch: true,
+        });
+        expect(lastLaunch()[0]).toMatchObject({
+          cwd: "/managed/repository/current",
+          placement: placementForRunner(runner),
+          parentAgentId: "agt_test1",
+          useWorktree: true,
+          createNewBranch: true,
+        });
+      }
+    );
+
     it("launches a local template in its directory with no extra target", async () => {
       deps.agentManager.getAgent.mockResolvedValue(localParent);
       deps.templateService.getTemplate.mockResolvedValue(

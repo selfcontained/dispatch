@@ -442,7 +442,11 @@ export async function registerLaunchTargetRoutes(
           ...entry,
           install: metadata.engines.find((m) => m.id === entry.id)?.install,
         })) ?? null;
-      agentTypes = inventory.entries?.map((e) => e.id) ?? agentTypes;
+      agentTypes = inventory.entries
+        ? settings.enabledAgentTypes.filter((id) =>
+            inventory.entries!.some((entry) => entry.id === id)
+          )
+        : agentTypes;
       if (agentTypes.length && !agentTypes.includes(engine))
         engine = agentTypes[0]!;
       const { ack } = await read<{

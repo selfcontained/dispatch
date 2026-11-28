@@ -431,8 +431,47 @@ it("reports when the dev controller has no payload for the host", async () => {
 
 describe("runner install script validation", () => {
   it.each([
+    "1.7.40-staging.22",
+    "1.7.28-dev",
+    "2.0.0-rc.1",
+    "0.0.0-0",
+    "1.2.3-01a",
+  ])("accepts prerelease %s", (version) => {
+    expect(runnerInstallScript({ ...release, version })).toContain(
+      `install --tag v${version} --source`
+    );
+  });
+  it("passes the staging prerelease tag intact to the verified installer", async () => {
+    const result = await pipe(
+      runnerInstallScript({ ...release, version: "1.7.40-staging.22" })
+    );
+    expect(result.code).toBe(0);
+    expect(result.log.at(-1)).toContain(
+      "install --tag v1.7.40-staging.22 --source"
+    );
+    expect(await leftovers()).toEqual([]);
+  });
+  it.each([
+    "1.7.40-",
+    "1.7.40-staging..22",
+    "1.7.40-staging.01",
+    "01.7.40-staging.22",
+    "1.7.40-staging.22+build",
+    "1.7.40-staging.22;id",
+    "1.7.40-$(id)",
+    "1.7.40-`id`",
+    "1.7.40-staging'",
+    "1.7.40-staging.22\n",
+    "1.7.40-staging\nid",
+    "1.7.40-staging 22",
+    "v1.7.40-staging.22",
+  ])("rejects unsafe or malformed version %j", (version) => {
+    expect(() => runnerInstallScript({ ...release, version })).toThrow(
+      "Invalid runner version"
+    );
+  });
+  it.each([
     [{ revision: "main" }, "symbolic revision"],
-    [{ version: "1.7.28-dev" }, "non-release version"],
     [{ caPem: "-----BEGIN CERTIFICATE-----\n'$(x)'\n" }, "bad CA"],
     [{ origin: webOrigin }, "CA over http"],
     [
