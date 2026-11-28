@@ -16,6 +16,7 @@ import {
 } from "@dispatch/runner-protocol/contract";
 import {
   localHostChannel,
+  launchLocalSession,
   readLocalSession,
   requestLocalSession as callLocalSession,
   type LocalSessionRunner,
@@ -660,34 +661,10 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         if (!request || sessionToWire(request.session) !== agentId)
           throw new Error("Missing or mismatched launch request");
         const child = localChild();
-        await callLocalSession(child, "session.launch", request);
-        // The child answers once the host runs; it may still exit before
-        // it answers the app, which fails the launch at once, as before.
-        let exited = false;
-        let watching = true;
-        const deadline = Date.now() + LAUNCH_TIMEOUT_MS;
-        void (async () => {
-          while (watching && !exited && Date.now() < deadline) {
-            await new Promise((r) => setTimeout(r, LAUNCH_EXIT_POLL_MS));
-            if (!watching) return;
-            try {
-              const { state } = await child.call(
-                "session.alive",
-                { session },
-                { wait: false }
-              );
-              if (state === "gone") exited = true;
-            } catch {
-              // Unavailable is not gone.
-            }
-          }
-        })();
-        return {
-          launchExited: () => exited,
-          launchSettled: () => {
-            watching = false;
-          },
-        };
+        return launchLocalSession(child, request, {
+          timeoutMs: LAUNCH_TIMEOUT_MS,
+          pollMs: LAUNCH_EXIT_POLL_MS,
+        });
       }
       case "stop": {
         try {
