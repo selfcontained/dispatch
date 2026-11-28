@@ -157,12 +157,6 @@
   },
   {
     "lane": "local",
-    "scenario": "terminal.open/interactive",
-    "task": "T21",
-    "reason": "Local terminal handler requires target.path and does not resolve contract target.session; real child returns Invalid native terminal binding."
-  },
-  {
-    "lane": "local",
     "scenario": "files.put/bytes",
     "task": "T12",
     "reason": "Local files.put waits for an out-of-band blob path; contract inline bytes never satisfy receiveBlobPath and the call times out."
