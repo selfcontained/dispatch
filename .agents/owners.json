@@ -99,6 +99,7 @@
         "apps/server/test/helpers/test-workspace-runner.ts",
         "apps/server/test/lifecycle-hooks.test.ts",
         "apps/server/test/runner-*.test.ts",
+        "apps/server/test/session-runner-directory.test.ts",
         "apps/server/test/helpers/remote-acp-fixture.ts",
         "apps/server/test/helpers/codex-mcp-probe.mjs",
         "apps/server/test/base-ref.test.ts",
