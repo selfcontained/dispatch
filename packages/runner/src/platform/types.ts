@@ -150,6 +150,9 @@ export interface EnginePort {
  * write nothing, so a frozen runner serves them.
  */
 export interface GitHubPort {
+  repositories?(
+    request: Req<"github.repositories">
+  ): Promise<Res<"github.repositories">>;
   pullRequestHead(
     request: Req<"github.pr.head">
   ): Promise<Res<"github.pr.head">>;

@@ -88,7 +88,7 @@ beforeEach(() => {
         targets: [
           {
             key: "fixture-target",
-            name: "This computer",
+            name: "Local",
             dataUrl: "/fixture/data",
             location: { kind: "folder" },
           },
@@ -528,7 +528,7 @@ it("saves only an explicitly chosen runner and keeps inheritance implicit", asyn
         targets: [
           {
             key: "fixture-target",
-            name: "This computer",
+            name: "Local",
             status: "online",
             dataUrl: "/fixture/data",
             location: { kind: "folder" },

@@ -156,7 +156,7 @@ function pasteEvent(options: {
 
 const controller = {
   key: "opaque-controller",
-  name: "This computer",
+  name: "Local",
   status: "online",
   location: { kind: "folder" },
   dataUrl: "/fixture/controller",
@@ -1280,3 +1280,43 @@ it("takes folder list, counts and icons from the selected target response", asyn
     )
   ).toBe(false);
 });
+
+it.each([false, true])(
+  "launches a repository-only project without a folder (Local: %s)",
+  async (local) => {
+    const original = apiMock.getMockImplementation()!;
+    const target = {
+      ...(local ? controller : repositoryTarget),
+      location: {
+        kind: local ? "folder" : "project",
+        projects: [
+          {
+            id: "repo-only",
+            name: "Repo",
+            repoRoot: null,
+            repository: "https://github.com/org/repo",
+          },
+        ],
+      },
+    };
+    apiMock.mockImplementation(async (path, init) => {
+      if (path === "/api/v1/launch-targets") return { targets: [target] };
+      if (path === "/api/v1/projects") return target.location.projects;
+      return original(path, init);
+    });
+    const { result } = await setup();
+    act(() => {
+      result.current.setCreateProjectId("repo-only");
+      result.current.setCreateCwd("");
+    });
+    await waitFor(() => expect(result.current.locationReady).toBe(true));
+    await act(async () => {
+      await result.current.handleSubmit(submitEvent());
+    });
+    expect(agentsPostJson()).toMatchObject({
+      projectId: "repo-only",
+      ...(local ? {} : { runner: "fixture" }),
+    });
+    expect(agentsPostJson()).not.toHaveProperty("cwd");
+  }
+);

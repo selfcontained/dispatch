@@ -137,8 +137,10 @@ export function useCreateAgentForm({
     }
   }, [sourceAgentId, launch.projection.data, launch.changed]);
   const createCwd =
-    project?.repoRoot ??
-    (sourceAgentId && launch.projection.isPending ? "" : folderCwd);
+    project && !project.repoRoot
+      ? ""
+      : (project?.repoRoot ??
+        (sourceAgentId && launch.projection.isPending ? "" : folderCwd));
   const [createCwdInitialized, setCreateCwdInitialized] = useState(
     () => createCwd.trim().length > 0
   );
@@ -341,7 +343,7 @@ export function useCreateAgentForm({
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
       const cwd = createCwd.trim();
-      if (!cwd || !locationReady) return;
+      if ((!cwd && !createProjectId) || !locationReady) return;
 
       setCreating(true);
       setSubmitError(undefined);

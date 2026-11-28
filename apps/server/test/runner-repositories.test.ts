@@ -1,3 +1,5 @@
+import { runnerDirectory } from "../src/runners/directory.js";
+import { runnerIdForPlacement } from "../src/runners/placement.js";
 import { pathFromWire } from "@dispatch/runner-protocol/contract";
 import { RemoteRunnerService } from "../src/agents/remote/service.js";
 import { createEnrolledCheckoutRunner } from "../src/runners/enrolled/checkout.js";
@@ -14,9 +16,15 @@ describe("runner repository selection", () => {
     });
     const search = vi.fn().mockRejectedValue(new Error("secret from upstream"));
     registerRunnerRepositorySearch(app, {
-      listGitHubBranches: vi.fn(),
-      lookupGitHubPullRequestHead: lookup,
-      searchGitHubRepositories: search,
+      for: (placement) =>
+        ({
+          call: (op: string, input: any) => {
+            const id = runnerIdForPlacement(placement);
+            if (op === "github.repositories") return search(id, input.query);
+            if (op === "github.pr.head")
+              return lookup(id, input.owner, input.repo, input.number);
+          },
+        }) as never,
     });
     try {
       const r = await app.inject({
@@ -82,4 +90,30 @@ it("sends the selected checkout only on the directory-aware PR head frame", asyn
       undefined,
     ],
   ]);
+});
+
+it("serves Local repository search through the same directory and protocol", async () => {
+  const result = {
+    repositories: [{ name: "org/repo", url: "https://github.com/org/repo" }],
+  };
+  const call = vi.fn().mockResolvedValue(result);
+  const app = Fastify();
+  registerRunnerRepositorySearch(
+    app,
+    runnerDirectory({ child: () => ({ call }) as never })
+  );
+  try {
+    const response = await app.inject(
+      "/api/v1/runners/local/repository-search?q=repo"
+    );
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(result);
+    expect(call).toHaveBeenCalledWith(
+      "github.repositories",
+      { query: "repo" },
+      undefined
+    );
+  } finally {
+    await app.close();
+  }
 });

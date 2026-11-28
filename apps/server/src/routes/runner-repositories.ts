@@ -3,16 +3,12 @@ import {
   validGitHubRepoPart,
   validRepositorySearch,
 } from "@dispatch/runner-protocol";
-import type { RemoteRunnerService } from "../agents/remote/service.js";
+import type { Runners } from "@dispatch/runner-protocol/contract";
+import { placementForRunner } from "../runners/placement.js";
 
 export function registerRunnerRepositorySearch(
   app: FastifyInstance,
-  runners: Pick<
-    RemoteRunnerService,
-    | "searchGitHubRepositories"
-    | "lookupGitHubPullRequestHead"
-    | "listGitHubBranches"
-  >
+  runners: Pick<Runners, "for">
 ) {
   const options = { config: { validateSuppliedAuthorization: true } } as const;
   app.get<{ Params: { id: string }; Querystring: { q?: string } }>(
@@ -26,7 +22,9 @@ export function registerRunnerRepositorySearch(
           .code(400)
           .send({ error: "Enter a repository name or owner/name." });
       try {
-        return await runners.searchGitHubRepositories(req.params.id, q);
+        return await runners
+          .for(placementForRunner(req.params.id))
+          .call("github.repositories", { query: q });
       } catch {
         return reply.code(503).send({
           error:
@@ -44,7 +42,9 @@ export function registerRunnerRepositorySearch(
       if (!validGitHubRepoPart(owner) || !validGitHubRepoPart(repo))
         return reply.code(400).send({ error: "Invalid repository." });
       try {
-        return await runners.listGitHubBranches(id, owner, repo);
+        return await runners
+          .for(placementForRunner(id))
+          .call("github.branches", { owner, repo });
       } catch {
         return reply
           .code(503)
@@ -71,12 +71,13 @@ export function registerRunnerRepositorySearch(
           .code(400)
           .send({ error: "Enter a GitHub pull request URL." });
       try {
-        return await runners.lookupGitHubPullRequestHead(
-          req.params.id,
-          match[1],
-          match[2],
-          Number(match[3])
-        );
+        return await runners
+          .for(placementForRunner(req.params.id))
+          .call("github.pr.head", {
+            owner: match[1]!,
+            repo: match[2]!,
+            number: Number(match[3]),
+          });
       } catch {
         return reply.code(422).send({
           error:

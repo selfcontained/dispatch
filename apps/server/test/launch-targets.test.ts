@@ -32,22 +32,37 @@ const apps: ReturnType<typeof Fastify>[] = [];
 afterEach(async () => {
   for (const app of apps.splice(0)) await app.close();
 });
-async function setup(projectFailure = false) {
+async function setup(
+  projectFailure = false,
+  projectRoot: string | null = "/repo"
+) {
   const app = Fastify();
   apps.push(app);
   let catalogFailure = false;
+  let enabledAgentTypes = ["claude", "codex"];
+  let inventory: Array<{
+    id: string;
+    installed: boolean;
+    signedIn: boolean;
+  }> | null = [{ id: "codex", installed: false, signedIn: false }];
+  const operations = vi.fn();
   app.addHook("onRequest", async (req, reply) => {
     if (req.headers.authorization !== "Bearer fixture")
       return reply.code(401).send({ error: "Unauthorized" });
   });
   app.get("/api/runners", async () => ({
     runners: [
-      { id: "fixture", name: "Fixture", status: "offline" },
+      {
+        id: "fixture",
+        name: "Fixture",
+        repositoryPicker: true,
+        status: "offline",
+      },
       { id: "gone", name: "Gone", status: "revoked" },
     ],
   }));
   app.get("/api/v1/app/settings/agent-types", async () => ({
-    enabledAgentTypes: ["claude", "codex"],
+    enabledAgentTypes,
   }));
   app.get("/api/v1/agent-models", async () => catalog);
   app.get("/api/v1/system/engines", async (req) => ({
@@ -60,11 +75,11 @@ async function setup(projectFailure = false) {
   app.get("/api/v1/projects", async (_request, reply) =>
     projectFailure
       ? reply.code(503).send({ error: "Fixture projects unavailable" })
-      : [{ id: "project", repoRoot: "/repo" }]
+      : [{ id: "project", repoRoot: projectRoot }]
   );
   app.get("/api/v1/projects/:id", async () => ({
     id: "project",
-    repoRoot: "/repo",
+    repoRoot: projectRoot,
   }));
   app.get("/api/v1/projects/:id/repository", async () => ({
     url: "https://github.com/fixture/repo",
@@ -79,22 +94,25 @@ async function setup(projectFailure = false) {
     query: req.query,
   }));
   app.get("/api/v1/engine-management/inventory", async () => ({
-    entries: [{ id: "codex", installed: false, signedIn: false }],
+    entries: inventory,
   }));
-  app.post("/api/v1/engine-management/operations", async () => ({
-    ack: catalogFailure
-      ? { ok: false, error: "Fixture unavailable" }
-      : {
-          ok: true,
-          capability: {
-            type: "model_catalog",
-            catalog: {
-              models: [{ id: "runner-model", effort: [{ value: "medium" }] }],
-              defaultModel: "runner-model",
+  app.post("/api/v1/engine-management/operations", async (request) => {
+    operations(request.body);
+    return {
+      ack: catalogFailure
+        ? { ok: false, error: "Fixture unavailable" }
+        : {
+            ok: true,
+            capability: {
+              type: "model_catalog",
+              catalog: {
+                models: [{ id: "runner-model", effort: [{ value: "medium" }] }],
+                defaultModel: "runner-model",
+              },
             },
           },
-        },
-  }));
+    };
+  });
   app.get("/api/v1/templates", async () => [template]);
   const branches = vi.fn(async (placement, op, input) => ({
     branches: ["develop", "main"],
@@ -147,6 +165,13 @@ async function setup(projectFailure = false) {
     get,
     targets,
     branches,
+    operations,
+    enableAgentTypes: (types: string[]) => {
+      enabledAgentTypes = types;
+    },
+    setInventory: (entries: typeof inventory) => {
+      inventory = entries;
+    },
     failCatalog: () => {
       catalogFailure = true;
     },
@@ -185,10 +210,17 @@ describe("launch target adapter", () => {
     ]);
     expect(targets[1].status).toBe("offline");
     expect(targets[1].location.projects).toHaveLength(1);
+    expect(targets[1].location.repositorySearchUrl).toBe(
+      "/api/v1/runners/fixture/repository-search"
+    );
+    expect(targets[0].location.repositorySearchUrl).toBe(
+      "/api/v1/runners/local/repository-search"
+    );
     expect(targets[1].key).not.toContain("fixture");
     expect(targets[0].key).not.toBe("local");
     expect(targets[0].selectionFields).toEqual({ runner: "local" });
     expect(targets[0].launchFields).toEqual({});
+    expect(targets[0].name).toBe("Local");
   });
   it("delegates the controller reads unchanged, including availability and missing engines", async () => {
     const { get, targets } = await setup();
@@ -234,6 +266,40 @@ describe("launch target adapter", () => {
     const personas = (await get(data.personasUrl)).json();
     expect(personas.query.projectId).toBe("project");
     expect(personas.query.runner).toBe("fixture");
+  });
+  it("applies enabled agent types to runner choices and catalog selection", async () => {
+    const { get, targets, operations, enableAgentTypes, setInventory } =
+      await setup();
+    enableAgentTypes(["codex"]);
+    setInventory([
+      { id: "claude", installed: true, signedIn: true },
+      { id: "codex", installed: false, signedIn: false },
+    ]);
+    const local = await get(
+      `${targets[0].dataUrl}?directory=%2Frepo&agentType=codex`
+    );
+    const runner = await get(
+      `${targets[1].dataUrl}?projectId=project&agentType=claude`
+    );
+    expect(local.json().agentTypes).toEqual(["codex"]);
+    expect(runner.statusCode).toBe(200);
+    expect(runner.json().agentTypes).toEqual(["codex"]);
+    expect(runner.json().catalog.models.codex[0].id).toBe("runner-model");
+    expect(operations).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: { type: "model_catalog", engine: "codex" },
+      })
+    );
+  });
+  it("keeps the enabled types when the runner inventory has not arrived", async () => {
+    const { get, targets, enableAgentTypes, setInventory } = await setup();
+    enableAgentTypes(["codex"]);
+    setInventory(null);
+    const response = await get(
+      `${targets[1].dataUrl}?projectId=project&agentType=codex`
+    );
+    expect(response.statusCode).toBe(200);
+    expect(response.json().agentTypes).toEqual(["codex"]);
   });
   it("projects saved targets separately without altering existing template bytes", async () => {
     const { get, targets } = await setup();
@@ -304,4 +370,21 @@ it("does not project an unlisted agent target as the controller", async () => {
   expect(
     (await get("/api/v1/launch-targets/saved/agent/missing-target")).statusCode
   ).toBe(404);
+});
+
+it("offers Local repository search and reads repository-only branches without a folder", async () => {
+  const { get, targets, branches } = await setup(false, null);
+  const local = targets[0];
+  expect(local.location.projects).toHaveLength(1);
+  const data = (
+    await get(
+      `${local.dataUrl}?projectId=project&directory=%2Fstale&agentType=claude`
+    )
+  ).json();
+  expect(data.directory).toBe("");
+  expect(data.defaults.baseBranch).toBe("");
+  expect((await get(data.branchesUrl)).statusCode).toBe(200);
+  expect(branches).toHaveBeenCalledWith(controllerPlacement, "git.branches", {
+    target: { repository: "https://github.com/fixture/repo" },
+  });
 });

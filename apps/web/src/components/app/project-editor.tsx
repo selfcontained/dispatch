@@ -1,3 +1,13 @@
+import { useLaunchTargets } from "@/hooks/use-launch-targets";
+import { useRepositoryProject } from "@/hooks/use-repository-project";
+import { RunnerRepositoryPicker } from "./runner-repository-picker";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ColorPicker, PROJECT_COLORS, isHexColor } from "./color-picker";
 import { readProjectLogoColors } from "./project-logo-color";
 import {
@@ -42,6 +52,18 @@ export function ProjectEditor({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const [source, setSource] = useState("folder");
+  const [runnerChoice, setRunnerChoice] = useState("");
+  const [repository, setRepository] = useState("");
+  const targets = useLaunchTargets(
+    undefined,
+    undefined,
+    !project && source === "repository"
+  );
+  const runners = targets.list.data ?? [];
+  const runnerKey =
+    runnerChoice || runners.find((r) => r.status === "online")?.key || "";
+  const repositoryAction = useRepositoryProject();
   const [name, setName] = useState(project?.name ?? "");
   const [repoRoot, setRepoRoot] = useState(project?.repoRoot ?? "");
   const [previewRoot, setPreviewRoot] = useState(repoRoot);
@@ -75,7 +97,7 @@ export function ProjectEditor({
       api(
         `/api/v1/projects/icon-preview?${new URLSearchParams(project ? { projectId: project.id } : { repoRoot: previewRoot })}`
       ),
-    enabled: !!previewRoot.trim(),
+    enabled: source === "folder" && !!previewRoot.trim(),
     staleTime: 0,
   });
   const iconSrc =
@@ -85,6 +107,7 @@ export function ProjectEditor({
     logoPalette?.src === iconSrc ? logoPalette?.colors : undefined;
   const color =
     manualColor ?? project?.color ?? logoColors?.[0] ?? PROJECT_COLORS[0]!;
+  const saving = action.isPending || repositoryAction.isPending;
   const validColor = isHexColor(color);
   return (
     <>
@@ -94,7 +117,7 @@ export function ProjectEditor({
           if (!open && !photo) onClose();
         }}
       >
-        <DialogContent busy={action.isPending && !confirmDelete}>
+        <DialogContent busy={saving && !confirmDelete}>
           <DialogHeader>
             <DialogTitle>
               {project ? "Edit project" : "New project"}
@@ -109,6 +132,13 @@ export function ProjectEditor({
             onSubmit={(e) => {
               e.preventDefault();
               if (!validColor) return;
+              if (!project && source === "repository") {
+                repositoryAction.mutate(
+                  { name, repository, color, iconOverride: icon },
+                  { onSuccess: onSaved }
+                );
+                return;
+              }
               action.mutate(
                 { id: project?.id, name, repoRoot, color, iconOverride: icon },
                 { onSuccess: onSaved }
@@ -125,7 +155,67 @@ export function ProjectEditor({
                   autoComplete="off"
                 />
               </Field>
-              {project ? (
+              {!project && (
+                <Field label="Source">
+                  <Select value={source} onValueChange={setSource}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="folder">Folder</SelectItem>
+                      <SelectItem value="repository">Repository</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+              )}
+              {!project && source === "repository" ? (
+                <>
+                  <Field label="Runner">
+                    <Select
+                      value={runnerKey}
+                      onValueChange={(id) => {
+                        setRunnerChoice(id);
+                        setRepository("");
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Choose a runner" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {runners.map((r) => (
+                          <SelectItem
+                            key={r.key}
+                            value={r.key}
+                            disabled={r.status !== "online"}
+                          >
+                            {r.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <RunnerRepositoryPicker
+                    key={runnerKey}
+                    searchUrl={
+                      runners.find((r) => r.key === runnerKey)?.location
+                        .repositorySearchUrl
+                    }
+                    repository={repository}
+                    onRepository={(url) => {
+                      setRepository(url);
+                      if (!name.trim())
+                        setName(
+                          new URL(url).pathname
+                            .replace(/\/+$/, "")
+                            .split("/")
+                            .pop()!
+                            .replace(/\.git$/, "")
+                            .slice(0, 80)
+                        );
+                    }}
+                  />
+                </>
+              ) : project ? (
                 <div className="space-y-1.5">
                   <p className="text-body-sm font-medium">Folder</p>
                   <p
@@ -265,6 +355,11 @@ export function ProjectEditor({
             </DialogBody>
             {error ? (
               <Alert title="Couldn’t open the image." error={error} />
+            ) : repositoryAction.error ? (
+              <Alert
+                title="Couldn’t create the project."
+                error={repositoryAction.error}
+              />
             ) : action.error && !action.variables?.remove ? (
               <Alert
                 title={
@@ -295,13 +390,15 @@ export function ProjectEditor({
               <Button
                 type="submit"
                 variant="primary"
-                pending={action.isPending && !confirmDelete}
+                pending={saving && !confirmDelete}
                 disabled={
-                  action.isPending ||
+                  saving ||
                   preparing ||
                   !validColor ||
                   !name.trim() ||
-                  !repoRoot.trim()
+                  (!project && source === "repository"
+                    ? !repository
+                    : !project && !repoRoot.trim())
                 }
               >
                 {project ? "Save changes" : "Create project"}

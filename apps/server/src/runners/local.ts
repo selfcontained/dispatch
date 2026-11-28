@@ -934,6 +934,14 @@ export function createLocalCheckoutRunner(
     input: Req<"git.branches">,
     options?: CallOptions<"git.branches">
   ): Promise<Res<"git.branches">> {
+    if ("repository" in input.target) {
+      if (!child)
+        throw new RunnerCallError({
+          code: "unavailable",
+          message: "The local runner is unavailable",
+        });
+      return child.call("git.branches", input, options);
+    }
     if (!("path" in input.target))
       throw new RunnerCallError({
         code: "unsupported",
@@ -1146,6 +1154,24 @@ export function createLocalCheckoutRunner(
       options?: CallOptions<K>
     ): Promise<Res<K>> {
       if (op === "runner.describe") return description as Res<K>;
+      if (
+        ("target" in input &&
+          input.target &&
+          typeof input.target === "object" &&
+          "repository" in input.target) ||
+        op === "github.repositories" ||
+        op === "workspace.prepare" ||
+        op === "workspace.resume" ||
+        (agent?.repositorySource &&
+          (op === "workspace.observe" || op === "workspace.release"))
+      ) {
+        if (!child)
+          throw new RunnerCallError({
+            code: "unavailable",
+            message: "The local runner is unavailable",
+          });
+        return child.call(op, input, options);
+      }
       if (CHILD_READS.has(op))
         return read(
           op as ChildRead,

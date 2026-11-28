@@ -41,6 +41,8 @@ export type CheckoutSession = Pick<
   } | null;
   /** Where the session was launched, as the row records it. */
   launchCwd?: string | null;
+  /** Managed from a repository source, including before binding is recorded. */
+  repositorySource?: boolean;
 };
 export type CheckoutCommandRunners = {
   /**
@@ -161,8 +163,10 @@ export function runnerDirectory(
           {
             settings: localRunnerSettings,
             manifestMaxBytes: null,
-            cleanupBudgetMs: 60_000,
-            archive: localArchivePolicy,
+            cleanupBudgetMs: boundAgent?.repositorySource ? undefined : 60_000,
+            archive: boundAgent?.repositorySource
+              ? enrolledArchivePolicy
+              : localArchivePolicy,
           }
         );
 

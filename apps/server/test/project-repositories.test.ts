@@ -174,6 +174,14 @@ it("creates from a folder or a repository alone, refuses duplicates, and reads t
     expect(
       (await app.inject(`/api/v1/projects/${id}/repository`)).json()
     ).toEqual({ url: repository });
+    const matches = await app.inject(
+      `/api/v1/projects?repository=${encodeURIComponent("https://EXAMPLE.COM/owner/repo.git/")}`
+    );
+    expect(matches.statusCode).toBe(200);
+    expect(matches.json().map((p: { id: string }) => p.id)).toEqual([id]);
+    expect(
+      (await app.inject("/api/v1/projects?repository=invalid")).statusCode
+    ).toBe(400);
     for (const target of [
       { repoRoot: await checkout(repository + "/") },
       { repository: repository + ".git" },
