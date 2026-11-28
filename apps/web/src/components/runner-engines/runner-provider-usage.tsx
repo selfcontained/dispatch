@@ -1,3 +1,4 @@
+import type { EngineScope } from "@dispatch/runner-protocol/engine-management";
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -21,12 +22,14 @@ import {
 
 export function RunnerProviderUsage({
   runnerId,
+  scope = { kind: "runner", runnerId },
   allowReset = false,
 }: {
   runnerId: string;
+  scope?: EngineScope;
   allowReset?: boolean;
 }) {
-  const inventory = useRunnerEngineInventory({ kind: "runner", runnerId });
+  const inventory = useRunnerEngineInventory(scope);
   const accountEntries = inventory.data?.entries?.filter(
     (entry) => entry.id === "claude" || entry.id === "codex"
   );
@@ -34,12 +37,12 @@ export function RunnerProviderUsage({
     accountEntries?.some(
       (entry) => entry.installed && entry.signedIn !== false
     ) ?? false;
-  const usage = useRunnerProviderUsage(runnerId, canReadUsage);
+  const usage = useRunnerProviderUsage(runnerId, canReadUsage, scope);
   const [confirmation, setConfirmation] = useState<string | null>(null);
   const redeem = useMutation({
     mutationFn: (account: string) =>
       runnerEngineCapability(
-        runnerId,
+        scope,
         { type: "codex_reset", account, requestId: createClientId() },
         "codex_reset"
       ),

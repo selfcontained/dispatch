@@ -23,7 +23,10 @@ import { api } from "@/lib/api";
 
 export function RunnerGitHubAccount({ runner }: { runner: Runner }) {
   if (runner.status === "revoked") return null;
-  if (runner.status !== "online" || !runner.githubManagement) {
+  if (
+    (runner.kind !== "local" && runner.status !== "online") ||
+    !runner.githubManagement
+  ) {
     return (
       <div className="space-y-1" data-testid="runner-github">
         <AccountHeading />

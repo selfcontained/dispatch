@@ -1,17 +1,22 @@
+import type { EngineScope } from "@dispatch/runner-protocol/engine-management";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { LoadingButton } from "@/components/ui/button";
 import { runnerEngineCapability } from "@/hooks/use-runner-engines";
 
 export function RunnerPlugin({
-  runnerId,
+  scope,
   engine,
 }: {
-  runnerId: string;
+  scope: EngineScope;
   engine: "codex" | "claude";
 }) {
   const client = useQueryClient();
-  const queryKey = ["runner-plugin", runnerId, engine];
+  const queryKey = [
+    "runner-plugin",
+    scope.kind === "local" ? "local" : scope.runnerId,
+    engine,
+  ];
   const plugin = "dispatch@dispatch";
   const status = useQuery({
     queryKey,
@@ -19,7 +24,7 @@ export function RunnerPlugin({
     queryFn: async () =>
       (
         await runnerEngineCapability(
-          runnerId,
+          scope,
           { type: "plugin_status", engine, plugin },
           "plugin_status"
         )
@@ -29,7 +34,7 @@ export function RunnerPlugin({
     mutationFn: async (action: "install" | "update") =>
       (
         await runnerEngineCapability(
-          runnerId,
+          scope,
           {
             type: action === "install" ? "plugin_install" : "plugin_update",
             engine,

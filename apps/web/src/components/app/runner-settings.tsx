@@ -63,6 +63,7 @@ function RunnerStatusLabel({
   runner: Runner;
   checkedAt?: number;
 }) {
+  if (runner.kind === "local" || !runner.status) return null;
   const health =
     checkedAt !== undefined && isRunnerHealthFresh(runner, checkedAt)
       ? runner.health
@@ -347,6 +348,11 @@ function RunnerDetail({
   heading: React.RefObject<HTMLHeadingElement>;
   onRevoked: () => void;
 }) {
+  const local = runner.kind === "local";
+  const engineScope = runner.engineScope ?? {
+    kind: "runner" as const,
+    runnerId: runner.id,
+  };
   useWantedBuildRefresh(runner);
   useEnginesRefreshAfterUpdate(runner.id, Boolean(runner.update?.attempt));
   return (
@@ -363,7 +369,9 @@ function RunnerDetail({
           </h2>
           <RunnerStatusLabel runner={runner} />
         </div>
-        <RunnerConnectionActions runner={runner} onRevoked={onRevoked} />
+        {!local && (
+          <RunnerConnectionActions runner={runner} onRevoked={onRevoked} />
+        )}
       </header>
 
       <div className="py-4">
@@ -372,13 +380,13 @@ function RunnerDetail({
 
       <section id="runner-agent-engines" className="space-y-2 py-4">
         <h3 className="text-body-md font-medium">Agent engines</h3>
-        {runner.status === "online" && runner.engineCapabilities && (
+        {(local || runner.status === "online") && runner.engineCapabilities && (
           <p className="text-body-sm text-muted-foreground">
             Install and sign in to Claude or Codex here to see its plan limits
             below.
           </p>
         )}
-        {runner.status !== "online" ? (
+        {!local && runner.status !== "online" ? (
           <p className="text-body-md text-muted-foreground">
             Available when the runner is online.
           </p>
@@ -389,7 +397,7 @@ function RunnerDetail({
         ) : (
           <>
             <RunnerEngines
-              scope={{ kind: "runner", runnerId: runner.id }}
+              scope={engineScope}
               capabilities={runner.engineCapabilities}
               updating={Boolean(runner.update?.attempt)}
             />
@@ -397,6 +405,7 @@ function RunnerDetail({
               <RunnerProviderUsage
                 key={runner.id}
                 runnerId={runner.id}
+                scope={engineScope}
                 allowReset
               />
             ) : (
@@ -408,10 +417,12 @@ function RunnerDetail({
         )}
       </section>
 
-      <div className="space-y-2 py-4">
-        <RunnerUpdateStatus runner={runner} />
-        <RunnerHealthDetails runner={runner} />
-      </div>
+      {!local && (
+        <div className="space-y-2 py-4">
+          <RunnerUpdateStatus runner={runner} />
+          <RunnerHealthDetails runner={runner} />
+        </div>
+      )}
     </div>
   );
 }
