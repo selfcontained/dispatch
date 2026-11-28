@@ -7,8 +7,8 @@ error() { printf 'error: %s\n' "$*" >&2; exit 1; }
 usage() {
   cat <<'USAGE'
 Usage:
-  install-dispatch-runner.sh install --tag vX.Y.Z [--user USER | --dedicated-user] [SOURCE]
-  install-dispatch-runner.sh update --tag vX.Y.Z [SOURCE]
+  install-dispatch-runner.sh install --tag vX.Y.Z[-PRERELEASE] [--user USER | --dedicated-user] [SOURCE]
+  install-dispatch-runner.sh update --tag vX.Y.Z[-PRERELEASE] [SOURCE]
   install-dispatch-runner.sh recover
   install-dispatch-runner.sh uninstall
 
@@ -628,7 +628,7 @@ installed_release() {
     # Trial helpers up to 98cb679dd recorded the inode without its device. The
     # incumbent helper writes the commit, so such records outlive its update.
     if [[ ( "$recorded" == "$inode" || "$recorded" == "${inode#*:}" ) &&
-          "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          -n "$version" ]] && valid_release_tag "$version"; then
       printf '%s\n' "$version"
       return
     fi
@@ -647,22 +647,81 @@ record_release() {
   sync -f "$runtime"
 }
 
-version_is_lower() {
-  local major minor patch old_major old_minor old_patch pair left right LC_ALL=C
-  IFS=. read -r major minor patch <<< "${1#v}"
-  IFS=. read -r old_major old_minor old_patch <<< "${2#v}"
-  # Compare digits by length first to avoid shell integer overflow.
-  for pair in "$major:$old_major" "$minor:$old_minor" "$patch:$old_patch"; do
-    left=${pair%:*}
-    right=${pair#*:}
-    left=${left#"${left%%[!0]*}"}
-    right=${right#"${right%%[!0]*}"}
-    if [[ "$left" != "$right" ]]; then
-      [[ ${#left} -lt ${#right} || ( ${#left} -eq ${#right} && "$left" < "$right" ) ]]
-      return
-    fi
+# vX.Y.Z with an optional SemVer prerelease, the form the controller copies:
+# numeric parts without leading zeros, then `-` and dot-separated identifiers
+# of [0-9A-Za-z-] (a numeric one without a leading zero). No build metadata.
+valid_release_tag() {
+  local LC_ALL=C id prerelease
+  local pattern='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?$'
+  local -a ids
+  [[ "$1" =~ $pattern ]] || return 1
+  prerelease=${BASH_REMATCH[5]}
+  [[ -n "$prerelease" ]] || return 0
+  IFS=. read -r -a ids <<< "$prerelease"
+  for id in "${ids[@]}"; do
+    if [[ "$id" =~ ^[0-9]+$ && "$id" == 0?* ]]; then return 1; fi
   done
-  return 1
+  return 0
+}
+
+# Prints -1, 0 or 1 for two digit strings, without shell integer overflow.
+compare_digits() {
+  local left=${1#"${1%%[!0]*}"} right=${2#"${2%%[!0]*}"} LC_ALL=C
+  if [[ "$left" == "$right" ]]; then
+    printf '0'
+  elif [[ ${#left} -lt ${#right} || ( ${#left} -eq ${#right} && "$left" < "$right" ) ]]; then
+    printf -- '-1'
+  else
+    printf '1'
+  fi
+}
+
+# Prints -1, 0 or 1 by SemVer precedence, as the runner orders its updates:
+# a prerelease sorts before its release, numeric identifiers before others.
+release_order() {
+  local LC_ALL=C left=${1#v} right=${2#v} left_pre='' right_pre='' order i a b
+  local -a left_core right_core left_ids right_ids
+  [[ "$left" == *-* ]] && left_pre=${left#*-}
+  [[ "$right" == *-* ]] && right_pre=${right#*-}
+  IFS=. read -r -a left_core <<< "${left%%-*}"
+  IFS=. read -r -a right_core <<< "${right%%-*}"
+  for i in 0 1 2; do
+    order=$(compare_digits "${left_core[i]:-0}" "${right_core[i]:-0}")
+    if [[ "$order" != 0 ]]; then printf '%s' "$order"; return; fi
+  done
+  if [[ -z "$left_pre" || -z "$right_pre" ]]; then
+    if [[ "$left_pre" == "$right_pre" ]]; then printf '0'
+    elif [[ -n "$left_pre" ]]; then printf -- '-1'
+    else printf '1'; fi
+    return
+  fi
+  IFS=. read -r -a left_ids <<< "$left_pre"
+  IFS=. read -r -a right_ids <<< "$right_pre"
+  for ((i = 0; i < ${#left_ids[@]} || i < ${#right_ids[@]}; i++)); do
+    if ((i >= ${#left_ids[@]})); then printf -- '-1'; return; fi
+    if ((i >= ${#right_ids[@]})); then printf '1'; return; fi
+    a=${left_ids[i]}
+    b=${right_ids[i]}
+    if [[ "$a" =~ ^[0-9]+$ && "$b" =~ ^[0-9]+$ ]]; then
+      order=$(compare_digits "$a" "$b")
+    elif [[ "$a" =~ ^[0-9]+$ ]]; then
+      order=-1
+    elif [[ "$b" =~ ^[0-9]+$ ]]; then
+      order=1
+    elif [[ "$a" == "$b" ]]; then
+      order=0
+    elif [[ "$a" < "$b" ]]; then
+      order=-1
+    else
+      order=1
+    fi
+    if [[ "$order" != 0 ]]; then printf '%s' "$order"; return; fi
+  done
+  printf '0'
+}
+
+version_is_lower() {
+  [[ "$(release_order "$1" "$2")" == -1 ]]
 }
 
 assert_no_update_fence() {
@@ -947,7 +1006,7 @@ main() {
     tag=$2
     shift 2
     parse_install_options "$@"
-    [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || error "Use an exact release tag (vX.Y.Z)"
+    valid_release_tag "$tag" || error "Use an exact release tag (vX.Y.Z or vX.Y.Z-PRERELEASE)"
     validate_source
   fi
   [[ "$EUID" == 0 && "$(uname -s)" == Linux ]] || error "Run as root on Linux"

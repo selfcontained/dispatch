@@ -98,6 +98,13 @@ for arch in x64 arm64; do
 done
 ```
 
+Release tags are `vX.Y.Z` or a SemVer prerelease such as `vX.Y.Z-staging.1`:
+dot-separated letters, digits and hyphens after the hyphen, no build
+metadata, and no leading zeros in numeric parts. The copied command uses the
+controller's own version, so a controller running a prerelease installs that
+prerelease. Versions order by SemVer: a prerelease is older than its release,
+and `-staging.23` is newer than `-staging.22`.
+
 For a manual installation, set `tag` to the exact published release:
 
 ```sh
