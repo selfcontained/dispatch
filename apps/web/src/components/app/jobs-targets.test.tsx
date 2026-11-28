@@ -13,6 +13,7 @@ import { api } from "@/lib/api";
 import type { Job } from "@/hooks/use-jobs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AddJobDialog, AddJobFlow } from "./jobs-add-dialog";
+import { CreateTemplateDialog } from "./automations-create-dialog";
 import { SettingsTab } from "./jobs-settings-tab";
 
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
@@ -74,6 +75,8 @@ function fixture(targets: object[], savedOnRunner = false) {
         projectId: "project",
         directory: savedOnRunner ? "" : "/repo",
       };
+    if (url.startsWith("/fixture/branches"))
+      return { branches: ["master", "topic"], defaultBranch: "master" };
     if (url.startsWith("/fixture/"))
       return {
         agentTypes: ["codex"],
@@ -288,11 +291,73 @@ it("creates a Local job from a repository-only project using the shared picker",
   fireEvent.change(screen.getByLabelText("Task prompt"), {
     target: { value: "Do it." },
   });
+  fireEvent.click(screen.getByText("Advanced settings"));
+  fireEvent.click(
+    screen.getByRole("checkbox", { name: /Run in a git worktree/ })
+  );
   fireEvent.click(screen.getByRole("button", { name: "Create job" }));
   await waitFor(() => expect(onAddJob).toHaveBeenCalled());
+  // No branch picked: the repository's default branch, not a guessed main.
   expect(onAddJob.mock.calls[0]![0]).toMatchObject({
     projectId: "project",
     directory: "",
+    useWorktree: true,
+    baseBranch: "",
   });
   expect(onAddJob.mock.calls[0]![0]).not.toHaveProperty("runner");
+});
+
+it("starts a new Local repository-only template at the repository's default branch", async () => {
+  const local = {
+    ...controller,
+    location: {
+      kind: "folder",
+      repositorySearchUrl: "/fixture/repository-search",
+      projects: [
+        {
+          id: "project",
+          name: "Repository",
+          repoRoot: null,
+          repository: "https://github.com/org/repo",
+        },
+      ],
+    },
+  };
+  fixture([local]);
+  mount(
+    <CreateTemplateDialog
+      open
+      onOpenChange={vi.fn()}
+      enabledAgentTypes={["claude", "codex"]}
+    />
+  );
+  fireEvent.click(await screen.findByRole("radio", { name: "Project" }));
+  await chooseProject();
+  fireEvent.change(screen.getByPlaceholderText("template name"), {
+    target: { value: "Hello" },
+  });
+  fireEvent.click(
+    screen.getByRole("checkbox", { name: /Run in a git worktree/ })
+  );
+  await waitFor(() =>
+    expect(
+      request.mock.calls.some(([url]) => String(url).startsWith("/fixture/"))
+    ).toBe(true)
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Create template" }));
+  await waitFor(() =>
+    expect(
+      request.mock.calls.some(
+        ([url, init]) => url === "/api/v1/templates" && init?.method === "POST"
+      )
+    ).toBe(true)
+  );
+  const body = request.mock.calls.find(
+    ([url, init]) => url === "/api/v1/templates" && init?.method === "POST"
+  )![1]!.body;
+  expect(JSON.parse(String(body))).toMatchObject({
+    projectId: "project",
+    useWorktree: true,
+    baseBranch: "",
+  });
 });

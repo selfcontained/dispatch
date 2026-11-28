@@ -52,6 +52,25 @@ export function useTemplateTarget(
     }));
     onTargetLocation?.(data.data.directory);
   }, [launch.changed, launch.key, data.data, setDraft, onTargetLocation]);
+  // A new template starts at main for a folder. A project launched from its
+  // repository starts at that repository's default branch (empty: the runner
+  // resolves it), unless a branch was already picked.
+  const repositoryBase = useRef(false);
+  const startBase = savedId ? undefined : data.data?.defaults.baseBranch;
+  useEffect(() => {
+    if (startBase === undefined) return;
+    setDraft((old) => {
+      if (startBase === "" && old.baseBranch === "main") {
+        repositoryBase.current = true;
+        return { ...old, baseBranch: "" };
+      }
+      if (startBase && repositoryBase.current && old.baseBranch === "") {
+        repositoryBase.current = false;
+        return { ...old, baseBranch: startBase };
+      }
+      return old;
+    });
+  }, [startBase, setDraft]);
   return {
     launch,
     data,

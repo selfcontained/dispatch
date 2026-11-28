@@ -4,7 +4,7 @@ import { AgentEffortSelect } from "./agent-effort-select";
 import { ProjectLocation } from "./project-location";
 import { useProjectScope } from "@/hooks/use-projects";
 import { ChevronDown } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { LaunchTargetError } from "./launch-target-error";
 import { RunnerPicker } from "./runner-picker";
 import { RunnerProjectPicker } from "./runner-project-picker";
@@ -129,6 +129,26 @@ export function AddJobFlow({
   const [fullAccess, setFullAccess] = useState(false);
   const [useWorktree, setUseWorktree] = useState(false);
   const [baseBranch, setBaseBranch] = useState("main");
+  // Main for a folder; a project launched from its repository starts at
+  // that repository's default branch (empty), unless one was picked.
+  const repositoryBase = useRef(false);
+  const startBase = target.byRepository
+    ? target.data.data?.defaults.baseBranch
+    : "main";
+  useEffect(() => {
+    if (startBase === undefined) return;
+    setBaseBranch((old) => {
+      if (startBase === "" && old === "main") {
+        repositoryBase.current = true;
+        return "";
+      }
+      if (startBase && repositoryBase.current && old === "") {
+        repositoryBase.current = false;
+        return startBase;
+      }
+      return old;
+    });
+  }, [startBase]);
   const [branchName, setBranchName] = useState("");
   const [keepAgent, setKeepAgent] = useState(false);
   const [callable, setCallable] = useState(false);

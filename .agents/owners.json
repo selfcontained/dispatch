@@ -454,6 +454,7 @@
         "apps/server/test/jobs/**",
         "apps/server/test/*template*",
         "apps/server/test/templates/**",
+        "apps/server/test/repository-default-branch-launch.test.ts",
         "e2e/*job*",
         "e2e/*template*",
         "apps/server/src/scheduled-messages/**",
