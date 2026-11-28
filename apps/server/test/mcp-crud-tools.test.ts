@@ -250,6 +250,36 @@ describe("MCP CRUD tools", () => {
       );
     });
 
+    it.each(["create_job", "create_template"])(
+      "%s keeps an explicit repository-only project pathless instead of using the caller folder",
+      async (tool) => {
+        const id = `mcp-repository-${tool}`;
+        await ctx.pool.query(
+          "INSERT INTO projects(id,name,repo_root,repository) VALUES($1,'MCP repository',NULL,$2)",
+          [id, `https://github.com/mcp-fixture/${tool}`]
+        );
+        const response = await mcpToolCall(agentId, tool, {
+          name: `repository-${tool}`,
+          projectId: id,
+          prompt: "Repository work",
+        });
+        expect(response.statusCode).toBe(200);
+        const result = JSON.parse(parseToolText(response.body));
+        expect(result.id).toBeTruthy();
+        const table = tool === "create_job" ? "jobs" : "templates";
+        const stored = (
+          await ctx.pool.query(
+            `SELECT directory,location FROM ${table} WHERE id=$1`,
+            [result.id]
+          )
+        ).rows[0];
+        expect(stored).toEqual({
+          directory: "",
+          location: { runner: "local", projectId: id },
+        });
+      }
+    );
+
     async function privilegedJob() {
       await ctx.pool.query(
         "UPDATE agents SET full_access = true WHERE id = $1",

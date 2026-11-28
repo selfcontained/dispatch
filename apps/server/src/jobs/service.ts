@@ -21,7 +21,6 @@ import {
   savedLaunchTarget,
   storedLocation,
   targetPlacement,
-  type SavedTarget,
 } from "../runners/saved-location.js";
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import { ProjectStore } from "../projects/store.js";
@@ -737,7 +736,6 @@ export class JobService {
       projectId: input.projectId,
       projectRoot,
     });
-    assertJobLocation(input.directory, target);
     if (input.persona)
       await resolvePersona(
         personaScope({
@@ -902,12 +900,10 @@ export class JobService {
     const target = resolveSavedTarget(requestedDirectory, {
       ...input,
       previous: previousTarget,
-      directorySupplied: input.directory !== undefined,
+      directorySupplied: Boolean(input.directory),
       projectId,
       projectRoot: projectDirectory,
     });
-    if (input.directory !== undefined)
-      assertJobLocation(input.directory, target);
     const { directory } = target;
     const branchName = normalizeNullableString(input.branchName);
     const baseBranch = normalizeNullableString(input.baseBranch);
@@ -1662,17 +1658,6 @@ function normalizeNullableString(
   return trimmed ? trimmed : null;
 }
 
-/** An empty folder is only a project this computer launches by repository. */
-function assertJobLocation(directory: string, target: SavedTarget) {
-  if (
-    !directory.trim() &&
-    sameRunner(targetPlacement(target), controllerPlacement) &&
-    target.directory !== ""
-  )
-    throw new Error("Job directory is required.");
-}
-
-/** A folder, or none for a project the target launches by repository. */
 function normalizeJobDirectory(
   directory: string,
   target: { runner?: string; projectId?: string | null }

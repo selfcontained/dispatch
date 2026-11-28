@@ -973,7 +973,11 @@ export class JobStore {
   ): Promise<JobRecord | null> {
     const result = await this.pool.query(
       `SELECT ${this.jobColumns()} FROM jobs WHERE directory = $1 AND name = $2 AND COALESCE(location->>'runner', 'local') = $3`,
-      [normalizeSavedDirectory(directory, runner), name, runner]
+      [
+        directory === "" ? "" : normalizeSavedDirectory(directory, runner),
+        name,
+        runner,
+      ]
     );
     return result.rows[0] ? mapJob(result.rows[0]) : null;
   }

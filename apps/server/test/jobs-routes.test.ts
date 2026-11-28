@@ -126,32 +126,6 @@ describe("POST /api/v1/jobs (create)", () => {
     expect(local.json().error).toBe("Job directory is required.");
   });
 
-  it("saves a local project that launches by repository without a folder", async () => {
-    await ctx.pool.query(
-      "INSERT INTO projects (id, name, repo_root, repository) VALUES ('repo-only-job', 'Repo only', NULL, 'https://github.com/o/repo-only-job'), ('rooted-job', 'Rooted', '/tmp/rooted-job', NULL) ON CONFLICT (id) DO NOTHING"
-    );
-    const job = await createJob("repo-only", {
-      projectId: "repo-only-job",
-      directory: "",
-    });
-    expect(job.directory).toBe("");
-    const rooted = await authedInject("POST", "/api/v1/jobs", {
-      name: "rooted-empty",
-      projectId: "rooted-job",
-      directory: "",
-      prompt: "test",
-    });
-    expect(rooted.statusCode).toBe(400);
-    expect(rooted.json().error).toBe("Job directory is required.");
-    const local = await createJob("local-folder");
-    const cleared = await authedInject("PATCH", "/api/v1/jobs", {
-      jobId: local.id,
-      directory: "",
-    });
-    expect(cleared.statusCode).toBe(400);
-    expect(cleared.json().error).toBe("Job directory is required.");
-  });
-
   it("rejects enabled without schedule", async () => {
     const res = await authedInject("POST", "/api/v1/jobs", {
       name: "no-sched",
@@ -783,4 +757,27 @@ describe("job effort", () => {
     expect(result.statusCode).toBe(400);
     expect(result.json().error).toBeTruthy();
   });
+});
+
+it("creates and edits a Local repository-only project job without a directory", async () => {
+  const projectId = "job-route-repository";
+  await ctx.pool.query(
+    "INSERT INTO projects(id,name,repo_root,repository) VALUES($1,'Repository job',NULL,'https://github.com/job-route/repository')",
+    [projectId]
+  );
+  const created = await authedInject("POST", "/api/v1/jobs", {
+    name: "Repository job",
+    directory: "",
+    projectId,
+    prompt: "Work",
+  });
+  expect(created.statusCode).toBe(200);
+  expect(created.json().directory).toBe("");
+  const changed = await authedInject("PATCH", "/api/v1/jobs", {
+    jobId: created.json().id,
+    directory: "",
+    prompt: "Changed work",
+  });
+  expect(changed.statusCode).toBe(200);
+  expect(changed.json().directory).toBe("");
 });

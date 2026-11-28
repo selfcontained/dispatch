@@ -6,11 +6,9 @@ import { type JobService, WebhookNotFoundError } from "../jobs/service.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import { parseInput } from "../shared/lib/parse-input.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
-import { sameRunner } from "@dispatch/runner-protocol/contract";
-import { controllerPlacement } from "../runners/placement.js";
-import { requestedRunnerPlacement } from "../runners/saved-location.js";
 import type { PublishUiEvent } from "../server/ui-events.js";
 
+const directoryField = z.string().trim().transform(resolveTilde);
 const JobIdentitySchema = z.object({
   jobId: z.string().min(1, "Job ID is required."),
 });
@@ -18,10 +16,9 @@ const RunJobBodySchema = JobIdentitySchema.extend({
   wait: z.boolean().optional(),
 });
 const JobEnableDisableBodySchema = JobIdentitySchema;
-const AddJobBodySchema = z.object({
+const JobBodySchema = z.object({
   name: z.string().trim().min(1, "Job name is required."),
-  // A runner target saves its project, not a folder; see the add route.
-  directory: z.string().trim().transform(resolveTilde),
+  directory: directoryField,
   runner: z.string().min(1).optional(),
   projectId: z.string().min(1).nullable().optional(),
   displayName: z.string().optional(),
@@ -49,29 +46,13 @@ const AddJobBodySchema = z.object({
   completionCriteria: z.array(z.string().trim().min(1)).nullable().optional(),
   recoveryInstructions: z.string().nullable().optional(),
 });
-const UpdateJobBodySchema = AddJobBodySchema.omit({ displayName: true })
+const AddJobBodySchema = JobBodySchema.refine(
+  (input) => Boolean(input.directory || input.projectId),
+  { message: "Job directory is required.", path: ["directory"] }
+);
+const UpdateJobBodySchema = JobBodySchema.omit({ displayName: true })
   .partial()
   .extend(JobIdentitySchema.shape);
-
-/**
- * A folder is required only for a job saved on this computer, unless it
- * names a project the computer launches by repository (the service checks).
- */
-function directoryMissing(body: {
-  directory: string;
-  runner?: string;
-  projectId?: string | null;
-}) {
-  if (body.directory || body.projectId) return false;
-  try {
-    return sameRunner(
-      requestedRunnerPlacement(body) ?? controllerPlacement,
-      controllerPlacement
-    );
-  } catch {
-    return false;
-  }
-}
 const JobHistoryParamsSchema = JobIdentitySchema.extend({
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
@@ -105,8 +86,6 @@ export async function registerJobRoutes(
   app.post("/api/v1/jobs", async (request, reply) => {
     const parsed = parseInput(AddJobBodySchema, request.body, reply);
     if (!parsed) return;
-    if (directoryMissing(parsed))
-      return reply.code(400).send({ error: "Job directory is required." });
     try {
       const result = await deps.jobService.addJob(parsed);
       deps.publishUiEvent({ type: "job.changed" });
@@ -115,9 +94,7 @@ export async function registerJobRoutes(
       const message = errorMessage(error);
       return reply
         .code(
-          /effort|is turned off for|^Job directory is required\.$/i.test(
-            message
-          )
+          /effort|is turned off for|Job directory is required/i.test(message)
             ? 400
             : 500
         )
@@ -136,9 +113,7 @@ export async function registerJobRoutes(
       const message = errorMessage(error);
       return reply
         .code(
-          /effort|is turned off for|^Job directory is required\.$/i.test(
-            message
-          )
+          /effort|is turned off for|Job directory is required/i.test(message)
             ? 400
             : 500
         )
