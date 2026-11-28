@@ -6,6 +6,7 @@ import type {
 } from "@dispatch/shared";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { Button } from "@/components/ui/button";
@@ -422,12 +423,14 @@ export function PlanLimits({
   now,
   scope = LOCAL_ENGINE_SCOPE,
   allowReset = true,
+  configured,
 }: {
   allowReset?: boolean;
   enabled: boolean;
   plans: ReturnType<typeof useProviderPlans>;
   scope?: EngineScope;
   now: number;
+  configured?: boolean;
 }): JSX.Element {
   const providers = inEngineOrder(plans.data?.providers ?? []);
   const busy = plans.isFetching || plans.refresh.isPending;
@@ -451,7 +454,7 @@ export function PlanLimits({
         </h3>
         {/* A failed refresh keeps the last values; say so in the header row
             rather than in a line that pushes the cards down. */}
-        {failure && plans.data ? (
+        {failure && plans.data && configured !== false ? (
           <span
             className="ml-auto truncate text-label-sm text-danger"
             title={failure.message}
@@ -460,19 +463,21 @@ export function PlanLimits({
             Couldn&apos;t refresh
           </span>
         ) : null}
-        <Button
-          type="button"
-          size="xs"
-          variant="ghost"
-          className="shrink-0"
-          onClick={() => plans.refresh.mutate()}
-          disabled={plans.refresh.isPending}
-          aria-busy={busy}
-          data-testid="usage-plans-refresh"
-        >
-          <RefreshCw className={cn(busy && "animate-spin")} />
-          Refresh
-        </Button>
+        {configured !== false && (
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            className="shrink-0"
+            onClick={() => plans.refresh.mutate()}
+            disabled={plans.refresh.isPending}
+            aria-busy={busy}
+            data-testid="usage-plans-refresh"
+          >
+            <RefreshCw className={cn(busy && "animate-spin")} />
+            Refresh
+          </Button>
+        )}
       </div>
       <div
         ref={cardsRef}
@@ -480,7 +485,26 @@ export function PlanLimits({
         style={{ minHeight: floor }}
         data-testid="usage-plan-cards"
       >
-        {plans.data ? (
+        {configured === false ? (
+          <p className="text-muted-foreground">
+            <Link
+              className="underline"
+              to={{
+                pathname: "/settings/runners",
+                search: `?${new URLSearchParams({ runner: scope.kind === "local" ? "local" : scope.runnerId })}`,
+                hash: "#runner-agent-engines",
+              }}
+              onClick={() =>
+                document
+                  .getElementById("runner-agent-engines")
+                  ?.scrollIntoView({ block: "start" })
+              }
+            >
+              Set up Claude or Codex
+            </Link>{" "}
+            to see usage here.
+          </p>
+        ) : plans.data ? (
           providers.map((plan) => (
             <ProviderLimits
               key={plan.engine}

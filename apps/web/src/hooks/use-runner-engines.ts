@@ -123,13 +123,24 @@ export function useRunnerModelCatalog(
   });
 }
 
-export function useRunnerProviderUsage(
-  runnerId: string | null,
+export function useScopedProviderUsage(
+  scope: EngineScope,
   enabled: boolean,
-  scope?: EngineScope
+  inventoryEnabled = enabled
 ) {
-  return useProviderPlans(
-    Boolean(runnerId && enabled),
-    scope ?? { kind: "runner", runnerId: runnerId ?? "" }
+  // Chat keeps its last report while closed; inventory reads/polls only while open.
+  const inventory = useRunnerEngineInventory(scope, inventoryEnabled);
+  const configured = inventory.data?.entries?.some(
+    (entry) =>
+      (entry.id === "claude" || entry.id === "codex") &&
+      entry.installed &&
+      entry.signedIn !== false
   );
+  const plans = useProviderPlans(
+    enabled &&
+      configured !== false &&
+      (!inventoryEnabled || configured === true),
+    scope
+  );
+  return { ...plans, configured };
 }
