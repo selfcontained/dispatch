@@ -744,10 +744,7 @@ const evidence = localPullRequestEvidence();
 /** The `posix-user` platform's GitHub port: the user's own `gh`. */
 const repositorySearch = new GitHubRunnerExecutor(
   process.env,
-  (bin, args) => ({
-    bin,
-    args,
-  }),
+  (bin, args) => ({ bin, args }),
   undefined,
   { resolve: async (tool) => tool, invalidate() {} }
 );

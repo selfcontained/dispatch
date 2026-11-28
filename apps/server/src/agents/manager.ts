@@ -3406,10 +3406,14 @@ export class AgentManager {
             await write({
               phase: "deps",
               status: step.status,
-              ...(step.status === "failed" && {
-                detail:
-                  "The runner could not install dependencies. Launch is continuing.",
-              }),
+              ...(step.detail
+                ? { detail: step.detail }
+                : step.status === "failed"
+                  ? {
+                      detail:
+                        "The runner could not install dependencies. Launch is continuing.",
+                    }
+                  : {}),
             });
           } else {
             await write({ phase: "deps" });

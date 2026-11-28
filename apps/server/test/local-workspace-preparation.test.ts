@@ -170,6 +170,58 @@ async function stored(hosts: string, session: string) {
 
 const progress = () => vi.fn().mockResolvedValue(undefined);
 
+it("drains dependency-install output in the real Local worktree child", async () => {
+  const root = await tempRoot();
+  const { checkout } = await repository(root);
+  await writeFile(path.join(checkout, "pnpm-lock.yaml"), "");
+  await git(checkout, "add", "pnpm-lock.yaml");
+  await git(checkout, "commit", "-m", "dependency fixture");
+  const bin = path.join(root, "bin");
+  await mkdir(bin);
+  await writeFile(
+    path.join(bin, "pnpm"),
+    `#!${process.execPath}
+const { once } = require('node:events');
+const { writeFileSync } = require('node:fs');
+(async () => {
+  for (let i = 0; i < 2048; i++) {
+    for (const stream of [process.stdout, process.stderr]) {
+      if (!stream.write('x'.repeat(8192))) await once(stream, 'drain');
+    }
+  }
+  writeFileSync('install-completed', 'yes');
+})();
+`,
+    { mode: 0o700 }
+  );
+  const { session } = await startChild(path.join(root, "hosts"), {
+    PATH: bin + path.delimiter + process.env.PATH,
+  });
+  const steps = progress();
+  const workspace = await prepareLocalWorkspace(
+    session,
+    "noisy-install",
+    await resolveLaunchDirectory(checkout),
+    {
+      name: "Noisy install",
+      branch: "noisy-install",
+      createNewBranch: true,
+    },
+    steps
+  );
+  expect(
+    await readFile(
+      path.join(workspace.effectiveCwd, "install-completed"),
+      "utf8"
+    )
+  ).toBe("yes");
+  expect(steps.mock.calls.map(([step]) => step)).toContainEqual({
+    phase: "deps",
+    status: "done",
+    detail: "pnpm install completed",
+  });
+});
+
 it("prepares native folders, direct checkouts and independent worktrees in the child", async () => {
   const root = await tempRoot();
   const { checkout, develop } = await repository(root);

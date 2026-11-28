@@ -81,6 +81,36 @@ it("local GitHub reads run only gh reads and leave HOME untouched", async () => 
   }
 });
 
+it("searches repositories with the local child's PATH gh", async () => {
+  const root = await mkdtemp(
+    path.join(os.tmpdir(), "local-repository-search-")
+  );
+  const repositories = [
+    { name: "org/project", url: "https://github.com/org/project" },
+  ];
+  const child = startTestLocalRunner(path.join(root, "state"), {
+    env: { PATH: root + path.delimiter + process.env.PATH, HOME: root },
+  });
+  try {
+    await writeFile(
+      path.join(root, "gh"),
+      `#!/bin/sh\ntest "$1 $4" = 'api user/repos' || exit 2\nprintf '%s' '${JSON.stringify(repositories)}'\n`,
+      { mode: 0o700 }
+    );
+    await child.ready();
+    expect(
+      await child.session.call(
+        "github.repositories",
+        { query: "org/project" },
+        { signal: AbortSignal.timeout(10_000) }
+      )
+    ).toEqual({ repositories });
+  } finally {
+    await child.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 it("runs gh for the PR head in the chosen checkout and preserves command failures", async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "pr-head-"));
   const bin = path.join(cwd, "gh");

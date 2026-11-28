@@ -17,6 +17,8 @@ export type RunCommandResult = {
   stderr: string;
 };
 
+const stderrTailLength = 8 * 1024;
+
 /** Injectable runner shape used by git/gh helpers so tests can fake commands. */
 export type CommandRunner = (
   command: string,
@@ -71,7 +73,11 @@ export async function runCommand(
         clearTimeout(timeout);
         timeout = null;
       }
-      reject(error);
+      reject(
+        Object.assign(error, {
+          stderrTail: stderr.trim().slice(-stderrTailLength),
+        })
+      );
     };
 
     const succeed = (result: RunCommandResult): void => {
@@ -103,8 +109,11 @@ export async function runCommand(
         }, 5_000);
         hardKill.unref();
         fail(
-          new Error(
-            `Command timed out (${command} ${args.join(" ")}), timeoutMs=${options.timeoutMs}`
+          Object.assign(
+            new Error(
+              `Command timed out (${command} ${args.join(" ")}), timeoutMs=${options.timeoutMs}`
+            ),
+            { timedOut: true, timeoutMs: options.timeoutMs }
           )
         );
       }, options.timeoutMs);
@@ -122,14 +131,17 @@ export async function runCommand(
       fail(error);
     });
 
-    child.on("close", (code) => {
+    child.on("close", (code, signal) => {
       const exitCode = code ?? 1;
       const allowedExitCodes = options.allowedExitCodes ?? [0];
 
       if (!allowedExitCodes.includes(exitCode)) {
         fail(
-          new Error(
-            `Command failed (${command} ${args.join(" ")}), exitCode=${exitCode}, stderr=${stderr.trim()}`
+          Object.assign(
+            new Error(
+              `Command failed (${command} ${args.join(" ")}), exitCode=${exitCode}, stderr=${stderr.trim()}`
+            ),
+            { timedOut: false, exitCode, signal }
           )
         );
         return;
