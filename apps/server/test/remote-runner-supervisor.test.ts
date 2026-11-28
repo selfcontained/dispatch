@@ -781,7 +781,10 @@ describe("runner session supervision", () => {
       firstText: null,
       overflowNotice: null,
       mcp: [server],
-      env: {},
+      env: {
+        CONFORMANCE_LITERAL: "literal ; $HOME",
+        CONFORMANCE_UNICODE: "café",
+      },
       owner: null,
     };
     await expect(
@@ -810,6 +813,7 @@ describe("runner session supervision", () => {
     const payload: HostLaunch = JSON.parse(
       await readFile(path.join(dir, "launch.json"), "utf8")
     );
+    expect(payload.env).toMatchObject(request.env);
     expect(payload.mcp).toEqual({
       name: server.name,
       url: server.url,
@@ -829,7 +833,7 @@ describe("runner session supervision", () => {
     const bindings = path.join(state, "bindings");
     const before = await readdir(bindings);
     await expect(opens["session.attach"]({ session })).rejects.toMatchObject({
-      code: "host_gone",
+      code: "not_found",
     });
     await expect(calls["session.alive"]({ session })).resolves.toEqual({
       state: "gone",
@@ -1423,6 +1427,36 @@ describe("runner session supervision", () => {
     await startHost(running, launch());
     expect(await running.alive(agentId)).toBe(true);
     expect(processes.cleanupLegacy.mock.calls).toEqual([[marker]]);
+  });
+
+  it("serves contract line limits and typed lifecycle errors through enrolled handlers", async () => {
+    const runner = await start();
+    const fixture = launch();
+    await startHost(runner, fixture);
+    const { calls } = enrolledSessions(runner, () => {});
+    const session = sessionFromWire(agentId);
+    await writeFile(
+      path.join(state, "bindings", "logs", agentId),
+      "first\n" + "middle\n".repeat(1000) + "last\n"
+    );
+    expect(await calls["session.logs"]({ session, lines: 1 })).toEqual({
+      text: "last",
+    });
+    expect(await calls["session.logs"]({ session, lines: 3 })).toEqual({
+      text: "middle\nmiddle\nlast",
+    });
+    expect(await calls["session.logs"]({ session, lines: 0 })).toEqual({
+      text: "",
+    });
+    await expect(calls["session.discard"]({ session })).rejects.toMatchObject({
+      code: "busy",
+    });
+    await expect(
+      startHost(runner, {
+        ...fixture,
+        launch: { ...fixture.launch, launchId: randomUUID() },
+      })
+    ).rejects.toMatchObject({ code: "conflict" });
   });
 
   it("reads a bounded UTF-8 tail from a large guest log", async () => {

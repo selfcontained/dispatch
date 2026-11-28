@@ -183,7 +183,10 @@ export type SessionCoreFactory = (options: {
   ): Promise<void>;
   attach(key: string): Promise<Socket | null>;
   stop(key: string, force: boolean): Promise<void>;
-  logs(key: string): Promise<{ live: boolean; text: string }>;
+  logs(
+    key: string,
+    maxBytes?: number
+  ): Promise<{ live: boolean; text: string }>;
   removeLog(key: string): Promise<void>;
   trackedKeys(): Promise<string[]>;
   sample(
@@ -817,7 +820,7 @@ export async function createSessionSupervisor(
 
   async function launch(
     agentId: string,
-    host: RemoteLaunch,
+    host: RemoteLaunch & { env?: Req<"session.launch">["env"] },
     key: string,
     owner: string | null
   ) {
@@ -885,7 +888,10 @@ export async function createSessionSupervisor(
       ) {
         return;
       }
-      throw new Error("Runner already has a host for this agent");
+      throw new RunnerCallError({
+        code: "conflict",
+        message: "Runner already has a host for this agent",
+      });
     }
     // A preparation step that ran with no recorded result cannot be
     // reconciled; never run it a second time for the same attempt.
@@ -932,6 +938,7 @@ export async function createSessionSupervisor(
       owner: _sessionOwner,
       launchId: _launchId,
       firstText,
+      env: callerEnv,
       ...launchOptions
     } = host;
     const hostIdentity: CurrentSessionIdentity = {
@@ -961,6 +968,7 @@ export async function createSessionSupervisor(
         mcpOrigin: mcpUrl?.origin,
         mcpCaFile: mcpCaPath,
         env: {
+          ...callerEnv,
           ...agentLaunchBindings(launchOptions.engine),
           ...(mcpUrl
             ? {
@@ -1158,7 +1166,8 @@ export async function createSessionSupervisor(
       } catch (error) {
         checkout = missingPath(error as NodeJS.ErrnoException);
       }
-      const host: RemoteLaunch = {
+      const host: RemoteLaunch & { env: Req<"session.launch">["env"] } = {
+        env: request.env,
         engine,
         agentId,
         launchId,
@@ -1477,7 +1486,10 @@ export async function createSessionSupervisor(
         }
         const identity = await readIdentity(key);
         if (identity && core.isAlive(identity))
-          throw new Error("Stop the guest host before discarding it");
+          throw new RunnerCallError({
+            code: "busy",
+            message: "Stop the guest host before discarding it",
+          });
         await writePrivateState(retireFile(key), "");
         const dir = path.join(hostRoot, key);
         await cleanHost(key, identity);
@@ -1498,11 +1510,20 @@ export async function createSessionSupervisor(
         await recordBinding(agentId);
       });
     },
-    async log(agentId: string) {
+    async log(agentId: string, lines?: number) {
       const key = runnerStorageKey(agentId);
       if (!(await bound(key)))
         throw new Error("Agent is not bound to this workspace");
-      const { live, text: log } = await core.logs(key);
+      const { live, text: log } = await core.logs(
+        key,
+        lines === undefined ? undefined : 256 * 1024
+      );
+      if (lines !== undefined) {
+        const text = log.trim();
+        return lines <= 0 || !text
+          ? ""
+          : text.split("\n").slice(-lines).join("\n");
+      }
       return `Guest agent host ${live ? "log" : "exited"}.${log ? "\n" + log : ""}`;
     },
     async isBound(agentId: string) {

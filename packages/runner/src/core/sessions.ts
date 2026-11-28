@@ -149,12 +149,12 @@ export function parseLaunchRecord(raw: string | null): LaunchRecord | null {
 const logTailBytes = 2 * 1024;
 
 /** The last 2 KiB of a log, starting on a whole UTF-8 code point. */
-export async function readLogTail(file: string) {
+export async function readLogTail(file: string, maxBytes = logTailBytes) {
   const handle = await open(file, "r").catch(missing);
   if (!handle) return "";
   try {
     const { size } = await handle.stat();
-    const start = Math.max(0, size - logTailBytes);
+    const start = Math.max(0, size - maxBytes);
     const tail = Buffer.alloc(size - start);
     const { bytesRead } = await handle.read(tail, 0, tail.length, start);
     let first = 0;
@@ -505,10 +505,10 @@ export function createSessionCore<I extends HostRecord>(
       await cleanLegacy(key);
     },
     /** The host's log tail and whether it is live. */
-    async logs(key: string) {
+    async logs(key: string, maxBytes?: number) {
       const identity = await readIdentity(key);
       const live = !!identity && processes.alive(identity);
-      return { live, text: await readLogTail(layout.logFile(key)) };
+      return { live, text: await readLogTail(layout.logFile(key), maxBytes) };
     },
     removeLog(key: string) {
       return state.remove(layout.logFile(key));

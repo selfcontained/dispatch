@@ -211,42 +211,6 @@
   },
   {
     "lane": "remote",
-    "scenario": "session.launch/conflict",
-    "task": "T23",
-    "reason": "v1 returns failed for a duplicate live session with a different launch ID; expected conflict"
-  },
-  {
-    "lane": "remote",
-    "scenario": "session.launch/environment",
-    "task": "T24",
-    "reason": "v1 drops caller-supplied launch environment values"
-  },
-  {
-    "lane": "remote",
-    "scenario": "session.attach/unknown",
-    "task": "T23",
-    "reason": "v1 returns failed for an unbound session; expected host_gone"
-  },
-  {
-    "lane": "remote",
-    "scenario": "session.discard/busy",
-    "task": "T26",
-    "reason": "v1 returns failed when discarding a live session; expected busy"
-  },
-  {
-    "lane": "remote",
-    "scenario": "session.logs/line-limit",
-    "task": "T23",
-    "reason": "v1 ignores the requested line count and returns a fixed log tail"
-  },
-  {
-    "lane": "remote",
-    "scenario": "session.logs/unknown",
-    "task": "T23",
-    "reason": "v1 returns failed for an unbound session; expected not_found"
-  },
-  {
-    "lane": "remote",
     "scenario": "workspace.describe/binding-and-missing",
     "task": "T16",
     "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
