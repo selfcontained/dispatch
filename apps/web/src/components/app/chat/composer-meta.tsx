@@ -405,7 +405,7 @@ function UsageChip({
           <UsageDetails usage={usage} agentType={agent.type ?? null} />
         ) : null}
         {runnerId ? (
-          <RunnerProviderUsage key={runnerId} runnerId={runnerId} />
+          <RunnerProviderUsage key={runnerId} runnerId={runnerId} allowReset />
         ) : (
           <PlanLimits enabled={open} plans={plans} now={now} />
         )}

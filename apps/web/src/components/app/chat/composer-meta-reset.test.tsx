@@ -316,3 +316,69 @@ describe("Codex expiry reminder", () => {
     ).toBe(true);
   });
 });
+
+describe("the usage chip on a runner agent", () => {
+  async function openRunnerChip(entries: object[]) {
+    const { MemoryRouter } = await import("react-router-dom");
+    apiMock.mockImplementation(async (url: string) => {
+      if (url.startsWith("/api/v1/engine-management/inventory"))
+        return { entries };
+      if (url === "/api/v1/engine-management/operations")
+        return {
+          ack: {
+            ok: true,
+            capability: {
+              type: "provider_usage",
+              usage: { providers: [plan], codexResetAccount: "acct" },
+            },
+          },
+        };
+      throw new Error(`Unexpected endpoint ${url}`);
+    });
+    const agent = {
+      id: "agent-1",
+      type: "codex",
+      engineLoginRunnerId: "runner-1",
+    } as unknown as Parameters<typeof ComposerMeta>[0]["agent"];
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <MemoryRouter>
+          <ComposerMeta
+            agentId="agent-1"
+            agent={agent}
+            active
+            liveUsage={null}
+            turnKey="idle"
+          />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    fireEvent.click(screen.getByTestId("composer-usage-chip"));
+  }
+
+  it("offers the runner's Codex reset as Settings does, without spending it", async () => {
+    await openRunnerChip([{ id: "codex", installed: true, signedIn: true }]);
+    expect(
+      await screen.findByRole("button", { name: "Use Codex reset credit" })
+    ).toBeTruthy();
+    expect(
+      apiMock.mock.calls.some(([, init]) =>
+        String((init as RequestInit | undefined)?.body).includes("codex_reset")
+      )
+    ).toBe(false);
+  });
+
+  it("sends engine set-up to the runner's settings page", async () => {
+    await openRunnerChip([{ id: "codex", installed: false }]);
+    const link = await screen.findByRole("link", {
+      name: "Set up Claude or Codex",
+    });
+    expect(link.getAttribute("href")).toBe(
+      "/settings/runners?runner=runner-1#runner-agent-engines"
+    );
+  });
+});
