@@ -886,7 +886,14 @@ export async function runRemoteRunner(
                   },
                   protocol: RUNNER_WIRE_VERSION,
                   engines: [],
-                  capabilities: advert ? { selfUpdate: advert } : {},
+                  capabilities: {
+                    ...(advert && { selfUpdate: advert }),
+                    sources: {
+                      directory: false,
+                      repository: true,
+                      defaultBaseBranch: "",
+                    },
+                  },
                 };
               },
             },

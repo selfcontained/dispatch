@@ -132,17 +132,22 @@ export const enrolledArchivePolicy: ArchivePolicy = {
 export interface CheckoutDirectory extends Runners {
   managementList(includeCleared?: boolean): Promise<
     Array<
-      | import("../agents/remote/service.js").RunnerSummary
-      | {
-          id: string;
-          name: string;
-          kind: "local";
-          engineScope: { kind: "local" };
-          engineManagement: true;
-          engineCapabilities: true;
-          githubManagement: true;
-          repositoryPicker: true;
-        }
+      (
+        | import("../agents/remote/service.js").RunnerSummary
+        | {
+            id: string;
+            name: string;
+            kind: "local";
+            engineScope: { kind: "local" };
+            engineManagement: true;
+            engineCapabilities: true;
+            githubManagement: true;
+            repositoryPicker: true;
+          }
+      ) & {
+        engineScope: import("@dispatch/runner-protocol/engine-management").EngineScope;
+        launchFields: Record<string, string>;
+      }
     >
   >;
   for(placement: Placement): Runner & RunnerComposition;
@@ -154,7 +159,9 @@ const localDescription: RunnerDescription = {
   build: { version: "" },
   protocol: RUNNER_WIRE_VERSION,
   engines: [],
-  capabilities: {},
+  capabilities: {
+    sources: { directory: true, repository: true, defaultBaseBranch: "main" },
+  },
 };
 
 export function checkoutRunners(
@@ -230,12 +237,17 @@ export function runnerDirectory(
           name: "Local",
           kind: "local" as const,
           engineScope: { kind: "local" as const },
+          launchFields: {},
           engineManagement: true as const,
           engineCapabilities: true as const,
           githubManagement: true as const,
           repositoryPicker: true as const,
         },
-        ...((await remote?.list(includeCleared)) ?? []),
+        ...((await remote?.list(includeCleared)) ?? []).map((runner) => ({
+          ...runner,
+          engineScope: { kind: "runner" as const, runnerId: runner.id },
+          launchFields: { runner: runner.id },
+        })),
       ];
     },
     list() {

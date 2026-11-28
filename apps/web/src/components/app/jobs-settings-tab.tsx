@@ -358,10 +358,7 @@ export function SettingsTab({
           >
             <JobAgentTypeField
               value={agentType}
-              agentTypes={
-                (target.byProject && target.data.info?.agentTypes) ||
-                enabledAgentTypes
-              }
+              agentTypes={target.data.info?.agentTypes || enabledAgentTypes}
               onChange={(nextAgentType) => {
                 setAgentType(nextAgentType);
                 setModel(null);
@@ -382,7 +379,7 @@ export function SettingsTab({
             ) : null}
             <AgentEffortSelect
               model={model}
-              workload={target.byProject}
+              workload
               workloadChoices={target.data.effort}
               value={effort}
               onChange={setEffort}

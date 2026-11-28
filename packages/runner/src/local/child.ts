@@ -238,7 +238,9 @@ export async function runLocalRunner(
     build: own,
     protocol: RUNNER_WIRE_VERSION,
     engines: message.config.engines,
-    capabilities: {},
+    capabilities: {
+      sources: { directory: true, repository: true, defaultBaseBranch: "main" },
+    },
   };
   const extra = options.handlers?.(message, fence!);
   const workspace = options.platform?.workspace

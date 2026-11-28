@@ -136,7 +136,7 @@ beforeEach(() => {
           {
             key: "fixture",
             dataUrl: "/fixture/data",
-            location: { kind: "folder" },
+            location: { folders: true },
           },
         ],
       };

@@ -1471,7 +1471,14 @@ export class RemoteRunnerService {
         engines: (seen?.engines ?? [])
           .filter(({ installed }) => installed)
           .map(({ id }) => id),
-        capabilities: advert ? { selfUpdate: advert } : {},
+        capabilities: {
+          ...(advert && { selfUpdate: advert }),
+          sources: seen?.description.capabilities.sources ?? {
+            directory: false,
+            repository: true,
+            defaultBaseBranch: "",
+          },
+        },
       };
     });
   }

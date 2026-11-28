@@ -54,6 +54,7 @@ import { inspectInstallation, withEngineUpdates } from "../engine-updates.js";
  * of an inventory row each platform answers its own way (T29).
  */
 export type EngineInstallation = {
+  path?: string | null;
   id: RunnerEngine;
   installed: boolean;
   version: string | null;
@@ -230,6 +231,7 @@ export class EngineWorkload {
         return {
           id,
           label: LABELS[id],
+          ...(installation.path !== undefined && { path: installation.path }),
           installed,
           signedIn,
           version: parts.version ? installation.version : null,
@@ -385,6 +387,7 @@ export function localEngineWorkload(
       if (!parts.actions)
         return versioned.map((status) => ({
           id: status.id,
+          path: status.path,
           installed: status.installed,
           version: status.version,
           actions: [],
@@ -392,6 +395,7 @@ export function localEngineWorkload(
       const updates = await withEngineUpdates(versioned);
       return updates.map((status) => ({
         id: status.id,
+        path: status.path,
         installed: status.installed,
         version: status.version,
         // Local install is always manual (see missingEngineMessage).

@@ -1,5 +1,6 @@
 import { PLUGIN_AGENT_TYPES } from "../shared/agent-types.js";
 import {
+  ENGINE_INSTALL_COMMANDS,
   isEngineCapabilityOperation,
   isEngineOperation,
 } from "@dispatch/runner-protocol/engine-management";
@@ -92,7 +93,14 @@ export async function registerEngineManagementRoutes(
     if (!scope) {
       return reply.code(400).send({ error: "Invalid or missing scope." });
     }
-    return { entries: await manager.inventory(scope) };
+    const entries = await manager.inventory(scope);
+    return {
+      entries:
+        entries?.map((entry) => ({
+          ...entry,
+          install: ENGINE_INSTALL_COMMANDS[entry.id],
+        })) ?? null,
+    };
   });
 
   app.get("/api/v1/engine-management/operations", async (request, reply) => {

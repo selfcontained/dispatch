@@ -1,3 +1,4 @@
+import { ENGINE_INSTALL_COMMANDS } from "@dispatch/runner-protocol/engine-management";
 import {
   versionCache,
   versionCacheGeneration,
@@ -47,17 +48,17 @@ const ENGINES: Record<
   claude: {
     label: "Claude Code",
     bin: "claude",
-    install: "npm i -g @anthropic-ai/claude-code",
+    install: ENGINE_INSTALL_COMMANDS.claude,
   },
   opencode: {
     label: "OpenCode",
     bin: "opencode",
-    install: "npm i -g @opencode/cli",
+    install: ENGINE_INSTALL_COMMANDS.opencode,
   },
   codex: {
     label: "Codex",
     bin: "codex",
-    install: "npm i -g @openai/codex",
+    install: ENGINE_INSTALL_COMMANDS.codex,
   },
 };
 

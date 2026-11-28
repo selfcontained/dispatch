@@ -74,6 +74,15 @@
                 }
               }
             }
+          },
+          "sources": {
+            "optional": {
+              "object": {
+                "directory": "boolean",
+                "repository": "boolean",
+                "defaultBaseBranch": "string"
+              }
+            }
           }
         }
       }
@@ -131,6 +140,15 @@
                         "literal": [true]
                       }
                     }
+                  }
+                }
+              },
+              "sources": {
+                "optional": {
+                  "object": {
+                    "directory": "boolean",
+                    "repository": "boolean",
+                    "defaultBaseBranch": "string"
                   }
                 }
               }
@@ -3881,6 +3899,11 @@
           "entries": {
             "array": {
               "object": {
+                "path": {
+                  "optional": {
+                    "nullable": "string"
+                  }
+                },
                 "id": "string",
                 "label": "string",
                 "installed": "boolean",

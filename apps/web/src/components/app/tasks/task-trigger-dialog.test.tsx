@@ -90,7 +90,7 @@ beforeEach(() => {
             key: "fixture-target",
             name: "Local",
             dataUrl: "/fixture/data",
-            location: { kind: "folder" },
+            location: { folders: true },
           },
         ],
       };
@@ -531,7 +531,7 @@ it("saves only an explicitly chosen runner and keeps inheritance implicit", asyn
             name: "Local",
             status: "online",
             dataUrl: "/fixture/data",
-            location: { kind: "folder" },
+            location: { folders: true },
             selectionFields: { runner: "controller" },
           },
           {
@@ -539,7 +539,7 @@ it("saves only an explicitly chosen runner and keeps inheritance implicit", asyn
             name: "Fixture runner",
             status: "offline",
             dataUrl: "/fixture/data",
-            location: { kind: "project" },
+            location: { folders: false },
             selectionFields: { runner: "fixture" },
           },
         ],
