@@ -752,13 +752,18 @@ it("reads the controller launch target through the existing session authenticati
   const target = list
     .json()
     .targets.find(
-      (t: { location: { kind: string } }) => t.location.kind === "folder"
+      (t: { location: { folders: boolean } }) => t.location.folders
     );
   const original = await get("/api/v1/agent-models");
   const adapted = await get(
     `${target.dataUrl}?directory=${encodeURIComponent(root)}&agentType=codex`
   );
   expect(adapted.statusCode, adapted.body).toBe(200);
-  expect(adapted.json().catalog).toEqual(original.json());
+  const catalog = original.json();
+  expect(adapted.json().catalog).toEqual({
+    models: { codex: catalog.models.codex },
+    defaults: catalog.defaults.codex ? { codex: catalog.defaults.codex } : {},
+    availability: { codex: catalog.availability.codex },
+  });
   expect((await get("/api/v1/agent-models")).body).toBe(original.body);
 });

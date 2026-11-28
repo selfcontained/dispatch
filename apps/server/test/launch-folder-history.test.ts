@@ -1,3 +1,4 @@
+import { runnerDirectory } from "../src/runners/directory.js";
 import Fastify from "fastify";
 import { afterEach, expect, it, vi } from "vitest";
 import { registerActivityHistoryRoutes } from "../src/routes/activity/history-routes.js";
@@ -50,9 +51,23 @@ async function setup(remote = false) {
       }),
     },
     runners: {
+      ...runnerDirectory({}),
       managementList: async () => [
-        { id: "local", name: "Local", kind: "local", repositoryPicker: true },
-        { id: "fixture", name: "Fixture", status: "offline" },
+        {
+          id: "local",
+          name: "Local",
+          kind: "local",
+          repositoryPicker: true,
+          engineScope: { kind: "local" },
+          launchFields: {},
+        },
+        {
+          id: "fixture",
+          name: "Fixture",
+          status: "offline",
+          engineScope: { kind: "runner", runnerId: "fixture" },
+          launchFields: { runner: "fixture" },
+        },
       ],
     },
     templates: {},

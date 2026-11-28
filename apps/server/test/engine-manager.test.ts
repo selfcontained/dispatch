@@ -177,6 +177,7 @@ describe("EngineManager local scope", () => {
     const claude = inventory.find((e) => e.id === "claude")!;
     expect(claude).toEqual({
       id: "claude",
+      path: "/bin/claude",
       label: "Claude Code",
       installed: true,
       signedIn: true,
