@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -106,6 +107,30 @@ it("adopts a repository borrow after the Local child restarts without turning th
         })
       ).borrowers
     ).toContain("borrower");
+    mkdirSync(join(state, ".launches"), { recursive: true });
+    writeFileSync(
+      join(state, ".launches", "owner.json"),
+      JSON.stringify({ launchId: "stopped-launch", stage: "spawning" })
+    );
+    writeFileSync(join(state, "owner", "host.log"), "stopped host log");
+    await runner.session.call("session.retire", {
+      session: owner,
+      checkoutPending: true,
+    });
+    expect(existsSync(join(state, ".launches", "owner.json"))).toBe(false);
+    expect(existsSync(join(state, "owner", "host.log"))).toBe(false);
+    expect(existsSync(join(state, "owner", "workspace-preparation"))).toBe(
+      true
+    );
+    expect(await bindings.get("owner")).not.toBeNull();
+    expect(
+      (
+        await runner.session.call("workspace.observe", {
+          session: owner,
+          policy: "ownership",
+        })
+      ).borrowers
+    ).toContain("borrower");
     await runner.session.call("session.retire", {
       session: child,
     });
@@ -128,6 +153,59 @@ it("adopts a repository borrow after the Local child restarts without turning th
     await runner.session.call("session.retire", {
       session: owner,
     });
+    const releaseOwner = sessionFromWire("release-owner"),
+      releaseChild = sessionFromWire("release-child");
+    const releasing = await runner.session.call("workspace.prepare", {
+      session: releaseOwner,
+      source: {
+        repository: origin,
+        checkout: { kind: "new", branch: "release-after-retirement" },
+      },
+      copyIgnored: [],
+      installDependencies: false,
+    });
+    await runner.session.call("workspace.prepare", {
+      session: releaseChild,
+      source: { session: releaseOwner },
+      copyIgnored: [],
+      installDependencies: false,
+    });
+    expect(
+      await runner.session.call("workspace.release", {
+        session: releaseOwner,
+        deleteBranch: true,
+        originalBranch: "release-after-retirement",
+      })
+    ).toEqual({ removed: false });
+    await runner.session.call("session.retire", {
+      session: releaseOwner,
+      checkoutPending: true,
+    });
+    const beforeRetry = runner.pids.length;
+    process.kill(runner.current()!.pid, "SIGKILL");
+    await runner.ready(beforeRetry);
+    expect(
+      (
+        await runner.session.call("workspace.observe", {
+          session: releaseOwner,
+          policy: "ownership",
+        })
+      ).borrowers
+    ).toContain("release-child");
+    await runner.session.call("session.retire", { session: releaseChild });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      expect(
+        await runner.session.call("workspace.release", {
+          session: releaseOwner,
+          deleteBranch: true,
+          originalBranch: "release-after-retirement",
+        })
+      ).toEqual({ removed: true });
+      await runner.session.call("session.retire", { session: releaseOwner });
+    }
+    expect(existsSync(String(releasing.path))).toBe(false);
+    expect(existsSync(join(state, String(releaseOwner)))).toBe(false);
+    expect(await bindings.get(String(releaseOwner))).toBeNull();
   } finally {
     await runner.stop();
     rmSync(root, { recursive: true, force: true });

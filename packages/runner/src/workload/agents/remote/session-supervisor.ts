@@ -1473,7 +1473,7 @@ export async function createSessionSupervisor(
         await core.stop(key, force);
       });
     },
-    discard(agentId: string, retainCheckout = false) {
+    discard(agentId: string, retainCheckout = false, checkoutPending = false) {
       const key = runnerStorageKey(agentId);
       return serialize(key, async () => {
         if (!retainCheckout && !(await bound(key))) {
@@ -1490,7 +1490,7 @@ export async function createSessionSupervisor(
             code: "busy",
             message: "Stop the guest host before discarding it",
           });
-        await writePrivateState(retireFile(key), "");
+        if (!checkoutPending) await writePrivateState(retireFile(key), "");
         const dir = path.join(hostRoot, key);
         await cleanHost(key, identity);
         checkUntrackedSocket(key);
@@ -1501,10 +1501,11 @@ export async function createSessionSupervisor(
           await core.removeLog(key);
         }
         await removeGuestDirectory(dir);
+        await core.removeLaunch(key);
+        if (checkoutPending) return;
         await rm(selectedFile(key), { force: true });
         await rm(borrowedFile(key), { force: true });
         await rm(borrowedFromFile(key), { force: true });
-        await core.removeLaunch(key);
         await rm(path.join(bindings, key), { force: true });
         await syncBindings();
         await recordBinding(agentId);

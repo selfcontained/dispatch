@@ -61,9 +61,9 @@ export function enrolledSessions(
         closeTerminals(id);
         return {};
       },
-      "session.retire": async ({ session }) => {
+      "session.retire": async ({ session, checkoutPending }) => {
         const id = sessionToWire(session);
-        await supervisor.discard(id, true);
+        await supervisor.discard(id, true, checkoutPending);
         closeTerminals(id);
         return {};
       },

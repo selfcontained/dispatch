@@ -167,14 +167,20 @@ export function createEnrolledCheckoutRunner(
           });
         }
       }
-      if (op === "workspace.observe" || op === "workspace.release")
+      if (
+        op === "workspace.observe" ||
+        op === "workspace.release" ||
+        op === "session.retire"
+      )
         archiveEpoch ??= service.connectionEpoch(runnerId);
       const value = await service.call(
         runnerId,
         op,
         input,
         options,
-        op === "workspace.observe" || op === "workspace.release"
+        op === "workspace.observe" ||
+          op === "workspace.release" ||
+          op === "session.retire"
           ? archiveEpoch
           : undefined
       );

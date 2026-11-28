@@ -1872,6 +1872,14 @@ describe("runner session supervision", () => {
     const checkout = await runner.checkoutDirectory(agentId);
     await writeFile(path.join(checkout, "retained-checkout"), "dirty bytes");
     const handler = enrolledSessions(runner, () => {}).calls["session.retire"];
+    await handler({ session: sessionFromWire(agentId), checkoutPending: true });
+    expect(await runner.isBound(agentId)).toBe(true);
+    await expect(
+      stat(path.join(state, "hosts", agentId))
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await runner.observeWorkspace(agentId, "ownership")).toMatchObject({
+      ownership: "owned",
+    });
     for (let attempt = 0; attempt < 2; attempt++)
       await handler({
         session: sessionFromWire(agentId),

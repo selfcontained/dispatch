@@ -940,6 +940,19 @@ const workspacePreparation: Scenario[] = [
         ).borrowers.includes(String(borrower)),
         "Owner did not report its borrower."
       );
+      await runner.call("session.retire", {
+        session: owner,
+        checkoutPending: true,
+      });
+      expect(
+        (
+          await runner.call("workspace.observe", {
+            session: owner,
+            policy: "ownership",
+          })
+        ).borrowers.includes(String(borrower)),
+        "Pending retirement lost the checkout or borrower recovery binding."
+      );
       await runner.call("session.retire", { session: borrower });
       expect(
         !(

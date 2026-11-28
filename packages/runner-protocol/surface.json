@@ -1089,6 +1089,9 @@
         "object": {
           "session": {
             "opaque": "SessionHandle"
+          },
+          "checkoutPending": {
+            "optional": "boolean"
           }
         }
       },

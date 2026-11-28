@@ -99,28 +99,19 @@ export type ArchivePolicy = {
   failure: "kept" | "pending";
   /** The runner refuses to release a checkout while its host still runs. */
   awaitsStoppedHost: boolean;
-  /** Retire a borrower host and its binding without touching the owner checkout. */
-  discardBorrowedSession?: boolean;
 };
 
-/** Main's archive rule, for the runner on this machine. */
-export const localArchivePolicy: ArchivePolicy = {
-  coOwner: "recorded",
-  borrowers: "recorded",
-  forceSkipsObserve: true,
-  failure: "kept",
-  awaitsStoppedHost: false,
-};
-
-/** The enrolled runners' archive rule (N35). */
-export const enrolledArchivePolicy: ArchivePolicy = {
+/** Archive decisions use runner ownership and remain retryable until stopped cleanup completes. */
+export const runnerArchivePolicy: ArchivePolicy = {
   coOwner: "observed",
   borrowers: "observed",
   forceSkipsObserve: false,
   failure: "pending",
   awaitsStoppedHost: true,
-  discardBorrowedSession: true,
 };
+// Kept as import aliases while callers migrate to the single policy.
+export const localArchivePolicy = runnerArchivePolicy;
+export const enrolledArchivePolicy = runnerArchivePolicy;
 
 export interface CheckoutDirectory extends Runners {
   managementList(includeCleared?: boolean): Promise<
@@ -182,9 +173,7 @@ export function runnerDirectory(
             settings: localRunnerSettings,
             manifestMaxBytes: null,
             cleanupBudgetMs: boundAgent?.repositorySource ? undefined : 60_000,
-            archive: boundAgent?.repositorySource
-              ? { ...enrolledArchivePolicy, discardBorrowedSession: false }
-              : localArchivePolicy,
+            archive: runnerArchivePolicy,
           }
         );
 

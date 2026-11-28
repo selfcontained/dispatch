@@ -44,7 +44,7 @@ export async function withRepositorySource<T extends ArchiveCheckoutAgent>(
   agent: T
 ): Promise<T & { repositorySource: boolean }> {
   const result = await pool.query<{ repositorySource: boolean }>(
-    `SELECT COALESCE(runner_preparation->'source' ? 'repository', false) AS "repositorySource" FROM agents WHERE id = $1`,
+    `SELECT COALESCE((runner_preparation->'source' ? 'repository') OR (runner_preparation->'source' ? 'session'), false) AS "repositorySource" FROM agents WHERE id = $1`,
     [agent.id]
   );
   return {

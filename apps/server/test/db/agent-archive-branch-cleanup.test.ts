@@ -98,7 +98,9 @@ const { AgentManager: HostAgentManager, AgentError } =
   await import("../../src/agents/manager.js");
 const { withTestWorkspaceRunner } =
   await import("../helpers/test-workspace-runner.js");
-const AgentManager = withTestWorkspaceRunner(HostAgentManager);
+const AgentManager = withTestWorkspaceRunner(HostAgentManager, {
+  recordedArchiveFixture: true,
+});
 
 let pool: Pool;
 

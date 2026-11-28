@@ -20,7 +20,14 @@ import { localRunnerIn } from "./local-runner-child.js";
 /** Direct manager tests keep their Git mocks in this process. The app
  * integration harness exercises the same handlers over the real socket.
  * Sessions (hosts) go to the child's own session family, run in process. */
-export function withTestWorkspaceRunner(Manager: typeof AgentManager) {
+export function withTestWorkspaceRunner(
+  Manager: typeof AgentManager,
+  fixtureOptions: {
+    /** DB decision tests use synthetic Git directories. Ownership is fixture data;
+     * real import/identity checks are exercised by the real-child suites. */
+    recordedArchiveFixture?: boolean;
+  } = {}
+) {
   return class extends Manager {
     constructor(
       ...[pool, log, config, options]: ConstructorParameters<typeof Manager>
@@ -62,6 +69,51 @@ export function withTestWorkspaceRunner(Manager: typeof AgentManager) {
           request: Req<K>,
           opts?: CallOptions<K>
         ): Promise<Res<K>> {
+          if (
+            fixtureOptions.recordedArchiveFixture &&
+            (op === "workspace.observe" || op === "workspace.release")
+          ) {
+            const id = String((request as Req<"workspace.observe">).session);
+            const { rows } = await pool.query<{
+              id: string;
+              worktree_path: string | null;
+              worktree_branch: string | null;
+              cwd: string;
+            }>(
+              "SELECT id, cwd, worktree_path, worktree_branch FROM agents WHERE id=$1",
+              [id]
+            );
+            const row = rows[0];
+            if (op === "workspace.observe") {
+              const borrowers = row?.worktree_path
+                ? (
+                    await pool.query<{ id: string }>(
+                      "SELECT id FROM agents WHERE id <> $1 AND deleted_at IS NULL AND (cwd=$2 OR worktree_path=$2)",
+                      [id, row.worktree_path]
+                    )
+                  ).rows.map((r) => r.id)
+                : [];
+              return {
+                ownership: row?.worktree_path ? "owned" : "external",
+                owner: row?.worktree_path ? id : null,
+                borrowers,
+                checkout:
+                  row?.worktree_path &&
+                  !(request as Req<"workspace.observe">).policy
+                    ? await workspaceWorkload.observe(row.worktree_path)
+                    : null,
+              } as Res<K>;
+            }
+            return {
+              removed:
+                !row?.worktree_path ||
+                (await workspaceWorkload.release(
+                  id,
+                  { path: row.worktree_path },
+                  request as Req<"workspace.release">
+                )),
+            } as Res<K>;
+          }
           if (op.startsWith("session."))
             return sessions().call(op, request, opts);
           // Persona fixture files use the same native workload as production.

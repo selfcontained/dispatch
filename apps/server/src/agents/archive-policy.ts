@@ -6,7 +6,6 @@ import {
   type CheckoutReleaseResult,
 } from "@dispatch/runner-protocol";
 import {
-  RunnerCallError,
   displayPath,
   sessionFromWire,
   type Runner,
@@ -58,7 +57,6 @@ export type ArchiveExecutor = {
   release(expectedState: string | null): Promise<CheckoutReleaseResult>;
   /** Capable peers carry out the caller's decision without a snapshot. */
   releaseBound?: () => Promise<boolean>;
-  discardBorrowed?: () => Promise<void>;
   observedCoOwner?: (
     observation: CheckoutObservation
   ) => Promise<string | null>;
@@ -89,7 +87,7 @@ export async function finishArchiveCheckout(
   try {
     const started = Date.now();
     const coOwner = await executor.coOwner?.();
-    if (budget?.aborted) return { kind: "kept", reason: "failed" };
+    if (budget?.aborted) return { kind: "pending", reason: "unavailable" };
     if (coOwner) {
       logger.warn(
         {
@@ -104,39 +102,18 @@ export async function finishArchiveCheckout(
     }
     let observation: CheckoutObservation | null = null;
     if (mode !== "keep") {
-      try {
-        observation = await executor.observe(mode);
-      } catch (err) {
-        if (budget?.aborted) return { kind: "kept", reason: "failed" };
-        if (
-          mode !== "auto" ||
-          (err instanceof RunnerCallError && err.code === "unavailable")
-        )
-          throw err;
-        await pool.query(
-          "UPDATE agents SET archive_cleanup_mode = 'keep', archive_checkout_state = NULL WHERE id = $1",
-          [agent.id]
-        );
-        logger.warn(
-          { err, agentId: agent.id, worktreePath: agent.worktreePath },
-          "Worktree cleanup failed; leaving on disk."
-        );
-        return { kind: "kept", reason: "failed" };
-      }
+      observation = await executor.observe(mode);
     }
-    if (budget?.aborted) return { kind: "kept", reason: "failed" };
+    if (budget?.aborted) return { kind: "pending", reason: "unavailable" };
     if (executor.releaseBound) {
-      if (observation?.ownership === "borrowed" && executor.discardBorrowed) {
-        await executor.discardBorrowed();
-        return { kind: "kept", reason: "notAuthorized" };
-      }
       if (hooks.durations && observation)
         hooks.durations.outstandingChangesCheck = Date.now() - started;
       if (
         observation?.ownership === "owned" &&
-        (await executor.observedCoOwner?.(observation))
+        (observation.borrowers.length > 0 ||
+          (await executor.observedCoOwner?.(observation)))
       )
-        return { kind: "kept", reason: "coOwner" };
+        return { kind: "pending", reason: "borrowed" };
       if (
         !observation ||
         !(
@@ -154,13 +131,13 @@ export async function finishArchiveCheckout(
       }
       await hooks.onCleanupStart?.();
       const releaseStarted = Date.now();
-      if (budget?.aborted) return { kind: "kept", reason: "failed" };
+      if (budget?.aborted) return { kind: "pending", reason: "unavailable" };
       const removed = await executor.releaseBound();
       if (hooks.durations)
         hooks.durations.worktreeCleanup = Date.now() - releaseStarted;
       return removed
         ? { kind: "released" }
-        : { kind: "kept", reason: "changed" };
+        : { kind: "pending", reason: "borrowed" };
     }
     const owned = observation?.ownership === "owned";
     const expectedState =
@@ -184,7 +161,7 @@ export async function finishArchiveCheckout(
       );
     }
     const releaseStarted = Date.now();
-    if (budget?.aborted) return { kind: "kept", reason: "failed" };
+    if (budget?.aborted) return { kind: "pending", reason: "unavailable" };
     const result = await executor.release(expectedState);
     if (hooks.durations && expectedState !== null)
       hooks.durations.worktreeCleanup = Date.now() - releaseStarted;
@@ -194,7 +171,7 @@ export async function finishArchiveCheckout(
       return { kind: "kept", reason: "notAuthorized" };
     return { kind: "kept", reason: "changed" };
   } catch (err) {
-    if (budget?.aborted) return { kind: "kept", reason: "failed" };
+    if (budget?.aborted) return { kind: "pending", reason: "unavailable" };
     logger.warn(
       { err, agentId: agent.id, worktreePath: agent.worktreePath },
       executor.onError.message
@@ -337,11 +314,6 @@ export function archiveExecutor(
     releaseBound: async () =>
       (await runner.call("workspace.release", { session, ...decision }))
         .removed,
-    ...(policy.discardBorrowedSession && {
-      discardBorrowed: async () => {
-        await runner.call("session.discard", { session });
-      },
-    }),
     observedCoOwner: (observation) => observedCoOwner(pool, agent, observation),
   };
 }

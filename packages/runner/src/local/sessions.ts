@@ -12,7 +12,7 @@
  * not written its pid yet). An app rolled back to an older build finds the
  * same records and drives the same hosts.
  */
-import { mkdir, open, rm, unlink } from "node:fs/promises";
+import { mkdir, open, readdir, rm, unlink } from "node:fs/promises";
 import { createConnection, type Socket } from "node:net";
 import { join } from "node:path";
 import { Duplex } from "node:stream";
@@ -300,7 +300,8 @@ export function localSessionHandlers(
   async function discardSession(
     session: Req<"session.discard">["session"],
     context: ConnectionContext,
-    retainCheckout: boolean
+    retainCheckout: boolean,
+    checkoutPending = false
   ) {
     const key = keyOf(session);
     return core.lock(key, async () => {
@@ -310,8 +311,23 @@ export function localSessionHandlers(
           message: "The host is still running",
         });
       if (!retainCheckout) await options.discardWorkspace?.(session, context);
-      await options.retireBinding?.(key);
-      await rm(layout.hostDir(key), { recursive: true, force: true });
+      await core.removeLaunch(key);
+      if (checkoutPending) {
+        // Local preparation receipts share the host directory. Keep only the
+        // recovery receipt until the checkout decision can complete.
+        for (const file of await readdir(layout.hostDir(key)).catch((error) => {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+          throw error;
+        }))
+          if (file !== "workspace-preparation")
+            await rm(join(layout.hostDir(key), file), {
+              recursive: true,
+              force: true,
+            });
+      } else {
+        await options.retireBinding?.(key);
+        await rm(layout.hostDir(key), { recursive: true, force: true });
+      }
       return {};
     });
   }
@@ -475,8 +491,8 @@ export function localSessionHandlers(
       async "session.discard"({ session }, context) {
         return discardSession(session, context, false);
       },
-      async "session.retire"({ session }, context) {
-        return discardSession(session, context, true);
+      async "session.retire"({ session, checkoutPending }, context) {
+        return discardSession(session, context, true, checkoutPending);
       },
       async "session.alive"({ session }) {
         const { state } = await inspectHostDir(layout.hostDir(keyOf(session)));
