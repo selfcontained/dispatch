@@ -808,6 +808,9 @@ export function useSSE(authState: AuthState): void {
             queryKey: ["agent-identity", payload.agentId],
             exact: true,
           });
+          // An archived reviewer's outcome keeps counting on its parent's
+          // card, flagged archived; the cached entry still says live.
+          invalidateReviewSummary(queryClient);
           return;
         }
 

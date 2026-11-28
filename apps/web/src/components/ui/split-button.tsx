@@ -27,6 +27,29 @@ export interface SplitButtonProps extends Omit<
   hint?: React.ReactNode;
 }
 
+// Each half drawn with its own shadow casts it across the seam onto the
+// other's translucent fill. The pair shares one shadow instead, painted on an
+// overlay above both halves so the theme's inset top highlight stays visible.
+const halfShadow = "shadow-none hover:shadow-none";
+
+const overlay =
+  "relative after:pointer-events-none after:absolute after:inset-0 after:rounded-md after:content-['']";
+
+function sharedShadow(variant: ButtonProps["variant"], inactive: boolean) {
+  const shadow =
+    variant === "primary"
+      ? cn(
+          "after:shadow-elev-primary",
+          !inactive && "hover:after:shadow-elev-primary-hover"
+        )
+      : variant === "secondary"
+        ? "after:shadow-elev-control"
+        : undefined;
+  if (!shadow) return undefined;
+  // Matches the halves' disabled-state fade, without fading them twice.
+  return cn(overlay, shadow, inactive && "after:opacity-50");
+}
+
 /** A primary action and a menu of its variations, drawn as one control. */
 const SplitButton = React.forwardRef<HTMLButtonElement, SplitButtonProps>(
   (
@@ -61,7 +84,7 @@ const SplitButton = React.forwardRef<HTMLButtonElement, SplitButtonProps>(
           className={cn(
             "min-w-0",
             !!hint && "disabled:pointer-events-auto",
-            !!menu && "rounded-r-none border-r-0",
+            !!menu && cn("rounded-r-none border-r-0", halfShadow),
             className
           )}
           {...props}
@@ -70,7 +93,12 @@ const SplitButton = React.forwardRef<HTMLButtonElement, SplitButtonProps>(
     );
     if (!menu) return main;
     return (
-      <div className="inline-flex min-w-0 max-w-full items-stretch">
+      <div
+        className={cn(
+          "inline-flex min-w-0 max-w-full items-stretch rounded-md",
+          sharedShadow(variant, Boolean(disabled || props.pending))
+        )}
+      >
         {main}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -85,6 +113,7 @@ const SplitButton = React.forwardRef<HTMLButtonElement, SplitButtonProps>(
                 data-testid={menuTestId}
                 className={cn(
                   "w-7 shrink-0 rounded-l-none border-l px-0",
+                  halfShadow,
                   variant === "primary"
                     ? "border-l-primary-foreground/tint-strong"
                     : "border-l-edge"
