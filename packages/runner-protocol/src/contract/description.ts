@@ -1,6 +1,7 @@
 import { runnerId } from "./opaque.js";
 import {
   array,
+  boolean,
   integer,
   literal,
   object,
@@ -12,7 +13,7 @@ import { build } from "./types.js";
 
 /**
  * Optional capabilities. Everything else is baseline. Adding one changes the
- * surface snapshot. The only optional capability is `selfUpdate`.
+ * surface snapshot.
  */
 export const selfUpdateCapability = object({
   protocol: integer,
@@ -36,7 +37,16 @@ export const runnerDescription = object({
   build,
   protocol: integer,
   engines: array(string),
-  capabilities: object({ selfUpdate: optional(selfUpdateCapability) }),
+  capabilities: object({
+    selfUpdate: optional(selfUpdateCapability),
+    sources: optional(
+      object({
+        directory: boolean,
+        repository: boolean,
+        defaultBaseBranch: string,
+      })
+    ),
+  }),
 });
 
 export type RunnerDescription = Infer<typeof runnerDescription>;

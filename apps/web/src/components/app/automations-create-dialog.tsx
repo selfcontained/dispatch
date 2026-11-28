@@ -103,7 +103,7 @@ function CreateTemplateDialogContent({
   const canCreate =
     draft.name.trim() &&
     target.launch.selectionReady &&
-    (target.launch.target?.location.kind === "project"
+    (target.launch.target?.location.folders === false
       ? Boolean(
           draft.projectId &&
           target.launch.target?.location.projects?.some(

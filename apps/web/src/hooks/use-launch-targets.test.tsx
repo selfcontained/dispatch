@@ -22,7 +22,7 @@ const targets: LaunchTarget[] = [
     dataUrl: "/fixture/first",
     branchesUrl: "/fixture/first/branches",
     defaultBaseBranch: "main",
-    location: { kind: "folder" },
+    location: { folders: true },
     selectionFields: { runner: "controller-fixture" },
   },
   {
@@ -33,7 +33,7 @@ const targets: LaunchTarget[] = [
     branchesUrl: "/fixture/second/branches",
     defaultBaseBranch: "",
     status: "offline",
-    location: { kind: "project", projects: [] },
+    location: { folders: false, projects: [] },
     selectionFields: { runner: "runner-fixture" },
   },
 ];

@@ -172,6 +172,7 @@ export const engineAction = literal(
   "login_cancel"
 );
 export const engineInventoryEntry = object({
+  path: optional(nullable(string)),
   id: string,
   label: string,
   installed: boolean,

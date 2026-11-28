@@ -8,9 +8,8 @@ import { type AgentType, type CliAgentType } from "@/lib/agent-types";
 
 /**
  * A job's "Runs on" target, as templates and task triggers choose theirs. A
- * saved job reads its target through its backing template. A folder target
- * keeps the job form's own folder, catalog and effort reads; a project target
- * supplies its projects, engines, models and effort.
+ * saved job reads its target through its backing template. Every target supplies
+ * its projects, engines, models and effort; source capabilities govern folders.
  */
 export function useJobTarget({
   templateId,
@@ -32,31 +31,26 @@ export function useJobTarget({
     templateId ? { kind: "template", id: templateId } : undefined
   );
   // A target that launches by project, not by folder.
-  const byProject = launch.target?.location.kind === "project";
+  const byProject = launch.target?.location.folders === false;
   const projects = launch.target?.location.projects ?? [];
   const project = projects.find((p) => p.id === projectId);
   // A project without a folder here launches from its repository, so its
   // branches come from the target as a project target's do.
   const byRepository = byProject || Boolean(project && !project.repoRoot);
-  const data = useLaunchTargetData(
-    launch.target,
-    { directory, projectId, agentType, model },
-    byRepository
-  );
-  const models = useAgentModelCatalog(
+  const data = useLaunchTargetData(launch.target, {
+    directory,
+    projectId,
     agentType,
-    true,
-    byProject
-      ? {
-          data: data.info?.catalog,
-          loading:
-            launch.list.isLoading ||
-            launch.projection.isFetching ||
-            data.catalogLoading,
-        }
-      : undefined
-  );
-  const types = byProject ? data.info?.agentTypes : undefined;
+    model,
+  });
+  const models = useAgentModelCatalog(agentType, true, {
+    data: data.info?.catalog,
+    loading:
+      launch.list.isLoading ||
+      launch.projection.isFetching ||
+      data.catalogLoading,
+  });
+  const types = data.info?.agentTypes;
   const reported = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (!launch.changed || !types?.length) return;

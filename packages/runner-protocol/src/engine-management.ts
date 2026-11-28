@@ -20,8 +20,16 @@ export type EngineSupportedAction =
   | "login"
   | "login_cancel";
 
+/** Installation labels shared by engine status and launch presentations. */
+export const ENGINE_INSTALL_COMMANDS = {
+  claude: "npm i -g @anthropic-ai/claude-code",
+  codex: "npm i -g @openai/codex",
+  opencode: "npm i -g @opencode/cli",
+} as const;
+
 /** What a scope reports about one engine, for an inventory list. */
 export type EngineInventoryEntry = {
+  path?: string | null;
   id: RunnerEngine;
   label: string;
   installed: boolean;

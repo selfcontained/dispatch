@@ -158,7 +158,7 @@ const controller = {
   key: "opaque-controller",
   name: "Local",
   status: "online",
-  location: { kind: "folder" },
+  location: { folders: true },
   dataUrl: "/fixture/controller",
   launchFields: {},
   selectionFields: { runner: "controller" },
@@ -168,7 +168,7 @@ const repositoryTarget = {
   name: "Fixture",
   status: "offline",
   location: {
-    kind: "project",
+    folders: false,
     projects: [
       {
         id: "project-a",
@@ -1288,7 +1288,7 @@ it.each([false, true])(
     const target = {
       ...(local ? controller : repositoryTarget),
       location: {
-        kind: local ? "folder" : "project",
+        folders: local,
         projects: [
           {
             id: "repo-only",
@@ -1336,7 +1336,7 @@ it("keeps a source Local agent's repository-only project instead of turning its 
           targets: [
             {
               ...controller,
-              location: { kind: "folder", projects: [project] },
+              location: { folders: true, projects: [project] },
             },
           ],
         })
@@ -1372,7 +1372,7 @@ it("still probes Git for a folder-backed project without a repository origin", a
           targets: [
             {
               ...controller,
-              location: { kind: "folder", projects: [project] },
+              location: { folders: true, projects: [project] },
             },
           ],
         })
@@ -1427,7 +1427,7 @@ it.each([controller, repositoryTarget])(
               ...repositoryTarget,
               key: "second-host",
               dataUrl: "/fixture/second-host",
-              location: { kind: "project", projects },
+              location: { folders: false, projects },
             },
           ],
         };

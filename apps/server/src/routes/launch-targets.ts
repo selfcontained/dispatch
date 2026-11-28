@@ -1,5 +1,6 @@
 import {
   modelChoicesForRunner,
+  getAgentModelAvailability,
   getReportedModelHistory,
   readStoredModelCatalog,
 } from "../shared/agent-models.js";
@@ -9,7 +10,6 @@ import type { AgentManager } from "../agents/manager.js";
 import {
   sameRunner,
   pathFromWire,
-  type Runners,
   type Req,
 } from "@dispatch/runner-protocol/contract";
 import { createHash } from "node:crypto";
@@ -31,7 +31,19 @@ type Target = {
   key: string;
   name: string;
   id: string;
-  location: { kind: "folder" | "project"; repositorySearchUrl?: string };
+  location: {
+    folders: boolean;
+    repositories: boolean;
+    repositorySearchUrl?: string;
+  };
+  sources: {
+    directory: boolean;
+    repository: boolean;
+    defaultBaseBranch: string;
+  };
+  engineScope: import("@dispatch/runner-protocol/engine-management").EngineScope;
+  launchFields: Record<string, string>;
+  modelReports: "availability" | "history";
   status: string;
 };
 type Project = {
@@ -68,7 +80,7 @@ const query = (values: Record<string, string | undefined>) => {
 export async function registerLaunchTargetRoutes(
   app: FastifyInstance,
   deps: {
-    runners: Pick<Runners, "for"> & Pick<CheckoutDirectory, "managementList">;
+    runners: Pick<CheckoutDirectory, "for" | "managementList">;
     agents: Pick<AgentManager, "getAgent">;
     templates: Pick<TemplateService, "getTemplate">;
     tasks: Pick<TaskService, "store">;
@@ -98,28 +110,37 @@ export async function registerLaunchTargetRoutes(
     return response.json() as T;
   }
   async function targets(): Promise<Target[]> {
-    const controller = runnerIdForPlacement(controllerPlacement);
     const runners = await deps.runners.managementList();
     return runners
       .filter((runner) => !("status" in runner) || runner.status !== "revoked")
-      .map((runner) => ({
-        key: keyFor(runner.id),
-        id: runner.id,
-        name: runner.name,
-        status: "status" in runner ? runner.status : "online",
-        location: {
-          kind:
-            runner.id === controller
-              ? ("folder" as const)
-              : ("project" as const),
-          ...(runner.repositoryPicker && {
-            repositorySearchUrl: `/api/v1/runners/${encodeURIComponent(runner.id)}/repository-search`,
-          }),
-        },
-      }));
+      .map((entry) => {
+        const runner = deps.runners.for(placementForRunner(entry.id));
+        const sources = runner.describe().capabilities.sources ?? {
+          directory: false,
+          repository: true,
+          defaultBaseBranch: "",
+        };
+        return {
+          key: keyFor(entry.id),
+          id: entry.id,
+          name: entry.name,
+          status: "status" in entry ? entry.status : "online",
+          engineScope: entry.engineScope,
+          launchFields: entry.launchFields,
+          modelReports: runner.settings.modelReports,
+          sources,
+          location: {
+            folders: sources.directory,
+            repositories: sources.repository,
+            ...(entry.repositoryPicker &&
+              sources.repository && {
+                repositorySearchUrl: `/api/v1/runners/${encodeURIComponent(entry.id)}/repository-search`,
+              }),
+          },
+        };
+      });
   }
-  const fields = (target: Target) =>
-    target.location.kind === "folder" ? {} : { runner: target.id };
+  const fields = (target: Target) => target.launchFields;
   const publicTarget = (target: Target) => ({
     key: target.key,
     name: target.name,
@@ -128,7 +149,7 @@ export async function registerLaunchTargetRoutes(
     dataUrl: `${ROOT}/${target.key}`,
     branchesUrl: `${ROOT}/${target.key}/branches`,
     historyUrl: `${ROOT}/${target.key}/history`,
-    defaultBaseBranch: target.location.kind === "folder" ? "main" : "",
+    defaultBaseBranch: target.sources.defaultBaseBranch,
     launchFields: fields(target),
     selectionFields: { runner: target.id },
   });
@@ -178,10 +199,11 @@ export async function registerLaunchTargetRoutes(
         ...publicTarget(t),
         location: {
           ...t.location,
-          projects:
-            t.location.kind === "project"
-              ? repositories.filter((p) => p.repository)
-              : repositories,
+          projects: repositories.filter(
+            (p) =>
+              (p.repoRoot && t.location.folders) ||
+              (p.repository && t.location.repositories)
+          ),
           ...(projectError && { error: projectError }),
         },
       })),
@@ -190,8 +212,7 @@ export async function registerLaunchTargetRoutes(
 
   app.get(`${ROOT}/:key/history`, async (request) => {
     const target = await selected(request);
-    if (target.location.kind === "project")
-      return { projects: [], projectOptions: [] };
+    if (!target.location.folders) return { projects: [], projectOptions: [] };
     const q = request.query as {
       search?: string;
       limit?: string;
@@ -251,11 +272,10 @@ export async function registerLaunchTargetRoutes(
       return {
         targetKey: keyFor(runner),
         projectId: agent.projectId ?? null,
-        directory: target?.location.kind === "folder" ? folder : "",
-        reviewPreferenceKey:
-          target?.location.kind === "folder"
-            ? reviewFolder
-            : JSON.stringify([keyFor(runner), agent.id]),
+        directory: target?.location.folders ? folder : "",
+        reviewPreferenceKey: target?.location.folders
+          ? reviewFolder
+          : JSON.stringify([keyFor(runner), agent.id]),
       };
     }
     let saved;
@@ -292,14 +312,13 @@ export async function registerLaunchTargetRoutes(
       targetKey: keyFor(idOnServer),
       inherited,
       projectId: projectId ?? saved.projectId ?? null,
-      directory: target?.location.kind === "folder" ? saved.directory : "",
-      locationLabel:
-        target?.location.kind === "folder"
-          ? saved.directory
-          : ((await project(request, projectId ?? saved.projectId ?? undefined))
-              ?.name ??
-            target?.name ??
-            ""),
+      directory: target?.location.folders ? saved.directory : "",
+      locationLabel: target?.location.folders
+        ? saved.directory
+        : ((await project(request, projectId ?? saved.projectId ?? undefined))
+            ?.name ??
+          target?.name ??
+          ""),
       launchFields: inherited
         ? {}
         : target
@@ -311,47 +330,24 @@ export async function registerLaunchTargetRoutes(
   app.get(`${ROOT}/:key/branches`, async (request, reply) => {
     const selectedTarget = await selected(request);
     const q = request.query as { directory?: string; projectId?: string };
-    const inputs: Record<
-      Target["location"]["kind"],
-      () => Promise<Req<"git.branches">["target"]>
-    > = {
-      folder: async () => {
-        if (q.projectId) {
-          const p = await project(request, q.projectId);
-          if (p && !p.repoRoot) {
-            const repository = await read<{ url: string | null }>(
-              request,
-              `/api/v1/projects/${encodeURIComponent(q.projectId)}/repository`
-            );
-            if (repository.url) return { repository: repository.url };
-          }
-        }
-        if (typeof q.directory !== "string" || !q.directory.trim())
-          throw Object.assign(new Error("cwd query parameter is required."), {
-            statusCode: 400,
-          });
-        return { path: pathFromWire(q.directory.trim()) };
-      },
-      project: async () => {
-        if (!q.projectId)
-          throw Object.assign(new Error("Choose a runner and repository."), {
-            statusCode: 400,
-          });
+    let target: Req<"git.branches">["target"];
+    try {
+      const p = await project(request, q.projectId);
+      if (selectedTarget.location.folders && (!p || p.repoRoot)) {
+        const directory = q.directory?.trim() || p?.repoRoot;
+        if (!directory) throw new Error("cwd query parameter is required.");
+        target = { path: pathFromWire(directory) };
+      } else {
+        if (!q.projectId || !selectedTarget.location.repositories)
+          throw new Error("Choose a runner and repository.");
         const repository = await read<{ url: string | null }>(
           request,
           `/api/v1/projects/${encodeURIComponent(q.projectId)}/repository`
         );
         if (!repository.url)
-          throw Object.assign(
-            new Error("Choose a valid HTTPS repository URL."),
-            { statusCode: 400 }
-          );
-        return { repository: repository.url };
-      },
-    };
-    let target: Req<"git.branches">["target"];
-    try {
-      target = await inputs[selectedTarget.location.kind]();
+          throw new Error("Choose a valid HTTPS repository URL.");
+        target = { repository: repository.url };
+      }
     } catch (error) {
       return reply
         .code((error as { statusCode?: number }).statusCode ?? 400)
@@ -395,7 +391,7 @@ export async function registerLaunchTargetRoutes(
     const p = await project(request, q.projectId);
     const requestedDirectory = p ? (p.repoRoot ?? "") : (q.directory ?? "");
     const directory =
-      target.location.kind === "folder" &&
+      target.location.folders &&
       !sameRunner(
         targetPlacement({ directory: requestedDirectory }),
         controllerPlacement
@@ -407,84 +403,57 @@ export async function registerLaunchTargetRoutes(
       "/api/v1/app/settings/agent-types"
     );
     let engine = q.agentType ?? settings.enabledAgentTypes[0] ?? "claude";
-    let catalog: Catalog;
-    let engines: unknown;
-    let engineOptions: EngineOption[] | null;
-    let agentTypes = settings.enabledAgentTypes;
-    if (target.location.kind === "folder") {
-      const [models, statuses] = await Promise.all([
-        read<Catalog>(request, "/api/v1/agent-models"),
-        read<{ engines: EngineOption[] }>(request, "/api/v1/system/engines"),
-      ]);
-      catalog = models;
-      engines = statuses;
-      engineOptions = statuses.engines;
-    } else {
-      const inventory = await read<{ entries: EngineOption[] | null }>(
-        request,
-        `/api/v1/engine-management/inventory?${query({ scope: "runner", runnerId: target.id })}`
-      );
-      engines = inventory;
-      // Installation instructions are the existing platform-independent CLI
-      // metadata; installation/sign-in status always comes from this target.
-      const metadata = await read<{ engines: EngineOption[] }>(
-        request,
-        "/api/v1/system/engines"
-      );
-      engineOptions =
-        inventory.entries?.map((entry) => ({
-          ...entry,
-          install: metadata.engines.find((m) => m.id === entry.id)?.install,
-        })) ?? null;
-      agentTypes = inventory.entries
-        ? settings.enabledAgentTypes.filter((id) =>
-            inventory.entries!.some((entry) => entry.id === id)
-          )
-        : agentTypes;
-      if (agentTypes.length && !agentTypes.includes(engine))
-        engine = agentTypes[0]!;
-      const { ack } = await read<{
-        ack: {
-          ok: boolean;
-          error?: string;
-          capability?: {
-            type: string;
-            catalog: { models: Model[]; defaultModel?: string };
-          };
+    const inventory = await read<{ entries: EngineOption[] | null }>(
+      request,
+      `/api/v1/engine-management/inventory?${query({ scope: target.engineScope.kind, ...(target.engineScope.kind === "runner" && { runnerId: target.engineScope.runnerId }) })}`
+    );
+    const engines = inventory;
+    const engineOptions = inventory.entries;
+    const agentTypes = inventory.entries
+      ? settings.enabledAgentTypes.filter((id) =>
+          inventory.entries!.some((entry) => entry.id === id)
+        )
+      : settings.enabledAgentTypes;
+    if (agentTypes.length && !agentTypes.includes(engine))
+      engine = agentTypes[0]!;
+    const { ack } = await read<{
+      ack: {
+        ok: boolean;
+        error?: string;
+        capability?: {
+          type: string;
+          catalog: { models: Model[]; defaultModel?: string };
         };
-      }>(request, "/api/v1/engine-management/operations", {
-        scope: { kind: "runner", runnerId: target.id },
-        operation: {
-          type: "model_catalog",
-          engine,
-          ...(q.model && { model: q.model }),
-        },
-      });
-      if (!ack.ok)
-        throw Object.assign(
-          new Error(
-            ack.error ?? "The runner did not return the requested engine data."
-          ),
-          { statusCode: 503 }
-        );
-      if (ack.capability?.type !== "model_catalog")
-        throw Object.assign(
-          new Error("The runner did not return the requested engine data."),
-          { statusCode: 503 }
-        );
-      const result = ack.capability.catalog;
-      catalog = {
-        models: { [engine]: result.models },
-        defaults: result.defaultModel ? { [engine]: result.defaultModel } : {},
-        availability: {
-          [engine]: {
-            ...modelChoicesForRunner(target.id, engine as AgentType),
-            unseen: getReportedModelHistory(target.id, engine as AgentType)
-              .unseen,
-          },
-        },
       };
-    }
+    }>(request, "/api/v1/engine-management/operations", {
+      scope: target.engineScope,
+      operation: {
+        type: "model_catalog",
+        engine,
+        ...(q.model && { model: q.model }),
+      },
+    });
+    if (!ack.ok || ack.capability?.type !== "model_catalog")
+      throw Object.assign(
+        new Error(
+          ack.error ?? "The runner did not return the requested engine data."
+        ),
+        { statusCode: 503 }
+      );
+    const result = ack.capability.catalog;
+    const catalog: Catalog = {
+      models: { [engine]: result.models },
+      defaults: result.defaultModel ? { [engine]: result.defaultModel } : {},
+      availability: {
+        [engine]: {
+          ...modelChoicesForRunner(target.id, engine as AgentType),
+          unseen:
+            target.modelReports === "availability"
+              ? getAgentModelAvailability(engine as AgentType).unseen
+              : getReportedModelHistory(target.id, engine as AgentType).unseen,
+        },
+      },
+    };
     // Only the currently selected model is probed; catalog reads never enumerate effort.
     const selectedModel = q.model ?? catalog.defaults?.[engine];
     if (selectedModel)
@@ -495,7 +464,7 @@ export async function registerLaunchTargetRoutes(
       projectRoot: p?.repoRoot ?? undefined,
     });
     const branchQuery = query({
-      directory: target.location.kind === "folder" ? directory : undefined,
+      directory: target.location.folders ? directory : undefined,
       projectId: q.projectId,
     });
     return {
@@ -507,23 +476,19 @@ export async function registerLaunchTargetRoutes(
       effort: catalog.models[engine]?.find(
         (m) => m.id === (q.model ?? catalog.defaults?.[engine])
       )?.effort,
-      directory: target.location.kind === "folder" ? directory : "",
+      directory: target.location.folders ? directory : "",
       branchesUrl: `${ROOT}/${target.key}/branches?${branchQuery}`,
-      personasUrl: `/api/v1/personas?${query({ cwd: located.directory, ...(target.location.kind === "project" && { runner: target.id }), projectId: q.projectId, type: "task" })}`,
+      personasUrl: `/api/v1/personas?${query({ cwd: located.directory, ...(!target.location.folders && { runner: target.id }), projectId: q.projectId, type: "task" })}`,
       defaults: {
-        baseBranch:
-          target.location.kind === "folder" && !(p && !p.repoRoot)
-            ? "main"
-            : "",
+        baseBranch: p && !p.repoRoot ? "" : target.sources.defaultBaseBranch,
         preferenceKey:
-          target.location.kind === "folder" && !(p && !p.repoRoot)
+          target.location.folders && !(p && !p.repoRoot)
             ? directory.trim()
             : JSON.stringify([target.key, q.projectId ?? null]),
         launchFields: fields(target),
-        templateFields:
-          target.location.kind === "folder"
-            ? {}
-            : { directory: located.directory },
+        templateFields: target.location.folders
+          ? {}
+          : { directory: located.directory },
       },
     };
   });

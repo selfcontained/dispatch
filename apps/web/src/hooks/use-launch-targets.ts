@@ -12,8 +12,9 @@ export type LaunchTarget = {
   name: string;
   status: string;
   location: {
-    kind: "folder" | "project";
-    projects?: Project[];
+    folders: boolean;
+    repositories?: boolean;
+    projects?: Array<Project & { repository: string | null }>;
     repositorySearchUrl?: string;
     error?: string;
   };

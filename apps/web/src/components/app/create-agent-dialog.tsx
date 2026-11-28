@@ -177,7 +177,7 @@ function CreateAgentDialogContent({
 
               {task ? (
                 <TaskContextCard task={task} />
-              ) : form.launch.target?.location.kind === "project" ? (
+              ) : form.launch.target?.location.folders === false ? (
                 <RunnerProjectPicker
                   searchUrl={form.launch.target.location.repositorySearchUrl}
                   projects={form.launch.target.location.projects ?? []}
@@ -241,7 +241,7 @@ function CreateAgentDialogContent({
                 branchesUrl={form.targetData.branchesUrl}
                 defaultBaseBranch={form.targetData.defaultBaseBranch}
                 reserveExpandedSpace={
-                  form.launch.target?.location.kind === "project" ||
+                  form.launch.target?.location.folders === false ||
                   (localProjectMode && !form.createProjectId) ||
                   Boolean(form.createProjectId && !form.createCwd)
                 }

@@ -30,7 +30,7 @@ const controller = {
   name: "This computer",
   status: "online",
   dataUrl: "/fixture/controller",
-  location: { kind: "folder" },
+  location: { folders: true },
   launchFields: {},
   selectionFields: { runner: "controller" },
 };
@@ -40,7 +40,7 @@ const enrolled = {
   status: "offline",
   dataUrl: "/fixture/enrolled",
   location: {
-    kind: "project",
+    folders: false,
     projects: [
       {
         id: "project",
@@ -254,7 +254,7 @@ it("creates a Local job from a repository-only project using the shared picker",
   const local = {
     ...controller,
     location: {
-      kind: "folder",
+      folders: true,
       repositorySearchUrl: "/fixture/repository-search",
       projects: [
         {

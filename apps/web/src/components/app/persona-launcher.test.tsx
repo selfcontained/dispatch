@@ -73,7 +73,7 @@ function renderLauncher(parent = agent) {
           {
             key: "opaque-target",
             dataUrl: "/fixture/data",
-            location: { kind: "folder" },
+            location: { folders: true },
           },
         ],
       };

@@ -69,7 +69,7 @@ function mount(
             name: "Local",
             status: "online",
             location: {
-              kind: "folder",
+              folders: true,
               ...(localPicker && {
                 repositorySearchUrl: "/fixture/local-repositories",
                 projects: [
@@ -101,7 +101,7 @@ function mount(
                   name: "Runner A",
                   status: "online",
                   location: {
-                    kind: "project",
+                    folders: false,
                     repositorySearchUrl:
                       "/api/v1/runners/runner-a/repository-search",
                     projects: [

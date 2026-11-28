@@ -84,7 +84,7 @@ export function useCreateAgentForm({
     : locationChoice
       ? locationChoice.projectId
       : sourceAgentId &&
-          (launch.target?.location.kind === "project" ||
+          (launch.target?.location.folders === false ||
             (projectedProject && !projectedProject.repoRoot))
         ? (launch.projection.data?.projectId ?? null)
         : (initialProjectId ??
@@ -92,6 +92,9 @@ export function useCreateAgentForm({
   const project = (launch.target?.location.projects ?? projects).find(
     (p) => p.id === selectedProjectId
   );
+  const projectRepository = launch.target?.location.projects?.find(
+    (p) => p.id === selectedProjectId
+  )?.repository;
   // Keep a pending choice while loading, but never submit an unavailable ID.
   const createProjectId = projectsLoaded
     ? (project?.id ?? null)
@@ -102,7 +105,7 @@ export function useCreateAgentForm({
     (!sourceAgentId ||
       launch.changed ||
       (launch.projection.isSuccess && Boolean(launch.target))) &&
-    (launch.target?.location.kind !== "project" || Boolean(project));
+    (launch.target?.location.folders !== false || Boolean(project));
   const setCreateProjectId = (id: string | null) => {
     setLocationChoice({ projectId: id });
     setLocationPref({
@@ -313,11 +316,7 @@ export function useCreateAgentForm({
   );
 
   useEffect(() => {
-    if (
-      !createProjectId ||
-      (project && "repository" in project && project.repository)
-    )
-      return;
+    if (!createProjectId || projectRepository) return;
     const controller = new AbortController();
     void api<CwdPathInfo>(
       `/api/v1/system/path-info?path=${encodeURIComponent(createCwd.trim())}`,
@@ -330,10 +329,10 @@ export function useCreateAgentForm({
         if (!controller.signal.aborted) handlePathInfoChange(null);
       });
     return () => controller.abort();
-  }, [createProjectId, createCwd, handlePathInfoChange, project]);
+  }, [createProjectId, createCwd, handlePathInfoChange, projectRepository]);
   const currentCwd = createCwd.trim();
   const worktreeAvailable =
-    Boolean(project && "repository" in project && project.repository) ||
+    Boolean(projectRepository) ||
     (validatedCwd?.cwd === currentCwd && validatedCwd.isGitRepo);
 
   const handleStartupPaste = useCallback(
@@ -384,9 +383,7 @@ export function useCreateAgentForm({
       try {
         const latestPathInfo = validatedCwdRef.current;
         const submitUseWorktree =
-          ((project &&
-            "repository" in project &&
-            Boolean(project.repository)) ||
+          (Boolean(projectRepository) ||
             (latestPathInfo?.cwd === cwd && latestPathInfo.isGitRepo)) &&
           createUseWorktree;
         const submitCreateNewBranch = submitUseWorktree && createNewBranch;
@@ -463,7 +460,7 @@ export function useCreateAgentForm({
       createBaseBranch,
       launch.target?.launchFields,
       targetData.defaultBaseBranch,
-      project,
+      projectRepository,
       locationReady,
       createCwd,
       createProjectId,

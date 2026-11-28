@@ -1,3 +1,4 @@
+import { sameRunner } from "@dispatch/runner-protocol/contract";
 import {
   controllerPlacement,
   placementForRunner,
@@ -7,7 +8,11 @@ import Fastify from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import { registerLaunchTargetRoutes } from "../src/routes/launch-targets.js";
 import { resolveSavedTarget } from "../src/runners/saved-location.js";
-import { onStoredModelCatalogRead } from "../src/shared/agent-models.js";
+import {
+  setAgentModelAvailability,
+  forgetLearnedAgentModels,
+  onStoredModelCatalogRead,
+} from "../src/shared/agent-models.js";
 
 const catalog = {
   models: {
@@ -20,7 +25,9 @@ const catalog = {
     ],
   },
   defaults: { claude: "retained" },
-  availability: { claude: { disabled: ["retained"], unseen: [] } },
+  availability: {
+    claude: { autoEnable: true, disabled: ["retained"], unseen: [] },
+  },
 };
 const template = {
   id: "template",
@@ -31,11 +38,18 @@ const template = {
 const apps: ReturnType<typeof Fastify>[] = [];
 afterEach(async () => {
   for (const app of apps.splice(0)) await app.close();
+  forgetLearnedAgentModels();
 });
 async function setup(
   projectFailure = false,
   projectRoot: string | null = "/repo"
 ) {
+  setAgentModelAvailability("claude", {
+    autoEnable: true,
+    disabled: ["retained"],
+    unseen: [],
+    known: null,
+  });
   const app = Fastify();
   apps.push(app);
   let catalogFailure = false;
@@ -46,6 +60,24 @@ async function setup(
     signedIn: boolean;
   }> | null = [{ id: "codex", installed: false, signedIn: false }];
   const operations = vi.fn();
+  const legacyReads = vi.fn();
+  const historyReads = vi.fn();
+  const localSources = {
+    directory: true,
+    repository: true,
+    defaultBaseBranch: "main",
+  };
+  const runnerSources = {
+    directory: false,
+    repository: true,
+    defaultBaseBranch: "",
+  };
+  app.addHook("onRequest", async (request) => {
+    if (
+      ["/api/v1/agent-models", "/api/v1/system/engines"].includes(request.url)
+    )
+      legacyReads(request.url);
+  });
   app.addHook("onRequest", async (req, reply) => {
     if (req.headers.authorization !== "Bearer fixture")
       return reply.code(401).send({ error: "Unauthorized" });
@@ -59,12 +91,26 @@ async function setup(
       status: "offline",
     },
     { id: "gone", name: "Gone", status: "revoked" },
-  ];
+  ].map((runner) => ({
+    ...runner,
+    engineScope:
+      runner.id === "local"
+        ? { kind: "local" }
+        : { kind: "runner", runnerId: runner.id },
+    launchFields: runner.id === "local" ? {} : { runner: runner.id },
+  }));
   app.get("/api/runners", async () => ({ runners: runnerRows }));
   app.get("/api/v1/app/settings/agent-types", async () => ({
     enabledAgentTypes,
   }));
   app.get("/api/v1/agent-models", async () => catalog);
+  app.get("/api/v1/history/projects", async (request) => {
+    historyReads(request.query);
+    return {
+      projects: ["/saved/folder"],
+      projectOptions: [{ path: "/saved/folder", iconUrl: "/folder-icon" }],
+    };
+  });
   app.get("/api/v1/system/engines", async (req) => ({
     canManage: req.ip === "192.0.2.4",
     engines: [
@@ -93,8 +139,25 @@ async function setup(
     personas: [{ slug: "review", name: "Review" }],
     query: req.query,
   }));
-  app.get("/api/v1/engine-management/inventory", async () => ({
-    entries: inventory,
+  app.get("/api/v1/engine-management/inventory", async (request) => ({
+    entries:
+      (request.query as { scope: string }).scope === "local"
+        ? [
+            {
+              id: "claude",
+              installed: false,
+              install: "existing command",
+              path: "/claude",
+            },
+            { id: "codex", installed: true, install: "existing codex command" },
+          ]
+        : (inventory?.map((entry) => ({
+            ...entry,
+            install:
+              entry.id === "codex"
+                ? "existing codex command"
+                : "existing command",
+          })) ?? null),
   }));
   app.post("/api/v1/engine-management/operations", async (request) => {
     operations(request.body);
@@ -105,10 +168,16 @@ async function setup(
             ok: true,
             capability: {
               type: "model_catalog",
-              catalog: {
-                models: [{ id: "runner-model", effort: [{ value: "medium" }] }],
-                defaultModel: "runner-model",
-              },
+              catalog:
+                (request.body as { scope: { kind: string } }).scope.kind ===
+                "local"
+                  ? { models: catalog.models.claude, defaultModel: "retained" }
+                  : {
+                      models: [
+                        { id: "runner-model", effort: [{ value: "medium" }] },
+                      ],
+                      defaultModel: "runner-model",
+                    },
             },
           },
     };
@@ -138,6 +207,18 @@ async function setup(
     runners: {
       managementList: async () => runnerRows,
       for: (placement) => ({
+        describe: () => ({
+          capabilities: {
+            sources: sameRunner(placement, controllerPlacement)
+              ? localSources
+              : runnerSources,
+          },
+        }),
+        settings: {
+          modelReports: sameRunner(placement, controllerPlacement)
+            ? "availability"
+            : "history",
+        },
         call: (op, input) => branches(placement, op, input),
       }),
     } as never,
@@ -167,6 +248,10 @@ async function setup(
     targets,
     branches,
     operations,
+    legacyReads,
+    historyReads,
+    localSources,
+    runnerSources,
     enableAgentTypes: (types: string[]) => {
       enabledAgentTypes = types;
     },
@@ -205,10 +290,7 @@ describe("launch target adapter", () => {
     expect(
       (await app.inject({ url: "/api/v1/launch-targets" })).statusCode
     ).toBe(401);
-    expect(targets.map((t: any) => t.location.kind)).toEqual([
-      "folder",
-      "project",
-    ]);
+    expect(targets.map((t: any) => t.location.folders)).toEqual([true, false]);
     expect(targets[1].status).toBe("offline");
     expect(targets[1].location.projects).toHaveLength(1);
     expect(targets[1].location.repositorySearchUrl).toBe(
@@ -223,7 +305,7 @@ describe("launch target adapter", () => {
     expect(targets[0].launchFields).toEqual({});
     expect(targets[0].name).toBe("Local");
   });
-  it("delegates the controller reads unchanged, including availability and missing engines", async () => {
+  it("preserves the controller catalog, availability, defaults and missing engines", async () => {
     const { get, targets } = await setup();
     const before = (await get("/api/v1/agent-models")).body;
     const response = await get(
@@ -232,7 +314,10 @@ describe("launch target adapter", () => {
     expect(response.statusCode).toBe(200);
     const data = response.json();
     expect(data.catalog).toEqual(catalog);
-    expect(data.engines).toEqual((await get("/api/v1/system/engines")).json());
+    expect(data.engineOptions).toEqual(
+      (await get("/api/v1/engine-management/inventory?scope=local")).json()
+        .entries
+    );
     expect(data.agentTypes).toEqual(["claude", "codex"]);
     expect(data.defaults.launchFields).toEqual({});
     expect(data.defaults.baseBranch).toBe("main");
@@ -402,5 +487,74 @@ it("lists Local once when the directory already contains the Local runner", asyn
   expect(new Set(targets.map((target) => target.branchesUrl)).size).toBe(
     targets.length
   );
-  expect(targets[0].location.kind).toBe("folder");
+  expect(targets[0].location.folders).toBe(true);
+});
+
+it("uses reported source capabilities and defaults independently of identity and engine scope", async () => {
+  const { get, localSources, runnerSources, operations } = await setup();
+  Object.assign(localSources, { directory: false, defaultBaseBranch: "" });
+  Object.assign(runnerSources, {
+    directory: true,
+    defaultBaseBranch: "develop",
+  });
+  const targets = (await get("/api/v1/launch-targets")).json().targets;
+  expect(targets.map((target: any) => target.location.folders)).toEqual([
+    false,
+    true,
+  ]);
+  const local = (
+    await get(`${targets[0].dataUrl}?projectId=project&agentType=claude`)
+  ).json();
+  const enrolled = (
+    await get(`${targets[1].dataUrl}?directory=%2Frepo&agentType=codex`)
+  ).json();
+  expect(local.defaults.baseBranch).toBe("");
+  expect(enrolled.defaults.baseBranch).toBe("develop");
+  expect(operations).toHaveBeenCalledWith(
+    expect.objectContaining({ scope: { kind: "local" } })
+  );
+  expect(operations).toHaveBeenCalledWith(
+    expect.objectContaining({ scope: { kind: "runner", runnerId: "fixture" } })
+  );
+});
+
+it("uses engine-management for both targets without the legacy model/engine routes", async () => {
+  const { get, targets, legacyReads } = await setup();
+  for (const target of targets) {
+    const response = await get(
+      `${target.dataUrl}?projectId=project&agentType=claude`
+    );
+    expect(response.statusCode).toBe(200);
+  }
+  expect(legacyReads).not.toHaveBeenCalled();
+  const local = (
+    await get(`${targets[0].dataUrl}?directory=%2Frepo&agentType=claude`)
+  ).json();
+  expect(local.engineOptions[0].path).toBe("/claude");
+});
+
+it("reads folder history through the same target adapter only when supported", async () => {
+  const { get, targets, localSources, runnerSources, historyReads } =
+    await setup();
+  expect((await get(targets[0].historyUrl)).json()).toEqual({
+    projects: ["/saved/folder"],
+    projectOptions: [{ path: "/saved/folder", iconUrl: "/folder-icon" }],
+  });
+  expect(historyReads).toHaveBeenLastCalledWith({ runnerId: "local" });
+  expect((await get(targets[1].historyUrl)).json()).toEqual({
+    projects: [],
+    projectOptions: [],
+  });
+  expect(historyReads).toHaveBeenCalledTimes(1);
+  runnerSources.directory = true;
+  expect((await get(targets[1].historyUrl)).json().projects).toEqual([
+    "/saved/folder",
+  ]);
+  expect(historyReads).toHaveBeenLastCalledWith({ runnerId: "fixture" });
+  localSources.directory = false;
+  expect((await get(targets[0].historyUrl)).json()).toEqual({
+    projects: [],
+    projectOptions: [],
+  });
+  expect(historyReads).toHaveBeenCalledTimes(2);
 });

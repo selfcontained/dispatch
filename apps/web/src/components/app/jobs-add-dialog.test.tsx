@@ -162,6 +162,41 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
   window.localStorage.clear();
   apiMock.mockImplementation((path: string) => {
+    if (path === "/api/v1/launch-targets")
+      return Promise.resolve({
+        targets: [
+          {
+            key: "job-local",
+            name: "Local",
+            status: "online",
+            location: { folders: true },
+            dataUrl: "/fixture/job-local",
+            branchesUrl: "/api/v1/git/branches",
+            launchFields: {},
+            selectionFields: {},
+          },
+        ],
+      });
+    if (path.startsWith("/api/v1/launch-targets/saved/"))
+      return Promise.resolve({
+        targetKey: "job-local",
+        projectId: null,
+        directory: "/repo",
+      });
+    if (path.startsWith("/fixture/job-local"))
+      return Promise.resolve({
+        catalog: MODEL_CATALOG,
+        agentTypes: ["claude", "codex", "opencode"],
+        engineOptions: [],
+        directory: "/repo",
+        branchesUrl: "/api/v1/git/branches?cwd=%2Frepo",
+        personasUrl: "/api/v1/personas?cwd=%2Frepo",
+        defaults: {
+          baseBranch: "main",
+          preferenceKey: "/repo",
+          launchFields: {},
+        },
+      });
     if (path === "/api/v1/agent-models") return Promise.resolve(MODEL_CATALOG);
     if (path.startsWith("/api/v1/history/projects")) {
       return Promise.resolve({ projectOptions: [] });
