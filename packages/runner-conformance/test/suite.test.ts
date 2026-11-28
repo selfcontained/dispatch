@@ -44,6 +44,29 @@ describe("coverage", () => {
 });
 
 describe("local coverage", () => {
+  it("runs every executable remote scenario locally and leaves only shared coverage gaps", () => {
+    const ids = new Set(localScenarios.map(({ id }) => id));
+    for (const scenario of remoteScenarios.filter(
+      ({ id }) => !id.endsWith("/pending")
+    ))
+      expect(ids.has(scenario.id), scenario.id).toBe(true);
+    for (const scenario of localScenarios.filter(({ id }) =>
+      id.endsWith("/pending")
+    )) {
+      expect(
+        remoteScenarios.some(
+          ({ op, id }) => op === scenario.op && !id.endsWith("/pending")
+        ),
+        scenario.id
+      ).toBe(false);
+      expect(
+        baseline.find(
+          ({ lane, scenario: id }) => lane === "local" && id === scenario.id
+        )?.reason
+      ).toContain("No executable scenario exists on either lane");
+    }
+  });
+
   it("runs portable checkout, terminal and transfer scenarios rather than placeholders", () => {
     const ids = new Set(localScenarios.map(({ id }) => id));
     for (const id of [

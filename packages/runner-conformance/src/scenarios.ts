@@ -37,6 +37,8 @@ export type LaneFixture = {
   workspace?: {
     runner: Runner;
     repository: string;
+    /** Remote's fixed-directory fixture disables repository resume; local enables it. */
+    configuredResume?: "empty" | "unsupported";
     interrupt(session: SessionHandle): Promise<void>;
     proveIsolation(session: SessionHandle, path: string): Promise<void>;
     proveRelease(
@@ -910,10 +912,16 @@ const workspacePreparation: Scenario[] = [
       expect(workspace, "Missing managed runner fixture.");
       const { runner, repository } = workspace;
       const session = sessionFromWire("prepare-new");
-      await rejectsWith(
-        configured.call("workspace.resume", { session }),
-        "unsupported"
-      );
+      if (workspace.configuredResume === "empty")
+        expect(
+          (await configured.call("workspace.resume", { session })) === null,
+          "An unknown configured session unexpectedly resumed."
+        );
+      else
+        await rejectsWith(
+          configured.call("workspace.resume", { session }),
+          "unsupported"
+        );
       const request = {
         session,
         source: { repository, checkout: { kind: "new", branch: "feature" } },
@@ -1121,7 +1129,7 @@ export const remoteScenarios: readonly Scenario[] = [
   ),
 ];
 
-/** Existing portable scenarios run against the real local child too. */
+/** Every executable remote scenario also runs against the real local child. */
 export const localScenarios: readonly Scenario[] = [
   {
     id: "runner.health/success",
@@ -1130,17 +1138,5 @@ export const localScenarios: readonly Scenario[] = [
       await runner.call("runner.health", {});
     },
   },
-  ...checkoutReads,
-  ...runnerGitQueries.filter(({ op }) => op !== "git.branches"),
-  interactiveTerminal,
-  putFile,
-  ...scenarios.filter(
-    ({ op }) =>
-      !checkoutReads.some((scenario) => scenario.op === op) &&
-      op !== "runner.health" &&
-      op !== "git.defaultBranch" &&
-      op !== "git.base" &&
-      op !== interactiveTerminal.op &&
-      op !== putFile.op
-  ),
+  ...remoteScenarios.filter(({ op }) => op !== "runner.health"),
 ];

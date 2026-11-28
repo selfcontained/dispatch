@@ -9,12 +9,19 @@
  * session's directory (a binding prepared from the lane's checkout) and its
  * engine programs, both on the launch request, as an app does.
  */
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
+  existsSync,
+  readFileSync,
+  statSync,
   mkdirSync,
   mkdtempSync,
   realpathSync,
+  renameSync,
+  symlinkSync,
+  unlinkSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -23,6 +30,7 @@ import { fileURLToPath } from "node:url";
 import { superviseRunner } from "@dispatch/runner-client/launcher";
 import { LocalRunnerSession } from "@dispatch/runner-client/session";
 import {
+  displayPath,
   pathFromWire,
   RunnerCallError,
   sessionFromWire,
@@ -94,6 +102,31 @@ export async function startLocalLane(): Promise<Lane> {
   writeFileSync(engine, FIXTURE_ENGINE);
   chmodSync(engine, 0o755);
   run("git", ["init", "-q", "-b", "main", checkout]);
+  writeFileSync(
+    join(checkout, "package.json"),
+    JSON.stringify({
+      name: "runner-fixture",
+      version: "1.0.0",
+      scripts: { postinstall: "id -u > .install-uid" },
+    })
+  );
+  writeFileSync(
+    join(checkout, "package-lock.json"),
+    JSON.stringify({
+      name: "runner-fixture",
+      version: "1.0.0",
+      lockfileVersion: 3,
+      requires: true,
+      packages: {
+        "": {
+          name: "runner-fixture",
+          version: "1.0.0",
+          hasInstallScript: true,
+        },
+      },
+    })
+  );
+  run("git", ["-C", checkout, "add", "package.json", "package-lock.json"]);
   run("git", [
     "-C",
     checkout,
@@ -114,6 +147,8 @@ export async function startLocalLane(): Promise<Lane> {
     "/file-list/\n/conformance/\n"
   );
 
+  const repository = join(dir, "origin.git");
+  run("git", ["clone", "-q", "--bare", checkout, repository]);
   const session = new LocalRunnerSession({
     description: {
       runnerId: "local" as never,
@@ -170,19 +205,22 @@ export async function startLocalLane(): Promise<Lane> {
       }
     rmSync(dir, { recursive: true, force: true });
   };
+  let readyTimer: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
       up,
-      new Promise((_, reject) =>
-        setTimeout(
+      new Promise((_, reject) => {
+        readyTimer = setTimeout(
           () => reject(new Error("The local runner was not ready in 30 s.")),
           30_000
-        )
-      ),
+        );
+      }),
     ]);
   } catch (error) {
     await close();
     throw new LaneUnavailable((error as Error).message);
+  } finally {
+    clearTimeout(readyTimer);
   }
 
   /** Bind a session to the lane's checkout before its first launch. */
@@ -244,6 +282,215 @@ export async function startLocalLane(): Promise<Lane> {
   return {
     runner,
     session: SESSION,
+    workspace: {
+      runner: checked(runner),
+      repository: `file://${repository}`,
+      configuredResume: "empty",
+      async interrupt(target) {
+        const key = sessionToWire(target);
+        const receipt = join(stateRoot, key, "workspace-preparation");
+        const state = JSON.parse(readFileSync(receipt, "utf8"));
+        state.pending = {
+          path: state.worktree.path,
+          branch: state.worktree.branch,
+        };
+        delete state.worktree;
+        writeFileSync(receipt, JSON.stringify(state));
+        rmSync(
+          join(
+            stateRoot,
+            ".bindings",
+            createHash("sha256").update(key).digest("hex") + ".json"
+          )
+        );
+      },
+      async proveIsolation(target, path) {
+        const binding = await runner.call("workspace.describe", {
+          session: target,
+        });
+        if (
+          displayPath(binding.path) !== path ||
+          statSync(path).uid !== process.getuid?.()
+        )
+          throw new Error(
+            "Managed checkout is not owned by the local workload account."
+          );
+        if (
+          readFileSync(join(path, ".install-uid"), "utf8").trim() !==
+          String(process.getuid?.())
+        )
+          throw new Error(
+            "Dependencies did not run as the local workload account."
+          );
+        await runner.call("session.discard", { session: target });
+        if (existsSync(path))
+          throw new Error("Discard retained the managed checkout.");
+      },
+      async proveRelease(external, externalSession) {
+        if (
+          (
+            await external.call("workspace.release", {
+              session: externalSession,
+              deleteBranch: true,
+              originalBranch: "main",
+            })
+          ).removed
+        )
+          throw new Error("Release accepted an external checkout.");
+        const target = sessionFromWire("release-owner");
+        const made = await runner.call("workspace.prepare", {
+          session: target,
+          source: {
+            repository: `file://${repository}`,
+            checkout: { kind: "new", branch: "release-original" },
+          },
+          copyIgnored: [],
+          installDependencies: false,
+        });
+        const release = () =>
+          runner.call("workspace.release", {
+            session: target,
+            deleteBranch: true,
+            originalBranch: "release-original",
+          });
+        const own = displayPath(made.path);
+        // Replacing the owned path must never authorize removing an external checkout.
+        renameSync(own, own + "-saved");
+        symlinkSync(checkout, own);
+        try {
+          const refused = await release().catch((error: unknown) => {
+            if (!(error instanceof RunnerCallError)) throw error;
+            return null;
+          });
+          if (
+            refused?.removed ||
+            !existsSync(checkout) ||
+            !existsSync(own + "-saved/.git")
+          )
+            throw new Error("Release accepted a replaced checkout.");
+        } finally {
+          unlinkSync(own);
+          renameSync(own + "-saved", own);
+        }
+        const git = (...args: string[]) =>
+          run("git", ["-C", own, ...args]).trim();
+        const common = git("rev-parse", "--git-common-dir");
+        const branches = () =>
+          run("git", [
+            "--git-dir",
+            common,
+            "branch",
+            "--format=%(refname:short)",
+          ]).split("\n");
+        git("branch", "--set-upstream-to=origin/main", "release-original");
+        git("switch", "-c", "release-current");
+        git(
+          "-c",
+          "user.name=Fixture",
+          "-c",
+          "user.email=fixture@example.invalid",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "unmerged"
+        );
+        if (!(await release()).removed || existsSync(displayPath(made.path)))
+          throw new Error("Owned checkout was not released.");
+        if (!(await release()).removed)
+          throw new Error("Repeated release was not idempotent.");
+        if (
+          branches().includes("release-current") ||
+          branches().includes("release-original")
+        )
+          throw new Error(
+            "Release retained current or fully merged original branch."
+          );
+        for (const ahead of [false, true]) {
+          const session = sessionFromWire(`release-retain-${ahead}`);
+          const branch = `retain-original-${ahead}`;
+          const retained = await runner.call("workspace.prepare", {
+            session,
+            source: {
+              repository: `file://${repository}`,
+              checkout: { kind: "new", branch },
+            },
+            copyIgnored: [],
+            installDependencies: false,
+          });
+          const gitRetained = (...args: string[]) =>
+            run("git", ["-C", displayPath(retained.path), ...args]);
+          if (ahead) {
+            gitRetained("branch", "--set-upstream-to=origin/main", branch);
+            gitRetained(
+              "-c",
+              "user.name=Fixture",
+              "-c",
+              "user.email=fixture@example.invalid",
+              "commit",
+              "--allow-empty",
+              "-m",
+              "ahead"
+            );
+          } else {
+            // Explicitly remove any implicit tracking inherited from the start point.
+            try {
+              gitRetained("branch", "--unset-upstream", branch);
+            } catch {
+              /* no upstream */
+            }
+          }
+          gitRetained("switch", "-c", `retain-current-${ahead}`);
+          if (
+            !(
+              await runner.call("workspace.release", {
+                session,
+                deleteBranch: true,
+                originalBranch: branch,
+              })
+            ).removed ||
+            !branches().includes(branch)
+          )
+            throw new Error(
+              "Release deleted an original branch without a fully merged upstream."
+            );
+        }
+        const missingSession = sessionFromWire("release-missing");
+        const missing = await runner.call("workspace.prepare", {
+          session: missingSession,
+          source: {
+            repository: `file://${repository}`,
+            checkout: { kind: "new", branch: "release-missing" },
+          },
+          copyIgnored: [],
+          installDependencies: false,
+        });
+        rmSync(displayPath(missing.path), { recursive: true, force: true });
+        if (
+          !(
+            await runner.call("workspace.release", {
+              session: missingSession,
+              deleteBranch: false,
+              originalBranch: "release-missing",
+            })
+          ).removed ||
+          !branches().includes("release-missing")
+        )
+          throw new Error(
+            "Missing checkout release did not preserve deleteBranch=false."
+          );
+        const remaining = run("git", [
+          "--git-dir",
+          repository,
+          "branch",
+          "--format=%(refname:short)",
+        ]);
+        // The cache owns the working branches; the bare origin must remain untouched.
+        if (!remaining.split("\n").includes("main"))
+          throw new Error("Release changed the source repository.");
+        if (!existsSync(checkout))
+          throw new Error("Release removed the external checkout.");
+      },
+    },
     async seed(path, content) {
       const file = join(checkout, path);
       mkdirSync(dirname(file), { recursive: true });

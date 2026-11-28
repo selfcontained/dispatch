@@ -1,57 +1,33 @@
 [
   {
     "lane": "local",
-    "scenario": "workspace.prepare/pending",
-    "task": "T18",
-    "reason": "Coverage gap: workspace.prepare has no executable shared scenario; pending throws before calling the real local child."
-  },
-  {
-    "lane": "local",
-    "scenario": "workspace.resume/pending",
-    "task": "T26",
-    "reason": "Coverage gap: workspace.resume has no executable shared scenario; pending throws before calling the real local child."
-  },
-  {
-    "lane": "local",
     "scenario": "workspace.describe/pending",
     "task": "T16",
-    "reason": "Coverage gap: workspace.describe has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for workspace.describe; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "workspace.select/pending",
     "task": "T16",
-    "reason": "Coverage gap: workspace.select has no executable shared scenario; pending throws before calling the real local child."
-  },
-  {
-    "lane": "local",
-    "scenario": "workspace.observe/pending",
-    "task": "T16",
-    "reason": "Coverage gap: workspace.observe has no executable shared scenario; pending throws before calling the real local child."
-  },
-  {
-    "lane": "local",
-    "scenario": "workspace.release/pending",
-    "task": "T20",
-    "reason": "Coverage gap: workspace.release has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for workspace.select; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "path.resolve/pending",
     "task": "T17",
-    "reason": "Coverage gap: path.resolve has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for path.resolve; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "path.complete/pending",
     "task": "T17",
-    "reason": "Coverage gap: path.complete has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for path.complete; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "checkout.write/pending",
     "task": "T35",
-    "reason": "Coverage gap: checkout.write has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for checkout.write; /pending fails before calling the runner."
   },
   {
     "lane": "local",
@@ -63,187 +39,181 @@
     "lane": "local",
     "scenario": "git.context/pending",
     "task": "T15",
-    "reason": "Coverage gap: git.context has no executable shared scenario; pending throws before calling the real local child."
-  },
-  {
-    "lane": "local",
-    "scenario": "git.branches/pending",
-    "task": "T16",
-    "reason": "Coverage gap: git.branches has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for git.context; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "github.account/pending",
     "task": "T32",
-    "reason": "Coverage gap: github.account has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for github.account; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "github.login.start/pending",
     "task": "T32",
-    "reason": "Coverage gap: github.login.start has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for github.login.start; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "github.login.cancel/pending",
     "task": "T32",
-    "reason": "Coverage gap: github.login.cancel has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for github.login.cancel; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "github.logout/pending",
     "task": "T32",
-    "reason": "Coverage gap: github.logout has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for github.logout; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "github.repositories/pending",
     "task": "T32",
-    "reason": "Coverage gap: github.repositories has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for github.repositories; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "github.branches/pending",
     "task": "T32",
-    "reason": "Coverage gap: github.branches has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for github.branches; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "github.pr.head/pending",
     "task": "T40",
-    "reason": "Coverage gap: github.pr.head has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for github.pr.head; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "github.pr.status/pending",
     "task": "T32",
-    "reason": "Coverage gap: github.pr.status has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for github.pr.status; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "github.pr.details/pending",
     "task": "T33",
-    "reason": "Coverage gap: github.pr.details has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for github.pr.details; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "github.pr.diff/pending",
     "task": "T33",
-    "reason": "Coverage gap: github.pr.diff has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for github.pr.diff; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.list/pending",
     "task": "T28",
-    "reason": "Coverage gap: engine.list has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for engine.list; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.install/pending",
     "task": "T29",
-    "reason": "Coverage gap: engine.install has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for engine.install; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.update/pending",
     "task": "T29",
-    "reason": "Coverage gap: engine.update has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for engine.update; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.operation/pending",
     "task": "T29",
-    "reason": "Coverage gap: engine.operation has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for engine.operation; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.login.start/pending",
     "task": "T28",
-    "reason": "Coverage gap: engine.login.start has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for engine.login.start; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.login.submit/pending",
     "task": "T28",
-    "reason": "Coverage gap: engine.login.submit has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for engine.login.submit; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.login.status/pending",
     "task": "T28",
-    "reason": "Coverage gap: engine.login.status has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for engine.login.status; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.login.cancel/pending",
     "task": "T28",
-    "reason": "Coverage gap: engine.login.cancel has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for engine.login.cancel; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.models/pending",
     "task": "T30",
-    "reason": "Coverage gap: engine.models has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for engine.models; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.usage/pending",
     "task": "T31",
-    "reason": "Coverage gap: engine.usage has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for engine.usage; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.quota.reset/pending",
     "task": "T31",
-    "reason": "Coverage gap: engine.quota.reset has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for engine.quota.reset; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.plugin.status/pending",
     "task": "T29",
-    "reason": "Coverage gap: engine.plugin.status has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for engine.plugin.status; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.plugin.apply/pending",
     "task": "T29",
-    "reason": "Coverage gap: engine.plugin.apply has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for engine.plugin.apply; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "port.connect/pending",
     "task": "T39",
-    "reason": "Coverage gap: port.connect has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for port.connect; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "update.offer/pending",
     "task": "L3",
-    "reason": "Coverage gap: update.offer has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for update.offer; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "update.fence/pending",
     "task": "L3",
-    "reason": "Coverage gap: update.fence has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for update.fence; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "update.activate/pending",
     "task": "L3",
-    "reason": "Coverage gap: update.activate has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for update.activate; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "update.confirm/pending",
     "task": "L3",
-    "reason": "Coverage gap: update.confirm has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for update.confirm; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "update.cancel/pending",
     "task": "L3",
-    "reason": "Coverage gap: update.cancel has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for update.cancel; /pending fails before calling the runner."
   },
   {
     "lane": "local",
@@ -267,49 +237,49 @@
     "lane": "local",
     "scenario": "checkout.access/pending",
     "task": "T40",
-    "reason": "Coverage gap: checkout.access has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for checkout.access; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "git.roots/pending",
     "task": "T40",
-    "reason": "Coverage gap: git.roots has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for git.roots; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "git.origin/pending",
     "task": "T40",
-    "reason": "Coverage gap: git.origin has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for git.origin; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "git.remoteHeads/pending",
     "task": "T40",
-    "reason": "Coverage gap: git.remoteHeads has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for git.remoteHeads; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.update.inspect/pending",
     "task": "T29",
-    "reason": "Coverage gap: engine.update.inspect has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for engine.update.inspect; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.update.spawn/pending",
     "task": "T29",
-    "reason": "Coverage gap: engine.update.spawn has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for engine.update.spawn; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.update.release/pending",
     "task": "T29",
-    "reason": "Coverage gap: engine.update.release has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for engine.update.release; /pending fails before calling the runner."
   },
   {
     "lane": "local",
     "scenario": "engine.update.probe/pending",
     "task": "T29",
-    "reason": "Coverage gap: engine.update.probe has no executable shared scenario; pending throws before calling the real local child."
+    "reason": "No executable scenario exists on either lane for engine.update.probe; /pending fails before calling the runner."
   },
   {
     "lane": "remote",
@@ -568,5 +538,11 @@
     "scenario": "update.cancel/pending",
     "task": "L3",
     "reason": "scenario not written yet"
+  },
+  {
+    "lane": "local",
+    "scenario": "workspace.prepare/repository",
+    "task": "T18",
+    "reason": "Local session.discard removes host state but leaves its managed checkout; the shared preparation scenario verifies discard removes the owned worktree."
   }
 ]
