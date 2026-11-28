@@ -1473,10 +1473,10 @@ export async function createSessionSupervisor(
         await core.stop(key, force);
       });
     },
-    discard(agentId: string) {
+    discard(agentId: string, retainCheckout = false) {
       const key = runnerStorageKey(agentId);
       return serialize(key, async () => {
-        if (!(await bound(key))) {
+        if (!retainCheckout && !(await bound(key))) {
           if ((await readBinding(key)) === null) {
             await writePrivateState(retireFile(key), "");
             await config.removePreparedCheckout?.(agentId);
@@ -1496,7 +1496,7 @@ export async function createSessionSupervisor(
         checkUntrackedSocket(key);
         await cleanLegacyHost(key);
         {
-          if (!checkoutOwner(await readBinding(key)))
+          if (!retainCheckout && !checkoutOwner(await readBinding(key)))
             await discardManagedCheckout(key, agentId);
           await core.removeLog(key);
         }

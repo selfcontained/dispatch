@@ -680,7 +680,7 @@ describe("workspace.observe", () => {
     ).toEqual({
       ownership: "owned",
       owner: "owner",
-      borrowers: [],
+      borrowers: ["borrower"],
       checkout: {
         path: tree,
         branch: "feature",
@@ -723,7 +723,7 @@ describe("workspace.observe", () => {
     ).toEqual({
       ownership: "owned",
       owner: "owner",
-      borrowers: [],
+      borrowers: ["borrower"],
       checkout: null,
     });
     await expect(
@@ -966,6 +966,54 @@ it("preserves borrowed Local bindings across restart imports and an ordered pare
       },
       context
     )
+  ).toEqual({ removed: true });
+  expect(existsSync(tree)).toBe(false);
+  expect(existsSync(repo)).toBe(true);
+});
+
+it("keeps a checkout while borrowers hold it, including after the intermediate borrower retires", async () => {
+  const { root, connection, store } = await harness();
+  const repo = repository(root);
+  const prepared = await connection.call(
+    "workspace.prepare",
+    request("owner", repo, {
+      name: "borrowed",
+      branch: "borrowed",
+      base: "main",
+      create: true,
+    })
+  );
+  const tree = String(prepared.path);
+  const borrow = async (session: string, parent: string) =>
+    connection.call("workspace.prepare", {
+      ...request(session, tree),
+      source: { session: sessionFromWire(parent) },
+    });
+  await borrow("child", "owner");
+  await borrow("grandchild", "child");
+  expect(await store.borrowers("owner")).toEqual(["child", "grandchild"]);
+  expect(
+    await connection.call("workspace.release", {
+      session: sessionFromWire("owner"),
+      deleteBranch: true,
+      originalBranch: "borrowed",
+    })
+  ).toEqual({ removed: false });
+  await store.retire("child");
+  expect(await store.borrowers("owner")).toEqual(["grandchild"]);
+  expect(
+    await connection.call("workspace.observe", {
+      session: sessionFromWire("child"),
+      policy: "ownership",
+    })
+  ).toEqual({ ownership: "none", owner: null, borrowers: [], checkout: null });
+  await store.retire("grandchild");
+  expect(
+    await connection.call("workspace.release", {
+      session: sessionFromWire("owner"),
+      deleteBranch: true,
+      originalBranch: "borrowed",
+    })
   ).toEqual({ removed: true });
   expect(existsSync(tree)).toBe(false);
   expect(existsSync(repo)).toBe(true);

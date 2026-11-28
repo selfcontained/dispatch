@@ -252,6 +252,7 @@ export async function runLocalRunner(
         entry: options.sessions.entry,
         command: message.config.hostCommand,
         createSessions: options.sessions.createSessions,
+        retireBinding: (key) => store!.retire(key),
         discardWorkspace: repositoryWorkspaceDisposer(
           message.roots.state,
           workspace

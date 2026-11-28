@@ -98,6 +98,36 @@ it("adopts a repository borrow after the Local child restarts without turning th
     expect(readFileSync(join(String(owned.path), "dirty"), "utf8")).toBe(
       "retained through restart"
     );
+    expect(
+      (
+        await runner.session.call("workspace.observe", {
+          session: owner,
+          policy: "ownership",
+        })
+      ).borrowers
+    ).toContain("borrower");
+    await runner.session.call("session.retire", {
+      session: child,
+    });
+    expect(await bindings.get("borrower")).toBeNull();
+    expect(
+      (
+        await runner.session.call("workspace.observe", {
+          session: owner,
+          policy: "ownership",
+        })
+      ).borrowers
+    ).not.toContain("borrower");
+    await runner.session.call("session.retire", {
+      session: owner,
+    });
+    expect(await bindings.get("owner")).toBeNull();
+    expect(readFileSync(join(String(owned.path), "dirty"), "utf8")).toBe(
+      "retained through restart"
+    );
+    await runner.session.call("session.retire", {
+      session: owner,
+    });
   } finally {
     await runner.stop();
     rmSync(root, { recursive: true, force: true });

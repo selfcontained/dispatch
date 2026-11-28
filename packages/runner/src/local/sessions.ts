@@ -69,6 +69,8 @@ export type LocalSessionOptions = {
   sweepMs?: number | null;
   /** The directory a session is bound to, for a launch that names none. */
   boundDirectory?: (key: string) => Promise<string | null>;
+  /** Retire the stopped session binding after its checkout decision is complete. */
+  retireBinding?: (key: string) => Promise<void>;
   /** Release managed repository checkouts before their recovery records go away. */
   discardWorkspace?: (
     session: Req<"session.discard">["session"],
@@ -295,6 +297,24 @@ export function localSessionHandlers(
     return sessions;
   }
 
+  async function discardSession(
+    session: Req<"session.discard">["session"],
+    context: ConnectionContext,
+    retainCheckout: boolean
+  ) {
+    const key = keyOf(session);
+    return core.lock(key, async () => {
+      if (await running(key))
+        throw new RunnerCallError({
+          code: "busy",
+          message: "The host is still running",
+        });
+      if (!retainCheckout) await options.discardWorkspace?.(session, context);
+      await options.retireBinding?.(key);
+      await rm(layout.hostDir(key), { recursive: true, force: true });
+      return {};
+    });
+  }
   return {
     /** Live hosts, as `session.list` reads them: the update boundary's count. */
     async liveCount() {
@@ -453,17 +473,10 @@ export function localSessionHandlers(
       },
       /** Remove the session's directory; a running host is `busy`. */
       async "session.discard"({ session }, context) {
-        const key = keyOf(session);
-        return core.lock(key, async () => {
-          if (await running(key))
-            throw new RunnerCallError({
-              code: "busy",
-              message: "The host is still running",
-            });
-          await options.discardWorkspace?.(session, context);
-          await rm(layout.hostDir(key), { recursive: true, force: true });
-          return {};
-        });
+        return discardSession(session, context, false);
+      },
+      async "session.retire"({ session }, context) {
+        return discardSession(session, context, true);
       },
       async "session.alive"({ session }) {
         const { state } = await inspectHostDir(layout.hostDir(keyOf(session)));

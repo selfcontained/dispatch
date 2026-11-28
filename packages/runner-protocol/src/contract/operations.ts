@@ -228,6 +228,17 @@ export const operations = {
     timeout: "default",
     capability: "baseline",
   }),
+  /** Host retirement never removes its checkout. Unknown older peers fail closed. */
+  "session.retire": op({
+    scope: "session",
+    kind: "call",
+    request: object(session),
+    response: empty,
+    errors: ["busy"],
+    retry: read,
+    timeout: "default",
+    capability: "baseline",
+  }),
   "session.logs": op({
     scope: "session",
     kind: "call",

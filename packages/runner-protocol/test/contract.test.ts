@@ -25,8 +25,8 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 const table = Object.entries(operations as Record<string, OperationSpec>);
 
 describe("operation table (E4)", () => {
-  it("has 74 operations including remote head reads", () => {
-    expect(table).toHaveLength(74);
+  it("has 75 operations including non-destructive session retirement", () => {
+    expect(table).toHaveLength(75);
   });
 
   it.each(table)("%s is complete", (name, spec) => {
