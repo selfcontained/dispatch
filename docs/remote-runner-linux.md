@@ -35,10 +35,15 @@ For session routing, recovery, and enrolled limitations, see [How Dispatch runs 
    bundled package manager and installs any required Node runtime under
    `~/.local` in the workload user’s home. Credentials
    belong to that runner's workload account.
-4. In **Create Agent**, choose the runner. A Dispatch project can supply the
-   repository. Select a base branch for a new worktree, use an existing branch,
-   or clear the repository for a scratch session. The runner creates the
-   session directory and removes it when the agent is archived.
+4. In **New agent**, choose the runner in the picker at the top of the
+   dialog. A launch on a runner needs a project with a repository: in
+   **Project or repository**, pick a project, pick one of the repositories
+   the runner can reach, or paste a repository URL. Choosing a repository
+   that has no project yet creates one. Select a base branch for a new
+   worktree or use an existing branch. The runner clones the repository into
+   its own cache, prepares the session checkout, and removes it when the
+   agent is archived. Jobs, templates and task-column triggers choose a
+   runner and project the same way.
 
 The copied command is one line. Over the HTTPS runner listener it is:
 
@@ -145,8 +150,8 @@ access. The CLI stores the credential on that machine. Choose **Sign out** in
 the runner details to remove the login there. To revoke the authorization at
 GitHub, use your GitHub account settings.
 
-In **Create Agent**, select the runner to search its repositories or open a PR
-branch. A public HTTPS URL or an empty session folder works without signing in.
+In **New agent**, select the runner to search the repositories its account can
+reach. A pasted public HTTPS repository URL works without signing in.
 
 ## Update or recover
 
