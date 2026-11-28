@@ -113,6 +113,10 @@ export function useCreateAgentForm({
   const [step, setStep] = useState<"config" | "context">("config");
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [createEffort, setCreateEffort] = useState<Effort | null>(null);
+  const [modelChoice, setModelChoice] = useState<{
+    agentType: AgentType;
+    model: string | null;
+  } | null>(null);
   const [createName, setCreateName] = useState("");
   const [createType, setCreateType] = useState<AgentType>(() => {
     const preferred = initialAgentType ?? readLastUsedAgentType();
@@ -193,12 +197,23 @@ export function useCreateAgentForm({
     setBaseBranch: setCreateBaseBranch,
     createNewBranch,
     setCreateNewBranch,
-    model: createModel,
-    setModel: setCreateModel,
+    model: savedModel,
+    setModel: saveModel,
   } = useCreateAgentPrefs(
     targetData.data?.defaults.preferenceKey ?? createCwd,
     createType,
     targetData.defaultBaseBranch
+  );
+  // Location preferences seed a form. Once the person chooses a model, that
+  // choice belongs to this opening, including while another target loads.
+  const createModel =
+    modelChoice?.agentType === createType ? modelChoice.model : savedModel;
+  const setCreateModel = useCallback(
+    (model: string | null) => {
+      setModelChoice({ agentType: createType, model });
+      saveModel(model);
+    },
+    [createType, saveModel]
   );
   const createFullAccess = createType === "opencode" || savedCreateFullAccess;
   const {
@@ -225,6 +240,14 @@ export function useCreateAgentForm({
     createModel && createModel !== defaultModel
       ? effortData.effort
       : targetData.effort;
+  useEffect(() => {
+    if (
+      createEffort !== null &&
+      workloadEffort !== undefined &&
+      !workloadEffort.some((choice) => choice.value === createEffort)
+    )
+      setCreateEffort(null);
+  }, [createEffort, workloadEffort]);
 
   useEffect(() => {
     if (!modelCatalogLoaded || modelOptions.length === 0) return;
@@ -260,9 +283,11 @@ export function useCreateAgentForm({
   ]);
 
   useEffect(() => {
+    if (!targetData.info && enabledAgentTypes.includes(createType)) return;
     if (agentTypes.includes(createType)) return;
     setCreateType(agentTypes[0] ?? "claude");
-  }, [createType, agentTypes]);
+    setCreateEffort(null);
+  }, [createType, agentTypes, targetData.info, enabledAgentTypes]);
 
   useEffect(() => {
     if (step === "context") {
@@ -474,7 +499,6 @@ export function useCreateAgentForm({
         setCreateCwd("");
         setLocationChoice({ projectId: null });
       }
-      setCreateEffort(null);
     },
     submitError,
     createProjectId,
