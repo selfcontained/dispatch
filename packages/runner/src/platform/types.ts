@@ -246,6 +246,11 @@ export interface WorkspacePort {
    * a missing file; otherwise the path is handed over as it is.
    */
   putFile?(path: string, file: { mustExist: boolean }): Promise<string>;
+  /** Inline session files, opened by the workload rather than the transport. */
+  fileBytes?: {
+    put(directory: string, name: string, data: string): Promise<string>;
+    get(source: string): Promise<Buffer>;
+  };
   /** What a folder is for a launch (`path.resolve`), as the workload account. */
   resolvePath?(
     path: string,

@@ -109,6 +109,23 @@ export function checkoutOpens(
   };
 }
 
+/** Bind session terminals through the same checkout selection as reads and watches. */
+export function terminalOpens(
+  store: Pick<BindingStore, "get">,
+  open: OpenHandlers["terminal.open"]
+): OpenHandlers {
+  if (!open) return {};
+  return {
+    async "terminal.open"(input, context) {
+      const target =
+        "session" in input.target
+          ? { path: pathFromWire(await boundDirectory(store, input.target)) }
+          : input.target;
+      return open({ ...input, target }, context);
+    },
+  };
+}
+
 const PULSE = Buffer.from("1");
 
 export function checkoutHandlers(

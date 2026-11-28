@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   pathFromWire,
+  displayPath,
   RunnerCallError,
   sessionFromWire,
   type Req,
@@ -498,4 +499,43 @@ it("probes current and owned checkouts through the workload while frozen", async
       input: { directory: "/launch", request: { path: "file" } },
     },
   ]);
+});
+
+it("resolves terminal session selectors while preserving explicit paths", async () => {
+  const store = new BindingStore(temp());
+  await store.import([
+    {
+      session: "moved",
+      path: "/launch",
+      currentPath: "/moved",
+      worktree: null,
+    },
+  ]);
+  const seen: string[] = [];
+  const { PassThrough } = await import("node:stream");
+  const { terminalOpens } = await import("../src/core/checkout.js");
+  const open = terminalOpens(store, async ({ target }) => {
+    if (!("path" in target)) throw new Error("Expected a resolved path");
+    seen.push(displayPath(target.path));
+    return {
+      info: { cwd: displayPath(target.path), host: "fixture", user: "fixture" },
+      channel: new PassThrough(),
+    };
+  })["terminal.open"]!;
+  const context = { receiveBlob: async () => {}, emit() {} };
+  for (const target of [
+    { session: sessionFromWire("moved") },
+    { session: sessionFromWire("moved"), checkout: "launch" as const },
+    { path: pathFromWire("/explicit") },
+  ]) {
+    const { channel } = await open({ target, cols: 80, rows: 24 }, context);
+    channel.destroy();
+  }
+  expect(seen).toEqual(["/moved", "/launch", "/explicit"]);
+  await expect(
+    open(
+      { target: { session: sessionFromWire("absent") }, cols: 80, rows: 24 },
+      context
+    )
+  ).rejects.toMatchObject({ code: "not_found" });
 });

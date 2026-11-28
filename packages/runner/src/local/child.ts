@@ -34,7 +34,11 @@ import { localSessionHandlers } from "./sessions.js";
 import { repositoryWorkspaceDisposer } from "./workspace.js";
 import type { SessionCoreFactory } from "../core/sessions.js";
 import type { PosixHostEntry } from "../platform/posix-user/sessions.js";
-import { checkoutHandlers, checkoutOpens } from "../core/checkout.js";
+import {
+  checkoutHandlers,
+  checkoutOpens,
+  terminalOpens,
+} from "../core/checkout.js";
 import { repositoryClone, workspaceHandlers } from "../core/workspace.js";
 import { githubHandlers } from "../core/github.js";
 import { engineHandlers } from "../core/engines.js";
@@ -295,6 +299,7 @@ export async function runLocalRunner(
         ...(options.platform && checkoutOpens(store!, options.platform)),
         ...sessions?.opens,
         ...extra?.opens,
+        ...terminalOpens(store!, extra?.opens?.["terminal.open"]),
       },
     },
     fence

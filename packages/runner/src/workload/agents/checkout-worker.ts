@@ -1,3 +1,7 @@
+import {
+  deliverSessionFile,
+  readSessionFileBytes,
+} from "../files/session-bytes.js";
 import { promisify } from "node:util";
 import { childProcessEnv } from "../shared/process/child-environment.js";
 import { repositoryUrl, projectRepositoryUrl } from "@dispatch/runner-protocol";
@@ -1238,6 +1242,14 @@ const repositoryCache = {
 };
 
 export const workspaceWorkload = {
+  fileBytes: {
+    async put(directory: string, name: string, data: string) {
+      await mkdir(directory, { recursive: true });
+      await deliverSessionFile(directory, name, data);
+      return path.join(directory, name);
+    },
+    get: readSessionFileBytes,
+  },
   /** Main's launch folder resolution and project matching (`path.resolve`). */
   resolvePath: (raw: string, options?: Omit<Req<"path.resolve">, "path">) =>
     resolvePath(raw, inferRepositoryUrl, options, resolveProjectRoot),

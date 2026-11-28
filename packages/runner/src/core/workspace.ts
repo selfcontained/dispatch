@@ -1,3 +1,7 @@
+import {
+  isSessionFileData,
+  isSessionFileName,
+} from "@dispatch/runner-protocol";
 import { isDeepStrictEqual } from "node:util";
 /*
  * Preparing a session's checkout from a directory (`workspace.prepare`,
@@ -29,7 +33,7 @@ import { isDeepStrictEqual } from "node:util";
  * with main's branch rules. The receipt records the repository too, so a
  * repeat or `resume` finishes the same checkout.
  */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, join, normalize, resolve, sep } from "node:path";
 import {
@@ -797,9 +801,43 @@ export function workspaceHandlers(
     /**
      * A file the caller hands the session where it is, on a transport that
      * passes a path in place (the local socket): nothing is read or copied.
-     * The bytes of a file are not received here.
+     * Inline bytes use the workload's shared session-file implementation.
      */
     async "files.put"(input: Req<"files.put">, context) {
+      if (isSessionFileData(input.blob)) {
+        const bytes = Buffer.from(input.blob, "base64");
+        if (
+          !isSessionFileName(input.name) ||
+          bytes.length !== input.size ||
+          createHash("sha256").update(bytes).digest("hex") !== input.digest
+        )
+          throw new RunnerCallError({
+            code: "invalid",
+            message: "Invalid session input file.",
+          });
+        if (!port.fileBytes)
+          throw new RunnerCallError({
+            code: "unsupported",
+            message: "Inline session files are unavailable.",
+          });
+        const key = sessionToWire(input.session);
+        return serialize(key, async () => {
+          if (!(await store.get(key)))
+            throw new RunnerCallError({
+              code: "not_found",
+              message: "No checkout is bound to this session",
+            });
+          const directory = join(
+            sessionDir(stateRoot, receiptKey(key)),
+            "files"
+          );
+          return {
+            path: pathFromWire(
+              await port.fileBytes!.put(directory, input.name, input.blob)
+            ),
+          };
+        });
+      }
       // Registered before any await: the frame may follow the request.
       const taken = context.receiveBlobPath?.(input.blob);
       taken?.catch(() => {});
@@ -816,6 +854,32 @@ export function workspaceHandlers(
       const { path, mustExist } = await taken;
       return { path: pathFromWire(await port.putFile(path, { mustExist })) };
     },
+
+    ...(port.fileBytes && {
+      async "files.get"({ session, path: source }: Req<"files.get">) {
+        const binding = await store.get(sessionToWire(session));
+        if (!binding)
+          throw new RunnerCallError({
+            code: "not_found",
+            message: "No checkout is bound to this session",
+          });
+        if (!source || source.includes("\0"))
+          throw new RunnerCallError({
+            code: "invalid",
+            message: "Invalid session file path.",
+          });
+        const file = isAbsolute(source)
+          ? source
+          : `${binding.currentPath ?? binding.checkout.path}/${source}`;
+        const bytes = await port.fileBytes!.get(file);
+        return {
+          name: basename(source),
+          size: bytes.length,
+          digest: createHash("sha256").update(bytes).digest("hex"),
+          blob: bytes.toString("base64"),
+        };
+      },
+    }),
 
     ...(port.launchProbes && {
       "path.complete": port.launchProbes.complete,

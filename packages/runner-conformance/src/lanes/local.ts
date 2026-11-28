@@ -1,3 +1,4 @@
+import { userInfo } from "node:os";
 /*
  * Local lane: the local runner child exactly as an app starts it, through
  * its launcher pipe, reached over its local socket. Its program is the
@@ -185,6 +186,8 @@ export async function startLocalLane(): Promise<Lane> {
       }),
       PATH: `${dirname(engine)}:${process.env.PATH}`,
       HOME: home,
+      USER: userInfo().username,
+      LOGNAME: userInfo().username,
       GH_CONFIG_DIR: join(home, ".config/gh"),
       XDG_CONFIG_HOME: join(home, ".config"),
       TMPDIR: process.env.TMPDIR,

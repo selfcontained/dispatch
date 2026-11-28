@@ -1,17 +1,7 @@
-import { randomUUID } from "node:crypto";
-import { constants } from "node:fs";
-import { open, rename, unlink, writeFile } from "node:fs/promises";
-import path from "node:path";
-import { Transform, type Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
+import { Transform } from "node:stream";
 
-import {
-  isSessionFileData,
-  isSessionFileName,
-  MAX_SESSION_FILE_BASE64,
-  MAX_SESSION_FILE_BYTES,
-} from "@dispatch/runner-protocol";
-import { openLinuxDirectory } from "../../files/open-workspace-file.js";
+import { MAX_SESSION_FILE_BASE64 } from "@dispatch/runner-protocol";
+import { collectFile, deliverSessionFile } from "../../files/session-bytes.js";
 import { executionArgs, setpriv } from "./workload-identity.js";
 
 export function sessionFileCommand(
@@ -26,59 +16,6 @@ export function sessionFileCommand(
     setpriv,
     [...executionArgs(uid, gid), ...helper, kind, root, name],
   ] as const;
-}
-
-/** Open as the workload. O_NONBLOCK lets us reject FIFOs without waiting. */
-async function collectFile(source: string, legacy: boolean) {
-  const file = await open(source, constants.O_RDONLY | constants.O_NONBLOCK);
-  try {
-    if (!(await file.stat()).isFile()) throw new Error("Not a regular file.");
-    const stream = file.createReadStream({ autoClose: false });
-    if (!legacy) {
-      await pipeline(stream, process.stdout);
-      return;
-    }
-    stream.setEncoding("base64");
-    let encoded = "";
-    for await (const chunk of stream) {
-      encoded += chunk;
-      if (Buffer.byteLength(encoded, "base64") > MAX_SESSION_FILE_BYTES)
-        throw new Error("Session files are limited to 20 MiB.");
-    }
-    process.stdout.write(encoded);
-  } finally {
-    await file.close();
-  }
-}
-
-/** Write as the workload into the supervisor's directory, then rename into place. */
-async function deliverSessionFile(
-  root: string,
-  name: string,
-  data: string | Readable
-) {
-  if (
-    !isSessionFileName(name) ||
-    (typeof data === "string" && !isSessionFileData(data))
-  )
-    throw new Error("Invalid session input file.");
-  const dir = await openLinuxDirectory(root);
-  const destination = `/proc/self/fd/${dir.fd}`;
-  const temp = path.join(destination, `.incoming-${randomUUID()}`);
-  try {
-    await writeFile(
-      temp,
-      typeof data === "string" ? Buffer.from(data, "base64") : data,
-      { flag: "wx", mode: 0o600 }
-    );
-    await rename(temp, path.join(destination, name));
-  } finally {
-    try {
-      await unlink(temp).catch(() => {});
-    } finally {
-      await dir.close();
-    }
-  }
 }
 
 /** `receive` passes `<size>:<name>` so the helper can verify the stream. */
