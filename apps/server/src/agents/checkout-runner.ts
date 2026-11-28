@@ -200,8 +200,6 @@ export async function inspectAgentCheckout(
       sessionRunner(runners, agent).call("checkout.changes", {
         target: target(agent),
         base,
-        // Native owner reviews attempt this ref if the usual probes fail.
-        fallback: ["origin/main"],
       })
     );
     return { kind: "changes", ...changes };

@@ -441,7 +441,7 @@ describe("worktree gating", () => {
       completionCriteria: null,
       recoveryInstructions: null,
       useWorktree: true,
-      baseBranch: "main",
+      baseBranch: "",
       branchName: "loop-branch",
     });
   });
@@ -462,7 +462,7 @@ describe("worktree gating", () => {
     expect(onAddJob).toHaveBeenCalledWith({
       ...basePayload(),
       useWorktree: true,
-      baseBranch: "main",
+      baseBranch: "",
       branchName: "feat-y",
     });
   });

@@ -553,7 +553,7 @@ describe("code owner launches through the checkout boundary", () => {
     [{ workspacePath: "/moved", workspaceBaseBranch: null }, null],
     [
       { baseBranch: null, worktreePath: "/managed", worktreeBranch: "feature" },
-      "main",
+      null,
     ],
     [{ baseBranch: null }, null],
   ] as const)(

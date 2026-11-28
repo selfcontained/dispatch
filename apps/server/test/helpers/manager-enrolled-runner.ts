@@ -70,6 +70,8 @@ export function managerEnrolledRunner(
             origin: null,
             git: null,
           };
+        case "git.defaultBranch":
+          return { branch: "main", currentBranch: null };
         case "git.context":
           return null;
         case "checkout.read":

@@ -121,7 +121,7 @@ export function SettingsTab({
   } = target.models;
   const [fullAccess, setFullAccess] = useState(job.fullAccess);
   const [useWorktree, setUseWorktree] = useState(job.useWorktree);
-  const [baseBranch, setBaseBranch] = useState(job.baseBranch ?? "main");
+  const [baseBranch, setBaseBranch] = useState(job.baseBranch ?? "");
   const [branchName, setBranchName] = useState(job.branchName ?? "");
   const [keepAgent, setKeepAgent] = useState(!job.autoArchive);
   const [callable, setCallable] = useState(job.callable);
@@ -168,7 +168,7 @@ export function SettingsTab({
     setPersona(job.persona ?? null);
     setFullAccess(job.fullAccess);
     setUseWorktree(job.useWorktree);
-    setBaseBranch(job.baseBranch ?? "main");
+    setBaseBranch(job.baseBranch ?? "");
     setBranchName(job.branchName ?? "");
     setKeepAgent(!job.autoArchive);
     setCallable(job.callable);
@@ -247,7 +247,7 @@ export function SettingsTab({
                 setLocationEdit({ id: job.id, projectId: null, directory: "" });
                 setBaseBranch(
                   target.launch.list.data?.find((t) => t.key === key)
-                    ?.defaultBaseBranch ?? "main"
+                    ?.defaultBaseBranch ?? ""
                 );
                 target.launch.choose(key);
               }}

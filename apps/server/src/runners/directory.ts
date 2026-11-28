@@ -160,7 +160,7 @@ const localDescription: RunnerDescription = {
   protocol: RUNNER_WIRE_VERSION,
   engines: [],
   capabilities: {
-    sources: { directory: true, repository: true, defaultBaseBranch: "main" },
+    sources: { directory: true, repository: true, defaultBaseBranch: "" },
   },
 };
 

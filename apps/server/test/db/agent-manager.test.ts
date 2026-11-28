@@ -2607,7 +2607,7 @@ describe("AgentManager", () => {
       expect(agent.baseBranch).toBeNull();
     });
 
-    it("should default baseBranch to main for worktree agents when not provided", async () => {
+    it("uses the fixture repository default for worktree agents when not provided", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
         useWorktree: true,

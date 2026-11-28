@@ -415,7 +415,7 @@ describe("launch location preference", () => {
     act(() => result.current.setCreateProjectId("project-b"));
     expect(result.current.createCwd).toBe("/repo/b");
     expect(result.current.createPersona).toBeNull();
-    expect(result.current.createBaseBranch).toBe("main");
+    expect(result.current.createBaseBranch).toBe("");
   });
 
   it("preserves a manual choice made before project data and preferences arrive", async () => {
@@ -760,16 +760,16 @@ describe("handleSubmit", () => {
   });
 
   it.each([undefined, "", "main"])(
-    "preserves main's local base preference and JSON payload for %j",
+    "omits an implicit base and preserves an explicit branch for %j",
     async (base) => {
       const { result } = await setup();
       act(() => result.current.handlePathInfoChange(REPO_INFO));
       if (base !== undefined)
         act(() => result.current.setCreateBaseBranch(base));
-      expect(result.current.createBaseBranch).toBe(base ?? "main");
+      expect(result.current.createBaseBranch).toBe(base ?? "");
 
       await act(async () => result.current.handleSubmit(submitEvent()));
-      expect(agentsPostJson().baseBranch).toBe(base === "" ? "" : undefined);
+      expect(agentsPostJson().baseBranch).toBe(base || undefined);
     }
   );
 

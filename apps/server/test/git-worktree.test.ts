@@ -36,6 +36,8 @@ describe("git worktree services", () => {
       const key = args.join(" ");
 
       switch (key) {
+        case `-C ${repoRoot} symbolic-ref --short -q refs/remotes/origin/HEAD`:
+          return { exitCode: 0, stdout: "origin/main", stderr: "" };
         case `-C ${repoRoot} rev-parse --show-toplevel`:
         case `-C ${path.join(repoRoot, "nested")} rev-parse --show-toplevel`:
           return { exitCode: 0, stdout: repoRoot, stderr: "" };
@@ -91,6 +93,8 @@ describe("git worktree services", () => {
       const key = args.join(" ");
       calls.push(key);
       switch (key) {
+        case `-C ${repoRoot} symbolic-ref --short -q refs/remotes/origin/HEAD`:
+          return { exitCode: 0, stdout: "origin/main", stderr: "" };
         case `-C ${repoRoot} rev-parse --show-toplevel`:
           return { exitCode: 0, stdout: repoRoot, stderr: "" };
         case `-C ${repoRoot} remote get-url origin`:
@@ -144,6 +148,8 @@ describe("git worktree services", () => {
       async (_command, args, options) => {
         const key = args.join(" ");
         switch (key) {
+          case `-C ${repoRoot} symbolic-ref --short -q refs/remotes/origin/HEAD`:
+            return { exitCode: 0, stdout: "origin/main", stderr: "" };
           case `-C ${repoRoot} rev-parse --show-toplevel`:
             return { exitCode: 0, stdout: repoRoot, stderr: "" };
           case `-C ${repoRoot} remote get-url origin`:
@@ -203,6 +209,8 @@ describe("git worktree services", () => {
         return { exitCode: 0, stdout: "", stderr: "" };
       }
       switch (key) {
+        case `-C ${repoRoot} symbolic-ref --short -q refs/remotes/origin/HEAD`:
+          return { exitCode: 0, stdout: "origin/main", stderr: "" };
         case `-C ${repoRoot} rev-parse --show-toplevel`:
           return { exitCode: 0, stdout: repoRoot, stderr: "" };
         case `-C ${repoRoot} remote get-url origin`:
@@ -258,6 +266,8 @@ describe("git worktree services", () => {
       }
 
       switch (key) {
+        case `-C ${repoRoot} symbolic-ref --short -q refs/remotes/origin/HEAD`:
+          return { exitCode: 0, stdout: "origin/main", stderr: "" };
         case `-C ${repoRoot} rev-parse --show-toplevel`:
           return { exitCode: 0, stdout: repoRoot, stderr: "" };
         case `-C ${repoRoot} remote get-url origin`:
@@ -306,6 +316,8 @@ describe("git worktree services", () => {
       const key = args.join(" ");
 
       switch (key) {
+        case `-C ${repoRoot} symbolic-ref --short -q refs/remotes/origin/HEAD`:
+          return { exitCode: 0, stdout: "origin/main", stderr: "" };
         case `-C ${repoRoot} rev-parse --show-toplevel`:
           return { exitCode: 0, stdout: repoRoot, stderr: "" };
         case `-C ${repoRoot} remote get-url origin`:
@@ -346,6 +358,8 @@ describe("git worktree services", () => {
       const key = args.join(" ");
 
       switch (key) {
+        case `-C ${repoRoot} symbolic-ref --short -q refs/remotes/origin/HEAD`:
+          return { exitCode: 0, stdout: "origin/main", stderr: "" };
         case `-C ${repoRoot} rev-parse --show-toplevel`:
           return { exitCode: 0, stdout: repoRoot, stderr: "" };
         case `-C ${repoRoot} remote get-url origin`:
@@ -384,6 +398,8 @@ describe("git worktree services", () => {
       const key = args.join(" ");
 
       switch (key) {
+        case `-C ${repoRoot} symbolic-ref --short -q refs/remotes/origin/HEAD`:
+          return { exitCode: 0, stdout: "origin/main", stderr: "" };
         case `-C ${repoRoot} rev-parse --show-toplevel`:
           return { exitCode: 0, stdout: repoRoot, stderr: "" };
         case `-C ${repoRoot} remote get-url origin`:
@@ -410,6 +426,8 @@ describe("git worktree services", () => {
       const key = args.join(" ");
 
       switch (key) {
+        case `-C ${repoRoot} symbolic-ref --short -q refs/remotes/origin/HEAD`:
+          return { exitCode: 0, stdout: "origin/main", stderr: "" };
         case `-C ${path.join(worktreePath, "nested")} rev-parse --show-toplevel`:
           return { exitCode: 0, stdout: worktreePath, stderr: "" };
         case `-C ${worktreePath} rev-parse --path-format=absolute --git-common-dir`:
@@ -485,6 +503,8 @@ describe("git worktree services", () => {
       const key = args.join(" ");
 
       switch (key) {
+        case `-C ${repoRoot} symbolic-ref --short -q refs/remotes/origin/HEAD`:
+          return { exitCode: 0, stdout: "origin/main", stderr: "" };
         case `-C ${repoRoot} rev-parse --show-toplevel`:
           return { exitCode: 0, stdout: repoRoot, stderr: "" };
         case `-C ${repoRoot} rev-parse --path-format=absolute --git-common-dir`:

@@ -78,12 +78,12 @@ describe("a local agent's comparison base", () => {
     ["worktree in a clone with origin/HEAD", "worktree", "develop"],
     ["no remote, main exists", "localMain", "main"],
     ["no remote default branch: the current branch", "trunk", "trunk"],
-    ["detached head, no default branch", "detached", "main"],
-    ["outside Git", "plain", "main"],
-    ["a folder that is gone", "gone", "main"],
+    ["detached head, no default branch", "detached", null],
+    ["outside Git", "plain", null],
+    ["a folder that is gone", "gone", null],
   ])("%s", async (_name, key, changes) => {
     const agent = worktreeAgent(fixtures[key]!);
-    expect(await agentComparisonBase(agent, "review")).toBe("main");
+    expect(await agentComparisonBase(agent, "review")).toBe(changes);
     expect(await agentComparisonBase(agent, "changes")).toBe(changes);
   });
 

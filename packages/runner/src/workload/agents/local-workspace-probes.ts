@@ -1,3 +1,4 @@
+import { detectDefaultBranch } from "../shared/git/default-branch.js";
 import type { LaunchFolderProbes } from "@dispatch/runner-protocol/in-process";
 import { pathFromWire } from "@dispatch/runner-protocol/contract";
 import os from "node:os";
@@ -113,15 +114,14 @@ export async function listLocalRemoteBranches(input: string) {
     ["-C", cwd, "ls-remote", "--heads", "origin"],
     { timeoutMs: 15_000 }
   );
+  const defaultBranch = await detectDefaultBranch(cwd);
   const branches = result.stdout
     .split("\n")
     .map((line) => line.replace(/^.*refs\/heads\//, "").trim())
     .filter(Boolean)
     .sort((a, b) => {
-      if (a === "main") return -1;
-      if (b === "main") return 1;
-      if (a === "master") return -1;
-      if (b === "master") return 1;
+      if (a === defaultBranch) return -1;
+      if (b === defaultBranch) return 1;
       return a.localeCompare(b);
     });
   return { branches };

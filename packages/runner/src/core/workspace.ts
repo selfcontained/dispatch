@@ -81,6 +81,8 @@ export type Receipt = {
   sourceIdentity: string;
   cwd: string;
   request: WorktreeRequest;
+  /** A directory launch's implicit base, fixed before planning for replay. */
+  resolvedBase?: string;
   /** Session whose current folder supplied this independent checkout. */
   parent?: string;
   /** Ignored files to copy from the source; absent in older receipts. */
@@ -200,10 +202,12 @@ function nestedDir(request: WorktreeRequest): string | undefined {
   return dir;
 }
 
-/** Main's checkout rule: the base defaults to `main`; without a new branch the base is checked out. */
+/** Without a new branch, check out the resolved base itself. */
 function spec(receipt: Receipt): WorktreeSpec {
   const { request, cwd } = receipt;
-  const base = request.base ?? "main";
+  const base = request.base ?? receipt.resolvedBase ?? receipt.worktree?.base;
+  if (!base)
+    throw refused("Could not determine the repository's default branch.", 400);
   return {
     directory: cwd,
     name: request.name,
@@ -357,6 +361,26 @@ export function workspaceHandlers(
     emit({ phase: "workspace" });
     if (!(await sourceMatches(receipt)))
       throw refused("The launch directory was moved or replaced.");
+    if (
+      receipt.request.base === undefined &&
+      receipt.resolvedBase === undefined
+    ) {
+      const context = port.defaultBranch
+        ? null
+        : await port.git(receipt.source);
+      const base = port.defaultBranch
+        ? await port.defaultBranch(receipt.source)
+        : context && context !== "error"
+          ? context.branch
+          : null;
+      if (!base)
+        throw refused(
+          "Could not determine the repository's default branch.",
+          400
+        );
+      receipt.resolvedBase = base;
+      await writeReceipt(dir, receipt);
+    }
     const wanted = spec(receipt);
     const base = wanted.base;
     let made: { path: string; branch: string } | null = null;

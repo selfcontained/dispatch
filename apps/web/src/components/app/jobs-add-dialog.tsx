@@ -128,7 +128,7 @@ export function AddJobFlow({
   const { options: modelOptions, loading: modelCatalogLoading } = target.models;
   const [fullAccess, setFullAccess] = useState(false);
   const [useWorktree, setUseWorktree] = useState(false);
-  const [baseBranch, setBaseBranch] = useState("main");
+  const [baseBranch, setBaseBranch] = useState("");
   const [branchName, setBranchName] = useState("");
   const [keepAgent, setKeepAgent] = useState(false);
   const [callable, setCallable] = useState(false);
@@ -183,7 +183,7 @@ export function AddJobFlow({
                   setDirectory("");
                   setBaseBranch(
                     target.launch.list.data?.find((t) => t.key === key)
-                      ?.defaultBaseBranch ?? "main"
+                      ?.defaultBaseBranch ?? ""
                   );
                   target.launch.choose(key);
                 }}

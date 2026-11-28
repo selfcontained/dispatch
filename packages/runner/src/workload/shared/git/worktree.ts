@@ -1,3 +1,4 @@
+import { detectDefaultBranch } from "./default-branch.js";
 import {
   GitWorktreeError,
   normalizeBaseBranch,
@@ -132,7 +133,16 @@ export async function planGitWorktree(
     commandRunner,
     GitWorktreeError
   );
-  const baseBranch = normalizeBaseBranch(input.baseBranch?.trim() || "main");
+  const defaultBranch =
+    input.baseBranch?.trim() ||
+    (await detectDefaultBranch(repoRoot, commandRunner)) ||
+    (await resolveCurrentBranch(repoRoot, commandRunner));
+  if (!defaultBranch)
+    throw new GitWorktreeError(
+      "Could not determine the repository's default branch.",
+      400
+    );
+  const baseBranch = normalizeBaseBranch(defaultBranch);
   const createNewBranch = input.createNewBranch ?? false;
   const branchName = createNewBranch
     ? normalizeRefName(input.branchName, slugify(name), "branchName")
@@ -282,7 +292,16 @@ export async function cleanupGitWorktree(
     );
   }
 
-  const baseBranch = normalizeBaseBranch(input.baseBranch?.trim() || "main");
+  const defaultBranch =
+    input.baseBranch?.trim() ||
+    (await detectDefaultBranch(repoRoot, commandRunner)) ||
+    (await resolveCurrentBranch(repoRoot, commandRunner));
+  if (!defaultBranch)
+    throw new GitWorktreeError(
+      "Could not determine the repository's default branch.",
+      400
+    );
+  const baseBranch = normalizeBaseBranch(defaultBranch);
   const branchName = await resolveCurrentBranch(worktreePath, commandRunner);
 
   let updatedBaseBranch = false;

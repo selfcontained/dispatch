@@ -2,6 +2,12 @@ import {
   resolveSavedTarget,
   savedLaunchTarget,
 } from "../src/runners/saved-location.js";
+import {
+  readAgentStats,
+  readAgentView,
+  inspectAgentCheckout,
+} from "../src/agents/checkout-runner.js";
+import { runnerDirectory } from "../src/runners/directory.js";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
@@ -40,7 +46,12 @@ const git = async (cwd: string, ...args: string[]) =>
   (await runCommand("git", ["-C", cwd, ...args])).stdout;
 
 async function fixture(
-  options: { install?: "done" | "failed"; interrupt?: boolean } = {}
+  options: {
+    install?: "done" | "failed";
+    interrupt?: boolean;
+    pickBranches?: boolean;
+    defaultBranch?: string;
+  } = {}
 ) {
   const root = await realpath(
     await mkdtemp(path.join(os.tmpdir(), "local-repo-archive-"))
@@ -51,7 +62,7 @@ async function fixture(
   const hosts = path.join(root, "hosts");
   const hookLog = path.join(root, "hooks");
   await mkdir(path.join(source, ".dispatch"), { recursive: true });
-  await git(source, "init", "-q", "-b", "main");
+  await git(source, "init", "-q", "-b", options.defaultBranch ?? "main");
   await git(source, "config", "user.name", "Test");
   await git(source, "config", "user.email", "test@example.test");
   await writeFile(path.join(source, "base.txt"), "base\n");
@@ -155,7 +166,7 @@ async function fixture(
     expect(
       (await child.session.call("git.branches", { target: { repository } }))
         .branches
-    ).toContain("main");
+    ).toContain(options.defaultBranch ?? "main");
   }
   const session = sessionFromWire("agt_archive_repository");
   const controller = new AbortController();
@@ -511,3 +522,69 @@ it.each(["discard", "archive"] as const)(
     }
   }
 );
+
+it("launches, compares, reviews and archives against master without an explicit base", async () => {
+  const f = await fixture({ defaultBranch: "master", pickBranches: true });
+  f.agent.baseBranch = null;
+  const runners = { child: () => f.child.session };
+  const selected = runnerDirectory(runners, f.agent).for(controllerPlacement);
+  expect(
+    await selected.call("git.defaultBranch", { target: { session: f.session } })
+  ).toEqual({ branch: "master", currentBranch: "feature/archive" });
+  expect(
+    await runnerDirectory({}, f.agent)
+      .for(controllerPlacement)
+      .call("git.defaultBranch", { target: { session: f.session } })
+  ).toEqual({ branch: "master", currentBranch: "feature/archive" });
+  await expect(
+    selected.call("git.defaultBranch", {
+      target: { session: sessionFromWire("agt_other") },
+    })
+  ).rejects.toMatchObject({ code: "invalid" });
+  expect(await git(f.clone, "branch", "--list", "main")).toBe("");
+  expect(
+    JSON.parse(
+      await readFile(
+        path.join(f.hosts, f.agent.id, "workspace-preparation"),
+        "utf8"
+      )
+    ).worktree.base
+  ).toBe("master");
+  await writeFile(path.join(f.checkout, "base.txt"), "base\nchanged\n");
+  expect(await readAgentStats(f.agent.id, f.agent, runners)).toMatchObject({
+    kind: "success",
+    stats: { files: 1, added: 1 },
+  });
+  expect(
+    await readAgentView(
+      f.agent,
+      {
+        kind: "diff",
+        baseBranch: null,
+        includeUncommitted: true,
+        ignoreWhitespace: false,
+      },
+      runners
+    )
+  ).toMatchObject({ files: [{ path: "base.txt" }] });
+  expect(
+    await inspectAgentCheckout(
+      f.agent,
+      { kind: "changes", baseBranch: null },
+      runners
+    )
+  ).toMatchObject({
+    kind: "changes",
+    baseRef: "origin/master",
+    files: ["base.txt"],
+  });
+  await beginArchive(f.deps, f.agent.id, "force");
+  await executeArchive(f.deps, f.agent.id, f.callbacks);
+  expect(f.callbacks.onError).not.toHaveBeenCalled();
+  expect(f.deleted()).toBe(true);
+  expect(existsSync(f.checkout)).toBe(false);
+  expect(await git(f.clone, "branch", "--list", "feature/archive")).toBe("");
+  expect(await git(f.clone, "rev-parse", "--verify", "origin/master")).toMatch(
+    /[a-f0-9]{40}/
+  );
+});

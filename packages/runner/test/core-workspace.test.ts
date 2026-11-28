@@ -46,10 +46,10 @@ const git = (cwd: string, ...args: string[]) =>
     stdio: ["ignore", "pipe", "ignore"],
   }).trim();
 
-function repository(root: string) {
+function repository(root: string, defaultBranch = "main") {
   const checkout = join(root, "repo");
   mkdirSync(checkout);
-  git(checkout, "init", "-q", "-b", "main");
+  git(checkout, "init", "-q", "-b", defaultBranch);
   git(
     checkout,
     "-c",
@@ -361,7 +361,7 @@ describe("workspace.prepare from a directory", () => {
       { phase: "dependencies", status: "done", detail: "nothing to install" },
       { phase: "ready" },
     ]);
-    // Main's rule: the base defaults to main.
+    // The fixture repository defaults to main.
     expect(calls[0]).toBe("plan feature/w main true");
     expect(readFileSync(join(made, ".local"), "utf8")).toBe("secret\n");
     expect(await store.get("w")).toMatchObject({
@@ -969,4 +969,27 @@ it("preserves borrowed Local bindings across restart imports and an ordered pare
   ).toEqual({ removed: true });
   expect(existsSync(tree)).toBe(false);
   expect(existsSync(repo)).toBe(true);
+});
+
+it("records a master default before preparation and reuses it on replay", async () => {
+  const { root, connection, state } = await harness();
+  const checkout = repository(root, "master");
+  const input = request("master-session", checkout, {
+    name: "Master",
+    branch: "feature/master",
+    create: true,
+  });
+  const prepared = await connection.call("workspace.prepare", input);
+  expect(prepared.worktree).toMatchObject({
+    branch: "feature/master",
+    base: "master",
+  });
+  const receipt = JSON.parse(
+    readFileSync(join(state, "master-session", "workspace-preparation"), "utf8")
+  );
+  expect(receipt.resolvedBase).toBe("master");
+  expect(receipt.request).not.toHaveProperty("base");
+  git(checkout, "branch", "main");
+  const replay = await connection.call("workspace.prepare", input);
+  expect(replay.worktree).toEqual(prepared.worktree);
 });

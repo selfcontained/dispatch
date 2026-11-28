@@ -260,6 +260,8 @@ export interface WorkspacePort {
     path: string,
     options?: Omit<Req<"path.resolve">, "path">
   ): Promise<Res<"path.resolve">>;
+  /** The repository default (or current branch for a local-only repository). */
+  defaultBranch?(directory: string): Promise<string | null>;
   /** The canonical path of an existing directory, else null. */
   canonical(path: string): Promise<string | null>;
   /**

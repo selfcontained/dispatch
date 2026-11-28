@@ -114,7 +114,7 @@ const ctx = useInjectApp({
           checkoutRoot: pathFromWire(checkout),
         };
       },
-      "git.defaultBranch": () => ({ branch: null }),
+      "git.defaultBranch": () => ({ branch: "main", currentBranch: null }),
       "workspace.prepare": async ({ source, worktree }) => {
         if ("directory" in source && source.directory === outside) {
           expect(worktree).toBeUndefined();

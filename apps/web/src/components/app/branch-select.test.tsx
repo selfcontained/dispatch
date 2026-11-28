@@ -39,7 +39,7 @@ it("loads local branches on first open and reuses the list on reopen", async () 
   expect(api).toHaveBeenCalledTimes(1);
 });
 
-it("keeps local branch order and never emits an empty local base", async () => {
+it("keeps local branch order and emits an implicit repository default", async () => {
   stubLayout();
   vi.mocked(api).mockResolvedValue({
     branches: ["trunk", "main"],
@@ -65,7 +65,7 @@ it("keeps local branch order and never emits an empty local base", async () => {
   fireEvent.click(screen.getByRole("option", { name: "trunk" }));
   fireEvent.click(control);
   fireEvent.click(screen.getByRole("option", { name: "main" }));
-  expect(onBaseBranchChange.mock.calls).toEqual([["trunk"], ["main"]]);
+  expect(onBaseBranchChange.mock.calls).toEqual([[""], ["main"]]);
 });
 
 const props = {

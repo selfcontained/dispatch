@@ -345,7 +345,7 @@ describe("DiffStatsRefresher", () => {
     });
 
     await refresher.signal("a1");
-    expect(compute).toHaveBeenCalledWith("/actual/worktree", "main");
+    expect(compute).toHaveBeenCalledWith("/actual/worktree", null);
   });
 
   it("publishes null when both worktreePath and cwd are missing", async () => {
@@ -367,7 +367,7 @@ describe("DiffStatsRefresher", () => {
     expect(refresher.getStats("a1")).toBeNull();
   });
 
-  it("defaults worktree-backed agents to main when baseBranch is missing", async () => {
+  it("leaves an unresolved worktree base for the runner to determine", async () => {
     const agents = setupAgents([
       [
         "with-base",
@@ -398,7 +398,7 @@ describe("DiffStatsRefresher", () => {
     expect(compute).toHaveBeenCalledWith("/tmp/wt", "trunk");
 
     await refresher.signal("no-base");
-    expect(compute).toHaveBeenCalledWith("/tmp/wt", "main");
+    expect(compute).toHaveBeenCalledWith("/tmp/wt", null);
 
     await refresher.signal("repo-no-base");
     expect(compute).toHaveBeenCalledWith("/tmp/repo", null);

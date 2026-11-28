@@ -1,3 +1,4 @@
+import { detectDefaultBranch } from "./default-branch.js";
 import { runCommand, type CommandRunner } from "../lib/run-command.js";
 
 export type ResolveBaseRefOptions = {
@@ -24,7 +25,7 @@ async function resolveTargetBranch(
   worktreePath: string,
   preferred: string | null | undefined,
   options: ResolveBaseRefOptions = {}
-): Promise<string> {
+): Promise<string | null> {
   const preferredBranch = normalizeBranchName(preferred);
   if (preferredBranch) {
     return preferredBranch;
@@ -41,7 +42,7 @@ async function resolveTargetBranch(
         const upstreamRef = upstream.stdout.trim();
         // Review diff refreshes only the origin tracking refs that Dispatch
         // worktrees are created against. Non-origin upstreams intentionally
-        // fall through to the origin/main default below.
+        // fall through to the repository default below.
         if (upstreamRef.startsWith("origin/")) {
           const upstreamBranch = normalizeBranchName(upstreamRef);
           if (upstreamBranch) {
@@ -51,17 +52,14 @@ async function resolveTargetBranch(
       }
     } catch (error) {
       options.onError?.(error);
-      // No upstream configured — fall through to origin/main.
+      // No upstream configured — fall through to the repository default.
     }
   }
 
-  return "main";
+  return null;
 }
 
 function candidateRefsForBranch(branchName: string): string[] {
-  if (branchName === "main") {
-    return ["origin/main", "main"];
-  }
   return [`origin/${branchName}`, branchName];
 }
 
@@ -71,12 +69,10 @@ export async function refreshRemoteBaseRef(
   options: ResolveBaseRefOptions = {}
 ): Promise<void> {
   const run = options.runCommand ?? runCommand;
-  const remoteBranch = await resolveTargetBranch(
-    run,
-    worktreePath,
-    preferred,
-    options
-  );
+  const remoteBranch =
+    (await resolveTargetBranch(run, worktreePath, preferred, options)) ??
+    (await detectDefaultBranch(worktreePath, run, options.onError));
+  if (!remoteBranch) return;
 
   try {
     await run(
@@ -94,11 +90,10 @@ export async function refreshRemoteBaseRef(
  * fallback chain used elsewhere in the agent flow:
  *
  *   1. `preferred` (e.g. `agent.baseBranch`) if it resolves
- *      Special case: prefer `origin/main` over local `main` so stale
- *      primary-checkout branches do not inflate worktree diff stats.
+ *      Remote tracking refs precede local refs so a stale primary checkout
+ *      does not inflate worktree diff stats.
  *   2. the current branch's `@{upstream}` (unless disabled by the caller)
- *   3. `origin/main`
- *   4. `main`
+ *   3. the repository's default branch (origin tracking ref, then local)
  *
  * Returns the first ref that `git rev-parse --verify --quiet` accepts, or
  * `null` if none do. The function does NOT fetch from origin; callers that
@@ -118,12 +113,18 @@ export async function resolveBaseRef(
     preferred,
     options
   );
-  for (const ref of candidateRefsForBranch(branchName)) {
-    const found = await refExists(run, worktreePath, ref, options.onError);
-    if (found) return found;
+  if (branchName) {
+    for (const ref of candidateRefsForBranch(branchName)) {
+      const found = await refExists(run, worktreePath, ref, options.onError);
+      if (found) return found;
+    }
   }
-
-  for (const ref of options.fallback ?? ["origin/main", "main"]) {
+  const defaultBranch =
+    options.fallback === undefined
+      ? await detectDefaultBranch(worktreePath, run, options.onError)
+      : null;
+  for (const ref of options.fallback ??
+    (defaultBranch ? candidateRefsForBranch(defaultBranch) : [])) {
     if (await refExists(run, worktreePath, ref, options.onError)) return ref;
   }
   return null;

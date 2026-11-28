@@ -37,9 +37,7 @@ export async function resolveTemplateLaunch(
   const workspace = templateWorktreeConfig(template);
   const baseBranch = workspace.baseBranch?.trim()
     ? normalizeBaseBranch(workspace.baseBranch)
-    : workspace.useWorktree
-      ? "main"
-      : null;
+    : null;
   const branchName = workspace.worktreeBranch?.trim()
     ? assertSafeRefName(workspace.worktreeBranch, "worktreeBranch")
     : null;

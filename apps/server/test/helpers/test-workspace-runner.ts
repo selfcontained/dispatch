@@ -32,6 +32,8 @@ export function withTestWorkspaceRunner(Manager: typeof AgentManager) {
         new BindingStore(directory),
         {
           ...workspaceWorkload,
+          // These manager fixtures model a main-default repository.
+          defaultBranch: async () => "main",
           async plan(spec) {
             return {
               path: join(directory, "mock-worktree"),
@@ -96,6 +98,8 @@ export function withTestWorkspaceRunner(Manager: typeof AgentManager) {
               )) as Res<K>;
             }
           }
+          if (op === "git.defaultBranch")
+            return { branch: "main", currentBranch: "main" } as Res<K>;
           if (op === "workspace.describe")
             throw new RunnerCallError({
               code: "not_found",

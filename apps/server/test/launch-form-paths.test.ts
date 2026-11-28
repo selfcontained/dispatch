@@ -122,17 +122,22 @@ it.each([
   }
 });
 
-it("lists remote heads in main, master, locale order and returns main's 500 on failure", async () => {
+it("lists the repository default first and returns the existing 500 on failure", async () => {
   const run = vi.spyOn(command, "runCommand").mockResolvedValueOnce({
     exitCode: 0,
     stdout:
       "aaa\trefs/heads/topic\naaa\trefs/heads/master\naaa\trefs/heads/alpha\naaa\trefs/heads/main\n",
     stderr: "",
   });
+  run.mockResolvedValueOnce({
+    exitCode: 0,
+    stdout: "origin/master",
+    stderr: "",
+  });
   const request = () =>
     app.inject({ url: "/api/v1/git/branches", query: { cwd: " ~ " } });
   expect((await request()).body).toBe(
-    '{"branches":["main","master","alpha","topic"]}'
+    '{"branches":["master","alpha","main","topic"]}'
   );
   expect(run).toHaveBeenCalledWith(
     "git",

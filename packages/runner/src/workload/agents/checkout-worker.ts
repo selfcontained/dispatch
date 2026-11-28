@@ -242,7 +242,7 @@ async function work<K extends WorkerOp>(
 ): Promise<unknown> {
   // Repository launches record the resolved default branch on their feature
   // branch. A null comparison base asks the checkout to resolve it; do this
-  // before the legacy Git helpers fall back to main.
+  // before resolving the upstream or repository default.
   if (
     (op === "checkout.stats" ||
       op === "checkout.diff" ||
@@ -1320,6 +1320,14 @@ export const workspaceWorkload = {
       bounded
     );
     return true;
+  },
+  async defaultBranch(directory: string) {
+    const { branch, currentBranch } = await readGitQuery(
+      "git.defaultBranch",
+      directory,
+      { target: { path: pathFromWire(directory) } }
+    );
+    return branch ?? currentBranch;
   },
   canonical: async (directory: string) => {
     const found = await stat(directory).catch(() => null);

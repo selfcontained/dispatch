@@ -45,7 +45,6 @@ beforeAll(async () => {
     checkout,
     "master"
   );
-  git(root, "config", "branch.feature.dispatchReviewBase", "master");
   await writeFile(
     path.join(checkout, "README"),
     "original\nuncommitted edit\n"
@@ -56,7 +55,7 @@ afterAll(async () => {
 });
 
 it.each(["local", "enrolled"] as const)(
-  "reads an uncommitted repository-worktree edit through %s",
+  "compares a master-default repository-worktree through %s without a saved base",
   async (lane) => {
     const store = new BindingStore(path.join(root, "state"));
     await store.import([
@@ -89,7 +88,7 @@ it.each(["local", "enrolled"] as const)(
       new AbortController().signal
     );
     const call = async (
-      op: "checkout.diff" | "checkout.stats",
+      op: "checkout.diff" | "checkout.stats" | "checkout.changes",
       uncommitted = true
     ) => {
       const input = {
@@ -115,5 +114,9 @@ it.each(["local", "enrolled"] as const)(
       deleted: 0,
     });
     expect(await call("checkout.diff", false)).toMatchObject({ files: [] });
+    expect(await call("checkout.changes")).toMatchObject({
+      baseRef: "master",
+      files: ["README"],
+    });
   }
 );

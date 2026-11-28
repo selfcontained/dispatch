@@ -296,7 +296,7 @@ describe("native executor base", () => {
     workspacePath: null,
   });
 
-  it("attempts origin/main for a native owner review if base probes cannot resolve a ref", async () => {
+  it("refuses a native owner review when no base can be resolved", async () => {
     git(checkout, "fetch", "origin", "main");
     const resolve = vi
       .spyOn(baseRefHelpers, "resolveBaseRef")
@@ -305,9 +305,7 @@ describe("native executor base", () => {
     try {
       await expect(
         inspectAgentCheckout(agent() as AgentRecord, query)
-      ).resolves.toMatchObject({
-        baseRef: "origin/main",
-      });
+      ).rejects.toThrow("Could not resolve checkout base");
       await expect(inspectCheckout(checkout, query)).rejects.toThrow(
         "Could not resolve checkout base"
       );
@@ -455,7 +453,7 @@ JSON
     git(checkout, "config", "branch.feature.dispatchReviewBase", "trunk.");
     await expect(
       inspect(checkout, { kind: "changes", baseBranch: null })
-    ).rejects.toThrow(/origin\/main/);
+    ).rejects.toThrow(/Could not resolve checkout base/);
   });
 
   it("changes stateId for staged and unstaged edits to the same paths", async () => {
@@ -594,7 +592,7 @@ exec "$CHECKOUT_TEST_GIT" "$@"
     git(repo, "branch", "-m", "main", "trunk");
     await expect(
       inspect(checkout, { kind: "changes", baseBranch: "unknown" })
-    ).rejects.toThrow(/origin\/main/);
+    ).rejects.toThrow(/Could not resolve checkout base/);
   });
 
   it("reads a scratch-session persona without requiring a repository", async () => {

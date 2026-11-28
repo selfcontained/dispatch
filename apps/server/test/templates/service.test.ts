@@ -511,3 +511,22 @@ it("launches a saved Local repository-only template by project without a folder"
     expect.objectContaining({ cwd: "", projectId: "repo" })
   );
 });
+
+it("leaves an unpicked template base for the runner to resolve", async () => {
+  const { resolveTemplateLaunch } =
+    await import("../../src/templates/resolve-launch.js");
+  expect(
+    (
+      await resolveTemplateLaunch(
+        buildTemplate({ useWorktree: true, baseBranch: null })
+      )
+    ).baseBranch
+  ).toBeNull();
+  expect(
+    (
+      await resolveTemplateLaunch(
+        buildTemplate({ useWorktree: true, baseBranch: "master" })
+      )
+    ).baseBranch
+  ).toBe("master");
+});
