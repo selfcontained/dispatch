@@ -71,9 +71,7 @@ describe("local coverage", () => {
         expect(remoteScenarios.includes(scenario), scenario.id).toBe(true);
     }
     for (const op of [
-      "github.account",
       "github.login.start",
-      "github.logout",
       "engine.login.start",
       "engine.update",
       "port.connect",

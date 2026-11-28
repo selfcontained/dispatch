@@ -150,6 +150,12 @@ export interface EnginePort {
  * write nothing, so a frozen runner serves them.
  */
 export interface GitHubPort {
+  management?: {
+    handle(
+      action: import("@dispatch/runner-protocol").GitHubOperation,
+      signal: AbortSignal
+    ): Promise<unknown>;
+  };
   repositories?(
     request: Req<"github.repositories">
   ): Promise<Res<"github.repositories">>;

@@ -1113,6 +1113,43 @@ const workspaceRelease: Scenario = {
 /** Offline contract checks: all paths and repositories come from the lane. */
 const offlineScenarios: readonly Scenario[] = [
   {
+    op: "github.login.cancel",
+    id: "github.login.cancel/no-login",
+    async run({ runner }) {
+      const result = await runner.call("github.login.cancel", {
+        requestId: "conformance-cancel",
+      });
+      expect(
+        result.status === "signed-out",
+        "Cancelling an absent login changed account state."
+      );
+    },
+  },
+  {
+    op: "github.logout",
+    id: "github.logout/already-signed-out",
+    async run({ runner }) {
+      for (let i = 0; i < 2; i++) {
+        const result = await runner.call("github.logout", {});
+        expect(
+          result.status === "signed-out",
+          "Repeated signed-out logout was not idempotent."
+        );
+      }
+    },
+  },
+  {
+    op: "github.account",
+    id: "github.account/signed-out",
+    async run({ runner }) {
+      const result = await runner.call("github.account", {});
+      expect(
+        result.status === "signed-out",
+        "Isolated GitHub config did not report signed out."
+      );
+    },
+  },
+  {
     op: "workspace.describe",
     id: "workspace.describe/binding-and-missing",
     async run({ runner, session }) {

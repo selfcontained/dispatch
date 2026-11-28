@@ -268,7 +268,10 @@ export async function runLocalRunner(
           repositoryClone(repository, join(message.roots.state, "repositories"))
       )
     : {};
-  const github = options.platform ? githubHandlers(options.platform) : {};
+  const githubLifetime = new AbortController();
+  const github = options.platform
+    ? githubHandlers(options.platform, githubLifetime.signal)
+    : {};
   const engines = options.platform ? engineHandlers(options.platform) : {};
   const socket = await serveSocket(
     socketPath,
@@ -298,6 +301,7 @@ export async function runLocalRunner(
   );
 
   const shutdown = async () => {
+    githubLifetime.abort();
     socket.close();
     // A sign-in's CLI waits on its own process group; end it with the runner.
     options.platform?.engines?.close();

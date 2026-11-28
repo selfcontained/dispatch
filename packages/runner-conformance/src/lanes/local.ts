@@ -43,6 +43,7 @@ import {
 } from "@dispatch/runner-protocol/contract";
 import { checked } from "../checked.js";
 import { LaneUnavailable, type Lane } from "../run.js";
+import { FIXTURE_GITHUB } from "./fixtures.js";
 import { launchRequest } from "../session.js";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
@@ -103,6 +104,10 @@ export async function startLocalLane(): Promise<Lane> {
   mkdirSync(dirname(engine));
   writeFileSync(engine, FIXTURE_ENGINE);
   chmodSync(engine, 0o755);
+  const home = join(dir, "home");
+  mkdirSync(join(home, ".config/gh"), { recursive: true });
+  writeFileSync(join(dirname(engine), "gh"), FIXTURE_GITHUB);
+  chmodSync(join(dirname(engine), "gh"), 0o755);
   run("git", ["init", "-q", "-b", "main", checkout]);
   writeFileSync(
     join(checkout, "package.json"),
@@ -178,8 +183,10 @@ export async function startLocalLane(): Promise<Lane> {
           adapter: { bin: bun, args: [adapter] },
         },
       }),
-      PATH: process.env.PATH,
-      HOME: process.env.HOME,
+      PATH: `${dirname(engine)}:${process.env.PATH}`,
+      HOME: home,
+      GH_CONFIG_DIR: join(home, ".config/gh"),
+      XDG_CONFIG_HOME: join(home, ".config"),
       TMPDIR: process.env.TMPDIR,
       SHELL: process.env.SHELL,
       BUN_RUNTIME_TRANSPILER_CACHE_PATH:

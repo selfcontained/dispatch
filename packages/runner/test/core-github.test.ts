@@ -104,3 +104,36 @@ it("serves repository search on the same local core GitHub port", async () => {
   ).toEqual(result);
   expect(repositories).toHaveBeenCalledWith({ query: "repo" });
 });
+
+it("shares account management across placements, with runner-lifetime cancellation", async () => {
+  const handle = vi.fn(async (..._args: [unknown, AbortSignal]) => ({
+    status: "signed-out",
+  }));
+  const lifetime = new AbortController();
+  const calls = githubHandlers(
+    {
+      workload,
+      github: {
+        management: { handle },
+        pullRequestHead: vi.fn(),
+        pullRequestStatus: vi.fn(),
+        pullRequestDetails: vi.fn(),
+        pullRequestDiff: vi.fn(),
+      },
+    },
+    lifetime.signal
+  );
+  for (const [op, type] of [
+    ["github.account", "status"],
+    ["github.login.start", "login"],
+    ["github.login.cancel", "cancel"],
+    ["github.logout", "logout"],
+  ] as const) {
+    expect(
+      await calls[op]!({ requestId: "fixture" } as never, {} as never)
+    ).toEqual({ status: "signed-out" });
+    expect(handle).toHaveBeenLastCalledWith({ type }, lifetime.signal);
+  }
+  lifetime.abort();
+  expect(handle.mock.calls.at(-1)?.[1].aborted).toBe(true);
+});

@@ -1,3 +1,4 @@
+import { FIXTURE_GITHUB } from "./fixtures.js";
 /*
  * Remote lane: the compiled runner program on Linux in a Docker container,
  * with real TLS, the privilege-separated workload account and the authenticated operation carrier.
@@ -157,6 +158,10 @@ esac
 `;
 
 const ENTRYPOINT = `#!/bin/sh
+cat > /usr/local/bin/gh <<'FIXTURE_GH'
+${FIXTURE_GITHUB}
+FIXTURE_GH
+chmod 755 /usr/local/bin/gh
 set -eu
 getent passwd ${UID} >/dev/null || useradd -u ${UID} -m -d /home/workload workload
 install -d -m 700 /run/cfg /var/lib/runner
