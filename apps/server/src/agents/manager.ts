@@ -3409,10 +3409,14 @@ export class AgentManager {
             await write({
               phase: "deps",
               status: step.status,
-              ...(step.status === "failed" && {
-                detail:
-                  "The runner could not install dependencies. Launch is continuing.",
-              }),
+              ...(step.detail
+                ? { detail: step.detail }
+                : step.status === "failed"
+                  ? {
+                      detail:
+                        "The runner could not install dependencies. Launch is continuing.",
+                    }
+                  : {}),
             });
           } else {
             await write({ phase: "deps" });
@@ -4720,6 +4724,11 @@ export class AgentManager {
             archive
           );
           if (outcome.kind === "pending") continue;
+          if (
+            agent.repositorySource &&
+            !enrolledRunnerId(placementFromRow(agent))
+          )
+            await this.runtime.clearRemoteState?.(id);
           await this.pool.query(
             `UPDATE agents SET runner_cleanup_pending = false, archive_cleanup_mode = NULL, archive_checkout_state = NULL,
              runner_preparation = runner_preparation - 'pending' WHERE id = $1`,

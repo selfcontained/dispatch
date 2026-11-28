@@ -9,12 +9,49 @@ import {
   storedLocation,
 } from "../src/runners/saved-location.js";
 import { AgentManager } from "../src/agents/manager.js";
-import { controllerPlacement } from "../src/runners/placement.js";
+import {
+  controllerPlacement,
+  placementForRunner,
+} from "../src/runners/placement.js";
 import {
   archiveRunner,
   withRepositorySource,
 } from "../src/agents/archive-checkout.js";
 import { prepareRecordedWorkspace } from "../src/agents/workspace-launch.js";
+
+it.each(["local", "runner_fixture"])(
+  "retains dependency diagnostics in %s startup progress",
+  async (runner) => {
+    const recordStartupStep = vi.fn().mockResolvedValue(null);
+    const manager = Object.assign(Object.create(AgentManager.prototype), {
+      launchContextRecorder: { recordStartupStep },
+      setSetupPhase: vi.fn().mockResolvedValue(undefined),
+      logger: { warn: vi.fn() },
+    });
+    const progress = manager.runnerWorkspaceProgress(
+      { id: "agent", type: "codex", placement: placementForRunner(runner) },
+      true
+    );
+    const detail =
+      "pnpm install failed; continuing launch; dependencies may be incomplete. Command timed out (pnpm install), timeoutMs=120000";
+    progress.onEvent({ phase: "dependencies" });
+    progress.onEvent({ phase: "dependencies", status: "failed", detail });
+    progress.onEvent({ phase: "ready" });
+    await progress.settled();
+    expect(recordStartupStep).toHaveBeenCalledWith({
+      agentId: "agent",
+      phase: "deps",
+      label: "Installing dependencies",
+      status: "failed",
+      detail,
+    });
+    expect(recordStartupStep).toHaveBeenLastCalledWith({
+      agentId: "agent",
+      phase: "session",
+      label: "Starting Codex",
+    });
+  }
+);
 
 it("records a Local repository-only project as a repository-source preparation without resolving a folder", async () => {
   const root = await mkdtemp(join(tmpdir(), "local-repository-launch-"));

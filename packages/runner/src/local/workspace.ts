@@ -24,7 +24,9 @@ export function repositoryWorkspaceDisposer(
     const result = await release(
       {
         session,
-        deleteBranch: receipt.request.create,
+        // Discard removes the checkout, as on linux-privsep; its branch can
+        // hold unpublished commits and remains in the repository cache.
+        deleteBranch: false,
         originalBranch:
           receipt.worktree?.branch ?? receipt.pending?.branch ?? null,
       },

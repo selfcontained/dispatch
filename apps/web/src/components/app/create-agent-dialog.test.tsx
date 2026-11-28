@@ -670,7 +670,7 @@ it("adds Local repository search alongside the unchanged folder path and history
 });
 
 it("lets Local search for its first project without an existing project", async () => {
-  mount("codex", catalog, false, "/agents", true);
+  const { client } = mount("codex", catalog, false, "/agents", true);
   const original = vi.mocked(api).getMockImplementation()!;
   vi.mocked(api).mockImplementation(async (path, init) => {
     if (path === "/api/v1/projects") return [];
@@ -681,6 +681,13 @@ it("lets Local search for its first project without an existing project", async 
       ).targets[0].location.projects = [];
     return value;
   });
+  await act(async () => {});
+  await act(async () => {
+    await Promise.all([
+      client.refetchQueries({ queryKey: ["projects"] }),
+      client.refetchQueries({ queryKey: ["launch-targets"] }),
+    ]);
+  });
   await screen.findByRole("radio", { name: "Project" });
   await waitFor(() =>
     expect(screen.getByRole("radio", { name: "Project" })).toHaveProperty(
@@ -688,8 +695,35 @@ it("lets Local search for its first project without an existing project", async 
       false
     )
   );
+  const folder = screen.getByTestId("create-agent-cwd");
+  const branch = screen.getByTestId("create-agent-base-branch");
+  expect(branch.closest("[aria-hidden]")?.getAttribute("aria-hidden")).toBe(
+    "true"
+  );
+  expect(branch.closest(".min-h-20")).toBeNull();
   fireEvent.click(screen.getByRole("radio", { name: "Project" }));
-  await screen.findByRole("combobox", { name: "Project or repository" });
+  const trigger = await screen.findByRole("combobox", {
+    name: "Project or repository",
+  });
+  const label = document.getElementById(
+    trigger.getAttribute("aria-labelledby")!
+  );
+  expect(label?.className).toBe("text-body-sm font-medium text-foreground");
+  expect(label?.getAttribute("for")).toBe(trigger.id);
+  expect(branch.closest("[aria-hidden]")?.getAttribute("aria-hidden")).toBe(
+    "false"
+  );
+  expect(branch).toHaveProperty("disabled", true);
+  expect(screen.getByTestId("create-agent-worktree-branch")).toHaveProperty(
+    "disabled",
+    true
+  );
+  fireEvent.click(screen.getByRole("radio", { name: "Folder" }));
+  expect(screen.getByTestId("create-agent-cwd")).toBe(folder);
+  expect(branch.closest("[aria-hidden]")?.getAttribute("aria-hidden")).toBe(
+    "true"
+  );
+  expect(branch.closest(".min-h-20")).toBeNull();
 });
 
 it.each(["Local", "Runner A"])(

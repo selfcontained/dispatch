@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
 import {
   Command,
   CommandGroup,
@@ -171,10 +172,7 @@ export function RunnerRepositoryPicker({
   const dialog = trigger.current?.closest<HTMLElement>('[role="dialog"]');
 
   return (
-    <div className="space-y-1">
-      <label id={labelId} className="text-body-md text-muted-foreground">
-        Project or repository
-      </label>
+    <Field label="Project or repository" id={labelId}>
       <div className="flex gap-1">
         <Popover open={open} onOpenChange={changeOpen}>
           <PopoverTrigger asChild>
@@ -183,7 +181,8 @@ export function RunnerRepositoryPicker({
               size="md"
               className="min-w-0 flex-1 justify-between"
               ref={trigger}
-              aria-labelledby={labelId}
+              id={labelId}
+              aria-labelledby={`${labelId}-label`}
               role="combobox"
               aria-required="true"
               disabled={pending}
@@ -364,6 +363,6 @@ export function RunnerRepositoryPicker({
           </PopoverContent>
         </Popover>
       </div>
-    </div>
+    </Field>
   );
 }

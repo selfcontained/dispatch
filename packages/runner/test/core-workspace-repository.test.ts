@@ -721,7 +721,7 @@ it("refuses to remove a replacement at an interrupted preparation's path", async
 });
 
 it.each(["bound", "worktree", "pending"])(
-  "local discard releases the managed repository checkout (%s)",
+  "local discard releases the managed repository checkout and preserves unpublished commits (%s)",
   async (stage) => {
     const { root, state, store, connection } = await harness(
       true,
@@ -739,6 +739,11 @@ it.each(["bound", "worktree", "pending"])(
     );
     const file = join(state, "discard-repository", "workspace-preparation");
     const receipt = JSON.parse(readFileSync(file, "utf8"));
+    const checkout = displayPath(made.path);
+    writeFileSync(join(checkout, "unpublished.txt"), "keep this commit\n");
+    git(checkout, "add", "unpublished.txt");
+    commit(checkout, "unpublished work");
+    const head = git(checkout, "rev-parse", "HEAD");
     if (stage !== "bound") await store.forget("discard-repository");
     if (stage === "pending") {
       const { worktree, ...rest } = receipt;
@@ -755,7 +760,18 @@ it.each(["bound", "worktree", "pending"])(
     expect(existsSync(join(state, "discard-repository"))).toBe(false);
     expect(await store.get("discard-repository")).toBeNull();
     expect(existsSync(receipt.source)).toBe(true);
-    expect(git(receipt.source, "branch", "--list", "feature/discard")).toBe("");
+    expect(git(receipt.source, "rev-parse", "feature/discard")).toBe(head);
+    const reused = await connection.call(
+      "workspace.prepare",
+      request("reuse-discarded", bare, {
+        kind: "branch",
+        branch: "feature/discard",
+      })
+    );
+    expect(git(displayPath(reused.path), "rev-parse", "HEAD")).toBe(head);
+    expect(
+      readFileSync(join(displayPath(reused.path), "unpublished.txt"), "utf8")
+    ).toBe("keep this commit\n");
   }
 );
 
