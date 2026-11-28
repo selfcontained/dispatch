@@ -98,6 +98,8 @@ export async function startLocalLane(): Promise<Lane> {
   const checkout = join(dir, "work");
   const engine = join(dir, "bin", "fixture-engine");
   mkdirSync(checkout, { recursive: true });
+  const selectionDirectory = join(dir, "other");
+  mkdirSync(selectionDirectory);
   mkdirSync(dirname(engine));
   writeFileSync(engine, FIXTURE_ENGINE);
   chmodSync(engine, 0o755);
@@ -165,6 +167,17 @@ export async function startLocalLane(): Promise<Lane> {
   const supervisor = superviseRunner({
     command: [bun, entry, "local-runner"],
     env: {
+      DISPATCH_LOCAL_RUNNER_LAUNCH: JSON.stringify({
+        filesRoot: join(dir, "files"),
+        helperBin: bun,
+        env: {},
+        bins: {
+          claudeBin: engine,
+          codexBin: engine,
+          opencodeBin: engine,
+          adapter: { bin: bun, args: [adapter] },
+        },
+      }),
       PATH: process.env.PATH,
       HOME: process.env.HOME,
       TMPDIR: process.env.TMPDIR,
@@ -285,6 +298,7 @@ export async function startLocalLane(): Promise<Lane> {
     workspace: {
       runner: checked(runner),
       repository: `file://${repository}`,
+      selectionDirectory,
       configuredResume: "empty",
       async interrupt(target) {
         const key = sessionToWire(target);

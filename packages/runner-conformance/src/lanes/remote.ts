@@ -189,6 +189,7 @@ while [ "$index" -lt 1050 ]; do
   : > ${WORKSPACE_DIR}/file-list/"$index".txt
   index=$((index + 1))
 done
+install -d -o ${UID} -g ${UID} -m 755 /workspace-selection
 printf private > ${WORKSPACE_DIR}/.root-only
 chmod 600 ${WORKSPACE_DIR}/.root-only
 printf guard > ${WORKSPACE_DIR}/.exec-probe
@@ -410,6 +411,7 @@ export async function startRemoteLane(): Promise<Lane> {
       workspace: {
         runner: checked(managed.runner),
         repository: `file://${BARE_REMOTE}`,
+        selectionDirectory: "/workspace-selection",
         async interrupt(session) {
           const receipt = `${MANAGED_STATE}/bindings/workspace/${key(session)}/workspace-preparation`;
           rootExec(

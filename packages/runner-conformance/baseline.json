@@ -1,45 +1,9 @@
 [
   {
     "lane": "local",
-    "scenario": "workspace.describe/pending",
-    "task": "T16",
-    "reason": "No executable scenario exists on either lane for workspace.describe; /pending fails before calling the runner."
-  },
-  {
-    "lane": "local",
-    "scenario": "workspace.select/pending",
-    "task": "T16",
-    "reason": "No executable scenario exists on either lane for workspace.select; /pending fails before calling the runner."
-  },
-  {
-    "lane": "local",
-    "scenario": "path.resolve/pending",
-    "task": "T17",
-    "reason": "No executable scenario exists on either lane for path.resolve; /pending fails before calling the runner."
-  },
-  {
-    "lane": "local",
-    "scenario": "path.complete/pending",
-    "task": "T17",
-    "reason": "No executable scenario exists on either lane for path.complete; /pending fails before calling the runner."
-  },
-  {
-    "lane": "local",
-    "scenario": "checkout.write/pending",
-    "task": "T35",
-    "reason": "No executable scenario exists on either lane for checkout.write; /pending fails before calling the runner."
-  },
-  {
-    "lane": "local",
     "scenario": "files.get/bytes",
     "task": "T11",
     "reason": "no byte-return frame on the local socket: files.get stays in process"
-  },
-  {
-    "lane": "local",
-    "scenario": "git.context/pending",
-    "task": "T15",
-    "reason": "No executable scenario exists on either lane for git.context; /pending fails before calling the runner."
   },
   {
     "lane": "local",
@@ -100,12 +64,6 @@
     "scenario": "github.pr.diff/pending",
     "task": "T33",
     "reason": "No executable scenario exists on either lane for github.pr.diff; /pending fails before calling the runner."
-  },
-  {
-    "lane": "local",
-    "scenario": "engine.list/pending",
-    "task": "T28",
-    "reason": "No executable scenario exists on either lane for engine.list; /pending fails before calling the runner."
   },
   {
     "lane": "local",
@@ -235,30 +193,6 @@
   },
   {
     "lane": "local",
-    "scenario": "checkout.access/pending",
-    "task": "T40",
-    "reason": "No executable scenario exists on either lane for checkout.access; /pending fails before calling the runner."
-  },
-  {
-    "lane": "local",
-    "scenario": "git.roots/pending",
-    "task": "T40",
-    "reason": "No executable scenario exists on either lane for git.roots; /pending fails before calling the runner."
-  },
-  {
-    "lane": "local",
-    "scenario": "git.origin/pending",
-    "task": "T40",
-    "reason": "No executable scenario exists on either lane for git.origin; /pending fails before calling the runner."
-  },
-  {
-    "lane": "local",
-    "scenario": "git.remoteHeads/pending",
-    "task": "T40",
-    "reason": "No executable scenario exists on either lane for git.remoteHeads; /pending fails before calling the runner."
-  },
-  {
-    "lane": "local",
     "scenario": "engine.update.inspect/pending",
     "task": "T29",
     "reason": "No executable scenario exists on either lane for engine.update.inspect; /pending fails before calling the runner."
@@ -331,39 +265,39 @@
   },
   {
     "lane": "remote",
-    "scenario": "workspace.describe/pending",
+    "scenario": "workspace.describe/binding-and-missing",
     "task": "T16",
-    "reason": "scenario not written yet"
+    "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
   },
   {
     "lane": "remote",
-    "scenario": "workspace.select/pending",
+    "scenario": "workspace.select/move-and-reset",
     "task": "T16",
-    "reason": "scenario not written yet"
+    "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
   },
   {
     "lane": "remote",
-    "scenario": "path.resolve/pending",
+    "scenario": "path.resolve/existing-and-missing",
     "task": "T17",
-    "reason": "scenario not written yet"
+    "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
   },
   {
     "lane": "remote",
-    "scenario": "path.complete/pending",
+    "scenario": "path.complete/prefix-and-limit",
     "task": "T17",
-    "reason": "not on wire v1: controller-machine probe today (D7)"
+    "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
   },
   {
     "lane": "remote",
-    "scenario": "checkout.write/pending",
+    "scenario": "checkout.write/create-update-and-stale",
     "task": "T35",
-    "reason": "not on wire v1: local-only today (persona authoring)"
+    "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
   },
   {
     "lane": "remote",
-    "scenario": "git.context/pending",
+    "scenario": "git.context/bound-checkout",
     "task": "T15",
-    "reason": "not on wire v1: local probe today; v1 roots and sessionCheckout carry parts"
+    "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
   },
   {
     "lane": "remote",
@@ -427,9 +361,9 @@
   },
   {
     "lane": "remote",
-    "scenario": "engine.list/pending",
+    "scenario": "engine.list/presence-only",
     "task": "T28",
-    "reason": "scenario not written yet"
+    "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
   },
   {
     "lane": "remote",
@@ -544,5 +478,29 @@
     "scenario": "workspace.prepare/repository",
     "task": "T18",
     "reason": "Local session.discard removes host state but leaves its managed checkout; the shared preparation scenario verifies discard removes the owned worktree."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.access/present-and-missing",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "git.roots/bound-and-checkout-only",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "git.origin/no-remote",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "git.remoteHeads/local-bare",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
   }
 ]

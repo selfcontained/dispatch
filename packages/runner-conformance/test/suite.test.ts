@@ -44,6 +44,49 @@ describe("coverage", () => {
 });
 
 describe("local coverage", () => {
+  it("shares every requested offline operation and keeps credentialed operations pending", () => {
+    for (const op of [
+      "workspace.prepare",
+      "workspace.resume",
+      "workspace.describe",
+      "workspace.select",
+      "workspace.observe",
+      "workspace.release",
+      "path.resolve",
+      "path.complete",
+      "checkout.write",
+      "checkout.access",
+      "git.context",
+      "git.branches",
+      "git.roots",
+      "git.origin",
+      "git.remoteHeads",
+      "engine.list",
+    ]) {
+      const local = localScenarios.filter(
+        (s) => s.op === op && !s.id.endsWith("/pending")
+      );
+      expect(local.length, op).toBeGreaterThan(0);
+      for (const scenario of local)
+        expect(remoteScenarios.includes(scenario), scenario.id).toBe(true);
+    }
+    for (const op of [
+      "github.account",
+      "github.login.start",
+      "github.logout",
+      "engine.login.start",
+      "engine.update",
+      "port.connect",
+      "update.offer",
+    ])
+      expect(
+        localScenarios
+          .filter((s) => s.op === op)
+          .every((s) => s.id.endsWith("/pending")),
+        op
+      ).toBe(true);
+  });
+
   it("runs every executable remote scenario locally and leaves only shared coverage gaps", () => {
     const ids = new Set(localScenarios.map(({ id }) => id));
     for (const scenario of remoteScenarios.filter(
