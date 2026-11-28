@@ -6,6 +6,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { RunnerCallError } from "@dispatch/runner-protocol/contract";
+import { controllerPlacement } from "../src/runners/placement.js";
+import { launchPersonaScope } from "../src/personas/persona-scope.js";
+import { parseDefaultBranchPersonas } from "../src/personas/catalog.js";
 import { registerLaunchTargetRoutes } from "../src/routes/launch-targets.js";
 import { runnerDirectory } from "../src/runners/directory.js";
 import { startTestLocalRunner } from "./helpers/local-runner-child.js";
@@ -22,7 +25,10 @@ it("lists a folderless project's branches through Local and enrolled workload pa
   const source = path.join(root, "source");
   const remote = path.join(root, "remote.git");
   const hosts = path.join(root, "hosts");
-  await mkdir(source);
+  await mkdir(path.join(source, ".agents/personas"), { recursive: true });
+  const persona =
+    "---\nname: Repository reviewer\ndescription: Review repository work\ntype: review\n---\nReview the repository.\n";
+  await writeFile(path.join(source, ".agents/personas/reviewer.md"), persona);
   const git = (...args: string[]) =>
     execFileSync("git", ["-C", source, ...args], {
       stdio: ["ignore", "pipe", "pipe"],
@@ -37,6 +43,16 @@ it("lists a folderless project's branches through Local and enrolled workload pa
     "-qm",
     "base",
     "--allow-empty"
+  );
+  git("add", ".");
+  git(
+    "-c",
+    "user.name=Test",
+    "-c",
+    "user.email=test@example.test",
+    "commit",
+    "-qm",
+    "persona"
   );
   git("branch", "develop");
   git("clone", "-q", "--bare", source, remote);
@@ -154,6 +170,21 @@ it("lists a folderless project's branches through Local and enrolled workload pa
     await child.session.call("git.defaultBranch", { target: { repository } })
   ).toEqual({ branch: "master", currentBranch: null });
   expect(existsSync(path.join(hosts, "repositories"))).toBe(false);
+  const scope = launchPersonaScope(
+    { checkoutReadRunners: () => ({ child: () => child.session }) },
+    { placement: controllerPlacement, repository }
+  );
+  expect(scope.kind).toBe("repository");
+  if (scope.kind !== "repository") throw new Error("Expected repository scope");
+  const files = await scope.read([".agents/personas"], true);
+  expect(files.files).toEqual([
+    { path: ".agents/personas/reviewer.md", content: persona },
+  ]);
+  expect(
+    (await parseDefaultBranchPersonas({ kind: "defaultBranchFiles", ...files }))
+      .personas
+  ).toMatchObject([{ slug: "reviewer", name: "Repository reviewer" }]);
+  expect(existsSync(path.join(hosts, "repositories"))).toBe(true);
   const cause = new RunnerCallError({
     code: "failed",
     message: "fixture authentication failure",
