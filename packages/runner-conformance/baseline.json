@@ -7,18 +7,6 @@
   },
   {
     "lane": "local",
-    "scenario": "github.repositories/pending",
-    "task": "T32",
-    "reason": "No executable scenario exists on either lane for github.repositories; /pending fails before calling the runner."
-  },
-  {
-    "lane": "local",
-    "scenario": "github.branches/pending",
-    "task": "T32",
-    "reason": "No executable scenario exists on either lane for github.branches; /pending fails before calling the runner."
-  },
-  {
-    "lane": "local",
     "scenario": "github.pr.head/pending",
     "task": "T40",
     "reason": "No executable scenario exists on either lane for github.pr.head; /pending fails before calling the runner."
@@ -247,18 +235,6 @@
   },
   {
     "lane": "remote",
-    "scenario": "github.repositories/pending",
-    "task": "T32",
-    "reason": "scenario not written yet"
-  },
-  {
-    "lane": "remote",
-    "scenario": "github.branches/pending",
-    "task": "T32",
-    "reason": "scenario not written yet"
-  },
-  {
-    "lane": "remote",
     "scenario": "github.pr.head/pending",
     "task": "T40",
     "reason": "scenario not written yet"
@@ -418,5 +394,407 @@
     "scenario": "git.remoteHeads/local-bare",
     "task": "T40",
     "reason": "Written, not yet run on remote: offline shared scenario added; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "local",
+    "scenario": "checkout.access/target-repository",
+    "task": "T40",
+    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
+  },
+  {
+    "lane": "local",
+    "scenario": "checkout.read/target-repository",
+    "task": "T40",
+    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
+  },
+  {
+    "lane": "local",
+    "scenario": "checkout.list/target-repository",
+    "task": "T40",
+    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
+  },
+  {
+    "lane": "local",
+    "scenario": "checkout.preview/target-repository",
+    "task": "T40",
+    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
+  },
+  {
+    "lane": "local",
+    "scenario": "checkout.index/target-repository",
+    "task": "T40",
+    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
+  },
+  {
+    "lane": "local",
+    "scenario": "checkout.stats/target-repository",
+    "task": "T40",
+    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
+  },
+  {
+    "lane": "local",
+    "scenario": "checkout.diff/target-repository",
+    "task": "T40",
+    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
+  },
+  {
+    "lane": "local",
+    "scenario": "checkout.changes/target-repository",
+    "task": "T40",
+    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
+  },
+  {
+    "lane": "local",
+    "scenario": "checkout.image/target-repository",
+    "task": "T40",
+    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
+  },
+  {
+    "lane": "local",
+    "scenario": "checkout.watch/target-path",
+    "task": "T40",
+    "reason": "Core checkout watch resolves only session targets (packages/runner/src/core/checkout.ts:59). Contract also accepts path/repository."
+  },
+  {
+    "lane": "local",
+    "scenario": "checkout.watch/target-repository",
+    "task": "T40",
+    "reason": "Core checkout watch resolves only session targets (packages/runner/src/core/checkout.ts:59). Contract also accepts path/repository."
+  },
+  {
+    "lane": "local",
+    "scenario": "git.roots/target-repository",
+    "task": "T40",
+    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
+  },
+  {
+    "lane": "local",
+    "scenario": "git.context/target-repository",
+    "task": "T40",
+    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
+  },
+  {
+    "lane": "local",
+    "scenario": "git.defaultBranch/target-repository",
+    "task": "T40",
+    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
+  },
+  {
+    "lane": "local",
+    "scenario": "git.branches/target-repository",
+    "task": "T40",
+    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
+  },
+  {
+    "lane": "local",
+    "scenario": "git.base/target-repository",
+    "task": "T40",
+    "reason": "Repository target rejected by shared directory resolver (packages/runner/src/core/checkout.ts:157); only checkout.defaultFiles resolves the repository cache. No operation-specific repository read is registered on Local."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.access/target-session",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.access/target-path",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.access/target-repository",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.read/target-session",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.read/target-path",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.read/target-repository",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.list/target-session",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.list/target-path",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.list/target-repository",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.preview/target-session",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.preview/target-path",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.preview/target-repository",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.index/target-session",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.index/target-path",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.index/target-repository",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.stats/target-session",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.stats/target-path",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.stats/target-repository",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.diff/target-session",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.diff/target-path",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.diff/target-repository",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.changes/target-session",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.changes/target-path",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.changes/target-repository",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.image/target-session",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.image/target-path",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.image/target-repository",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.defaultFiles/target-session",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.defaultFiles/target-path",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.defaultFiles/target-repository",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.watch/target-session",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.watch/target-path",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "checkout.watch/target-repository",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "git.roots/target-session",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "git.roots/target-path",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "git.roots/target-repository",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "git.context/target-session",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "git.context/target-path",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "git.context/target-repository",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "git.defaultBranch/target-session",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "git.defaultBranch/target-path",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "git.defaultBranch/target-repository",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "git.branches/target-session",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "git.branches/target-path",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "git.branches/target-repository",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "git.base/target-session",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "git.base/target-path",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "git.base/target-repository",
+    "task": "T40",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "github.account/signed-in-path-only",
+    "task": "T32",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "github.repositories/path-only",
+    "task": "T32",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
+  },
+  {
+    "lane": "remote",
+    "scenario": "github.branches/path-only",
+    "task": "T32",
+    "reason": "Written, not yet run on remote: shared offline target/CLI scenario; remote Docker lane requires owner-approved VM."
   }
 ]

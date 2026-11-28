@@ -1,3 +1,7 @@
+import {
+  resolveSavedTarget,
+  savedLaunchTarget,
+} from "../src/runners/saved-location.js";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
@@ -35,7 +39,9 @@ afterEach(async () => {
 const git = async (cwd: string, ...args: string[]) =>
   (await runCommand("git", ["-C", cwd, ...args])).stdout;
 
-async function fixture() {
+async function fixture(
+  options: { install?: "done" | "failed"; interrupt?: boolean } = {}
+) {
   const root = await realpath(
     await mkdtemp(path.join(os.tmpdir(), "local-repo-archive-"))
   );
@@ -69,6 +75,33 @@ async function fixture() {
       ),
     })
   );
+  if (options.install) {
+    await writeFile(
+      path.join(source, "package.json"),
+      JSON.stringify({
+        name: "offline-install",
+        version: "1.0.0",
+        scripts: { postinstall: "sh fixture-install.sh" },
+      })
+    );
+    await writeFile(
+      path.join(source, "package-lock.json"),
+      JSON.stringify({
+        name: "offline-install",
+        version: "1.0.0",
+        lockfileVersion: 3,
+        packages: { "": { name: "offline-install", version: "1.0.0" } },
+      })
+    );
+    await writeFile(
+      path.join(source, "fixture-install.sh"),
+      `printf 'local install\\n' > .dependency-step\nexit ${options.install === "failed" ? 7 : 0}\n`
+    );
+    await writeFile(
+      path.join(source, ".gitignore"),
+      ".dependency-step\nnode_modules/\n"
+    );
+  }
   await git(source, "add", ".");
   await git(source, "commit", "-qm", "base");
   await git(root, "clone", "-q", "--bare", source, remote);
@@ -81,29 +114,90 @@ async function fixture() {
     `url.file://${remote}.insteadOf`,
     repository,
   ]);
+  const home = path.join(root, "home"),
+    tools = path.join(root, "only-on-path");
+  await mkdir(home);
+  await mkdir(tools);
+  await writeFile(
+    path.join(tools, "npm"),
+    '#!/bin/sh\n[ "$*" = install ] || exit 64\nprintf "install\\n" >> "$HOME/npm-invocations"\nexec /bin/sh fixture-install.sh\n',
+    { mode: 0o755 }
+  );
+  const crash = path.join(root, "crash-after-create");
+  if (options.interrupt) await writeFile(crash, "");
   const child = startTestLocalRunner(hosts, {
-    env: { GIT_CONFIG_GLOBAL: config, GIT_CONFIG_NOSYSTEM: "1" },
+    backoffMs: 250,
+    env: {
+      GIT_CONFIG_GLOBAL: config,
+      GIT_CONFIG_NOSYSTEM: "1",
+      HOME: home,
+      GH_CONFIG_DIR: path.join(home, "gh"),
+      XDG_CONFIG_HOME: path.join(home, "config"),
+      PATH: `${tools}:${process.env.PATH}`,
+      NPM_CONFIG_AUDIT: "false",
+      NPM_CONFIG_FUND: "false",
+      ...(options.interrupt && { RUNNER_DIE_AFTER_CREATE: crash }),
+    },
   });
   cleanups.push(() => child.stop());
   await child.ready();
+  if (options.pickBranches) {
+    const project = resolveSavedTarget("", {
+      runner: "local",
+      projectId: "fixture-project",
+    });
+    const selected = savedLaunchTarget({ ...project, useWorktree: true });
+    expect(selected).toMatchObject({
+      cwd: "",
+      projectId: "fixture-project",
+      repository: {},
+    });
+    expect(
+      (await child.session.call("git.branches", { target: { repository } }))
+        .branches
+    ).toContain("main");
+  }
   const session = sessionFromWire("agt_archive_repository");
-  const prepared = await child.session.call("workspace.prepare", {
-    session,
-    source: {
-      repository,
-      checkout: { kind: "new", branch: "feature/archive" },
+  const controller = new AbortController();
+  const steps: Array<{ phase: string; status?: string; detail?: string }> = [];
+  const preparation = child.session.call(
+    "workspace.prepare",
+    {
+      session,
+      source: {
+        repository,
+        checkout: { kind: "new", branch: "feature/archive" },
+      },
+      copyIgnored: [],
+      installDependencies: Boolean(options.install),
     },
-    copyIgnored: [],
-    installDependencies: false,
-  });
-  const checkout = displayPath(prepared.path);
+    { signal: controller.signal, onEvent: (event) => steps.push(event) }
+  );
+  let checkout: string;
+  if (options.interrupt) {
+    const ignored = preparation.catch(() => null);
+    const deadline = Date.now() + 5_000;
+    while (existsSync(crash) && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(existsSync(crash)).toBe(false);
+    controller.abort();
+    await ignored;
+    await child.ready(1);
+    const receipt = JSON.parse(
+      await readFile(
+        path.join(hosts, String(session), "workspace-preparation"),
+        "utf8"
+      )
+    );
+    checkout = receipt.pending.path;
+  } else checkout = displayPath((await preparation).path);
   const agent = {
     id: String(session),
     type: "codex",
     status: "stopped",
     placement: controllerPlacement,
-    cwd: checkout,
-    worktreePath: checkout,
+    cwd: options.interrupt ? "" : checkout,
+    worktreePath: options.interrupt ? null : checkout,
     worktreeBranch: "feature/archive",
     baseBranch: "main",
     workspacePath: null,
@@ -177,6 +271,8 @@ async function fixture() {
   );
   return {
     root,
+    home,
+    steps,
     hosts,
     child,
     session,
@@ -305,3 +401,117 @@ it("discards a real Local repository checkout while retaining its unpublished br
     )
   ).toBe("committed work\n");
 });
+
+it.each(["done", "failed"] as const)(
+  "runs a lockfile dependency step through the real Local child (%s)",
+  async (install) => {
+    const f = await fixture({ install });
+    expect(await readFile(path.join(f.home, "npm-invocations"), "utf8")).toBe(
+      "install\n"
+    );
+    expect(
+      await readFile(path.join(f.checkout, ".dependency-step"), "utf8")
+    ).toBe("local install\n");
+    expect(f.steps).toContainEqual(
+      expect.objectContaining({ phase: "dependencies", status: install })
+    );
+    if (install === "failed")
+      expect(f.steps.find((s) => s.status === "failed")?.detail).toContain(
+        "exitCode=7"
+      );
+    await f.child.session.call("session.discard", { session: f.session });
+    expect(existsSync(f.checkout)).toBe(false);
+    expect(
+      (await git(f.clone, "branch", "--list", "feature/archive")).trim()
+    ).toBe("feature/archive");
+    expect(existsSync(path.join(f.hosts, f.agent.id))).toBe(false);
+    expect(
+      existsSync(
+        path.join(
+          f.hosts,
+          ".bindings",
+          createHash("sha256").update(f.agent.id).digest("hex") + ".json"
+        )
+      )
+    ).toBe(false);
+  }
+);
+
+const interruptedCleanup = async (action: "discard" | "archive") => {
+  const f = await fixture({ interrupt: true });
+  expect(existsSync(f.checkout)).toBe(true);
+  if (action === "discard")
+    await f.child.session.call("session.discard", { session: f.session });
+  else {
+    await beginArchive(f.deps, f.agent.id, "force");
+    await executeArchive(f.deps, f.agent.id, f.callbacks);
+    expect(f.callbacks.onError).not.toHaveBeenCalled();
+    expect(f.callbacks.onComplete).toHaveBeenCalledWith([f.agent.id]);
+  }
+  expect(existsSync(f.checkout)).toBe(false);
+  expect(existsSync(path.join(f.hosts, f.agent.id))).toBe(false);
+  expect(
+    existsSync(
+      path.join(
+        f.hosts,
+        ".bindings",
+        createHash("sha256").update(f.agent.id).digest("hex") + ".json"
+      )
+    )
+  ).toBe(false);
+  expect(
+    (await git(f.clone, "branch", "--list", "feature/archive")).trim()
+  ).toBe(action === "discard" ? "feature/archive" : "");
+};
+it("cleans a repository worktree interrupted before binding (discard)", () =>
+  interruptedCleanup("discard"));
+// Known red: archive hooks query an unbound session before receipt-aware release.
+// Remove .fails when the owning builder fixes this; all cleanup assertions stay intact.
+it.fails(
+  "cleans a repository worktree interrupted before binding (archive)",
+  () => interruptedCleanup("archive")
+);
+
+// Known red: core/checkout.ts rejects target.repository in git.branches.
+it.fails(
+  "launches a repository-only project through branch picking, preparation, install and archive",
+  async () => {
+    const f = await fixture({ install: "done", pickBranches: true });
+    await beginArchive(f.deps, f.agent.id, "force");
+    await executeArchive(f.deps, f.agent.id, f.callbacks);
+    expect(f.callbacks.onError).not.toHaveBeenCalled();
+    expect(existsSync(f.checkout)).toBe(false);
+  }
+);
+
+it.each(["discard", "archive"] as const)(
+  "removes clean and dirty installed checkouts without orphaned host/binding files (%s)",
+  async (action) => {
+    for (const dirty of [false, true]) {
+      const f = await fixture({ install: "done" });
+      if (dirty)
+        await writeFile(path.join(f.checkout, "draft.txt"), "dirty draft");
+      if (action === "discard")
+        await f.child.session.call("session.discard", { session: f.session });
+      else {
+        await beginArchive(f.deps, f.agent.id, "force");
+        await executeArchive(f.deps, f.agent.id, f.callbacks);
+        expect(f.callbacks.onError).not.toHaveBeenCalled();
+      }
+      expect(existsSync(f.checkout)).toBe(false);
+      expect(existsSync(path.join(f.hosts, f.agent.id))).toBe(false);
+      expect(
+        existsSync(
+          path.join(
+            f.hosts,
+            ".bindings",
+            createHash("sha256").update(f.agent.id).digest("hex") + ".json"
+          )
+        )
+      ).toBe(false);
+      expect(
+        (await git(f.clone, "branch", "--list", "feature/archive")).trim()
+      ).toBe(action === "discard" ? "feature/archive" : "");
+    }
+  }
+);
